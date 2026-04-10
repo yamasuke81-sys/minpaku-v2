@@ -1,0 +1,283 @@
+/* 民泊管理v2 カスタムCSS */
+
+/* Design tokens */
+:root {
+  --sidebar-w: 240px;
+  --sidebar-collapsed: 64px;
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --border: #e2e8f0;
+  --text: #1e293b;
+  --text-muted: #64748b;
+  --accent: #3b82f6;
+  --accent-light: #eff6ff;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-lg: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.05);
+}
+
+/* Body */
+body { background: var(--bg); margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; color: var(--text); }
+
+/* Sidebar */
+.app-sidebar {
+  position: fixed; top: 0; left: 0; bottom: 0;
+  width: var(--sidebar-w); background: #0f172a;
+  color: #94a3b8; z-index: 1040;
+  display: flex; flex-direction: column;
+  transition: width 0.2s ease;
+  overflow-x: hidden;
+}
+.app-sidebar .sidebar-brand {
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.app-sidebar .sidebar-brand h5 { color: white; font-size: 1rem; font-weight: 700; margin: 0; }
+.app-sidebar .sidebar-brand small { color: #64748b; font-size: 0.7rem; }
+
+.sidebar-nav { flex: 1; padding: 12px 8px; overflow-y: auto; }
+.sidebar-nav .nav-link {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; margin: 2px 0;
+  color: #94a3b8; border-radius: var(--radius-sm);
+  font-size: 0.875rem; font-weight: 500;
+  text-decoration: none; transition: all 0.15s;
+  white-space: nowrap;
+}
+.sidebar-nav .nav-link:hover { background: rgba(255,255,255,0.06); color: #e2e8f0; }
+.sidebar-nav .nav-link.active { background: var(--accent); color: white; }
+.sidebar-nav .nav-link i { font-size: 1.1rem; width: 20px; text-align: center; flex-shrink: 0; }
+
+.sidebar-section { padding: 16px 12px 4px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: #475569; font-weight: 700; }
+
+.sidebar-footer {
+  padding: 12px; border-top: 1px solid rgba(255,255,255,0.08);
+  font-size: 0.8rem;
+}
+.sidebar-footer a { color: #94a3b8; text-decoration: none; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; }
+.sidebar-footer a:hover { background: rgba(255,255,255,0.06); color: #e2e8f0; }
+
+/* Main content */
+.app-main {
+  margin-left: var(--sidebar-w);
+  min-height: 100vh;
+  padding: 24px 32px;
+  transition: margin-left 0.2s ease;
+}
+
+/* サイドバー折りたたみ（PC・モバイル共通） */
+.app-sidebar.collapsed { width: 0; overflow: hidden; }
+.app-sidebar.collapsed + .app-main,
+body.sidebar-hidden .app-main { margin-left: 0; }
+.sidebar-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1039; display: none; }
+.sidebar-backdrop.show { display: block; }
+
+/* モバイル: オフキャンバス動作 */
+@media (max-width: 991px) {
+  .app-sidebar { transform: translateX(-100%); width: var(--sidebar-w); }
+  .app-sidebar.show { transform: translateX(0); box-shadow: 4px 0 24px rgba(0,0,0,0.3); }
+  .app-sidebar.collapsed { transform: translateX(-100%); width: var(--sidebar-w); }
+  .app-main { margin-left: 0; padding: 16px; }
+}
+
+/* トップバー（常時表示） */
+.app-topbar {
+  display: flex;
+  position: sticky; top: 0; z-index: 1030;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 8px 16px;
+  align-items: center; gap: 12px;
+}
+.app-topbar .topbar-title { font-weight: 700; font-size: 0.95rem; }
+
+/* Cards - override Bootstrap */
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  transition: box-shadow 0.2s;
+}
+.card:hover { box-shadow: var(--shadow-lg); }
+.card-header {
+  background: transparent;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600; font-size: 0.875rem;
+  padding: 12px 16px;
+}
+.card-body { padding: 16px; }
+
+/* Stat cards */
+.card-stat { border-left: 4px solid; border-radius: var(--radius); }
+.card-stat.primary { border-left-color: var(--accent); }
+.card-stat.success { border-left-color: #22c55e; }
+.card-stat.warning { border-left-color: #f59e0b; }
+.card-stat.danger { border-left-color: #ef4444; }
+
+/* Tables */
+.table { font-size: 0.875rem; }
+.table thead th { font-weight: 600; color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid var(--border); background: transparent; }
+.table-hover tbody tr:hover { background-color: var(--accent-light); }
+.table-dark { background: #0f172a !important; }
+
+/* Buttons - softer */
+.btn { border-radius: var(--radius-sm); font-weight: 500; font-size: 0.875rem; }
+.btn-primary { background: var(--accent); border-color: var(--accent); }
+.btn-primary:hover { background: #2563eb; }
+
+/* Badges */
+.badge { font-weight: 600; border-radius: 6px; padding: 4px 8px; font-size: 0.75rem; }
+
+/* FullCalendar */
+.fc { font-size: 0.85rem; }
+.fc .fc-event { border: none; border-radius: 6px; padding: 2px 6px; font-size: 0.8rem; }
+.fc .fc-toolbar-title { font-size: 1.1rem; font-weight: 700; }
+.fc .fc-button { border-radius: 8px !important; font-size: 0.8rem; }
+
+/* Modals */
+.modal-content { border-radius: var(--radius); border: none; box-shadow: 0 20px 60px rgba(0,0,0,0.15); }
+.modal-header { border-bottom: 1px solid var(--border); }
+.modal-footer { border-top: 1px solid var(--border); }
+
+/* Forms */
+.form-control, .form-select { border-radius: var(--radius-sm); border-color: var(--border); font-size: 0.875rem; }
+.form-control:focus, .form-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+
+/* Page header */
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.page-header h2, .page-header h4 { margin: 0; font-weight: 700; font-size: 1.25rem; }
+@media (max-width: 768px) { .page-header { flex-direction: column; align-items: flex-start; gap: 8px; } }
+
+/* Toast */
+.toast { border-radius: var(--radius); }
+
+/* Empty state */
+.empty-state { text-align: center; padding: 48px 24px; color: var(--text-muted); }
+.empty-state i { font-size: 3rem; margin-bottom: 12px; opacity: 0.5; }
+
+/* Recruitment */
+.recruitment-card { cursor: pointer; border-left: 4px solid var(--accent); transition: all 0.15s; }
+.recruitment-card:hover { transform: translateY(-2px); }
+
+/* Day chip */
+.day-chip { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 0.75rem; background: #f1f5f9; margin: 1px; }
+.day-chip.active { background: var(--accent); color: white; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* Loading overlay */
+.loading-overlay { position: fixed; inset: 0; background: rgba(248,250,252,0.8); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+
+/* Misc from existing pages */
+.staff-status-badge { font-size: 0.75rem; }
+.cal-legend { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 4px; }
+.col-resize-handle { position: absolute; right: 0; top: 0; bottom: 0; width: 5px; cursor: col-resize; }
+.staff-cal-sticky { position: sticky; left: 0; z-index: 3; }
+#staffTable thead th:hover { background-color: #f1f5f9; }
+.response-summary .badge { font-size: 0.8rem; }
+#responseTableBody .btn-respond { padding: 2px 8px; font-size: 0.85rem; font-weight: bold; }
+#staffSelectContainer .form-check { padding: 0.4rem 0.4rem 0.4rem 1.75rem; border-radius: 4px; }
+#staffSelectContainer .form-check:hover { background-color: #f8fafc; }
+.guest-row { cursor: pointer; }
+#companionTableBody .form-control-sm { min-width: 80px; }
+#guestDetailBody .table-borderless th { color: var(--text-muted); font-weight: normal; white-space: nowrap; }
+.staff-cal-date-hd { cursor: pointer; }
+.staff-cal-date-hd:hover { background: #f1f5f9 !important; }
+.staff-cal-cell:hover { opacity: 0.7; }
+
+/* === カレンダー予約ソース色分け === */
+/* Airbnb */
+.fc-event-airbnb { background-color: #FF5A5F !important; border-color: #FF5A5F !important; color: #fff !important; }
+/* Booking.com */
+.fc-event-booking-com { background-color: #003580 !important; border-color: #003580 !important; color: #fff !important; }
+/* 直接予約 */
+.fc-event-direct { background-color: #0d6efd !important; border-color: #0d6efd !important; color: #fff !important; }
+/* migrated / 不明ソース */
+.fc-event-other { background-color: #6c757d !important; border-color: #6c757d !important; color: #fff !important; }
+
+/* 清掃イベント — ベース黄色、ステータスで変化 */
+.fc-event-cleaning { background-color: #ffc107 !important; border-color: #ffc107 !important; color: #000 !important; }
+.fc-event-cleaning-decided { background-color: #198754 !important; border-color: #198754 !important; color: #fff !important; }
+.fc-event-cleaning-selected { background-color: #0dcaf0 !important; border-color: #0dcaf0 !important; color: #000 !important; }
+.fc-event-cleaning-noresponse { background-color: #dc3545 !important; border-color: #dc3545 !important; color: #fff !important; }
+
+/* ステータスドット（イベントタイトル先頭に表示） */
+.event-status-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+  border: 1.5px solid rgba(255,255,255,0.7);
+  box-shadow: 0 0 2px rgba(0,0,0,0.2);
+}
+.dot-roster-ok { background-color: #28a745; }
+.dot-roster-ng { background-color: #dc3545; }
+.dot-roster-none { background-color: #adb5bd; }
+
+/* 募集中の日セルにハイライト */
+.fc-day-recruiting { background-color: rgba(255,193,7,0.08) !important; }
+
+/* カレンダーイベント — カーソル */
+.fc .fc-event { cursor: pointer; }
+
+/* ===== フォームビルダー（Googleフォーム風カードエディタ） ===== */
+
+/* セクション区切り */
+.ff-section-sep {
+  font-weight: 600; font-size: 0.8rem; color: var(--accent);
+  padding: 12px 4px 4px; margin-bottom: 4px;
+  border-bottom: 2px solid var(--accent-light);
+  display: flex; align-items: center; gap: 6px;
+}
+
+/* カード */
+.ff-card {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  margin-bottom: 6px; background: var(--surface);
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.ff-card:hover { box-shadow: var(--shadow); }
+.ff-card.expanded { border-color: var(--accent); box-shadow: var(--shadow-lg); }
+.ff-card.dragging { opacity: 0.35; }
+.ff-card.drag-over { border-top: 3px solid var(--accent); margin-top: -3px; }
+
+/* カードヘッダー */
+.ff-card-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; cursor: pointer; user-select: none;
+  min-height: 44px;
+}
+.ff-drag-handle { cursor: grab; color: var(--text-muted); padding: 2px 4px; }
+.ff-drag-handle:active { cursor: grabbing; }
+.ff-card-num { font-size: 0.75rem; color: var(--text-muted); min-width: 20px; text-align: right; }
+.ff-card-title { flex: 1; min-width: 0; overflow: hidden; }
+.ff-card-label { font-weight: 600; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ff-card-label-en { font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ff-badge-type { font-size: 0.7rem; }
+.ff-badge-req { font-size: 0.7rem; }
+.ff-badge-sec { font-size: 0.65rem; }
+.ff-chevron { color: var(--text-muted); font-size: 0.85rem; margin-left: 4px; }
+
+/* カードボディ */
+.ff-card-body {
+  padding: 12px 16px 16px; border-top: 1px solid var(--border);
+  background: #fafbfc;
+}
+
+/* 選択肢エディタ */
+.ff-options-section { background: #f1f5f9; border-radius: var(--radius-sm); padding: 10px 12px; }
+.ff-opt-row {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
+}
+.ff-opt-num { font-size: 0.75rem; color: var(--text-muted); min-width: 18px; text-align: right; }
+.ff-opt-row input { flex: 1; min-width: 0; }
+.ff-opt-row .btn { padding: 2px 6px; font-size: 0.75rem; flex-shrink: 0; }
+
+/* プレビューモーダル */
+.preview-form .form-label { font-weight: 500; font-size: 0.9rem; }
+.preview-form .form-control, .preview-form .form-select { max-width: 400px; }

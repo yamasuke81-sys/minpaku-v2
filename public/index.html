@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>民泊管理v2</title>
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <!-- FullCalendar（ダッシュボード用） -->
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet">
+  <link href="css/style.css?v=0404a" rel="stylesheet">
+</head>
+<body>
+  <!-- モバイル用トップバー -->
+  <div class="app-topbar">
+    <button class="btn btn-sm" id="btnToggleSidebar"><i class="bi bi-list fs-5"></i></button>
+    <span class="fw-bold"><i class="bi bi-house-door"></i> 民泊管理</span>
+    <span class="badge bg-secondary" id="appVersionMobile">v0404b</span>
+  </div>
+
+  <!-- サイドバー背景（モバイル） -->
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <!-- サイドバー -->
+  <aside class="app-sidebar" id="appSidebar">
+    <div class="sidebar-brand">
+      <h5><i class="bi bi-house-door"></i> 民泊管理</h5>
+      <small>v0404b</small>
+    </div>
+    <nav class="sidebar-nav" id="ownerNav">
+      <a class="nav-link" href="#/" data-page="dashboard"><i class="bi bi-speedometer2"></i> ダッシュボード</a>
+      <a class="nav-link" href="#/staff" data-page="staff"><i class="bi bi-people"></i> スタッフ</a>
+      <a class="nav-link" href="#/properties" data-page="properties"><i class="bi bi-buildings"></i> 物件</a>
+      <a class="nav-link" href="#/recruitment" data-page="recruitment"><i class="bi bi-megaphone"></i> 募集</a>
+      <a class="nav-link" href="#/guests" data-page="guests"><i class="bi bi-person-vcard"></i> 名簿</a>
+      <a class="nav-link" href="#/shifts" data-page="shifts"><i class="bi bi-calendar-week"></i> シフト</a>
+      <a class="nav-link" href="#/checklist" data-page="checklist"><i class="bi bi-clipboard-check"></i> チェックリスト</a>
+      <a class="nav-link" href="#/laundry" data-page="laundry"><i class="bi bi-basket3"></i> ランドリー</a>
+      <a class="nav-link" href="#/invoices" data-page="invoices"><i class="bi bi-receipt"></i> 請求書</a>
+      <a class="nav-link" href="#/notifications" data-page="notifications"><i class="bi bi-bell"></i> 通知設定</a>
+      <a class="nav-link" href="#/reports" data-page="reports"><i class="bi bi-file-earmark-bar-graph"></i> 報告</a>
+      <a class="nav-link" href="#/tax-docs" data-page="tax-docs"><i class="bi bi-folder-check"></i> 税理士資料</a>
+      <a class="nav-link" href="#/settings" data-page="settings"><i class="bi bi-gear"></i> 設定</a>
+
+      <div class="sidebar-section">他部門</div>
+      <a class="nav-link" href="https://scan-sorter-minpaku-v2.web.app" target="_blank"><i class="bi bi-robot"></i> 経理仕分け <i class="bi bi-box-arrow-up-right" style="font-size:0.7rem;margin-left:auto"></i></a>
+      <a class="nav-link" href="https://hq-minpaku-v2.web.app" target="_blank"><i class="bi bi-command"></i> 本社HQ <i class="bi bi-box-arrow-up-right" style="font-size:0.7rem;margin-left:auto"></i></a>
+      <a class="nav-link" href="https://dashboard-minpaku-v2.web.app" target="_blank"><i class="bi bi-graph-up"></i> 統括 <i class="bi bi-box-arrow-up-right" style="font-size:0.7rem;margin-left:auto"></i></a>
+
+      <div class="sidebar-section">内蔵</div>
+      <a class="nav-link" href="#/scan-sorter" data-page="scan-sorter"><i class="bi bi-robot"></i> 経理仕分け</a>
+      <a class="nav-link" href="#/command" data-page="command"><i class="bi bi-command"></i> 司令塔</a>
+      <a class="nav-link" href="#/projects" data-page="projects"><i class="bi bi-kanban"></i> プロジェクト</a>
+    </nav>
+    <div class="sidebar-footer">
+      <a href="#" id="btnLogout"><i class="bi bi-box-arrow-right"></i> <span id="userName">オーナー</span></a>
+    </div>
+  </aside>
+
+  <!-- メインコンテンツ -->
+  <div class="app-main">
+    <div id="pageContainer">
+      <div class="text-center py-5">
+        <div class="spinner-border text-primary" role="status">
+          <span class="visually-hidden">読み込み中...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ログイン画面（未認証時に表示） -->
+  <div class="modal fade" id="loginModal" data-bs-backdrop="static" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header bg-dark text-white">
+          <h5 class="modal-title"><i class="bi bi-house-door"></i> 民泊管理v2 ログイン</h5>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">メールアドレス</label>
+            <input type="email" class="form-control" id="loginEmail" placeholder="email@example.com">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">パスワード</label>
+            <input type="password" class="form-control" id="loginPassword" placeholder="パスワード">
+          </div>
+          <div class="alert alert-danger d-none" id="loginError"></div>
+          <div class="alert alert-success d-none" id="loginResetSuccess"></div>
+        </div>
+        <div class="modal-footer flex-column">
+          <button class="btn btn-primary w-100" id="btnLogin">
+            <i class="bi bi-box-arrow-in-right"></i> ログイン
+          </button>
+          <a href="#" class="small text-muted mt-2" id="btnForgotPassword">パスワードを忘れた方はこちら</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- スタッフ登録/編集モーダル -->
+  <div class="modal fade" id="staffModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="staffModalTitle">スタッフ登録</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="staffEditId">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">名前 <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="staffName" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">メールアドレス</label>
+              <input type="email" class="form-control" id="staffEmail">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">電話番号</label>
+              <input type="tel" class="form-control" id="staffPhone">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">報酬単価（円/回）</label>
+              <input type="number" class="form-control" id="staffRate" value="0">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">交通費（円/回）</label>
+              <input type="number" class="form-control" id="staffTransport" value="0">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">契約開始日</label>
+              <input type="date" class="form-control" id="staffContractDate">
+            </div>
+            <div class="col-12">
+              <label class="form-label">稼働可能曜日</label>
+              <div id="staffDays" class="d-flex flex-wrap gap-2">
+                <div class="form-check"><input class="form-check-input" type="checkbox" value="月" id="day_mon"><label class="form-check-label" for="day_mon">月</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" value="火" id="day_tue"><label class="form-check-label" for="day_tue">火</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" value="水" id="day_wed"><label class="form-check-label" for="day_wed">水</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" value="木" id="day_thu"><label class="form-check-label" for="day_thu">木</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" value="金" id="day_fri"><label class="form-check-label" for="day_fri">金</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" value="土" id="day_sat"><label class="form-check-label" for="day_sat">土</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" value="日" id="day_sun"><label class="form-check-label" for="day_sun">日</label></div>
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-label">スキル（カンマ区切り）</label>
+              <input type="text" class="form-control" id="staffSkills" placeholder="清掃,ベッドメイク,BBQ片付け">
+            </div>
+            <div class="col-12"><hr><h6>銀行口座情報</h6></div>
+            <div class="col-md-4">
+              <label class="form-label">銀行名</label>
+              <input type="text" class="form-control" id="staffBankName">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">支店名</label>
+              <input type="text" class="form-control" id="staffBranchName">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">口座種別</label>
+              <select class="form-select" id="staffAccountType">
+                <option value="普通">普通</option>
+                <option value="当座">当座</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">口座番号</label>
+              <input type="text" class="form-control" id="staffAccountNumber">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">口座名義</label>
+              <input type="text" class="form-control" id="staffAccountHolder">
+            </div>
+            <div class="col-12">
+              <label class="form-label">メモ</label>
+              <textarea class="form-control" id="staffMemo" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="button" class="btn btn-primary" id="btnSaveStaff">
+            <i class="bi bi-check-lg"></i> 保存
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 物件登録/編集モーダル -->
+  <div class="modal fade" id="propertyModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="propertyModalTitle">物件登録</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="propertyEditId">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">物件名 <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="propertyName" required>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">種別 <span class="text-danger">*</span></label>
+              <select class="form-select" id="propertyType">
+                <option value="minpaku">民泊</option>
+                <option value="rental">収益不動産</option>
+                <option value="other">その他</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">定員/戸数</label>
+              <input type="number" class="form-control" id="propertyCapacity" value="0">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">BEDS24 物件ID</label>
+              <input type="text" class="form-control" id="propertyBeds24Id" placeholder="BEDS24登録後に設定">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">エリア</label>
+              <input type="text" class="form-control" id="propertyArea" placeholder="例: 大阪市中央区">
+            </div>
+            <div class="col-12">
+              <label class="form-label">住所</label>
+              <input type="text" class="form-control" id="propertyAddress">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">清掃所要時間（分）</label>
+              <input type="number" class="form-control" id="propertyCleaningDuration" value="90">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">清掃費用（円/回）</label>
+              <input type="number" class="form-control" id="propertyCleaningFee" value="0">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">月額固定費（円）</label>
+              <input type="number" class="form-control" id="propertyMonthlyCost" value="0">
+            </div>
+            <div class="col-12"><hr><h6>投資情報（統計用）</h6></div>
+            <div class="col-md-6">
+              <label class="form-label">取得価格（円）</label>
+              <input type="number" class="form-control" id="propertyPurchasePrice" value="0">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">取得日</label>
+              <input type="date" class="form-control" id="propertyPurchaseDate">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">必要スキル（カンマ区切り）</label>
+              <input type="text" class="form-control" id="propertySkills" placeholder="清掃,BBQ片付け">
+            </div>
+            <div class="col-12">
+              <label class="form-label">メモ</label>
+              <textarea class="form-control" id="propertyNotes" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="button" class="btn btn-primary" id="btnSaveProperty">
+            <i class="bi bi-check-lg"></i> 保存
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 募集作成モーダル -->
+  <div class="modal fade" id="recruitmentModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="recruitmentModalTitle">新規募集作成</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="recruitEditId">
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">チェックアウト日 <span class="text-danger">*</span></label>
+              <input type="date" class="form-control" id="recruitCheckoutDate" required>
+            </div>
+            <div class="col-12">
+              <label class="form-label">物件</label>
+              <select class="form-select" id="recruitPropertyId">
+                <option value="">-- 物件を選択 --</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">メモ</label>
+              <textarea class="form-control" id="recruitMemo" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="button" class="btn btn-primary" id="btnSaveRecruitment">
+            <i class="bi bi-check-lg"></i> 作成
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 募集詳細モーダル -->
+  <div class="modal fade" id="recruitmentDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-megaphone"></i> 募集詳細</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="detailRecruitId">
+          <!-- 募集概要 -->
+          <div class="row mb-3">
+            <div class="col-md-4">
+              <strong>チェックアウト日</strong><br>
+              <span id="detailCheckoutDate">-</span>
+            </div>
+            <div class="col-md-4">
+              <strong>物件</strong><br>
+              <span id="detailProperty">-</span>
+            </div>
+            <div class="col-md-4">
+              <strong>ステータス</strong><br>
+              <span id="detailStatus"></span>
+            </div>
+          </div>
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <strong>選定スタッフ</strong><br>
+              <span id="detailSelectedStaff" class="text-muted">未選定</span>
+            </div>
+            <div class="col-md-6">
+              <strong>メモ</strong><br>
+              <span id="detailMemo" class="text-muted">-</span>
+            </div>
+          </div>
+
+          <hr>
+          <!-- 回答状況テーブル -->
+          <h6><i class="bi bi-people"></i> スタッフ回答状況</h6>
+          <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>スタッフ名</th>
+                  <th>回答</th>
+                  <th>回答日時</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="responseTableBody">
+              </tbody>
+            </table>
+          </div>
+
+          <hr>
+          <!-- スタッフ選定 -->
+          <h6><i class="bi bi-person-check"></i> スタッフ選定</h6>
+          <div id="staffSelectContainer">
+            <p class="text-muted small">回答データを読み込み中...</p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button>
+          <button type="button" class="btn btn-outline-primary d-none" id="btnReopenRecruitment">
+            <i class="bi bi-arrow-counterclockwise"></i> 募集再開
+          </button>
+          <button type="button" class="btn btn-success" id="btnConfirmRecruitment">
+            <i class="bi bi-check-circle"></i> スタッフ確定
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 宿泊者名簿 登録/編集モーダル -->
+  <div class="modal fade" id="guestModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="guestModalTitle">宿泊者情報登録</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="guestEditId">
+          <h6 class="mb-3"><i class="bi bi-person"></i> 代表者情報（旅館業法必須項目）</h6>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">氏名 <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="guestNameInput" placeholder="山田 太郎 / Yamada Taro">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">国籍</label>
+              <input type="text" class="form-control" id="guestNationality" value="日本">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">旅券番号</label>
+              <input type="text" class="form-control" id="guestPassport" placeholder="外国籍の場合">
+            </div>
+            <div class="col-md-8">
+              <label class="form-label">住所</label>
+              <input type="text" class="form-control" id="guestAddress">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">旅の目的</label>
+              <input type="text" class="form-control" id="guestPurpose" placeholder="観光・仕事等">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">電話番号</label>
+              <input type="tel" class="form-control" id="guestPhone">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">メール</label>
+              <input type="email" class="form-control" id="guestEmail">
+            </div>
+          </div>
+
+          <hr>
+          <h6 class="mb-3"><i class="bi bi-calendar"></i> 宿泊情報</h6>
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label">チェックイン</label>
+              <input type="date" class="form-control" id="guestCheckIn">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">チェックアウト</label>
+              <input type="date" class="form-control" id="guestCheckOut">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">宿泊人数</label>
+              <input type="number" class="form-control" id="guestCountInput" min="0">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">乳幼児</label>
+              <input type="number" class="form-control" id="guestCountInfants" min="0">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">予約サイト</label>
+              <input type="text" class="form-control" id="guestBookingSite" placeholder="Airbnb, Booking.com等">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">BBQ</label>
+              <input type="text" class="form-control" id="guestBBQ">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">駐車場</label>
+              <input type="text" class="form-control" id="guestParking">
+            </div>
+            <div class="col-12">
+              <label class="form-label">メモ</label>
+              <textarea class="form-control" id="guestMemoInput" rows="2"></textarea>
+            </div>
+          </div>
+
+          <hr>
+          <h6 class="mb-2">
+            <i class="bi bi-people"></i> 同行者（旅館業法: 全員の氏名・国籍が必要）
+            <button class="btn btn-sm btn-outline-primary ms-2" id="btnAddCompanion">
+              <i class="bi bi-plus"></i> 追加
+            </button>
+          </h6>
+          <div class="table-responsive">
+            <table class="table table-sm">
+              <thead class="table-light">
+                <tr><th>氏名</th><th style="width:70px">年齢</th><th>国籍</th><th>旅券番号</th><th></th></tr>
+              </thead>
+              <tbody id="companionTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="button" class="btn btn-primary" id="btnSaveGuest">
+            <i class="bi bi-check-lg"></i> 保存
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 宿泊者名簿 詳細モーダル -->
+  <div class="modal fade" id="guestDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-person-vcard"></i> 宿泊者詳細</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body" id="guestDetailBody">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- トースト通知 -->
+  <!-- シフト作成モーダル -->
+  <div class="modal fade" id="shiftModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="shiftModalTitle">シフト登録</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="shiftEditId">
+          <div class="row g-3">
+            <div class="col-12"><label class="form-label">日付 <span class="text-danger">*</span></label><input type="date" class="form-control" id="shiftDate" required></div>
+            <div class="col-12"><label class="form-label">物件</label><select class="form-select" id="shiftPropertyId"><option value="">-- 選択 --</option></select></div>
+            <div class="col-12"><label class="form-label">スタッフ</label><select class="form-select" id="shiftStaffId"><option value="">-- 未割当 --</option></select></div>
+            <div class="col-md-6"><label class="form-label">開始時刻</label><input type="time" class="form-control" id="shiftStartTime" value="10:30"></div>
+            <div class="col-md-6"><label class="form-label">終了時刻</label><input type="time" class="form-control" id="shiftEndTime"></div>
+            <div class="col-12"><label class="form-label">メモ</label><textarea class="form-control" id="shiftMemo" rows="2"></textarea></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="button" class="btn btn-primary" id="btnSaveShift"><i class="bi bi-check-lg"></i> 保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div id="appToast" class="toast" role="alert">
+      <div class="toast-header">
+        <strong class="me-auto" id="toastTitle">通知</strong>
+        <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+      </div>
+      <div class="toast-body" id="toastBody"></div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-storage-compat.js"></script>
+  <!-- App -->
+  <script src="js/firebase-config.js?v=0402x"></script>
+  <script src="js/auth.js?v=0402x"></script>
+  <script src="js/api.js?v=0402x"></script>
+  <script src="js/pages/dashboard.js?v=0402x"></script>
+  <script src="js/pages/staff.js?v=0402x"></script>
+  <script src="js/pages/properties.js?v=0402x"></script>
+  <script src="js/pages/recruitment.js?v=0402x"></script>
+  <script src="js/pages/guests.js?v=0402x"></script>
+  <script src="js/pages/shifts.js?v=0402x"></script>
+  <script src="js/pages/notifications.js?v=0402x"></script>
+  <script src="js/pages/laundry.js?v=0402x"></script>
+  <script src="js/pages/checklist.js?v=0402x"></script>
+  <script src="js/pages/reports.js?v=0402x"></script>
+  <script src="js/pages/projects.js?v=0402x"></script>
+  <script src="js/pages/invoices.js?v=0402x"></script>
+  <script src="js/pages/command-center.js?v=0402x"></script>
+  <script src="js/data-transformer.js?v=0402x"></script>
+  <script src="js/pages/scan-sorter.js?v=0402x"></script>
+  <script src="js/pages/tax-docs.js?v=0402x"></script>
+  <script src="js/pages/settings.js?v=0402x"></script>
+  <script src="js/app.js?v=0402x"></script>
+  <script>
+  // サイドバートグル（PC: collapsed切替 / モバイル: show切替）
+  document.getElementById('btnToggleSidebar')?.addEventListener('click', () => {
+    const sidebar = document.getElementById('appSidebar');
+    const backdrop = document.getElementById('sidebarBackdrop');
+    const isMobile = window.innerWidth < 992;
+    if (isMobile) {
+      sidebar.classList.toggle('show');
+      backdrop.classList.toggle('show');
+    } else {
+      sidebar.classList.toggle('collapsed');
+      document.body.classList.toggle('sidebar-hidden');
+    }
+  });
+  document.getElementById('sidebarBackdrop')?.addEventListener('click', () => {
+    document.getElementById('appSidebar').classList.remove('show');
+    document.getElementById('sidebarBackdrop').classList.remove('show');
+  });
+  // サイドバー内のリンククリックでモバイルは閉じる
+  document.querySelectorAll('.sidebar-nav .nav-link').forEach(link => {
+    link.addEventListener('click', () => {
+      if (window.innerWidth < 992) {
+        document.getElementById('appSidebar').classList.remove('show');
+        document.getElementById('sidebarBackdrop').classList.remove('show');
+      }
+    });
+  });
+  </script>
+</body>
+</html>

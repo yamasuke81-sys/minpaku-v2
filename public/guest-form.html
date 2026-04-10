@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>宿泊者名簿 / Guest Registration</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <style>
+    body { background: #f0f4f8; min-height: 100vh; }
+    .form-card { max-width: 640px; margin: 1rem auto; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+    .form-header { background: linear-gradient(135deg, #2c3e50, #3498db); color: white; border-radius: 12px 12px 0 0; padding: 1.5rem; text-align: center; }
+    .form-header h1 { font-size: 1.3rem; margin: 0; }
+    .form-header p { margin: 0.5rem 0 0; opacity: 0.85; font-size: 0.9rem; }
+    .lang-switch { position: absolute; top: 1rem; right: 1rem; }
+    .lang-switch .btn { font-size: 0.8rem; padding: 2px 10px; }
+    .section-title { font-size: 1rem; font-weight: 600; border-left: 4px solid #3498db; padding-left: 0.75rem; margin: 1.5rem 0 1rem; }
+    .companion-block { background: #f8f9fa; border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; position: relative; }
+    .btn-remove-companion { position: absolute; top: 0.5rem; right: 0.5rem; }
+    .success-view { text-align: center; padding: 3rem 1rem; }
+    .success-view i { font-size: 4rem; color: #27ae60; }
+    .required-mark { color: #e74c3c; }
+    @media (max-width: 640px) { .form-card { margin: 0; border-radius: 0; } .form-header { border-radius: 0; } }
+  </style>
+</head>
+<body>
+  <div class="card form-card" id="formView">
+    <div class="form-header position-relative">
+      <div class="lang-switch">
+        <button class="btn btn-sm btn-outline-light active" data-lang="ja">日本語</button>
+        <button class="btn btn-sm btn-outline-light" data-lang="en">English</button>
+      </div>
+      <h1 id="formTitle">宿泊者名簿</h1>
+      <p id="formSubtitle">ご宿泊に必要な情報をご記入ください</p>
+    </div>
+    <div class="card-body px-4 py-3">
+      <div id="bookingInfo" class="alert alert-info d-none">
+        <strong id="lbl_bookingInfo">ご予約情報</strong>: <span id="bookingInfoText"></span>
+      </div>
+      <form id="guestForm" novalidate>
+        <div id="dynamicFields"><div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> フォーム読み込み中...</div></div>
+        <h6 class="section-title" id="sectionCompanions">
+          <span id="lbl_companions">同行者情報</span>
+          <button type="button" class="btn btn-sm btn-outline-primary ms-2" id="btnAddComp"><i class="bi bi-plus"></i> <span id="lbl_addComp">追加</span></button>
+        </h6>
+        <p class="text-muted small" id="lbl_companionsNote">旅館業法により、宿泊者全員の氏名・国籍の記入が必要です。</p>
+        <div id="companionList"></div>
+        <div class="d-grid mt-4 mb-2">
+          <button type="submit" class="btn btn-primary btn-lg" id="btnSubmit"><i class="bi bi-send"></i> <span id="lbl_submit">送信する</span></button>
+        </div>
+        <p class="text-center text-muted small" id="lbl_privacy">ご記入いただいた情報は旅館業法に基づく宿泊者名簿として保管いたします。</p>
+      </form>
+    </div>
+  </div>
+  <div class="card form-card d-none" id="successView">
+    <div class="card-body success-view">
+      <i class="bi bi-check-circle-fill"></i>
+      <h3 class="mt-3" id="lbl_successTitle">送信完了</h3>
+      <p class="text-muted" id="lbl_successMsg">ご記入ありがとうございます。<br>ご宿泊を楽しみにお待ちしております。</p>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore-compat.js"></script>
+  <script>
+    firebase.initializeApp({
+      apiKey: "FIREBASE_API_KEY_PLACEHOLDER",
+      authDomain: "minpaku-v2.firebaseapp.com",
+      projectId: "minpaku-v2",
+      storageBucket: "minpaku-v2.firebasestorage.app",
+      messagingSenderId: "418111574543",
+      appId: "1:418111574543:web:6b2f386281e39f4d23c97a",
+    });
+    const db = firebase.firestore();
+
+    const i18nStatic = {
+      ja: { formTitle:"宿泊者名簿", formSubtitle:"ご宿泊に必要な情報をご記入ください", bookingInfo:"ご予約情報", companions:"同行者情報", addComp:"追加", companionsNote:"旅館業法により、宿泊者全員の氏名・国籍の記入が必要です。", submit:"送信する", privacy:"ご記入いただいた情報は旅館業法に基づく宿泊者名簿として保管いたします。", successTitle:"送信完了", successMsg:"ご記入ありがとうございます。<br>ご宿泊を楽しみにお待ちしております。", comp_name:"氏名", comp_age:"年齢", comp_nationality:"国籍", comp_passport:"旅券番号", comp_address:"住所" },
+      en: { formTitle:"Guest Registration", formSubtitle:"Please fill in the required information for your stay", bookingInfo:"Booking Info", companions:"Companions", addComp:"Add", companionsNote:"Japanese law requires names and nationalities of all guests.", submit:"Submit", privacy:"Your information will be stored as required by the Japanese Hotel Business Act.", successTitle:"Submitted!", successMsg:"Thank you! We look forward to welcoming you.", comp_name:"Name", comp_age:"Age", comp_nationality:"Nationality", comp_passport:"Passport", comp_address:"Address" }
+    };
+    let currentLang = "ja";
+    let formFields = [];
+
+    // デフォルトフィールド定義（旧Googleフォーム完全再現 + 実運用に必要な項目追加）
+    // 順序: ゲストが自然に入力できる順（宿泊情報→代表者情報→施設利用→連絡→同行者→同意）
+    const DEFAULT_FIELDS = [
+      // === 1. 宿泊情報（URLプリフィルされるため最初に表示） ===
+      { id:"checkIn", label:"チェックイン日", labelEn:"Check-in Date", type:"date", required:true, section:"stay", mapping:"checkIn" },
+      { id:"checkOut", label:"チェックアウト日", labelEn:"Check-out Date", type:"date", required:true, section:"stay", mapping:"checkOut" },
+      { id:"guestCount", label:"宿泊人数（大人）", labelEn:"Number of Guests (Adults)", type:"number", required:true, section:"stay", mapping:"guestCount", defaultValue:"1" },
+      { id:"guestCountInfants", label:"3才以下の乳幼児", labelEn:"Infants (under 3)", type:"number", required:false, section:"stay", mapping:"guestCountInfants", defaultValue:"0" },
+      { id:"bookingSite", label:"どこでこのホテルを予約しましたか？", labelEn:"Where did you book this accommodation?", type:"select", required:true, section:"stay", mapping:"bookingSite", options:["Airbnb","Booking.com","じゃらん","楽天トラベル","直接予約","その他"], optionsEn:["Airbnb","Booking.com","Jalan","Rakuten Travel","Direct booking","Other"] },
+
+      // === 2. 代表者情報（旅館業法必須項目） ===
+      { id:"guestName", label:"代表者 氏名（フルネーム）", labelEn:"Primary Guest Full Name", type:"text", required:true, section:"representative", mapping:"guestName", placeholder:"山田 太郎 / Yamada Taro" },
+      { id:"nationality", label:"国籍", labelEn:"Nationality", type:"text", required:true, section:"representative", mapping:"nationality", defaultValue:"日本" },
+      { id:"address", label:"住所（現住所）", labelEn:"Address", type:"text", required:true, section:"representative", mapping:"address", placeholder:"〒000-0000 ○○県○○市..." },
+      { id:"phone", label:"電話番号", labelEn:"Phone Number", type:"tel", required:true, section:"representative", mapping:"phone" },
+      { id:"phone2", label:"電話番号（第2）", labelEn:"Phone (2nd)", type:"tel", required:true, section:"representative", mapping:"phone2" },
+      { id:"email", label:"メールアドレス", labelEn:"Email Address", type:"email", required:false, section:"representative", mapping:"email" },
+      { id:"email2", label:"メールアドレス（第2・任意）", labelEn:"Email (2nd, optional)", type:"email", required:false, section:"representative", mapping:"email2" },
+      { id:"passportNumber", label:"旅券番号（外国籍の方のみ）", labelEn:"Passport No. (Foreign nationals only)", type:"text", required:false, section:"representative", mapping:"passportNumber" },
+      { id:"passportPhoto", label:"パスポート写真（外国籍の方のみ）", labelEn:"Passport Photo URL (Foreign nationals only)", type:"text", required:false, section:"representative", mapping:"passportPhoto", placeholder:"URLまたはファイル名 / URL or filename" },
+      { id:"purpose", label:"旅の目的", labelEn:"Purpose of Visit", type:"select", required:false, section:"representative", mapping:"purpose", options:["観光","仕事","帰省","イベント","その他"], optionsEn:["Tourism","Business","Homecoming","Event","Other"] },
+
+      // === 3. 施設利用情報 ===
+      { id:"arrivalTime", label:"到着予定時刻", labelEn:"Estimated Arrival Time", type:"select", required:false, section:"facility", mapping:"arrivalTime", options:["","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00","19:30","20:00","20:00以降"], optionsEn:["","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00","19:30","20:00","After 20:00"] },
+      { id:"departureTime", label:"出発予定時刻", labelEn:"Estimated Departure Time", type:"select", required:false, section:"facility", mapping:"departureTime", options:["","7:00","7:30","8:00","8:30","9:00","9:30","10:00","10:00以降"], optionsEn:["","7:00","7:30","8:00","8:30","9:00","9:30","10:00","After 10:00"] },
+      { id:"cars", label:"お車は何台でお越しになりますか？\n※施設には駐車場がございません。徒歩15分の場所に有料駐車場があります。", labelEn:"How many cars will you bring?\n*No parking at facility. Paid parking available (15 min walk).", type:"select", required:false, section:"facility", mapping:"cars", options:["0台（車なし）","1台","2台","3台以上"], optionsEn:["0 (No car)","1 car","2 cars","3+ cars"] },
+      { id:"bbq", label:"バーベキューセットをご利用されますか？", labelEn:"Would you like to use the BBQ set?", type:"select", required:false, section:"facility", mapping:"bbq", options:["利用しない","利用する（1セット）","利用する（2セット）"], optionsEn:["No","Yes (1 set)","Yes (2 sets)"] },
+      { id:"bedChoice", label:"宿泊人数2名のお客様のみお答えください（ベッドの希望）", labelEn:"For 2 guests only: Bed preference", type:"select", required:false, section:"facility", mapping:"bedChoice", options:["","シングルベッド×2","ダブルベッド×1","布団"], optionsEn:["","2 Single Beds","1 Double Bed","Futon"] },
+      { id:"bedCount", label:"ベッド数（希望）", labelEn:"Number of Beds (preferred)", type:"number", required:false, section:"facility", mapping:"bedCount" },
+
+      // === 4. その他連絡事項 ===
+      { id:"memo", label:"ご要望・備考", labelEn:"Notes / Special Requests", type:"textarea", required:false, section:"other", mapping:"memo" },
+      { id:"allergy", label:"アレルギー・特記事項", labelEn:"Allergies / Special Notes", type:"textarea", required:false, section:"other", mapping:"allergy", placeholder:"食物アレルギー、持病、車椅子利用等 / Food allergies, medical conditions, wheelchair use, etc." },
+      { id:"emergencyContact", label:"緊急連絡先（代表者以外）", labelEn:"Emergency Contact (other than primary guest)", type:"text", required:false, section:"other", mapping:"emergencyContact", placeholder:"氏名・電話番号 / Name & Phone" },
+
+      // === 5. ハウスルール同意 ===
+      { id:"houseRuleAgree", label:"利用規約・ハウスルールに同意します", labelEn:"I agree to the Terms of Use and House Rules", type:"checkbox-single", required:true, section:"agreement", mapping:"houseRuleAgree" },
+    ];
+
+    function setLang(lang) {
+      currentLang = lang;
+      const t = i18nStatic[lang];
+      document.getElementById("formTitle").textContent = t.formTitle;
+      document.getElementById("formSubtitle").textContent = t.formSubtitle;
+      document.getElementById("lbl_bookingInfo").textContent = t.bookingInfo;
+      document.getElementById("lbl_companions").textContent = t.companions;
+      document.getElementById("lbl_addComp").textContent = t.addComp;
+      document.getElementById("lbl_companionsNote").textContent = t.companionsNote;
+      document.getElementById("lbl_submit").textContent = t.submit;
+      document.getElementById("lbl_privacy").textContent = t.privacy;
+      document.getElementById("lbl_successTitle").textContent = t.successTitle;
+      document.getElementById("lbl_successMsg").innerHTML = t.successMsg;
+      formFields.forEach(f => {
+        const lbl = document.querySelector(`label[for="f_${f.id}"]`);
+        if (lbl) lbl.innerHTML = (lang === "en" && f.labelEn ? f.labelEn : f.label) + (f.required ? ' <span class="required-mark">*</span>' : "");
+      });
+      document.querySelectorAll(".lang-switch .btn").forEach(btn => btn.classList.toggle("active", btn.dataset.lang === lang));
+      document.querySelectorAll(".companion-block [data-comp-label]").forEach(lbl => {
+        const key = lbl.dataset.compLabel;
+        if (t[key]) lbl.textContent = t[key];
+      });
+    }
+
+    async function loadFormDefinition() {
+      try {
+        const doc = await db.collection("settings").doc("guestForm").get();
+        if (doc.exists && doc.data().fields?.length > 0) formFields = doc.data().fields;
+      } catch (e) { console.warn("フォーム定義の取得失敗:", e.message); }
+      if (!formFields.length) formFields = DEFAULT_FIELDS;
+      renderDynamicFields();
+    }
+
+    function renderDynamicFields() {
+      const container = document.getElementById("dynamicFields");
+      const sections = {};
+      formFields.forEach(f => { const sec = f.section || "other"; if (!sections[sec]) sections[sec] = []; sections[sec].push(f); });
+      const secLabels = {
+        stay: { ja:"宿泊情報", en:"Stay Details" },
+        representative: { ja:"代表者情報（旅館業法に基づく記入事項）", en:"Primary Guest (Required by Japanese Law)" },
+        facility: { ja:"施設利用情報", en:"Facility Usage" },
+        other: { ja:"その他連絡事項", en:"Other / Notes" },
+        agreement: { ja:"同意事項", en:"Agreement" },
+      };
+
+      let html = "";
+      for (const [secId, fields] of Object.entries(sections)) {
+        if (secId === "companions") continue;
+        const sl = secLabels[secId] || { ja: secId, en: secId };
+        html += `<h6 class="section-title">${currentLang === "en" ? sl.en : sl.ja}</h6>`;
+        let rowOpen = false;
+        fields.forEach((f, i) => {
+          const inp = renderFieldInput(f);
+          // 画像タイプはラベルなし・特別レイアウト
+          if (f.type === "image") {
+            if (rowOpen) { html += "</div>"; rowOpen = false; }
+            html += `<div class="mb-3 text-center">${inp}</div>`;
+            return;
+          }
+          const label = (currentLang === "en" && f.labelEn ? f.labelEn : f.label) + (f.required ? ' <span class="required-mark">*</span>' : "");
+          const isSmall = ["date","number","tel"].includes(f.type);
+          const nextSmall = fields[i+1] && ["date","number","tel"].includes(fields[i+1].type);
+          if (isSmall && nextSmall && !rowOpen) { html += `<div class="row g-2 mb-3"><div class="col-6"><label class="form-label" for="f_${f.id}">${label}</label>${inp}</div>`; rowOpen = true; }
+          else if (rowOpen) { html += `<div class="col-6"><label class="form-label" for="f_${f.id}">${label}</label>${inp}</div></div>`; rowOpen = false; }
+          else { html += `<div class="mb-3"><label class="form-label" for="f_${f.id}">${label}</label>${inp}</div>`; }
+        });
+        if (rowOpen) html += "</div>";
+      }
+      container.innerHTML = html;
+    }
+
+    function renderFieldInput(f) {
+      const val = f.defaultValue || "", req = f.required ? "required" : "", id = `f_${f.id}`;
+      const ph = f.placeholder ? `placeholder="${f.placeholder}"` : "";
+      switch (f.type) {
+        case "image": {
+          const w = f.imageWidth || 100;
+          return f.imageUrl ? `<img src="${f.imageUrl}" alt="${currentLang==="en"&&f.labelEn?f.labelEn:f.label}" style="width:${w}%;max-width:100%;border-radius:8px;">` : "";
+        }
+        case "textarea": return `<textarea class="form-control" id="${id}" rows="2" ${req} ${ph}>${val}</textarea>`;
+        case "select": return `<select class="form-select" id="${id}" ${req}><option value="">--</option>${(f.options||[]).map((o,i) => `<option value="${o}">${currentLang==="en"&&f.optionsEn?.[i]?f.optionsEn[i]:o}</option>`).join("")}</select>`;
+        case "radio": return (f.options||[]).map((o,i)=>`<div class="form-check"><input class="form-check-input" type="radio" name="${id}" value="${o}" id="${id}_${i}"><label class="form-check-label" for="${id}_${i}">${currentLang==="en"&&f.optionsEn?.[i]?f.optionsEn[i]:o}</label></div>`).join("");
+        case "checkbox-single": return `<div class="form-check"><input class="form-check-input" type="checkbox" id="${id}" ${req} value="true"><label class="form-check-label" for="${id}">${currentLang==="en"&&f.labelEn?f.labelEn:f.label}</label></div>`;
+        case "date": return `<input type="date" class="form-control" id="${id}" value="${val}" ${req}>`;
+        case "number": return `<input type="number" class="form-control" id="${id}" min="0" value="${val}" ${req}>`;
+        case "email": return `<input type="email" class="form-control" id="${id}" value="${val}" ${req} ${ph}>`;
+        case "tel": return `<input type="tel" class="form-control" id="${id}" value="${val}" ${req} ${ph}>`;
+        default: return `<input type="text" class="form-control" id="${id}" value="${val}" ${req} ${ph}>`;
+      }
+    }
+
+    function getParams() {
+      const p = {}; const search = location.search || location.hash.split("?")[1] || "";
+      new URLSearchParams(search.replace(/^[?#]/,"")).forEach((v,k) => p[k]=v);
+      const m = location.pathname.match(/\/form\/([^/?]+)/); if (m) p.bookingId = m[1]; return p;
+    }
+
+    async function prefillFromBooking(bid) {
+      try {
+        const doc = await db.collection("bookings").doc(bid).get(); if (!doc.exists) return;
+        const b = doc.data(), toD = v => { if (!v) return ""; const d = v.toDate?v.toDate():new Date(v); if(isNaN(d))return""; return new Date(d.getTime()+9*3600000).toISOString().slice(0,10); };
+        if(b.checkIn){const el=document.getElementById("f_checkIn");if(el)el.value=toD(b.checkIn);}
+        if(b.checkOut){const el=document.getElementById("f_checkOut");if(el)el.value=toD(b.checkOut);}
+        if(b.guestCount){const el=document.getElementById("f_guestCount");if(el)el.value=b.guestCount;}
+        if(b.guestName){const el=document.getElementById("f_guestName");if(el)el.value=b.guestName;}
+        document.getElementById("bookingInfoText").textContent=`${toD(b.checkIn)} ~ ${toD(b.checkOut)}`;
+        document.getElementById("bookingInfo").classList.remove("d-none");
+      } catch(e){console.warn("予約情報取得失敗:",e);}
+    }
+
+    function addCompanion(data=null) {
+      const t=i18nStatic[currentLang], div=document.createElement("div"); div.className="companion-block";
+      div.innerHTML=`<button type="button" class="btn btn-sm btn-outline-danger btn-remove-companion"><i class="bi bi-x-lg"></i></button>
+        <div class="row g-2">
+          <div class="col-6"><label class="form-label small" data-comp-label="comp_name">${t.comp_name}</label><input type="text" class="form-control form-control-sm comp-name" value="${(data?.name||"").replace(/"/g,"&quot;")}"></div>
+          <div class="col-3"><label class="form-label small" data-comp-label="comp_age">${t.comp_age}</label><input type="text" class="form-control form-control-sm comp-age" value="${(data?.age||"").replace(/"/g,"&quot;")}" style="width:60px"></div>
+          <div class="col-3"><label class="form-label small" data-comp-label="comp_nationality">${t.comp_nationality}</label><input type="text" class="form-control form-control-sm comp-nationality" value="${data?.nationality||"日本"}"></div>
+          <div class="col-6 mt-1"><label class="form-label small" data-comp-label="comp_passport">${t.comp_passport}</label><input type="text" class="form-control form-control-sm comp-passport" value="${(data?.passportNumber||"").replace(/"/g,"&quot;")}"></div>
+          <div class="col-6 mt-1"><label class="form-label small" data-comp-label="comp_address">${t.comp_address||"住所"}</label><input type="text" class="form-control form-control-sm comp-address" value="${(data?.address||"").replace(/"/g,"&quot;")}"></div>
+        </div>`;
+      div.querySelector(".btn-remove-companion").addEventListener("click",()=>div.remove());
+      document.getElementById("companionList").appendChild(div);
+    }
+
+    async function submitForm(e) {
+      e.preventDefault();
+      const form=document.getElementById("guestForm"); if(!form.checkValidity()){form.classList.add("was-validated");return;}
+      const btn=document.getElementById("btnSubmit"); btn.disabled=true;
+      btn.innerHTML='<span class="spinner-border spinner-border-sm me-2"></span>'+(currentLang==="en"?"Submitting...":"送信中...");
+      const data={};
+      formFields.forEach(f=>{if(f.type==="image")return;const el=document.getElementById(`f_${f.id}`);if(!el)return;const m=f.mapping||f.id;
+        if(f.type==="number")data[m]=Number(el.value)||0;
+        else if(f.type==="checkbox-single")data[m]=el.checked;
+        else if(f.type==="checkbox"){data[m]=Array.from(document.querySelectorAll(`input[name="f_${f.id}"]:checked`)).map(c=>c.value);}
+        else if(f.type==="radio"){const c=document.querySelector(`input[name="f_${f.id}"]:checked`);data[m]=c?c.value:"";}
+        else data[m]=(el.value||"").trim();
+      });
+      const guests=[];
+      document.querySelectorAll(".companion-block").forEach(block=>{
+        const name=block.querySelector(".comp-name").value.trim();
+        if(name)guests.push({name,age:block.querySelector(".comp-age").value.trim(),nationality:block.querySelector(".comp-nationality").value.trim()||"日本",address:(block.querySelector(".comp-address")?.value||"").trim(),passportNumber:block.querySelector(".comp-passport").value.trim()});
+      });
+      const params=getParams();
+      data.guests=guests; data.bookingId=params.bookingId||""; data.propertyId=params.propertyId||"";
+      data.source="guest_form"; data.submittedAt=firebase.firestore.FieldValue.serverTimestamp();
+      data.createdAt=firebase.firestore.FieldValue.serverTimestamp(); data.updatedAt=firebase.firestore.FieldValue.serverTimestamp();
+      try{await db.collection("guestRegistrations").add(data);document.getElementById("formView").classList.add("d-none");document.getElementById("successView").classList.remove("d-none");}
+      catch(err){console.error("送信エラー:",err);alert(currentLang==="ja"?"送信に失敗しました。もう一度お試しください。":"Submission failed. Please try again.");btn.disabled=false;btn.innerHTML='<i class="bi bi-send"></i> '+i18nStatic[currentLang].submit;}
+    }
+
+    document.addEventListener("DOMContentLoaded", async()=>{
+      const params=getParams();
+      document.querySelectorAll(".lang-switch .btn").forEach(btn=>btn.addEventListener("click",()=>{setLang(btn.dataset.lang);renderDynamicFields();}));
+      if(params.lang==="en")currentLang="en";
+      await loadFormDefinition(); setLang(currentLang);
+      if(params.bookingId)await prefillFromBooking(params.bookingId);
+      if(params.checkIn){const el=document.getElementById("f_checkIn");if(el)el.value=params.checkIn;}
+      if(params.checkOut){const el=document.getElementById("f_checkOut");if(el)el.value=params.checkOut;}
+      if(params.guests){const el=document.getElementById("f_guestCount");if(el)el.value=params.guests;}
+      document.getElementById("btnAddComp").addEventListener("click",()=>addCompanion());
+      document.getElementById("guestForm").addEventListener("submit",submitForm);
+    });
+  </script>
+</body>
+</html>

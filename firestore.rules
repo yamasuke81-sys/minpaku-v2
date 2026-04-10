@@ -1,0 +1,190 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // オーナー: 全データ読み書き可能
+    function isOwner() {
+      return request.auth != null && request.auth.token.role == 'owner';
+    }
+
+    // スタッフ: 認証済み
+    function isStaff() {
+      return request.auth != null && request.auth.token.role == 'staff';
+    }
+
+    // 認証済みユーザー
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // スタッフマスタ — オーナーのみ書き込み、スタッフは自分のデータのみ読み取り
+    match /staff/{staffId} {
+      allow read: if isOwner() || (isStaff() && request.auth.uid == staffId);
+      allow write: if isOwner();
+    }
+
+    // 物件 — オーナーのみ書き込み、スタッフは読み取りのみ
+    match /properties/{propertyId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner();
+    }
+
+    // 予約 — オーナーのみ書き込み、スタッフは読み取りのみ
+    match /bookings/{bookingId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner();
+    }
+
+    // シフト — オーナーは全操作、スタッフは自分のシフトのみ読み取り
+    match /shifts/{shiftId} {
+      allow read: if isOwner() || (isStaff() && resource.data.staffId == request.auth.uid);
+      allow write: if isOwner();
+    }
+
+    // コインランドリー — スタッフは自分の記録を作成・読み取り、オーナーは全操作
+    match /laundry/{recordId} {
+      allow read: if isOwner() || (isStaff() && resource.data.staffId == request.auth.uid);
+      allow create: if isStaff() && request.resource.data.staffId == request.auth.uid;
+      allow update, delete: if isOwner();
+    }
+
+    // 請求書 — オーナーは全操作、スタッフは自分の請求書の読み取り+ステータス更新
+    match /invoices/{invoiceId} {
+      allow read: if isOwner() || (isStaff() && resource.data.staffId == request.auth.uid);
+      allow create, delete: if isOwner();
+      allow update: if isOwner() ||
+        (isStaff() && resource.data.staffId == request.auth.uid
+         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'confirmedAt']));
+    }
+
+    // チェックリスト — スタッフは自分のチェックリストを操作、オーナーは全操作
+    match /checklists/{checklistId} {
+      allow read: if isOwner() || (isStaff() && resource.data.staffId == request.auth.uid);
+      allow create: if isAuthenticated();
+      allow update: if isOwner() || (isStaff() && resource.data.staffId == request.auth.uid);
+      allow delete: if isOwner();
+    }
+
+    // チェックリストテンプレート — オーナーのみ書き込み、全員読み取り
+    match /checklistTemplates/{templateId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner();
+    }
+
+    // 募集管理 — オーナーは全操作、スタッフは読み取り+回答のみ
+    match /recruitments/{recruitmentId} {
+      allow read: if isAuthenticated();
+      allow create, delete: if isOwner();
+      allow update: if isOwner();
+
+      // 回答サブコレクション — スタッフは自分の回答を作成・更新、オーナーは全操作
+      match /responses/{responseId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated();
+        allow update: if isOwner() || (isStaff() && resource.data.staffId == request.auth.uid);
+        allow delete: if isOwner() || (isStaff() && resource.data.staffId == request.auth.uid);
+      }
+    }
+
+    // 宿泊者名簿 — ゲストフォームからの書き込み許可（認証不要）
+    match /guestRegistrations/{guestId} {
+      allow read: if isAuthenticated();
+      // ゲスト公開フォームからの新規登録を許可（source=guest_form のみ）
+      allow create: if true
+        && request.resource.data.guestName is string
+        && request.resource.data.guestName.size() > 0
+        && request.resource.data.source == "guest_form";
+      // 更新・削除はオーナーのみ
+      allow update, delete: if isOwner();
+    }
+
+    // タイミー募集 — オーナーのみ
+    match /timeeRequests/{requestId} {
+      allow read, write: if isOwner();
+    }
+
+    // セッション状況 — 全セッションから書き込み可能（CTOダッシュボード用）
+    match /sessions/{sessionId} {
+      allow read: if isOwner();
+      allow create, update: if true;  // 各セッションから認証なしでも書ける
+    }
+
+    // タスクキュー — オーナーのみ（司令塔）
+    match /tasks/{taskId} {
+      allow read, write: if isOwner();
+    }
+
+    // プロジェクト管理 — オーナーのみ
+    match /projects/{projectId} {
+      allow read, write: if isOwner();
+    }
+
+    // 設定 — オーナーのみ
+    match /settings/{document=**} {
+      allow read, write: if isOwner();
+    }
+
+    // ========== AI秘書「黒子」コレクション ==========
+
+    // 秘書トップレベルドキュメント+サブコレクション — オーナーのみ
+    match /secretary/{docId} {
+      allow read, write: if isOwner();
+      // 承認待ちサブコレクション
+      match /approvals/items/{approvalId} {
+        allow read, write: if isOwner();
+      }
+      // LINEメッセージ受信ログ
+      match /inbox/messages/{messageId} {
+        allow read, write: if isOwner();
+      }
+      // Gmail監視状態
+      match /{subDoc=**} {
+        allow read, write: if isOwner();
+      }
+    }
+
+    // TODO — オーナーのみ
+    match /todos/{todoId} {
+      allow read, write: if isOwner();
+    }
+
+    // カレンダーイベント — オーナーのみ
+    match /calendar_events/{eventId} {
+      allow read, write: if isOwner();
+    }
+
+    // エラーログ — オーナーのみ読み取り、Cloud Functionsから書き込み
+    match /error_logs/{logId} {
+      allow read: if isOwner();
+      allow create: if true;  // Cloud Functionsから認証なしで書き込み可能
+      allow update, delete: if isOwner();
+    }
+
+    // 通知ログ — オーナーのみ読み取り、Cloud Functionsから書き込み
+    match /notifications/{notifId} {
+      allow read: if isOwner();
+      allow create: if true;
+      allow update, delete: if isOwner();
+    }
+
+    // ========== 税理士資料収集 ==========
+
+    // 名義・法人マスタ — オーナーのみ
+    match /entities/{entityId} {
+      allow read, write: if isOwner();
+    }
+
+    // 収集済み税理士資料 — オーナーのみ
+    match /taxDocs/{docId} {
+      allow read, write: if isOwner();
+    }
+
+    // 月次チェックリスト（名義別） — オーナーのみ
+    match /taxDocsChecklist/{yearMonth} {
+      allow read, write: if isOwner();
+      match /entities/{entityId} {
+        allow read, write: if isOwner();
+      }
+    }
+  }
+}
