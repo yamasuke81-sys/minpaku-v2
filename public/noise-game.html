@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>しずかにステイ！</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #9bbc0f;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: monospace;
+      overflow: hidden;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    #game-wrapper {
+      position: relative;
+      width: 320px;
+      height: 288px;
+      border: 4px solid #0f380f;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #9bbc0f;
+      image-rendering: pixelated;
+    }
+
+    canvas {
+      display: block;
+      width: 320px;
+      height: 288px;
+      image-rendering: pixelated;
+    }
+
+    /* クレーム画面オーバーレイ */
+    #complaint-overlay {
+      display: none;
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: #fff;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+      animation: flashWhite 0.5s ease-in-out 3;
+    }
+
+    @keyframes flashWhite {
+      0%, 100% { background: #fff; }
+      50% { background: #ffe0e0; }
+    }
+
+    #complaint-overlay .complaint-box {
+      background: #cc0000;
+      border: 4px solid #fff;
+      padding: 20px 24px;
+      text-align: center;
+      color: #fff;
+      font-family: monospace;
+      max-width: 260px;
+    }
+
+    #complaint-overlay .complaint-title {
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 10px;
+      color: #fff;
+      animation: blinkTitle 1.0s ease-in-out infinite;
+    }
+
+    @keyframes blinkTitle {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    #complaint-overlay .complaint-msg {
+      font-size: 12px;
+      font-weight: bold;
+      line-height: 1.8;
+      margin-bottom: 14px;
+      color: #fff;
+    }
+
+    #complaint-overlay .retry-btn {
+      background: #fff;
+      color: #cc0000;
+      border: none;
+      padding: 8px 24px;
+      font-family: monospace;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    /* クリア画面 */
+    #clear-overlay {
+      display: none;
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(15, 56, 15, 0.92);
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+
+    #clear-overlay .clear-box {
+      background: #9bbc0f;
+      border: 3px solid #0f380f;
+      padding: 16px 20px;
+      text-align: center;
+      color: #0f380f;
+      font-family: monospace;
+      max-width: 280px;
+    }
+
+    #clear-overlay .clear-title {
+      font-size: 16px;
+      font-weight: bold;
+      margin-bottom: 6px;
+    }
+
+    #clear-overlay .clear-score {
+      font-size: 13px;
+      margin-bottom: 10px;
+    }
+
+    #clear-overlay .tips {
+      font-size: 10px;
+      line-height: 1.7;
+      text-align: left;
+      margin-bottom: 12px;
+      white-space: pre-line;
+    }
+
+    #clear-overlay .retry-btn {
+      background: #0f380f;
+      color: #9bbc0f;
+      border: none;
+      padding: 6px 20px;
+      font-family: monospace;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    .proceed-btn {
+      background: #fff;
+      color: #cc0000;
+      border: 2px solid #fff;
+      padding: 8px 16px;
+      font-family: monospace;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+      width: 100%;
+    }
+
+    #clear-overlay .proceed-btn {
+      background: #cc0000;
+      color: #fff;
+      border: 2px solid #cc0000;
+    }
+
+    #start-text {
+      margin-top: 12px;
+      color: #0f380f;
+      font-family: monospace;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-wrapper">
+    <canvas id="gameCanvas" width="320" height="288"></canvas>
+
+    <div id="complaint-overlay">
+      <div class="complaint-box">
+        <div class="complaint-title">⚠ 騒音クレーム ⚠</div>
+        <div class="complaint-msg">
+          近隣住民から苦情が<br>入りました。<br><br>
+          ・警察へ通報<br>
+          ・即時退室<br>
+          いただく場合があります
+        </div>
+        <button class="retry-btn" onclick="restartGame()">もういちど</button>
+        <div id="proceed-from-gameover" style="display:none; margin-top:10px;">
+          <button class="proceed-btn" onclick="goToForm()">▶ 名簿記入へ進む</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="clear-overlay">
+      <div class="clear-box">
+        <div class="clear-title">おつかれさまでした！</div>
+        <div class="clear-score" id="clear-score-text"></div>
+        <div class="tips" id="clear-tips"></div>
+        <button class="retry-btn" onclick="restartGame()">もういちど</button>
+        <div style="margin-top:10px;">
+          <button class="proceed-btn" onclick="goToForm()">▶ 名簿記入へ進む</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="start-text">タップ / スペースキー で騒音をブロック！</div>
+
+<script>
+// ===== ゲーム設定 =====
+const CANVAS_W = 320;
+const CANVAS_H = 288;
+const GAME_DURATION = 15; // 秒
+
+// ゲームボーイ風カラー
+const COL_BG      = '#9bbc0f';
+const COL_DARK    = '#0f380f';
+const COL_MID     = '#306230';
+const COL_LIGHT   = '#8bac0f';
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// ===== ゲーム状態 =====
+let gameState = 'title'; // title, playing, gameover, clear
+let noiseLevel = 0;       // 0〜100
+let score = 0;
+let timeLeft = GAME_DURATION;
+let frameCount = 0;
+let spawnTimer = 0;
+let shakeTimer = 0;
+let playerDead = false;
+let noiseItems = [];
+let particles = [];
+let hitItems = [];         // ヒットしたアイテムの種類を記録
+let complaints = [];       // 隣家からのクレーム弾
+let alarmTimer = 0;        // アラーム表示タイマー
+let alarmText = '';        // アラームテキスト
+let wallHitEffects = [];   // 隣家壁の衝撃エフェクト
+let neighborAnger = 0;     // 隣人の怒り（通過アイテム数）
+let playCount = 0;         // プレイ回数（初回は必ず負ける）
+let gameOverReady = false; // ゲームオーバー画面表示可能か
+let gameOverCount = 0;     // ゲームオーバー回数
+let canProceed = false;    // 名簿画面に進める状態か
+
+// レイアウト
+const WALL_RIGHT = 260;    // 隣家の壁位置
+const NEIGHBOR_X = 265;    // 隣家の家エリア
+
+// プレイヤー（宿泊者）— 中央付近に配置
+const player = {
+  x: 149,
+  y: 194,
+  w: 22,
+  h: 38,
+  deadY: 0,
+  deadVel: 0
+};
+
+// 騒音アイテムの種類
+const NOISE_TYPES = [
+  { id: 'beer',    symbol: '🍺', tip: '✓ 室内での宴会は控えめに',      noise: 15, speed: 2.0, size: 24 },
+  { id: 'mic',     symbol: '🎤', tip: '✓ 歌唱は禁止です',            noise: 25, speed: 2.5, size: 24 },
+  { id: 'party',   symbol: '🎉', tip: '✓ 大人数での騒ぎはNG',        noise: 18, speed: 1.8, size: 26 },
+  { id: 'shout',   symbol: '📢', tip: '✓ 玄関先での大声はNG',        noise: 20, speed: 2.3, size: 24 },
+  { id: 'note3',   symbol: '🎵', tip: '✓ 室内での音楽はNGです',      noise: 14, speed: 2.6, size: 21 },
+];
+
+// ===== 描画ユーティリティ =====
+function drawRect(x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.floor(x), Math.floor(y), w, h);
+}
+
+// ドット絵風のプレイヤー描画
+function drawPlayer(x, y, dead) {
+  if (dead) {
+    ctx.save();
+    ctx.translate(x + 11, y + 16);
+    ctx.rotate(Math.PI);
+    ctx.translate(-11, -16);
+    // 体
+    drawRect(0, 0, 22, 22, COL_DARK);
+    drawRect(3, 3, 16, 16, COL_MID);
+    // 頭
+    drawRect(3, -14, 16, 16, COL_DARK);
+    drawRect(5, -11, 12, 12, COL_LIGHT);
+    // ×目
+    drawRect(7, -8, 3, 3, COL_DARK);
+    drawRect(12, -8, 3, 3, COL_DARK);
+    ctx.restore();
+  } else {
+    // 体
+    drawRect(x, y + 11, 22, 22, COL_DARK);
+    drawRect(x + 3, y + 14, 16, 16, COL_MID);
+    // 頭
+    drawRect(x + 3, y - 3, 16, 16, COL_DARK);
+    drawRect(x + 5, y, 12, 12, COL_LIGHT);
+    // 目
+    drawRect(x + 7, y + 3, 3, 3, COL_DARK);
+    drawRect(x + 12, y + 3, 3, 3, COL_DARK);
+    // 足（アニメ）
+    const legOffset = frameCount % 20 < 10 ? 0 : 1;
+    drawRect(x + 3 + legOffset, y + 33, 7, 5, COL_DARK);
+    drawRect(x + 12 - legOffset, y + 33, 7, 5, COL_DARK);
+  }
+}
+
+// 騒音アイテム描画（枠なし、絵文字のみ）
+function drawNoiseItem(item) {
+  const s = item.type.size;
+  ctx.save();
+  ctx.globalAlpha = 1.0;
+  ctx.font = `${s}px serif`;
+  ctx.fillStyle = COL_DARK;
+  ctx.fillText(item.type.symbol, item.x, item.y + s - 2);
+  ctx.restore();
+}
+
+// 隣家描画（一軒家風）
+function drawNeighborHouse() {
+  const hx = WALL_RIGHT + 6; // 家の左端
+  const hw = 52;              // 家の幅
+  const baseY = 232;          // 地面
+
+  // --- 三角屋根 ---
+  ctx.fillStyle = COL_DARK;
+  ctx.beginPath();
+  ctx.moveTo(hx - 4, 155);          // 屋根の左端
+  ctx.lineTo(hx + hw / 2, 130);     // 屋根の頂点
+  ctx.lineTo(hx + hw + 4, 155);     // 屋根の右端
+  ctx.closePath();
+  ctx.fill();
+  // 屋根の内側（少し明るく）
+  ctx.fillStyle = COL_MID;
+  ctx.beginPath();
+  ctx.moveTo(hx, 155);
+  ctx.lineTo(hx + hw / 2, 135);
+  ctx.lineTo(hx + hw, 155);
+  ctx.closePath();
+  ctx.fill();
+
+  // --- 壁面 ---
+  drawRect(hx, 155, hw, baseY - 155, COL_DARK);
+  drawRect(hx + 2, 157, hw - 4, baseY - 159, '#1a4a1a');
+
+  // --- 窓（左） ---
+  drawRect(hx + 6, 170, 16, 16, COL_DARK);
+  drawRect(hx + 8, 172, 12, 12, COL_MID);
+  drawRect(hx + 13, 172, 2, 12, COL_DARK);  // 窓の桟（縦）
+  drawRect(hx + 8, 177, 12, 2, COL_DARK);   // 窓の桟（横）
+
+  // --- 窓（右） ---
+  drawRect(hx + 30, 170, 16, 16, COL_DARK);
+  drawRect(hx + 32, 172, 12, 12, COL_MID);
+  drawRect(hx + 37, 172, 2, 12, COL_DARK);
+  drawRect(hx + 32, 177, 12, 2, COL_DARK);
+
+  // --- ドア ---
+  drawRect(hx + 18, 198, 16, baseY - 198, COL_DARK);
+  drawRect(hx + 20, 200, 12, baseY - 202, COL_MID);
+  drawRect(hx + 28, 212, 3, 3, COL_LIGHT);  // ドアノブ
+
+  // --- 怒り顔（左窓に表示） ---
+  if (neighborAnger > 0) {
+    const faceX = hx + 8;
+    const faceY = 172;
+    drawRect(faceX, faceY, 12, 12, '#1a4a1a');
+    if (neighborAnger >= 3) {
+      // 激怒
+      drawRect(faceX + 1, faceY + 3, 3, 2, COL_LIGHT);
+      drawRect(faceX + 8, faceY + 3, 3, 2, COL_LIGHT);
+      drawRect(faceX + 2, faceY + 8, 8, 2, COL_LIGHT);
+      // 怒りマーク（屋根より上で点滅）
+      if (frameCount % 10 < 6) {
+        ctx.font = '22px serif';
+        ctx.fillText('💢', hx + hw / 2 - 11, 122);
+      }
+    } else {
+      // 不機嫌
+      drawRect(faceX + 2, faceY + 4, 3, 2, COL_LIGHT);
+      drawRect(faceX + 8, faceY + 4, 3, 2, COL_LIGHT);
+      drawRect(faceX + 3, faceY + 9, 6, 1, COL_LIGHT);
+    }
+  }
+
+  // --- 仕切り（宿との境界線） ---
+  drawRect(WALL_RIGHT - 1, 130, 4, baseY - 130, COL_DARK);
+
+  // --- ダメージ蓄積（下から赤く染まる） ---
+  if (noiseLevel > 0) {
+    ctx.save();
+    const totalH = baseY - 155;
+    const fillH = Math.min(totalH, (noiseLevel / 100) * totalH);
+    const fillY = baseY - fillH;
+    const alpha = 0.3 + (noiseLevel / 100) * 0.5;
+
+    // 壁面部分を赤く塗る
+    ctx.beginPath();
+    ctx.rect(hx + 2, 157, hw - 4, baseY - 159);
+    ctx.clip();
+    ctx.fillStyle = `rgba(200, 0, 0, ${alpha})`;
+    ctx.fillRect(hx + 2, fillY, hw - 4, fillH);
+    ctx.restore();
+
+    // 屋根も赤く染める（70%以上）
+    if (noiseLevel >= 70) {
+      ctx.save();
+      const roofAlpha = ((noiseLevel - 70) / 30) * 0.5;
+      ctx.fillStyle = `rgba(200, 0, 0, ${roofAlpha})`;
+      ctx.beginPath();
+      ctx.moveTo(hx, 155);
+      ctx.lineTo(hx + hw / 2, 135);
+      ctx.lineTo(hx + hw, 155);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+// 壁への衝撃エフェクト描画
+function drawWallHitEffect(eff) {
+  const alpha = eff.life / eff.maxLife;
+  const r = (1 - alpha) * 12 + 4;
+  // 衝撃の円（ドット風）
+  for (let i = 0; i < 8; i++) {
+    const angle = (Math.PI * 2 / 8) * i;
+    const px = eff.x + Math.cos(angle) * r * alpha;
+    const py = eff.y + Math.sin(angle) * r * alpha;
+    drawRect(px, py, 3, 3, COL_DARK);
+  }
+}
+
+// クレーム弾描画（隣家→室内へ飛んでくる）
+function drawComplaint(c) {
+  drawRect(c.x - 1, c.y - 1, 14, 14, COL_DARK);
+  drawRect(c.x, c.y, 12, 12, COL_MID);
+  ctx.font = 'bold 8px monospace';
+  ctx.fillStyle = COL_LIGHT;
+  ctx.fillText('怒', c.x + 1, c.y + 10);
+}
+
+// アラーム表示（室内タブレット風）
+function drawAlarm() {
+  if (alarmTimer <= 0) return;
+  const flash = frameCount % 8 < 4;
+
+  // タブレット枠（画面中央上部）
+  const ax = 80, ay = 50, aw = 160, ah = 60;
+  drawRect(ax - 2, ay - 2, aw + 4, ah + 4, COL_DARK);
+  drawRect(ax, ay, aw, ah, flash ? COL_DARK : COL_MID);
+
+  // テキスト
+  ctx.fillStyle = flash ? COL_BG : COL_LIGHT;
+  ctx.font = 'bold 11px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('⚠ 騒音クレーム ⚠', ax + aw / 2, ay + 22);
+  ctx.font = '9px monospace';
+  ctx.fillText(alarmText, ax + aw / 2, ay + 40);
+  ctx.textAlign = 'left';
+
+  // 音波エフェクト（タブレット脇）
+  if (flash) {
+    ctx.font = '10px monospace';
+    ctx.fillStyle = COL_DARK;
+    ctx.fillText('))))', ax + aw + 4, ay + 30);
+    ctx.fillText('((((', ax - 24, ay + 30);
+  }
+}
+
+// パーティクル
+function spawnParticles(x, y, color) {
+  for (let i = 0; i < 6; i++) {
+    particles.push({
+      x: x, y: y,
+      vx: (Math.random() - 0.5) * 4,
+      vy: (Math.random() - 0.5) * 4,
+      life: 12,
+      size: 2 + Math.random() * 3,
+      color: color || COL_DARK
+    });
+  }
+}
+
+// ===== ゲームロジック =====
+function getElapsed() {
+  return GAME_DURATION - timeLeft + (frameCount % 30) / 30;
+}
+
+function spawnNoiseItem() {
+  const type = NOISE_TYPES[Math.floor(Math.random() * NOISE_TYPES.length)];
+  const elapsed = getElapsed();
+
+  // スピード倍率
+  let speedMult;
+  if (playCount === 1) {
+    // 初回: ゆっくり始めて10秒過ぎから急加速→13秒頃に詰む
+    if (elapsed < 6) {
+      speedMult = 1.0;
+    } else if (elapsed < 10) {
+      speedMult = 1.5 + (elapsed - 6) * 0.2;
+    } else {
+      speedMult = 2.3 + (elapsed - 10) * 0.5;
+    }
+  } else {
+    // 2回目以降: 5秒からスピードアップ
+    if (elapsed < 5) {
+      speedMult = 1.0;
+    } else if (elapsed < 10) {
+      speedMult = 1.8 + (elapsed - 5) * 0.15;
+    } else if (elapsed < 15) {
+      speedMult = 2.6 + (elapsed - 10) * 0.2;
+    } else {
+      speedMult = 3.6 + (elapsed - 15) * 0.25;
+    }
+  }
+
+  noiseItems.push({
+    x: -type.size,
+    y: 145 + Math.random() * 50,
+    type: type,
+    speed: type.speed * speedMult,
+    active: true,
+    passedPlayer: false,
+    hitWall: false
+  });
+}
+
+function handleTap() {
+  if (gameState === 'title') {
+    startGame();
+    return;
+  }
+  if (gameState === 'gameover' && gameOverReady) {
+    // 進めるかどうかでボタン表示を切り替え
+    document.getElementById('proceed-from-gameover').style.display =
+      canProceed ? 'block' : 'none';
+    document.getElementById('complaint-overlay').style.display = 'flex';
+    return;
+  }
+  if (gameState !== 'playing' || playerDead) return;
+
+  // プレイヤーより左にある一番近いアクティブアイテムを消す
+  let closest = null;
+  let closestDist = Infinity;
+
+  for (const item of noiseItems) {
+    if (!item.active || item.passedPlayer) continue;
+    const dist = player.x - item.x;
+    if (dist > -10 && dist < closestDist) {
+      closestDist = dist;
+      closest = item;
+    }
+  }
+
+  if (closest && closestDist < 40) {
+    closest.active = false;
+    score += 10;
+    spawnParticles(closest.x + closest.type.size / 2, closest.y + closest.type.size / 2, COL_MID);
+    playTapSound();
+  }
+}
+
+function startGame() {
+  playCount++;
+  gameState = 'playing';
+  noiseLevel = 0;
+  score = 0;
+  timeLeft = GAME_DURATION;
+  frameCount = 0;
+  spawnTimer = 0;
+  shakeTimer = 0;
+  playerDead = false;
+  noiseItems = [];
+  particles = [];
+  hitItems = [];
+  complaints = [];
+  alarmTimer = 0;
+  alarmText = '';
+  wallHitEffects = [];
+  neighborAnger = 0;
+  player.deadY = 0;
+  player.deadVel = 0;
+  document.getElementById('complaint-overlay').style.display = 'none';
+  document.getElementById('clear-overlay').style.display = 'none';
+}
+
+function restartGame() {
+  startGame();
+}
+
+function goToForm() {
+  window.location.href = '/guest-form.html';
+}
+
+function triggerComplaint(item) {
+  // 壁衝撃のみ（クレーム弾やアラームは出さない）
+}
+
+function gameOver() {
+  gameState = 'gameover';
+  playerDead = true;
+  player.deadVel = -4;
+  gameOverReady = false;
+  gameOverCount++;
+  if (gameOverCount >= 3) canProceed = true;
+
+  // ブザー音
+  playBuzzer();
+
+  // 1.2秒後にタップ受付可能にする（演出を見せてから）
+  setTimeout(() => {
+    gameOverReady = true;
+  }, 1200);
+}
+
+function gameClear() {
+  gameState = 'clear';
+  canProceed = true;
+  const rating = noiseLevel < 20 ? 'とても静か' :
+                 noiseLevel < 50 ? 'まあまあ静か' : 'ギリギリセーフ';
+
+  document.getElementById('clear-score-text').textContent =
+    `スコア: ${score} / 騒音: ${rating}`;
+
+  const uniqueTypes = new Set(hitItems);
+  let tips = '';
+  const seen = new Set();
+  for (const type of NOISE_TYPES) {
+    if (uniqueTypes.has(type.id) && !seen.has(type.tip)) {
+      tips += type.tip + '\n';
+      seen.add(type.tip);
+    }
+  }
+  if (!tips) {
+    tips = '✓ 室内での宴会は控えめに\n✓ 音楽・歌唱は禁止です\n✓ 玄関先での大声はNG';
+  }
+
+  document.getElementById('clear-tips').textContent = tips;
+
+  setTimeout(() => {
+    document.getElementById('clear-overlay').style.display = 'flex';
+  }, 500);
+}
+
+// ===== サウンド =====
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  return audioCtx;
+}
+
+function playBuzzer() {
+  try {
+    const ac = getAudioCtx();
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.connect(gain);
+    gain.connect(ac.destination);
+    osc.type = 'square';
+    osc.frequency.value = 200;
+    gain.gain.value = 0.15;
+    const now = ac.currentTime;
+    osc.start(now);
+    gain.gain.setValueAtTime(0.15, now);
+    gain.gain.setValueAtTime(0, now + 0.15);
+    gain.gain.setValueAtTime(0.15, now + 0.2);
+    gain.gain.setValueAtTime(0, now + 0.35);
+    gain.gain.setValueAtTime(0.15, now + 0.4);
+    gain.gain.setValueAtTime(0, now + 0.55);
+    osc.stop(now + 0.6);
+  } catch (e) {}
+}
+
+function playTapSound() {
+  try {
+    const ac = getAudioCtx();
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.connect(gain);
+    gain.connect(ac.destination);
+    osc.type = 'square';
+    osc.frequency.value = 880;
+    gain.gain.value = 0.04;
+    const now = ac.currentTime;
+    osc.start(now);
+    osc.stop(now + 0.04);
+  } catch (e) {}
+}
+
+function playWallHitSound() {
+  try {
+    const ac = getAudioCtx();
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.connect(gain);
+    gain.connect(ac.destination);
+    osc.type = 'sawtooth';
+    osc.frequency.value = 80;
+    gain.gain.value = 0.12;
+    const now = ac.currentTime;
+    osc.start(now);
+    osc.stop(now + 0.1);
+  } catch (e) {}
+}
+
+function playAlarmSound() {
+  try {
+    const ac = getAudioCtx();
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.connect(gain);
+    gain.connect(ac.destination);
+    osc.type = 'square';
+    osc.frequency.value = 600;
+    gain.gain.value = 0.08;
+    const now = ac.currentTime;
+    osc.start(now);
+    // ピーピー音
+    osc.frequency.setValueAtTime(600, now);
+    osc.frequency.setValueAtTime(400, now + 0.1);
+    osc.frequency.setValueAtTime(600, now + 0.2);
+    osc.frequency.setValueAtTime(400, now + 0.3);
+    osc.frequency.setValueAtTime(600, now + 0.4);
+    gain.gain.setValueAtTime(0, now + 0.5);
+    osc.stop(now + 0.55);
+  } catch (e) {}
+}
+
+function playComplaintHitSound() {
+  try {
+    const ac = getAudioCtx();
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.connect(gain);
+    gain.connect(ac.destination);
+    osc.type = 'square';
+    osc.frequency.value = 150;
+    gain.gain.value = 0.1;
+    const now = ac.currentTime;
+    osc.start(now);
+    osc.stop(now + 0.12);
+  } catch (e) {}
+}
+
+// ===== メインループ =====
+let lastTime = 0;
+let accumulator = 0;
+const TICK = 1000 / 30; // 30fps
+
+function gameLoop(timestamp) {
+  if (!lastTime) lastTime = timestamp;
+  const delta = timestamp - lastTime;
+  lastTime = timestamp;
+  accumulator += delta;
+
+  while (accumulator >= TICK) {
+    update();
+    accumulator -= TICK;
+  }
+
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+function update() {
+  frameCount++;
+
+  if (gameState === 'title') return;
+  if (gameState !== 'playing') {
+    if (playerDead) {
+      player.deadVel += 0.3;
+      player.deadY += player.deadVel;
+    }
+    // パーティクル更新（ゲームオーバー中も）
+    for (const p of particles) { p.x += p.vx; p.y += p.vy; p.life--; }
+    particles = particles.filter(p => p.life > 0);
+    return;
+  }
+
+  // タイマー
+  if (frameCount % 30 === 0) {
+    timeLeft--;
+    if (timeLeft <= 0) {
+      gameClear();
+      return;
+    }
+  }
+
+  const elapsed = getElapsed();
+
+  // アイテムスポーン
+  spawnTimer++;
+  let spawnInterval;
+
+  if (playCount === 1) {
+    // 初回: 最初はゆったり、10秒過ぎから詰め込む→13秒頃に詰む
+    if (elapsed < 6) {
+      spawnInterval = 30;
+    } else if (elapsed < 10) {
+      spawnInterval = 18;
+    } else {
+      spawnInterval = 6;
+    }
+  } else {
+    // 2回目以降: 通常難易度
+    if (elapsed < 5) {
+      spawnInterval = 28;
+    } else if (elapsed < 10) {
+      spawnInterval = 14;
+    } else if (elapsed < 15) {
+      spawnInterval = 9;
+    } else {
+      spawnInterval = 6;
+    }
+  }
+
+  if (spawnTimer >= spawnInterval) {
+    spawnNoiseItem();
+    if (playCount === 1) {
+      // 初回: 10秒過ぎから同時スポーン開始
+      if (elapsed >= 10) spawnNoiseItem();
+      if (elapsed >= 12) spawnNoiseItem();
+    } else {
+      // 2回目以降はたまに同時出し
+      if (elapsed >= 10 && Math.random() < 0.3) spawnNoiseItem();
+      if (elapsed >= 16 && Math.random() < 0.4) spawnNoiseItem();
+    }
+    spawnTimer = 0;
+  }
+
+  // アイテム更新
+  for (const item of noiseItems) {
+    if (!item.active) continue;
+    item.x += item.speed;
+
+    // プレイヤーを通過した
+    if (!item.passedPlayer && item.x > player.x + player.w) {
+      item.passedPlayer = true;
+    }
+
+    // 隣家の壁に激突
+    if (!item.hitWall && item.x + item.type.size >= WALL_RIGHT) {
+      item.hitWall = true;
+      item.active = false;
+      neighborAnger++;
+      noiseLevel += item.type.noise;
+      hitItems.push(item.type.id);
+
+      // 壁衝撃エフェクト
+      wallHitEffects.push({
+        x: WALL_RIGHT,
+        y: item.y + item.type.size / 2,
+        life: 12,
+        maxLife: 12
+      });
+
+      shakeTimer = 4;
+      playWallHitSound();
+
+      // 隣家からクレーム発射
+      triggerComplaint(item);
+
+      if (noiseLevel >= 100) {
+        gameOver();
+        return;
+      }
+    }
+  }
+
+  // 画面外アイテム削除
+  noiseItems = noiseItems.filter(item => item.x < CANVAS_W + 30);
+
+  // クレーム弾更新（右→左に飛んでくる）
+  for (const c of complaints) {
+    if (!c.active) continue;
+    c.x -= c.speed;
+
+    // プレイヤーに命中
+    if (c.x <= player.x + player.w && c.x + 12 >= player.x &&
+        c.y <= player.y + 24 && c.y + 12 >= player.y) {
+      c.active = false;
+      shakeTimer = 5;
+      spawnParticles(player.x + 8, player.y + 12, COL_DARK);
+      playComplaintHitSound();
+    }
+
+    // 画面外
+    if (c.x < -20) c.active = false;
+  }
+  complaints = complaints.filter(c => c.active);
+
+  // パーティクル更新
+  for (const p of particles) { p.x += p.vx; p.y += p.vy; p.life--; }
+  particles = particles.filter(p => p.life > 0);
+
+  // 壁衝撃エフェクト
+  for (const e of wallHitEffects) e.life--;
+  wallHitEffects = wallHitEffects.filter(e => e.life > 0);
+
+  // シェイク
+  if (shakeTimer > 0) shakeTimer--;
+
+  // アラーム
+  if (alarmTimer > 0) alarmTimer--;
+
+  // 自然減少（ゆっくり）
+  if (frameCount % 15 === 0 && noiseLevel > 0) {
+    noiseLevel = Math.max(0, noiseLevel - 1);
+  }
+}
+
+function draw() {
+  ctx.save();
+  if (shakeTimer > 0) {
+    ctx.translate((Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3);
+  }
+
+  // 背景
+  ctx.fillStyle = COL_BG;
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+  if (gameState === 'title') {
+    drawTitleScreen();
+    ctx.restore();
+    return;
+  }
+
+  // --- 宿の室内描画 ---
+  // 宿エリア背景（明るい色で隣家と差をつける）
+  drawRect(0, 134, WALL_RIGHT - 2, 98, COL_BG);
+
+  // 天井
+  drawRect(0, 130, WALL_RIGHT, 4, COL_DARK);
+  // 壁面ライン
+  drawRect(0, 134, WALL_RIGHT - 2, 2, COL_LIGHT);
+  // 床
+  drawRect(0, 232, CANVAS_W, 4, COL_DARK);
+  drawRect(0, 236, CANVAS_W, 52, COL_MID);
+
+  // 「宿の室内」ラベル
+  ctx.fillStyle = COL_MID;
+  ctx.font = 'bold 9px monospace';
+  ctx.fillText('【 宿の室内 】', 85, 248);
+
+  // 窓
+  drawRect(90, 145, 36, 28, COL_DARK);
+  drawRect(92, 147, 32, 24, COL_LIGHT);
+  drawRect(107, 147, 2, 24, COL_DARK);
+  drawRect(92, 158, 32, 2, COL_DARK);
+
+  // 隣家
+  drawNeighborHouse();
+
+  // 壁衝撃エフェクト
+  for (const eff of wallHitEffects) {
+    drawWallHitEffect(eff);
+  }
+
+  // 騒音アイテム（通過中も描画）
+  for (const item of noiseItems) {
+    if (item.active) {
+      drawNoiseItem(item);
+    }
+  }
+
+  // クレーム弾
+  for (const c of complaints) {
+    if (c.active) drawComplaint(c);
+  }
+
+  // パーティクル
+  for (const p of particles) {
+    drawRect(p.x, p.y, p.size, p.size, p.color || COL_DARK);
+  }
+
+  // プレイヤー
+  if (playerDead) {
+    drawPlayer(player.x, player.y + player.deadY, true);
+  } else {
+    drawPlayer(player.x, player.y, false);
+  }
+
+  // アラーム表示
+  drawAlarm();
+
+  // --- HUD ---
+  // 時間
+  ctx.fillStyle = COL_DARK;
+  ctx.font = 'bold 11px monospace';
+  ctx.fillText(`残り ${timeLeft}秒`, 10, 22);
+
+  // スコア
+  ctx.font = 'bold 10px monospace';
+  ctx.fillText(`${score}pt`, 10, 38);
+
+  // ゲームオーバー時の表示
+  if (gameState === 'gameover') {
+    // 上部に「騒音クレーム発生！！」
+    ctx.textAlign = 'center';
+    if (frameCount % 50 < 35) {
+      // 背景帯
+      drawRect(0, 46, CANVAS_W, 28, COL_DARK);
+      ctx.fillStyle = '#ff4444';
+      ctx.font = 'bold 18px monospace';
+      ctx.fillText('騒音クレーム発生！！', CANVAS_W / 2, 67);
+    }
+
+    // タップ案内（白背景帯で視認性確保）
+    if (gameOverReady && frameCount % 50 < 35) {
+      drawRect(0, CANVAS_H - 36, CANVAS_W, 24, COL_DARK);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 12px monospace';
+      ctx.fillText('タップしてください', CANVAS_W / 2, CANVAS_H - 20);
+    }
+    ctx.textAlign = 'left';
+  }
+
+  ctx.restore();
+}
+
+function drawTitleScreen() {
+  ctx.fillStyle = COL_DARK;
+  ctx.font = 'bold 20px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('しずかにステイ！', CANVAS_W / 2, 70);
+
+  ctx.font = 'bold 10px monospace';
+  ctx.fillText('〜 騒音をブロックせよ 〜', CANVAS_W / 2, 92);
+
+  ctx.textAlign = 'left';
+  drawPlayer(152, 115, false);
+
+  // 流れてくるアイテムのイメージ
+  ctx.font = '14px serif';
+  const demoItems = ['🍺', '♪', '🎤', '♫', '🔊', '🎶'];
+  for (let i = 0; i < demoItems.length; i++) {
+    const dx = 30 + ((frameCount * 1.5 + i * 50) % 320);
+    ctx.fillText(demoItems[i], dx, 160 + Math.sin(frameCount * 0.1 + i) * 8);
+  }
+
+  ctx.textAlign = 'center';
+  ctx.font = '9px monospace';
+  ctx.fillStyle = COL_MID;
+  ctx.fillText('左から騒音の原因が迫ってくる！', CANVAS_W / 2, 185);
+  ctx.fillText('タップ / スペースで撃退せよ！', CANVAS_W / 2, 200);
+  ctx.fillText('消し損ねると隣家に激突→クレーム！', CANVAS_W / 2, 215);
+  ctx.fillText('騒音ゲージMAXで強制退去！', CANVAS_W / 2, 230);
+
+  if (frameCount % 50 < 35) {
+    ctx.fillStyle = COL_DARK;
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText('タップでスタート', CANVAS_W / 2, 262);
+  }
+  ctx.textAlign = 'left';
+}
+
+// ===== 入力 =====
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  handleTap();
+});
+
+canvas.addEventListener('click', () => {
+  handleTap();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' || e.code === 'Enter') {
+    e.preventDefault();
+    handleTap();
+  }
+});
+
+// ===== 開始 =====
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
