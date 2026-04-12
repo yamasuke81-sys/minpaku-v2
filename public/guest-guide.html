@@ -870,6 +870,7 @@
     ['#quickNav a:nth-child(1)', '⚠ 重要', '⚠ Important'],
     ['#quickNav a:nth-child(2)', '📋 名簿', '📋 Register'],
     ['#quickNav a:nth-child(3)', '🔑 入室', '🔑 Check-in'],
+    ['#quickNav a:nth-child(4)', '📶 Wi-Fi', '📶 Wi-Fi'],
     ['#quickNav a:nth-child(5)', '▶ 動画', '▶ Videos'],
     ['#quickNav a:nth-child(6)', '🚗 駐車場', '🚗 Parking'],
     ['#quickNav a:nth-child(7)', '📌 ルール', '📌 Rules'],
@@ -926,7 +927,7 @@
 
     /* ❹ 時間 */
     ['#hours h2', '🕐 時間', '🕐 Hours'],
-    ['#hours td:nth-child(1)', 'チェックイン', 'Check-in', 'tr:nth-child(1)'],
+    ['#hours tr:nth-child(1) td:nth-child(1)', 'チェックイン', 'Check-in'],
     ['#hours tr:nth-child(1) td:nth-child(2)', '15:00 〜 20:00<br><span class="text-muted small">（有料駐車場は17:00以降）</span>', '15:00 – 20:00<br><span class="text-muted small">(Paid parking from 17:00)</span>'],
     ['#hours tr:nth-child(2) td:nth-child(1)', 'チェックアウト', 'Check-out'],
     ['#hours tr:nth-child(2) td:nth-child(2)', '10:00まで<br><span class="text-muted small">（有料駐車場は9:30まで）</span>', 'By 10:00<br><span class="text-muted small">(Paid parking by 9:30)</span>'],
@@ -954,7 +955,7 @@
     ['#parking h3:nth-of-type(1)', '無料駐車場', 'Free Parking'],
     ['#parking .parking-table:nth-of-type(1) tr:nth-child(1) td:nth-child(2)', '軽・小型車 2台 or それ以外 1台', '2 compact cars OR 1 larger vehicle'],
     ['#parking .parking-table:nth-of-type(1) tr:nth-child(2) td:nth-child(2)', '軽自動車 1台', 'Compact car ×1'],
-    ['#parking .parking-table:nth-of-type(1) .disabled-slot:nth-of-type(2)', '使用禁止', 'Not Available'],
+    ['#parking .parking-table:nth-of-type(1) tr:nth-child(3) td:nth-child(2) .disabled-slot', '使用禁止', 'Not Available'],
     ['#parking .parking-table:nth-of-type(1) tr:nth-child(4) td:nth-child(2)', '大型車 1台', 'Large vehicle ×1'],
     ['#parking h3:nth-of-type(2)', '有料駐車場（カフェ駐車場）', 'Paid Parking (Café Lot)'],
     ['#parking > p.small.text-muted',
@@ -986,10 +987,10 @@
       'いろいろ細かいルールをもうけてしまっておりますが、一般的な内容がほとんどです、、、ご協力いただけますと幸いです！',
       'We have several rules, but most are common sense. Thank you for your cooperation!'],
     /* グループ見出し */
-    ['#rules .rule-group-title:nth-of-type(1)', '禁止事項', 'Prohibited'],
-    ['#rules .rule-group-title:nth-of-type(2)', '時間に関するルール', 'Time-Related Rules'],
-    ['#rules .rule-group-title:nth-of-type(3)', '施設利用', 'Facility Use'],
-    ['#rules .rule-group-title:nth-of-type(4)', 'その他', 'Other'],
+    ['#rules .rule-group-title:nth-of-type(2)', '禁止事項', 'Prohibited'],
+    ['#rules .rule-group-title:nth-of-type(3)', '時間に関するルール', 'Time-Related Rules'],
+    ['#rules .rule-group-title:nth-of-type(4)', '施設利用', 'Facility Use'],
+    ['#rules .rule-group-title:nth-of-type(5)', 'その他', 'Other'],
     /* アコーディオンボタン */
     ['[data-bs-target="#rule-pet"]', '🐾 ペットについて', '🐾 Pets'],
     ['[data-bs-target="#rule-smoking"]', '🚭 禁煙（タバコ・ベイプ・電子タバコ）', '🚭 No Smoking (incl. vape/e-cig)'],

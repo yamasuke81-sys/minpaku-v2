@@ -167,10 +167,10 @@
             <label class="form-label" id="lbl_carCount"></label>
             <select class="form-select" id="f_carCount" required>
               <option value="">--</option>
-              <option value="1">1台</option><option value="2">2台</option>
-              <option value="3">3台</option><option value="4">4台</option>
-              <option value="5">5台</option>
-              <option value="6">6台</option>
+              <option value="1" id="opt_car1">1台</option><option value="2" id="opt_car2">2台</option>
+              <option value="3" id="opt_car3">3台</option><option value="4" id="opt_car4">4台</option>
+              <option value="5" id="opt_car5">5台</option>
+              <option value="6" id="opt_car6">6台</option>
               <option value="over" id="opt_carOver">7台以上</option>
             </select>
           </div>
@@ -548,6 +548,7 @@
         carCountNoteWithPaid: "有料駐車場 {paidCount}台利用（{paidCost}円/泊）。残りは無料駐車場をご利用いただきます。",
         carCountNoteNoPaid: "※ すべて無料駐車場をご利用いただきます。",
         carCountNoteForcePaid: "この台数・車種では無料駐車場に収まらないため、有料駐車場の利用が必要です（2,000円/台/泊）。",
+        opt_car1: "1台", opt_car2: "2台", opt_car3: "3台", opt_car4: "4台", opt_car5: "5台", opt_car6: "6台",
         opt_bbqNo: "利用しない", opt_bbqYes: "利用する",
         opt_bed1: "2人で1台のベッドを利用（2階リビング）", opt_bed2: "1人1台ずつベッドを利用（1階和室）",
         opt_purp1: "出張", opt_purp2: "宮島", opt_purp3: "原爆ドーム", opt_purp4: "広島市内観光",
@@ -568,7 +569,9 @@
         checkOut: "Check-out Date <span class='required-mark'>*</span>",
         checkInTime: "Check-in Time <span class='required-mark'>*</span>",
         checkOutTime: "Check-out Time <span class='required-mark'>*</span>",
-        lateCheckOutNote: "* A penalty fee will be charged if check-out exceeds 10:00. Please be punctual.",
+        lateCheckOutSummary: "⚠️ Please check out before 10:00",
+        lateCheckOutNote1: "Cleaning staff will enter at 10:00.",
+        lateCheckOutNote2: "Late check-out penalty: ¥2,000/person per 15 minutes after 10:00.",
         guestCount: "Number of Guests (Adults) <span class='required-mark'>*</span>",
         guestCountInfants: "Infants (under 3)",
         bookingSite: "Where did you book? <span class='required-mark'>*</span>",
@@ -652,6 +655,7 @@
         carCountNoteWithPaid: "Paid parking: {paidCount} car(s) (¥{paidCost}/night). Remaining cars use free parking.",
         carCountNoteNoPaid: "* All cars will use free parking.",
         carCountNoteForcePaid: "Your vehicle combination requires paid parking (¥2,000/car/night).",
+        opt_car1: "1 car", opt_car2: "2 cars", opt_car3: "3 cars", opt_car4: "4 cars", opt_car5: "5 cars", opt_car6: "6 cars",
         opt_bbqNo: "No", opt_bbqYes: "Yes",
         opt_bed1: "Share 1 bed for 2 (2F living room)", opt_bed2: "1 bed each (1F Japanese room)",
         opt_purp1: "Business", opt_purp2: "Miyajima", opt_purp3: "Atomic Bomb Dome",
@@ -717,6 +721,7 @@
       document.getElementById("lbl_successMsg").innerHTML = t.successMsg;
       const optIds = ["opt_checkInAfter20","opt_rakuten","opt_jalan","opt_official","opt_direct","opt_bookingOther",
         "opt_tr_car","opt_tr_public","opt_tr_taxi","opt_tr_walk","opt_tr_other","opt_carOver",
+        "opt_car1","opt_car2","opt_car3","opt_car4","opt_car5","opt_car6",
         "opt_pp1","opt_pp2","opt_pp0",
         "opt_bbqNo","opt_bbqYes","opt_bed1","opt_bed2",
         "opt_purp1","opt_purp2","opt_purp3","opt_purp4","opt_purp5","opt_purp6","opt_purp7","opt_purp8","opt_purpOther"];
