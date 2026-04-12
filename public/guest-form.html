@@ -712,6 +712,7 @@
     // ===== 多言語適用 =====
     function applyLang() {
       const t = i18n[currentLang];
+      document.documentElement.lang = currentLang;
       document.getElementById("formTitle").textContent = t.formTitle;
       document.getElementById("formSubtitle").textContent = t.formSubtitle;
       document.getElementById("lbl_bookingInfo").textContent = t.bookingInfo;

@@ -137,7 +137,7 @@ const GuestsPage = {
       const sourceIcon = this.getSourceIcon(g.source);
       return `
         <tr data-id="${g.id}" class="guest-row ${g._coMismatch ? "table-warning" : ""}">
-          <td>${this.escapeHtml(g.checkIn || "-")}</td>
+          <td>${this.escapeHtml(g.checkIn || "-")}${g.checkInTime ? `<br><small class="text-muted">${this.escapeHtml(g.checkInTime)}</small>` : ""}</td>
           <td>
             <strong>${this.escapeHtml(g.guestName || "-")}</strong>
             ${companionCount > 0 ? `<br><small class="text-muted">他${companionCount}名</small>` : ""}
@@ -386,6 +386,16 @@ const GuestsPage = {
     const body = document.getElementById("guestDetailBody");
     const companions = g.guests || [];
 
+    // 駐車場割当の表示用テキスト生成
+    const parkingAllocText = (g.parkingAllocation || []).map(a =>
+      `${a.index}台目(${this.escapeHtml(a.vehicleType || "")}) → ${this.escapeHtml(a.spot || "")}`
+    ).join("<br>") || "-";
+
+    // パスポート写真リンク生成（代表者 + 同行者）
+    const passportPhotos = [];
+    if (g.passportPhotoUrl) passportPhotos.push({ name: g.guestName || "代表者", url: g.passportPhotoUrl });
+    companions.forEach(c => { if (c.passportPhotoUrl) passportPhotos.push({ name: c.name || "同行者", url: c.passportPhotoUrl }); });
+
     body.innerHTML = `
       <div class="row g-3">
         <div class="col-md-6">
@@ -403,16 +413,58 @@ const GuestsPage = {
         <div class="col-md-6">
           <h6 class="border-bottom pb-1 mb-2">宿泊情報</h6>
           <table class="table table-sm table-borderless">
-            <tr><th style="width:120px">チェックイン</th><td>${this.escapeHtml(g.checkIn || "-")}</td></tr>
-            <tr><th>チェックアウト</th><td>${this.escapeHtml(g.checkOut || "-")}${g._coMismatch ? `<br><span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle"></i> 予約サイトとCO日が異なります（${this.escapeHtml(g._coOriginal)} vs ${this.escapeHtml(g._coIncoming)}）</span>` : ""}</td></tr>
+            <tr><th style="width:120px">チェックイン</th><td>${this.escapeHtml(g.checkIn || "-")} ${this.escapeHtml(g.checkInTime || "")}</td></tr>
+            <tr><th>チェックアウト</th><td>${this.escapeHtml(g.checkOut || "-")} ${this.escapeHtml(g.checkOutTime || "")}${g._coMismatch ? `<br><span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle"></i> 予約サイトとCO日が異なります（${this.escapeHtml(g._coOriginal)} vs ${this.escapeHtml(g._coIncoming)}）</span>` : ""}</td></tr>
             <tr><th>宿泊人数</th><td>${g.guestCount || "-"}名${g.guestCountInfants ? ` (乳幼児${g.guestCountInfants}名)` : ""}</td></tr>
             <tr><th>予約元</th><td>${this.getSourceIcon(g.source)} ${this.escapeHtml(g.bookingSite || "")}</td></tr>
             <tr><th>BBQ</th><td>${this.escapeHtml(g.bbq || "-")}</td></tr>
             <tr><th>駐車場</th><td>${this.escapeHtml(g.parking || "-")}</td></tr>
+            ${g.bedChoice ? `<tr><th>ベッド</th><td>${this.escapeHtml(g.bedChoice)}</td></tr>` : ""}
             <tr><th>メモ</th><td>${this.escapeHtml(g.memo || "-")}</td></tr>
           </table>
         </div>
       </div>
+
+      <!-- 交通・駐車場 -->
+      ${g.transport ? `
+      <hr>
+      <h6><i class="bi bi-car-front"></i> 交通・駐車場</h6>
+      <table class="table table-sm table-borderless">
+        <tr><th style="width:120px">交通手段</th><td>${this.escapeHtml(g.transport)}</td></tr>
+        ${g.carCount ? `<tr><th>車台数</th><td>${g.carCount}台</td></tr>` : ""}
+        ${(g.vehicleTypes || []).length ? `<tr><th>車種</th><td>${g.vehicleTypes.map(v => this.escapeHtml(v)).join(", ")}</td></tr>` : ""}
+        ${g.parkingAllocation ? `<tr><th>駐車場割当</th><td>${parkingAllocText}</td></tr>` : ""}
+        ${g.paidParking ? `<tr><th>有料駐車場</th><td>${this.escapeHtml(g.paidParking)}</td></tr>` : ""}
+      </table>
+      ` : ""}
+
+      <!-- 緊急連絡先 -->
+      ${g.emergencyName || g.emergencyPhone ? `
+      <hr>
+      <h6><i class="bi bi-telephone"></i> 緊急連絡先</h6>
+      <table class="table table-sm table-borderless">
+        <tr><th style="width:120px">氏名</th><td>${this.escapeHtml(g.emergencyName || "-")}</td></tr>
+        <tr><th>電話番号</th><td>${this.escapeHtml(g.emergencyPhone || "-")}</td></tr>
+      </table>
+      ` : ""}
+
+      <!-- 前泊地・後泊地 -->
+      ${g.previousStay || g.nextStay ? `
+      <hr>
+      <h6><i class="bi bi-signpost-2"></i> 前後泊</h6>
+      <table class="table table-sm table-borderless">
+        ${g.previousStay ? `<tr><th style="width:120px">前泊地</th><td>${this.escapeHtml(g.previousStay)}</td></tr>` : ""}
+        ${g.nextStay ? `<tr><th style="width:120px">後泊地</th><td>${this.escapeHtml(g.nextStay)}</td></tr>` : ""}
+      </table>
+      ` : ""}
+
+      <!-- 同意状況 -->
+      <hr>
+      <h6><i class="bi bi-check-circle"></i> 同意状況</h6>
+      <table class="table table-sm table-borderless">
+        <tr><th style="width:120px">騒音ルール</th><td>${g.noiseAgree ? '<span class="badge bg-success">同意済</span>' : '<span class="badge bg-danger">未同意</span>'}</td></tr>
+        <tr><th>ハウスルール</th><td>${g.houseRuleAgree ? '<span class="badge bg-success">同意済</span>' : '<span class="badge bg-danger">未同意</span>'}</td></tr>
+      </table>
 
       ${companions.length > 0 ? `
         <hr>
@@ -433,6 +485,22 @@ const GuestsPage = {
               `).join("")}
             </tbody>
           </table>
+        </div>
+      ` : ""}
+
+      <!-- パスポート写真 -->
+      ${passportPhotos.length > 0 ? `
+        <hr>
+        <h6><i class="bi bi-image"></i> パスポート写真</h6>
+        <div class="row g-2">
+          ${passportPhotos.map(p => `
+            <div class="col-auto">
+              <a href="${this.escapeHtml(p.url)}" target="_blank" rel="noopener" class="d-block text-center">
+                <img src="${this.escapeHtml(p.url)}" alt="${this.escapeHtml(p.name)}" style="max-width:200px;max-height:150px;border-radius:8px;border:1px solid #dee2e6;">
+                <small class="d-block mt-1 text-muted">${this.escapeHtml(p.name)}</small>
+              </a>
+            </div>
+          `).join("")}
         </div>
       ` : ""}
     `;
