@@ -304,7 +304,7 @@ async function sendNotificationEmail_(to, subject, body) {
   // RFC 2822形式のメール本文を作成
   const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString("base64")}?=`;
   const messageParts = [
-    `From: ${senderEmail}`,
+    `From: ${tokenData.email || "me"}`,
     `To: ${to}`,
     `Subject: ${utf8Subject}`,
     "MIME-Version: 1.0",
@@ -328,4 +328,5 @@ module.exports = {
   sendApprovalRequest,
   verifySignature,
   notifyOwner,
+  sendNotificationEmail_,
 };

@@ -64,6 +64,10 @@ function requireOwner(req, res, next) {
 const gmailAuthApi = require("./api/gmail-auth");
 app.use("/gmail-auth", gmailAuthApi(db));
 
+// ========== 宿泊者名簿 編集API（トークンベース・認証不要） ==========
+const guestEditApi = require("./api/guest-edit");
+app.use("/guest-edit", guestEditApi(db));
+
 app.use(authenticate);
 
 // ========== スタッフ API ==========
@@ -171,6 +175,27 @@ exports.checkTaxDocsDrive = onSchedule({
 //   region: "asia-northeast1",
 //   timeZone: "Asia/Tokyo",
 // }, require("./scheduled/watchGmail"));
+
+// 有料駐車場 請求・催促メール（毎朝8:00 JST）
+exports.sendParkingInvoice = onSchedule({
+  schedule: "0 8 * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/sendParkingInvoice"));
+
+// キーボックス番号メール送信（毎朝7:00 JST）
+exports.sendKeyboxEmail = onSchedule({
+  schedule: "0 7 * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/sendKeyboxEmail"));
+
+// iCal同期（30分おき）— Beds24導入後はこちらを無効化
+exports.syncIcal = onSchedule({
+  schedule: "every 30 minutes",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/syncIcal"));
 
 // BEDS24同期（5分おき）— BEDS24登録後に有効化
 // exports.syncBeds24 = onSchedule({

@@ -141,6 +141,73 @@ module.exports = function guestsApi(db) {
     }
   });
 
+  // 宿泊者名簿 確認（オーナーが「確認済み」にする）
+  router.put("/:id/confirm", async (req, res) => {
+    try {
+      const docRef = collection.doc(req.params.id);
+      const doc = await docRef.get();
+      if (!doc.exists) return res.status(404).json({ error: "見つかりません" });
+
+      const data = doc.data();
+      if (data.status === "confirmed") {
+        return res.json({ success: true, message: "既に確認済みです" });
+      }
+
+      await docRef.update({
+        status: "confirmed",
+        confirmedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      // 宿泊者にメール送信
+      const guestEmail = data.email;
+      if (guestEmail) {
+        try {
+          const { sendNotificationEmail_ } = require("../utils/lineNotify");
+          const { renderTemplate, getTemplates } = require("../utils/emailTemplates");
+          const templates = await getTemplates(db);
+          const vars = {
+            guestName: data.guestName || "ゲスト",
+            checkIn: data.checkIn || "?",
+            checkOut: data.checkOut || "?",
+            checkInTime: data.checkInTime || "",
+            checkOutTime: data.checkOutTime || "",
+          };
+          const subject = renderTemplate(templates.ownerConfirmed.subject, vars);
+          const body = renderTemplate(templates.ownerConfirmed.body, vars);
+          await sendNotificationEmail_(guestEmail, subject, body);
+        } catch (e) {
+          console.error("確認メール送信失敗:", e.message);
+        }
+      }
+
+      res.json({ success: true, message: "確認済みにしました。宿泊者にメールを送信しました。" });
+    } catch (e) {
+      console.error("confirm エラー:", e);
+      res.status(500).json({ error: "確認に失敗しました" });
+    }
+  });
+
+  // 駐車場料金 入金確認
+  router.put("/:id/parking-paid", async (req, res) => {
+    try {
+      const docRef = collection.doc(req.params.id);
+      const doc = await docRef.get();
+      if (!doc.exists) return res.status(404).json({ error: "見つかりません" });
+
+      await docRef.update({
+        parkingPaymentConfirmed: true,
+        parkingPaymentConfirmedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      res.json({ success: true, message: "入金確認済みにしました" });
+    } catch (e) {
+      console.error("parking-paid エラー:", e);
+      res.status(500).json({ error: "入金確認に失敗しました" });
+    }
+  });
+
   return router;
 };
 
