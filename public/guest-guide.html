@@ -858,14 +858,222 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
-  /* i18n基盤（将来の多言語化用） */
-  const i18n = { ja: {}, en: {} };
+  /* ========================================
+   * i18n — セレクタベース翻訳エンジン
+   * HTML側の変更不要。セレクタ→[ja, en]のマッピングで翻訳する
+   * ======================================== */
+
+  /* [セレクタ, ja, en] の配列。jaはHTMLのデフォルト値と一致させる */
+  const translations = [
+    /* ヘッダー・ナビ */
+    ['.guide-header h1', 'ご宿泊者様へ', 'Guest Information'],
+    ['#quickNav a:nth-child(1)', '⚠ 重要', '⚠ Important'],
+    ['#quickNav a:nth-child(2)', '📋 名簿', '📋 Register'],
+    ['#quickNav a:nth-child(3)', '🔑 入室', '🔑 Check-in'],
+    ['#quickNav a:nth-child(5)', '▶ 動画', '▶ Videos'],
+    ['#quickNav a:nth-child(6)', '🚗 駐車場', '🚗 Parking'],
+    ['#quickNav a:nth-child(7)', '📌 ルール', '📌 Rules'],
+    ['#quickNav a:nth-child(8)', '🕐 時間', '🕐 Hours'],
+
+    /* ❶ 重要ルール */
+    ['#critical h2', '⚠ ご予約前にご確認ください', '⚠ Please Read Before Booking'],
+    ['#critical > p',
+      '当宿は閑静な住宅街にございます。夜遅くまでにぎやかに過ごされたい場合は、トラブル防止のため他施設をご検討ください。<br>※一般的な音量の会話であれば、夜間でも問題なくご利用いただけます。',
+      'Our property is located in a quiet residential area. If you plan to stay up late and be loud, please consider other accommodations.<br>* Normal conversation volume is perfectly fine, even at night.'],
+    /* 騒音 */
+    ['.rule-critical tr:nth-child(1) strong:first-child', '騒音禁止', 'Quiet Hours'],
+    ['.rule-critical tr:nth-child(1) .text-danger', '21:00 〜 翌8:00', '21:00 – 8:00'],
+    ['.rule-critical tr:nth-child(1) li:nth-child(1)', '21:00以降、屋外での通話・会話は禁止', 'No talking or phone calls outdoors after 21:00'],
+    ['.rule-critical tr:nth-child(1) li:nth-child(2)', '1階キッチンは隣家へ音が響きやすい構造です', 'The 1F kitchen easily transmits sound to neighbors'],
+    ['.rule-critical tr:nth-child(1) li:nth-child(3)', 'テレビ・音楽の音量にもご注意ください', 'Please keep TV and music volume low'],
+    /* パーティー */
+    ['.rule-critical tr:nth-child(2) strong', '宴会・イベント・パーティー', 'Parties / Events'],
+    ['.rule-critical tr:nth-child(2) .text-danger', '不可', 'Not Allowed'],
+    /* 人数 */
+    ['.rule-critical tr:nth-child(3) strong:first-child', '最大宿泊人数', 'Max Guests'],
+    ['.rule-critical tr:nth-child(3) > td:nth-child(2) > span', '10名', '10'],
+    ['.rule-critical tr:nth-child(3) li:nth-child(1)', '予約時の申告人数のみ宿泊可。宿泊しない方の入場も不可', 'Only the number of guests declared at booking. Non-staying visitors are also not allowed'],
+    ['.rule-critical tr:nth-child(3) li:nth-child(2)', '超過1名につき<strong>1万円</strong>の追加料金（防犯カメラで確認）', '<strong>¥10,000</strong> surcharge per extra person (verified by security cameras)'],
+    /* 即時退去 */
+    ['.eviction-banner strong', '<i class="bi bi-exclamation-triangle-fill me-1"></i>即時退去', '<i class="bi bi-exclamation-triangle-fill me-1"></i>Immediate Eviction'],
+    ['.eviction-banner span',
+      '— 近隣・警察から苦情が入った場合、時間帯を問わず即退去（返金なし）',
+      '— If a complaint is filed by neighbors or police, you must leave immediately regardless of time (no refund)'],
+    /* キャンセル */
+    ['.cancel-hint',
+      '<i class="bi bi-info-circle me-1"></i>24時間以内であれば無料でキャンセル可能です。',
+      '<i class="bi bi-info-circle me-1"></i>Free cancellation is available within 24 hours.'],
+
+    /* ❷ 宿泊者名簿 */
+    ['#guest-form h2', '📋 宿泊者名簿', '📋 Guest Registration'],
+    ['#guest-form > p', '上記ルールをご了承いただける方のみ、「宿泊者名簿」へのご入力をお願いいたします。', 'Please fill in the guest registration form only if you agree to the rules above.'],
+    ['#guest-form .btn-cta', '<i class="bi bi-pencil-square me-2"></i>宿泊者名簿に入力する', '<i class="bi bi-pencil-square me-2"></i>Fill in Guest Registration'],
+    ['#guest-form li:nth-child(1)', '鍵番号のご案内に必須の手続きです。', 'Required to receive your key code.'],
+    ['#guest-form li:nth-child(2)', '入力期限：<strong>チェックイン2日前まで</strong>', 'Deadline: <strong>2 days before check-in</strong>'],
+    ['#guest-form li:nth-child(3)', '期限までにご入力がない場合、予約をキャンセルさせていただく可能性があります。', 'Your reservation may be cancelled if not completed by the deadline.'],
+    ['#guest-form li:nth-child(4)', '直前予約の方は、予約後すぐにご入力をお願いします。', 'For last-minute bookings, please fill it in immediately after booking.'],
+
+    /* ❸ チェックイン */
+    ['#checkin h2', '🔑 チェックイン方法', '🔑 How to Check In'],
+    ['#checkin li:nth-child(1)', '現地にはスタッフはおりません。', 'There is no staff on-site.'],
+    ['#checkin li:nth-child(2)', 'カギは現地のキーボックスに入れております。ご自身で取り出してから入室してください。', 'The key is in a key box on-site. Please retrieve it yourself.'],
+    ['#checkin li:nth-child(3)',
+      'キーボックスの解錠番号は、<strong>チェックイン当日の早朝</strong>にお送りします。<br><span class="text-danger small">※宿泊者名簿の記入が必須です。</span>',
+      'The key box code will be sent on the <strong>morning of check-in</strong>.<br><span class="text-danger small">* Guest registration is required.</span>'],
+    ['#checkin li:nth-child(4)',
+      '送付方法：<span class="badge bg-secondary me-1">SMS</span>または<span class="badge bg-secondary">予約サイトのメッセージ機能</span>',
+      'Sent via: <span class="badge bg-secondary me-1">SMS</span> or <span class="badge bg-secondary">Booking platform message</span>'],
+
+    /* ❹ 時間 */
+    ['#hours h2', '🕐 時間', '🕐 Hours'],
+    ['#hours td:nth-child(1)', 'チェックイン', 'Check-in', 'tr:nth-child(1)'],
+    ['#hours tr:nth-child(1) td:nth-child(2)', '15:00 〜 20:00<br><span class="text-muted small">（有料駐車場は17:00以降）</span>', '15:00 – 20:00<br><span class="text-muted small">(Paid parking from 17:00)</span>'],
+    ['#hours tr:nth-child(2) td:nth-child(1)', 'チェックアウト', 'Check-out'],
+    ['#hours tr:nth-child(2) td:nth-child(2)', '10:00まで<br><span class="text-muted small">（有料駐車場は9:30まで）</span>', 'By 10:00<br><span class="text-muted small">(Paid parking by 9:30)</span>'],
+    ['#hours tr:nth-child(3) td:nth-child(1)', 'スタッフ対応', 'Staff Availability'],
+    ['#hours tr:nth-child(4) td:nth-child(1)', '騒音禁止時間', 'Quiet Hours'],
+
+    /* ❺ Wi-Fi */
+    ['#wifi h2', '📶 Wi-Fi', '📶 Wi-Fi'],
+    ['#wifi .wifi-label:nth-of-type(1)', 'SSID', 'SSID'],
+    ['#wifi .info-box',
+      '<i class="bi bi-exclamation-triangle me-1 text-warning"></i>現在ネット回線の速度が遅くなっております。ご迷惑おかけしますが何卒ご了承ください。',
+      '<i class="bi bi-exclamation-triangle me-1 text-warning"></i>Internet speed is currently slow. We apologize for the inconvenience.'],
+
+    /* ❻ 動画 */
+    ['#videos h2', '▶ 案内動画', '▶ Guide Videos'],
+    ['#videos > p', '各項目をタップすると動画が表示されます。', 'Tap each item to view the video.'],
+    ['[data-bs-target="#video1"]', '① 駐車場までのルート', '① Route to Parking'],
+    ['[data-bs-target="#video2"]', '② 駐車場からホテルまで', '② From Parking to Hotel'],
+    ['[data-bs-target="#video3"]', '③ キーボックスからカギを取り出す', '③ Retrieving the Key'],
+    ['[data-bs-target="#video4"]', '④ 玄関のカギを開ける', '④ Unlocking the Door'],
+    ['[data-bs-target="#video5"]', '⑤ 玄関のカギを閉める', '⑤ Locking the Door'],
+
+    /* ❼ 駐車場 */
+    ['#parking h2', '🚗 駐車場', '🚗 Parking'],
+    ['#parking h3:nth-of-type(1)', '無料駐車場', 'Free Parking'],
+    ['#parking .parking-table:nth-of-type(1) tr:nth-child(1) td:nth-child(2)', '軽・小型車 2台 or それ以外 1台', '2 compact cars OR 1 larger vehicle'],
+    ['#parking .parking-table:nth-of-type(1) tr:nth-child(2) td:nth-child(2)', '軽自動車 1台', 'Compact car ×1'],
+    ['#parking .parking-table:nth-of-type(1) .disabled-slot:nth-of-type(2)', '使用禁止', 'Not Available'],
+    ['#parking .parking-table:nth-of-type(1) tr:nth-child(4) td:nth-child(2)', '大型車 1台', 'Large vehicle ×1'],
+    ['#parking h3:nth-of-type(2)', '有料駐車場（カフェ駐車場）', 'Paid Parking (Café Lot)'],
+    ['#parking > p.small.text-muted',
+      '宿までの道が細く、駐車しにくい場合がございます。運転に自信がない方や大型車の方は、有料駐車場のご利用をおすすめします。徒歩15分と離れた場所ですが、大通り沿いで駐車がとても楽です。',
+      'The road to our property is narrow and parking can be difficult. We recommend the paid lot for large vehicles or less confident drivers. It\'s a 15-min walk away but on a main road with easy access.'],
+    ['#parking .parking-table:nth-of-type(2) tr:nth-child(1) td:nth-child(1)', '駐車料金', 'Fee'],
+    ['#parking .parking-table:nth-of-type(2) tr:nth-child(1) td:nth-child(2)', '<strong>2,000円</strong>（1台1泊）※ PayPayまたは楽天ペイのみ', '<strong>¥2,000</strong> per car/night — PayPay or Rakuten Pay only'],
+    ['#parking .parking-table:nth-of-type(2) tr:nth-child(2) td:nth-child(1)', '駐車可能台数', 'Capacity'],
+    ['#parking .parking-table:nth-of-type(2) tr:nth-child(2) td:nth-child(2)', '最大2台（大きさ問わず）', 'Max 2 cars (any size)'],
+    ['#parking .parking-table:nth-of-type(2) tr:nth-child(3) td:nth-child(1)', '駐車可能時間', 'Hours'],
+    ['#parking .parking-table:nth-of-type(2) tr:nth-child(3) td:nth-child(2)', '17:00 〜 翌朝9:30<br><span class="text-muted small">（カフェの営業時間外のみ）</span>', '17:00 – 9:30 next morning<br><span class="text-muted small">(Outside café hours only)</span>'],
+    ['#parking .parking-table:nth-of-type(2) tr:nth-child(4) td:nth-child(1)', '場所', 'Location'],
+    ['#parking .parking-table:nth-of-type(2) tr:nth-child(4) td:nth-child(2)', '(有)イッコー建築事務所 砂利敷き駐車場', 'Ikko Architecture Office — gravel lot'],
+    ['#parking p.small.mb-2',
+      '<i class="bi bi-check-circle text-success me-1"></i>大通りに面しており出入りが簡単 / 駐車スペースが広い / ローソンが近い / <a href="https://ikko-kentiku.com/calendar.html" target="_blank" rel="noopener">カフェでジェラートやコーヒーも</a>',
+      '<i class="bi bi-check-circle text-success me-1"></i>Easy access on main road / Spacious lot / Lawson nearby / <a href="https://ikko-kentiku.com/calendar.html" target="_blank" rel="noopener">Gelato & coffee at the café</a>'],
+    ['#parking .btn-outline-primary', '<i class="bi bi-map me-1"></i>MAPで見る', '<i class="bi bi-map me-1"></i>View on MAP'],
+    ['#parking .info-box p', '<i class="bi bi-info-circle me-1 text-warning"></i>有料駐車場ご利用の注意', '<i class="bi bi-info-circle me-1 text-warning"></i>Paid Parking Notes'],
+    ['#parking .info-box li:nth-child(1)', '地元のカフェ兼建築事務所の駐車場をお借りしています。', 'We rent this lot from a local café/architecture office.'],
+    ['#parking .info-box li:nth-child(2)', 'カフェの営業中（10:00〜17:00）は駐車できません。', 'No parking during café hours (10:00–17:00).'],
+    ['#parking .info-box li:nth-child(3)', 'チェックイン・チェックアウトの時間よりも駐車可能な時間が短いのでご注意ください。', 'Parking hours are shorter than check-in/out times.'],
+    ['#parking .info-box li:nth-child(4)', '連泊の場合でも、カフェ営業時間中は駐車できません。', 'Even for multi-night stays, no parking during café hours.'],
+    ['#parking .info-box li:nth-child(5)', 'カフェ所有の軽トラが停車している場合、軽トラが出られるよう配慮して駐車してください。', 'If the café\'s truck is parked there, please leave room for it to exit.'],
+    ['#parking .info-box li:nth-child(6)', 'カフェ主催のイベントなどにより、ご利用できない場合がございます。', 'The lot may be unavailable during café events.'],
+
+    /* ❽ ルール */
+    ['#rules h2', '📌 その他のルール', '📌 Other Rules'],
+    ['#rules > p',
+      'いろいろ細かいルールをもうけてしまっておりますが、一般的な内容がほとんどです、、、ご協力いただけますと幸いです！',
+      'We have several rules, but most are common sense. Thank you for your cooperation!'],
+    /* グループ見出し */
+    ['#rules .rule-group-title:nth-of-type(1)', '禁止事項', 'Prohibited'],
+    ['#rules .rule-group-title:nth-of-type(2)', '時間に関するルール', 'Time-Related Rules'],
+    ['#rules .rule-group-title:nth-of-type(3)', '施設利用', 'Facility Use'],
+    ['#rules .rule-group-title:nth-of-type(4)', 'その他', 'Other'],
+    /* アコーディオンボタン */
+    ['[data-bs-target="#rule-pet"]', '🐾 ペットについて', '🐾 Pets'],
+    ['[data-bs-target="#rule-smoking"]', '🚭 禁煙（タバコ・ベイプ・電子タバコ）', '🚭 No Smoking (incl. vape/e-cig)'],
+    ['[data-bs-target="#rule-checkin"]', '🏠 チェックイン', '🏠 Check-in'],
+    ['[data-bs-target="#rule-checkout"]', '👋 チェックアウト', '👋 Check-out'],
+    ['[data-bs-target="#rule-staffhours"]', '📞 スタッフの対応時間', '📞 Staff Hours'],
+    ['[data-bs-target="#rule-bbq"]', '🍖 バーベキュー', '🍖 BBQ'],
+    ['[data-bs-target="#rule-fireworks"]', '🎆 花火', '🎆 Fireworks'],
+    ['[data-bs-target="#rule-trash"]', '🗑️ ゴミの捨て方', '🗑️ Trash Disposal'],
+    ['[data-bs-target="#rule-equipment"]', '🛋️ 設備・備品', '🛋️ Equipment'],
+    ['[data-bs-target="#rule-bugs"]', '🐛 虫について', '🐛 Bugs/Insects'],
+    ['[data-bs-target="#rule-multistay"]', '🌙 連泊のお客様', '🌙 Multi-Night Stays'],
+    ['[data-bs-target="#rule-beforeco"]', '✅ チェックアウト前のお願い', '✅ Before Check-out'],
+    ['[data-bs-target="#rule-photo"]', '📷 商業目的での写真・動画', '📷 Commercial Photography'],
+    ['[data-bs-target="#rule-security"]', '🔒 セキュリティ', '🔒 Security'],
+    ['[data-bs-target="#rule-emergency"]', '🚨 緊急時', '🚨 Emergency'],
+    ['[data-bs-target="#rule-lost"]', '📦 忘れ物・鍵について', '📦 Lost Items & Keys'],
+    ['[data-bs-target="#rule-other"]', '📝 その他', '📝 Other'],
+    /* アコーディオン中身 */
+    ['#rule-pet li:nth-child(1)', 'ペットの宿泊は禁止です。', 'Pets are not allowed.'],
+    ['#rule-pet li:nth-child(2)', '確認された場合、特殊清掃費用を請求いたします。', 'Special cleaning fees will be charged if pets are found.'],
+    ['#rule-smoking li:nth-child(1)', '室内は電子タバコを含め完全禁煙です。', 'Smoking is strictly prohibited indoors, including e-cigarettes.'],
+    ['#rule-smoking li:nth-child(2)', '屋外テラスでの喫煙は可能ですが、吸い殻のポイ捨ては禁止です。', 'Smoking is allowed on the outdoor terrace. No littering of cigarette butts.'],
+    ['#rule-smoking li:nth-child(3)', '近隣から苦情が入った場合、ご退室の可能性があります。', 'You may be asked to leave if neighbors complain.'],
+    ['#rule-smoking li:nth-child(4)', '室内での喫煙が確認された場合、消臭および特別清掃の費用として<strong>10,000円</strong>を請求いたします。', 'If indoor smoking is confirmed, a <strong>¥10,000</strong> cleaning fee will be charged.'],
+    ['#rule-checkin li:nth-child(1)', 'チェックイン時間：15:00〜20:00', 'Check-in: 15:00–20:00'],
+    ['#rule-checkin li:nth-child(2)', '20:00を過ぎる場合は必ず事前にホストへご連絡ください。', 'Please contact the host in advance if arriving after 20:00.'],
+    ['#rule-checkin li:nth-child(3)', '20:00以降はホストと連絡がつきにくくなります。ご不明点がございましたら、本ページ（ハウスルール）をよくお読みいただき、ご自身での解決をお願いいたします。', 'The host may be difficult to reach after 20:00. Please refer to this page (House Rules) to resolve any questions on your own.'],
+    ['#rule-checkout li:nth-child(1)', 'チェックアウトは10:00まで。10:00を過ぎると清掃スタッフが入室します。', 'Check-out by 10:00. Cleaning staff will enter after 10:00.'],
+    ['#rule-checkout li:nth-child(2)', '10:00超過の場合、15分につき<strong>2,000円/人</strong>のペナルティが発生します。', 'Late check-out: <strong>¥2,000/person</strong> penalty per 15 minutes.'],
+    ['#rule-staffhours p', '6:00〜20:00。この時間帯以外は連絡がつきにくい場合があります。', '6:00–20:00. Outside these hours, we may be difficult to reach.'],
+    ['#rule-bbq li:nth-child(1)', '<strong>21時までに撤収</strong>（後片付け含む）', '<strong>Must finish by 21:00</strong> (including cleanup)'],
+    ['#rule-bbq li:nth-child(2)', '使用後はしっかり洗ってください。', 'Please wash all equipment after use.'],
+    ['#rule-bbq li:nth-child(3)', '生ゴミはビニール袋2重にして冷蔵庫最下段へ入れてください。', 'Double-bag food waste and place in the bottom of the fridge.'],
+    ['#rule-bbq li:nth-child(4)', 'ガスグリル・ガス・食器類・調理器具類はご用意しております。', 'Gas grill, fuel, dishes, and utensils are provided.'],
+    ['#rule-fireworks li:nth-child(1)', '<strong>20:00まで</strong>可能です。', 'Allowed until <strong>20:00</strong>.'],
+    ['#rule-fireworks li:nth-child(2)', '爆竹・打ち上げ花火・ロケット花火は禁止です。', 'Firecrackers, aerial fireworks, and bottle rockets are prohibited.'],
+    ['#rule-fireworks li:nth-child(3)', '水を入れたバケツを必ずご用意ください。', 'Always have a bucket of water ready.'],
+    ['#rule-fireworks li:nth-child(4)', '花火のゴミは持ち帰りをお願いします。見つかった場合は<strong>2,000円</strong>を請求します。', 'Please take firework waste with you. <strong>¥2,000</strong> charge if found.'],
+    ['#rule-trash li:nth-child(1)', 'ゴミ箱に記載の通り分別してください。', 'Please sort trash as indicated on the bins.'],
+    ['#rule-trash li:nth-child(2)', '入り切らない場合は袋の口を縛り、玄関土間に置いてください。', 'If bins are full, tie bags and leave them in the entrance area.'],
+    ['#rule-trash li:nth-child(3)', '生ゴミはビニール袋を2重にして冷蔵庫最下段へ入れてください。', 'Double-bag food waste and place in the bottom of the fridge.'],
+    ['#rule-trash li:nth-child(4)', 'ペットボトル・缶・ビンは水ですすいでから捨ててください。', 'Rinse bottles, cans, and jars before disposal.'],
+    ['#rule-equipment li:nth-child(1)', '大切にご使用ください。破損・紛失は速やかにご報告ください（費用請求の可能性があります）。', 'Please handle with care. Report any damage or loss promptly (charges may apply).'],
+    ['#rule-equipment li:nth-child(2)', '屋外備品を室内に持ち込まないでください。', 'Do not bring outdoor equipment indoors.'],
+    ['#rule-equipment li:nth-child(3)', '室内備品を屋外に持ち出さないでください。', 'Do not take indoor equipment outside.'],
+    ['#rule-bugs li:nth-child(1)', 'かなりの対策は施しておりますが、室内に虫が発生することがあります。', 'Despite extensive measures, insects may occasionally appear indoors.'],
+    ['#rule-bugs li:nth-child(2)', 'お客様ご自身で対処いただきますようお願いいたします。', 'Please handle them yourself.'],
+    ['#rule-bugs li:nth-child(3)', '殺虫スプレー置場：玄関の棚、2階リビングの冷蔵庫上', 'Insect spray: entrance shelf, above 2F fridge'],
+    ['#rule-bugs li:nth-child(4)', 'ほうき・チリトリ置場：1階の階段下、2階のトイレ前', 'Broom & dustpan: under 1F stairs, in front of 2F toilet'],
+    ['#rule-multistay li:nth-child(1)', 'タオル・シーツの交換はありません。洗濯機をご利用ください。', 'No towel/sheet replacement. Please use the washing machine.'],
+    ['#rule-multistay li:nth-child(2)', '滞在中の清掃は行いません。', 'No cleaning during your stay.'],
+    ['#rule-beforeco p', '使用した食器・調理器具・バーベキューセットは洗ってからお戻しください。', 'Please wash all dishes, utensils, and BBQ equipment before leaving.'],
+    ['#rule-photo p', '撮影可', 'Allowed'],
+    ['#rule-security p', '外出時・就寝時は必ず玄関の施錠をお願いします。', 'Always lock the front door when going out or sleeping.'],
+    ['#rule-emergency p', '<strong>119番</strong>（消防・救急）または <strong>110番</strong>（警察）に連絡後、ホストにもご連絡ください。', 'Call <strong>119</strong> (fire/ambulance) or <strong>110</strong> (police), then contact the host.'],
+    ['#rule-lost li:nth-child(1)', '忘れ物の発送は<strong>着払いのみ</strong>、発送手数料2,500円がかかります。', 'Lost items shipped <strong>COD only</strong>, ¥2,500 handling fee.'],
+    ['#rule-lost li:nth-child(2)', '鍵紛失は速やかにホストへご連絡ください。鍵交換費用の実費を請求いたします。', 'Report lost keys immediately. Lock replacement costs will be charged.'],
+    ['#rule-other li:nth-child(1)', 'アーリーチェックイン・レイトチェックアウトには対応しておりません。', 'No early check-in or late check-out.'],
+    ['#rule-other li:nth-child(2)', 'スーツケース等の大型ゴミの処分は不可です。残置された場合、処分費<strong>1万円</strong>を請求します。', 'No disposal of large items (suitcases, etc.). <strong>¥10,000</strong> charge if left behind.'],
+    ['#rule-other li:nth-child(3)', '屋外共用部に限り防犯カメラを設置しています（室内にはありません）。', 'Security cameras are installed in outdoor common areas only (not indoors).'],
+
+    /* フッター */
+    ['.guide-footer p:nth-child(2)', '緊急時は <strong>119番</strong> または <strong>110番</strong> へ', 'Emergency: call <strong>119</strong> or <strong>110</strong>'],
+  ];
+
   let currentLang = 'ja';
 
   function applyLang() {
+    /* ボタンのactive状態 */
     document.querySelectorAll('[data-lang]').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.lang === currentLang);
     });
+    /* html lang属性 */
+    document.documentElement.lang = currentLang === 'en' ? 'en' : 'ja';
+    /* テキスト差し替え */
+    const idx = currentLang === 'en' ? 2 : 1;
+    for (const t of translations) {
+      const el = document.querySelector(t[0]);
+      if (el) el.innerHTML = t[idx];
+    }
+    /* Wi-Fiラベル */
+    const pwLabel = document.querySelectorAll('#wifi .wifi-label');
+    if (pwLabel.length >= 2) pwLabel[1].textContent = currentLang === 'en' ? 'Password' : 'パスワード';
   }
 
   function setLang(lang) {
@@ -882,7 +1090,7 @@
         icon.classList.replace('bi-clipboard-check', 'bi-clipboard');
       }, 2000);
     }).catch(() => {
-      alert('コピーできませんでした。手動でコピーしてください。');
+      alert(currentLang === 'en' ? 'Could not copy. Please copy manually.' : 'コピーできませんでした。手動でコピーしてください。');
     });
   }
 
