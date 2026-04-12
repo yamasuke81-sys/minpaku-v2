@@ -4,15 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ご宿泊者様へ — the Terrace 長浜</title>
-  <!-- Bootstrap 5.3.2 -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <!-- Bootstrap Icons 1.11.3 -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <style>
-    /* === 共通トークン（guest-form.htmlと統一） === */
+    /* === 共通トークン === */
     body { background: #f0f4f8; min-height: 100vh; }
 
-    /* メインコンテナ */
     .guide-card {
       max-width: 640px;
       margin: 0 auto;
@@ -32,23 +29,29 @@
     .guide-header h1 { font-size: 1.3rem; margin: 0; padding-top: 2rem; }
     .guide-header p  { margin: 0.5rem 0 0; opacity: 0.85; font-size: 0.9rem; }
 
-    /* 言語切替ボタン（右上絶対配置） */
+    /* 言語切替 */
     .lang-switch { position: absolute; top: 0.5rem; right: 0.5rem; }
     .lang-switch .btn { font-size: 0.8rem; padding: 2px 10px; }
 
-    /* クイックナビ */
+    /* クイックナビ（グリッド） */
     .quick-nav {
       position: sticky;
       top: 0;
       z-index: 100;
       background: #fff;
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      padding: 0.5rem 1rem;
-      overflow-x: auto;
-      white-space: nowrap;
-      -webkit-overflow-scrolling: touch; /* iOS慣性スクロール対応 */
+      padding: 0.5rem 0.75rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      gap: 4px;
     }
-    .quick-nav .btn { font-size: 0.8rem; padding: 4px 12px; margin-right: 4px; border-radius: 20px; }
+    .quick-nav .btn {
+      font-size: 0.72rem;
+      padding: 6px 4px;
+      border-radius: 8px;
+      white-space: nowrap;
+      text-align: center;
+    }
 
     /* セクション見出し */
     .section-title {
@@ -56,19 +59,56 @@
       font-weight: 600;
       border-left: 4px solid #3498db;
       padding-left: 0.75rem;
-      margin: 1.5rem 0 1rem;
+      margin: 2rem 0 1rem;
     }
 
-    /* 警告ボックス（赤系） */
-    .warning-box {
-      background: #fff5f5;
-      border: 1px solid #e53e3e;
+    /* セクション区切り線 */
+    .section-divider {
+      border: none;
+      border-top: 2px solid #e2e8f0;
+      margin: 2rem 0;
+    }
+
+    /* === 重要ルールカード === */
+    .rule-critical {
+      background: #fef2f2;
+      border: 2px solid #e53e3e;
+      border-radius: 10px;
+      padding: 1rem 1.1rem;
+      margin-bottom: 0.75rem;
+    }
+    .rule-critical h6 {
+      color: #c53030;
+      font-weight: 700;
+      font-size: 0.95rem;
+      margin-bottom: 0.5rem;
+    }
+    .rule-critical ul { margin-bottom: 0; font-size: 0.88rem; }
+    .rule-critical li { margin-bottom: 0.3rem; }
+
+    /* 即時退去警告 */
+    .eviction-banner {
+      background: #c53030;
+      color: #fff;
       border-radius: 8px;
       padding: 0.75rem 1rem;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
+      margin-top: 0.75rem;
+    }
+    .eviction-banner strong { font-size: 0.95rem; }
+
+    /* キャンセル案内 */
+    .cancel-hint {
+      background: #ebf8ff;
+      border: 1px solid #90cdf4;
+      border-radius: 8px;
+      padding: 0.6rem 1rem;
+      font-size: 0.85rem;
+      margin-top: 0.75rem;
+      color: #2b6cb0;
     }
 
-    /* 情報ボックス（黄系） */
+    /* 情報ボックス */
     .info-box {
       background: #fffff0;
       border: 1px solid #d69e2e;
@@ -77,7 +117,7 @@
       font-size: 0.85rem;
     }
 
-    /* Wi-Fiコピーボタン */
+    /* Wi-Fi */
     .wifi-row {
       display: flex;
       align-items: center;
@@ -88,7 +128,7 @@
     .wifi-value { font-family: monospace; font-size: 1rem; font-weight: 600; flex: 1; }
     .btn-copy { padding: 2px 8px; font-size: 0.8rem; }
 
-    /* YouTube埋め込みコンテナ */
+    /* YouTube */
     .video-container { position: relative; width: 100%; }
     .video-container iframe { display: block; border: none; border-radius: 8px; }
 
@@ -96,8 +136,6 @@
     .parking-table { width: 100%; font-size: 0.9rem; }
     .parking-table td { padding: 0.35rem 0.5rem; vertical-align: top; }
     .parking-table td:first-child { white-space: nowrap; font-weight: 600; color: #2c3e50; }
-
-    /* 使用禁止（取り消し線） */
     .disabled-slot { text-decoration: line-through; color: #999; }
 
     /* CTAボタン */
@@ -109,14 +147,20 @@
       width: 100%;
     }
 
-    /* スマホ時はカード角丸なし（全幅表示） */
-    @media (max-width: 640px) {
-      .guide-card { margin: 0; border-radius: 0; }
-      .guide-header { border-radius: 0; }
-    }
-
-    /* アコーディオン内余白調整 */
+    /* アコーディオン */
     .accordion-body { font-size: 0.9rem; }
+
+    /* ルールグループ見出し */
+    .rule-group-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #4a5568;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin: 1.25rem 0 0.5rem;
+      padding-bottom: 0.25rem;
+      border-bottom: 1px solid #e2e8f0;
+    }
 
     /* フッター */
     .guide-footer {
@@ -127,19 +171,21 @@
       font-size: 0.85rem;
       border-radius: 0 0 12px 12px;
     }
+
+    /* スマホ全幅 */
     @media (max-width: 640px) {
+      .guide-card { margin: 0; border-radius: 0; }
+      .guide-header { border-radius: 0; }
       .guide-footer { border-radius: 0; }
     }
   </style>
 </head>
 <body>
 
-<!-- === メインコンテナ === -->
 <div class="guide-card" id="guideCard">
 
   <!-- ヘッダー -->
   <div class="guide-header position-relative">
-    <!-- 言語切替ボタン -->
     <div class="lang-switch">
       <button class="btn btn-sm btn-outline-light active" data-lang="ja" onclick="setLang('ja')">日本語</button>
       <button class="btn btn-sm btn-outline-light" data-lang="en" onclick="setLang('en')">English</button>
@@ -148,71 +194,97 @@
     <p>the Terrace 長浜</p>
   </div>
 
-  <!-- クイックナビ（sticky） -->
+  <!-- クイックナビ -->
   <nav class="quick-nav" id="quickNav">
-    <a href="#important" class="btn btn-outline-secondary btn-sm">⚠️ 注意事項</a>
-    <a href="#guest-form" class="btn btn-outline-secondary btn-sm">📋 名簿</a>
-    <a href="#checkin"    class="btn btn-outline-secondary btn-sm">🔑 チェックイン</a>
-    <a href="#hours"      class="btn btn-outline-secondary btn-sm">🕐 時間</a>
-    <a href="#wifi"       class="btn btn-outline-secondary btn-sm">📶 Wi-Fi</a>
-    <a href="#videos"     class="btn btn-outline-secondary btn-sm">▶ 動画</a>
-    <a href="#parking"    class="btn btn-outline-secondary btn-sm">🚗 駐車場</a>
-    <a href="#rules"      class="btn btn-outline-secondary btn-sm">📌 ルール</a>
+    <a href="#critical" class="btn btn-outline-danger btn-sm">⚠ 重要</a>
+    <a href="#guest-form" class="btn btn-outline-primary btn-sm">📋 名簿</a>
+    <a href="#checkin" class="btn btn-outline-secondary btn-sm">🔑 入室</a>
+    <a href="#wifi" class="btn btn-outline-secondary btn-sm">📶 Wi-Fi</a>
+    <a href="#videos" class="btn btn-outline-secondary btn-sm">▶ 動画</a>
+    <a href="#parking" class="btn btn-outline-secondary btn-sm">🚗 駐車場</a>
+    <a href="#rules" class="btn btn-outline-secondary btn-sm">📌 ルール</a>
+    <a href="#hours" class="btn btn-outline-secondary btn-sm">🕐 時間</a>
   </nav>
 
-  <!-- 本文エリア -->
+  <!-- 本文 -->
   <div class="px-3 pb-4">
 
-    <!-- ===== ❶ 重要注意事項 ===== -->
-    <div id="important">
-      <h2 class="section-title mt-4">⚠️ 重要注意事項</h2>
-      <div class="warning-box">
-        <p class="mb-2">
-          当宿は閑静な住宅街にございます。夜遅くまでにぎやかに過ごされたい場合は、
-          トラブル防止のため他施設をご検討ください。
-        </p>
-        <p class="mb-3 text-muted small">
-          ※一般的な音量の会話であれば、夜間でも問題なくご利用いただけます。
-        </p>
-        <p class="mb-3">
-          <span class="badge bg-info text-dark me-1">ご参考</span>
-          24時間以内であれば無料でキャンセル可能です。
-        </p>
+    <!-- ==================== -->
+    <!-- ❶ 重要ルール（常に表示）  -->
+    <!-- ==================== -->
+    <div id="critical">
+      <h2 class="section-title mt-4" style="border-left-color: #e53e3e;">⚠ ご予約前にご確認ください</h2>
 
-        <!-- 騒音ルール -->
-        <div class="border-top border-danger pt-3 mb-3">
-          <p class="fw-bold mb-2">【騒音ルールの厳守】</p>
-          <ul class="mb-0">
-            <li>21:00以降、屋外での「通話・会話」は禁止です。</li>
-            <li>1階キッチンは特に隣家へ音が響きやすい構造です。<br>
-                21:00以降の宴会騒ぎや大声での会話はお控えください。</li>
-          </ul>
-        </div>
+      <p class="text-muted small mb-3">
+        当宿は閑静な住宅街にございます。
+        夜遅くまでにぎやかに過ごされたい場合は、トラブル防止のため他施設をご検討ください。
+        <br>※一般的な音量の会話であれば、夜間でも問題なくご利用いただけます。
+      </p>
 
-        <!-- 即時退去警告 -->
-        <div class="bg-danger text-white rounded p-2">
-          <p class="fw-bold mb-1">【警告：即時退去について】</p>
-          <p class="mb-0 small">
-            近隣または警察から苦情が入った場合、時間帯を問わず即時退去となります。
-            この場合、返金はございません。
-          </p>
-        </div>
+      <!-- 3つの重要ルールを簡潔に -->
+      <div class="rule-critical">
+        <table style="width:100%; font-size:0.88rem; border-collapse:collapse;">
+          <tr>
+            <td style="padding:0.5rem 0; vertical-align:top; width:2rem;"><i class="bi bi-volume-up-fill text-danger"></i></td>
+            <td style="padding:0.5rem 0; vertical-align:top;">
+              <strong>騒音禁止</strong>
+              <span class="text-danger fw-bold ms-1">21:00 〜 翌8:00</span>
+              <ul class="mb-0 mt-1 small" style="color:#4a5568;">
+                <li>21:00以降、屋外での通話・会話は禁止</li>
+                <li>1階キッチンは隣家へ音が響きやすい構造です</li>
+                <li>テレビ・音楽の音量にもご注意ください</li>
+              </ul>
+            </td>
+          </tr>
+          <tr style="border-top:1px solid #fed7d7;">
+            <td style="padding:0.5rem 0; vertical-align:top;"><i class="bi bi-x-circle-fill text-danger"></i></td>
+            <td style="padding:0.5rem 0; vertical-align:top;">
+              <strong>宴会・イベント・パーティー</strong>
+              <span class="text-danger fw-bold ms-1">不可</span>
+            </td>
+          </tr>
+          <tr style="border-top:1px solid #fed7d7;">
+            <td style="padding:0.5rem 0; vertical-align:top;"><i class="bi bi-people-fill text-danger"></i></td>
+            <td style="padding:0.5rem 0; vertical-align:top;">
+              <strong>最大宿泊人数</strong>
+              <span class="fw-bold ms-1">10名</span>
+              <ul class="mb-0 mt-1 small" style="color:#4a5568;">
+                <li>予約時の申告人数のみ宿泊可。宿泊しない方の入場も不可</li>
+                <li class="text-danger">超過1名につき<strong>1万円</strong>の追加料金（防犯カメラで確認）</li>
+              </ul>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- 即時退去 -->
+      <div class="eviction-banner">
+        <strong><i class="bi bi-exclamation-triangle-fill me-1"></i>即時退去</strong>
+        <span style="font-size: 0.85rem;">
+          — 近隣・警察から苦情が入った場合、時間帯を問わず即退去（返金なし）
+        </span>
+      </div>
+
+      <!-- キャンセル案内 -->
+      <div class="cancel-hint">
+        <i class="bi bi-info-circle me-1"></i>
+        24時間以内であれば無料でキャンセル可能です。
       </div>
     </div>
 
-    <!-- ===== ❷ 宿泊者名簿 ===== -->
+    <hr class="section-divider">
+
+    <!-- ==================== -->
+    <!-- ❷ 宿泊者名簿 CTA     -->
+    <!-- ==================== -->
     <div id="guest-form">
       <h2 class="section-title">📋 宿泊者名簿</h2>
-      <p>
-        上記ルールをご了承いただける方のみ、「宿泊者名簿」へのご入力をお願いいたします。
-      </p>
+      <p>上記ルールをご了承いただける方のみ、「宿泊者名簿」へのご入力をお願いいたします。</p>
 
-      <!-- CTAボタン -->
-      <a href="/form" class="btn btn-primary btn-cta mb-3">
+      <a href="https://mini-games-minpaku-v2.web.app/noise-game.html" class="btn btn-primary btn-cta mb-3">
         <i class="bi bi-pencil-square me-2"></i>宿泊者名簿に入力する
       </a>
 
-      <!-- 注意事項リスト -->
       <ul class="small text-muted">
         <li>鍵番号のご案内に必須の手続きです。</li>
         <li>入力期限：<strong>チェックイン2日前まで</strong></li>
@@ -221,7 +293,11 @@
       </ul>
     </div>
 
-    <!-- ===== ❸ チェックイン方法 ===== -->
+    <hr class="section-divider">
+
+    <!-- ==================== -->
+    <!-- ❸ チェックイン方法    -->
+    <!-- ==================== -->
     <div id="checkin">
       <h2 class="section-title">🔑 チェックイン方法</h2>
       <ul class="mb-0">
@@ -238,14 +314,18 @@
       </ul>
     </div>
 
-    <!-- ===== ❹ 対応時間 ===== -->
+    <hr class="section-divider">
+
+    <!-- ==================== -->
+    <!-- ❹ 対応時間           -->
+    <!-- ==================== -->
     <div id="hours">
-      <h2 class="section-title">🕐 対応時間</h2>
+      <h2 class="section-title">🕐 時間</h2>
       <table class="table table-bordered table-sm">
         <tbody>
           <tr>
             <td class="fw-bold">チェックイン</td>
-            <td>15:00 〜 20:00</td>
+            <td>15:00 〜 20:00<br><span class="text-muted small">（有料駐車場は17:00以降）</span></td>
           </tr>
           <tr>
             <td class="fw-bold">チェックアウト</td>
@@ -263,47 +343,44 @@
       </table>
     </div>
 
-    <!-- ===== ❺ Wi-Fi情報 ===== -->
+    <hr class="section-divider">
+
+    <!-- ==================== -->
+    <!-- ❺ Wi-Fi              -->
+    <!-- ==================== -->
     <div id="wifi">
       <h2 class="section-title">📶 Wi-Fi</h2>
-
-      <!-- SSID -->
       <div class="wifi-row">
         <span class="wifi-label">SSID</span>
         <span class="wifi-value" id="wifiSsid">3162A802-5G</span>
         <button class="btn btn-outline-secondary btn-copy btn-sm"
-                onclick="copyToClipboard('3162A802-5G', this)"
-                aria-label="SSIDをコピー">
+                onclick="copyToClipboard('3162A802-5G', this)" aria-label="SSIDをコピー">
           <i class="bi bi-clipboard"></i>
         </button>
       </div>
-
-      <!-- パスワード -->
       <div class="wifi-row border-top">
         <span class="wifi-label">パスワード</span>
         <span class="wifi-value" id="wifiPass">y0nmm3mjb5y245</span>
         <button class="btn btn-outline-secondary btn-copy btn-sm"
-                onclick="copyToClipboard('y0nmm3mjb5y245', this)"
-                aria-label="パスワードをコピー">
+                onclick="copyToClipboard('y0nmm3mjb5y245', this)" aria-label="パスワードをコピー">
           <i class="bi bi-clipboard"></i>
         </button>
       </div>
-
-      <!-- 速度低下の注意 -->
       <div class="info-box mt-3">
         <i class="bi bi-exclamation-triangle me-1 text-warning"></i>
         現在ネット回線の速度が遅くなっております。ご迷惑おかけしますが何卒ご了承ください。
       </div>
     </div>
 
-    <!-- ===== ❻ 案内動画 ===== -->
+    <hr class="section-divider">
+
+    <!-- ==================== -->
+    <!-- ❻ 案内動画           -->
+    <!-- ==================== -->
     <div id="videos">
       <h2 class="section-title">▶ 案内動画</h2>
       <p class="small text-muted mb-3">各項目をタップすると動画が表示されます。</p>
-
       <div class="accordion" id="videoAccordion">
-
-        <!-- 動画1: 駐車場までのルート -->
         <div class="accordion-item">
           <h2 class="accordion-header">
             <button class="accordion-button collapsed" type="button"
@@ -314,7 +391,6 @@
           <div id="video1" class="accordion-collapse collapse" data-bs-parent="#videoAccordion">
             <div class="accordion-body">
               <div class="video-container">
-                <!-- data-srcに埋め込みURL設定、展開時にsrcへコピー -->
                 <iframe data-src="https://www.youtube.com/embed/Gq_CcMIk-pg"
                         width="100%" height="250"
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
@@ -323,8 +399,6 @@
             </div>
           </div>
         </div>
-
-        <!-- 動画2: 駐車場からホテルまで -->
         <div class="accordion-item">
           <h2 class="accordion-header">
             <button class="accordion-button collapsed" type="button"
@@ -343,8 +417,6 @@
             </div>
           </div>
         </div>
-
-        <!-- 動画3: キーボックスからカギを取り出す（Shorts → embed変換） -->
         <div class="accordion-item">
           <h2 class="accordion-header">
             <button class="accordion-button collapsed" type="button"
@@ -363,8 +435,6 @@
             </div>
           </div>
         </div>
-
-        <!-- 動画4: 玄関のカギを開ける（Shorts → embed変換） -->
         <div class="accordion-item">
           <h2 class="accordion-header">
             <button class="accordion-button collapsed" type="button"
@@ -383,8 +453,6 @@
             </div>
           </div>
         </div>
-
-        <!-- 動画5: 玄関のカギを閉める（Shorts → embed変換） -->
         <div class="accordion-item">
           <h2 class="accordion-header">
             <button class="accordion-button collapsed" type="button"
@@ -403,99 +471,85 @@
             </div>
           </div>
         </div>
-
-      </div><!-- /videoAccordion -->
+      </div>
     </div>
 
-    <!-- ===== ❼ 駐車場 ===== -->
+    <hr class="section-divider">
+
+    <!-- ==================== -->
+    <!-- ❼ 駐車場             -->
+    <!-- ==================== -->
     <div id="parking">
       <h2 class="section-title">🚗 駐車場</h2>
 
-      <!-- 無料駐車場 -->
       <h3 class="h6 fw-bold mb-2">無料駐車場</h3>
       <table class="parking-table table table-sm table-bordered mb-3">
         <tbody>
-          <tr>
-            <td>No.未舗装</td>
-            <td>大型車 1台</td>
-          </tr>
-          <tr>
-            <td>No.１</td>
-            <td>軽自動車 1台</td>
-          </tr>
+          <tr><td>No.未舗装</td><td>軽・小型車 2台 or それ以外 1台</td></tr>
+          <tr><td>No.１</td><td>軽自動車 1台</td></tr>
           <tr class="table-secondary">
-            <!-- 使用禁止は取り消し線で表示 -->
             <td><span class="disabled-slot">No.３</span></td>
             <td><span class="disabled-slot">使用禁止</span></td>
           </tr>
-          <tr>
-            <td>No.５</td>
-            <td>大型車 1台</td>
-          </tr>
+          <tr><td>No.５</td><td>大型車 1台</td></tr>
         </tbody>
       </table>
 
-      <!-- 有料駐車場 -->
       <h3 class="h6 fw-bold mb-2">有料駐車場（カフェ駐車場）</h3>
-      <table class="parking-table table table-sm table-bordered mb-3">
+      <p class="small text-muted mb-2">
+        宿までの道が細く、駐車しにくい場合がございます。運転に自信がない方や大型車の方は、有料駐車場のご利用をおすすめします。
+        徒歩15分と離れた場所ですが、大通り沿いで駐車がとても楽です。
+      </p>
+      <table class="parking-table table table-sm table-bordered mb-2">
         <tbody>
-          <tr>
-            <td>駐車料金</td>
-            <td><strong>2,000円</strong>（1台1泊）</td>
-          </tr>
-          <tr>
-            <td>支払方法</td>
-            <td>PayPay、楽天ペイ</td>
-          </tr>
-          <tr>
-            <td>駐車可能台数</td>
-            <td>2台</td>
-          </tr>
+          <tr><td>駐車料金</td><td><strong>2,000円</strong>（1台1泊）※ PayPayまたは楽天ペイのみ</td></tr>
+          <tr><td>駐車可能台数</td><td>最大2台（大きさ問わず）</td></tr>
           <tr>
             <td>駐車可能時間</td>
             <td>17:00 〜 翌朝9:30<br>
                 <span class="text-muted small">（カフェの営業時間外のみ）</span>
             </td>
           </tr>
-          <tr>
-            <td>場所</td>
-            <td>イッコー建築事務所 砂利敷き駐車場</td>
-          </tr>
+          <tr><td>場所</td><td>(有)イッコー建築事務所 砂利敷き駐車場</td></tr>
         </tbody>
       </table>
 
-      <!-- Google Mapsリンク -->
-      <a href="https://maps.app.goo.gl/ce5rxA5DscjgWuDG6"
+      <p class="small mb-2"><i class="bi bi-check-circle text-success me-1"></i>大通りに面しており出入りが簡単 / 駐車スペースが広い / ローソンが近い / <a href="https://ikko-kentiku.com/calendar.html" target="_blank" rel="noopener">カフェでジェラートやコーヒーも</a></p>
+
+      <a href="https://www.google.com/maps/place/34.213105,132.622144"
          target="_blank" rel="noopener"
          class="btn btn-outline-primary btn-sm mb-3">
         <i class="bi bi-map me-1"></i>MAPで見る
       </a>
 
-      <!-- 有料駐車場の注意事項（黄色情報ボックス） -->
       <div class="info-box">
         <p class="fw-bold mb-2"><i class="bi bi-info-circle me-1 text-warning"></i>有料駐車場ご利用の注意</p>
         <ul class="mb-0 small">
-          <li>地元のカフェ兼建築事務所の駐車場をお借りしております。</li>
+          <li>地元のカフェ兼建築事務所の駐車場をお借りしています。</li>
           <li>カフェの営業中（10:00〜17:00）は駐車できません。</li>
-          <li>チェックイン・チェックアウトの時間よりも駐車可能な時間が短くなります。</li>
+          <li>チェックイン・チェックアウトの時間よりも駐車可能な時間が短いのでご注意ください。</li>
           <li>連泊の場合でも、カフェ営業時間中は駐車できません。</li>
-          <li>カフェ所有の軽トラが停車してある場合、軽トラが出られるよう配慮して駐車してください。</li>
-          <li>カフェ主催のイベントにより利用できない場合があります。</li>
+          <li>カフェ所有の軽トラが停車している場合、軽トラが出られるよう配慮して駐車してください。</li>
+          <li>カフェ主催のイベントなどにより、ご利用できない場合がございます。</li>
         </ul>
       </div>
     </div>
 
-    <!-- ===== ❽ ハウスルール ===== -->
+    <hr class="section-divider">
+
+    <!-- ==================== -->
+    <!-- ❽ ハウスルール        -->
+    <!-- ==================== -->
     <div id="rules">
-      <h2 class="section-title">📌 ハウスルール</h2>
+      <h2 class="section-title">📌 その他のルール</h2>
       <p class="small text-muted mb-3">
         いろいろ細かいルールをもうけてしまっておりますが、一般的な内容がほとんどです、、、
         ご協力いただけますと幸いです！
       </p>
 
-      <div class="accordion" id="rulesAccordion">
-
-        <!-- ペットについて -->
+      <!-- グループ: 禁止事項 -->
+      <p class="rule-group-title">禁止事項</p>
+      <div class="accordion" id="rulesProhibited">
         <div class="accordion-item">
           <h2 class="accordion-header">
             <button class="accordion-button collapsed" type="button"
@@ -503,7 +557,7 @@
               🐾 ペットについて
             </button>
           </h2>
-          <div id="rule-pet" class="accordion-collapse collapse">
+          <div id="rule-pet" class="accordion-collapse collapse" data-bs-parent="#rulesProhibited">
             <div class="accordion-body">
               <ul class="mb-0">
                 <li>ペットの宿泊は禁止です。</li>
@@ -512,23 +566,6 @@
             </div>
           </div>
         </div>
-
-        <!-- 宴会・イベント・パーティ -->
-        <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#rule-party">
-              🎉 宴会・イベント・パーティ
-            </button>
-          </h2>
-          <div id="rule-party" class="accordion-collapse collapse">
-            <div class="accordion-body">
-              <p class="mb-0 text-danger fw-bold">不可</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- 禁煙 -->
         <div class="accordion-item">
           <h2 class="accordion-header">
             <button class="accordion-button collapsed" type="button"
@@ -536,7 +573,7 @@
               🚭 禁煙（タバコ・ベイプ・電子タバコ）
             </button>
           </h2>
-          <div id="rule-smoking" class="accordion-collapse collapse">
+          <div id="rule-smoking" class="accordion-collapse collapse" data-bs-parent="#rulesProhibited">
             <div class="accordion-body">
               <ul class="mb-0">
                 <li>室内は電子タバコを含め完全禁煙です。</li>
@@ -548,101 +585,11 @@
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- 商業目的写真・動画 -->
-        <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#rule-photo">
-              📷 商業目的での写真・動画
-            </button>
-          </h2>
-          <div id="rule-photo" class="accordion-collapse collapse">
-            <div class="accordion-body">
-              <p class="mb-0 text-success fw-bold">撮影可</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- 最大宿泊人数 -->
-        <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#rule-capacity">
-              👥 最大宿泊人数10名まで
-            </button>
-          </h2>
-          <div id="rule-capacity" class="accordion-collapse collapse">
-            <div class="accordion-body">
-              <ul class="mb-0">
-                <li>宿泊の方以外の入場はご遠慮ください。</li>
-                <li>予約時に申告した人数のみ宿泊可能です。</li>
-                <li class="text-danger">超過が確認された場合、正規宿泊料金（超過人数分含む）に加え、
-                    超過1名につき<strong>1万円</strong>の追加料金が発生します。</li>
-                <li>宿泊せず一時的に入室する場合も追加料金の対象です。</li>
-                <li class="text-muted small">入場者数は防犯カメラの映像で確認します
-                    （駐車場・玄関・テラス）。</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        <!-- 虫について【重要】 -->
-        <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#rule-bugs">
-              🐛 虫について【重要】
-            </button>
-          </h2>
-          <div id="rule-bugs" class="accordion-collapse collapse">
-            <div class="accordion-body">
-              <ul class="mb-0">
-                <li>かなりの対策は施しておりますが、室内に虫が発生することがあります。</li>
-                <li>お客様ご自身で対処いただきますようお願いいたします。</li>
-                <li>殺虫スプレー置場：玄関の棚、2階リビングの冷蔵庫上</li>
-                <li>ほうき・チリトリ置場：1階の階段下、2階のトイレ前</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        <!-- 騒音について【重要】 -->
-        <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#rule-noise">
-              🔊 騒音について【重要】
-            </button>
-          </h2>
-          <div id="rule-noise" class="accordion-collapse collapse">
-            <div class="accordion-body">
-              <ul class="mb-0">
-                <li>騒音禁止時間：<strong class="text-danger">夜21:00 〜 朝8:00</strong></li>
-                <li>大きな声やテレビ・音楽の音量にご注意ください。</li>
-                <li class="text-danger">過度な騒音によりクレームが入った場合、ご退室の可能性があります
-                    （返金なし）。</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        <!-- スタッフ対応時間 -->
-        <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#rule-staffhours">
-              📞 スタッフの対応時間
-            </button>
-          </h2>
-          <div id="rule-staffhours" class="accordion-collapse collapse">
-            <div class="accordion-body">
-              <p class="mb-0">6:00〜20:00。この時間帯以外は連絡がつきにくい場合があります。</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- チェックイン -->
+      <!-- グループ: 時間に関するルール -->
+      <p class="rule-group-title">時間に関するルール</p>
+      <div class="accordion" id="rulesTime">
         <div class="accordion-item">
           <h2 class="accordion-header">
             <button class="accordion-button collapsed" type="button"
@@ -650,17 +597,16 @@
               🏠 チェックイン
             </button>
           </h2>
-          <div id="rule-checkin" class="accordion-collapse collapse">
+          <div id="rule-checkin" class="accordion-collapse collapse" data-bs-parent="#rulesTime">
             <div class="accordion-body">
               <ul class="mb-0">
                 <li>チェックイン時間：15:00〜20:00</li>
                 <li class="text-danger">20:00を過ぎる場合は必ず事前にホストへご連絡ください。</li>
+                <li>20:00以降はホストと連絡がつきにくくなります。ご不明点がございましたら、本ページ（ハウスルール）をよくお読みいただき、ご自身での解決をお願いいたします。</li>
               </ul>
             </div>
           </div>
         </div>
-
-        <!-- チェックアウト -->
         <div class="accordion-item">
           <h2 class="accordion-header">
             <button class="accordion-button collapsed" type="button"
@@ -668,7 +614,7 @@
               👋 チェックアウト
             </button>
           </h2>
-          <div id="rule-checkout" class="accordion-collapse collapse">
+          <div id="rule-checkout" class="accordion-collapse collapse" data-bs-parent="#rulesTime">
             <div class="accordion-body">
               <ul class="mb-0">
                 <li>チェックアウトは10:00まで。10:00を過ぎると清掃スタッフが入室します。</li>
@@ -677,46 +623,24 @@
             </div>
           </div>
         </div>
-
-        <!-- 連泊のお客様 -->
         <div class="accordion-item">
           <h2 class="accordion-header">
             <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#rule-multistay">
-              🌙 連泊のお客様
+                    data-bs-toggle="collapse" data-bs-target="#rule-staffhours">
+              📞 スタッフの対応時間
             </button>
           </h2>
-          <div id="rule-multistay" class="accordion-collapse collapse">
+          <div id="rule-staffhours" class="accordion-collapse collapse" data-bs-parent="#rulesTime">
             <div class="accordion-body">
-              <ul class="mb-0">
-                <li>タオル・シーツの交換はありません。洗濯機をご利用ください。</li>
-                <li>滞在中の清掃は行いません。</li>
-              </ul>
+              <p class="mb-0">6:00〜20:00。この時間帯以外は連絡がつきにくい場合があります。</p>
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- ゴミの捨て方 -->
-        <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#rule-trash">
-              🗑️ ゴミの捨て方
-            </button>
-          </h2>
-          <div id="rule-trash" class="accordion-collapse collapse">
-            <div class="accordion-body">
-              <ul class="mb-0">
-                <li>ゴミ箱に記載の通り分別してください。</li>
-                <li>入り切らない場合は袋の口を縛り、玄関土間に置いてください。</li>
-                <li>生ゴミはビニール袋を2重にして冷蔵庫最下段へ入れてください。</li>
-                <li>ペットボトル・缶・ビンは水ですすいでから捨ててください。</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        <!-- バーベキュー -->
+      <!-- グループ: 施設利用 -->
+      <p class="rule-group-title">施設利用</p>
+      <div class="accordion" id="rulesFacility">
         <div class="accordion-item">
           <h2 class="accordion-header">
             <button class="accordion-button collapsed" type="button"
@@ -724,7 +648,7 @@
               🍖 バーベキュー
             </button>
           </h2>
-          <div id="rule-bbq" class="accordion-collapse collapse">
+          <div id="rule-bbq" class="accordion-collapse collapse" data-bs-parent="#rulesFacility">
             <div class="accordion-body">
               <ul class="mb-0">
                 <li><strong>21時までに撤収</strong>（後片付け含む）</li>
@@ -735,8 +659,6 @@
             </div>
           </div>
         </div>
-
-        <!-- 花火 -->
         <div class="accordion-item">
           <h2 class="accordion-header">
             <button class="accordion-button collapsed" type="button"
@@ -744,7 +666,7 @@
               🎆 花火
             </button>
           </h2>
-          <div id="rule-fireworks" class="accordion-collapse collapse">
+          <div id="rule-fireworks" class="accordion-collapse collapse" data-bs-parent="#rulesFacility">
             <div class="accordion-body">
               <ul class="mb-0">
                 <li><strong>20:00まで</strong>可能です。</li>
@@ -756,8 +678,24 @@
             </div>
           </div>
         </div>
-
-        <!-- 設備・備品 -->
+        <div class="accordion-item">
+          <h2 class="accordion-header">
+            <button class="accordion-button collapsed" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#rule-trash">
+              🗑️ ゴミの捨て方
+            </button>
+          </h2>
+          <div id="rule-trash" class="accordion-collapse collapse" data-bs-parent="#rulesFacility">
+            <div class="accordion-body">
+              <ul class="mb-0">
+                <li>ゴミ箱に記載の通り分別してください。</li>
+                <li>入り切らない場合は袋の口を縛り、玄関土間に置いてください。</li>
+                <li>生ゴミはビニール袋を2重にして冷蔵庫最下段へ入れてください。</li>
+                <li>ペットボトル・缶・ビンは水ですすいでから捨ててください。</li>
+              </ul>
+            </div>
+          </div>
+        </div>
         <div class="accordion-item">
           <h2 class="accordion-header">
             <button class="accordion-button collapsed" type="button"
@@ -765,7 +703,7 @@
               🛋️ 設備・備品
             </button>
           </h2>
-          <div id="rule-equipment" class="accordion-collapse collapse">
+          <div id="rule-equipment" class="accordion-collapse collapse" data-bs-parent="#rulesFacility">
             <div class="accordion-body">
               <ul class="mb-0">
                 <li>大切にご使用ください。破損・紛失は速やかにご報告ください（費用請求の可能性があります）。</li>
@@ -775,8 +713,71 @@
             </div>
           </div>
         </div>
+        <div class="accordion-item">
+          <h2 class="accordion-header">
+            <button class="accordion-button collapsed" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#rule-bugs">
+              🐛 虫について
+            </button>
+          </h2>
+          <div id="rule-bugs" class="accordion-collapse collapse" data-bs-parent="#rulesFacility">
+            <div class="accordion-body">
+              <ul class="mb-0">
+                <li>かなりの対策は施しておりますが、室内に虫が発生することがあります。</li>
+                <li>お客様ご自身で対処いただきますようお願いいたします。</li>
+                <li>殺虫スプレー置場：玄関の棚、2階リビングの冷蔵庫上</li>
+                <li>ほうき・チリトリ置場：1階の階段下、2階のトイレ前</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="accordion-item">
+          <h2 class="accordion-header">
+            <button class="accordion-button collapsed" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#rule-multistay">
+              🌙 連泊のお客様
+            </button>
+          </h2>
+          <div id="rule-multistay" class="accordion-collapse collapse" data-bs-parent="#rulesFacility">
+            <div class="accordion-body">
+              <ul class="mb-0">
+                <li>タオル・シーツの交換はありません。洗濯機をご利用ください。</li>
+                <li>滞在中の清掃は行いません。</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="accordion-item">
+          <h2 class="accordion-header">
+            <button class="accordion-button collapsed" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#rule-beforeco">
+              ✅ チェックアウト前のお願い
+            </button>
+          </h2>
+          <div id="rule-beforeco" class="accordion-collapse collapse" data-bs-parent="#rulesFacility">
+            <div class="accordion-body">
+              <p class="mb-0">使用した食器・調理器具・バーベキューセットは洗ってからお戻しください。</p>
+            </div>
+          </div>
+        </div>
+      </div>
 
-        <!-- セキュリティ -->
+      <!-- グループ: その他 -->
+      <p class="rule-group-title">その他</p>
+      <div class="accordion" id="rulesOther">
+        <div class="accordion-item">
+          <h2 class="accordion-header">
+            <button class="accordion-button collapsed" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#rule-photo">
+              📷 商業目的での写真・動画
+            </button>
+          </h2>
+          <div id="rule-photo" class="accordion-collapse collapse" data-bs-parent="#rulesOther">
+            <div class="accordion-body">
+              <p class="mb-0 text-success fw-bold">撮影可</p>
+            </div>
+          </div>
+        </div>
         <div class="accordion-item">
           <h2 class="accordion-header">
             <button class="accordion-button collapsed" type="button"
@@ -784,14 +785,12 @@
               🔒 セキュリティ
             </button>
           </h2>
-          <div id="rule-security" class="accordion-collapse collapse">
+          <div id="rule-security" class="accordion-collapse collapse" data-bs-parent="#rulesOther">
             <div class="accordion-body">
               <p class="mb-0">外出時・就寝時は必ず玄関の施錠をお願いします。</p>
             </div>
           </div>
         </div>
-
-        <!-- 緊急時 -->
         <div class="accordion-item">
           <h2 class="accordion-header">
             <button class="accordion-button collapsed" type="button"
@@ -799,7 +798,7 @@
               🚨 緊急時
             </button>
           </h2>
-          <div id="rule-emergency" class="accordion-collapse collapse">
+          <div id="rule-emergency" class="accordion-collapse collapse" data-bs-parent="#rulesOther">
             <div class="accordion-body">
               <p class="mb-0">
                 <strong>119番</strong>（消防・救急）または <strong>110番</strong>（警察）に連絡後、
@@ -808,8 +807,6 @@
             </div>
           </div>
         </div>
-
-        <!-- 忘れ物・鍵について -->
         <div class="accordion-item">
           <h2 class="accordion-header">
             <button class="accordion-button collapsed" type="button"
@@ -817,7 +814,7 @@
               📦 忘れ物・鍵について
             </button>
           </h2>
-          <div id="rule-lost" class="accordion-collapse collapse">
+          <div id="rule-lost" class="accordion-collapse collapse" data-bs-parent="#rulesOther">
             <div class="accordion-body">
               <ul class="mb-0">
                 <li>忘れ物の発送は<strong>着払いのみ</strong>、発送手数料2,500円がかかります。</li>
@@ -826,23 +823,6 @@
             </div>
           </div>
         </div>
-
-        <!-- チェックアウト前のお願い -->
-        <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#rule-beforeco">
-              ✅ チェックアウト前のお願い
-            </button>
-          </h2>
-          <div id="rule-beforeco" class="accordion-collapse collapse">
-            <div class="accordion-body">
-              <p class="mb-0">使用した食器・調理器具・バーベキューセットは洗ってからお戻しください。</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- その他 -->
         <div class="accordion-item">
           <h2 class="accordion-header">
             <button class="accordion-button collapsed" type="button"
@@ -850,7 +830,7 @@
               📝 その他
             </button>
           </h2>
-          <div id="rule-other" class="accordion-collapse collapse">
+          <div id="rule-other" class="accordion-collapse collapse" data-bs-parent="#rulesOther">
             <div class="accordion-body">
               <ul class="mb-0">
                 <li>アーリーチェックイン・レイトチェックアウトには対応しておりません。</li>
@@ -860,107 +840,71 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
 
-      </div><!-- /rulesAccordion -->
-    </div><!-- /rules -->
-
-  </div><!-- /本文エリア -->
+  </div><!-- /本文 -->
 
   <!-- フッター -->
   <footer class="guide-footer">
     <p class="fw-bold mb-1">the Terrace 長浜</p>
     <p class="mb-1">緊急時は <strong>119番</strong> または <strong>110番</strong> へ</p>
-    <p class="mb-0 small opacity-75">© 2026 the Terrace 長浜</p>
+    <p class="mb-0 small opacity-75">&copy; 2026 the Terrace 長浜</p>
   </footer>
 
-</div><!-- /guide-card -->
+</div>
 
-<!-- Bootstrap 5.3.2 JS -->
+<!-- Bootstrap JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
-  /* ========================================
-   * i18n基盤（将来の多言語化用）
-   * 今回は日本語テキストをHTMLに直接記述
-   * ======================================== */
-  const i18n = {
-    ja: {
-      /* 将来ここに全テキストをキーバリューで定義 */
-    },
-    en: {
-      /* 英語テキストは将来追加 */
-    }
-  };
-
+  /* i18n基盤（将来の多言語化用） */
+  const i18n = { ja: {}, en: {} };
   let currentLang = 'ja';
 
-  /** 言語を切り替えてDOMを更新する */
   function applyLang() {
-    /* 将来: data-i18n属性で各要素のテキストを置き換える */
     document.querySelectorAll('[data-lang]').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.lang === currentLang);
     });
   }
 
-  /** 言語切替ボタンのハンドラ */
   function setLang(lang) {
     currentLang = lang;
     applyLang();
   }
 
-  /* ========================================
-   * Wi-Fiコピー機能
-   * ======================================== */
-  /**
-   * テキストをクリップボードにコピーし、
-   * ボタンアイコンを一時的にチェックマークに変更する
-   * @param {string} text コピーするテキスト
-   * @param {HTMLElement} btnElement クリックされたボタン要素
-   */
+  /* Wi-Fiコピー */
   function copyToClipboard(text, btnElement) {
     navigator.clipboard.writeText(text).then(() => {
       const icon = btnElement.querySelector('i');
-      /* コピー成功：アイコンをチェックマークに変更 */
       icon.classList.replace('bi-clipboard', 'bi-clipboard-check');
       setTimeout(() => {
-        /* 2秒後に元のアイコンに戻す */
         icon.classList.replace('bi-clipboard-check', 'bi-clipboard');
       }, 2000);
     }).catch(() => {
-      /* クリップボードAPIが使えない環境へのフォールバック */
       alert('コピーできませんでした。手動でコピーしてください。');
     });
   }
 
-  /* ========================================
-   * 動画の遅延読み込み
-   * アコーディオン展開時にdata-src→srcへコピー
-   * ======================================== */
+  /* 動画の遅延読み込み */
   document.querySelectorAll('#videoAccordion .accordion-collapse').forEach(panel => {
     panel.addEventListener('shown.bs.collapse', () => {
       const iframe = panel.querySelector('iframe[data-src]');
       if (iframe && !iframe.src) {
-        /* data-srcをsrcにコピーして動画を読み込む */
         iframe.src = iframe.dataset.src;
       }
     });
   });
 
-  /* ========================================
-   * クイックナビ：スムーズスクロール
-   * stickyナビの高さ分をオフセットして調整
-   * ======================================== */
+  /* クイックナビ：スムーズスクロール */
   document.querySelectorAll('#quickNav a[href^="#"]').forEach(link => {
     link.addEventListener('click', e => {
       e.preventDefault();
       const targetId = link.getAttribute('href').slice(1);
       const target = document.getElementById(targetId);
       if (!target) return;
-
-      /* stickyナビの高さを取得してオフセット計算 */
       const navHeight = document.getElementById('quickNav').offsetHeight;
       const targetTop = target.getBoundingClientRect().top + window.scrollY - navHeight - 8;
-
       window.scrollTo({ top: targetTop, behavior: 'smooth' });
     });
   });

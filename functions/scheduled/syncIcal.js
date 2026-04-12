@@ -67,7 +67,14 @@ function toDateStr(d) {
     return `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
   }
   // DATE型（時刻なし）の場合
-  if (d.dateOnly || (date.getUTCHours() === 0 && date.getUTCMinutes() === 0)) {
+  // node-icalはDATE型をローカルTZ 00:00で解釈するため、
+  // Cloud Functions(UTC)では正しいが、JST環境では15:00 UTCになる場合がある
+  if (d.dateOnly) {
+    // JSTで日付を取得（15:00 UTC = 翌日 00:00 JST のケースを正しく処理）
+    const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+    return jst.toISOString().slice(0, 10);
+  }
+  if (date.getUTCHours() === 0 && date.getUTCMinutes() === 0) {
     return date.toISOString().slice(0, 10);
   }
   // JSTで日付を取得
@@ -121,10 +128,39 @@ async function syncIcal() {
 
         const guestName = extractGuestName(event, platform);
 
-        // ブロック/非公開イベントはスキップ
+        // Airbnbのブロック/非公開イベントはスキップ（予約は別イベントで来るため）
+        // Booking.comはCLOSEDイベントに予約情報が含まれるため取り込む
         if (!guestName && /not available|closed|blocked/i.test(event.summary || "")) {
-          skipped++;
-          continue;
+          if (platform !== "Booking.com") {
+            skipped++;
+            continue;
+          }
+          // Booking.com: 長期ブロック（21日超）はシーズンクローズ等なのでスキップ
+          const ciDate = new Date(checkIn);
+          const coDate = new Date(checkOut || checkIn);
+          const days = (coDate - ciDate) / (1000 * 60 * 60 * 24);
+          if (days > 21) {
+            skipped++;
+            continue;
+          }
+          // Booking.com: Airbnb予約と期間が重複するブロックはスキップ（クロスチャネル重複）
+          // チェックイン/アウト日の境界のみの重なりは除外（退室日=入室日は正常）
+          // 判定: CLOSEDの checkIn < Airbnbの checkOut かつ Airbnbの checkIn < CLOSEDの checkOut
+          const co = checkOut || checkIn;
+          const airbnbOverlap = await db.collection("bookings")
+            .where("source", "==", "Airbnb")
+            .where("checkIn", "<", co)
+            .get();
+          const hasRealOverlap = airbnbOverlap.docs.some(doc => {
+            const ab = doc.data();
+            // Airbnbの checkOut > CLOSEDの checkIn（境界日除外: > ではなく > で厳密比較）
+            return ab.checkOut > checkIn;
+          });
+          if (hasRealOverlap) {
+            skipped++;
+            continue;
+          }
+          // Booking.com: CLOSEDイベントを予約として取り込む（ゲスト名は空）
         }
 
         // bookingsコレクションに upsert（iCalのUIDをドキュメントIDに使用）
@@ -132,8 +168,12 @@ async function syncIcal() {
         const docRef = db.collection("bookings").doc(docId);
         const existing = await docRef.get();
 
+        // Booking.comのCLOSEDイベントはゲスト名を空にする（SUMMARYを使わない）
+        const resolvedGuestName = (!guestName && platform === "Booking.com")
+          ? "" : (guestName || event.summary || "");
+
         const bookingData = {
-          guestName: guestName || event.summary || "",
+          guestName: resolvedGuestName,
           checkIn,
           checkOut: checkOut || checkIn,
           source: platform,
@@ -161,7 +201,7 @@ async function syncIcal() {
           }
         }
         // iCalの元の名前を保存（手動変更検知用）
-        bookingData._icalOriginalName = guestName || event.summary || "";
+        bookingData._icalOriginalName = resolvedGuestName;
 
         await docRef.set(bookingData, { merge: true });
         synced++;

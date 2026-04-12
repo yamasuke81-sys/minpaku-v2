@@ -25,6 +25,15 @@
       ]
     },
     {
+      "collectionGroup": "bookings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "source", "order": "ASCENDING" },
+        { "fieldPath": "checkIn", "order": "ASCENDING" },
+        { "fieldPath": "checkOut", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "invoices",
       "queryScope": "COLLECTION",
       "fields": [
@@ -46,13 +55,6 @@
       "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "checkoutDate", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "guestRegistrations",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "checkIn", "order": "DESCENDING" }
       ]
     },
     {
