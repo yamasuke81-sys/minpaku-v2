@@ -10,16 +10,28 @@
     body { background: #f0f4f8; min-height: 100vh; }
     .form-card { max-width: 640px; margin: 1rem auto; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
     .form-header { background: linear-gradient(135deg, #2c3e50, #3498db); color: white; border-radius: 12px 12px 0 0; padding: 1.5rem; text-align: center; }
-    .form-header h1 { font-size: 1.3rem; margin: 0; }
+    .form-header h1 { font-size: 1.3rem; margin: 0; padding-top: 2rem; }
     .form-header p { margin: 0.5rem 0 0; opacity: 0.85; font-size: 0.9rem; }
-    .lang-switch { position: absolute; top: 1rem; right: 1rem; }
+    .lang-switch { position: absolute; top: 0.5rem; right: 0.5rem; }
     .lang-switch .btn { font-size: 0.8rem; padding: 2px 10px; }
     .section-title { font-size: 1rem; font-weight: 600; border-left: 4px solid #3498db; padding-left: 0.75rem; margin: 1.5rem 0 1rem; }
-    .companion-block { background: #f8f9fa; border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; position: relative; }
-    .btn-remove-companion { position: absolute; top: 0.5rem; right: 0.5rem; }
+    .guest-block { background: #f8f9fa; border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; }
+    .guest-block-title { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.75rem; color: #2c3e50; }
     .success-view { text-align: center; padding: 3rem 1rem; }
     .success-view i { font-size: 4rem; color: #27ae60; }
     .required-mark { color: #e74c3c; }
+    .other-input { display: none; margin-top: 0.5rem; }
+    .other-input.show { display: block; }
+    .info-box { background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 0.75rem; font-size: 0.85rem; }
+    .warning-box { background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 0.75rem; font-size: 0.85rem; }
+    .parking-info { background: #e8f4fd; border: 1px solid #b8daff; border-radius: 8px; padding: 0.75rem; font-size: 0.85rem; }
+    .error-box { background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 0.75rem; font-size: 0.9rem; color: #721c24; font-weight: 600; }
+    .alloc-item { display: flex; align-items: baseline; gap: 0; padding: 0.35rem 0; }
+    .alloc-spot { min-width: 8em; flex-shrink: 0; }
+    .alloc-arrow { color: #3498db; font-weight: 700; }
+    .alloc-spot { font-weight: 600; }
+    .alloc-paid { color: #856404; }
+    .alloc-warn { color: #dc3545; font-size: 0.8rem; }
     @media (max-width: 640px) { .form-card { margin: 0; border-radius: 0; } .form-header { border-radius: 0; } }
   </style>
 </head>
@@ -38,20 +50,306 @@
         <strong id="lbl_bookingInfo">ご予約情報</strong>: <span id="bookingInfoText"></span>
       </div>
       <form id="guestForm" novalidate>
-        <div id="dynamicFields"><div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> フォーム読み込み中...</div></div>
-        <h6 class="section-title" id="sectionCompanions">
-          <span id="lbl_companions">同行者情報</span>
-          <button type="button" class="btn btn-sm btn-outline-primary ms-2" id="btnAddComp"><i class="bi bi-plus"></i> <span id="lbl_addComp">追加</span></button>
-        </h6>
-        <p class="text-muted small" id="lbl_companionsNote">旅館業法により、宿泊者全員の氏名・国籍の記入が必要です。</p>
-        <div id="companionList"></div>
+
+        <!-- === 0. 騒音ルール同意 === -->
+        <div class="alert alert-warning mb-3" id="noiseRuleSection">
+          <h6 class="fw-bold" id="lbl_noiseTitle"></h6>
+          <p class="small mb-2" id="lbl_noiseBody"></p>
+          <p class="small text-danger fw-bold mb-2" id="lbl_noiseWarning"></p>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="f_noiseAgree" required>
+            <label class="form-check-label" for="f_noiseAgree" id="lbl_noiseAgree"></label>
+          </div>
+        </div>
+
+        <!-- === 1. 宿泊情報 === -->
+        <h6 class="section-title" id="sec_stay"></h6>
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <label class="form-label" for="f_checkIn" id="lbl_checkIn"></label>
+            <input type="date" class="form-control" id="f_checkIn" required>
+          </div>
+          <div class="col-6">
+            <label class="form-label" for="f_checkInTime" id="lbl_checkInTime"></label>
+            <select class="form-select" id="f_checkInTime" required>
+              <option value="">--</option>
+              <option>15:00</option><option>15:30</option>
+              <option>16:00</option><option>16:30</option><option>17:00</option><option>17:30</option>
+              <option>18:00</option><option>18:30</option><option>19:00</option><option>19:30</option>
+              <option>20:00</option>
+              <option value="20:00以降" id="opt_checkInAfter20">20:00以降</option>
+            </select>
+          </div>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <label class="form-label" for="f_checkOut" id="lbl_checkOut"></label>
+            <input type="date" class="form-control" id="f_checkOut" required>
+          </div>
+          <div class="col-6">
+            <label class="form-label" for="f_checkOutTime" id="lbl_checkOutTime"></label>
+            <select class="form-select" id="f_checkOutTime" required>
+              <option value="">--</option>
+              <option>7:00</option><option>7:30</option><option>8:00</option><option>8:30</option>
+              <option>9:00</option><option>9:30</option><option>10:00</option>
+            </select>
+            <details class="mt-1 mb-0">
+              <summary class="text-danger small fw-bold" style="cursor:pointer;" id="lbl_lateCheckOutSummary"></summary>
+              <ul class="text-danger small mt-1 mb-0">
+                <li id="lbl_lateCheckOutNote1"></li>
+                <li id="lbl_lateCheckOutNote2"></li>
+              </ul>
+            </details>
+          </div>
+        </div>
+        <!-- アーリーチェックイン・レイトチェックアウトの選択肢は廃止。罰金注記はチェックアウト時間の下に表示 -->
+        <div class="row g-2 mb-3">
+          <div class="col-6">
+            <label class="form-label" for="f_guestCount" id="lbl_guestCount"></label>
+            <input type="number" class="form-control" id="f_guestCount" min="1" value="1" required>
+          </div>
+          <div class="col-6">
+            <label class="form-label" for="f_guestCountInfants" id="lbl_guestCountInfants"></label>
+            <input type="number" class="form-control" id="f_guestCountInfants" min="0" value="0">
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="f_bookingSite" id="lbl_bookingSite"></label>
+          <select class="form-select" id="f_bookingSite" required>
+            <option value="">--</option>
+            <option>Airbnb</option><option>Booking.com</option>
+            <option value="楽天トラベル" id="opt_rakuten">楽天トラベル</option>
+            <option value="じゃらん" id="opt_jalan">じゃらん</option>
+            <option>Agoda</option><option>VRBO</option><option>Trip.com</option>
+            <option value="自社公式ウェブサイト" id="opt_official">自社公式ウェブサイト</option>
+            <option value="直接予約" id="opt_direct">直接予約</option>
+            <option value="その他" id="opt_bookingOther">その他</option>
+          </select>
+          <input type="text" class="form-control other-input" id="f_bookingSiteOther" placeholder="">
+        </div>
+
+        <!-- === 2. 宿泊者情報 === -->
+        <h6 class="section-title" id="sec_guests"></h6>
+        <p class="text-muted small" id="lbl_guestsNote"></p>
+        <div id="guestInputList"></div>
+
+        <!-- === 3. 施設利用情報 === -->
+        <h6 class="section-title" id="sec_facility"></h6>
+
+        <!-- 交通手段 -->
+        <div class="mb-3">
+          <label class="form-label fw-bold" id="lbl_transport"></label>
+          <select class="form-select" id="f_transport">
+            <option value="">--</option>
+            <option value="車" id="opt_tr_car">車</option>
+            <option value="公共交通機関" id="opt_tr_public">公共交通機関</option>
+            <option value="タクシー" id="opt_tr_taxi">タクシー</option>
+            <option value="徒歩" id="opt_tr_walk">徒歩</option>
+            <option value="その他" id="opt_tr_other">その他</option>
+          </select>
+          <input type="text" class="form-control other-input" id="f_transportOther" placeholder="">
+        </div>
+        <div class="mb-3 d-none" id="taxiWarn">
+          <div class="warning-box mb-2">
+            <i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>
+            <span id="lbl_taxiWarn"></span>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="f_taxiAgree">
+            <label class="form-check-label small" for="f_taxiAgree" id="lbl_taxiAgree"></label>
+          </div>
+        </div>
+
+        <!-- 車の場合 -->
+        <div class="d-none" id="carSection">
+          <!-- 1. 台数 -->
+          <div class="mb-3">
+            <label class="form-label" id="lbl_carCount"></label>
+            <select class="form-select" id="f_carCount" required>
+              <option value="">--</option>
+              <option value="1">1台</option><option value="2">2台</option>
+              <option value="3">3台</option><option value="4">4台</option>
+              <option value="5">5台</option>
+              <option value="6">6台</option>
+              <option value="over" id="opt_carOver">7台以上</option>
+            </select>
+          </div>
+          <div class="error-box mb-3 d-none" id="carOverError">
+            <i class="bi bi-x-circle me-1"></i><span id="lbl_carOverError"></span>
+          </div>
+
+          <!-- 2. 車種（全台分） -->
+          <div id="vehicleTypeList" class="mb-3"></div>
+
+          <!-- 3. 割り当て結果（有料が必要なら自動で含む） -->
+          <div id="parkingAllocation" class="mb-3 d-none"></div>
+
+          <!-- 4. 駐車場の注意事項（チェック必須） -->
+          <div class="d-none" id="parkingNotes">
+            <div class="form-check mb-3">
+              <input class="form-check-input" type="checkbox" id="f_neighborAgree" style="margin-top: 0.35em;">
+              <label class="form-check-label" for="f_neighborAgree">
+                <span class="text-danger fw-bold" id="lbl_parkNeighborWarn"></span>
+                <span class="required-mark">*</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 5. 有料駐車場（1枚のカード） -->
+          <div class="d-none mb-3" id="paidParkingGuide">
+            <div class="card border-primary">
+              <div class="card-header bg-primary bg-opacity-10 py-2">
+                <span class="fw-bold"><i class="bi bi-p-circle me-1"></i><span id="lbl_ppTitle"></span></span>
+              </div>
+              <div class="card-body py-2 px-3">
+                <p class="small mb-2" id="lbl_ppIntro"></p>
+                <p class="small fw-bold mb-1" id="lbl_ppBenefitsTitle"></p>
+                <ul class="small mb-2">
+                  <li id="lbl_ppBen1"></li>
+                  <li id="lbl_ppBen2"></li>
+                  <li id="lbl_ppBen3"></li>
+                  <li><span id="lbl_ppBen4"></span> <a href="https://ikko-kentiku.com/calendar.html" target="_blank" rel="noopener" id="lbl_ppCafeLink"></a></li>
+                </ul>
+                <p class="small fw-bold mb-1" id="lbl_ppDetailsTitle"></p>
+                <ul class="small mb-2">
+                  <li id="lbl_ppPrice"></li>
+                  <li id="lbl_ppTime"></li>
+                  <li id="lbl_ppMax"></li>
+                  <li><span id="lbl_ppLocation"></span> <a href="https://www.google.com/maps/place/34.213105,132.622144" target="_blank" rel="noopener">→MAP</a></li>
+                </ul>
+                <p class="small fw-bold mb-1" id="lbl_ppNotesTitle"></p>
+                <ul class="small mb-2">
+                  <li id="lbl_ppNote1"></li>
+                  <li id="lbl_ppNote2"></li>
+                  <li id="lbl_ppNote3"></li>
+                  <li id="lbl_ppNote4"></li>
+                  <li id="lbl_ppNote5"></li>
+                  <li id="lbl_ppNote6"></li>
+                </ul>
+                <div id="parkingPhotos" class="d-none mb-2">
+                  <p class="small fw-bold mb-1" id="lbl_ppPhotosTitle"></p>
+                  <div class="d-flex gap-2 flex-wrap" id="parkingPhotoContainer"></div>
+                </div>
+                <hr class="my-2">
+                <!-- 利用選択（カード内の一番下） -->
+                <div class="d-none" id="paidParkingSelect">
+                  <label class="form-label fw-bold small mb-1" id="lbl_ppSelectLabel"></label>
+                  <select class="form-select form-select-sm" id="f_paidParking" required>
+                    <option value="">--</option>
+                    <option value="利用しない" id="opt_pp0">利用しない</option>
+                    <option value="1台利用" id="opt_pp1">1台利用</option>
+                    <option value="2台利用" id="opt_pp2">2台利用</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- BBQ -->
+        <div class="mb-3">
+          <label class="form-label" for="f_bbq" id="lbl_bbq"></label>
+          <select class="form-select" id="f_bbq" required>
+            <option value="">--</option>
+            <option value="利用しない" id="opt_bbqNo">利用しない</option>
+            <option value="利用する" id="opt_bbqYes">利用する</option>
+          </select>
+          <div class="mt-2 d-none" id="bbqRules">
+            <p class="small text-muted mb-2" id="lbl_bbqRulesIntro"></p>
+            <div class="form-check mb-1">
+              <input class="form-check-input bbq-rule-check" type="checkbox" id="f_bbqRule1">
+              <label class="form-check-label small" for="f_bbqRule1" id="lbl_bbqRule1"></label>
+            </div>
+            <div class="form-check mb-1">
+              <input class="form-check-input bbq-rule-check" type="checkbox" id="f_bbqRule2">
+              <label class="form-check-label small" for="f_bbqRule2" id="lbl_bbqRule2"></label>
+            </div>
+            <div class="form-check mb-1">
+              <input class="form-check-input bbq-rule-check" type="checkbox" id="f_bbqRule3">
+              <label class="form-check-label small" for="f_bbqRule3" id="lbl_bbqRule3"></label>
+            </div>
+            <div class="form-check mb-1">
+              <input class="form-check-input bbq-rule-check" type="checkbox" id="f_bbqRule4">
+              <label class="form-check-label small" for="f_bbqRule4" id="lbl_bbqRule4"></label>
+            </div>
+            <div class="form-check mb-1">
+              <input class="form-check-input bbq-rule-check" type="checkbox" id="f_bbqRule5">
+              <label class="form-check-label small" for="f_bbqRule5" id="lbl_bbqRule5"></label>
+            </div>
+          </div>
+        </div>
+
+        <!-- ベッドの希望（2名のみ） -->
+        <div class="mb-3 d-none" id="bedChoiceSection">
+          <label class="form-label" for="f_bedChoice" id="lbl_bedChoice"></label>
+          <select class="form-select" id="f_bedChoice">
+            <option value="">--</option>
+            <option value="2人で1台のベッドを利用（2階リビング）" id="opt_bed1">2人で1台のベッドを利用（2階リビング）</option>
+            <option value="1人1台ずつベッドを利用（1階和室）" id="opt_bed2">1人1台ずつベッドを利用（1階和室）</option>
+          </select>
+        </div>
+
+        <!-- === 4. アンケート === -->
+        <h6 class="section-title" id="sec_survey"></h6>
+        <div class="mb-3">
+          <label class="form-label" for="f_purpose" id="lbl_purpose"></label>
+          <select class="form-select" id="f_purpose">
+            <option value="">--</option>
+            <option value="出張" id="opt_purp1">出張</option>
+            <option value="宮島" id="opt_purp2">宮島</option>
+            <option value="原爆ドーム" id="opt_purp3">原爆ドーム</option>
+            <option value="広島市内観光" id="opt_purp4">広島市内観光</option>
+            <option value="呉観光" id="opt_purp5">呉観光</option>
+            <option value="大和ミュージアム" id="opt_purp6">大和ミュージアム</option>
+            <option value="中国地方観光" id="opt_purp7">中国地方観光</option>
+            <option value="中四国観光" id="opt_purp8">中四国観光</option>
+            <option value="その他" id="opt_purpOther">その他</option>
+          </select>
+          <input type="text" class="form-control other-input" id="f_purposeOther" placeholder="">
+        </div>
+        <div class="row g-2 mb-3">
+          <div class="col-6">
+            <label class="form-label" for="f_previousStay" id="lbl_previousStay"></label>
+            <input type="text" class="form-control" id="f_previousStay">
+          </div>
+          <div class="col-6">
+            <label class="form-label" for="f_nextStay" id="lbl_nextStay"></label>
+            <input type="text" class="form-control" id="f_nextStay">
+          </div>
+        </div>
+
+        <!-- === 5. 緊急連絡先 === -->
+        <h6 class="section-title" id="sec_emergency"></h6>
+        <p class="text-muted small" id="lbl_emergencyNote"></p>
+        <div class="row g-2 mb-3">
+          <div class="col-md-6">
+            <label class="form-label" for="f_emergencyName" id="lbl_emergencyName"></label>
+            <input type="text" class="form-control" id="f_emergencyName" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="f_emergencyPhone" id="lbl_emergencyPhone"></label>
+            <input type="tel" class="form-control" id="f_emergencyPhone" required>
+          </div>
+        </div>
+        <div class="error-box mb-3 d-none" id="emergencyPhoneError">
+          <i class="bi bi-x-circle me-1"></i><span id="lbl_emergencyPhoneError"></span>
+        </div>
+
+        <!-- === 6. 同意 === -->
+        <h6 class="section-title" id="sec_agreement"></h6>
+        <div class="form-check mb-3">
+          <input class="form-check-input" type="checkbox" id="f_houseRuleAgree" required>
+          <label class="form-check-label" for="f_houseRuleAgree" id="lbl_houseRuleAgree"></label>
+        </div>
+
         <div class="d-grid mt-4 mb-2">
           <button type="submit" class="btn btn-primary btn-lg" id="btnSubmit"><i class="bi bi-send"></i> <span id="lbl_submit">送信する</span></button>
         </div>
-        <p class="text-center text-muted small" id="lbl_privacy">ご記入いただいた情報は旅館業法に基づく宿泊者名簿として保管いたします。</p>
+        <p class="text-center text-muted small" id="lbl_privacy"></p>
       </form>
     </div>
   </div>
+
   <div class="card form-card d-none" id="successView">
     <div class="card-body success-view">
       <i class="bi bi-check-circle-fill"></i>
@@ -62,9 +360,10 @@
 
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-storage-compat.js"></script>
   <script>
     firebase.initializeApp({
-      apiKey: "FIREBASE_API_KEY_PLACEHOLDER",
+      apiKey: "AIzaSyDU4ZkCNDzvGpT9BaBlum8bCK5P20Cu-Fs",
       authDomain: "minpaku-v2.firebaseapp.com",
       projectId: "minpaku-v2",
       storageBucket: "minpaku-v2.firebasestorage.app",
@@ -72,215 +371,943 @@
       appId: "1:418111574543:web:6b2f386281e39f4d23c97a",
     });
     const db = firebase.firestore();
+    const storage = firebase.storage();
 
-    const i18nStatic = {
-      ja: { formTitle:"宿泊者名簿", formSubtitle:"ご宿泊に必要な情報をご記入ください", bookingInfo:"ご予約情報", companions:"同行者情報", addComp:"追加", companionsNote:"旅館業法により、宿泊者全員の氏名・国籍の記入が必要です。", submit:"送信する", privacy:"ご記入いただいた情報は旅館業法に基づく宿泊者名簿として保管いたします。", successTitle:"送信完了", successMsg:"ご記入ありがとうございます。<br>ご宿泊を楽しみにお待ちしております。", comp_name:"氏名", comp_age:"年齢", comp_nationality:"国籍", comp_passport:"旅券番号", comp_address:"住所" },
-      en: { formTitle:"Guest Registration", formSubtitle:"Please fill in the required information for your stay", bookingInfo:"Booking Info", companions:"Companions", addComp:"Add", companionsNote:"Japanese law requires names and nationalities of all guests.", submit:"Submit", privacy:"Your information will be stored as required by the Japanese Hotel Business Act.", successTitle:"Submitted!", successMsg:"Thank you! We look forward to welcoming you.", comp_name:"Name", comp_age:"Age", comp_nationality:"Nationality", comp_passport:"Passport", comp_address:"Address" }
+    /* ============================
+       駐車場 割り当てロジック（順番非依存・最適化版）
+       ============================
+       在庫:
+         5番  : 全サイズ ×1（最も駐車しやすい）
+         1番  : 軽・小型のみ ×1
+         未舗装: 軽・小型 ×2 OR それ以外 ×1
+         有料  : 全サイズ ×2 (2,000円/台/泊)
+
+       最適化方針: 無料駐車場の利用を最大化（有料を最小化）
+         - 未舗装は軽×2がスペース効率最大（非軽×1だと1枠無駄）
+         - 非軽は5番を優先利用
+         - 軽は1番→未舗装→5番の順（5番を非軽に空けるため）
+    */
+    function allocateParking(vehicles) {
+      const compacts = vehicles.filter(v => v.type === "compact");
+      const nonCompacts = vehicles.filter(v => v.type !== "compact");
+      const result = [];
+      const unallocated = [];
+
+      // 5番: 非軽を優先（非軽がなければ軽）
+      if (nonCompacts.length > 0) {
+        result.push({ ...nonCompacts.shift(), spot: "spot5" });
+      } else if (compacts.length > 0) {
+        result.push({ ...compacts.shift(), spot: "spot5" });
+      }
+
+      // 1番: 軽のみ
+      if (compacts.length > 0) {
+        result.push({ ...compacts.shift(), spot: "spot1" });
+      }
+
+      // 未舗装: 軽×2を優先（非軽×1より効率的）
+      if (compacts.length >= 2) {
+        result.push({ ...compacts.shift(), spot: "unpaved" });
+        result.push({ ...compacts.shift(), spot: "unpaved" });
+      } else if (compacts.length === 1) {
+        result.push({ ...compacts.shift(), spot: "unpaved" });
+      } else if (nonCompacts.length > 0) {
+        result.push({ ...nonCompacts.shift(), spot: "unpaved" });
+      }
+
+      // 残り = 有料駐車場行き
+      unallocated.push(...compacts, ...nonCompacts);
+      return { result, unallocated };
+    }
+
+    // 台数ベースで収容可能か判定（順番に依存しない）
+    function canAllocate(numCompact, numNonCompact) {
+      let c = numCompact, nc = numNonCompact;
+      // 5番: 非軽優先
+      if (nc > 0) nc--; else if (c > 0) c--;
+      // 1番: 軽のみ
+      if (c > 0) c--;
+      // 未舗装: 軽×2優先、なければ非軽×1
+      if (c >= 2) c -= 2;
+      else if (c === 1) c--;
+      else if (nc > 0) nc--;
+      // 残り = 有料（最大2台）
+      return (c + nc) <= 2;
+    }
+
+    // 車種値 → allocation用のtype
+    function vtToType(val) {
+      if (val.includes("軽") || val.includes("小型") || val.includes("Compact")) return "compact";
+      if (val.includes("ミニバン") || val.includes("Minivan")) return "minivan";
+      return "large";
+    }
+
+    // ===== 多言語 =====
+    const i18n = {
+      ja: {
+        formTitle: "宿泊者名簿",
+        formSubtitle: "ご宿泊に必要な情報をご記入ください",
+        bookingInfo: "ご予約情報",
+        noiseTitle: "宴会について — 非常に重要なお願い",
+        noiseBody: "当宿は閑静な住宅街の中にございます。\n【騒音ルールの厳守】\n・21:00以降、屋外での「通話・会話」は禁止です。\n・1階キッチンはとくに隣家へ音が響きやすくなっております。21:00以降の宴会騒ぎや大声での会話はお控えください。\n※一般的な音量の会話であれば、夜間でも問題なくご利用いただけます。\n\n【警告：即時退去について】\n近隣や警察から苦情が入った場合、時間帯を問わず即時退去（返金なし）いたします。",
+        noiseWarning: "24時間以内であれば無料でキャンセル可能です。",
+        noiseAgree: "上記の騒音ルールを了承しました <span class='required-mark'>*</span>",
+        sec_stay: "宿泊情報", sec_guests: "宿泊者情報", sec_facility: "施設利用情報",
+        sec_survey: "アンケート", sec_emergency: "緊急連絡先", sec_agreement: "同意事項",
+        checkIn: "チェックイン日 <span class='required-mark'>*</span>",
+        checkOut: "チェックアウト日 <span class='required-mark'>*</span>",
+        checkInTime: "チェックイン時間 <span class='required-mark'>*</span>",
+        checkOutTime: "チェックアウト時間 <span class='required-mark'>*</span>",
+        lateCheckOutSummary: "⚠️ 10:00を過ぎないようご注意ください",
+        lateCheckOutNote1: "10:00に清掃スタッフが入室します。",
+        lateCheckOutNote2: "10:00を超過した場合、15分につき2,000円/人のペナルティを請求します。",
+        guestCount: "宿泊人数（大人） <span class='required-mark'>*</span>",
+        guestCountInfants: "3才以下の乳幼児",
+        bookingSite: "どこのサイトから予約しましたか？ <span class='required-mark'>*</span>",
+        bookingSiteOtherPh: "予約サイト名を入力",
+        guestsNote: "旅館業法により、宿泊者全員の情報の記入が必要です。人数分の入力欄が表示されます。",
+        guest_n: "宿泊者{n}", guest_representative: "（代表者）",
+        g_name: "氏名（フルネーム）", g_nationality: "国籍", g_address: "住所",
+        g_phone: "電話番号", g_email: "メールアドレス", g_age: "年齢",
+        g_passport: "旅券番号", g_passportPhoto: "パスポート写真（アップロード）",
+        g_passportRequired: "※ 外国籍の方は旅券番号の入力とパスポート写真のアップロードが必須です",
+        transport: "交通手段をお選びください <span class='required-mark'>*</span>",
+        transportOtherPh: "交通手段を入力",
+        carCount: "お車は何台でお越しになりますか？ <span class='required-mark'>*</span>",
+        carOverError: "申し訳ございませんが、7台以上の駐車はお受けできません。乗り合わせるなどして台数を減らしていただきますようお願いいたします。",
+        vehicleTypeLabel: "{n}台目の車種 <span class='required-mark'>*</span>",
+        vt_small: "軽自動車/小型車", vt_minivan: "ミニバン以下（セレナ等）", vt_large: "全長5m級（アルファード等）",
+        vtLargeWarn: "⚠️ 転回場、未舗装駐車場でアゴ（フロントバンパー下部）を擦る恐れがあります。ご注意ください。",
+        parkNeighborWarn: "隣家の駐車場には絶対に侵入しないでください。駐車場の境界線を必ず確認してください。",
+        neighborAgree: "上記の注意事項を理解し、隣家の駐車場には侵入しないことを了承しました <span class='required-mark'>*</span>",
+        taxiWarn: "タクシーでお越しの場合、運転手さんに以下をお伝えください：「宿の駐車場や転回場への進入は問題ありませんが、近隣住民の家の駐車場には絶対に入らないでください。」降車・乗車時も近隣の駐車場への侵入がないよう、運転手さんへの周知徹底をお願いいたします。",
+        taxiAgree: "上記の内容を理解し、タクシー運転手に周知します <span class='required-mark'>*</span>",
+        // 割り当て表示用
+        allocTitle: "🅿️ 駐車場の割り当て",
+        spotUnpaved: "未舗装駐車場", spotOne: "1番", spotFive: "5番",
+        spotPaid: "有料駐車場（2,000円/泊）",
+        allocAllFree: "✅ すべて無料駐車場に収まります",
+        allocPaidSummary: "💰 有料駐車場: {n}台 × 2,000円 = {total}円",
+        allocError: "❌ この車両構成では駐車場が不足します。台数や車種をご調整ください。",
+        allocLargeWarn: "⚠️ 段差でアゴ擦り注意",
+        // 有料駐車場案内
+        ppTitle: "有料駐車場のご案内",
+        ppIntro: "宿までの道が細く、駐車しにくい場合がございます。運転に自信がない方や大型車の方は、有料駐車場のご利用をおすすめします。徒歩15分と離れた場所ですが、大通り沿いで駐車がとても楽です。",
+        ppBenefitsTitle: "有料駐車場のメリット",
+        ppBen1: "大通りに面しており、出入りが簡単",
+        ppBen2: "駐車スペースが広い",
+        ppBen3: "ローソンが近い",
+        ppBen4: "カフェでジェラートやコーヒーを楽しめる →",
+        ppCafeLink: "カフェ「うみとやまと」",
+        ppDetailsTitle: "料金・利用時間",
+        ppPrice: "料金: 2,000円（1台1泊）※ お支払いはPayPayまたは楽天ペイのみ",
+        ppTime: "駐車可能時間: 17:00〜翌朝9:30（カフェの営業時間外のみ）",
+        ppMax: "最大2台まで（大きさ問わず）",
+        ppLocation: "場所: (有)イッコー建築事務所、砂利敷きの駐車場",
+        ppNotesTitle: "【注意事項】",
+        ppNote1: "地元のカフェ兼建築事務所の駐車場をお借りしています",
+        ppNote2: "カフェの営業中（10:00〜17:00）は駐車できません",
+        ppNote3: "チェックイン・アウトの時間よりも駐車可能な時間が短いのでご注意ください",
+        ppNote4: "連泊の場合でも、カフェ営業時間中は駐車できません",
+        ppNote5: "カフェ所有の軽トラが停車している場合、軽トラが出られるよう配慮して駐車してください",
+        ppNote6: "カフェ主催のイベントなどにより、ご利用できない場合がございます",
+        ppPhotosTitle: "駐車場の様子",
+        ppUsage: "有料駐車場をご利用されますか？ <span class='required-mark'>*</span>",
+        ppOptional: "無料駐車場に収まりますが、駐車のしやすさを重視される場合は有料駐車場もご検討ください（2,000円/台/泊） <span class='required-mark'>*</span>",
+        ppRequired: "有料駐車場の利用台数（追加利用も可能です） <span class='required-mark'>*</span>",
+        paidParkingDetail: "有料駐車場: 近隣カフェ兼建築事務所の駐車場（大通り沿い・ローソン近く）。大きさ問わず最大2台。17:00〜翌朝9:30のみ利用可。",
+        // BBQ
+        bbq: "バーベキューセットをご利用されますか？ <span class='required-mark'>*</span>",
+        bbqRulesIntro: "以下の注意事項を確認し、すべてにチェックを入れてください：",
+        bbqRule1: "当施設のBBQセットはガス式グリルです。炭・着火剤は使用しません",
+        bbqRule2: "21:00以降は騒音ルールに従い、屋外での大声は禁止です",
+        bbqRule3: "使用後はグリルを清掃してください",
+        bbqRule4: "ゴミは分別して所定の場所に捨ててください",
+        bbqRule5: "火気の取り扱いには十分ご注意ください",
+        bedChoice: "宿泊人数2名のお客様のみお答えください。ベッドの数をお選びください。 <span class='required-mark'>*</span>",
+        purpose: "旅の目的は何でしょうか", purposeOtherPh: "目的を入力",
+        previousStay: "前泊地", nextStay: "後泊地",
+        emergencyNote: "代表者以外の方の連絡先をご記入ください（必須）",
+        emergencyName: "緊急連絡先 氏名 <span class='required-mark'>*</span>",
+        emergencyPhone: "緊急連絡先 電話番号 <span class='required-mark'>*</span>",
+        emergencyPhoneError: "緊急連絡先の電話番号は、代表者の電話番号と異なる番号を入力してください。",
+        houseRuleAgree: "利用規約・ハウスルールに同意します <span class='required-mark'>*</span>",
+        submit: "送信する",
+        privacy: "ご記入いただいた情報は旅館業法に基づく宿泊者名簿として保管いたします。",
+        successTitle: "送信完了",
+        successMsg: "ご記入ありがとうございます。<br>ご宿泊を楽しみにお待ちしております。",
+        submitting: "送信中...",
+        validationError: "必須項目をすべて入力してください。",
+        submitError: "送信に失敗しました。もう一度お試しください。",
+        opt_checkInAfter20: "20:00以降",
+        opt_rakuten: "楽天トラベル", opt_jalan: "じゃらん",
+        opt_official: "自社公式ウェブサイト", opt_direct: "直接予約", opt_bookingOther: "その他",
+        opt_tr_car: "車", opt_tr_public: "公共交通機関", opt_tr_taxi: "タクシー",
+        opt_tr_walk: "徒歩", opt_tr_other: "その他", opt_carOver: "7台以上",
+        opt_pp1: "1台利用", opt_pp2: "2台利用", opt_pp0: "利用しない",
+        carCountNoteWithPaid: "有料駐車場 {paidCount}台利用（{paidCost}円/泊）。残りは無料駐車場をご利用いただきます。",
+        carCountNoteNoPaid: "※ すべて無料駐車場をご利用いただきます。",
+        carCountNoteForcePaid: "この台数・車種では無料駐車場に収まらないため、有料駐車場の利用が必要です（2,000円/台/泊）。",
+        opt_bbqNo: "利用しない", opt_bbqYes: "利用する",
+        opt_bed1: "2人で1台のベッドを利用（2階リビング）", opt_bed2: "1人1台ずつベッドを利用（1階和室）",
+        opt_purp1: "出張", opt_purp2: "宮島", opt_purp3: "原爆ドーム", opt_purp4: "広島市内観光",
+        opt_purp5: "呉観光", opt_purp6: "大和ミュージアム", opt_purp7: "中国地方観光",
+        opt_purp8: "中四国観光", opt_purpOther: "その他",
+      },
+      en: {
+        formTitle: "Guest Registration",
+        formSubtitle: "Please fill in the required information for your stay",
+        bookingInfo: "Booking Info",
+        noiseTitle: "A Note About Quiet Hours — Very Important",
+        noiseBody: "This home is in a residential neighborhood, so we ask guests to be considerate of noise, especially in the evening.\n\n【Quiet Hours Rules】\n- After 21:00, no talking or phone calls are allowed outdoors.\n- The 1st floor kitchen is especially prone to sound carrying. Please refrain from loud parties or conversations after 21:00.\n- Normal conversational volume is fine at any time.\n\n【Warning: Immediate Eviction】\nIf a noise complaint is received from neighbors or the authorities, we may need to end the stay early (no refund).",
+        noiseWarning: "Free cancellation is available within 24 hours.",
+        noiseAgree: "I acknowledge and agree to the above noise rules <span class='required-mark'>*</span>",
+        sec_stay: "Stay Details", sec_guests: "Guest Information", sec_facility: "Facility Usage",
+        sec_survey: "Survey", sec_emergency: "Emergency Contact", sec_agreement: "Agreement",
+        checkIn: "Check-in Date <span class='required-mark'>*</span>",
+        checkOut: "Check-out Date <span class='required-mark'>*</span>",
+        checkInTime: "Check-in Time <span class='required-mark'>*</span>",
+        checkOutTime: "Check-out Time <span class='required-mark'>*</span>",
+        lateCheckOutNote: "* A penalty fee will be charged if check-out exceeds 10:00. Please be punctual.",
+        guestCount: "Number of Guests (Adults) <span class='required-mark'>*</span>",
+        guestCountInfants: "Infants (under 3)",
+        bookingSite: "Where did you book? <span class='required-mark'>*</span>",
+        bookingSiteOtherPh: "Enter booking site name",
+        guestsNote: "Japanese law requires information for all guests. Input fields will appear based on the number of guests.",
+        guest_n: "Guest {n}", guest_representative: "(Primary)",
+        g_name: "Full Name", g_nationality: "Nationality", g_address: "Address",
+        g_phone: "Phone Number", g_email: "Email Address", g_age: "Age",
+        g_passport: "Passport Number", g_passportPhoto: "Passport Photo (Upload)",
+        g_passportRequired: "* Passport number and photo upload are required for foreign nationals",
+        transport: "Transportation <span class='required-mark'>*</span>",
+        transportOtherPh: "Enter transportation method",
+        carCount: "How many cars will you bring? <span class='required-mark'>*</span>",
+        carOverError: "Sorry, we cannot accommodate 7 or more cars. Please carpool to reduce the number of vehicles.",
+        vehicleTypeLabel: "Car {n} — Vehicle Type <span class='required-mark'>*</span>",
+        vt_small: "Compact car", vt_minivan: "Minivan or smaller (e.g. Serena)", vt_large: "Full-size 5m+ (e.g. Alphard)",
+        vtLargeWarn: "⚠️ Large vehicles may scrape the front bumper in the turning area and unpaved parking lot. Please be careful.",
+        parkNeighborWarn: "NEVER park in or encroach on the neighbor's parking area. Always confirm the boundaries.",
+        neighborAgree: "I understand and agree not to encroach on the neighbor's parking area <span class='required-mark'>*</span>",
+        taxiWarn: "If arriving by taxi, please inform the driver: 'You may enter our property's parking area and turning space, but NEVER enter the neighbors' parking areas.' Please make sure the driver fully understands this, including when dropping off and picking up.",
+        taxiAgree: "I understand the above and will inform the taxi driver <span class='required-mark'>*</span>",
+        allocTitle: "🅿️ Parking Allocation",
+        spotUnpaved: "Unpaved lot", spotOne: "Spot 1", spotFive: "Spot 5",
+        spotPaid: "Paid parking (¥2,000/night)",
+        allocAllFree: "✅ All cars fit in free parking",
+        allocPaidSummary: "💰 Paid parking: {n} car(s) × ¥2,000 = ¥{total}",
+        allocError: "❌ Cannot accommodate this vehicle combination. Please adjust.",
+        allocLargeWarn: "⚠️ Caution: bumper may scrape on steps",
+        ppTitle: "Paid Parking Information",
+        ppIntro: "The road to our property is narrow and parking can be difficult. If you're not confident driving on narrow roads, or have a large vehicle, we recommend using the paid parking lot. It's a 15-minute walk away, but on a main road with easy access.",
+        ppBenefitsTitle: "Benefits of Paid Parking",
+        ppBen1: "Located on a main road — easy entry and exit",
+        ppBen2: "Spacious parking area",
+        ppBen3: "Near a Lawson convenience store",
+        ppBen4: "Enjoy gelato and coffee at the café →",
+        ppCafeLink: "Café 'Umi to Yamato'",
+        ppDetailsTitle: "Price & Hours",
+        ppPrice: "Fee: ¥2,000 per car per night — PayPay or Rakuten Pay only",
+        ppTime: "Available: 17:00 – 9:30 next morning (outside café hours only)",
+        ppMax: "Maximum 2 cars (any size)",
+        ppLocation: "Location: Ikko Architecture Office, gravel parking lot",
+        ppNotesTitle: "【Important Notes】",
+        ppNote1: "This is a parking lot borrowed from a local café/architecture office",
+        ppNote2: "Parking is NOT available during café hours (10:00–17:00)",
+        ppNote3: "Parking hours are shorter than check-in/out times — please plan accordingly",
+        ppNote4: "Even for multi-night stays, you cannot park during café business hours",
+        ppNote5: "If the café's light truck is parked, please leave enough space for it to exit",
+        ppNote6: "Parking may be unavailable during café events",
+        ppPhotosTitle: "Parking Lot Photos",
+        ppUsage: "Would you like to use the paid parking? <span class='required-mark'>*</span>",
+        ppOptional: "Your cars fit in free parking, but if you prefer easier parking access, paid parking is also available (¥2,000/car/night) <span class='required-mark'>*</span>",
+        ppRequired: "Paid parking usage (you may add more if desired) <span class='required-mark'>*</span>",
+        paidParkingDetail: "Paid parking: nearby café/office lot (main road, near Lawson). Any size, max 2 cars. Available 17:00–9:30 only.",
+        bbq: "Would you like to use the BBQ set? <span class='required-mark'>*</span>",
+        bbqRulesIntro: "Please read and check all rules below:",
+        bbqRule1: "Our BBQ set uses a gas grill — no charcoal or fire starters",
+        bbqRule2: "After 21:00, loud noise outdoors is prohibited",
+        bbqRule3: "Please clean the grill after use",
+        bbqRule4: "Separate trash and dispose in the designated area",
+        bbqRule5: "Please handle fire with caution",
+        bedChoice: "For 2 guests only: How many beds would you like? <span class='required-mark'>*</span>",
+        purpose: "What is the purpose of your trip?", purposeOtherPh: "Enter purpose",
+        previousStay: "Previous night's accommodation", nextStay: "Next night's accommodation",
+        emergencyNote: "Please provide contact info for someone other than the primary guest (required)",
+        emergencyName: "Emergency Contact Name <span class='required-mark'>*</span>",
+        emergencyPhone: "Emergency Contact Phone <span class='required-mark'>*</span>",
+        emergencyPhoneError: "Emergency contact phone must differ from the primary guest's phone.",
+        houseRuleAgree: "I agree to the Terms of Use and House Rules <span class='required-mark'>*</span>",
+        submit: "Submit",
+        privacy: "Your information will be stored as required by the Japanese Hotel Business Act.",
+        successTitle: "Submitted!", successMsg: "Thank you! We look forward to welcoming you.",
+        submitting: "Submitting...",
+        validationError: "Please fill in all required fields.",
+        submitError: "Submission failed. Please try again.",
+        opt_checkInAfter20: "After 20:00",
+        opt_rakuten: "Rakuten Travel", opt_jalan: "Jalan",
+        opt_official: "Official Website", opt_direct: "Direct Booking", opt_bookingOther: "Other",
+        opt_tr_car: "Car", opt_tr_public: "Public transport", opt_tr_taxi: "Taxi",
+        opt_tr_walk: "Walking", opt_tr_other: "Other", opt_carOver: "7+ cars",
+        opt_pp1: "1 car", opt_pp2: "2 cars", opt_pp0: "No thanks",
+        carCountNoteWithPaid: "Paid parking: {paidCount} car(s) (¥{paidCost}/night). Remaining cars use free parking.",
+        carCountNoteNoPaid: "* All cars will use free parking.",
+        carCountNoteForcePaid: "Your vehicle combination requires paid parking (¥2,000/car/night).",
+        opt_bbqNo: "No", opt_bbqYes: "Yes",
+        opt_bed1: "Share 1 bed for 2 (2F living room)", opt_bed2: "1 bed each (1F Japanese room)",
+        opt_purp1: "Business", opt_purp2: "Miyajima", opt_purp3: "Atomic Bomb Dome",
+        opt_purp4: "Hiroshima City Sightseeing", opt_purp5: "Kure Sightseeing",
+        opt_purp6: "Yamato Museum", opt_purp7: "Chugoku Region", opt_purp8: "Chugoku-Shikoku Region",
+        opt_purpOther: "Other",
+      }
     };
+
     let currentLang = "ja";
-    let formFields = [];
 
-    // デフォルトフィールド定義（旧Googleフォーム完全再現 + 実運用に必要な項目追加）
-    // 順序: ゲストが自然に入力できる順（宿泊情報→代表者情報→施設利用→連絡→同行者→同意）
-    const DEFAULT_FIELDS = [
-      // === 1. 宿泊情報（URLプリフィルされるため最初に表示） ===
-      { id:"checkIn", label:"チェックイン日", labelEn:"Check-in Date", type:"date", required:true, section:"stay", mapping:"checkIn" },
-      { id:"checkOut", label:"チェックアウト日", labelEn:"Check-out Date", type:"date", required:true, section:"stay", mapping:"checkOut" },
-      { id:"guestCount", label:"宿泊人数（大人）", labelEn:"Number of Guests (Adults)", type:"number", required:true, section:"stay", mapping:"guestCount", defaultValue:"1" },
-      { id:"guestCountInfants", label:"3才以下の乳幼児", labelEn:"Infants (under 3)", type:"number", required:false, section:"stay", mapping:"guestCountInfants", defaultValue:"0" },
-      { id:"bookingSite", label:"どこでこのホテルを予約しましたか？", labelEn:"Where did you book this accommodation?", type:"select", required:true, section:"stay", mapping:"bookingSite", options:["Airbnb","Booking.com","じゃらん","楽天トラベル","直接予約","その他"], optionsEn:["Airbnb","Booking.com","Jalan","Rakuten Travel","Direct booking","Other"] },
-
-      // === 2. 代表者情報（旅館業法必須項目） ===
-      { id:"guestName", label:"代表者 氏名（フルネーム）", labelEn:"Primary Guest Full Name", type:"text", required:true, section:"representative", mapping:"guestName", placeholder:"山田 太郎 / Yamada Taro" },
-      { id:"nationality", label:"国籍", labelEn:"Nationality", type:"text", required:true, section:"representative", mapping:"nationality", defaultValue:"日本" },
-      { id:"address", label:"住所（現住所）", labelEn:"Address", type:"text", required:true, section:"representative", mapping:"address", placeholder:"〒000-0000 ○○県○○市..." },
-      { id:"phone", label:"電話番号", labelEn:"Phone Number", type:"tel", required:true, section:"representative", mapping:"phone" },
-      { id:"phone2", label:"電話番号（第2）", labelEn:"Phone (2nd)", type:"tel", required:true, section:"representative", mapping:"phone2" },
-      { id:"email", label:"メールアドレス", labelEn:"Email Address", type:"email", required:false, section:"representative", mapping:"email" },
-      { id:"email2", label:"メールアドレス（第2・任意）", labelEn:"Email (2nd, optional)", type:"email", required:false, section:"representative", mapping:"email2" },
-      { id:"passportNumber", label:"旅券番号（外国籍の方のみ）", labelEn:"Passport No. (Foreign nationals only)", type:"text", required:false, section:"representative", mapping:"passportNumber" },
-      { id:"passportPhoto", label:"パスポート写真（外国籍の方のみ）", labelEn:"Passport Photo URL (Foreign nationals only)", type:"text", required:false, section:"representative", mapping:"passportPhoto", placeholder:"URLまたはファイル名 / URL or filename" },
-      { id:"purpose", label:"旅の目的", labelEn:"Purpose of Visit", type:"select", required:false, section:"representative", mapping:"purpose", options:["観光","仕事","帰省","イベント","その他"], optionsEn:["Tourism","Business","Homecoming","Event","Other"] },
-
-      // === 3. 施設利用情報 ===
-      { id:"arrivalTime", label:"到着予定時刻", labelEn:"Estimated Arrival Time", type:"select", required:false, section:"facility", mapping:"arrivalTime", options:["","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00","19:30","20:00","20:00以降"], optionsEn:["","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00","19:30","20:00","After 20:00"] },
-      { id:"departureTime", label:"出発予定時刻", labelEn:"Estimated Departure Time", type:"select", required:false, section:"facility", mapping:"departureTime", options:["","7:00","7:30","8:00","8:30","9:00","9:30","10:00","10:00以降"], optionsEn:["","7:00","7:30","8:00","8:30","9:00","9:30","10:00","After 10:00"] },
-      { id:"cars", label:"お車は何台でお越しになりますか？\n※施設には駐車場がございません。徒歩15分の場所に有料駐車場があります。", labelEn:"How many cars will you bring?\n*No parking at facility. Paid parking available (15 min walk).", type:"select", required:false, section:"facility", mapping:"cars", options:["0台（車なし）","1台","2台","3台以上"], optionsEn:["0 (No car)","1 car","2 cars","3+ cars"] },
-      { id:"bbq", label:"バーベキューセットをご利用されますか？", labelEn:"Would you like to use the BBQ set?", type:"select", required:false, section:"facility", mapping:"bbq", options:["利用しない","利用する（1セット）","利用する（2セット）"], optionsEn:["No","Yes (1 set)","Yes (2 sets)"] },
-      { id:"bedChoice", label:"宿泊人数2名のお客様のみお答えください（ベッドの希望）", labelEn:"For 2 guests only: Bed preference", type:"select", required:false, section:"facility", mapping:"bedChoice", options:["","シングルベッド×2","ダブルベッド×1","布団"], optionsEn:["","2 Single Beds","1 Double Bed","Futon"] },
-      { id:"bedCount", label:"ベッド数（希望）", labelEn:"Number of Beds (preferred)", type:"number", required:false, section:"facility", mapping:"bedCount" },
-
-      // === 4. その他連絡事項 ===
-      { id:"memo", label:"ご要望・備考", labelEn:"Notes / Special Requests", type:"textarea", required:false, section:"other", mapping:"memo" },
-      { id:"allergy", label:"アレルギー・特記事項", labelEn:"Allergies / Special Notes", type:"textarea", required:false, section:"other", mapping:"allergy", placeholder:"食物アレルギー、持病、車椅子利用等 / Food allergies, medical conditions, wheelchair use, etc." },
-      { id:"emergencyContact", label:"緊急連絡先（代表者以外）", labelEn:"Emergency Contact (other than primary guest)", type:"text", required:false, section:"other", mapping:"emergencyContact", placeholder:"氏名・電話番号 / Name & Phone" },
-
-      // === 5. ハウスルール同意 ===
-      { id:"houseRuleAgree", label:"利用規約・ハウスルールに同意します", labelEn:"I agree to the Terms of Use and House Rules", type:"checkbox-single", required:true, section:"agreement", mapping:"houseRuleAgree" },
-    ];
-
-    function setLang(lang) {
-      currentLang = lang;
-      const t = i18nStatic[lang];
+    // ===== 多言語適用 =====
+    function applyLang() {
+      const t = i18n[currentLang];
       document.getElementById("formTitle").textContent = t.formTitle;
       document.getElementById("formSubtitle").textContent = t.formSubtitle;
       document.getElementById("lbl_bookingInfo").textContent = t.bookingInfo;
-      document.getElementById("lbl_companions").textContent = t.companions;
-      document.getElementById("lbl_addComp").textContent = t.addComp;
-      document.getElementById("lbl_companionsNote").textContent = t.companionsNote;
+      document.getElementById("lbl_noiseTitle").textContent = t.noiseTitle;
+      const nb = document.getElementById("lbl_noiseBody"); nb.style.whiteSpace = "pre-line"; nb.textContent = t.noiseBody;
+      document.getElementById("lbl_noiseWarning").textContent = t.noiseWarning;
+      document.getElementById("lbl_noiseAgree").innerHTML = t.noiseAgree;
+      ["sec_stay","sec_guests","sec_facility","sec_survey","sec_emergency","sec_agreement"].forEach(id => document.getElementById(id).textContent = t[id]);
+      ["checkIn","checkOut","checkInTime","checkOutTime","guestCount","guestCountInfants","bookingSite","transport","carCount","bbq","bedChoice","purpose","previousStay","nextStay","emergencyName","emergencyPhone","houseRuleAgree"].forEach(k => {
+        const el = document.getElementById("lbl_" + k); if (el) el.innerHTML = t[k];
+      });
+      document.getElementById("lbl_lateCheckOutSummary").textContent = t.lateCheckOutSummary;
+      document.getElementById("lbl_lateCheckOutNote1").textContent = t.lateCheckOutNote1;
+      document.getElementById("lbl_lateCheckOutNote2").textContent = t.lateCheckOutNote2;
+      document.getElementById("f_bookingSiteOther").placeholder = t.bookingSiteOtherPh;
+      document.getElementById("f_transportOther").placeholder = t.transportOtherPh;
+      document.getElementById("lbl_guestsNote").textContent = t.guestsNote;
+      document.getElementById("lbl_carOverError").textContent = t.carOverError;
+      document.getElementById("lbl_parkNeighborWarn").textContent = t.parkNeighborWarn;
+      document.getElementById("lbl_taxiWarn").textContent = t.taxiWarn;
+      document.getElementById("lbl_taxiAgree").innerHTML = t.taxiAgree;
+      // 有料駐車場
+      document.getElementById("lbl_ppTitle").textContent = t.ppTitle;
+      document.getElementById("lbl_ppIntro").textContent = t.ppIntro;
+      document.getElementById("lbl_ppBenefitsTitle").textContent = t.ppBenefitsTitle;
+      document.getElementById("lbl_ppBen1").textContent = t.ppBen1;
+      document.getElementById("lbl_ppBen2").textContent = t.ppBen2;
+      document.getElementById("lbl_ppBen3").textContent = t.ppBen3;
+      document.getElementById("lbl_ppBen4").textContent = t.ppBen4;
+      document.getElementById("lbl_ppCafeLink").textContent = t.ppCafeLink;
+      document.getElementById("lbl_ppDetailsTitle").textContent = t.ppDetailsTitle;
+      document.getElementById("lbl_ppPrice").textContent = t.ppPrice;
+      document.getElementById("lbl_ppTime").textContent = t.ppTime;
+      document.getElementById("lbl_ppMax").textContent = t.ppMax;
+      document.getElementById("lbl_ppLocation").textContent = t.ppLocation;
+      document.getElementById("lbl_ppNotesTitle").textContent = t.ppNotesTitle;
+      for (let i = 1; i <= 6; i++) document.getElementById("lbl_ppNote" + i).textContent = t["ppNote" + i];
+      document.getElementById("lbl_ppPhotosTitle").textContent = t.ppPhotosTitle;
+      // ppSelectLabelは動的に設定されるためapplyLangでは初期値のみ
+      document.getElementById("lbl_ppSelectLabel").innerHTML = t.ppOptional;
+      document.getElementById("lbl_bbqRulesIntro").textContent = t.bbqRulesIntro;
+      for (let i = 1; i <= 5; i++) document.getElementById("lbl_bbqRule" + i).textContent = t["bbqRule" + i];
+      document.getElementById("f_purposeOther").placeholder = t.purposeOtherPh;
+      document.getElementById("lbl_emergencyNote").textContent = t.emergencyNote;
+      document.getElementById("lbl_emergencyPhoneError").textContent = t.emergencyPhoneError;
       document.getElementById("lbl_submit").textContent = t.submit;
       document.getElementById("lbl_privacy").textContent = t.privacy;
       document.getElementById("lbl_successTitle").textContent = t.successTitle;
       document.getElementById("lbl_successMsg").innerHTML = t.successMsg;
-      formFields.forEach(f => {
-        const lbl = document.querySelector(`label[for="f_${f.id}"]`);
-        if (lbl) lbl.innerHTML = (lang === "en" && f.labelEn ? f.labelEn : f.label) + (f.required ? ' <span class="required-mark">*</span>' : "");
-      });
-      document.querySelectorAll(".lang-switch .btn").forEach(btn => btn.classList.toggle("active", btn.dataset.lang === lang));
-      document.querySelectorAll(".companion-block [data-comp-label]").forEach(lbl => {
-        const key = lbl.dataset.compLabel;
-        if (t[key]) lbl.textContent = t[key];
-      });
+      const optIds = ["opt_checkInAfter20","opt_rakuten","opt_jalan","opt_official","opt_direct","opt_bookingOther",
+        "opt_tr_car","opt_tr_public","opt_tr_taxi","opt_tr_walk","opt_tr_other","opt_carOver",
+        "opt_pp1","opt_pp2","opt_pp0",
+        "opt_bbqNo","opt_bbqYes","opt_bed1","opt_bed2",
+        "opt_purp1","opt_purp2","opt_purp3","opt_purp4","opt_purp5","opt_purp6","opt_purp7","opt_purp8","opt_purpOther"];
+      optIds.forEach(id => { const el = document.getElementById(id); if (el && t[id]) el.textContent = t[id]; });
+      document.querySelectorAll(".lang-switch .btn").forEach(btn => btn.classList.toggle("active", btn.dataset.lang === currentLang));
+      renderGuestInputs();
+      renderVehicleTypes();
+      runParkingAllocation();
     }
 
-    async function loadFormDefinition() {
-      try {
-        const doc = await db.collection("settings").doc("guestForm").get();
-        if (doc.exists && doc.data().fields?.length > 0) formFields = doc.data().fields;
-      } catch (e) { console.warn("フォーム定義の取得失敗:", e.message); }
-      if (!formFields.length) formFields = DEFAULT_FIELDS;
-      renderDynamicFields();
+    // ===== 宿泊者情報 =====
+    let guestData = [];
+    function saveGuestData() {
+      guestData = [];
+      document.querySelectorAll(".guest-block").forEach((block, i) => {
+        guestData[i] = {
+          name: block.querySelector(".g-name")?.value || "",
+          nationality: block.querySelector(".g-nationality")?.value || "",
+          address: block.querySelector(".g-address")?.value || "",
+          age: block.querySelector(".g-age")?.value || "",
+          phone: block.querySelector(".g-phone")?.value || "",
+          email: block.querySelector(".g-email")?.value || "",
+          passport: block.querySelector(".g-passport")?.value || "",
+        };
+      });
     }
-
-    function renderDynamicFields() {
-      const container = document.getElementById("dynamicFields");
-      const sections = {};
-      formFields.forEach(f => { const sec = f.section || "other"; if (!sections[sec]) sections[sec] = []; sections[sec].push(f); });
-      const secLabels = {
-        stay: { ja:"宿泊情報", en:"Stay Details" },
-        representative: { ja:"代表者情報（旅館業法に基づく記入事項）", en:"Primary Guest (Required by Japanese Law)" },
-        facility: { ja:"施設利用情報", en:"Facility Usage" },
-        other: { ja:"その他連絡事項", en:"Other / Notes" },
-        agreement: { ja:"同意事項", en:"Agreement" },
-      };
-
+    function isJapanese(val) {
+      if (!val) return true;
+      const v = val.trim().toLowerCase();
+      return ["日本","japan","japanese","jp",""].includes(v);
+    }
+    function renderGuestInputs() {
+      const count = Math.max(1, parseInt(document.getElementById("f_guestCount").value) || 1);
+      const container = document.getElementById("guestInputList");
+      const t = i18n[currentLang];
+      saveGuestData();
       let html = "";
-      for (const [secId, fields] of Object.entries(sections)) {
-        if (secId === "companions") continue;
-        const sl = secLabels[secId] || { ja: secId, en: secId };
-        html += `<h6 class="section-title">${currentLang === "en" ? sl.en : sl.ja}</h6>`;
-        let rowOpen = false;
-        fields.forEach((f, i) => {
-          const inp = renderFieldInput(f);
-          // 画像タイプはラベルなし・特別レイアウト
-          if (f.type === "image") {
-            if (rowOpen) { html += "</div>"; rowOpen = false; }
-            html += `<div class="mb-3 text-center">${inp}</div>`;
-            return;
-          }
-          const label = (currentLang === "en" && f.labelEn ? f.labelEn : f.label) + (f.required ? ' <span class="required-mark">*</span>' : "");
-          const isSmall = ["date","number","tel"].includes(f.type);
-          const nextSmall = fields[i+1] && ["date","number","tel"].includes(fields[i+1].type);
-          if (isSmall && nextSmall && !rowOpen) { html += `<div class="row g-2 mb-3"><div class="col-6"><label class="form-label" for="f_${f.id}">${label}</label>${inp}</div>`; rowOpen = true; }
-          else if (rowOpen) { html += `<div class="col-6"><label class="form-label" for="f_${f.id}">${label}</label>${inp}</div></div>`; rowOpen = false; }
-          else { html += `<div class="mb-3"><label class="form-label" for="f_${f.id}">${label}</label>${inp}</div>`; }
-        });
-        if (rowOpen) html += "</div>";
+      for (let i = 0; i < count; i++) {
+        const n = i + 1, isRep = i === 0;
+        const title = t.guest_n.replace("{n}", n) + (isRep ? ` ${t.guest_representative}` : "");
+        const s = guestData[i] || {};
+        const defaultNat = currentLang === "ja" ? "日本" : "Japan";
+        const natVal = s.nationality || defaultNat;
+        const showPP = !isJapanese(natVal);
+        html += `<div class="guest-block"><div class="guest-block-title">${title}</div><div class="row g-2">
+          <div class="col-md-6"><label class="form-label small">${t.g_name} <span class="required-mark">*</span></label><input type="text" class="form-control form-control-sm g-name" required value="${esc(s.name || "")}"></div>
+          <div class="col-md-6"><label class="form-label small">${t.g_nationality} <span class="required-mark">*</span></label><input type="text" class="form-control form-control-sm g-nationality" required value="${esc(natVal)}"></div>
+          <div class="col-12 mt-1"><label class="form-label small">${t.g_address}${isRep ? ' <span class="required-mark">*</span>' : ''}</label><input type="text" class="form-control form-control-sm g-address" ${isRep ? 'required' : ''} value="${esc(s.address || "")}"></div>
+          <div class="col-md-3 mt-1"><label class="form-label small">${t.g_age} <span class="required-mark">*</span></label><input type="number" class="form-control form-control-sm g-age" min="0" max="120" required value="${esc(s.age || "")}"></div>`;
+        if (isRep) {
+          html += `<div class="col-md-5 mt-1"><label class="form-label small">${t.g_phone} <span class="required-mark">*</span></label><input type="tel" class="form-control form-control-sm g-phone" required value="${esc(s.phone || "")}"></div>
+          <div class="col-md-6 mt-1"><label class="form-label small">${t.g_email} <span class="required-mark">*</span></label><input type="email" class="form-control form-control-sm g-email" required value="${esc(s.email || "")}"></div>`;
+        }
+        html += `<div class="col-12 mt-1 passport-section" style="${showPP ? '' : 'display:none'}">
+          <div class="alert alert-info py-1 px-2 small mb-1">${t.g_passportRequired}</div>
+          <label class="form-label small">${t.g_passport} <span class="required-mark">*</span></label><input type="text" class="form-control form-control-sm g-passport" ${showPP ? 'required' : ''} value="${esc(s.passport || "")}">
+          <label class="form-label small mt-1">${t.g_passportPhoto} <span class="required-mark">*</span></label><input type="file" class="form-control form-control-sm g-passport-photo" accept="image/*" capture="environment" ${showPP ? 'required' : ''}>
+        </div></div></div>`;
       }
       container.innerHTML = html;
+      container.querySelectorAll(".g-nationality").forEach(input => {
+        input.addEventListener("input", function() {
+          const block = this.closest(".guest-block"), sec = block.querySelector(".passport-section");
+          const pIn = block.querySelector(".g-passport"), pPh = block.querySelector(".g-passport-photo");
+          const show = !isJapanese(this.value);
+          sec.style.display = show ? "" : "none"; pIn.required = show; pPh.required = show;
+          if (!show) { pIn.value = ""; pPh.value = ""; }
+        });
+      });
+      updateBedChoiceVisibility();
+    }
+    function esc(str) { return (str || "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+    // ===== ベッド（2名のみ） =====
+    function updateBedChoiceVisibility() {
+      const c = parseInt(document.getElementById("f_guestCount").value) || 1;
+      const sec = document.getElementById("bedChoiceSection");
+      if (c === 2) sec.classList.remove("d-none"); else { sec.classList.add("d-none"); document.getElementById("f_bedChoice").value = ""; }
     }
 
-    function renderFieldInput(f) {
-      const val = f.defaultValue || "", req = f.required ? "required" : "", id = `f_${f.id}`;
-      const ph = f.placeholder ? `placeholder="${f.placeholder}"` : "";
-      switch (f.type) {
-        case "image": {
-          const w = f.imageWidth || 100;
-          return f.imageUrl ? `<img src="${f.imageUrl}" alt="${currentLang==="en"&&f.labelEn?f.labelEn:f.label}" style="width:${w}%;max-width:100%;border-radius:8px;">` : "";
-        }
-        case "textarea": return `<textarea class="form-control" id="${id}" rows="2" ${req} ${ph}>${val}</textarea>`;
-        case "select": return `<select class="form-select" id="${id}" ${req}><option value="">--</option>${(f.options||[]).map((o,i) => `<option value="${o}">${currentLang==="en"&&f.optionsEn?.[i]?f.optionsEn[i]:o}</option>`).join("")}</select>`;
-        case "radio": return (f.options||[]).map((o,i)=>`<div class="form-check"><input class="form-check-input" type="radio" name="${id}" value="${o}" id="${id}_${i}"><label class="form-check-label" for="${id}_${i}">${currentLang==="en"&&f.optionsEn?.[i]?f.optionsEn[i]:o}</label></div>`).join("");
-        case "checkbox-single": return `<div class="form-check"><input class="form-check-input" type="checkbox" id="${id}" ${req} value="true"><label class="form-check-label" for="${id}">${currentLang==="en"&&f.labelEn?f.labelEn:f.label}</label></div>`;
-        case "date": return `<input type="date" class="form-control" id="${id}" value="${val}" ${req}>`;
-        case "number": return `<input type="number" class="form-control" id="${id}" min="0" value="${val}" ${req}>`;
-        case "email": return `<input type="email" class="form-control" id="${id}" value="${val}" ${req} ${ph}>`;
-        case "tel": return `<input type="tel" class="form-control" id="${id}" value="${val}" ${req} ${ph}>`;
-        default: return `<input type="text" class="form-control" id="${id}" value="${val}" ${req} ${ph}>`;
+    // ===== 隣家駐車場チェックボックスのrequired連動 =====
+    function updateNeighborAgreeRequired(visible) {
+      const cb = document.getElementById("f_neighborAgree");
+      cb.required = visible;
+      if (!visible) cb.checked = false;
+    }
+
+    // ===== 交通手段 =====
+    function updateTransportUI() {
+      const tr = document.getElementById("f_transport").value;
+      const isCar = tr === "車" || tr === "Car";
+      const isTaxi = tr === "タクシー" || tr === "Taxi";
+      const isOther = tr === "その他" || tr === "Other";
+      document.getElementById("carSection").classList.toggle("d-none", !isCar);
+      document.getElementById("taxiWarn").classList.toggle("d-none", !isTaxi);
+      document.getElementById("f_transportOther").classList.toggle("show", isOther);
+      // タクシー: チェックボックス必須
+      document.getElementById("f_taxiAgree").required = isTaxi;
+      if (!isTaxi) document.getElementById("f_taxiAgree").checked = false;
+      document.getElementById("f_carCount").required = isCar;
+      document.getElementById("f_paidParking").required = false; // 車種確定時にrunParkingAllocationで再設定
+      if (!isCar) {
+        document.getElementById("f_carCount").value = "";
+        document.getElementById("f_paidParking").value = "";
+        document.getElementById("vehicleTypeList").innerHTML = "";
+        document.getElementById("parkingAllocation").classList.add("d-none");
+        document.getElementById("parkingNotes").classList.add("d-none"); updateNeighborAgreeRequired(false);
+        document.getElementById("paidParkingGuide").classList.add("d-none"); document.getElementById("paidParkingSelect").classList.add("d-none"); document.getElementById("f_paidParking").required = false;
+        document.getElementById("paidParkingSelect").classList.add("d-none");
+        document.getElementById("carOverError").classList.add("d-none");
       }
+    }
+
+    function updateCarUI() {
+      const val = document.getElementById("f_carCount").value;
+      const isOver = val === "over";
+      document.getElementById("carOverError").classList.toggle("d-none", !isOver);
+      if (isOver || !val) {
+        document.getElementById("vehicleTypeList").innerHTML = "";
+        document.getElementById("parkingAllocation").classList.add("d-none");
+        document.getElementById("parkingNotes").classList.add("d-none"); updateNeighborAgreeRequired(false);
+        document.getElementById("paidParkingGuide").classList.add("d-none"); document.getElementById("paidParkingSelect").classList.add("d-none"); document.getElementById("f_paidParking").required = false;
+        return;
+      }
+      renderVehicleTypes();
+    }
+
+    function renderVehicleTypes() {
+      const val = document.getElementById("f_carCount").value;
+      const totalCars = (!val || val === "over") ? 0 : parseInt(val) || 0;
+      const container = document.getElementById("vehicleTypeList");
+      const t = i18n[currentLang];
+
+      if (totalCars === 0) { container.innerHTML = ""; return; }
+
+      // 全台分の車種を聞く
+      const existing = []; container.querySelectorAll(".vt-select").forEach(sel => existing.push(sel.value));
+      let html = "";
+      for (let i = 0; i < totalCars; i++) {
+        const label = t.vehicleTypeLabel.replace("{n}", i + 1);
+        const sv = existing[i] || "";
+        html += `<div class="mb-2"><label class="form-label small">${label}</label>
+          <select class="form-select form-select-sm vt-select" required>
+            <option value="">--</option>
+            <option value="軽自動車/小型車" ${sv === "軽自動車/小型車" ? "selected" : ""}>${t.vt_small}</option>
+            <option value="ミニバン以下（セレナ等）" ${sv === "ミニバン以下（セレナ等）" ? "selected" : ""}>${t.vt_minivan}</option>
+            <option value="全長5m級（アルファード等）" ${sv === "全長5m級（アルファード等）" ? "selected" : ""}>${t.vt_large}</option>
+          </select></div>`;
+      }
+      container.innerHTML = html;
+      container.querySelectorAll(".vt-select").forEach(sel => {
+        sel.addEventListener("change", () => {
+          updateLargeVehicleWarnings();
+          runParkingAllocation();
+        });
+      });
+      updateLargeVehicleWarnings();
+      runParkingAllocation();
+    }
+
+    // 全長5m級を選択した車種セレクトの直下に警告を表示
+    function updateLargeVehicleWarnings() {
+      const t = i18n[currentLang];
+      document.querySelectorAll(".vt-large-warn").forEach(el => el.remove());
+      document.querySelectorAll(".vt-select").forEach(sel => {
+        if (sel.value.includes("5m") || sel.value.includes("アルファード") || sel.value.includes("Alphard")) {
+          const warn = document.createElement("p");
+          warn.className = "vt-large-warn small text-danger mt-1 mb-0";
+          warn.textContent = t.vtLargeWarn;
+          sel.parentElement.appendChild(warn);
+        }
+      });
+    }
+
+    // ===== 車種グレーアウト（全体の車種構成ベース・順番非依存） =====
+    function updateVehicleTypeAvailability() {
+      const selects = document.querySelectorAll(".vt-select");
+      if (selects.length <= 1) return;
+
+      const t = i18n[currentLang];
+      document.querySelectorAll(".vt-allgrey-warn").forEach(el => el.remove());
+
+      // 全スロットの現在の選択を集計
+      let totalC = 0, totalNC = 0;
+      selects.forEach(sel => {
+        if (sel.value) {
+          if (vtToType(sel.value) === "compact") totalC++; else totalNC++;
+        }
+      });
+
+      selects.forEach(sel => {
+        // このスロットの選択を除いた集計
+        let baseC = totalC, baseNC = totalNC;
+        if (sel.value) {
+          if (vtToType(sel.value) === "compact") baseC--; else baseNC--;
+        }
+
+        // 各車種を追加した場合に収容可能か（全体の台数構成で判定）
+        const avail = {
+          compact: canAllocate(baseC + 1, baseNC),
+          minivan: canAllocate(baseC, baseNC + 1),
+          large: canAllocate(baseC, baseNC + 1),
+        };
+
+        const typeMap = {
+          "軽自動車/小型車": "compact",
+          "ミニバン以下（セレナ等）": "minivan",
+          "全長5m級（アルファード等）": "large",
+        };
+        let allDisabled = true;
+        sel.querySelectorAll("option").forEach(opt => {
+          if (!opt.value || opt.value === "") return;
+          const type = typeMap[opt.value];
+          if (!type) return;
+          if (!avail[type]) {
+            opt.disabled = true;
+            const suffix = currentLang === "ja" ? "（駐車場に空きなし）" : " (no space)";
+            if (!opt.textContent.includes(suffix)) opt.textContent += suffix;
+            if (sel.value === opt.value) sel.value = "";
+          } else {
+            opt.disabled = false;
+            opt.textContent = opt.textContent.replace(/（駐車場に空きなし）| \(no space\)/g, "");
+            allDisabled = false;
+          }
+        });
+
+        // 全車種がグレーアウト → 台数を減らす案内
+        if (allDisabled && !sel.value) {
+          const warn = document.createElement("div");
+          warn.className = "vt-allgrey-warn error-box mt-1 mb-2";
+          warn.innerHTML = currentLang === "ja"
+            ? '<i class="bi bi-x-circle me-1"></i>この台数ではどの車種も駐車場の上限を超えてしまいます。乗り合わせるなどして台数を減らしてください。'
+            : '<i class="bi bi-x-circle me-1"></i>No vehicle type can be accommodated at this count. Please carpool to reduce the number of cars.';
+          sel.parentElement.appendChild(warn);
+        }
+      });
+    }
+
+    // ===== 駐車場割り当て実行・表示 =====
+    // 全台を無料に割り当て→あふれ→有料に自動振り分け→案内表示
+    function runParkingAllocation() {
+      const container = document.getElementById("parkingAllocation");
+      const selects = document.querySelectorAll(".vt-select");
+      const t = i18n[currentLang];
+      const totalCars = parseInt(document.getElementById("f_carCount").value) || 0;
+
+      if (selects.length === 0 || totalCars === 0) {
+        container.classList.add("d-none");
+        document.getElementById("paidParkingGuide").classList.add("d-none"); document.getElementById("paidParkingSelect").classList.add("d-none"); document.getElementById("f_paidParking").required = false;
+        document.getElementById("parkingNotes").classList.add("d-none"); updateNeighborAgreeRequired(false);
+        return;
+      }
+
+      // 車種グレーアウト更新
+      updateVehicleTypeAvailability();
+
+      // 全車種が選択されているか確認
+      const vehicles = [];
+      let allSelected = true;
+      selects.forEach((sel, i) => {
+        if (!sel.value) { allSelected = false; return; }
+        vehicles.push({ type: vtToType(sel.value), label: sel.value, index: i + 1 });
+      });
+      if (!allSelected) {
+        container.classList.add("d-none");
+        document.getElementById("paidParkingGuide").classList.add("d-none"); document.getElementById("paidParkingSelect").classList.add("d-none"); document.getElementById("f_paidParking").required = false;
+        document.getElementById("parkingNotes").classList.add("d-none"); updateNeighborAgreeRequired(false);
+        return;
+      }
+
+      // 全車を無料駐車場に割り当て試行
+      const { result, unallocated } = allocateParking(vehicles);
+      const paidRequired = unallocated.length;
+
+      // 有料込みでも収容不可（有料最大2台超え）
+      if (paidRequired > 2) {
+        container.innerHTML = `<div class="error-box">${t.allocError}</div>`;
+        container.classList.remove("d-none");
+        document.getElementById("parkingNotes").classList.remove("d-none"); updateNeighborAgreeRequired(true);
+        document.getElementById("paidParkingGuide").classList.add("d-none"); document.getElementById("paidParkingSelect").classList.add("d-none"); document.getElementById("f_paidParking").required = false;
+        document.getElementById("f_paidParking").value = "";
+        return;
+      }
+
+      const vtDisplay = (label) => {
+        if (label.includes("軽") || label.includes("小型")) return t.vt_small;
+        if (label.includes("ミニバン")) return t.vt_minivan;
+        return t.vt_large;
+      };
+
+      // スポット基準で表示データを構築
+      const spotData = { unpaved: [], spot1: [], spot5: [] };
+      for (const r of result) {
+        spotData[r.spot].push(r);
+      }
+
+      let html = `<div class="parking-info"><p class="fw-bold mb-2">${t.allocTitle}</p>`;
+
+      // 未舗装駐車場（同じ車種をまとめて表示）
+      if (spotData.unpaved.length > 0) {
+        const typeCount = {};
+        spotData.unpaved.forEach(r => { const t2 = vtDisplay(r.label); typeCount[t2] = (typeCount[t2]||0)+1; });
+        const desc = Object.entries(typeCount).map(([t2,c]) => c > 1 ? `${t2} ${c}台` : t2).join(", ");
+        html += `<div class="alloc-item"><span class="alloc-spot fw-bold">${t.spotUnpaved}</span>
+          <span class="text-muted ms-2">${desc}</span></div>`;
+      }
+      // 1番
+      if (spotData.spot1.length > 0) {
+        const types = spotData.spot1.map(r => vtDisplay(r.label)).join(", ");
+        html += `<div class="alloc-item"><span class="alloc-spot fw-bold">${t.spotOne}</span>
+          <span class="text-muted ms-2">${types}</span></div>`;
+      }
+      // 5番
+      if (spotData.spot5.length > 0) {
+        const types = spotData.spot5.map(r => vtDisplay(r.label)).join(", ");
+        html += `<div class="alloc-item"><span class="alloc-spot fw-bold">${t.spotFive}</span>
+          <span class="text-muted ms-2">${types}</span></div>`;
+      }
+      // 有料駐車場
+      const paidNums = currentLang === "ja" ? ["①","②"] : ["#1","#2"];
+      const priceTag = currentLang === "ja" ? "2,000円/泊" : "¥2,000/night";
+      for (let i = 0; i < paidRequired; i++) {
+        const label = unallocated[i] ? vtDisplay(unallocated[i].label) : "";
+        html += `<div class="alloc-item"><span class="alloc-spot alloc-paid fw-bold">${currentLang === "ja"
+          ? `有料駐車場${paidNums[i]}` : `Paid ${paidNums[i]}`}</span>
+          <span class="text-muted ms-2">${label}${label ? " " : ""}<span class="text-danger fw-bold">${priceTag}</span></span></div>`;
+      }
+
+      // 有料駐車場がある場合、詳細カードへのリンク
+      if (paidRequired > 0) {
+        html += `<p class="mb-0 mt-1 small"><a href="#" onclick="document.getElementById('paidParkingGuide').scrollIntoView({behavior:'smooth',block:'start'});return false;" class="text-decoration-none"><i class="bi bi-arrow-down-circle me-1"></i>${currentLang === "ja" ? "有料駐車場の詳細はこちら ▼" : "Paid parking details ▼"}</a></p>`;
+      }
+
+      html += '</div>';
+      container.innerHTML = html;
+      container.classList.remove("d-none");
+      document.getElementById("parkingNotes").classList.remove("d-none"); updateNeighborAgreeRequired(true);
+
+      // 有料駐車場案内＆利用選択を常時表示
+      document.getElementById("paidParkingGuide").classList.remove("d-none");
+      const selectDiv = document.getElementById("paidParkingSelect");
+      const ppSel = document.getElementById("f_paidParking");
+      const ppLabel = document.getElementById("lbl_ppSelectLabel");
+      selectDiv.classList.remove("d-none");
+      ppSel.required = true;
+
+      const opt0 = document.getElementById("opt_pp0");
+      const opt1 = document.getElementById("opt_pp1");
+      const opt2 = document.getElementById("opt_pp2");
+
+      // 「--」（空option）を常にdisabledにし、戻れなくする
+      const optBlank = ppSel.querySelector('option[value=""]');
+      if (paidRequired === 0) {
+        ppLabel.innerHTML = t.ppOptional;
+        opt0.disabled = false; opt1.disabled = false; opt2.disabled = false;
+      } else if (paidRequired === 1) {
+        ppLabel.innerHTML = t.ppRequired;
+        opt0.disabled = true; opt1.disabled = false; opt2.disabled = false;
+        if (!ppSel.value || ppSel.value === "利用しない" || ppSel.value === "No thanks" || ppSel.value === "") ppSel.value = "1台利用";
+      } else {
+        ppLabel.innerHTML = t.ppRequired;
+        opt0.disabled = true; opt1.disabled = true; opt2.disabled = false;
+        ppSel.value = "2台利用";
+      }
+      // 値が選択されたら「--」をdisabledにして戻れなくする
+      if (ppSel.value) optBlank.disabled = true;
+      ppSel.addEventListener("change", function() {
+        if (this.value) optBlank.disabled = true;
+      }, { once: true });
+    }
+
+    // ===== BBQ =====
+    function updateBbqUI() {
+      const v = document.getElementById("f_bbq").value;
+      const show = v === "利用する" || v === "Yes";
+      document.getElementById("bbqRules").classList.toggle("d-none", !show);
+      document.querySelectorAll(".bbq-rule-check").forEach(cb => { cb.required = show; if (!show) cb.checked = false; });
+    }
+
+    // チェックイン/アウト時間警告は廃止（選択肢自体を削除済み）
+
+    // ===== 緊急連絡先電話番号重複チェック =====
+    function checkEmergencyPhone() {
+      const rp = document.querySelector(".guest-block:first-child .g-phone");
+      const ep = document.getElementById("f_emergencyPhone");
+      if (!rp || !ep) return true;
+      const rv = rp.value.replace(/[\s\-()]/g, ""), ev = ep.value.replace(/[\s\-()]/g, "");
+      const dup = rv && ev && rv === ev;
+      document.getElementById("emergencyPhoneError").classList.toggle("d-none", !dup);
+      return !dup;
+    }
+
+    function setupOtherToggle(selId, inpId) {
+      const sel = document.getElementById(selId), inp = document.getElementById(inpId);
+      sel.addEventListener("change", () => {
+        const isO = sel.value === "その他" || sel.value === "Other";
+        inp.classList.toggle("show", isO); if (isO) inp.focus(); else inp.value = "";
+      });
     }
 
     function getParams() {
-      const p = {}; const search = location.search || location.hash.split("?")[1] || "";
-      new URLSearchParams(search.replace(/^[?#]/,"")).forEach((v,k) => p[k]=v);
-      const m = location.pathname.match(/\/form\/([^/?]+)/); if (m) p.bookingId = m[1]; return p;
+      const p = {}; const s = location.search || location.hash.split("?")[1] || "";
+      new URLSearchParams(s.replace(/^[?#]/,"")).forEach((v,k) => p[k]=v);
+      const m = location.pathname.match(/\/form\/([^/?]+)/); if (m) p.bookingId = m[1];
+      return p;
     }
 
     async function prefillFromBooking(bid) {
       try {
         const doc = await db.collection("bookings").doc(bid).get(); if (!doc.exists) return;
-        const b = doc.data(), toD = v => { if (!v) return ""; const d = v.toDate?v.toDate():new Date(v); if(isNaN(d))return""; return new Date(d.getTime()+9*3600000).toISOString().slice(0,10); };
-        if(b.checkIn){const el=document.getElementById("f_checkIn");if(el)el.value=toD(b.checkIn);}
-        if(b.checkOut){const el=document.getElementById("f_checkOut");if(el)el.value=toD(b.checkOut);}
-        if(b.guestCount){const el=document.getElementById("f_guestCount");if(el)el.value=b.guestCount;}
-        if(b.guestName){const el=document.getElementById("f_guestName");if(el)el.value=b.guestName;}
-        document.getElementById("bookingInfoText").textContent=`${toD(b.checkIn)} ~ ${toD(b.checkOut)}`;
+        const b = doc.data();
+        const toD = v => { if (!v) return ""; const d = v.toDate ? v.toDate() : new Date(v); if (isNaN(d)) return ""; return new Date(d.getTime()+9*3600000).toISOString().slice(0,10); };
+        if (b.checkIn) { const el = document.getElementById("f_checkIn"); if (el) el.value = toD(b.checkIn); }
+        if (b.checkOut) { const el = document.getElementById("f_checkOut"); if (el) el.value = toD(b.checkOut); }
+        if (b.guestCount) { const el = document.getElementById("f_guestCount"); if (el) { el.value = b.guestCount; renderGuestInputs(); } }
+        if (b.guestName) setTimeout(() => { const ne = document.querySelector(".guest-block:first-child .g-name"); if (ne) ne.value = b.guestName; }, 100);
+        document.getElementById("bookingInfoText").textContent = `${toD(b.checkIn)} ~ ${toD(b.checkOut)}`;
         document.getElementById("bookingInfo").classList.remove("d-none");
-      } catch(e){console.warn("予約情報取得失敗:",e);}
+      } catch (e) { console.warn("予約情報取得失敗:", e); }
     }
 
-    function addCompanion(data=null) {
-      const t=i18nStatic[currentLang], div=document.createElement("div"); div.className="companion-block";
-      div.innerHTML=`<button type="button" class="btn btn-sm btn-outline-danger btn-remove-companion"><i class="bi bi-x-lg"></i></button>
-        <div class="row g-2">
-          <div class="col-6"><label class="form-label small" data-comp-label="comp_name">${t.comp_name}</label><input type="text" class="form-control form-control-sm comp-name" value="${(data?.name||"").replace(/"/g,"&quot;")}"></div>
-          <div class="col-3"><label class="form-label small" data-comp-label="comp_age">${t.comp_age}</label><input type="text" class="form-control form-control-sm comp-age" value="${(data?.age||"").replace(/"/g,"&quot;")}" style="width:60px"></div>
-          <div class="col-3"><label class="form-label small" data-comp-label="comp_nationality">${t.comp_nationality}</label><input type="text" class="form-control form-control-sm comp-nationality" value="${data?.nationality||"日本"}"></div>
-          <div class="col-6 mt-1"><label class="form-label small" data-comp-label="comp_passport">${t.comp_passport}</label><input type="text" class="form-control form-control-sm comp-passport" value="${(data?.passportNumber||"").replace(/"/g,"&quot;")}"></div>
-          <div class="col-6 mt-1"><label class="form-label small" data-comp-label="comp_address">${t.comp_address||"住所"}</label><input type="text" class="form-control form-control-sm comp-address" value="${(data?.address||"").replace(/"/g,"&quot;")}"></div>
-        </div>`;
-      div.querySelector(".btn-remove-companion").addEventListener("click",()=>div.remove());
-      document.getElementById("companionList").appendChild(div);
+    async function uploadPassportPhotos() {
+      const inputs = document.querySelectorAll(".g-passport-photo"), urls = [];
+      for (const inp of inputs) {
+        if (inp.files && inp.files[0]) {
+          const f = inp.files[0], ref = storage.ref(`passport-photos/${Date.now()}_${f.name}`);
+          await ref.put(f); urls.push(await ref.getDownloadURL());
+        }
+      }
+      return urls;
     }
 
+    // ===== 送信 =====
     async function submitForm(e) {
       e.preventDefault();
-      const form=document.getElementById("guestForm"); if(!form.checkValidity()){form.classList.add("was-validated");return;}
-      const btn=document.getElementById("btnSubmit"); btn.disabled=true;
-      btn.innerHTML='<span class="spinner-border spinner-border-sm me-2"></span>'+(currentLang==="en"?"Submitting...":"送信中...");
-      const data={};
-      formFields.forEach(f=>{if(f.type==="image")return;const el=document.getElementById(`f_${f.id}`);if(!el)return;const m=f.mapping||f.id;
-        if(f.type==="number")data[m]=Number(el.value)||0;
-        else if(f.type==="checkbox-single")data[m]=el.checked;
-        else if(f.type==="checkbox"){data[m]=Array.from(document.querySelectorAll(`input[name="f_${f.id}"]:checked`)).map(c=>c.value);}
-        else if(f.type==="radio"){const c=document.querySelector(`input[name="f_${f.id}"]:checked`);data[m]=c?c.value:"";}
-        else data[m]=(el.value||"").trim();
-      });
-      const guests=[];
-      document.querySelectorAll(".companion-block").forEach(block=>{
-        const name=block.querySelector(".comp-name").value.trim();
-        if(name)guests.push({name,age:block.querySelector(".comp-age").value.trim(),nationality:block.querySelector(".comp-nationality").value.trim()||"日本",address:(block.querySelector(".comp-address")?.value||"").trim(),passportNumber:block.querySelector(".comp-passport").value.trim()});
-      });
-      const params=getParams();
-      data.guests=guests; data.bookingId=params.bookingId||""; data.propertyId=params.propertyId||"";
-      data.source="guest_form"; data.submittedAt=firebase.firestore.FieldValue.serverTimestamp();
-      data.createdAt=firebase.firestore.FieldValue.serverTimestamp(); data.updatedAt=firebase.firestore.FieldValue.serverTimestamp();
-      try{await db.collection("guestRegistrations").add(data);document.getElementById("formView").classList.add("d-none");document.getElementById("successView").classList.remove("d-none");}
-      catch(err){console.error("送信エラー:",err);alert(currentLang==="ja"?"送信に失敗しました。もう一度お試しください。":"Submission failed. Please try again.");btn.disabled=false;btn.innerHTML='<i class="bi bi-send"></i> '+i18nStatic[currentLang].submit;}
+      const form = document.getElementById("guestForm"), t = i18n[currentLang];
+
+      if (document.getElementById("f_carCount").value === "over") {
+        document.getElementById("carOverError").scrollIntoView({ behavior: "smooth", block: "center" }); return;
+      }
+
+      // 割り当て不可チェック
+      const vtSels = document.querySelectorAll(".vt-select");
+      if (vtSels.length > 0) {
+        const vs = []; vtSels.forEach((s,i) => { if (s.value) vs.push({ type: vtToType(s.value), label: s.value, index: i+1 }); });
+        if (vs.length === vtSels.length) {
+          const { unallocated } = allocateParking(vs);
+          if (unallocated.length > 0) {
+            document.getElementById("parkingAllocation").scrollIntoView({ behavior: "smooth", block: "center" }); return;
+          }
+        }
+      }
+
+      if (!checkEmergencyPhone()) {
+        document.getElementById("emergencyPhoneError").scrollIntoView({ behavior: "smooth", block: "center" }); return;
+      }
+      if (!form.checkValidity()) {
+        form.classList.add("was-validated");
+        const inv = form.querySelector(":invalid"); if (inv) inv.scrollIntoView({ behavior: "smooth", block: "center" }); return;
+      }
+
+      const btn = document.getElementById("btnSubmit");
+      btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>' + t.submitting;
+
+      try {
+        const ppUrls = await uploadPassportPhotos();
+        const guests = []; let phIdx = 0;
+        document.querySelectorAll(".guest-block").forEach((block, i) => {
+          const isRep = i === 0;
+          const g = { name: block.querySelector(".g-name").value.trim(), nationality: block.querySelector(".g-nationality").value.trim() || (currentLang==="ja"?"日本":"Japan"), address: block.querySelector(".g-address").value.trim(), age: block.querySelector(".g-age").value.trim() };
+          if (isRep) { g.phone = block.querySelector(".g-phone")?.value.trim()||""; g.email = block.querySelector(".g-email")?.value.trim()||""; }
+          const pp = block.querySelector(".g-passport"); if (pp && pp.value.trim()) g.passportNumber = pp.value.trim();
+          const pph = block.querySelector(".g-passport-photo");
+          if (pph && pph.files && pph.files[0]) { g.passportPhotoUrl = ppUrls[phIdx]||""; phIdx++; }
+          guests.push(g);
+        });
+        const rep = guests[0]||{}, companions = guests.slice(1);
+        let bookingSite = document.getElementById("f_bookingSite").value;
+        if (bookingSite === "その他" || bookingSite === "Other") { const o = document.getElementById("f_bookingSiteOther").value.trim(); if (o) bookingSite = o; }
+        let purpose = document.getElementById("f_purpose").value;
+        if (purpose === "その他" || purpose === "Other") { const o = document.getElementById("f_purposeOther").value.trim(); if (o) purpose = o; }
+        let transport = document.getElementById("f_transport").value;
+        if (transport === "その他" || transport === "Other") { const o = document.getElementById("f_transportOther").value.trim(); if (o) transport = o; }
+        const vehicleTypes = []; document.querySelectorAll(".vt-select").forEach(s => { if (s.value) vehicleTypes.push(s.value); });
+
+        // 割り当て結果を保存
+        let parkingAllocation = null;
+        if (vehicleTypes.length > 0) {
+          const vs = vehicleTypes.map((v,i) => ({ type: vtToType(v), label: v, index: i+1 }));
+          const alloc = allocateParking(vs);
+          parkingAllocation = alloc.result.map(r => ({ index: r.index, vehicleType: r.label, spot: r.spot }));
+        }
+
+        const data = {
+          checkIn: document.getElementById("f_checkIn").value,
+          checkOut: document.getElementById("f_checkOut").value,
+          checkInTime: document.getElementById("f_checkInTime").value,
+          checkOutTime: document.getElementById("f_checkOutTime").value,
+          guestCount: Number(document.getElementById("f_guestCount").value)||1,
+          guestCountInfants: Number(document.getElementById("f_guestCountInfants").value)||0,
+          bookingSite, guestName: rep.name, nationality: rep.nationality, address: rep.address,
+          phone: rep.phone||"", email: rep.email||"",
+          passportNumber: rep.passportNumber||"", passportPhotoUrl: rep.passportPhotoUrl||"",
+          guests: companions, transport,
+          carCount: parseInt(document.getElementById("f_carCount").value)||0,
+          vehicleTypes, parkingAllocation,
+          paidParking: document.getElementById("f_paidParking").value || "",
+          bbq: document.getElementById("f_bbq").value,
+          bedChoice: document.getElementById("f_bedChoice").value,
+          purpose,
+          previousStay: document.getElementById("f_previousStay").value.trim(),
+          nextStay: document.getElementById("f_nextStay").value.trim(),
+          emergencyName: document.getElementById("f_emergencyName").value.trim(),
+          emergencyPhone: document.getElementById("f_emergencyPhone").value.trim(),
+          noiseAgree: document.getElementById("f_noiseAgree").checked,
+          houseRuleAgree: document.getElementById("f_houseRuleAgree").checked,
+          allGuests: guests, source: "guest_form",
+          submittedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        };
+        const params = getParams();
+        data.bookingId = params.bookingId||""; data.propertyId = params.propertyId||"";
+        await db.collection("guestRegistrations").add(data);
+        document.getElementById("formView").classList.add("d-none");
+        document.getElementById("successView").classList.remove("d-none");
+      } catch (err) {
+        console.error("送信エラー:", err); alert(t.submitError);
+        btn.disabled = false; btn.innerHTML = '<i class="bi bi-send"></i> ' + t.submit;
+      }
     }
 
-    document.addEventListener("DOMContentLoaded", async()=>{
-      const params=getParams();
-      document.querySelectorAll(".lang-switch .btn").forEach(btn=>btn.addEventListener("click",()=>{setLang(btn.dataset.lang);renderDynamicFields();}));
-      if(params.lang==="en")currentLang="en";
-      await loadFormDefinition(); setLang(currentLang);
-      if(params.bookingId)await prefillFromBooking(params.bookingId);
-      if(params.checkIn){const el=document.getElementById("f_checkIn");if(el)el.value=params.checkIn;}
-      if(params.checkOut){const el=document.getElementById("f_checkOut");if(el)el.value=params.checkOut;}
-      if(params.guests){const el=document.getElementById("f_guestCount");if(el)el.value=params.guests;}
-      document.getElementById("btnAddComp").addEventListener("click",()=>addCompanion());
-      document.getElementById("guestForm").addEventListener("submit",submitForm);
+    // ===== 初期化 =====
+    document.addEventListener("DOMContentLoaded", async () => {
+      const params = getParams();
+      if (params.lang === "en") currentLang = "en";
+      document.querySelectorAll(".lang-switch .btn").forEach(btn => btn.addEventListener("click", () => { currentLang = btn.dataset.lang; applyLang(); }));
+      applyLang();
+      setupOtherToggle("f_bookingSite", "f_bookingSiteOther");
+      setupOtherToggle("f_purpose", "f_purposeOther");
+      document.getElementById("f_guestCount").addEventListener("change", () => renderGuestInputs());
+      document.getElementById("f_guestCount").addEventListener("input", () => renderGuestInputs());
+      // チェックイン日変更→チェックアウト日のmin制約
+      document.getElementById("f_checkIn").addEventListener("change", function() {
+        const coEl = document.getElementById("f_checkOut");
+        if (this.value) {
+          // チェックアウトはチェックイン翌日以降
+          const nextDay = new Date(new Date(this.value).getTime() + 86400000).toISOString().slice(0, 10);
+          coEl.min = nextDay;
+          if (coEl.value && coEl.value < nextDay) coEl.value = nextDay;
+        } else {
+          coEl.min = "";
+        }
+      });
+      document.getElementById("f_transport").addEventListener("change", updateTransportUI);
+      document.getElementById("f_carCount").addEventListener("change", updateCarUI);
+      document.getElementById("f_bbq").addEventListener("change", updateBbqUI);
+      document.getElementById("f_emergencyPhone").addEventListener("input", checkEmergencyPhone);
+      if (params.bookingId) await prefillFromBooking(params.bookingId);
+      if (params.checkIn) { const el = document.getElementById("f_checkIn"); if (el) el.value = params.checkIn; }
+      if (params.checkOut) { const el = document.getElementById("f_checkOut"); if (el) el.value = params.checkOut; }
+      if (params.guests) { const el = document.getElementById("f_guestCount"); if (el) { el.value = params.guests; renderGuestInputs(); } }
+      document.getElementById("guestForm").addEventListener("submit", submitForm);
+
+      // 全requiredセレクトの「--」を選択後に戻れなくする
+      document.querySelectorAll("select[required]").forEach(sel => {
+        sel.addEventListener("change", function() {
+          if (this.value) {
+            const blank = this.querySelector('option[value=""]');
+            if (blank) blank.disabled = true;
+          }
+        });
+      });
+
+      // 駐車場写真の読み込み
+      loadParkingPhotos();
     });
+
+    // 駐車場写真を読み込み（public/img/parking/にファイルがあれば表示）
+    async function loadParkingPhotos() {
+      const photos = ["parking1.jpg","parking2.jpg","parking3.jpg"];
+      const container = document.getElementById("parkingPhotoContainer");
+      const section = document.getElementById("parkingPhotos");
+      let loaded = 0;
+      for (const name of photos) {
+        const img = new Image();
+        img.src = `/img/parking/${name}`;
+        img.alt = name; img.className = "rounded"; img.style.cssText = "width:140px;height:105px;object-fit:cover;";
+        img.onload = () => { container.appendChild(img); loaded++; if (loaded > 0) section.classList.remove("d-none"); };
+      }
+    }
   </script>
 </body>
 </html>
