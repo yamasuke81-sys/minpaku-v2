@@ -59,7 +59,11 @@
       font-weight: 600;
       border-left: 4px solid #3498db;
       padding-left: 0.75rem;
+      padding-top: 0.5rem;
+      padding-bottom: 0.5rem;
       margin: 2rem 0 1rem;
+      background: #eaf2fb;
+      border-radius: 0 6px 6px 0;
     }
 
     /* セクション区切り線 */
@@ -69,43 +73,15 @@
       margin: 2rem 0;
     }
 
-    /* === 重要ルールカード === */
-    .rule-critical {
-      background: #fef2f2;
-      border: 2px solid #e53e3e;
-      border-radius: 10px;
-      padding: 1rem 1.1rem;
-      margin-bottom: 0.75rem;
-    }
-    .rule-critical h6 {
-      color: #c53030;
-      font-weight: 700;
-      font-size: 0.95rem;
-      margin-bottom: 0.5rem;
-    }
-    .rule-critical ul { margin-bottom: 0; font-size: 0.88rem; }
-    .rule-critical li { margin-bottom: 0.3rem; }
-
-    /* 即時退去警告 */
-    .eviction-banner {
-      background: #c53030;
-      color: #fff;
+    /* キャンセル選択時メッセージ */
+    .noise-cancel-msg {
+      background: #fff5f5;
+      border: 1px solid #e53e3e;
       border-radius: 8px;
       padding: 0.75rem 1rem;
       font-size: 0.85rem;
-      margin-top: 0.75rem;
-    }
-    .eviction-banner strong { font-size: 0.95rem; }
-
-    /* キャンセル案内 */
-    .cancel-hint {
-      background: #ebf8ff;
-      border: 1px solid #90cdf4;
-      border-radius: 8px;
-      padding: 0.6rem 1rem;
-      font-size: 0.85rem;
-      margin-top: 0.75rem;
-      color: #2b6cb0;
+      margin-top: 0.5rem;
+      color: #c53030;
     }
 
     /* 情報ボックス */
@@ -210,67 +186,45 @@
   <div class="px-3 pb-4">
 
     <!-- ==================== -->
-    <!-- ❶ 重要ルール（常に表示）  -->
+    <!-- ❶ 騒音ルール同意（黄色カード）  -->
     <!-- ==================== -->
     <div id="critical">
-      <h2 class="section-title mt-4" style="border-left-color: #e53e3e;">⚠ ご予約前にご確認ください</h2>
+      <div class="alert alert-warning mb-3 mt-3" id="noiseRuleSection">
+        <h6 class="fw-bold mb-2" id="lbl_noiseTitle">⚠ 宴会について — 非常に重要なお願い</h6>
 
-      <p class="text-muted small mb-3">
-        当宿は閑静な住宅街にございます。
-        夜遅くまでにぎやかに過ごされたい場合は、トラブル防止のため他施設をご検討ください。
-        <br>※一般的な音量の会話であれば、夜間でも問題なくご利用いただけます。
-      </p>
+        <p class="small mb-2" id="noiseIntro">夜遅くまでにぎやかに過ごされたい場合は、トラブル防止のため他施設をご検討ください。<br><span class="text-muted">※一般的な音量の会話であれば、夜間でも問題なくご利用いただけます。</span></p>
 
-      <!-- 3つの重要ルールを簡潔に -->
-      <div class="rule-critical">
-        <table style="width:100%; font-size:0.88rem; border-collapse:collapse;">
-          <tr>
-            <td style="padding:0.5rem 0; vertical-align:top; width:2rem;"><i class="bi bi-volume-up-fill text-danger"></i></td>
-            <td style="padding:0.5rem 0; vertical-align:top;">
-              <strong>騒音禁止</strong>
-              <span class="text-danger fw-bold ms-1">21:00 〜 翌8:00</span>
-              <ul class="mb-0 mt-1 small" style="color:#4a5568;">
-                <li>21:00以降、屋外での通話・会話は禁止</li>
-                <li>1階キッチンは隣家へ音が響きやすい構造です</li>
-                <li>テレビ・音楽の音量にもご注意ください</li>
-              </ul>
-            </td>
-          </tr>
-          <tr style="border-top:1px solid #fed7d7;">
-            <td style="padding:0.5rem 0; vertical-align:top;"><i class="bi bi-x-circle-fill text-danger"></i></td>
-            <td style="padding:0.5rem 0; vertical-align:top;">
-              <strong>宴会・イベント・パーティー</strong>
-              <span class="text-danger fw-bold ms-1">不可</span>
-            </td>
-          </tr>
-          <tr style="border-top:1px solid #fed7d7;">
-            <td style="padding:0.5rem 0; vertical-align:top;"><i class="bi bi-people-fill text-danger"></i></td>
-            <td style="padding:0.5rem 0; vertical-align:top;">
-              <strong>最大宿泊人数</strong>
-              <span class="fw-bold ms-1">10名</span>
-              <ul class="mb-0 mt-1 small" style="color:#4a5568;">
-                <li>予約時の申告人数のみ宿泊可。宿泊しない方の入場も不可</li>
-                <li class="text-danger">超過1名につき<strong>1万円</strong>の追加料金（防犯カメラで確認）</li>
-              </ul>
-            </td>
-          </tr>
-        </table>
+        <div class="small mb-2 ps-2" style="border-left: 3px solid #e65100;">
+          <strong class="text-danger">騒音禁止　21:00 〜 翌8:00</strong>
+          <ul class="mb-1 mt-1 ps-3">
+            <li>21:00以降、屋外での通話・会話は禁止</li>
+            <li>1階キッチンは隣家へ音が響きやすい構造です</li>
+            <li>テレビ・音楽の音量にもご注意ください</li>
+          </ul>
+          <strong class="text-danger">宴会・イベント・パーティー　不可</strong>
+        </div>
+
+        <div class="small fw-bold text-danger mb-3 p-2 rounded" style="background:rgba(229,62,0,0.08);">
+          ⚠ 近隣や警察から苦情が入った場合、時間帯を問わず即時退去（返金なし）
+        </div>
+
+        <div class="form-check mb-1">
+          <input class="form-check-input" type="radio" name="noiseChoice" id="noiseAgree" value="agree">
+          <label class="form-check-label" for="noiseAgree" id="lbl_noiseAgreeGuide">上記の騒音ルールを了承しました</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="noiseChoice" id="noiseCancel" value="cancel">
+          <label class="form-check-label text-danger" for="noiseCancel" id="lbl_noiseCancelGuide">了承できないのでキャンセルする（予約後24時間以内はキャンセル無料）</label>
+        </div>
       </div>
-
-      <!-- 即時退去 -->
-      <div class="eviction-banner">
-        <strong><i class="bi bi-exclamation-triangle-fill me-1"></i>即時退去</strong>
-        <span style="font-size: 0.85rem;">
-          — 近隣・警察から苦情が入った場合、時間帯を問わず即退去（返金なし）
-        </span>
-      </div>
-
-      <!-- キャンセル案内 -->
-      <div class="cancel-hint">
-        <i class="bi bi-info-circle me-1"></i>
-        24時間以内であれば無料でキャンセル可能です。
+      <!-- キャンセル選択時のメッセージ -->
+      <div class="noise-cancel-msg d-none" id="noiseCancelMsg">
+        ご理解ありがとうございます。予約サイトからキャンセル手続きをお願いいたします。
       </div>
     </div>
+
+    <!-- 了承チェック後に表示されるエリア -->
+    <div id="afterAgree" class="d-none">
 
     <hr class="section-divider">
 
@@ -281,7 +235,7 @@
       <h2 class="section-title">📋 宿泊者名簿</h2>
       <p>上記ルールをご了承いただける方のみ、「宿泊者名簿」へのご入力をお願いいたします。</p>
 
-      <a href="https://mini-games-minpaku-v2.web.app/noise-game.html" class="btn btn-primary btn-cta mb-3">
+      <a href="https://mini-games-minpaku-v2.web.app/noise-game.html" class="btn btn-primary btn-cta mb-3" id="ctaButton">
         <i class="bi bi-pencil-square me-2"></i>宿泊者名簿に入力する
       </a>
 
@@ -843,6 +797,8 @@
       </div>
     </div>
 
+    </div><!-- /afterAgree -->
+
   </div><!-- /本文 -->
 
   <!-- フッター -->
@@ -876,34 +832,25 @@
     ['#quickNav a:nth-child(7)', '📌 ルール', '📌 Rules'],
     ['#quickNav a:nth-child(8)', '🕐 時間', '🕐 Hours'],
 
-    /* ❶ 重要ルール */
-    ['#critical h2', '⚠ ご予約前にご確認ください', '⚠ Please Read Before Booking'],
-    ['#critical > p',
-      '当宿は閑静な住宅街にございます。夜遅くまでにぎやかに過ごされたい場合は、トラブル防止のため他施設をご検討ください。<br>※一般的な音量の会話であれば、夜間でも問題なくご利用いただけます。',
-      'Our property is located in a quiet residential area. If you plan to stay up late and be loud, please consider other accommodations.<br>* Normal conversation volume is perfectly fine, even at night.'],
-    /* 騒音 */
-    ['.rule-critical tr:nth-child(1) strong:first-child', '騒音禁止', 'Quiet Hours'],
-    ['.rule-critical tr:nth-child(1) .text-danger', '21:00 〜 翌8:00', '21:00 – 8:00'],
-    ['.rule-critical tr:nth-child(1) li:nth-child(1)', '21:00以降、屋外での通話・会話は禁止', 'No talking or phone calls outdoors after 21:00'],
-    ['.rule-critical tr:nth-child(1) li:nth-child(2)', '1階キッチンは隣家へ音が響きやすい構造です', 'The 1F kitchen easily transmits sound to neighbors'],
-    ['.rule-critical tr:nth-child(1) li:nth-child(3)', 'テレビ・音楽の音量にもご注意ください', 'Please keep TV and music volume low'],
-    /* パーティー */
-    ['.rule-critical tr:nth-child(2) strong', '宴会・イベント・パーティー', 'Parties / Events'],
-    ['.rule-critical tr:nth-child(2) .text-danger', '不可', 'Not Allowed'],
-    /* 人数 */
-    ['.rule-critical tr:nth-child(3) strong:first-child', '最大宿泊人数', 'Max Guests'],
-    ['.rule-critical tr:nth-child(3) > td:nth-child(2) > span', '10名', '10'],
-    ['.rule-critical tr:nth-child(3) li:nth-child(1)', '予約時の申告人数のみ宿泊可。宿泊しない方の入場も不可', 'Only the number of guests declared at booking. Non-staying visitors are also not allowed'],
-    ['.rule-critical tr:nth-child(3) li:nth-child(2)', '超過1名につき<strong>1万円</strong>の追加料金（防犯カメラで確認）', '<strong>¥10,000</strong> surcharge per extra person (verified by security cameras)'],
-    /* 即時退去 */
-    ['.eviction-banner strong', '<i class="bi bi-exclamation-triangle-fill me-1"></i>即時退去', '<i class="bi bi-exclamation-triangle-fill me-1"></i>Immediate Eviction'],
-    ['.eviction-banner span',
-      '— 近隣・警察から苦情が入った場合、時間帯を問わず即退去（返金なし）',
-      '— If a complaint is filed by neighbors or police, you must leave immediately regardless of time (no refund)'],
-    /* キャンセル */
-    ['.cancel-hint',
-      '<i class="bi bi-info-circle me-1"></i>24時間以内であれば無料でキャンセル可能です。',
-      '<i class="bi bi-info-circle me-1"></i>Free cancellation is available within 24 hours.'],
+    /* ❶ 騒音ルール同意 */
+    ['#lbl_noiseTitle', '⚠ 宴会について — 非常に重要なお願い', '⚠ A Note About Quiet Hours — Very Important'],
+    ['#noiseIntro',
+      '夜遅くまでにぎやかに過ごされたい場合は、トラブル防止のため他施設をご検討ください。<br><span class="text-muted">※一般的な音量の会話であれば、夜間でも問題なくご利用いただけます。</span>',
+      'If you plan to stay up late and be loud, please consider other accommodations.<br><span class="text-muted">* Normal conversation volume is perfectly fine, even at night.</span>'],
+    ['#noiseRuleSection .ps-2 strong:first-child', '騒音禁止　21:00 〜 翌8:00', 'Quiet Hours: 21:00 – 8:00'],
+    ['#noiseRuleSection .ps-2 li:nth-child(1)', '21:00以降、屋外での通話・会話は禁止', 'No talking or phone calls outdoors after 21:00'],
+    ['#noiseRuleSection .ps-2 li:nth-child(2)', '1階キッチンは隣家へ音が響きやすい構造です', 'The 1F kitchen easily transmits sound to neighbors'],
+    ['#noiseRuleSection .ps-2 li:nth-child(3)', 'テレビ・音楽の音量にもご注意ください', 'Please keep TV and music volume low'],
+    ['#noiseRuleSection .ps-2 strong:last-child', '宴会・イベント・パーティー　不可', 'Parties / Events: Not Allowed'],
+    ['#noiseRuleSection .text-danger.p-2', '⚠ 近隣や警察から苦情が入った場合、時間帯を問わず即時退去（返金なし）', '⚠ If a complaint is filed by neighbors or police, you must leave immediately (no refund)'],
+    ['#lbl_noiseAgreeGuide', '上記の騒音ルールを了承しました', 'I acknowledge and agree to the above noise rules'],
+    ['#lbl_noiseCancelGuide', '了承できないのでキャンセルする（予約後24時間以内はキャンセル無料）', 'I cannot agree — cancel my booking (free cancellation within 24 hours)'],
+    ['#noiseCancelMsg',
+      'ご理解ありがとうございます。予約サイトからキャンセル手続きをお願いいたします。',
+      'Thank you for your understanding. Please cancel through your booking platform.'],
+    ['#ctaLockedMsg',
+      '※ 上記ルールに「了承」を選択すると、名簿入力ボタンが表示されます。',
+      '* The registration button will appear after you select "I acknowledge" above.'],
 
     /* ❷ 宿泊者名簿 */
     ['#guest-form h2', '📋 宿泊者名簿', '📋 Guest Registration'],
@@ -1104,6 +1051,27 @@
       }
     });
   });
+
+  /* 了承 / キャンセル ラジオボタン制御 */
+  (function() {
+    const afterAgree  = document.getElementById('afterAgree');
+    const cancelMsg   = document.getElementById('noiseCancelMsg');
+    const radioAgree  = document.getElementById('noiseAgree');
+    const radioCancel = document.getElementById('noiseCancel');
+
+    function handleChoice() {
+      if (radioAgree.checked) {
+        afterAgree.classList.remove('d-none');
+        cancelMsg.classList.add('d-none');
+      } else if (radioCancel.checked) {
+        afterAgree.classList.add('d-none');
+        cancelMsg.classList.remove('d-none');
+      }
+    }
+
+    if (radioAgree)  radioAgree.addEventListener('change', handleChoice);
+    if (radioCancel) radioCancel.addEventListener('change', handleChoice);
+  })();
 
   /* クイックナビ：スムーズスクロール */
   document.querySelectorAll('#quickNav a[href^="#"]').forEach(link => {
