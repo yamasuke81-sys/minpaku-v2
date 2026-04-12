@@ -44,12 +44,13 @@ module.exports = async function onGuestFormSubmit(event) {
   const confirmUrl = `${APP_URL}/#/guests`;
 
   const templates = await getTemplates(db);
+  const guideUrl = `${APP_URL}/guest-guide.html`;
   const vars = {
     guestName, checkIn, checkOut, guestCount,
     checkInTime: data.checkInTime || "",
     checkOutTime: data.checkOutTime || "",
     nationality: data.nationality || "日本",
-    summary, editUrl, confirmUrl,
+    summary, editUrl, confirmUrl, guideUrl,
   };
 
   // 2a. オーナーへのメール
