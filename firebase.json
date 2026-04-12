@@ -12,6 +12,10 @@
         "destination": "/guest-form.html"
       },
       {
+        "source": "/guide/**",
+        "destination": "/guest-guide.html"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }
