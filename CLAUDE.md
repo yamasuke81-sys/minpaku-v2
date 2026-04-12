@@ -462,28 +462,26 @@ minpaku-v2/
 - フォーマット: `v{MMDD}{連番アルファベット}`
 - `index.html` 内にバージョン表示
 
-## デプロイ（必須ルール）
+## デプロイ
 
 ### 自動デプロイの仕組み
-- **GitHub Actions** が `business-os/main` ブランチへのpush時に Firebase Hosting へ自動デプロイ（約40秒）
-- トリガー条件: `.github/workflows/deploy-hosting.yml` 参照
-  - ブランチ: `business-os/main` のみ
-  - パス: `business-os/apps/minpaku-v2/public/**` または `business-os/apps/minpaku-v2/firebase.json`
+- **GitHub Actions** が `main` ブランチへのpush時に Firebase Hosting へ自動デプロイ
+- トリガー条件: `.github/workflows/deploy.yml` 参照
+  - ブランチ: `main` のみ
+  - パス: `public/**` または `firebase.json`
+- 手動実行: GitHub Actions の `workflow_dispatch` から実行可能
 
-### 開発→デプロイの手順（厳守）
-1. **feature ブランチで開発・コミット**
-2. **`business-os/main` にマージ**
-3. **`business-os/main` をpush** ← これがないとデプロイされない
+### 開発→デプロイの手順
+1. `main` ブランチに変更をコミット＆push → 自動デプロイ
+2. デプロイ先: https://minpaku-v2.web.app
 
-```bash
-# 正しい手順
-git checkout business-os/main
-git merge <feature-branch> --no-edit
-git push -u origin business-os/main
-```
-
-### やってはいけないこと
-- feature ブランチにpushしただけで「デプロイされる」と思うこと
-  - `claude/*` ブランチにpushしてもデプロイは走らない
-- `business-os/main` へのマージを忘れること
+### 関連リポジトリ
+| リポジトリ | 内容 |
+|---|---|
+| minpaku-v2 | 民泊管理アプリ v2（このリポ） |
+| scan-sorter | スキャン仕分けツール |
+| biz-dashboard | 事業ダッシュボード |
+| biz-hq | 事業本部管理 |
+| property-radar | 物件レーダー |
+| ai-secretary | AI秘書 |
 
