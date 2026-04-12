@@ -3,7 +3,7 @@
  * Firebase Console → プロジェクト設定 → マイアプリ から値を取得して設定
  */
 const firebaseConfig = {
-  apiKey: "FIREBASE_API_KEY_PLACEHOLDER",
+  apiKey: "AIzaSyDU4ZkCNDzvGpT9BaBlum8bCK5P20Cu-Fs",
   authDomain: "minpaku-v2.firebaseapp.com",
   projectId: "minpaku-v2",
   storageBucket: "minpaku-v2.firebasestorage.app",

@@ -449,6 +449,17 @@ const DashboardPage = {
     if (fields.includes("beds24")) return "fc-event-direct";
     if (fields.includes("direct") || fields.includes("手動") || fields.includes("manual")) return "fc-event-direct";
 
+    // sourceが不明な場合、guestMap（名簿）のbookingSiteで補完
+    if (this.guestMap) {
+      const ci = this.toDateStr(booking.checkIn);
+      const g = ci ? this.guestMap[ci] : null;
+      if (g && g.bookingSite) {
+        const bs = g.bookingSite.toLowerCase();
+        if (bs.includes("airbnb")) return "fc-event-airbnb";
+        if (bs.includes("booking")) return "fc-event-booking-com";
+      }
+    }
+
     return "fc-event-other";
   },
 
@@ -467,11 +478,18 @@ const DashboardPage = {
 
   buildCalendarEvents() {
     const events = [];
-    // 募集をCO日でマッピング（予約イベントと紐付け用）
+
+    // 同じCO日に複数のrecruitmentがある場合、優先度の高い1件だけ使う
+    // 優先度: スタッフ確定済み > 選定済 > 募集中 > それ以外
+    const STATUS_PRIORITY = { "スタッフ確定済み": 4, "選定済": 3, "募集中": 2 };
     const recruitByCoDate = {};
     this.recruitments.forEach(r => {
       const coStr = this.toDateStr(r.checkoutDate);
-      if (coStr) recruitByCoDate[coStr] = r;
+      if (!coStr) return;
+      const existing = recruitByCoDate[coStr];
+      const newPri = STATUS_PRIORITY[r.status] || 1;
+      const existPri = existing ? (STATUS_PRIORITY[existing.status] || 1) : 0;
+      if (!existing || newPri > existPri) recruitByCoDate[coStr] = r;
     });
 
     // === 宿泊イベント（プラットフォーム別色分け + 名簿ステータスドット） ===
@@ -508,11 +526,9 @@ const DashboardPage = {
       });
     });
 
-    // === 清掃/募集イベント（ステータス色分け + 回答状況表示） ===
-    this.recruitments.forEach(r => {
-      // checkoutDateをJSTで正しく変換（Timestamp型やDate文字列に対応）
-      const rawCo = r.checkoutDate;
-      const coStr = this.toDateStr(rawCo);
+    // === 清掃/募集イベント（同日重複は除外済みのrecruitByCoDateを使用） ===
+    Object.values(recruitByCoDate).forEach(r => {
+      const coStr = this.toDateStr(r.checkoutDate);
       if (!coStr) return;
       const responses = r.responses || [];
       const maru = responses.filter(v => v.response === "◎").length;
