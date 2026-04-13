@@ -1198,8 +1198,13 @@
       const inputs = document.querySelectorAll(".g-passport-photo"), urls = [];
       for (const inp of inputs) {
         if (inp.files && inp.files[0]) {
-          const f = inp.files[0], ref = storage.ref(`passport-photos/${Date.now()}_${f.name}`);
-          await ref.put(f); urls.push(await ref.getDownloadURL());
+          try {
+            const f = inp.files[0], ref = storage.ref(`passport-photos/${Date.now()}_${f.name}`);
+            await ref.put(f); urls.push(await ref.getDownloadURL());
+          } catch (e) {
+            console.warn("写真アップロード失敗（スキップ）:", e.message);
+            urls.push(""); // アップロード失敗時は空文字で続行
+          }
         }
       }
       return urls;
