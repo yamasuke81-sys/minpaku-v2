@@ -231,25 +231,46 @@ async function getNotificationSettings_(db) {
 
 /**
  * 通知種別ごとの送信先を判定
- * settings.channels[notifyType].targets で制御（デフォルト: "both"）
+ * settings.channels[notifyType] の ownerLine / groupLine / ownerEmail で制御
  * @param {object} settings - settings/notifications ドキュメント
  * @param {string} notifyType - 通知種別キー（例: "recruit_start"）
- * @returns {{ enabled: boolean, sendToGroup: boolean, sendToIndividual: boolean }}
+ * @returns {{ enabled: boolean, ownerLine: boolean, groupLine: boolean, staffLine: boolean, ownerEmail: boolean, sendToGroup: boolean, sendToIndividual: boolean }}
  */
 function resolveNotifyTargets(settings, notifyType) {
-  if (!settings || !settings.channels) {
-    return { enabled: true, sendToGroup: true, sendToIndividual: true };
-  }
+  const defaults = { enabled: true, ownerLine: true, groupLine: false, staffLine: false, ownerEmail: false, sendToGroup: false, sendToIndividual: true };
+  if (!settings || !settings.channels) return defaults;
   const ch = settings.channels[notifyType];
-  if (!ch) {
-    return { enabled: true, sendToGroup: true, sendToIndividual: true };
-  }
+  if (!ch) return defaults;
   if (ch.enabled === false) {
-    return { enabled: false, sendToGroup: false, sendToIndividual: false };
+    return { enabled: false, ownerLine: false, groupLine: false, staffLine: false, ownerEmail: false, sendToGroup: false, sendToIndividual: false };
   }
+
+  // 新形式: ownerLine / groupLine / staffLine / ownerEmail（チェックボックス複数選択）
+  if (ch.ownerLine !== undefined || ch.groupLine !== undefined || ch.staffLine !== undefined || ch.ownerEmail !== undefined) {
+    const ownerLine = ch.ownerLine !== false;
+    const groupLine = !!ch.groupLine;
+    const staffLine = !!ch.staffLine;
+    const ownerEmail = !!ch.ownerEmail;
+    return {
+      enabled: true,
+      ownerLine,
+      groupLine,
+      staffLine,
+      ownerEmail,
+      // 後方互換
+      sendToGroup: groupLine,
+      sendToIndividual: staffLine,
+    };
+  }
+
+  // 旧形式互換: targets ("both"/"group"/"individual")
   const targets = ch.targets || "both";
   return {
     enabled: true,
+    ownerLine: targets === "both" || targets === "individual",
+    groupLine: targets === "both" || targets === "group",
+    staffLine: targets === "both" || targets === "individual",
+    ownerEmail: !!(ch.channel === "email" || ch.channel === "both"),
     sendToGroup: targets === "both" || targets === "group",
     sendToIndividual: targets === "both" || targets === "individual",
   };

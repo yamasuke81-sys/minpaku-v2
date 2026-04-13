@@ -75,15 +75,22 @@ module.exports = function recruitmentApi(db) {
         if (targets.enabled) {
           const baseUrl = process.env.APP_BASE_URL || "https://minpaku-v2.web.app/";
           const flex = buildRecruitmentFlex(data, baseUrl);
+          const title = `募集: ${data.checkoutDate}`;
 
-          if (targets.sendToGroup) {
-            await notifyGroup(db, "recruit_start", `募集: ${data.checkoutDate}`, flex);
+          // オーナーLINEに送信
+          if (targets.ownerLine) {
+            await notifyOwner(db, "recruit_start", title, `🧹 清掃スタッフ募集\n${data.checkoutDate} ${data.propertyName || ""}`);
           }
-          if (targets.sendToIndividual) {
+          // グループLINEに送信
+          if (targets.groupLine) {
+            await notifyGroup(db, "recruit_start", title, flex);
+          }
+          // スタッフ個別LINEに送信
+          if (targets.staffLine) {
             const staffSnap = await db.collection("staff").where("active", "==", true).get();
             const sends = staffSnap.docs
               .filter(d => d.data().lineUserId)
-              .map(d => notifyStaff(db, d.id, "recruit_start", `募集: ${data.checkoutDate}`, flex));
+              .map(d => notifyStaff(db, d.id, "recruit_start", title, flex));
             await Promise.allSettled(sends);
           }
         }
