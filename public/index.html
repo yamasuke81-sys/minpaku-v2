@@ -54,6 +54,13 @@
       <a class="nav-link" href="#/command" data-page="command"><i class="bi bi-command"></i> 司令塔</a>
       <a class="nav-link" href="#/projects" data-page="projects"><i class="bi bi-kanban"></i> プロジェクト</a>
     </nav>
+    </nav>
+    <!-- スタッフ用ナビ（ロールに応じて表示切替） -->
+    <nav class="sidebar-nav d-none" id="staffNav">
+      <a class="nav-link" href="#/my-dashboard" data-page="my-dashboard"><i class="bi bi-house-door"></i> マイページ</a>
+      <a class="nav-link" href="#/my-recruitment" data-page="my-recruitment"><i class="bi bi-megaphone"></i> 募集回答</a>
+      <a class="nav-link" href="#/my-checklist" data-page="my-checklist"><i class="bi bi-clipboard-check"></i> チェックリスト</a>
+    </nav>
     <div class="sidebar-footer">
       <a href="#" id="btnLogout"><i class="bi bi-box-arrow-right"></i> <span id="userName">オーナー</span></a>
     </div>
@@ -92,6 +99,11 @@
         <div class="modal-footer flex-column">
           <button class="btn btn-primary w-100" id="btnLogin">
             <i class="bi bi-box-arrow-in-right"></i> ログイン
+          </button>
+          <hr class="w-100 my-2">
+          <button class="btn w-100" id="btnLineLogin" style="background-color:#06C755;color:#fff;font-weight:bold;">
+            <svg viewBox="0 0 24 24" width="20" height="20" style="vertical-align:middle;margin-right:6px;fill:#fff"><path d="M12 2C6.48 2 2 5.83 2 10.5c0 4.07 3.44 7.47 8.09 8.18.31.07.74.21.85.48.1.25.06.63.03.88l-.14.82c-.04.25-.2.98.86.54s5.71-3.36 7.79-5.76C21.42 13.42 22 11.87 22 10.5 22 5.83 17.52 2 12 2z"/></svg>
+            LINEでログイン（スタッフ用）
           </button>
           <a href="#" class="small text-muted mt-2" id="btnForgotPassword">パスワードを忘れた方はこちら</a>
         </div>
@@ -177,6 +189,35 @@
             <div class="col-12">
               <label class="form-label">メモ</label>
               <textarea class="form-control" id="staffMemo" rows="2"></textarea>
+            </div>
+
+            <!-- LINE連携・アプリ招待（編集時のみ表示） -->
+            <div class="col-12 d-none" id="staffLineSection">
+              <hr><h6><i class="bi bi-line"></i> LINE連携・アプリ招待</h6>
+              <div class="row g-2">
+                <div class="col-md-6">
+                  <label class="form-label">LINE User ID</label>
+                  <input type="text" class="form-control" id="staffLineUserId" placeholder="Uxxxxxx...">
+                  <div class="form-text">Bot友達追加時に自動取得、または手動入力</div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">アプリ招待</label>
+                  <div class="d-flex gap-2 align-items-start">
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="btnInviteStaff">
+                      <i class="bi bi-link-45deg"></i> 招待リンク発行
+                    </button>
+                    <span class="badge bg-secondary d-none" id="staffAuthStatus">認証済み</span>
+                  </div>
+                  <div class="d-none mt-2" id="inviteLinkResult">
+                    <div class="input-group input-group-sm">
+                      <input type="text" class="form-control" id="inviteLinkUrl" readonly>
+                      <button class="btn btn-outline-secondary" type="button" id="btnCopyInviteLink">
+                        <i class="bi bi-clipboard"></i>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -570,7 +611,11 @@
   <script src="js/pages/scan-sorter.js?v=0402x"></script>
   <script src="js/pages/tax-docs.js?v=0402x"></script>
   <script src="js/pages/settings.js?v=0402x"></script>
-  <script src="js/app.js?v=0402x"></script>
+  <!-- スタッフ用ページ -->
+  <script src="js/pages/my-dashboard.js?v=0413a"></script>
+  <script src="js/pages/my-recruitment.js?v=0413a"></script>
+  <script src="js/pages/my-checklist.js?v=0413a"></script>
+  <script src="js/app.js?v=0413a"></script>
   <script>
   // サイドバートグル（PC: collapsed切替 / モバイル: show切替）
   document.getElementById('btnToggleSidebar')?.addEventListener('click', () => {

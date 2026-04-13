@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>民泊管理v2 — スタッフ招待</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <style>
+    body { background: #f0f2f5; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .invite-card { max-width: 420px; width: 100%; }
+  </style>
+</head>
+<body>
+  <div class="invite-card">
+    <div class="card shadow-sm">
+      <div class="card-header bg-primary text-white text-center py-3">
+        <h5 class="mb-0"><i class="bi bi-house-door"></i> 民泊管理v2</h5>
+        <small>スタッフ招待</small>
+      </div>
+      <div class="card-body p-4">
+        <!-- 読み込み中 -->
+        <div id="loadingState" class="text-center py-4">
+          <div class="spinner-border text-primary" role="status"></div>
+          <p class="mt-2 text-muted">招待情報を確認中...</p>
+        </div>
+
+        <!-- 有効な招待 -->
+        <div id="validState" class="d-none text-center">
+          <div class="mb-3">
+            <i class="bi bi-person-check" style="font-size:3rem;color:#2196F3;"></i>
+          </div>
+          <h5 class="mb-2"><span id="staffName">スタッフ</span> さん</h5>
+          <p class="text-muted">民泊管理アプリへの招待です。<br>「参加する」を押してアカウントを作成してください。</p>
+          <button class="btn btn-primary btn-lg w-100 mt-3" id="btnAccept">
+            <i class="bi bi-check-circle"></i> 参加する
+          </button>
+          <div class="alert alert-danger d-none mt-3" id="acceptError"></div>
+        </div>
+
+        <!-- 無効な招待 -->
+        <div id="invalidState" class="d-none text-center">
+          <div class="mb-3">
+            <i class="bi bi-x-circle" style="font-size:3rem;color:#dc3545;"></i>
+          </div>
+          <h5 class="text-danger">招待リンクが無効です</h5>
+          <p class="text-muted" id="invalidReason">有効期限が切れたか、既に使用されています。</p>
+          <p class="text-muted small">オーナーに新しい招待リンクの発行を依頼してください。</p>
+        </div>
+
+        <!-- 成功 -->
+        <div id="successState" class="d-none text-center">
+          <div class="mb-3">
+            <i class="bi bi-check-circle-fill" style="font-size:3rem;color:#198754;"></i>
+          </div>
+          <h5 class="text-success">登録完了！</h5>
+          <p class="text-muted">アプリに移動します...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-auth-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script>
+    (async function() {
+      const params = new URLSearchParams(location.search);
+      const token = params.get("token");
+
+      if (!token) {
+        showInvalid("招待トークンがありません");
+        return;
+      }
+
+      try {
+        // 招待情報を取得
+        const infoRes = await fetch(`/api/auth/invite-info?token=${encodeURIComponent(token)}`);
+        const info = await infoRes.json();
+
+        if (!info.valid) {
+          showInvalid(info.reason || "無効な招待リンクです");
+          return;
+        }
+
+        // 有効な招待を表示
+        document.getElementById("loadingState").classList.add("d-none");
+        document.getElementById("validState").classList.remove("d-none");
+        document.getElementById("staffName").textContent = info.staffName;
+
+        // 参加ボタン
+        document.getElementById("btnAccept").addEventListener("click", async () => {
+          const btn = document.getElementById("btnAccept");
+          const errorEl = document.getElementById("acceptError");
+          btn.disabled = true;
+          btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 処理中...';
+          errorEl.classList.add("d-none");
+
+          try {
+            const res = await fetch("/api/auth/accept-invite", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ token }),
+            });
+            const data = await res.json();
+
+            if (data.success && data.customToken) {
+              // Firebase Authにログイン
+              await firebase.auth().signInWithCustomToken(data.customToken);
+
+              // 成功表示
+              document.getElementById("validState").classList.add("d-none");
+              document.getElementById("successState").classList.remove("d-none");
+
+              // アプリにリダイレクト
+              setTimeout(() => {
+                location.href = "/index.html#/my-dashboard";
+              }, 1500);
+            } else {
+              errorEl.textContent = data.error || "登録に失敗しました";
+              errorEl.classList.remove("d-none");
+              btn.disabled = false;
+              btn.innerHTML = '<i class="bi bi-check-circle"></i> 参加する';
+            }
+          } catch (e) {
+            errorEl.textContent = `エラー: ${e.message}`;
+            errorEl.classList.remove("d-none");
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-circle"></i> 参加する';
+          }
+        });
+      } catch (e) {
+        showInvalid(`通信エラー: ${e.message}`);
+      }
+
+      function showInvalid(reason) {
+        document.getElementById("loadingState").classList.add("d-none");
+        document.getElementById("invalidState").classList.remove("d-none");
+        if (reason) document.getElementById("invalidReason").textContent = reason;
+      }
+    })();
+  </script>
+</body>
+</html>

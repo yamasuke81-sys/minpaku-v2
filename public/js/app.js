@@ -1,9 +1,11 @@
 /**
  * メインアプリ — SPAルーター + 初期化
+ * ロール別ルーティング対応（owner / staff）
  */
 const App = {
   currentPage: null,
 
+  // オーナー用ページ
   pages: {
     dashboard: DashboardPage,
     staff: StaffPage,
@@ -21,6 +23,13 @@ const App = {
     "scan-sorter": ScanSorterPage,
     "tax-docs": TaxDocsPage,
     settings: SettingsPage,
+  },
+
+  // スタッフ用ページ
+  staffPages: {
+    "my-dashboard": MyDashboardPage,
+    "my-recruitment": MyRecruitmentPage,
+    "my-checklist": MyChecklistPage,
   },
 
   init() {
@@ -46,18 +55,19 @@ const App = {
       });
     }
     // サイドバーリンクをクリックしたらモバイルでは閉じる
-    document.querySelectorAll("#sidebarNav .nav-item a").forEach(el => {
+    document.querySelectorAll(".sidebar-nav .nav-link").forEach(el => {
       el.addEventListener("click", () => {
         if (window.innerWidth < 992) {
-          sidebar.classList.remove("show");
-          overlay.classList.remove("show");
+          const sb = document.getElementById("appSidebar");
+          const bd = document.getElementById("sidebarBackdrop");
+          if (sb) sb.classList.remove("show");
+          if (bd) bd.classList.remove("show");
         }
       });
     });
   },
 
   onAuthReady() {
-    // ユーザー名表示
     const user = Auth.currentUser;
     if (user) {
       const name = user.displayName || user.email?.split("@")[0] || "ユーザー";
@@ -66,31 +76,50 @@ const App = {
       const avatar = document.getElementById("userAvatar");
       if (avatar) avatar.textContent = name.charAt(0).toUpperCase();
     }
+
+    // ロール別ナビ表示切替
+    const role = Auth.currentUser?.role || "owner";
+    const ownerNav = document.getElementById("ownerNav");
+    const staffNav = document.getElementById("staffNav");
+    if (ownerNav) ownerNav.classList.toggle("d-none", role === "staff");
+    if (staffNav) staffNav.classList.toggle("d-none", role !== "staff");
+
     this.route();
   },
 
   route() {
     if (!Auth.currentUser) return;
 
+    const role = Auth.currentUser.role || "owner";
     const hash = location.hash.replace("#", "") || "/";
     const path = hash.split("/").filter(Boolean);
-    const pageName = path[0] || "dashboard";
+
+    // デフォルトページ: オーナー→dashboard、スタッフ→my-dashboard
+    const defaultPage = role === "staff" ? "my-dashboard" : "dashboard";
+    const pageName = path[0] || defaultPage;
+
+    // ロール別ページマップ選択
+    const availablePages = role === "staff" ? this.staffPages : this.pages;
 
     // サイドバーのアクティブ状態更新
-    document.querySelectorAll("#sidebarNav .nav-item a").forEach((el) => {
+    const navId = role === "staff" ? "#staffNav" : "#ownerNav";
+    document.querySelectorAll(`${navId} .nav-link`).forEach((el) => {
       el.classList.toggle("active", el.getAttribute("data-page") === pageName);
     });
 
-    const page = this.pages[pageName];
+    const page = availablePages[pageName];
     if (page) {
       this.currentPage = pageName;
       page.render(document.getElementById("pageContainer"), path.slice(1));
     } else {
+      // スタッフがオーナーページにアクセスしようとした場合など
+      const backPage = role === "staff" ? "my-dashboard" : "dashboard";
+      const backLabel = role === "staff" ? "マイページ" : "ダッシュボード";
       document.getElementById("pageContainer").innerHTML = `
         <div class="empty-state fade-in">
           <i class="bi bi-tools"></i>
           <p>このページは準備中です</p>
-          <a href="#/" class="btn btn-primary">ダッシュボードに戻る</a>
+          <a href="#/${backPage}" class="btn btn-primary">${backLabel}に戻る</a>
         </div>
       `;
     }

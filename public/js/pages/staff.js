@@ -261,6 +261,8 @@ const StaffPage = {
           <span class="badge ${s.active ? "bg-success" : "bg-secondary"} staff-status-badge">
             ${s.active ? "有効" : "無効"}
           </span>
+          ${s.lineUserId ? '<span class="badge bg-success ms-1" title="LINE連携済み"><i class="bi bi-line"></i></span>' : ""}
+          ${s.authUid ? '<span class="badge bg-info ms-1" title="アプリ認証済み"><i class="bi bi-person-check"></i></span>' : ""}
         </td>
         <td>
           <div class="btn-group btn-group-sm">
@@ -557,6 +559,51 @@ const StaffPage = {
       cb.checked = days.includes(cb.value);
     });
 
+    // LINE連携セクション（編集時のみ表示）
+    const lineSection = document.getElementById("staffLineSection");
+    const lineUserIdEl = document.getElementById("staffLineUserId");
+    const authStatusEl = document.getElementById("staffAuthStatus");
+    const inviteResult = document.getElementById("inviteLinkResult");
+    if (isEdit) {
+      lineSection.classList.remove("d-none");
+      lineUserIdEl.value = staff?.lineUserId || "";
+      inviteResult.classList.add("d-none");
+      // 認証状態表示
+      if (staff?.authUid) {
+        authStatusEl.classList.remove("d-none");
+        authStatusEl.textContent = "認証済み";
+        authStatusEl.className = "badge bg-success";
+      } else {
+        authStatusEl.classList.remove("d-none");
+        authStatusEl.textContent = "未認証";
+        authStatusEl.className = "badge bg-warning text-dark";
+      }
+      // 招待リンクボタン
+      const btnInvite = document.getElementById("btnInviteStaff");
+      btnInvite.onclick = async () => {
+        try {
+          btnInvite.disabled = true;
+          btnInvite.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+          const result = await API.callFunction("POST", "/auth/invite", { staffId: staff.id });
+          document.getElementById("inviteLinkUrl").value = result.inviteUrl;
+          inviteResult.classList.remove("d-none");
+          showToast("成功", "招待リンクを発行しました（7日間有効）", "success");
+        } catch (e) {
+          showToast("エラー", e.message, "error");
+        } finally {
+          btnInvite.disabled = false;
+          btnInvite.innerHTML = '<i class="bi bi-link-45deg"></i> 招待リンク発行';
+        }
+      };
+      // コピーボタン
+      document.getElementById("btnCopyInviteLink").onclick = () => {
+        const url = document.getElementById("inviteLinkUrl").value;
+        navigator.clipboard.writeText(url).then(() => showToast("コピー", "リンクをコピーしました", "success"));
+      };
+    } else {
+      lineSection.classList.add("d-none");
+    }
+
     this.modal.show();
   },
 
@@ -593,6 +640,14 @@ const StaffPage = {
       accountHolder: document.getElementById("staffAccountHolder").value.trim(),
       memo: document.getElementById("staffMemo").value.trim(),
     };
+
+    // LINE User ID（編集時のみ）
+    if (id) {
+      const lineUserId = document.getElementById("staffLineUserId")?.value?.trim();
+      if (lineUserId !== undefined) {
+        data.lineUserId = lineUserId || null;
+      }
+    }
 
     try {
       if (id) {

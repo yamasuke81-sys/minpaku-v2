@@ -1,9 +1,13 @@
 /**
  * 募集管理 API
- * 募集CRUD + スタッフ回答 + 選定・確定
+ * 募集CRUD + スタッフ回答 + 選定・確定 + LINE通知
  */
 const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
+const {
+  notifyStaff, notifyGroup, notifyOwner,
+  buildRecruitmentFlex, resolveNotifyTargets, getNotificationSettings_,
+} = require("../utils/lineNotify");
 
 module.exports = function recruitmentApi(db) {
   const router = Router();
@@ -63,6 +67,30 @@ module.exports = function recruitmentApi(db) {
       data.createdAt = FieldValue.serverTimestamp();
       data.updatedAt = FieldValue.serverTimestamp();
       const docRef = await collection.add(data);
+
+      // LINE通知送信（非同期、エラーでもAPIは成功とする）
+      try {
+        const { settings } = await getNotificationSettings_(db);
+        const targets = resolveNotifyTargets(settings, "recruit_start");
+        if (targets.enabled) {
+          const baseUrl = process.env.APP_BASE_URL || "https://minpaku-v2.web.app/";
+          const flex = buildRecruitmentFlex(data, baseUrl);
+
+          if (targets.sendToGroup) {
+            await notifyGroup(db, "recruit_start", `募集: ${data.checkoutDate}`, flex);
+          }
+          if (targets.sendToIndividual) {
+            const staffSnap = await db.collection("staff").where("active", "==", true).get();
+            const sends = staffSnap.docs
+              .filter(d => d.data().lineUserId)
+              .map(d => notifyStaff(db, d.id, "recruit_start", `募集: ${data.checkoutDate}`, flex));
+            await Promise.allSettled(sends);
+          }
+        }
+      } catch (notifyErr) {
+        console.error("募集通知エラー（無視）:", notifyErr);
+      }
+
       res.status(201).json({ id: docRef.id, ...data });
     } catch (e) {
       console.error("募集作成エラー:", e);
@@ -229,6 +257,24 @@ module.exports = function recruitmentApi(db) {
         confirmedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });
+
+      // 確定スタッフにLINE通知
+      try {
+        const selectedNames = (data.selectedStaff || "").split(",").map(s => s.trim()).filter(Boolean);
+        if (selectedNames.length > 0) {
+          const staffSnap = await db.collection("staff").where("active", "==", true).get();
+          const text = `✅ 清掃確定のお知らせ\n\n${data.checkoutDate} ${data.propertyName || ""}\nあなたが清掃担当に確定されました。`;
+          for (const staffDoc of staffSnap.docs) {
+            const sd = staffDoc.data();
+            if (selectedNames.includes(sd.name) && sd.lineUserId) {
+              await notifyStaff(db, staffDoc.id, "staff_confirm", `確定: ${data.checkoutDate}`, text);
+            }
+          }
+        }
+      } catch (notifyErr) {
+        console.error("確定通知エラー（無視）:", notifyErr);
+      }
+
       res.json({ message: "スタッフを確定しました" });
     } catch (e) {
       console.error("募集確定エラー:", e);

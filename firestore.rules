@@ -7,7 +7,7 @@ service cloud.firestore {
       return request.auth != null && request.auth.token.role == 'owner';
     }
 
-    // スタッフ: 認証済み
+    // スタッフ: 認証済み + role == staff
     function isStaff() {
       return request.auth != null && request.auth.token.role == 'staff';
     }
@@ -17,9 +17,14 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // カスタムクレームのstaffIdを取得（Firestoreルールでスタッフ本人チェックに使用）
+    function myStaffId() {
+      return request.auth.token.staffId;
+    }
+
     // スタッフマスタ — オーナーのみ書き込み、スタッフは自分のデータのみ読み取り
     match /staff/{staffId} {
-      allow read: if isOwner() || (isStaff() && request.auth.uid == staffId);
+      allow read: if isOwner() || (isStaff() && myStaffId() == staffId);
       allow write: if isOwner();
     }
 
@@ -37,31 +42,31 @@ service cloud.firestore {
 
     // シフト — オーナーは全操作、スタッフは自分のシフトのみ読み取り
     match /shifts/{shiftId} {
-      allow read: if isOwner() || (isStaff() && resource.data.staffId == request.auth.uid);
+      allow read: if isOwner() || (isStaff() && resource.data.staffId == myStaffId());
       allow write: if isOwner();
     }
 
     // コインランドリー — スタッフは自分の記録を作成・読み取り、オーナーは全操作
     match /laundry/{recordId} {
-      allow read: if isOwner() || (isStaff() && resource.data.staffId == request.auth.uid);
-      allow create: if isStaff() && request.resource.data.staffId == request.auth.uid;
+      allow read: if isOwner() || (isStaff() && resource.data.staffId == myStaffId());
+      allow create: if isStaff() && request.resource.data.staffId == myStaffId();
       allow update, delete: if isOwner();
     }
 
     // 請求書 — オーナーは全操作、スタッフは自分の請求書の読み取り+ステータス更新
     match /invoices/{invoiceId} {
-      allow read: if isOwner() || (isStaff() && resource.data.staffId == request.auth.uid);
+      allow read: if isOwner() || (isStaff() && resource.data.staffId == myStaffId());
       allow create, delete: if isOwner();
       allow update: if isOwner() ||
-        (isStaff() && resource.data.staffId == request.auth.uid
+        (isStaff() && resource.data.staffId == myStaffId()
          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'confirmedAt']));
     }
 
     // チェックリスト — スタッフは自分のチェックリストを操作、オーナーは全操作
     match /checklists/{checklistId} {
-      allow read: if isOwner() || (isStaff() && resource.data.staffId == request.auth.uid);
+      allow read: if isOwner() || (isStaff() && resource.data.staffId == myStaffId());
       allow create: if isAuthenticated();
-      allow update: if isOwner() || (isStaff() && resource.data.staffId == request.auth.uid);
+      allow update: if isOwner() || (isStaff() && resource.data.staffId == myStaffId());
       allow delete: if isOwner();
     }
 
@@ -81,8 +86,8 @@ service cloud.firestore {
       match /responses/{responseId} {
         allow read: if isAuthenticated();
         allow create: if isAuthenticated();
-        allow update: if isOwner() || (isStaff() && resource.data.staffId == request.auth.uid);
-        allow delete: if isOwner() || (isStaff() && resource.data.staffId == request.auth.uid);
+        allow update: if isOwner() || (isStaff() && resource.data.staffId == myStaffId());
+        allow delete: if isOwner() || (isStaff() && resource.data.staffId == myStaffId());
       }
     }
 
@@ -96,6 +101,11 @@ service cloud.firestore {
         && request.resource.data.source == "guest_form";
       // 更新・削除はオーナーのみ
       allow update, delete: if isOwner();
+    }
+
+    // スタッフ招待トークン — Cloud Functions Admin SDKのみアクセス
+    match /staffInvites/{token} {
+      allow read, write: if false;
     }
 
     // タイミー募集 — オーナーのみ

@@ -210,6 +210,230 @@ function verifySignature(channelSecret, signature, body) {
   return hash === signature;
 }
 
+// ========== 通知設定ヘルパー ==========
+
+/**
+ * 通知設定を取得（フィールド名の互換性対応付き）
+ * @returns {{ settings: object|null, channelToken: string|null, ownerUserId: string|null, groupId: string|null }}
+ */
+async function getNotificationSettings_(db) {
+  const settingsDoc = await db.collection("settings").doc("notifications").get();
+  if (!settingsDoc.exists) return { settings: null };
+  const s = settingsDoc.data();
+  return {
+    settings: s,
+    // フィールド名の互換性対応（フロント lineToken / バック lineChannelToken）
+    channelToken: s.lineChannelToken || s.lineToken || null,
+    ownerUserId: s.lineOwnerUserId || s.lineOwnerId || null,
+    groupId: s.lineGroupId || null,
+  };
+}
+
+/**
+ * 通知種別ごとの送信先を判定
+ * settings.channels[notifyType].targets で制御（デフォルト: "both"）
+ * @param {object} settings - settings/notifications ドキュメント
+ * @param {string} notifyType - 通知種別キー（例: "recruit_start"）
+ * @returns {{ enabled: boolean, sendToGroup: boolean, sendToIndividual: boolean }}
+ */
+function resolveNotifyTargets(settings, notifyType) {
+  if (!settings || !settings.channels) {
+    return { enabled: true, sendToGroup: true, sendToIndividual: true };
+  }
+  const ch = settings.channels[notifyType];
+  if (!ch) {
+    return { enabled: true, sendToGroup: true, sendToIndividual: true };
+  }
+  if (ch.enabled === false) {
+    return { enabled: false, sendToGroup: false, sendToIndividual: false };
+  }
+  const targets = ch.targets || "both";
+  return {
+    enabled: true,
+    sendToGroup: targets === "both" || targets === "group",
+    sendToIndividual: targets === "both" || targets === "individual",
+  };
+}
+
+// ========== スタッフ・グループ通知 ==========
+
+/**
+ * 個別スタッフにLINE通知送信
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} staffId - Firestoreのstaff/{staffId}
+ * @param {string} type - 通知種別
+ * @param {string} title - タイトル（ログ用）
+ * @param {string|object} body - テキスト文字列 or Flexメッセージオブジェクト
+ */
+async function notifyStaff(db, staffId, type, title, body) {
+  // スタッフのlineUserId取得
+  const staffDoc = await db.collection("staff").doc(staffId).get();
+  if (!staffDoc.exists) {
+    return { success: false, error: "スタッフが見つかりません" };
+  }
+  const staffData = staffDoc.data();
+  const lineUserId = staffData.lineUserId;
+  if (!lineUserId) {
+    return { success: false, error: "LINE未連携", staffName: staffData.name };
+  }
+
+  // 通知設定取得
+  const { channelToken } = await getNotificationSettings_(db);
+  if (!channelToken) {
+    return { success: false, error: "LINEチャネルトークン未設定" };
+  }
+
+  // メッセージ構築
+  const messages = typeof body === "string"
+    ? [{ type: "text", text: body.slice(0, 5000) }]
+    : [body]; // Flexメッセージ等のオブジェクト
+
+  const result = await pushMessages_(channelToken, lineUserId, messages);
+
+  // 通知ログ
+  try {
+    await db.collection("notifications").add({
+      type,
+      title,
+      body: typeof body === "string" ? body.slice(0, 1000) : `[Flex] ${title}`,
+      staffId,
+      staffName: staffData.name,
+      sentAt: new Date(),
+      channel: "line",
+      target: "individual",
+      success: result.success,
+      error: result.error || null,
+    });
+  } catch (e) {
+    console.error("通知ログ記録エラー:", e);
+  }
+
+  return { ...result, staffName: staffData.name };
+}
+
+/**
+ * LINEグループに通知送信
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} type - 通知種別
+ * @param {string} title - タイトル（ログ用）
+ * @param {string|object} body - テキスト文字列 or Flexメッセージオブジェクト
+ */
+async function notifyGroup(db, type, title, body) {
+  const { channelToken, groupId } = await getNotificationSettings_(db);
+  if (!channelToken) {
+    return { success: false, error: "LINEチャネルトークン未設定" };
+  }
+  if (!groupId) {
+    return { success: false, error: "LINEグループID未設定" };
+  }
+
+  const messages = typeof body === "string"
+    ? [{ type: "text", text: body.slice(0, 5000) }]
+    : [body];
+
+  const result = await pushMessages_(channelToken, groupId, messages);
+
+  try {
+    await db.collection("notifications").add({
+      type,
+      title,
+      body: typeof body === "string" ? body.slice(0, 1000) : `[Flex] ${title}`,
+      sentAt: new Date(),
+      channel: "line",
+      target: "group",
+      success: result.success,
+      error: result.error || null,
+    });
+  } catch (e) {
+    console.error("通知ログ記録エラー:", e);
+  }
+
+  return result;
+}
+
+// ========== 募集通知用Flexメッセージ ==========
+
+/**
+ * 清掃スタッフ募集のFlexメッセージを生成
+ * @param {object} recruitment - { checkoutDate, propertyName, memo }
+ * @param {string} baseUrl - アプリのベースURL
+ * @returns {object} LINE Flexメッセージオブジェクト
+ */
+function buildRecruitmentFlex(recruitment, baseUrl) {
+  const { checkoutDate, propertyName, memo } = recruitment;
+  const title = `${checkoutDate} 清掃スタッフ募集`;
+  const bodyText = [
+    `📅 日付: ${checkoutDate}`,
+    propertyName ? `🏠 物件: ${propertyName}` : "",
+    memo ? `📝 ${memo}` : "",
+    "",
+    "回答をお願いします（◎OK / △微妙 / ×NG）",
+  ].filter(Boolean).join("\n");
+
+  return {
+    type: "flex",
+    altText: `【募集】${title}`,
+    contents: {
+      type: "bubble",
+      size: "mega",
+      header: {
+        type: "box",
+        layout: "vertical",
+        backgroundColor: "#2196F3",
+        paddingAll: "16px",
+        contents: [
+          {
+            type: "text",
+            text: "🧹 清掃スタッフ募集",
+            color: "#FFFFFF",
+            size: "xs",
+          },
+          {
+            type: "text",
+            text: title,
+            color: "#FFFFFF",
+            size: "lg",
+            weight: "bold",
+            wrap: true,
+          },
+        ],
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        paddingAll: "16px",
+        contents: [
+          {
+            type: "text",
+            text: bodyText,
+            wrap: true,
+            size: "sm",
+            color: "#333333",
+          },
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "horizontal",
+        spacing: "md",
+        contents: [
+          {
+            type: "button",
+            action: {
+              type: "uri",
+              label: "回答する",
+              uri: `${baseUrl}#/my-recruitment`,
+            },
+            style: "primary",
+            color: "#2196F3",
+            height: "sm",
+          },
+        ],
+      },
+    },
+  };
+}
+
 // ========== 高レベルユーティリティ ==========
 
 /**
@@ -217,12 +441,11 @@ function verifySignature(channelSecret, signature, body) {
  * settings/notifications の enableLine / enableEmail / notifyEmails で制御
  */
 async function notifyOwner(db, type, title, body) {
-  const settingsDoc = await db.collection("settings").doc("notifications").get();
-  if (!settingsDoc.exists) {
+  const { settings, channelToken, ownerUserId } = await getNotificationSettings_(db);
+  if (!settings) {
     console.warn("通知設定が未登録です（settings/notifications）");
     return { success: false, error: "通知設定未登録" };
   }
-  const settings = settingsDoc.data();
 
   // デフォルト: LINE有効、メール無効（後方互換）
   const enableLine = settings.enableLine !== false;
@@ -231,12 +454,10 @@ async function notifyOwner(db, type, title, body) {
 
   const results = [];
 
-  // LINE送信
+  // LINE送信（フォールバック対応済みのchannelToken/ownerUserIdを使用）
   if (enableLine) {
-    const channelToken = settings.lineChannelToken;
-    const userId = settings.lineOwnerUserId;
-    if (channelToken && userId) {
-      const lineResult = await sendLineMessage(channelToken, userId, body);
+    if (channelToken && ownerUserId) {
+      const lineResult = await sendLineMessage(channelToken, ownerUserId, body);
       results.push({ channel: "line", ...lineResult });
     } else {
       results.push({ channel: "line", success: false, error: "LINE設定不完全" });
@@ -328,5 +549,10 @@ module.exports = {
   sendApprovalRequest,
   verifySignature,
   notifyOwner,
+  notifyStaff,
+  notifyGroup,
+  buildRecruitmentFlex,
+  resolveNotifyTargets,
+  getNotificationSettings_,
   sendNotificationEmail_,
 };

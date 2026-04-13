@@ -943,6 +943,30 @@ const API = {
     },
   },
 
+  /**
+   * Cloud Functions APIを認証付きで呼び出すヘルパー
+   * スタッフ用ページから使用
+   */
+  async callFunction(method, path, body) {
+    const user = firebase.auth().currentUser;
+    if (!user) throw new Error("未認証です");
+    const token = await user.getIdToken();
+    const options = {
+      method,
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    };
+    if (body && method !== "GET") {
+      options.body = JSON.stringify(body);
+    }
+    const res = await fetch(`/api${path}`, options);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `APIエラー: ${res.status}`);
+    return data;
+  },
+
   // チェックリスト API
   checklist: {
     async templates() {

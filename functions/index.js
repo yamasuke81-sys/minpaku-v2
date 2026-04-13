@@ -25,8 +25,8 @@ async function authenticate(req, res, next) {
   }
   const token = authHeader.split("Bearer ")[1];
 
-  // テストモード: "test-token" はスキップ
-  if (token === "test-token") {
+  // テストモード: 環境変数で明示的に有効化した場合のみ許可
+  if (process.env.ALLOW_TEST_TOKEN === "true" && token === "test-token") {
     req.user = { email: "owner@test.com", role: "owner", uid: "test-owner" };
     return next();
   }
@@ -67,6 +67,12 @@ app.use("/gmail-auth", gmailAuthApi(db));
 // ========== 宿泊者名簿 編集API（トークンベース・認証不要） ==========
 const guestEditApi = require("./api/guest-edit");
 app.use("/guest-edit", guestEditApi(db));
+
+// ========== 認証API（招待・LINEログイン・ロール管理） ==========
+// 一部エンドポイントは認証不要（line-callback, accept-invite, invite-info）
+// invite, set-role, link-line は内部で認証チェック
+const authApi = require("./api/auth");
+app.use("/auth", authApi(db));
 
 app.use(authenticate);
 
@@ -167,6 +173,13 @@ exports.checkTaxDocsDrive = onSchedule({
   timeZone: "Asia/Tokyo",
   timeoutSeconds: 300,
 }, require("./scheduled/checkTaxDocsDrive"));
+
+// 募集リマインド（毎日18:00 JST）— 未回答スタッフに個別LINEリマインド
+exports.recruitReminder = onSchedule({
+  schedule: "0 18 * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/recruitReminder"));
 
 // Gmail受信監視（5分おき）— Gmail API有効化後にコメント解除
 // 前提: settings/gmail { enabled: true, userEmail: "..." }

@@ -281,3 +281,48 @@ body.sidebar-hidden .app-main { margin-left: 0; }
 /* プレビューモーダル */
 .preview-form .form-label { font-weight: 500; font-size: 0.9rem; }
 .preview-form .form-control, .preview-form .form-select { max-width: 400px; }
+
+/* ========== スタッフ用モバイル最適化 ========== */
+.staff-section-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  border-left: 3px solid #2196F3;
+  padding-left: 0.75rem;
+  margin: 1.25rem 0 0.5rem;
+}
+.staff-card {
+  border-radius: 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  transition: box-shadow 0.15s;
+}
+.staff-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.staff-card .card-body { padding: 0.75rem 1rem; }
+
+.response-btn-group .btn {
+  min-height: 48px;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 8px;
+}
+
+.checklist-item .form-check-input {
+  transform: scale(1.4);
+  margin-top: 4px;
+}
+.checklist-item .form-control-sm {
+  font-size: 0.85rem;
+}
+
+@media (max-width: 576px) {
+  .response-btn-group {
+    display: flex;
+    gap: 0.4rem;
+  }
+  .response-btn-group .btn {
+    flex: 1;
+    min-width: 0;
+    padding: 0.5rem 0.25rem;
+  }
+  .staff-card .card-body { padding: 0.6rem 0.75rem; }
+}

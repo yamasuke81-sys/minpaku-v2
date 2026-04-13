@@ -22,3 +22,7 @@ if (USE_EMULATOR) {
   firebase.firestore().useEmulator("localhost", 8080);
   console.log("🔧 Firebase Emulator に接続中");
 }
+
+// LINE Login チャネルID（LINE Developers Console → LINE Login → Channel ID）
+// スタッフのLINEログインに使用。未設定の場合はLINEログインボタンが無効になる
+window.LINE_LOGIN_CHANNEL_ID = "2009790221";
