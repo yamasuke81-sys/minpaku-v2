@@ -109,6 +109,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // iCal同期設定 — オーナーのみ
+    match /syncSettings/{settingId} {
+      allow read, write: if isOwner();
+    }
+
     // タイミー募集 — オーナーのみ
     match /timeeRequests/{requestId} {
       allow read, write: if isOwner();

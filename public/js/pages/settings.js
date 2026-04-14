@@ -226,8 +226,15 @@ const SettingsPage = {
                     <option value="0">手動のみ</option>
                   </select>
                   <div class="form-text">
-                    ※ Cloud Functionsのスケジュールは固定（30分）のため、設定値未満の間隔では同期を自動スキップします。
-                    実際のスケジュール変更はindex.jsを修正してください。
+                    ※ 30分より短い間隔を設定しても、Cloud Schedulerの最小間隔（30分）で動作します。<br>
+                    60分以上に設定すると、30分おきの起動時に前回からの経過時間で自動スキップします。<br>
+                    Cloud Schedulerの間隔を変更するには
+                    <a href="https://console.cloud.google.com/cloudscheduler?project=minpaku-v2" target="_blank">
+                      Google Cloud Scheduler <i class="bi bi-box-arrow-up-right"></i>
+                    </a>
+                    で「firebase-schedule-syncIcal」のcron式を編集してください（例: 5分おき → <code>*/5 * * * *</code>）。
+                    <br>30分にしている理由: <strong>API制限はありません</strong>。Airbnb/Booking.comのiCalフィードは制限なしで取得可能です。
+                    ただし頻繁すぎるとCloud Functionsの実行回数が増えコストが上がるため、通常は30分で十分です。
                   </div>
                 </div>
                 <div class="col-md-3">
