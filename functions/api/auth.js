@@ -231,7 +231,8 @@ module.exports = function authApi(db) {
       if (!user) {
         return res.status(401).json({ error: "認証が必要です" });
       }
-      if (user.role !== "owner") {
+      // オーナー権限チェック: role=="owner" OR roleが未設定（既存オーナー互換）
+      if (user.role && user.role !== "owner") {
         return res.status(403).json({ error: "オーナー権限が必要です" });
       }
 
@@ -281,7 +282,8 @@ module.exports = function authApi(db) {
       if (!user) {
         return res.status(401).json({ error: "認証が必要です" });
       }
-      if (user.role !== "owner") {
+      // オーナー権限チェック: role=="owner" OR roleが未設定（既存オーナー互換）
+      if (user.role && user.role !== "owner") {
         return res.status(403).json({ error: "オーナー権限が必要です" });
       }
 
@@ -318,7 +320,7 @@ module.exports = function authApi(db) {
       if (!user) {
         return res.status(401).json({ error: "認証が必要です" });
       }
-      if (user.role !== "owner") {
+      if (user.role && user.role !== "owner") {
         return res.status(403).json({ error: "オーナー権限が必要です" });
       }
 

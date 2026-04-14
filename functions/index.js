@@ -120,6 +120,10 @@ app.use("/scan-sorter", scanSorterApi(db));
 const taxDocsApi = require("./api/tax-docs");
 app.use("/tax-docs", taxDocsApi(db));
 
+// ========== 通知テスト API ==========
+const notificationsApi = require("./api/notifications");
+app.use("/notifications", notificationsApi(db));
+
 // gmail-auth は authenticate の前に登録済み（認証不要）
 
 // API エクスポート

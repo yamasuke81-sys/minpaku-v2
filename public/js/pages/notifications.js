@@ -1,26 +1,30 @@
 /**
  * 通知設定ページ
- * 13種類の通知ごとに有効/無効・送り先（オーナーLINE/グループLINE/オーナーメール）を複数選択
+ * 13種類の通知ごとに有効/無効・送り先（オーナーLINE/グループLINE/スタッフ個別LINE/オーナーメール）を複数選択
  * LINE接続設定（チャネルアクセストークン・グループID）
+ * カスタムメッセージ編集・テスト送信機能付き
  */
 const NotificationsPage = {
   settings: {},
 
+  // テスト送信APIエンドポイント
+  TEST_API_URL: "https://api-5qrfx7ujcq-an.a.run.app/notifications/test",
+
   // 通知の定義
   notifications: [
-    { key: "recruit_start", label: "清掃スタッフ募集", desc: "新しい清掃予定に対してスタッフへ募集通知を送信", icon: "bi-megaphone", group: "recruit" },
-    { key: "recruit_remind", label: "募集リマインド", desc: "回答が集まらない場合にリマインド送信", icon: "bi-alarm", group: "recruit" },
-    { key: "staff_confirm", label: "スタッフ確定通知", desc: "スタッフ確定時に本人とオーナーに通知", icon: "bi-person-check", group: "recruit" },
-    { key: "staff_undecided", label: "スタッフ未決定リマインド", desc: "清掃日が近いのにスタッフ未確定の場合にオーナーへ通知", icon: "bi-exclamation-triangle", group: "recruit" },
-    { key: "urgent_remind", label: "直前予約リマインド", desc: "直前予約に対する緊急リマインド", icon: "bi-lightning", group: "recruit" },
-    { key: "booking_cancel", label: "予約キャンセル通知", desc: "予約がキャンセルされた場合にオーナー・スタッフに通知", icon: "bi-x-circle", group: "booking" },
-    { key: "booking_change", label: "予約変更通知", desc: "予約日程が変更された場合に通知", icon: "bi-arrow-repeat", group: "booking" },
-    { key: "cancel_request", label: "出勤キャンセル要望", desc: "スタッフからの出勤キャンセル要望をオーナーに通知", icon: "bi-person-dash", group: "staff" },
-    { key: "cancel_approve", label: "キャンセル承認通知", desc: "出勤キャンセルを承認した場合にスタッフに通知", icon: "bi-check-circle", group: "staff" },
-    { key: "cancel_reject", label: "キャンセル却下通知", desc: "出勤キャンセルを却下した場合にスタッフに通知", icon: "bi-dash-circle", group: "staff" },
-    { key: "roster_remind", label: "名簿未入力リマインド", desc: "宿泊者名簿が未入力の予約についてリマインド", icon: "bi-person-vcard", group: "booking" },
-    { key: "invoice_request", label: "請求書要請", desc: "月末にスタッフへ請求書の提出を依頼", icon: "bi-receipt", group: "invoice" },
-    { key: "cleaning_done", label: "清掃完了通知", desc: "清掃チェックリスト完了時にオーナーに通知", icon: "bi-clipboard-check", group: "cleaning" },
+    { key: "recruit_start",   label: "清掃スタッフ募集",       desc: "新しい清掃予定に対してスタッフへ募集通知を送信",         icon: "bi-megaphone",           group: "recruit"  },
+    { key: "recruit_remind",  label: "募集リマインド",          desc: "回答が集まらない場合にリマインド送信",                   icon: "bi-alarm",               group: "recruit"  },
+    { key: "staff_confirm",   label: "スタッフ確定通知",        desc: "スタッフ確定時に本人とオーナーに通知",                   icon: "bi-person-check",        group: "recruit"  },
+    { key: "staff_undecided", label: "スタッフ未決定リマインド", desc: "清掃日が近いのにスタッフ未確定の場合にオーナーへ通知",   icon: "bi-exclamation-triangle", group: "recruit" },
+    { key: "urgent_remind",   label: "直前予約リマインド",      desc: "直前予約に対する緊急リマインド",                         icon: "bi-lightning",           group: "recruit"  },
+    { key: "booking_cancel",  label: "予約キャンセル通知",      desc: "予約がキャンセルされた場合にオーナー・スタッフに通知",   icon: "bi-x-circle",            group: "booking"  },
+    { key: "booking_change",  label: "予約変更通知",            desc: "予約日程が変更された場合に通知",                         icon: "bi-arrow-repeat",        group: "booking"  },
+    { key: "cancel_request",  label: "出勤キャンセル要望",      desc: "スタッフからの出勤キャンセル要望をオーナーに通知",       icon: "bi-person-dash",         group: "staff"    },
+    { key: "cancel_approve",  label: "キャンセル承認通知",      desc: "出勤キャンセルを承認した場合にスタッフに通知",           icon: "bi-check-circle",        group: "staff"    },
+    { key: "cancel_reject",   label: "キャンセル却下通知",      desc: "出勤キャンセルを却下した場合にスタッフに通知",           icon: "bi-dash-circle",         group: "staff"    },
+    { key: "roster_remind",   label: "名簿未入力リマインド",    desc: "宿泊者名簿が未入力の予約についてリマインド",             icon: "bi-person-vcard",        group: "booking"  },
+    { key: "invoice_request", label: "請求書要請",              desc: "月末にスタッフへ請求書の提出を依頼",                     icon: "bi-receipt",             group: "invoice"  },
+    { key: "cleaning_done",   label: "清掃完了通知",            desc: "清掃チェックリスト完了時にオーナーに通知",               icon: "bi-clipboard-check",     group: "cleaning" },
   ],
 
   async render(container) {
@@ -112,10 +116,10 @@ const NotificationsPage = {
     }
 
     // UI反映（フォールバック対応: 旧フィールド名も読み取る）
-    document.getElementById("lineChannelToken").value = this.settings.lineChannelToken || this.settings.lineToken || "";
-    document.getElementById("lineGroupId").value = this.settings.lineGroupId || "";
-    document.getElementById("lineOwnerUserId").value = this.settings.lineOwnerUserId || this.settings.lineOwnerId || "";
-    document.getElementById("ownerEmail").value = this.settings.ownerEmail || "";
+    document.getElementById("lineChannelToken").value  = this.settings.lineChannelToken || this.settings.lineToken || "";
+    document.getElementById("lineGroupId").value       = this.settings.lineGroupId || "";
+    document.getElementById("lineOwnerUserId").value   = this.settings.lineOwnerUserId || this.settings.lineOwnerId || "";
+    document.getElementById("ownerEmail").value        = this.settings.ownerEmail || "";
   },
 
   renderNotifications() {
@@ -130,13 +134,15 @@ const NotificationsPage = {
       if (!container) continue;
 
       container.innerHTML = items.map(n => {
-        const channels = this.settings.channels || {};
-        const ch = channels[n.key] || {};
-        const enabled = ch.enabled !== false;
-        const ownerLine = ch.ownerLine !== false;
-        const groupLine = !!ch.groupLine;
-        const staffLine = !!ch.staffLine;
-        const ownerEmail = !!ch.ownerEmail;
+        const channels       = this.settings.channels || {};
+        const ch             = channels[n.key] || {};
+        const enabled        = ch.enabled !== false;
+        const ownerLine      = ch.ownerLine !== false;
+        const groupLine      = !!ch.groupLine;
+        const staffLine      = !!ch.staffLine;
+        const ownerEmail     = !!ch.ownerEmail;
+        const customMessage  = ch.customMessage || "";
+        const collapseId     = `msgCollapse_${n.key}`;
 
         return `
           <div class="notify-channel-card">
@@ -147,7 +153,9 @@ const NotificationsPage = {
                   <strong>${n.label}</strong>
                 </div>
                 <div class="text-muted small mb-2">${n.desc}</div>
-                <div class="d-flex flex-wrap gap-3">
+
+                <!-- 送り先チェックボックス -->
+                <div class="d-flex flex-wrap gap-3 mb-3">
                   <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
                     <input class="form-check-input" type="checkbox"
                            data-key="${n.key}" data-field="ownerLine" ${ownerLine ? "checked" : ""}>
@@ -169,13 +177,110 @@ const NotificationsPage = {
                     <span class="form-check-label small"><i class="bi bi-envelope text-warning"></i> オーナーメール</span>
                   </label>
                 </div>
+
+                <!-- カスタムメッセージ編集エリア -->
+                <div class="mb-2">
+                  <button class="btn btn-sm btn-outline-secondary"
+                          type="button"
+                          data-bs-toggle="collapse"
+                          data-bs-target="#${collapseId}"
+                          aria-expanded="false">
+                    <i class="bi bi-pencil"></i> メッセージを編集
+                  </button>
+                </div>
+                <div class="collapse mb-2" id="${collapseId}">
+                  <div class="card card-body p-2">
+                    <label class="form-label small text-muted mb-1">送信メッセージ（空欄でデフォルトを使用）</label>
+                    <textarea class="form-control form-control-sm"
+                              rows="3"
+                              data-key="${n.key}"
+                              data-field="customMessage"
+                              placeholder="${n.desc}">${customMessage}</textarea>
+                    <div class="form-text">未入力の場合は通知説明文をデフォルトとして使用します。</div>
+                  </div>
+                </div>
+
+                <!-- テスト送信ボタン -->
+                <button class="btn btn-sm btn-outline-primary btn-test-send"
+                        type="button"
+                        data-key="${n.key}"
+                        data-default-msg="${n.desc}">
+                  <i class="bi bi-send"></i> テスト送信
+                </button>
               </div>
+
+              <!-- 有効/無効トグル -->
               <div class="form-check form-switch notify-toggle ms-3">
-                <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="enabled" ${enabled ? "checked" : ""}>
+                <input class="form-check-input" type="checkbox"
+                       data-key="${n.key}" data-field="enabled" ${enabled ? "checked" : ""}>
               </div>
             </div>
           </div>`;
       }).join("");
+
+      // テスト送信ボタンのイベントを委譲で登録
+      container.addEventListener("click", (e) => {
+        const btn = e.target.closest(".btn-test-send");
+        if (btn) this.sendTestNotification(btn);
+      });
+    }
+  },
+
+  /**
+   * テスト送信
+   * @param {HTMLElement} btn クリックされたボタン要素
+   */
+  async sendTestNotification(btn) {
+    const key        = btn.dataset.key;
+    const defaultMsg = btn.dataset.defaultMsg;
+
+    // 現在のカスタムメッセージを取得
+    const textareaEl = document.querySelector(`textarea[data-key="${key}"][data-field="customMessage"]`);
+    const message    = (textareaEl && textareaEl.value.trim()) ? textareaEl.value.trim() : defaultMsg;
+
+    // 現在チェックされている送り先を取得
+    const getChecked = (field) => {
+      const el = document.querySelector(`input[data-key="${key}"][data-field="${field}"]`);
+      return el ? el.checked : false;
+    };
+    const targets = {
+      ownerLine:  getChecked("ownerLine"),
+      groupLine:  getChecked("groupLine"),
+      staffLine:  getChecked("staffLine"),
+      ownerEmail: getChecked("ownerEmail"),
+    };
+
+    // スピナー表示
+    const originalHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 送信中...`;
+
+    try {
+      const user  = firebase.auth().currentUser;
+      if (!user) throw new Error("ログインが必要です");
+
+      const token = await user.getIdToken();
+
+      const res = await fetch(this.TEST_API_URL, {
+        method:  "POST",
+        headers: {
+          "Content-Type":  "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({ type: key, message, targets }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || `HTTP ${res.status}`);
+      }
+
+      showToast("テスト送信完了", `「${key}」のテスト通知を送信しました`, "success");
+    } catch (e) {
+      showToast("送信エラー", e.message, "error");
+    } finally {
+      btn.disabled  = false;
+      btn.innerHTML = originalHTML;
     }
   },
 
@@ -183,27 +288,31 @@ const NotificationsPage = {
     try {
       const channels = {};
       this.notifications.forEach(n => {
-        const get = (field) => {
-          const el = document.querySelector(`[data-key="${n.key}"][data-field="${field}"]`);
+        const getChecked = (field) => {
+          const el = document.querySelector(`input[data-key="${n.key}"][data-field="${field}"]`);
           return el ? el.checked : false;
         };
+        const textareaEl = document.querySelector(`textarea[data-key="${n.key}"][data-field="customMessage"]`);
+        const customMessage = textareaEl ? textareaEl.value.trim() : "";
+
         channels[n.key] = {
-          enabled: get("enabled"),
-          ownerLine: get("ownerLine"),
-          groupLine: get("groupLine"),
-          staffLine: get("staffLine"),
-          ownerEmail: get("ownerEmail"),
+          enabled:       getChecked("enabled"),
+          ownerLine:     getChecked("ownerLine"),
+          groupLine:     getChecked("groupLine"),
+          staffLine:     getChecked("staffLine"),
+          ownerEmail:    getChecked("ownerEmail"),
+          customMessage,
         };
       });
 
       const data = {
         lineChannelToken: document.getElementById("lineChannelToken").value.trim(),
-        lineGroupId: document.getElementById("lineGroupId").value.trim(),
-        lineOwnerUserId: document.getElementById("lineOwnerUserId").value.trim(),
-        ownerEmail: document.getElementById("ownerEmail").value.trim(),
-        enableLine: true,
+        lineGroupId:      document.getElementById("lineGroupId").value.trim(),
+        lineOwnerUserId:  document.getElementById("lineOwnerUserId").value.trim(),
+        ownerEmail:       document.getElementById("ownerEmail").value.trim(),
+        enableLine:       true,
         channels,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt:        firebase.firestore.FieldValue.serverTimestamp(),
       };
 
       await db.collection("settings").doc("notifications").set(data, { merge: true });
