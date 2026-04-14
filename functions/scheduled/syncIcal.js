@@ -94,7 +94,7 @@ async function syncIcal() {
   const syncConfig = syncConfigSnap.exists ? syncConfigSnap.data() : {};
 
   // icalSyncInterval が 0 → 手動のみモード
-  const icalSyncInterval = syncConfig.icalSyncInterval ?? 30; // デフォルト30分
+  const icalSyncInterval = syncConfig.icalSyncInterval ?? 5; // デフォルト5分
   if (icalSyncInterval === 0) {
     console.log("[syncIcal] icalSyncInterval=0（手動のみ）。スキップ。");
     return;

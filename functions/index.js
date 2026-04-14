@@ -211,9 +211,9 @@ exports.sendKeyboxEmail = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/sendKeyboxEmail"));
 
-// iCal同期（30分おき）— Beds24導入後はこちらを無効化
+// iCal同期（5分おき）— Beds24導入後はこちらを無効化
 exports.syncIcal = onSchedule({
-  schedule: "every 30 minutes",
+  schedule: "every 5 minutes",
   region: "asia-northeast1",
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/syncIcal"));

@@ -218,10 +218,10 @@ const SettingsPage = {
                 <div class="col-md-5">
                   <label class="form-label small mb-1"><i class="bi bi-clock"></i> 同期頻度</label>
                   <select class="form-select form-select-sm" id="icalSyncInterval">
-                    <option value="5">5分おき</option>
+                    <option value="5" selected>5分おき</option>
                     <option value="10">10分おき</option>
                     <option value="15">15分おき</option>
-                    <option value="30" selected>30分おき</option>
+                    <option value="30">30分おき</option>
                     <option value="60">1時間おき</option>
                     <option value="0">手動のみ</option>
                   </select>
