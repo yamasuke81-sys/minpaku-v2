@@ -6,11 +6,17 @@ const MyChecklistPage = {
   staffId: null,
 
   async render(container, params) {
+    const isOwner = Auth.isOwner();
     this.staffId = Auth.currentUser?.staffId;
+    // オーナーの場合: Auth UIDをstaffId代わりに使う
+    if (isOwner && !this.staffId) {
+      this.staffId = Auth.currentUser.uid;
+    }
     if (!this.staffId) {
       container.innerHTML = '<div class="alert alert-warning m-3">スタッフ情報が取得できません。</div>';
       return;
     }
+    this._isOwner = isOwner;
 
     // パラメータにシフトIDがあれば個別入力画面
     const checklistId = params?.[0];
@@ -42,18 +48,16 @@ const MyChecklistPage = {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
-      const shiftSnap = await db.collection("shifts")
-        .where("staffId", "==", this.staffId)
-        .where("date", ">=", today)
-        .where("date", "<", tomorrow)
-        .get();
+      let shiftQuery = db.collection("shifts").where("date", ">=", today).where("date", "<", tomorrow);
+      if (!this._isOwner) shiftQuery = shiftQuery.where("staffId", "==", this.staffId);
+      const shiftSnap = await shiftQuery.get();
 
       const shifts = shiftSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
       // 既存のチェックリスト記録を取得
-      const clSnap = await db.collection("checklists")
-        .where("staffId", "==", this.staffId)
-        .get();
+      let clQuery = db.collection("checklists");
+      if (!this._isOwner) clQuery = clQuery.where("staffId", "==", this.staffId);
+      const clSnap = await clQuery.get();
       const existingChecklists = clSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
       // 進行中のチェックリスト

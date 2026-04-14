@@ -1,11 +1,15 @@
 /**
  * スタッフ用マイダッシュボード
  * 今日のシフト、今後の予定、未回答募集件数を表示
+ * オーナーがアクセスした場合は全データを表示
  */
 const MyDashboardPage = {
   async render(container) {
+    const isOwner = Auth.isOwner();
     const staffId = Auth.currentUser?.staffId;
-    if (!staffId) {
+    const displayName = Auth.currentUser?.displayName || Auth.currentUser?.email?.split("@")[0] || "オーナー";
+
+    if (!isOwner && !staffId) {
       container.innerHTML = '<div class="alert alert-warning m-3">スタッフ情報が取得できません。再ログインしてください。</div>';
       return;
     }
@@ -24,9 +28,9 @@ const MyDashboardPage = {
 
     try {
       const [todayShifts, upcomingShifts, pendingRecruitments] = await Promise.all([
-        this.loadTodayShifts(staffId),
-        this.loadUpcomingShifts(staffId),
-        this.loadPendingRecruitments(staffId),
+        this.loadTodayShifts(staffId, isOwner),
+        this.loadUpcomingShifts(staffId, isOwner),
+        this.loadPendingRecruitments(staffId, isOwner),
       ]);
 
       const content = document.getElementById("myDashContent");
@@ -72,43 +76,39 @@ const MyDashboardPage = {
     }
   },
 
-  async loadTodayShifts(staffId) {
+  async loadTodayShifts(staffId, isOwner) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const snap = await db.collection("shifts")
-      .where("staffId", "==", staffId)
-      .where("date", ">=", today)
-      .where("date", "<", tomorrow)
-      .get();
+    let query = db.collection("shifts").where("date", ">=", today).where("date", "<", tomorrow);
+    if (!isOwner && staffId) query = query.where("staffId", "==", staffId);
 
+    const snap = await query.get();
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   },
 
-  async loadUpcomingShifts(staffId) {
+  async loadUpcomingShifts(staffId, isOwner) {
     const tomorrow = new Date();
     tomorrow.setHours(0, 0, 0, 0);
     tomorrow.setDate(tomorrow.getDate() + 1);
     const weekLater = new Date(tomorrow);
     weekLater.setDate(weekLater.getDate() + 7);
 
-    const snap = await db.collection("shifts")
-      .where("staffId", "==", staffId)
-      .where("date", ">=", tomorrow)
-      .where("date", "<", weekLater)
-      .orderBy("date", "asc")
-      .get();
+    let query = db.collection("shifts").where("date", ">=", tomorrow).where("date", "<", weekLater).orderBy("date", "asc");
+    if (!isOwner && staffId) query = query.where("staffId", "==", staffId);
 
+    const snap = await query.get();
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   },
 
-  async loadPendingRecruitments(staffId) {
-    // 「募集中」の募集から、自分が未回答のものをカウント
+  async loadPendingRecruitments(staffId, isOwner) {
     const snap = await db.collection("recruitments")
       .where("status", "==", "募集中")
       .get();
+
+    if (isOwner) return snap.size; // オーナーは全件表示
 
     let count = 0;
     for (const doc of snap.docs) {
@@ -125,6 +125,7 @@ const MyDashboardPage = {
     const dateStr = date.toLocaleDateString("ja-JP", { month: "short", day: "numeric", weekday: "short" });
     const time = shift.startTime || "未定";
     const property = shift.propertyName || shift.propertyId || "";
+    const staffName = shift.staffName || "";
     const statusMap = {
       unassigned: { label: "未割当", class: "bg-secondary" },
       assigned: { label: "割当済", class: "bg-info" },
@@ -140,12 +141,15 @@ const MyDashboardPage = {
          </a>`
       : "";
 
+    // オーナー表示時はスタッフ名も表示
+    const staffLabel = Auth.isOwner() && staffName ? `<span class="text-muted small ms-2">担当: ${staffName}</span>` : "";
+
     return `
       <div class="card staff-card mb-2">
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-start">
             <div>
-              <div class="fw-bold">${isToday ? "" : `${dateStr} `}${property}</div>
+              <div class="fw-bold">${isToday ? "" : `${dateStr} `}${property}${staffLabel}</div>
               <div class="text-muted small"><i class="bi bi-clock"></i> ${time}</div>
             </div>
             <span class="badge ${st.class}">${st.label}</span>

@@ -1,13 +1,21 @@
 /**
  * スタッフ用募集回答ページ
  * 「募集中」の募集一覧を表示し、◎/△/×で回答
+ * オーナーも自分の名前で回答可能
  */
 const MyRecruitmentPage = {
   staffId: null,
   staffDoc: null,
 
   async render(container) {
+    const isOwner = Auth.isOwner();
     this.staffId = Auth.currentUser?.staffId;
+
+    // オーナーの場合: Auth UIDをstaffId代わりに使う
+    if (isOwner && !this.staffId) {
+      this.staffId = Auth.currentUser.uid;
+    }
+
     if (!this.staffId) {
       container.innerHTML = '<div class="alert alert-warning m-3">スタッフ情報が取得できません。</div>';
       return;
@@ -25,9 +33,16 @@ const MyRecruitmentPage = {
     `;
 
     try {
-      // 自分のスタッフ情報を取得
-      const staffSnap = await db.collection("staff").doc(this.staffId).get();
-      this.staffDoc = staffSnap.exists ? staffSnap.data() : {};
+      // スタッフ情報を取得（オーナーはAuthの表示名を使用）
+      if (isOwner) {
+        this.staffDoc = {
+          name: Auth.currentUser.displayName || Auth.currentUser.email?.split("@")[0] || "オーナー",
+          email: Auth.currentUser.email || "",
+        };
+      } else {
+        const staffSnap = await db.collection("staff").doc(this.staffId).get();
+        this.staffDoc = staffSnap.exists ? staffSnap.data() : {};
+      }
 
       await this.loadRecruitments();
     } catch (e) {
