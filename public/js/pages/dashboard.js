@@ -376,9 +376,6 @@ const DashboardPage = {
     const calendarEl = document.getElementById("dashboardCalendar");
     if (!calendarEl) return;
 
-    // 募集日セット（日セルのハイライト用）
-    const recruitDates = new Set(this.recruitments.filter(r => r.status === "募集中").map(r => this.toDateStr(r.checkoutDate)).filter(Boolean));
-
     this.calendar = new FullCalendar.Calendar(calendarEl, {
       initialView: "dayGridMonth",
       locale: "ja",
@@ -394,12 +391,6 @@ const DashboardPage = {
       dayMaxEvents: 4,
       eventDisplay: "block",
       eventOrder: "order",
-
-      // 募集中の日セルを黄色ハイライト
-      dayCellClassNames: (arg) => {
-        const dateStr = arg.date.toISOString().slice(0, 10);
-        return recruitDates.has(dateStr) ? ["fc-day-recruiting"] : [];
-      },
 
       // ステータスドットを動的注入
       eventDidMount: (info) => {

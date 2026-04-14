@@ -220,7 +220,6 @@ body.sidebar-hidden .app-main { margin-left: 0; }
 .dot-roster-none { background-color: #adb5bd; }
 
 /* 募集中の日セルにハイライト */
-.fc-day-recruiting { background-color: rgba(255,193,7,0.08) !important; }
 
 /* カレンダーイベント — カーソル */
 .fc .fc-event { cursor: pointer; }
