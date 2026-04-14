@@ -158,41 +158,17 @@ async function syncIcal() {
 
         const guestName = extractGuestName(event, platform);
 
-        // Airbnbのブロック/非公開イベントはスキップ（予約は別イベントで来るため）
-        // Booking.comはCLOSEDイベントに予約情報が含まれるため取り込む
+        // ブロック/非公開/売り止めイベントは全プラットフォームでスキップ
+        // ゲスト名が空 + CLOSED/Not available/Blocked → 予約ではなくブロック
         if (!guestName && /not available|closed|blocked/i.test(event.summary || "")) {
-          if (platform !== "Booking.com") {
-            skipped++;
-            continue;
-          }
-          // Booking.com: 長期ブロック（21日超）はシーズンクローズ等なのでスキップ
-          const ciDate = new Date(checkIn);
-          const coDate = new Date(checkOut || checkIn);
-          const days = (coDate - ciDate) / (1000 * 60 * 60 * 24);
-          if (days > 21) {
-            console.log(`[syncIcal] スキップ(長期${days}日): ${checkIn}〜${checkOut}`);
-            skipped++;
-            continue;
-          }
-          // Booking.com: Airbnb予約と期間が完全一致するブロックはスキップ（クロスチャネル重複）
-          // 完全一致のみスキップ: CLOSEDのcheckIn==AirbnbのcheckIn && CLOSEDのcheckOut==AirbnbのcheckOut
-          // 理由: 期間重複判定だとBooking.com独自予約まで誤スキップされる
-          const co = checkOut || checkIn;
-          const airbnbOverlap = await db.collection("bookings")
-            .where("source", "==", "Airbnb")
-            .where("checkIn", "==", checkIn)
-            .get();
-          const hasExactMatch = airbnbOverlap.docs.some(doc => {
-            const ab = doc.data();
-            return ab.checkOut === co;
-          });
-          if (hasExactMatch) {
-            console.log(`[syncIcal] スキップ(Airbnb完全一致): ${checkIn}〜${co}`);
-            skipped++;
-            continue;
-          }
-          console.log(`[syncIcal] Booking.com CLOSED取込: ${checkIn}〜${co} (${days}日間)`);
-          // Booking.com: CLOSEDイベントを予約として取り込む（ゲスト名は空）
+          console.log(`[syncIcal] スキップ(ブロック): ${platform} ${checkIn}〜${checkOut} "${event.summary}"`);
+          skipped++;
+          continue;
+        }
+        // ゲスト名が空でsummaryもない → スキップ
+        if (!guestName && !(event.summary || "").trim()) {
+          skipped++;
+          continue;
         }
 
         // bookingsコレクションに upsert（iCalのUIDをドキュメントIDに使用）
