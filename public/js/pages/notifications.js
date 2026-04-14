@@ -178,26 +178,13 @@ const NotificationsPage = {
                   </label>
                 </div>
 
-                <!-- カスタムメッセージ編集エリア -->
+                <!-- 送信メッセージ編集 -->
                 <div class="mb-2">
-                  <button class="btn btn-sm btn-outline-secondary"
-                          type="button"
-                          data-bs-toggle="collapse"
-                          data-bs-target="#${collapseId}"
-                          aria-expanded="false">
-                    <i class="bi bi-pencil"></i> メッセージを編集
-                  </button>
-                </div>
-                <div class="collapse mb-2" id="${collapseId}">
-                  <div class="card card-body p-2">
-                    <label class="form-label small text-muted mb-1">送信メッセージ（空欄でデフォルトを使用）</label>
-                    <textarea class="form-control form-control-sm"
-                              rows="3"
-                              data-key="${n.key}"
-                              data-field="customMessage"
-                              placeholder="${n.desc}">${customMessage}</textarea>
-                    <div class="form-text">未入力の場合は通知説明文をデフォルトとして使用します。</div>
-                  </div>
+                  <label class="form-label small text-muted mb-1"><i class="bi bi-chat-left-text"></i> 送信メッセージ</label>
+                  <textarea class="form-control form-control-sm"
+                            rows="2"
+                            data-key="${n.key}"
+                            data-field="customMessage">${customMessage || n.desc}</textarea>
                 </div>
 
                 <!-- テスト送信ボタン -->
