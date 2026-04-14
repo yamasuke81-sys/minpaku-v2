@@ -10,21 +10,35 @@ const NotificationsPage = {
   // テスト送信APIエンドポイント
   TEST_API_URL: "https://api-5qrfx7ujcq-an.a.run.app/notifications/test",
 
-  // 通知の定義
+  // 通知の定義（desc: 設定画面の説明、defaultMsg: 実際に送信されるデフォルトメッセージ）
+  // {date} {property} {staff} {guest} {month} は送信時に実データで置換される
   notifications: [
-    { key: "recruit_start",   label: "清掃スタッフ募集",       desc: "新しい清掃予定に対してスタッフへ募集通知を送信",         icon: "bi-megaphone",           group: "recruit"  },
-    { key: "recruit_remind",  label: "募集リマインド",          desc: "回答が集まらない場合にリマインド送信",                   icon: "bi-alarm",               group: "recruit"  },
-    { key: "staff_confirm",   label: "スタッフ確定通知",        desc: "スタッフ確定時に本人とオーナーに通知",                   icon: "bi-person-check",        group: "recruit"  },
-    { key: "staff_undecided", label: "スタッフ未決定リマインド", desc: "清掃日が近いのにスタッフ未確定の場合にオーナーへ通知",   icon: "bi-exclamation-triangle", group: "recruit" },
-    { key: "urgent_remind",   label: "直前予約リマインド",      desc: "直前予約に対する緊急リマインド",                         icon: "bi-lightning",           group: "recruit"  },
-    { key: "booking_cancel",  label: "予約キャンセル通知",      desc: "予約がキャンセルされた場合にオーナー・スタッフに通知",   icon: "bi-x-circle",            group: "booking"  },
-    { key: "booking_change",  label: "予約変更通知",            desc: "予約日程が変更された場合に通知",                         icon: "bi-arrow-repeat",        group: "booking"  },
-    { key: "cancel_request",  label: "出勤キャンセル要望",      desc: "スタッフからの出勤キャンセル要望をオーナーに通知",       icon: "bi-person-dash",         group: "staff"    },
-    { key: "cancel_approve",  label: "キャンセル承認通知",      desc: "出勤キャンセルを承認した場合にスタッフに通知",           icon: "bi-check-circle",        group: "staff"    },
-    { key: "cancel_reject",   label: "キャンセル却下通知",      desc: "出勤キャンセルを却下した場合にスタッフに通知",           icon: "bi-dash-circle",         group: "staff"    },
-    { key: "roster_remind",   label: "名簿未入力リマインド",    desc: "宿泊者名簿が未入力の予約についてリマインド",             icon: "bi-person-vcard",        group: "booking"  },
-    { key: "invoice_request", label: "請求書要請",              desc: "月末にスタッフへ請求書の提出を依頼",                     icon: "bi-receipt",             group: "invoice"  },
-    { key: "cleaning_done",   label: "清掃完了通知",            desc: "清掃チェックリスト完了時にオーナーに通知",               icon: "bi-clipboard-check",     group: "cleaning" },
+    { key: "recruit_start", label: "清掃スタッフ募集", desc: "新しい清掃予定に対してスタッフへ募集通知を送信", icon: "bi-megaphone", group: "recruit",
+      defaultMsg: "🧹 清掃スタッフ募集\n\n{date} {property}\n清掃スタッフを募集しています。\n回答をお願いします（◎OK / △微妙 / ×NG）" },
+    { key: "recruit_remind", label: "募集リマインド", desc: "回答が集まらない場合にリマインド送信", icon: "bi-alarm", group: "recruit",
+      defaultMsg: "📋 募集回答のお願い\n\n{date} {property}\nまだ回答が届いていません。\n都合を確認して回答をお願いします。" },
+    { key: "staff_confirm", label: "スタッフ確定通知", desc: "スタッフ確定時に本人とオーナーに通知", icon: "bi-person-check", group: "recruit",
+      defaultMsg: "✅ 清掃担当が確定しました\n\n{date} {property}\n担当: {staff}\nよろしくお願いします。" },
+    { key: "staff_undecided", label: "スタッフ未決定リマインド", desc: "清掃日が近いのにスタッフ未確定の場合にオーナーへ通知", icon: "bi-exclamation-triangle", group: "recruit",
+      defaultMsg: "⚠️ スタッフ未確定\n\n{date} {property}\n清掃日が近づいていますが、まだスタッフが確定していません。\n早急に対応をお願いします。" },
+    { key: "urgent_remind", label: "直前予約リマインド", desc: "直前予約に対する緊急リマインド", icon: "bi-lightning", group: "recruit",
+      defaultMsg: "🔴 緊急: 直前予約の清掃手配\n\n{date} {property}\n直前予約が入りました。至急清掃スタッフの手配をお願いします。" },
+    { key: "booking_cancel", label: "予約キャンセル通知", desc: "予約がキャンセルされた場合にオーナー・スタッフに通知", icon: "bi-x-circle", group: "booking",
+      defaultMsg: "❌ 予約キャンセル\n\n{date} {property}\nゲスト: {guest}\n予約がキャンセルされました。清掃予定の確認をお願いします。" },
+    { key: "booking_change", label: "予約変更通知", desc: "予約日程が変更された場合に通知", icon: "bi-arrow-repeat", group: "booking",
+      defaultMsg: "🔄 予約変更\n\n{property}\n日程が変更されました。\n新しい日程: {date}\n清掃スケジュールを確認してください。" },
+    { key: "cancel_request", label: "出勤キャンセル要望", desc: "スタッフからの出勤キャンセル要望をオーナーに通知", icon: "bi-person-dash", group: "staff",
+      defaultMsg: "🙋 出勤キャンセル要望\n\n{staff}さんから{date}の出勤キャンセル要望がありました。\n確認・対応をお願いします。" },
+    { key: "cancel_approve", label: "キャンセル承認通知", desc: "出勤キャンセルを承認した場合にスタッフに通知", icon: "bi-check-circle", group: "staff",
+      defaultMsg: "✅ キャンセル承認\n\n{date}の出勤キャンセルが承認されました。" },
+    { key: "cancel_reject", label: "キャンセル却下通知", desc: "出勤キャンセルを却下した場合にスタッフに通知", icon: "bi-dash-circle", group: "staff",
+      defaultMsg: "❌ キャンセル不可\n\n申し訳ありませんが、{date}の出勤キャンセルは対応できませんでした。\n出勤をお願いします。" },
+    { key: "roster_remind", label: "名簿未入力リマインド", desc: "宿泊者名簿が未入力の予約についてリマインド", icon: "bi-person-vcard", group: "booking",
+      defaultMsg: "📝 宿泊者名簿の入力をお願いします\n\n{date} {property}\nチェックイン予定のゲストの名簿がまだ届いていません。" },
+    { key: "invoice_request", label: "請求書要請", desc: "月末にスタッフへ請求書の提出を依頼", icon: "bi-receipt", group: "invoice",
+      defaultMsg: "💰 請求書のご確認をお願いします\n\n{month}月分の請求書を作成しました。\n内容を確認し、問題なければ「確認」ボタンを押してください。" },
+    { key: "cleaning_done", label: "清掃完了通知", desc: "清掃チェックリスト完了時にオーナーに通知", icon: "bi-clipboard-check", group: "cleaning",
+      defaultMsg: "✨ 清掃完了\n\n{date} {property}\n{staff}さんが清掃を完了しました。" },
   ],
 
   async render(container) {
@@ -184,14 +198,14 @@ const NotificationsPage = {
                   <textarea class="form-control form-control-sm"
                             rows="2"
                             data-key="${n.key}"
-                            data-field="customMessage">${customMessage || n.desc}</textarea>
+                            data-field="customMessage">${customMessage || n.defaultMsg || n.desc}</textarea>
                 </div>
 
                 <!-- テスト送信ボタン -->
                 <button class="btn btn-sm btn-outline-primary btn-test-send"
                         type="button"
                         data-key="${n.key}"
-                        data-default-msg="${n.desc}">
+                        data-default-msg="${(n.defaultMsg || n.desc).replace(/"/g, '&quot;')}">
                   <i class="bi bi-send"></i> テスト送信
                 </button>
               </div>
