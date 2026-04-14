@@ -4,7 +4,7 @@
  */
 const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
-const { onDocumentWritten, onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onDocumentWritten, onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 const express = require("express");
 const cors = require("cors");
@@ -250,15 +250,21 @@ exports.onGuestFormSubmit = onDocumentCreated(
 );
 
 // 予約変更時→清掃スケジュール自動生成
-// exports.onBookingChange = onDocumentWritten(
-//   "bookings/{bookingId}",
-//   require("./triggers/onBookingChange")
-// );
+exports.onBookingChange = onDocumentWritten(
+  "bookings/{bookingId}",
+  require("./triggers/onBookingChange")
+);
 
 // スキャンログ作成→確認待ちLINE通知（AI秘書「黒子」× 経理部連携）
 exports.onScanLogCreated = onDocumentCreated(
   "scanLogs/{logId}",
   require("./triggers/onScanLogCreated")
+);
+
+// チェックリスト完了→シフト完了+通知
+exports.onChecklistComplete = onDocumentUpdated(
+  "checklists/{checklistId}",
+  require("./triggers/onChecklistComplete")
 );
 
 // エラーログ作成→AI翻訳+LINE通知（情シス機能）

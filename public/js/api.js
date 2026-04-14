@@ -246,6 +246,41 @@ const API = {
       await db.collection("invoices").doc(id).delete();
     },
 
+    async addItem(id, { label, amount, memo = "" }) {
+      const ref = db.collection("invoices").doc(id);
+      const doc = await ref.get();
+      if (!doc.exists) throw new Error("請求書が見つかりません");
+      const data = doc.data();
+      const manualItems = data.details?.manualItems || [];
+      manualItems.push({ label, amount: Number(amount), memo });
+      const manualTotal = manualItems.reduce((s, item) => s + (item.amount || 0), 0);
+      const newTotal = (data.basePayment || 0) + (data.laundryFee || 0) + (data.transportationFee || 0) + (data.specialAllowance || 0) + manualTotal;
+      await ref.update({
+        "details.manualItems": manualItems,
+        total: newTotal,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      return { manualItems, total: newTotal };
+    },
+
+    async deleteItem(id, index) {
+      const ref = db.collection("invoices").doc(id);
+      const doc = await ref.get();
+      if (!doc.exists) throw new Error("請求書が見つかりません");
+      const data = doc.data();
+      const manualItems = data.details?.manualItems || [];
+      if (index < 0 || index >= manualItems.length) throw new Error("無効なインデックスです");
+      manualItems.splice(index, 1);
+      const manualTotal = manualItems.reduce((s, item) => s + (item.amount || 0), 0);
+      const newTotal = (data.basePayment || 0) + (data.laundryFee || 0) + (data.transportationFee || 0) + (data.specialAllowance || 0) + manualTotal;
+      await ref.update({
+        "details.manualItems": manualItems,
+        total: newTotal,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      return { manualItems, total: newTotal };
+    },
+
     /**
      * 月次請求書を自動生成
      * 募集データ（確定済み）+ ランドリー + スタッフ単価から集計

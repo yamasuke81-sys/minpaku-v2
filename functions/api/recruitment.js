@@ -231,10 +231,11 @@ module.exports = function recruitmentApi(db) {
       if (!doc.exists) {
         return res.status(404).json({ error: "募集が見つかりません" });
       }
-      const { selectedStaff } = req.body;
+      const { selectedStaff, selectedStaffIds } = req.body;
       await docRef.update({
         selectedStaff: selectedStaff || "",
-        status: "選定済",
+        selectedStaffIds: selectedStaffIds || [],
+        status: selectedStaff ? "選定済" : "募集中",
         updatedAt: FieldValue.serverTimestamp(),
       });
       res.json({ message: "スタッフを選定しました" });
@@ -267,13 +268,20 @@ module.exports = function recruitmentApi(db) {
 
       // 確定スタッフにLINE通知
       try {
+        const selectedIds = data.selectedStaffIds || [];
         const selectedNames = (data.selectedStaff || "").split(",").map(s => s.trim()).filter(Boolean);
-        if (selectedNames.length > 0) {
+        const hasIdList = selectedIds.length > 0;
+
+        if (hasIdList || selectedNames.length > 0) {
           const staffSnap = await db.collection("staff").where("active", "==", true).get();
           const text = `✅ 清掃確定のお知らせ\n\n${data.checkoutDate} ${data.propertyName || ""}\nあなたが清掃担当に確定されました。`;
           for (const staffDoc of staffSnap.docs) {
             const sd = staffDoc.data();
-            if (selectedNames.includes(sd.name) && sd.lineUserId) {
+            // IDリストがあればID照合優先、なければ名前照合にフォールバック
+            const isSelected = hasIdList
+              ? selectedIds.includes(staffDoc.id)
+              : selectedNames.includes(sd.name);
+            if (isSelected && sd.lineUserId) {
               await notifyStaff(db, staffDoc.id, "staff_confirm", `確定: ${data.checkoutDate}`, text);
             }
           }

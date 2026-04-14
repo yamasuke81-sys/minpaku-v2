@@ -248,6 +248,7 @@ const InvoicesPage = {
     const details = inv.details || {};
     const shifts = details.shifts || [];
     const laundry = details.laundry || [];
+    const manualItems = details.manualItems || [];
 
     document.getElementById("invoiceDetailTitle").textContent =
       `${inv.staffName || inv.staffId} — ${inv.yearMonth}`;
@@ -260,7 +261,7 @@ const InvoicesPage = {
           <strong>ステータス:</strong> ${this.getStatusBadge(inv.status)}
         </div>
         <div class="col-6 text-end">
-          <div class="fs-2 fw-bold text-primary">${formatCurrency(inv.total || 0)}</div>
+          <div class="fs-2 fw-bold text-primary" id="invoiceDetailTotal">${formatCurrency(inv.total || 0)}</div>
         </div>
       </div>
 
@@ -305,16 +306,70 @@ const InvoicesPage = {
         </table>
       ` : ""}
 
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="mb-0"><i class="bi bi-plus-circle"></i> 手動追加項目</h6>
+        ${Auth.currentUser?.role === "owner" ? `
+          <button class="btn btn-outline-secondary btn-sm" id="btnAddManualItem" data-inv-id="${inv.id}">
+            <i class="bi bi-plus"></i> 項目を追加
+          </button>
+        ` : ""}
+      </div>
+      <table class="table table-sm table-bordered mb-3" id="manualItemsTable">
+        <thead class="table-light">
+          <tr><th>項目名</th><th class="text-end">金額</th>${Auth.currentUser?.role === "owner" ? "<th></th>" : ""}</tr>
+        </thead>
+        <tbody id="manualItemsBody">
+          ${manualItems.length ? manualItems.map((item, idx) => `
+            <tr>
+              <td>${this.esc(item.label)}${item.memo ? `<br><small class="text-muted">${this.esc(item.memo)}</small>` : ""}</td>
+              <td class="text-end">${formatCurrency(item.amount || 0)}</td>
+              ${Auth.currentUser?.role === "owner" ? `
+                <td class="text-center">
+                  <button class="btn btn-outline-danger btn-xs btn-delete-manual-item" data-inv-id="${inv.id}" data-index="${idx}" style="padding:1px 6px;font-size:0.75rem;">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </td>
+              ` : ""}
+            </tr>
+          `).join("") : `<tr><td colspan="${Auth.currentUser?.role === "owner" ? 3 : 2}" class="text-muted text-center small">手動追加項目なし</td></tr>`}
+        </tbody>
+        ${manualItems.length ? `
+          <tfoot class="table-light">
+            <tr>
+              <th>小計</th>
+              <th class="text-end">${formatCurrency(manualItems.reduce((s, i) => s + (i.amount || 0), 0))}</th>
+              ${Auth.currentUser?.role === "owner" ? "<th></th>" : ""}
+            </tr>
+          </tfoot>
+        ` : ""}
+      </table>
+
       <table class="table table-bordered">
         <tbody>
           <tr><td>基本報酬（${details.ratePerJob ? formatCurrency(details.ratePerJob) + " × " + shifts.length + "回" : ""}）</td><td class="text-end">${formatCurrency(inv.basePayment || 0)}</td></tr>
           <tr><td>ランドリー</td><td class="text-end">${formatCurrency(inv.laundryFee || 0)}</td></tr>
           <tr><td>交通費（${details.transportPerShift ? formatCurrency(details.transportPerShift) + " × " + shifts.length + "回" : ""}）</td><td class="text-end">${formatCurrency(inv.transportationFee || 0)}</td></tr>
           <tr><td>特別手当</td><td class="text-end">${formatCurrency(inv.specialAllowance || 0)}</td></tr>
-          <tr class="table-primary fw-bold"><td>合計</td><td class="text-end">${formatCurrency(inv.total || 0)}</td></tr>
+          ${manualItems.length ? `<tr><td>手動追加項目</td><td class="text-end">${formatCurrency(manualItems.reduce((s, i) => s + (i.amount || 0), 0))}</td></tr>` : ""}
+          <tr class="table-primary fw-bold"><td>合計</td><td class="text-end" id="invoiceSummaryTotal">${formatCurrency(inv.total || 0)}</td></tr>
         </tbody>
       </table>
     `;
+
+    // 項目追加ボタン
+    const btnAdd = document.getElementById("btnAddManualItem");
+    if (btnAdd) {
+      btnAdd.addEventListener("click", () => this.addManualItem(inv));
+    }
+
+    // 項目削除ボタン
+    document.querySelectorAll(".btn-delete-manual-item").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const invId = btn.dataset.invId;
+        const index = parseInt(btn.dataset.index, 10);
+        this.deleteManualItem(invId, index, inv);
+      });
+    });
 
     new bootstrap.Modal(modalEl).show();
   },
@@ -383,6 +438,41 @@ const InvoicesPage = {
     try {
       await API.invoices.delete(id);
       showToast("完了", "削除しました", "success");
+      await this.loadInvoices();
+    } catch (e) {
+      showToast("エラー", e.message, "error");
+    }
+  },
+
+  async addManualItem(inv) {
+    const label = prompt("項目名を入力してください:");
+    if (!label) return;
+    const amountStr = prompt("金額を入力してください（円）:");
+    if (amountStr === null) return;
+    const amount = parseInt(amountStr.replace(/,/g, ""), 10);
+    if (isNaN(amount)) {
+      showToast("エラー", "金額は数値で入力してください", "error");
+      return;
+    }
+    try {
+      await API.invoices.addItem(inv.id, { label, amount });
+      showToast("完了", "項目を追加しました", "success");
+      // モーダルを閉じて一覧をリロード
+      const modalEl = document.getElementById("invoiceDetailModal");
+      bootstrap.Modal.getInstance(modalEl)?.hide();
+      await this.loadInvoices();
+    } catch (e) {
+      showToast("エラー", e.message, "error");
+    }
+  },
+
+  async deleteManualItem(invId, index, inv) {
+    if (!confirm(`「${inv.details?.manualItems?.[index]?.label || "この項目"}」を削除しますか？`)) return;
+    try {
+      await API.invoices.deleteItem(invId, index);
+      showToast("完了", "項目を削除しました", "success");
+      const modalEl = document.getElementById("invoiceDetailModal");
+      bootstrap.Modal.getInstance(modalEl)?.hide();
       await this.loadInvoices();
     } catch (e) {
       showToast("エラー", e.message, "error");

@@ -149,6 +149,121 @@ module.exports = function invoicesApi(db) {
     }
   });
 
+  // 手動明細項目を追加（オーナーのみ）
+  router.post("/:id/items", async (req, res) => {
+    try {
+      if (req.user.role !== "owner") {
+        return res.status(403).json({ error: "オーナー権限が必要です" });
+      }
+      const { label, amount, memo } = req.body;
+      if (!label || amount === undefined) {
+        return res.status(400).json({ error: "label と amount は必須です" });
+      }
+      const docRef = collection.doc(req.params.id);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        return res.status(404).json({ error: "請求書が見つかりません" });
+      }
+      const data = doc.data();
+      const manualItems = data.details?.manualItems || [];
+      manualItems.push({ label: String(label), amount: Number(amount), memo: memo || "" });
+
+      // total再計算
+      const manualTotal = manualItems.reduce((s, item) => s + (item.amount || 0), 0);
+      const newTotal = (data.basePayment || 0) + (data.laundryFee || 0) + (data.transportationFee || 0) + (data.specialAllowance || 0) + manualTotal;
+
+      await docRef.update({
+        "details.manualItems": manualItems,
+        total: newTotal,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      res.status(201).json({ message: "項目を追加しました", manualItems, total: newTotal });
+    } catch (e) {
+      console.error("手動項目追加エラー:", e);
+      res.status(500).json({ error: "手動項目の追加に失敗しました" });
+    }
+  });
+
+  // 手動明細項目を削除（オーナーのみ）
+  router.delete("/:id/items/:index", async (req, res) => {
+    try {
+      if (req.user.role !== "owner") {
+        return res.status(403).json({ error: "オーナー権限が必要です" });
+      }
+      const index = parseInt(req.params.index, 10);
+      const docRef = collection.doc(req.params.id);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        return res.status(404).json({ error: "請求書が見つかりません" });
+      }
+      const data = doc.data();
+      const manualItems = data.details?.manualItems || [];
+      if (index < 0 || index >= manualItems.length) {
+        return res.status(400).json({ error: "無効なインデックスです" });
+      }
+      manualItems.splice(index, 1);
+
+      // total再計算
+      const manualTotal = manualItems.reduce((s, item) => s + (item.amount || 0), 0);
+      const newTotal = (data.basePayment || 0) + (data.laundryFee || 0) + (data.transportationFee || 0) + (data.specialAllowance || 0) + manualTotal;
+
+      await docRef.update({
+        "details.manualItems": manualItems,
+        total: newTotal,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      res.json({ message: "項目を削除しました", manualItems, total: newTotal });
+    } catch (e) {
+      console.error("手動項目削除エラー:", e);
+      res.status(500).json({ error: "手動項目の削除に失敗しました" });
+    }
+  });
+
+  // 支払済みマーク（オーナーのみ）
+  router.put("/:id/markPaid", async (req, res) => {
+    try {
+      if (req.user.role !== "owner") {
+        return res.status(403).json({ error: "オーナー権限が必要です" });
+      }
+      const docRef = collection.doc(req.params.id);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        return res.status(404).json({ error: "請求書が見つかりません" });
+      }
+      await docRef.update({
+        status: "paid",
+        paidAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      res.json({ message: "支払済みにしました" });
+    } catch (e) {
+      console.error("支払済みマークエラー:", e);
+      res.status(500).json({ error: "支払済みマークに失敗しました" });
+    }
+  });
+
+  // 請求書削除（オーナーのみ・draftのみ）
+  router.delete("/:id", async (req, res) => {
+    try {
+      if (req.user.role !== "owner") {
+        return res.status(403).json({ error: "オーナー権限が必要です" });
+      }
+      const docRef = collection.doc(req.params.id);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        return res.status(404).json({ error: "請求書が見つかりません" });
+      }
+      if (doc.data().status !== "draft") {
+        return res.status(400).json({ error: "下書き状態の請求書のみ削除できます" });
+      }
+      await docRef.delete();
+      res.json({ message: "請求書を削除しました" });
+    } catch (e) {
+      console.error("請求書削除エラー:", e);
+      res.status(500).json({ error: "請求書の削除に失敗しました" });
+    }
+  });
+
   // スタッフが請求書を確認・確定
   router.put("/:id/confirm", async (req, res) => {
     try {
