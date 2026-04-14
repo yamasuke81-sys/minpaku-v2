@@ -282,6 +282,18 @@ body.sidebar-hidden .app-main { margin-left: 0; }
 .preview-form .form-label { font-weight: 500; font-size: 0.9rem; }
 .preview-form .form-control, .preview-form .form-select { max-width: 400px; }
 
+/* ========== 通知設定カード ========== */
+.notify-channel-card {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 0.75rem;
+  transition: box-shadow 0.15s;
+}
+.notify-channel-card:hover { box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+.notify-toggle .form-check-input { transform: scale(1.2); }
+
 /* ========== スタッフ用モバイル最適化 ========== */
 .staff-section-title {
   font-size: 0.9rem;
