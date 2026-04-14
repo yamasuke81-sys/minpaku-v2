@@ -1,8 +1,6 @@
 /**
  * 通知設定ページ
- * 13種類の通知ごとに有効/無効・送り先（オーナーLINE/グループLINE/スタッフ個別LINE/オーナーメール）を複数選択
- * LINE接続設定（チャネルアクセストークン・グループID）
- * カスタムメッセージ編集・テスト送信機能付き
+ * 各通知の有効/無効・送り先・メッセージテンプレート・プレビュー・テスト送信
  */
 const NotificationsPage = {
   settings: {},
@@ -10,35 +8,78 @@ const NotificationsPage = {
   // テスト送信APIエンドポイント
   TEST_API_URL: "https://api-5qrfx7ujcq-an.a.run.app/notifications/test",
 
-  // 通知の定義（desc: 設定画面の説明、defaultMsg: 実際に送信されるデフォルトメッセージ）
-  // {date} {property} {staff} {guest} {month} は送信時に実データで置換される
+  // ========== システム定義変数 ==========
+  // 通知種別ごとに利用可能な変数を定義
+  // source: 実送信時にどのデータから取得するかの説明
+  systemVariables: {
+    // 募集系で使える変数
+    recruit: [
+      { name: "date",     label: "清掃日",       sample: "2026/04/20",  source: "recruitment.checkoutDate" },
+      { name: "property", label: "物件名",       sample: "長浜民泊A",    source: "recruitment.propertyName" },
+      { name: "url",      label: "回答ページURL", sample: "https://minpaku-v2.web.app/#/my-recruitment", source: "自動生成" },
+      { name: "count",    label: "回答数",       sample: "3",           source: "recruitment.responses.length" },
+      { name: "staff",    label: "確定スタッフ名", sample: "山田太郎",    source: "recruitment.selectedStaff" },
+      { name: "memo",     label: "メモ",         sample: "BBQ後の片付けあり", source: "recruitment.memo" },
+    ],
+    // 予約系で使える変数
+    booking: [
+      { name: "date",     label: "チェックアウト日", sample: "2026/04/20", source: "booking.checkOut" },
+      { name: "checkin",  label: "チェックイン日",   sample: "2026/04/18", source: "booking.checkIn" },
+      { name: "property", label: "物件名",          sample: "長浜民泊A",   source: "booking.propertyName" },
+      { name: "guest",    label: "ゲスト名",        sample: "John Smith", source: "booking.guestName" },
+      { name: "nights",   label: "宿泊数",          sample: "2",          source: "自動計算" },
+      { name: "site",     label: "予約サイト",       sample: "Airbnb",     source: "booking.source" },
+    ],
+    // スタッフ系で使える変数
+    staff: [
+      { name: "staff",    label: "スタッフ名",  sample: "山田太郎",      source: "staff.name" },
+      { name: "date",     label: "対象日",      sample: "2026/04/20",   source: "shift.date" },
+      { name: "property", label: "物件名",      sample: "長浜民泊A",     source: "shift.propertyName" },
+    ],
+    // 経理系で使える変数
+    invoice: [
+      { name: "month",    label: "対象月",      sample: "4",            source: "invoice.yearMonth" },
+      { name: "staff",    label: "スタッフ名",  sample: "山田太郎",      source: "invoice.staffName" },
+      { name: "total",    label: "合計金額",    sample: "¥45,000",      source: "invoice.total" },
+      { name: "url",      label: "確認ページURL", sample: "https://minpaku-v2.web.app/#/my-dashboard", source: "自動生成" },
+    ],
+    // 清掃系で使える変数
+    cleaning: [
+      { name: "date",     label: "清掃日",      sample: "2026/04/20",   source: "checklist.date" },
+      { name: "property", label: "物件名",      sample: "長浜民泊A",     source: "checklist.propertyName" },
+      { name: "staff",    label: "スタッフ名",  sample: "山田太郎",      source: "checklist.staffName" },
+      { name: "time",     label: "完了時刻",    sample: "14:30",        source: "checklist.completedAt" },
+    ],
+  },
+
+  // 通知種別ごとに使えるグループを紐付け
   notifications: [
-    { key: "recruit_start", label: "清掃スタッフ募集", desc: "新しい清掃予定に対してスタッフへ募集通知を送信", icon: "bi-megaphone", group: "recruit",
-      defaultMsg: "🧹 清掃スタッフ募集\n\n{date} {property}\n清掃スタッフを募集しています。\n回答をお願いします（◎OK / △微妙 / ×NG）" },
-    { key: "recruit_remind", label: "募集リマインド", desc: "回答が集まらない場合にリマインド送信", icon: "bi-alarm", group: "recruit",
-      defaultMsg: "📋 募集回答のお願い\n\n{date} {property}\nまだ回答が届いていません。\n都合を確認して回答をお願いします。" },
-    { key: "staff_confirm", label: "スタッフ確定通知", desc: "スタッフ確定時に本人とオーナーに通知", icon: "bi-person-check", group: "recruit",
+    { key: "recruit_start", label: "清掃スタッフ募集", desc: "新しい清掃予定に対してスタッフへ募集通知を送信", icon: "bi-megaphone", group: "recruit", varGroup: "recruit",
+      defaultMsg: "🧹 清掃スタッフ募集\n\n{date} {property}\n清掃スタッフを募集しています。\n回答をお願いします（◎OK / △微妙 / ×NG）\n\n回答: {url}" },
+    { key: "recruit_remind", label: "募集リマインド", desc: "回答が集まらない場合にリマインド送信", icon: "bi-alarm", group: "recruit", varGroup: "recruit",
+      defaultMsg: "📋 募集回答のお願い\n\n{date} {property}\nまだ回答が届いていません（現在{count}件）。\n回答: {url}" },
+    { key: "staff_confirm", label: "スタッフ確定通知", desc: "スタッフ確定時に本人とオーナーに通知", icon: "bi-person-check", group: "recruit", varGroup: "recruit",
       defaultMsg: "✅ 清掃担当が確定しました\n\n{date} {property}\n担当: {staff}\nよろしくお願いします。" },
-    { key: "staff_undecided", label: "スタッフ未決定リマインド", desc: "清掃日が近いのにスタッフ未確定の場合にオーナーへ通知", icon: "bi-exclamation-triangle", group: "recruit",
-      defaultMsg: "⚠️ スタッフ未確定\n\n{date} {property}\n清掃日が近づいていますが、まだスタッフが確定していません。\n早急に対応をお願いします。" },
-    { key: "urgent_remind", label: "直前予約リマインド", desc: "直前予約に対する緊急リマインド", icon: "bi-lightning", group: "recruit",
-      defaultMsg: "🔴 緊急: 直前予約の清掃手配\n\n{date} {property}\n直前予約が入りました。至急清掃スタッフの手配をお願いします。" },
-    { key: "booking_cancel", label: "予約キャンセル通知", desc: "予約がキャンセルされた場合にオーナー・スタッフに通知", icon: "bi-x-circle", group: "booking",
-      defaultMsg: "❌ 予約キャンセル\n\n{date} {property}\nゲスト: {guest}\n予約がキャンセルされました。清掃予定の確認をお願いします。" },
-    { key: "booking_change", label: "予約変更通知", desc: "予約日程が変更された場合に通知", icon: "bi-arrow-repeat", group: "booking",
-      defaultMsg: "🔄 予約変更\n\n{property}\n日程が変更されました。\n新しい日程: {date}\n清掃スケジュールを確認してください。" },
-    { key: "cancel_request", label: "出勤キャンセル要望", desc: "スタッフからの出勤キャンセル要望をオーナーに通知", icon: "bi-person-dash", group: "staff",
-      defaultMsg: "🙋 出勤キャンセル要望\n\n{staff}さんから{date}の出勤キャンセル要望がありました。\n確認・対応をお願いします。" },
-    { key: "cancel_approve", label: "キャンセル承認通知", desc: "出勤キャンセルを承認した場合にスタッフに通知", icon: "bi-check-circle", group: "staff",
-      defaultMsg: "✅ キャンセル承認\n\n{date}の出勤キャンセルが承認されました。" },
-    { key: "cancel_reject", label: "キャンセル却下通知", desc: "出勤キャンセルを却下した場合にスタッフに通知", icon: "bi-dash-circle", group: "staff",
-      defaultMsg: "❌ キャンセル不可\n\n申し訳ありませんが、{date}の出勤キャンセルは対応できませんでした。\n出勤をお願いします。" },
-    { key: "roster_remind", label: "名簿未入力リマインド", desc: "宿泊者名簿が未入力の予約についてリマインド", icon: "bi-person-vcard", group: "booking",
-      defaultMsg: "📝 宿泊者名簿の入力をお願いします\n\n{date} {property}\nチェックイン予定のゲストの名簿がまだ届いていません。" },
-    { key: "invoice_request", label: "請求書要請", desc: "月末にスタッフへ請求書の提出を依頼", icon: "bi-receipt", group: "invoice",
-      defaultMsg: "💰 請求書のご確認をお願いします\n\n{month}月分の請求書を作成しました。\n内容を確認し、問題なければ「確認」ボタンを押してください。" },
-    { key: "cleaning_done", label: "清掃完了通知", desc: "清掃チェックリスト完了時にオーナーに通知", icon: "bi-clipboard-check", group: "cleaning",
-      defaultMsg: "✨ 清掃完了\n\n{date} {property}\n{staff}さんが清掃を完了しました。" },
+    { key: "staff_undecided", label: "スタッフ未決定リマインド", desc: "清掃日が近いのにスタッフ未確定の場合にオーナーへ通知", icon: "bi-exclamation-triangle", group: "recruit", varGroup: "recruit",
+      defaultMsg: "⚠️ スタッフ未確定\n\n{date} {property}\n清掃日が近づいていますが、まだスタッフが確定していません。\n回答状況: {count}件" },
+    { key: "urgent_remind", label: "直前予約リマインド", desc: "直前予約に対する緊急リマインド", icon: "bi-lightning", group: "recruit", varGroup: "recruit",
+      defaultMsg: "🔴 緊急: 直前予約の清掃手配\n\n{date} {property}\n直前予約が入りました。至急スタッフの手配をお願いします。" },
+    { key: "booking_cancel", label: "予約キャンセル通知", desc: "予約がキャンセルされた場合に通知", icon: "bi-x-circle", group: "booking", varGroup: "booking",
+      defaultMsg: "❌ 予約キャンセル\n\n{checkin}〜{date} {property}\nゲスト: {guest}（{site}）\n予約がキャンセルされました。" },
+    { key: "booking_change", label: "予約変更通知", desc: "予約日程が変更された場合に通知", icon: "bi-arrow-repeat", group: "booking", varGroup: "booking",
+      defaultMsg: "🔄 予約変更\n\n{property}\n新しい日程: {checkin}〜{date}（{nights}泊）\nゲスト: {guest}" },
+    { key: "cancel_request", label: "出勤キャンセル要望", desc: "スタッフからの出勤キャンセル要望をオーナーに通知", icon: "bi-person-dash", group: "staff", varGroup: "staff",
+      defaultMsg: "🙋 出勤キャンセル要望\n\n{staff}さんから{date} {property}の出勤キャンセル要望がありました。" },
+    { key: "cancel_approve", label: "キャンセル承認通知", desc: "出勤キャンセルを承認した場合にスタッフに通知", icon: "bi-check-circle", group: "staff", varGroup: "staff",
+      defaultMsg: "✅ キャンセル承認\n\n{date} {property}の出勤キャンセルが承認されました。" },
+    { key: "cancel_reject", label: "キャンセル却下通知", desc: "出勤キャンセルを却下した場合にスタッフに通知", icon: "bi-dash-circle", group: "staff", varGroup: "staff",
+      defaultMsg: "❌ キャンセル不可\n\n{date} {property}の出勤キャンセルは対応できませんでした。出勤をお願いします。" },
+    { key: "roster_remind", label: "名簿未入力リマインド", desc: "宿泊者名簿が未入力の予約についてリマインド", icon: "bi-person-vcard", group: "booking", varGroup: "booking",
+      defaultMsg: "📝 名簿入力のお願い\n\n{checkin} {property}\nゲスト: {guest}\n宿泊者名簿がまだ届いていません。" },
+    { key: "invoice_request", label: "請求書要請", desc: "月末にスタッフへ請求書の提出を依頼", icon: "bi-receipt", group: "invoice", varGroup: "invoice",
+      defaultMsg: "💰 {month}月分の請求書\n\n合計: {total}\n内容を確認してください。\n確認: {url}" },
+    { key: "cleaning_done", label: "清掃完了通知", desc: "清掃チェックリスト完了時にオーナーに通知", icon: "bi-clipboard-check", group: "cleaning", varGroup: "cleaning",
+      defaultMsg: "✨ 清掃完了\n\n{date} {property}\n{staff}さんが{time}に清掃を完了しました。" },
   ],
 
   async render(container) {
@@ -79,30 +120,10 @@ const NotificationsPage = {
         </div>
       </div>
 
-      <!-- メッセージ変数 -->
-      <div class="card mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
-          <h6 class="mb-0"><i class="bi bi-braces"></i> メッセージ変数</h6>
-          <button class="btn btn-sm btn-outline-primary" id="btnAddVariable"><i class="bi bi-plus-lg"></i> 追加</button>
-        </div>
-        <div class="card-body">
-          <p class="text-muted small mb-2">メッセージ内で <code>{変数名}</code> と書くと、プレビューと送信時にサンプル値で置換されます。</p>
-          <div class="table-responsive">
-            <table class="table table-sm table-hover mb-0" id="variablesTable">
-              <thead class="table-light">
-                <tr><th style="width:15%">変数名</th><th style="width:30%">説明</th><th style="width:40%">サンプル値（プレビュー用）</th><th style="width:15%"></th></tr>
-              </thead>
-              <tbody id="variablesBody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
       <!-- 通知チャンネル設定 -->
       <h5 class="mb-3">通知チャンネル設定</h5>
       <p class="text-muted small mb-3">各通知の有効/無効と送り先を設定します。送り先は複数選択可能です。</p>
 
-      <!-- 凡例 -->
       <div class="d-flex flex-wrap gap-3 mb-3 small text-muted">
         <span><i class="bi bi-person-circle text-success"></i> オーナーLINE</span>
         <span><i class="bi bi-people-fill text-primary"></i> グループLINE</span>
@@ -110,35 +131,21 @@ const NotificationsPage = {
         <span><i class="bi bi-envelope text-warning"></i> オーナーメール</span>
       </div>
 
-      <!-- 募集関連 -->
       <h6 class="text-muted mb-2"><i class="bi bi-megaphone"></i> 募集関連</h6>
       <div id="notifyGroup_recruit" class="mb-4"></div>
-
-      <!-- 予約関連 -->
       <h6 class="text-muted mb-2"><i class="bi bi-calendar-event"></i> 予約関連</h6>
       <div id="notifyGroup_booking" class="mb-4"></div>
-
-      <!-- スタッフ関連 -->
       <h6 class="text-muted mb-2"><i class="bi bi-people"></i> スタッフ関連</h6>
       <div id="notifyGroup_staff" class="mb-4"></div>
-
-      <!-- 経理関連 -->
       <h6 class="text-muted mb-2"><i class="bi bi-receipt"></i> 経理関連</h6>
       <div id="notifyGroup_invoice" class="mb-4"></div>
-
-      <!-- 清掃関連 -->
       <h6 class="text-muted mb-2"><i class="bi bi-clipboard-check"></i> 清掃関連</h6>
       <div id="notifyGroup_cleaning" class="mb-4"></div>
     `;
 
-    this.bindEvents();
+    document.getElementById("btnSaveNotifySettings").addEventListener("click", () => this.saveSettings());
     await this.loadSettings();
     this.renderNotifications();
-  },
-
-  bindEvents() {
-    document.getElementById("btnSaveNotifySettings").addEventListener("click", () => this.saveSettings());
-    this.bindVariableEvents();
   },
 
   async loadSettings() {
@@ -148,24 +155,10 @@ const NotificationsPage = {
     } catch (e) {
       this.settings = {};
     }
-
-    // UI反映（フォールバック対応: 旧フィールド名も読み取る）
-    document.getElementById("lineChannelToken").value  = this.settings.lineChannelToken || this.settings.lineToken || "";
-    document.getElementById("lineGroupId").value       = this.settings.lineGroupId || "";
-    document.getElementById("lineOwnerUserId").value   = this.settings.lineOwnerUserId || this.settings.lineOwnerId || "";
-    document.getElementById("ownerEmail").value        = this.settings.ownerEmail || "";
-
-    // 変数読み込み（Firestoreに保存済みならそれ、なければデフォルト）
-    if (this.settings.messageVariables) {
-      // 旧形式（文字列値）→新形式（オブジェクト）に正規化
-      this.variables = {};
-      for (const [k, v] of Object.entries(this.settings.messageVariables)) {
-        this.variables[k] = typeof v === "object" ? { ...v } : { value: v, desc: "" };
-      }
-    } else {
-      this.variables = JSON.parse(JSON.stringify(this._defaultVariables));
-    }
-    this.renderVariablesTable();
+    document.getElementById("lineChannelToken").value = this.settings.lineChannelToken || this.settings.lineToken || "";
+    document.getElementById("lineGroupId").value = this.settings.lineGroupId || "";
+    document.getElementById("lineOwnerUserId").value = this.settings.lineOwnerUserId || this.settings.lineOwnerId || "";
+    document.getElementById("ownerEmail").value = this.settings.ownerEmail || "";
   },
 
   renderNotifications() {
@@ -180,15 +173,26 @@ const NotificationsPage = {
       if (!container) continue;
 
       container.innerHTML = items.map(n => {
-        const channels       = this.settings.channels || {};
-        const ch             = channels[n.key] || {};
-        const enabled        = ch.enabled !== false;
-        const ownerLine      = ch.ownerLine !== false;
-        const groupLine      = !!ch.groupLine;
-        const staffLine      = !!ch.staffLine;
-        const ownerEmail     = !!ch.ownerEmail;
-        const customMessage  = ch.customMessage || "";
-        const collapseId     = `msgCollapse_${n.key}`;
+        const ch = (this.settings.channels || {})[n.key] || {};
+        const enabled = ch.enabled !== false;
+        const ownerLine = ch.ownerLine !== false;
+        const groupLine = !!ch.groupLine;
+        const staffLine = !!ch.staffLine;
+        const ownerEmail = !!ch.ownerEmail;
+        const customMessage = ch.customMessage || "";
+        const msgValue = customMessage || n.defaultMsg || n.desc;
+        const vars = this.systemVariables[n.varGroup] || [];
+
+        // 利用可能な変数タグ
+        const varTags = vars.map(v =>
+          `<span class="badge bg-light text-dark border me-1 mb-1 var-insert-tag" role="button" data-var="{${v.name}}" data-target="${n.key}" title="${v.label}（${v.source}）">{${v.name}} <small class="text-muted">${v.label}</small></span>`
+        ).join("");
+
+        // プレビュー用サンプル置換
+        let preview = msgValue;
+        vars.forEach(v => {
+          preview = preview.replace(new RegExp(`\\{${v.name}\\}`, "g"), v.sample);
+        });
 
         return `
           <div class="notify-channel-card">
@@ -200,238 +204,153 @@ const NotificationsPage = {
                 </div>
                 <div class="text-muted small mb-2">${n.desc}</div>
 
-                <!-- 送り先チェックボックス -->
                 <div class="d-flex flex-wrap gap-3 mb-3">
                   <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
-                    <input class="form-check-input" type="checkbox"
-                           data-key="${n.key}" data-field="ownerLine" ${ownerLine ? "checked" : ""}>
+                    <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="ownerLine" ${ownerLine ? "checked" : ""}>
                     <span class="form-check-label small"><i class="bi bi-person-circle text-success"></i> オーナーLINE</span>
                   </label>
                   <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
-                    <input class="form-check-input" type="checkbox"
-                           data-key="${n.key}" data-field="groupLine" ${groupLine ? "checked" : ""}>
+                    <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="groupLine" ${groupLine ? "checked" : ""}>
                     <span class="form-check-label small"><i class="bi bi-people-fill text-primary"></i> グループLINE</span>
                   </label>
                   <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
-                    <input class="form-check-input" type="checkbox"
-                           data-key="${n.key}" data-field="staffLine" ${staffLine ? "checked" : ""}>
+                    <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="staffLine" ${staffLine ? "checked" : ""}>
                     <span class="form-check-label small"><i class="bi bi-person-lines-fill text-info"></i> スタッフ個別LINE</span>
                   </label>
                   <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
-                    <input class="form-check-input" type="checkbox"
-                           data-key="${n.key}" data-field="ownerEmail" ${ownerEmail ? "checked" : ""}>
+                    <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="ownerEmail" ${ownerEmail ? "checked" : ""}>
                     <span class="form-check-label small"><i class="bi bi-envelope text-warning"></i> オーナーメール</span>
                   </label>
                 </div>
 
-                <!-- 送信メッセージ編集 + プレビュー -->
+                <!-- 利用可能な変数（クリックで挿入） -->
+                <div class="mb-2">
+                  <span class="small text-muted">変数（クリックで挿入）:</span>
+                  <div class="d-flex flex-wrap mt-1">${varTags}</div>
+                </div>
+
+                <!-- メッセージ + プレビュー -->
                 <div class="row g-2 mb-2">
                   <div class="col-md-6">
                     <label class="form-label small text-muted mb-1"><i class="bi bi-pencil"></i> メッセージ</label>
                     <textarea class="form-control form-control-sm notify-msg-input"
-                              rows="4"
+                              rows="5"
                               data-key="${n.key}"
-                              data-field="customMessage">${customMessage || n.defaultMsg || n.desc}</textarea>
-                    <div class="form-text">{date} {property} {staff} {guest} {month} が使えます</div>
+                              data-var-group="${n.varGroup}"
+                              data-field="customMessage">${msgValue}</textarea>
                   </div>
                   <div class="col-md-6">
                     <label class="form-label small text-muted mb-1"><i class="bi bi-eye"></i> プレビュー</label>
-                    <div class="notify-preview border rounded p-2 bg-light small" data-preview="${n.key}" style="white-space:pre-wrap;min-height:100px;font-size:0.85rem;"></div>
+                    <div class="notify-preview border rounded p-2 bg-light small" data-preview="${n.key}" style="white-space:pre-wrap;min-height:130px;font-size:0.85rem;">${preview}</div>
                   </div>
                 </div>
 
-                <!-- テスト送信ボタン -->
-                <button class="btn btn-sm btn-outline-primary btn-test-send"
-                        type="button"
-                        data-key="${n.key}"
-                        data-default-msg="${(n.defaultMsg || n.desc).replace(/"/g, '&quot;')}">
+                <button class="btn btn-sm btn-outline-primary btn-test-send" type="button"
+                        data-key="${n.key}" data-var-group="${n.varGroup}">
                   <i class="bi bi-send"></i> テスト送信
                 </button>
               </div>
 
-              <!-- 有効/無効トグル -->
               <div class="form-check form-switch notify-toggle ms-3">
-                <input class="form-check-input" type="checkbox"
-                       data-key="${n.key}" data-field="enabled" ${enabled ? "checked" : ""}>
+                <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="enabled" ${enabled ? "checked" : ""}>
               </div>
             </div>
           </div>`;
       }).join("");
 
-      // テスト送信ボタンのイベントを委譲で登録
+      // イベント委譲
       container.addEventListener("click", (e) => {
+        // テスト送信
         const btn = e.target.closest(".btn-test-send");
         if (btn) this.sendTestNotification(btn);
-      });
-
-      // プレビュー: textarea入力時にリアルタイム更新
-      container.addEventListener("input", (e) => {
-        if (e.target.classList.contains("notify-msg-input")) {
-          const key = e.target.dataset.key;
-          this.updatePreview(key, e.target.value);
+        // 変数タグクリック → textarea に挿入
+        const tag = e.target.closest(".var-insert-tag");
+        if (tag) {
+          const targetKey = tag.dataset.target;
+          const ta = container.querySelector(`textarea[data-key="${targetKey}"]`);
+          if (ta) {
+            const pos = ta.selectionStart || ta.value.length;
+            ta.value = ta.value.slice(0, pos) + tag.dataset.var + ta.value.slice(pos);
+            ta.focus();
+            ta.selectionStart = ta.selectionEnd = pos + tag.dataset.var.length;
+            this.updatePreview(targetKey);
+          }
         }
       });
 
-      // 初期プレビュー表示
-      container.querySelectorAll(".notify-msg-input").forEach(ta => {
-        this.updatePreview(ta.dataset.key, ta.value);
+      // textarea入力時プレビュー更新
+      container.addEventListener("input", (e) => {
+        if (e.target.classList.contains("notify-msg-input")) {
+          this.updatePreview(e.target.dataset.key);
+        }
       });
     }
   },
 
-  // デフォルト変数（初回用）: { value: サンプル値, desc: 説明 }
-  _defaultVariables: {
-    date:     { value: "2026/04/20",   desc: "清掃日・チェックアウト日" },
-    property: { value: "長浜民泊A",     desc: "物件名" },
-    staff:    { value: "山田太郎",      desc: "担当スタッフ名" },
-    guest:    { value: "John Smith",   desc: "ゲスト名" },
-    month:    { value: "4",            desc: "対象月" },
-    url:      { value: "https://minpaku-v2.web.app/#/my-recruitment", desc: "回答・確認ページURL" },
-    time:     { value: "10:30",        desc: "開始時刻" },
-    count:    { value: "3",            desc: "回答数・件数" },
-  },
-
-  // 実際に使う変数データ（Firestoreから読み込み or デフォルト）
-  variables: {},
-
-  renderVariablesTable() {
-    const tbody = document.getElementById("variablesBody");
-    if (!tbody) return;
-    const entries = Object.entries(this.variables);
-    if (entries.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center small">変数がありません</td></tr>';
-      return;
-    }
-    tbody.innerHTML = entries.map(([name, v]) => {
-      // 旧形式（文字列）との互換
-      const val = typeof v === "object" ? (v.value || "") : (v || "");
-      const desc = typeof v === "object" ? (v.desc || "") : "";
-      return `
-      <tr data-var="${name}">
-        <td><code class="text-primary">{${name}}</code></td>
-        <td><input type="text" class="form-control form-control-sm var-desc" data-var="${name}" value="${desc.replace(/"/g, '&quot;')}" placeholder="説明"></td>
-        <td><input type="text" class="form-control form-control-sm var-value" data-var="${name}" value="${val.replace(/"/g, '&quot;')}" placeholder="サンプル値"></td>
-        <td class="text-end">
-          <button class="btn btn-sm btn-outline-danger var-delete" data-var="${name}" title="削除"><i class="bi bi-trash"></i></button>
-        </td>
-      </tr>`;
-    }).join("");
-  },
-
-  bindVariableEvents() {
-    // 追加ボタン
-    document.getElementById("btnAddVariable")?.addEventListener("click", () => {
-      const name = prompt("変数名を入力（英数字。例: time, url, nights）");
-      if (!name || !name.trim()) return;
-      const key = name.trim().replace(/[{}]/g, "");
-      if (this.variables[key] !== undefined) {
-        showToast("エラー", `{${key}} は既に存在します`, "error");
-        return;
-      }
-      this.variables[key] = { value: "", desc: "" };
-      this.renderVariablesTable();
-      this.refreshAllPreviews();
-    });
-
-    // 値変更・削除（イベント委譲）
-    document.getElementById("variablesTable")?.addEventListener("input", (e) => {
-      const varName = e.target.dataset.var;
-      if (!varName) return;
-      // オブジェクト形式に正規化
-      if (typeof this.variables[varName] !== "object") {
-        this.variables[varName] = { value: this.variables[varName] || "", desc: "" };
-      }
-      if (e.target.classList.contains("var-value")) {
-        this.variables[varName].value = e.target.value;
-        this.refreshAllPreviews();
-      }
-      if (e.target.classList.contains("var-desc")) {
-        this.variables[varName].desc = e.target.value;
-      }
-    });
-    document.getElementById("variablesTable")?.addEventListener("click", (e) => {
-      const btn = e.target.closest(".var-delete");
-      if (!btn) return;
-      const varName = btn.dataset.var;
-      if (!confirm(`{${varName}} を削除しますか？`)) return;
-      delete this.variables[varName];
-      this.renderVariablesTable();
-      this.refreshAllPreviews();
-    });
-  },
-
-  refreshAllPreviews() {
-    document.querySelectorAll(".notify-msg-input").forEach(ta => {
-      this.updatePreview(ta.dataset.key, ta.value);
-    });
-  },
-
-  updatePreview(key, rawMsg) {
+  updatePreview(key) {
+    const ta = document.querySelector(`textarea[data-key="${key}"][data-field="customMessage"]`);
     const el = document.querySelector(`[data-preview="${key}"]`);
-    if (!el) return;
-    let msg = rawMsg || "";
-    Object.entries(this.variables).forEach(([k, v]) => {
-      const val = typeof v === "object" ? (v.value || `{${k}}`) : (v || `{${k}}`);
-      msg = msg.replace(new RegExp(`\\{${k}\\}`, "g"), val);
+    if (!ta || !el) return;
+    const varGroup = ta.dataset.varGroup;
+    const vars = this.systemVariables[varGroup] || [];
+    let msg = ta.value || "";
+    vars.forEach(v => {
+      msg = msg.replace(new RegExp(`\\{${v.name}\\}`, "g"), v.sample);
     });
     el.textContent = msg;
   },
 
-  /**
-   * テスト送信
-   * @param {HTMLElement} btn クリックされたボタン要素
-   */
   async sendTestNotification(btn) {
-    const key        = btn.dataset.key;
-    const defaultMsg = btn.dataset.defaultMsg;
+    const key = btn.dataset.key;
+    const varGroup = btn.dataset.varGroup;
+    const ta = document.querySelector(`textarea[data-key="${key}"][data-field="customMessage"]`);
+    const vars = this.systemVariables[varGroup] || [];
 
-    // 現在のカスタムメッセージを取得
-    const textareaEl = document.querySelector(`textarea[data-key="${key}"][data-field="customMessage"]`);
-    const message    = (textareaEl && textareaEl.value.trim()) ? textareaEl.value.trim() : defaultMsg;
+    // メッセージをサンプル値で置換して送信
+    let message = ta ? ta.value : "";
+    vars.forEach(v => {
+      message = message.replace(new RegExp(`\\{${v.name}\\}`, "g"), v.sample);
+    });
 
-    // 現在チェックされている送り先を取得
-    const getChecked = (field) => {
-      const el = document.querySelector(`input[data-key="${key}"][data-field="${field}"]`);
+    const get = (field) => {
+      const el = document.querySelector(`[data-key="${key}"][data-field="${field}"]`);
       return el ? el.checked : false;
     };
     const targets = {
-      ownerLine:  getChecked("ownerLine"),
-      groupLine:  getChecked("groupLine"),
-      staffLine:  getChecked("staffLine"),
-      ownerEmail: getChecked("ownerEmail"),
+      ownerLine: get("ownerLine"),
+      groupLine: get("groupLine"),
+      staffLine: get("staffLine"),
+      ownerEmail: get("ownerEmail"),
     };
 
-    // スピナー表示
-    const originalHTML = btn.innerHTML;
+    if (!targets.ownerLine && !targets.groupLine && !targets.staffLine && !targets.ownerEmail) {
+      showToast("エラー", "送信先を1つ以上チェックしてください", "error");
+      return;
+    }
+
     btn.disabled = true;
-    btn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 送信中...`;
+    const origHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 送信中...';
 
     try {
-      const user  = firebase.auth().currentUser;
-      if (!user) throw new Error("ログインが必要です");
-
-      const token = await user.getIdToken();
-
+      const token = await firebase.auth().currentUser.getIdToken();
       const res = await fetch(this.TEST_API_URL, {
-        method:  "POST",
-        headers: {
-          "Content-Type":  "application/json",
-          "Authorization": `Bearer ${token}`,
-        },
-        body: JSON.stringify({ type: key, message, targets }),
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ type: key, message: `【テスト】${message}`, targets }),
       });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || `HTTP ${res.status}`);
+      const data = await res.json();
+      if (res.ok) {
+        const sent = (data.results || []).filter(r => r.success).length;
+        showToast("送信完了", `${sent}件送信しました`, "success");
+      } else {
+        showToast("エラー", data.error || "送信に失敗しました", "error");
       }
-
-      showToast("テスト送信完了", `「${key}」のテスト通知を送信しました`, "success");
     } catch (e) {
-      showToast("送信エラー", e.message, "error");
+      showToast("エラー", e.message, "error");
     } finally {
-      btn.disabled  = false;
-      btn.innerHTML = originalHTML;
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
     }
   },
 
@@ -439,32 +358,29 @@ const NotificationsPage = {
     try {
       const channels = {};
       this.notifications.forEach(n => {
-        const getChecked = (field) => {
-          const el = document.querySelector(`input[data-key="${n.key}"][data-field="${field}"]`);
+        const get = (field) => {
+          const el = document.querySelector(`[data-key="${n.key}"][data-field="${field}"]`);
           return el ? el.checked : false;
         };
-        const textareaEl = document.querySelector(`textarea[data-key="${n.key}"][data-field="customMessage"]`);
-        const customMessage = textareaEl ? textareaEl.value.trim() : "";
-
+        const ta = document.querySelector(`textarea[data-key="${n.key}"][data-field="customMessage"]`);
         channels[n.key] = {
-          enabled:       getChecked("enabled"),
-          ownerLine:     getChecked("ownerLine"),
-          groupLine:     getChecked("groupLine"),
-          staffLine:     getChecked("staffLine"),
-          ownerEmail:    getChecked("ownerEmail"),
-          customMessage,
+          enabled: get("enabled"),
+          ownerLine: get("ownerLine"),
+          groupLine: get("groupLine"),
+          staffLine: get("staffLine"),
+          ownerEmail: get("ownerEmail"),
+          customMessage: ta ? ta.value : "",
         };
       });
 
       const data = {
         lineChannelToken: document.getElementById("lineChannelToken").value.trim(),
-        lineGroupId:      document.getElementById("lineGroupId").value.trim(),
-        lineOwnerUserId:  document.getElementById("lineOwnerUserId").value.trim(),
-        ownerEmail:       document.getElementById("ownerEmail").value.trim(),
-        enableLine:       true,
+        lineGroupId: document.getElementById("lineGroupId").value.trim(),
+        lineOwnerUserId: document.getElementById("lineOwnerUserId").value.trim(),
+        ownerEmail: document.getElementById("ownerEmail").value.trim(),
+        enableLine: true,
         channels,
-        messageVariables: { ...this.variables },
-        updatedAt:        firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       };
 
       await db.collection("settings").doc("notifications").set(data, { merge: true });
