@@ -124,6 +124,7 @@ async function syncIcal() {
   }
 
   let totalSynced = 0;
+  const syncedIcalUids = new Set(); // キャンセル検出用
   let totalSkipped = 0;
 
   for (const settingDoc of settingsSnap.docs) {
@@ -235,6 +236,7 @@ async function syncIcal() {
         bookingData._icalOriginalName = resolvedGuestName;
 
         await docRef.set(bookingData, { merge: true });
+        syncedIcalUids.add(icalUid); // キャンセル検出用に記録
         synced++;
       }
 
@@ -254,6 +256,42 @@ async function syncIcal() {
         lastSyncResult: `エラー: ${e.message}`,
       });
     }
+  }
+
+  // ===== iCalに存在しない予約をキャンセル =====
+  // 同期済みicalUidのセットと、Firestoreにある予約を照合
+  try {
+    const today = toJSTDate(new Date());
+    // 未来の予約（checkOut >= 今日）のうち、syncSource="ical" のものを取得
+    const futureBookingsSnap = await db.collection("bookings")
+      .where("syncSource", "==", "ical")
+      .where("status", "==", "confirmed")
+      .get();
+
+    let cancelled = 0;
+    for (const doc of futureBookingsSnap.docs) {
+      const data = doc.data();
+      // 過去の予約はスキップ
+      if (data.checkOut && data.checkOut < today) continue;
+      // icalUidが同期で見つかったものはスキップ
+      if (syncedIcalUids.has(data.icalUid)) continue;
+      // icalUidがないものはスキップ（手動作成の予約）
+      if (!data.icalUid) continue;
+
+      // iCalに存在しない → キャンセル扱い
+      await doc.ref.update({
+        status: "cancelled",
+        cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
+        cancelReason: "iCal同期: フィードから削除されたため自動キャンセル",
+      });
+      cancelled++;
+      console.log(`[syncIcal] キャンセル: ${data.guestName || "不明"} ${data.checkIn}〜${data.checkOut}`);
+    }
+    if (cancelled > 0) {
+      console.log(`[syncIcal] ${cancelled}件の予約を自動キャンセル（iCalから削除済み）`);
+    }
+  } catch (e) {
+    console.error("[syncIcal] キャンセル処理エラー:", e.message);
   }
 
   console.log(`[syncIcal] 完了: 合計 ${totalSynced}件同期, ${totalSkipped}件スキップ`);

@@ -209,7 +209,9 @@ const DashboardPage = {
       };
 
       // 1) bookings/ コレクション（iCal同期 or BEDS24）— 最優先
-      const rawBookings = bookingSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const rawBookings = bookingSnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(b => b.status !== "cancelled"); // キャンセル済み予約を除外
       rawBookings.forEach(b => addBooking(b, "bookings"));
 
       // 2) guestRegistrations/（名簿フォーム）— 補完
