@@ -90,7 +90,7 @@ const NotificationsPage = {
           <div class="table-responsive">
             <table class="table table-sm table-hover mb-0" id="variablesTable">
               <thead class="table-light">
-                <tr><th style="width:30%">変数名</th><th style="width:50%">サンプル値（プレビュー用）</th><th style="width:20%"></th></tr>
+                <tr><th style="width:15%">変数名</th><th style="width:30%">説明</th><th style="width:40%">サンプル値（プレビュー用）</th><th style="width:15%"></th></tr>
               </thead>
               <tbody id="variablesBody"></tbody>
             </table>
@@ -156,9 +156,15 @@ const NotificationsPage = {
     document.getElementById("ownerEmail").value        = this.settings.ownerEmail || "";
 
     // 変数読み込み（Firestoreに保存済みならそれ、なければデフォルト）
-    this.variables = this.settings.messageVariables
-      ? { ...this.settings.messageVariables }
-      : { ...this._defaultVariables };
+    if (this.settings.messageVariables) {
+      // 旧形式（文字列値）→新形式（オブジェクト）に正規化
+      this.variables = {};
+      for (const [k, v] of Object.entries(this.settings.messageVariables)) {
+        this.variables[k] = typeof v === "object" ? { ...v } : { value: v, desc: "" };
+      }
+    } else {
+      this.variables = JSON.parse(JSON.stringify(this._defaultVariables));
+    }
     this.renderVariablesTable();
   },
 
@@ -273,13 +279,16 @@ const NotificationsPage = {
     }
   },
 
-  // デフォルト変数（初回用）
+  // デフォルト変数（初回用）: { value: サンプル値, desc: 説明 }
   _defaultVariables: {
-    date: "2026/04/20",
-    property: "長浜民泊A",
-    staff: "山田太郎",
-    guest: "John Smith",
-    month: "4",
+    date:     { value: "2026/04/20",   desc: "清掃日・チェックアウト日" },
+    property: { value: "長浜民泊A",     desc: "物件名" },
+    staff:    { value: "山田太郎",      desc: "担当スタッフ名" },
+    guest:    { value: "John Smith",   desc: "ゲスト名" },
+    month:    { value: "4",            desc: "対象月" },
+    url:      { value: "https://minpaku-v2.web.app/#/my-recruitment", desc: "回答・確認ページURL" },
+    time:     { value: "10:30",        desc: "開始時刻" },
+    count:    { value: "3",            desc: "回答数・件数" },
   },
 
   // 実際に使う変数データ（Firestoreから読み込み or デフォルト）
@@ -290,40 +299,54 @@ const NotificationsPage = {
     if (!tbody) return;
     const entries = Object.entries(this.variables);
     if (entries.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="3" class="text-muted text-center small">変数がありません</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center small">変数がありません</td></tr>';
       return;
     }
-    tbody.innerHTML = entries.map(([name, value]) => `
+    tbody.innerHTML = entries.map(([name, v]) => {
+      // 旧形式（文字列）との互換
+      const val = typeof v === "object" ? (v.value || "") : (v || "");
+      const desc = typeof v === "object" ? (v.desc || "") : "";
+      return `
       <tr data-var="${name}">
         <td><code class="text-primary">{${name}}</code></td>
-        <td><input type="text" class="form-control form-control-sm var-value" data-var="${name}" value="${(value || "").replace(/"/g, '&quot;')}"></td>
+        <td><input type="text" class="form-control form-control-sm var-desc" data-var="${name}" value="${desc.replace(/"/g, '&quot;')}" placeholder="説明"></td>
+        <td><input type="text" class="form-control form-control-sm var-value" data-var="${name}" value="${val.replace(/"/g, '&quot;')}" placeholder="サンプル値"></td>
         <td class="text-end">
           <button class="btn btn-sm btn-outline-danger var-delete" data-var="${name}" title="削除"><i class="bi bi-trash"></i></button>
         </td>
-      </tr>
-    `).join("");
+      </tr>`;
+    }).join("");
   },
 
   bindVariableEvents() {
     // 追加ボタン
     document.getElementById("btnAddVariable")?.addEventListener("click", () => {
-      const name = prompt("変数名を入力（例: time, url, nights）");
+      const name = prompt("変数名を入力（英数字。例: time, url, nights）");
       if (!name || !name.trim()) return;
       const key = name.trim().replace(/[{}]/g, "");
       if (this.variables[key] !== undefined) {
         showToast("エラー", `{${key}} は既に存在します`, "error");
         return;
       }
-      this.variables[key] = prompt(`{${key}} のサンプル値を入力`, "") || "";
+      this.variables[key] = { value: "", desc: "" };
       this.renderVariablesTable();
       this.refreshAllPreviews();
     });
 
     // 値変更・削除（イベント委譲）
     document.getElementById("variablesTable")?.addEventListener("input", (e) => {
+      const varName = e.target.dataset.var;
+      if (!varName) return;
+      // オブジェクト形式に正規化
+      if (typeof this.variables[varName] !== "object") {
+        this.variables[varName] = { value: this.variables[varName] || "", desc: "" };
+      }
       if (e.target.classList.contains("var-value")) {
-        this.variables[e.target.dataset.var] = e.target.value;
+        this.variables[varName].value = e.target.value;
         this.refreshAllPreviews();
+      }
+      if (e.target.classList.contains("var-desc")) {
+        this.variables[varName].desc = e.target.value;
       }
     });
     document.getElementById("variablesTable")?.addEventListener("click", (e) => {
@@ -348,7 +371,8 @@ const NotificationsPage = {
     if (!el) return;
     let msg = rawMsg || "";
     Object.entries(this.variables).forEach(([k, v]) => {
-      msg = msg.replace(new RegExp(`\\{${k}\\}`, "g"), v);
+      const val = typeof v === "object" ? (v.value || `{${k}}`) : (v || `{${k}}`);
+      msg = msg.replace(new RegExp(`\\{${k}\\}`, "g"), val);
     });
     el.textContent = msg;
   },
