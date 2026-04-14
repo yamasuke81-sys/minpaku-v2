@@ -98,8 +98,10 @@ const App = {
     const defaultPage = role === "staff" ? "my-dashboard" : "dashboard";
     const pageName = path[0] || defaultPage;
 
-    // ロール別ページマップ選択
-    const availablePages = role === "staff" ? this.staffPages : this.pages;
+    // ロール別ページマップ選択（オーナーはスタッフページにもアクセス可能）
+    const availablePages = role === "staff"
+      ? this.staffPages
+      : { ...this.pages, ...this.staffPages };
 
     // サイドバーのアクティブ状態更新
     const navId = role === "staff" ? "#staffNav" : "#ownerNav";

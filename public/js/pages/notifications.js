@@ -79,6 +79,25 @@ const NotificationsPage = {
         </div>
       </div>
 
+      <!-- メッセージ変数 -->
+      <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h6 class="mb-0"><i class="bi bi-braces"></i> メッセージ変数</h6>
+          <button class="btn btn-sm btn-outline-primary" id="btnAddVariable"><i class="bi bi-plus-lg"></i> 追加</button>
+        </div>
+        <div class="card-body">
+          <p class="text-muted small mb-2">メッセージ内で <code>{変数名}</code> と書くと、プレビューと送信時にサンプル値で置換されます。</p>
+          <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0" id="variablesTable">
+              <thead class="table-light">
+                <tr><th style="width:30%">変数名</th><th style="width:50%">サンプル値（プレビュー用）</th><th style="width:20%"></th></tr>
+              </thead>
+              <tbody id="variablesBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- 通知チャンネル設定 -->
       <h5 class="mb-3">通知チャンネル設定</h5>
       <p class="text-muted small mb-3">各通知の有効/無効と送り先を設定します。送り先は複数選択可能です。</p>
@@ -119,6 +138,7 @@ const NotificationsPage = {
 
   bindEvents() {
     document.getElementById("btnSaveNotifySettings").addEventListener("click", () => this.saveSettings());
+    this.bindVariableEvents();
   },
 
   async loadSettings() {
@@ -134,6 +154,12 @@ const NotificationsPage = {
     document.getElementById("lineGroupId").value       = this.settings.lineGroupId || "";
     document.getElementById("lineOwnerUserId").value   = this.settings.lineOwnerUserId || this.settings.lineOwnerId || "";
     document.getElementById("ownerEmail").value        = this.settings.ownerEmail || "";
+
+    // 変数読み込み（Firestoreに保存済みならそれ、なければデフォルト）
+    this.variables = this.settings.messageVariables
+      ? { ...this.settings.messageVariables }
+      : { ...this._defaultVariables };
+    this.renderVariablesTable();
   },
 
   renderNotifications() {
@@ -247,8 +273,8 @@ const NotificationsPage = {
     }
   },
 
-  // サンプルデータでプレビュー生成
-  _sampleData: {
+  // デフォルト変数（初回用）
+  _defaultVariables: {
     date: "2026/04/20",
     property: "長浜民泊A",
     staff: "山田太郎",
@@ -256,12 +282,72 @@ const NotificationsPage = {
     month: "4",
   },
 
+  // 実際に使う変数データ（Firestoreから読み込み or デフォルト）
+  variables: {},
+
+  renderVariablesTable() {
+    const tbody = document.getElementById("variablesBody");
+    if (!tbody) return;
+    const entries = Object.entries(this.variables);
+    if (entries.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="3" class="text-muted text-center small">変数がありません</td></tr>';
+      return;
+    }
+    tbody.innerHTML = entries.map(([name, value]) => `
+      <tr data-var="${name}">
+        <td><code class="text-primary">{${name}}</code></td>
+        <td><input type="text" class="form-control form-control-sm var-value" data-var="${name}" value="${(value || "").replace(/"/g, '&quot;')}"></td>
+        <td class="text-end">
+          <button class="btn btn-sm btn-outline-danger var-delete" data-var="${name}" title="削除"><i class="bi bi-trash"></i></button>
+        </td>
+      </tr>
+    `).join("");
+  },
+
+  bindVariableEvents() {
+    // 追加ボタン
+    document.getElementById("btnAddVariable")?.addEventListener("click", () => {
+      const name = prompt("変数名を入力（例: time, url, nights）");
+      if (!name || !name.trim()) return;
+      const key = name.trim().replace(/[{}]/g, "");
+      if (this.variables[key] !== undefined) {
+        showToast("エラー", `{${key}} は既に存在します`, "error");
+        return;
+      }
+      this.variables[key] = prompt(`{${key}} のサンプル値を入力`, "") || "";
+      this.renderVariablesTable();
+      this.refreshAllPreviews();
+    });
+
+    // 値変更・削除（イベント委譲）
+    document.getElementById("variablesTable")?.addEventListener("input", (e) => {
+      if (e.target.classList.contains("var-value")) {
+        this.variables[e.target.dataset.var] = e.target.value;
+        this.refreshAllPreviews();
+      }
+    });
+    document.getElementById("variablesTable")?.addEventListener("click", (e) => {
+      const btn = e.target.closest(".var-delete");
+      if (!btn) return;
+      const varName = btn.dataset.var;
+      if (!confirm(`{${varName}} を削除しますか？`)) return;
+      delete this.variables[varName];
+      this.renderVariablesTable();
+      this.refreshAllPreviews();
+    });
+  },
+
+  refreshAllPreviews() {
+    document.querySelectorAll(".notify-msg-input").forEach(ta => {
+      this.updatePreview(ta.dataset.key, ta.value);
+    });
+  },
+
   updatePreview(key, rawMsg) {
     const el = document.querySelector(`[data-preview="${key}"]`);
     if (!el) return;
     let msg = rawMsg || "";
-    // プレースホルダーをサンプルデータで置換
-    Object.entries(this._sampleData).forEach(([k, v]) => {
+    Object.entries(this.variables).forEach(([k, v]) => {
       msg = msg.replace(new RegExp(`\\{${k}\\}`, "g"), v);
     });
     el.textContent = msg;
@@ -353,6 +439,7 @@ const NotificationsPage = {
         ownerEmail:       document.getElementById("ownerEmail").value.trim(),
         enableLine:       true,
         channels,
+        messageVariables: { ...this.variables },
         updatedAt:        firebase.firestore.FieldValue.serverTimestamp(),
       };
 
