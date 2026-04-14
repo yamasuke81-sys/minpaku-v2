@@ -54,31 +54,31 @@ const NotificationsPage = {
 
   // 通知種別ごとに使えるグループを紐付け
   notifications: [
-    { key: "recruit_start", label: "清掃スタッフ募集", desc: "新しい清掃予定に対してスタッフへ募集通知を送信", icon: "bi-megaphone", group: "recruit", varGroup: "recruit",
+    { key: "recruit_start", label: "清掃スタッフ募集", desc: "新しい清掃予定に対してスタッフへ募集通知を送信", icon: "bi-megaphone", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
       defaultMsg: "🧹 清掃スタッフ募集\n\n{date} {property}\n清掃スタッフを募集しています。\n回答をお願いします（◎OK / △微妙 / ×NG）\n\n回答: {url}" },
-    { key: "recruit_remind", label: "募集リマインド", desc: "回答が集まらない場合にリマインド送信", icon: "bi-alarm", group: "recruit", varGroup: "recruit",
+    { key: "recruit_remind", label: "募集リマインド", desc: "回答が集まらない場合にリマインド送信", icon: "bi-alarm", group: "recruit", varGroup: "recruit", defaultTiming: "evening",
       defaultMsg: "📋 募集回答のお願い\n\n{date} {property}\nまだ回答が届いていません（現在{count}件）。\n回答: {url}" },
-    { key: "staff_confirm", label: "スタッフ確定通知", desc: "スタッフ確定時に本人とオーナーに通知", icon: "bi-person-check", group: "recruit", varGroup: "recruit",
+    { key: "staff_confirm", label: "スタッフ確定通知", desc: "スタッフ確定時に本人とオーナーに通知", icon: "bi-person-check", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
       defaultMsg: "✅ 清掃担当が確定しました\n\n{date} {property}\n担当: {staff}\nよろしくお願いします。" },
-    { key: "staff_undecided", label: "スタッフ未決定リマインド", desc: "清掃日が近いのにスタッフ未確定の場合にオーナーへ通知", icon: "bi-exclamation-triangle", group: "recruit", varGroup: "recruit",
+    { key: "staff_undecided", label: "スタッフ未決定リマインド", desc: "清掃日が近いのにスタッフ未確定の場合にオーナーへ通知", icon: "bi-exclamation-triangle", group: "recruit", varGroup: "recruit", defaultTiming: "morning",
       defaultMsg: "⚠️ スタッフ未確定\n\n{date} {property}\n清掃日が近づいていますが、まだスタッフが確定していません。\n回答状況: {count}件" },
-    { key: "urgent_remind", label: "直前予約リマインド", desc: "直前予約に対する緊急リマインド", icon: "bi-lightning", group: "recruit", varGroup: "recruit",
+    { key: "urgent_remind", label: "直前予約リマインド", desc: "直前予約に対する緊急リマインド", icon: "bi-lightning", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
       defaultMsg: "🔴 緊急: 直前予約の清掃手配\n\n{date} {property}\n直前予約が入りました。至急スタッフの手配をお願いします。" },
-    { key: "booking_cancel", label: "予約キャンセル通知", desc: "予約がキャンセルされた場合に通知", icon: "bi-x-circle", group: "booking", varGroup: "booking",
+    { key: "booking_cancel", label: "予約キャンセル通知", desc: "予約がキャンセルされた場合に通知", icon: "bi-x-circle", group: "booking", varGroup: "booking", defaultTiming: "immediate",
       defaultMsg: "❌ 予約キャンセル\n\n{checkin}〜{date} {property}\nゲスト: {guest}（{site}）\n予約がキャンセルされました。" },
-    { key: "booking_change", label: "予約変更通知", desc: "予約日程が変更された場合に通知", icon: "bi-arrow-repeat", group: "booking", varGroup: "booking",
+    { key: "booking_change", label: "予約変更通知", desc: "予約日程が変更された場合に通知", icon: "bi-arrow-repeat", group: "booking", varGroup: "booking", defaultTiming: "immediate",
       defaultMsg: "🔄 予約変更\n\n{property}\n新しい日程: {checkin}〜{date}（{nights}泊）\nゲスト: {guest}" },
-    { key: "cancel_request", label: "出勤キャンセル要望", desc: "スタッフからの出勤キャンセル要望をオーナーに通知", icon: "bi-person-dash", group: "staff", varGroup: "staff",
+    { key: "cancel_request", label: "出勤キャンセル要望", desc: "スタッフからの出勤キャンセル要望をオーナーに通知", icon: "bi-person-dash", group: "staff", varGroup: "staff", defaultTiming: "immediate",
       defaultMsg: "🙋 出勤キャンセル要望\n\n{staff}さんから{date} {property}の出勤キャンセル要望がありました。" },
-    { key: "cancel_approve", label: "キャンセル承認通知", desc: "出勤キャンセルを承認した場合にスタッフに通知", icon: "bi-check-circle", group: "staff", varGroup: "staff",
+    { key: "cancel_approve", label: "キャンセル承認通知", desc: "出勤キャンセルを承認した場合にスタッフに通知", icon: "bi-check-circle", group: "staff", varGroup: "staff", defaultTiming: "immediate",
       defaultMsg: "✅ キャンセル承認\n\n{date} {property}の出勤キャンセルが承認されました。" },
-    { key: "cancel_reject", label: "キャンセル却下通知", desc: "出勤キャンセルを却下した場合にスタッフに通知", icon: "bi-dash-circle", group: "staff", varGroup: "staff",
+    { key: "cancel_reject", label: "キャンセル却下通知", desc: "出勤キャンセルを却下した場合にスタッフに通知", icon: "bi-dash-circle", group: "staff", varGroup: "staff", defaultTiming: "immediate",
       defaultMsg: "❌ キャンセル不可\n\n{date} {property}の出勤キャンセルは対応できませんでした。出勤をお願いします。" },
-    { key: "roster_remind", label: "名簿未入力リマインド", desc: "宿泊者名簿が未入力の予約についてリマインド", icon: "bi-person-vcard", group: "booking", varGroup: "booking",
+    { key: "roster_remind", label: "名簿未入力リマインド", desc: "宿泊者名簿が未入力の予約についてリマインド", icon: "bi-person-vcard", group: "booking", varGroup: "booking", defaultTiming: "morning",
       defaultMsg: "📝 名簿入力のお願い\n\n{checkin} {property}\nゲスト: {guest}\n宿泊者名簿がまだ届いていません。" },
-    { key: "invoice_request", label: "請求書要請", desc: "月末にスタッフへ請求書の提出を依頼", icon: "bi-receipt", group: "invoice", varGroup: "invoice",
+    { key: "invoice_request", label: "請求書要請", desc: "月末にスタッフへ請求書の提出を依頼", icon: "bi-receipt", group: "invoice", varGroup: "invoice", defaultTiming: "morning",
       defaultMsg: "💰 {month}月分の請求書\n\n合計: {total}\n内容を確認してください。\n確認: {url}" },
-    { key: "cleaning_done", label: "清掃完了通知", desc: "清掃チェックリスト完了時にオーナーに通知", icon: "bi-clipboard-check", group: "cleaning", varGroup: "cleaning",
+    { key: "cleaning_done", label: "清掃完了通知", desc: "清掃チェックリスト完了時にオーナーに通知", icon: "bi-clipboard-check", group: "cleaning", varGroup: "cleaning", defaultTiming: "immediate",
       defaultMsg: "✨ 清掃完了\n\n{date} {property}\n{staff}さんが{time}に清掃を完了しました。" },
   ],
 
@@ -182,6 +182,8 @@ const NotificationsPage = {
         const customMessage = ch.customMessage || "";
         const msgValue = customMessage || n.defaultMsg || n.desc;
         const vars = this.systemVariables[n.varGroup] || [];
+        const timing = ch.timing || n.defaultTiming || "immediate";
+        const timingMinutes = ch.timingMinutes || "";
 
         // 利用可能な変数タグ
         const varTags = vars.map(v =>
@@ -204,7 +206,7 @@ const NotificationsPage = {
                 </div>
                 <div class="text-muted small mb-2">${n.desc}</div>
 
-                <div class="d-flex flex-wrap gap-3 mb-3">
+                <div class="d-flex flex-wrap gap-3 mb-2">
                   <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="ownerLine" ${ownerLine ? "checked" : ""}>
                     <span class="form-check-label small"><i class="bi bi-person-circle text-success"></i> オーナーLINE</span>
@@ -221,6 +223,25 @@ const NotificationsPage = {
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="ownerEmail" ${ownerEmail ? "checked" : ""}>
                     <span class="form-check-label small"><i class="bi bi-envelope text-warning"></i> オーナーメール</span>
                   </label>
+                </div>
+
+                <!-- 通知タイミング設定 -->
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                  <span class="small text-muted"><i class="bi bi-clock"></i> 通知タイミング:</span>
+                  <select class="form-select form-select-sm notify-timing-select" style="width:auto;" data-key="${n.key}" data-field="timing">
+                    <option value="immediate" ${timing === "immediate" ? "selected" : ""}>即時</option>
+                    <option value="5min" ${timing === "5min" ? "selected" : ""}>5分後</option>
+                    <option value="15min" ${timing === "15min" ? "selected" : ""}>15分後</option>
+                    <option value="30min" ${timing === "30min" ? "selected" : ""}>30分後</option>
+                    <option value="1hour" ${timing === "1hour" ? "selected" : ""}>1時間後</option>
+                    <option value="morning" ${timing === "morning" ? "selected" : ""}>翌朝6時</option>
+                    <option value="evening" ${timing === "evening" ? "selected" : ""}>当日18時</option>
+                    <option value="custom" ${timing === "custom" ? "selected" : ""}>カスタム（分指定）</option>
+                  </select>
+                  <input type="number" class="form-control form-control-sm notify-timing-minutes"
+                    style="width:90px; ${timing === "custom" ? "" : "display:none;"}"
+                    data-key="${n.key}" data-field="timingMinutes"
+                    value="${timingMinutes}" min="1" placeholder="分数">
                 </div>
 
                 <!-- 利用可能な変数（クリックで挿入） -->
@@ -282,6 +303,17 @@ const NotificationsPage = {
       container.addEventListener("input", (e) => {
         if (e.target.classList.contains("notify-msg-input")) {
           this.updatePreview(e.target.dataset.key);
+        }
+      });
+
+      // タイミングselect変更時 → カスタム入力欄の表示切替
+      container.addEventListener("change", (e) => {
+        if (e.target.classList.contains("notify-timing-select")) {
+          const key = e.target.dataset.key;
+          const minutesInput = container.querySelector(`.notify-timing-minutes[data-key="${key}"]`);
+          if (minutesInput) {
+            minutesInput.style.display = e.target.value === "custom" ? "" : "none";
+          }
         }
       });
     }
@@ -363,14 +395,22 @@ const NotificationsPage = {
           return el ? el.checked : false;
         };
         const ta = document.querySelector(`textarea[data-key="${n.key}"][data-field="customMessage"]`);
-        channels[n.key] = {
+        const timingSel = document.querySelector(`select[data-key="${n.key}"][data-field="timing"]`);
+        const timingMinEl = document.querySelector(`input[data-key="${n.key}"][data-field="timingMinutes"]`);
+        const timingVal = timingSel ? timingSel.value : (n.defaultTiming || "immediate");
+        const entry = {
           enabled: get("enabled"),
           ownerLine: get("ownerLine"),
           groupLine: get("groupLine"),
           staffLine: get("staffLine"),
           ownerEmail: get("ownerEmail"),
           customMessage: ta ? ta.value : "",
+          timing: timingVal,
         };
+        if (timingVal === "custom" && timingMinEl && timingMinEl.value) {
+          entry.timingMinutes = parseInt(timingMinEl.value, 10) || 0;
+        }
+        channels[n.key] = entry;
       });
 
       const data = {

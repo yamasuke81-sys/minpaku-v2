@@ -124,6 +124,10 @@ app.use("/tax-docs", taxDocsApi(db));
 const notificationsApi = require("./api/notifications");
 app.use("/notifications", notificationsApi(db));
 
+// ========== 手動同期 API ==========
+const syncApi = require("./api/sync");
+app.use("/sync", syncApi(db));
+
 // gmail-auth は authenticate の前に登録済み（認証不要）
 
 // API エクスポート

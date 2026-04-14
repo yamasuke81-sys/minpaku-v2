@@ -87,6 +87,35 @@ function toDateStr(d) {
  */
 async function syncIcal() {
   const db = admin.firestore();
+
+  // ===== 同期頻度チェック =====
+  const syncConfigRef = db.collection("settings").doc("syncConfig");
+  const syncConfigSnap = await syncConfigRef.get();
+  const syncConfig = syncConfigSnap.exists ? syncConfigSnap.data() : {};
+
+  // icalSyncInterval が 0 → 手動のみモード
+  const icalSyncInterval = syncConfig.icalSyncInterval ?? 30; // デフォルト30分
+  if (icalSyncInterval === 0) {
+    console.log("[syncIcal] icalSyncInterval=0（手動のみ）。スキップ。");
+    return;
+  }
+
+  // 前回同期からの経過時間チェック
+  if (syncConfig.lastIcalSync) {
+    const lastSync = syncConfig.lastIcalSync.toDate
+      ? syncConfig.lastIcalSync.toDate()
+      : new Date(syncConfig.lastIcalSync);
+    const elapsedMinutes = (Date.now() - lastSync.getTime()) / (1000 * 60);
+    if (elapsedMinutes < icalSyncInterval) {
+      console.log(
+        `[syncIcal] 前回同期から ${elapsedMinutes.toFixed(1)} 分経過。` +
+        `設定間隔 ${icalSyncInterval} 分未満のためスキップ。`
+      );
+      return;
+    }
+  }
+  // ===== 同期頻度チェック終わり =====
+
   const settingsSnap = await db.collection("syncSettings").get();
 
   if (settingsSnap.empty) {
@@ -140,26 +169,28 @@ async function syncIcal() {
           const coDate = new Date(checkOut || checkIn);
           const days = (coDate - ciDate) / (1000 * 60 * 60 * 24);
           if (days > 21) {
+            console.log(`[syncIcal] スキップ(長期${days}日): ${checkIn}〜${checkOut}`);
             skipped++;
             continue;
           }
-          // Booking.com: Airbnb予約と期間が重複するブロックはスキップ（クロスチャネル重複）
-          // チェックイン/アウト日の境界のみの重なりは除外（退室日=入室日は正常）
-          // 判定: CLOSEDの checkIn < Airbnbの checkOut かつ Airbnbの checkIn < CLOSEDの checkOut
+          // Booking.com: Airbnb予約と期間が完全一致するブロックはスキップ（クロスチャネル重複）
+          // 完全一致のみスキップ: CLOSEDのcheckIn==AirbnbのcheckIn && CLOSEDのcheckOut==AirbnbのcheckOut
+          // 理由: 期間重複判定だとBooking.com独自予約まで誤スキップされる
           const co = checkOut || checkIn;
           const airbnbOverlap = await db.collection("bookings")
             .where("source", "==", "Airbnb")
-            .where("checkIn", "<", co)
+            .where("checkIn", "==", checkIn)
             .get();
-          const hasRealOverlap = airbnbOverlap.docs.some(doc => {
+          const hasExactMatch = airbnbOverlap.docs.some(doc => {
             const ab = doc.data();
-            // Airbnbの checkOut > CLOSEDの checkIn（境界日除外: > ではなく > で厳密比較）
-            return ab.checkOut > checkIn;
+            return ab.checkOut === co;
           });
-          if (hasRealOverlap) {
+          if (hasExactMatch) {
+            console.log(`[syncIcal] スキップ(Airbnb完全一致): ${checkIn}〜${co}`);
             skipped++;
             continue;
           }
+          console.log(`[syncIcal] Booking.com CLOSED取込: ${checkIn}〜${co} (${days}日間)`);
           // Booking.com: CLOSEDイベントを予約として取り込む（ゲスト名は空）
         }
 
@@ -226,6 +257,12 @@ async function syncIcal() {
   }
 
   console.log(`[syncIcal] 完了: 合計 ${totalSynced}件同期, ${totalSkipped}件スキップ`);
+
+  // lastIcalSync を現在時刻で更新
+  await syncConfigRef.set(
+    { lastIcalSync: admin.firestore.FieldValue.serverTimestamp() },
+    { merge: true }
+  );
 }
 
 module.exports = syncIcal;
