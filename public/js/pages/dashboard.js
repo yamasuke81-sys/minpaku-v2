@@ -910,7 +910,13 @@ const DashboardPage = {
         <tr><th width="110" class="text-muted">ゲスト名</th><td class="fw-bold">${this.esc(b.guestName || "-")}</td></tr>
         <tr><th class="text-muted">チェックイン</th><td>${this.esc(ci || "-")}</td></tr>
         <tr><th class="text-muted">チェックアウト</th><td>${this.esc(co || "-")}</td></tr>
-        <tr><th class="text-muted">宿泊人数</th><td>${b.guestCount || "-"}名${b.guestCountInfants ? ` (乳幼児${b.guestCountInfants})` : ""}</td></tr>
+        <tr><th class="text-muted">宿泊人数</th><td>
+          <div class="input-group input-group-sm" style="width:170px;">
+            <input type="number" class="form-control" id="editGuestCount" value="${b.guestCount || 0}" min="1">
+            <button class="btn btn-outline-primary" id="btnSaveGuestCount" data-booking-id="${b.id}">保存</button>
+          </div>
+          ${b.guestCountInfants ? `<small class="text-muted">乳幼児${b.guestCountInfants}</small>` : ""}
+        </td></tr>
         ${b.nationality ? `<tr><th class="text-muted">国籍</th><td>${this.esc(b.nationality)}</td></tr>` : ""}
         ${b.bbq ? `<tr><th class="text-muted">BBQ</th><td>${this.esc(b.bbq)}</td></tr>` : ""}
         ${b.parking ? `<tr><th class="text-muted">駐車場</th><td>${this.esc(b.parking)}</td></tr>` : ""}
@@ -925,6 +931,36 @@ const DashboardPage = {
       ${nextBookingHtml}
     `;
     bootstrap.Modal.getOrCreateInstance(modalEl).show();
+
+    // 人数保存ボタンのイベントハンドラ
+    const btnSave = document.getElementById("btnSaveGuestCount");
+    if (btnSave) {
+      btnSave.addEventListener("click", async () => {
+        const bookingId = btnSave.dataset.bookingId;
+        const newCount = parseInt(document.getElementById("editGuestCount").value, 10);
+        if (!bookingId || isNaN(newCount) || newCount < 1) {
+          showToast("エラー", "無効な人数です", "error");
+          return;
+        }
+        try {
+          const db = firebase.firestore();
+          if (bookingId.startsWith("g_")) {
+            // guestRegistrationsコレクションを更新
+            const realId = bookingId.slice(2);
+            await db.collection("guestRegistrations").doc(realId).update({ guestCount: newCount });
+          } else {
+            await db.collection("bookings").doc(bookingId).update({ guestCount: newCount });
+          }
+          // キャッシュを更新
+          const idx = this.bookings.findIndex(bk => bk.id === bookingId);
+          if (idx !== -1) this.bookings[idx].guestCount = newCount;
+          this.refreshCalendar();
+          showToast("完了", "人数を更新しました", "success");
+        } catch (e) {
+          showToast("エラー", e.message, "error");
+        }
+      });
+    }
   },
 
   refreshCalendar() {
