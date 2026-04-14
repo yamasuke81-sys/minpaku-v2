@@ -1,5 +1,25 @@
 # 民泊管理v2 — アプリ設計書
 
+## P1実装完了（2026-04-15）
+
+### 実装済み機能
+- **予約→シフト+募集自動生成**: onBookingChangeトリガー（bookings作成/更新時にcheckOut日のシフト+募集を自動生成、LINE通知）
+- **チェックリスト完了→シフト完了+ランドリー促進**: onChecklistCompleteトリガー（完了時にシフトstatus更新、オーナーLINE通知、スタッフにランドリー入力リマインド）
+- **selectedStaff配列化**: selectedStaffIds[]配列 + 名前フォールバック（ID照合優先）
+- **請求書明細手動追加**: POST /:id/items、DELETE /:id/items/:index、manualItems配列管理、合計再計算
+- **請求書markPaid/delete**: PUT /:id/markPaid、DELETE /:id（draftのみ）
+- **請求書PDF生成**: GET /:id/pdf（pdfkit + Cloud Storage + 日本語フォント自動検出）
+- **通知設定**: システム定義変数（通知種別ごとに利用可能変数）、メッセージテンプレート編集、プレビュー、テスト送信
+- **オーナーのスタッフ画面操作**: オーナーがスタッフとして募集回答・チェックリスト操作可能
+
+### 新規ファイル
+- `functions/triggers/onBookingChange.js` — 予約→シフト+募集自動生成
+- `functions/triggers/onChecklistComplete.js` — チェックリスト完了→シフト完了+通知
+- `functions/api/notifications.js` — テスト送信API
+
+### 残タスク
+- P2: 請求書PDF送信（LINE/メール）、備品管理、交通費申請、ゲスト多言語対応
+
 ## P0実装完了（2026-04-14）
 
 ### 実装済み機能
