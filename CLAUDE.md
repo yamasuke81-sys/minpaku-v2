@@ -1,5 +1,35 @@
 # 民泊管理v2 — アプリ設計書
 
+## P0実装完了（2026-04-14）
+
+### 実装済み機能
+- **スタッフ認証分離**: LINEログイン + 招待リンク（マジックリンク）+ カスタムクレーム（role: staff, staffId）
+- **Firestoreセキュリティルール**: `request.auth.token.staffId` ベースの照合に全面修正
+- **スタッフ用マイページ**: マイダッシュボード（#/my-dashboard）、募集回答（#/my-recruitment）、チェックリスト入力（#/my-checklist）
+- **LINE実送信**: 募集作成時・確定時のグループ+個別通知、毎日18時リマインド
+- **通知設定**: 4択チェックボックス（オーナーLINE / グループLINE / スタッフ個別LINE / メール）
+- **スタッフ管理UI拡張**: 招待リンク発行・LINE User ID紐付け・認証状態表示・LINE共有ボタン
+- **Firebase Storage**: CORS設定済み、Storage Rules デプロイ済み
+
+### 新規ファイル
+- `functions/api/auth.js` — 認証API（LINEログイン、招待、ロール管理）
+- `functions/scheduled/recruitReminder.js` — 募集リマインド（毎日18:00 JST）
+- `public/invite.html` — スタッフ招待受諾ページ
+- `public/js/pages/my-dashboard.js` — スタッフ用マイダッシュボード
+- `public/js/pages/my-recruitment.js` — スタッフ用募集回答画面
+- `public/js/pages/my-checklist.js` — スタッフ用チェックリスト入力
+
+### LINE設定
+- LINE Login チャネルID: 2009790221（プロバイダー: 長浜清掃G通知）
+- Messaging API チャネル: 長浜清掃G通知（既存）
+- Callback URL: `https://minpaku-v2.web.app/index.html`
+- Firestore設定: `settings/lineLogin`, `settings/notifications`
+
+### 残タスク
+- LINE Webhook URL を Cloud Functions URL に変更（現在GAS向き）
+- 各スタッフに lineUserId を紐付け
+- P1: 予約→シフト自動生成、チェックリスト→ランドリー連携、請求書完成
+
 ## 概要
 **BEDS24 + Firebase** ベースの民泊管理アプリ。
 BEDS24を予約管理の中核に据え、清掃管理・スタッフ管理・請求書をFirebaseで自動化する。
