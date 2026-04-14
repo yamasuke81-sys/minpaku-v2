@@ -192,13 +192,20 @@ const NotificationsPage = {
                   </label>
                 </div>
 
-                <!-- 送信メッセージ編集 -->
-                <div class="mb-2">
-                  <label class="form-label small text-muted mb-1"><i class="bi bi-chat-left-text"></i> 送信メッセージ</label>
-                  <textarea class="form-control form-control-sm"
-                            rows="2"
-                            data-key="${n.key}"
-                            data-field="customMessage">${customMessage || n.defaultMsg || n.desc}</textarea>
+                <!-- 送信メッセージ編集 + プレビュー -->
+                <div class="row g-2 mb-2">
+                  <div class="col-md-6">
+                    <label class="form-label small text-muted mb-1"><i class="bi bi-pencil"></i> メッセージ</label>
+                    <textarea class="form-control form-control-sm notify-msg-input"
+                              rows="4"
+                              data-key="${n.key}"
+                              data-field="customMessage">${customMessage || n.defaultMsg || n.desc}</textarea>
+                    <div class="form-text">{date} {property} {staff} {guest} {month} が使えます</div>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label small text-muted mb-1"><i class="bi bi-eye"></i> プレビュー</label>
+                    <div class="notify-preview border rounded p-2 bg-light small" data-preview="${n.key}" style="white-space:pre-wrap;min-height:100px;font-size:0.85rem;"></div>
+                  </div>
                 </div>
 
                 <!-- テスト送信ボタン -->
@@ -224,7 +231,40 @@ const NotificationsPage = {
         const btn = e.target.closest(".btn-test-send");
         if (btn) this.sendTestNotification(btn);
       });
+
+      // プレビュー: textarea入力時にリアルタイム更新
+      container.addEventListener("input", (e) => {
+        if (e.target.classList.contains("notify-msg-input")) {
+          const key = e.target.dataset.key;
+          this.updatePreview(key, e.target.value);
+        }
+      });
+
+      // 初期プレビュー表示
+      container.querySelectorAll(".notify-msg-input").forEach(ta => {
+        this.updatePreview(ta.dataset.key, ta.value);
+      });
     }
+  },
+
+  // サンプルデータでプレビュー生成
+  _sampleData: {
+    date: "2026/04/20",
+    property: "長浜民泊A",
+    staff: "山田太郎",
+    guest: "John Smith",
+    month: "4",
+  },
+
+  updatePreview(key, rawMsg) {
+    const el = document.querySelector(`[data-preview="${key}"]`);
+    if (!el) return;
+    let msg = rawMsg || "";
+    // プレースホルダーをサンプルデータで置換
+    Object.entries(this._sampleData).forEach(([k, v]) => {
+      msg = msg.replace(new RegExp(`\\{${k}\\}`, "g"), v);
+    });
+    el.textContent = msg;
   },
 
   /**
