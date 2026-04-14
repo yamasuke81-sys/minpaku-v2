@@ -3,8 +3,9 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // オーナー: 全データ読み書き可能
+    // カスタムクレーム未設定（role==null）の場合もオーナーとして扱う（既存アカウント互換）
     function isOwner() {
-      return request.auth != null && request.auth.token.role == 'owner';
+      return request.auth != null && (request.auth.token.role == 'owner' || request.auth.token.role == null);
     }
 
     // スタッフ: 認証済み + role == staff
