@@ -21,21 +21,25 @@ const MyRecruitmentPage = {
     }
 
     container.innerHTML = `
-      <div class="container-fluid px-2 py-3">
-        <div class="d-flex align-items-center gap-2 mb-2">
-          <h5 class="mb-0"><i class="bi bi-megaphone"></i> 清掃スケジュール・回答</h5>
+      <div class="page-header">
+        <h2><i class="bi bi-calendar-check"></i> 清掃スケジュール</h2>
+        <div class="d-flex align-items-center gap-2">
           <input type="month" class="form-control form-control-sm" style="width:150px;" id="myCalMonth">
           <button class="btn btn-sm btn-outline-primary" id="btnMyCalToday">今日</button>
         </div>
-        <div class="d-flex gap-3 mb-2 small">
-          <span><span style="color:#198754;font-weight:bold;">●</span> ◎OK</span>
-          <span><span style="color:#cc9a06;font-weight:bold;">▲</span> △微妙</span>
-          <span><span style="color:#dc3545;font-weight:bold;">✖</span> ×NG</span>
-          <span><span style="color:#adb5bd;">−</span> 未回答</span>
-          <span><span style="display:inline-block;width:12px;height:12px;border:2px solid #dc3545;border-radius:2px;vertical-align:middle;"></span> 確定済</span>
-        </div>
-        <div id="myCalContainer" style="overflow-x:auto;-webkit-overflow-scrolling:touch;"></div>
       </div>
+      <div class="d-flex flex-wrap gap-3 mb-3 small text-muted">
+        <span><span style="background:#ff5a5f;display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:middle;"></span> Airbnb</span>
+        <span><span style="background:#003580;display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:middle;"></span> Booking.com</span>
+        <span style="margin-left:8px;"><span style="color:#198754;font-weight:bold;">●</span> ◎</span>
+        <span><span style="color:#cc9a06;font-weight:bold;">▲</span> △</span>
+        <span><span style="color:#dc3545;font-weight:bold;">✖</span> ×</span>
+        <span><span style="color:#adb5bd;">−</span> 未回答</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border:2px solid #dc3545;border-radius:2px;vertical-align:middle;"></span> 確定済</span>
+        <span>👤 = あなた</span>
+      </div>
+      <p class="text-muted small mb-2">自分の行のセルをタップして回答できます。日付ヘッダーをタップすると予約詳細を確認できます。</p>
+      <div id="myCalContainer" style="overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:8px;border:1px solid var(--border, #e2e8f0);"></div>
 
       <!-- 回答モーダル -->
       <div class="modal fade" id="responseModal" tabindex="-1">
