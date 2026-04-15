@@ -446,7 +446,6 @@ const GuestsPage = {
             <tr><th>宿泊人数</th><td>${g.guestCount || "-"}名${g.guestCountInfants ? ` ＋ 乳幼児${g.guestCountInfants}名（3才以下）` : ""}</td></tr>
             <tr><th>予約元</th><td>${this.getSourceIcon(g.source)} ${this.escapeHtml(g.bookingSite || "")}</td></tr>
             <tr><th>BBQ</th><td>${this.escapeHtml(g.bbq || "-")}</td></tr>
-            <tr><th>駐車場</th><td>${this.escapeHtml(g.parking || "-")}</td></tr>
             ${g.bedChoice ? `<tr><th>ベッド</th><td>${this.escapeHtml(g.bedChoice)}</td></tr>` : ""}
             <tr><th>メモ</th><td>${this.escapeHtml(g.memo || "-")}</td></tr>
           </table>
