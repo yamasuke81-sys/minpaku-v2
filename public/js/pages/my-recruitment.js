@@ -42,18 +42,33 @@ const MyRecruitmentPage = {
 
       <!-- 回答モーダル -->
       <div class="modal fade" id="responseModal" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-dialog modal-dialog-centered">
           <div class="modal-content">
             <div class="modal-header py-2">
               <h6 class="modal-title" id="responseModalTitle">回答</h6>
               <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body text-center">
-              <div id="responseModalInfo" class="small text-muted mb-3"></div>
-              <div class="d-flex gap-2 justify-content-center">
-                <button class="btn btn-success btn-lg resp-btn" data-resp="◎" style="min-width:70px;">◎ OK</button>
-                <button class="btn btn-warning btn-lg resp-btn" data-resp="△" style="min-width:70px;">△</button>
-                <button class="btn btn-danger btn-lg resp-btn" data-resp="×" style="min-width:70px;">× NG</button>
+            <div class="modal-body">
+              <div id="responseModalInfo" class="small text-muted mb-3 text-center"></div>
+              <div class="d-flex gap-2 justify-content-center mb-3">
+                <button class="btn btn-success btn-lg resp-btn" data-resp="◎" style="min-width:80px;">◎ OK</button>
+                <button class="btn btn-warning btn-lg resp-btn" data-resp="△" style="min-width:80px;">△ 条件付</button>
+                <button class="btn btn-danger btn-lg resp-btn" data-resp="×" style="min-width:80px;">× NG</button>
+              </div>
+              <!-- △選択時の理由入力 -->
+              <div id="triangleReasonArea" class="d-none">
+                <hr>
+                <label class="form-label small fw-bold">△の理由（必須）</label>
+                <div class="d-flex flex-wrap gap-2 mb-2">
+                  <button class="btn btn-sm btn-outline-secondary reason-preset" data-reason="午後◎">午後◎</button>
+                  <button class="btn btn-sm btn-outline-secondary reason-preset" data-reason="午前◎">午前◎</button>
+                  <button class="btn btn-sm btn-outline-secondary reason-preset" data-reason="時間調整が必要">時間調整が必要</button>
+                  <button class="btn btn-sm btn-outline-secondary reason-preset" data-reason="他の予定次第">他の予定次第</button>
+                </div>
+                <textarea class="form-control form-control-sm" id="triangleReason" rows="2" placeholder="詳しい理由を入力..."></textarea>
+                <button class="btn btn-warning w-100 mt-2" id="btnSubmitTriangle">
+                  <i class="bi bi-check-lg"></i> △で回答する
+                </button>
               </div>
             </div>
           </div>
@@ -97,7 +112,37 @@ const MyRecruitmentPage = {
       });
 
       document.querySelectorAll(".resp-btn").forEach(btn => {
-        btn.addEventListener("click", () => this.submitCurrentResponse(btn.dataset.resp));
+        btn.addEventListener("click", () => {
+          const resp = btn.dataset.resp;
+          if (resp === "△") {
+            // △: 理由入力エリアを表示
+            document.getElementById("triangleReasonArea").classList.remove("d-none");
+            document.getElementById("triangleReason").value = "";
+            document.getElementById("triangleReason").focus();
+          } else {
+            // ◎/×: そのまま送信
+            document.getElementById("triangleReasonArea").classList.add("d-none");
+            this.submitCurrentResponse(resp, "");
+          }
+        });
+      });
+
+      // △理由プリセット選択
+      document.querySelectorAll(".reason-preset").forEach(btn => {
+        btn.addEventListener("click", () => {
+          document.getElementById("triangleReason").value = btn.dataset.reason;
+        });
+      });
+
+      // △確定ボタン
+      document.getElementById("btnSubmitTriangle").addEventListener("click", () => {
+        const reason = document.getElementById("triangleReason").value.trim();
+        if (!reason) {
+          showToast("入力エラー", "△の理由を入力してください", "error");
+          document.getElementById("triangleReason").focus();
+          return;
+        }
+        this.submitCurrentResponse("△", reason);
       });
 
       this.renderCalendar();
@@ -329,6 +374,8 @@ const MyRecruitmentPage = {
         this._pendingDate = dateStr;
         document.getElementById("responseModalTitle").textContent = `${this.fmtDate(dateStr)} 回答`;
         document.getElementById("responseModalInfo").textContent = recruit.propertyName ? `${this.fmtDate(dateStr)} ${recruit.propertyName}` : this.fmtDate(dateStr);
+        document.getElementById("triangleReasonArea").classList.add("d-none");
+        document.getElementById("triangleReason").value = "";
         new bootstrap.Modal(document.getElementById("responseModal")).show();
       });
     });
@@ -373,7 +420,7 @@ const MyRecruitmentPage = {
   _pendingRecruitId: null,
   _pendingDate: null,
 
-  async submitCurrentResponse(response) {
+  async submitCurrentResponse(response, memo) {
     if (!this._pendingRecruitId) return;
     try {
       const ref = db.collection("recruitments").doc(this._pendingRecruitId);
@@ -385,7 +432,7 @@ const MyRecruitmentPage = {
       const entry = {
         staffId: this.staffId, staffName: this.staffDoc?.name || "不明",
         staffEmail: this.staffDoc?.email || "", response,
-        memo: "", respondedAt: new Date().toISOString(),
+        memo: memo || "", respondedAt: new Date().toISOString(),
       };
 
       const idx = responses.findIndex(r => r.staffId === this.staffId);
