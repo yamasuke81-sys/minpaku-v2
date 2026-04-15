@@ -51,16 +51,51 @@ module.exports = function guestsApi(db) {
     }
   });
 
-  // 新規登録（Googleフォーム連携 or 手動）
+  // 新規登録 or CI日一致で上書き（Googleフォーム連携 or 手動）
   router.post("/", async (req, res) => {
     try {
       const data = validateGuestData(req.body);
       if (data.error) {
         return res.status(400).json({ error: data.error });
       }
+
+      // CI日が同じ既存データがあれば上書き（重複防止）
+      let docRef;
+      if (data.checkIn) {
+        const existing = await collection
+          .where("checkIn", "==", data.checkIn)
+          .limit(5)
+          .get();
+
+        if (!existing.empty) {
+          // 実名の方を優先（プレースホルダ名は上書き対象）
+          const isPlaceholder = (name) => {
+            if (!name) return true;
+            const n = name.trim().toLowerCase();
+            return !n || n === "-" || n.includes("airbnb") || n.includes("booking") ||
+              n.includes("reserved") || n.includes("not available");
+          };
+
+          // 上書き対象: プレースホルダ名 or 同名 or 同ソース
+          const target = existing.docs.find(d => {
+            const e = d.data();
+            return isPlaceholder(e.guestName) ||
+              e.guestName === data.guestName ||
+              (e.source === data.source && e.source);
+          });
+
+          if (target) {
+            data.updatedAt = FieldValue.serverTimestamp();
+            await target.ref.update(data);
+            return res.json({ id: target.id, updated: true, ...data });
+          }
+        }
+      }
+
+      // 新規作成
       data.createdAt = FieldValue.serverTimestamp();
       data.updatedAt = FieldValue.serverTimestamp();
-      const docRef = await collection.add(data);
+      docRef = await collection.add(data);
       res.status(201).json({ id: docRef.id, ...data });
     } catch (e) {
       console.error("宿泊者名簿登録エラー:", e);

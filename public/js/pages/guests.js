@@ -33,8 +33,13 @@ const GuestsPage = {
           </div>
         </div>
         <div class="col-md-3">
-          <input type="month" class="form-control" id="guestMonth"
-            value="${new Date().toISOString().slice(0, 7)}">
+          <div class="input-group">
+            <input type="month" class="form-control" id="guestMonth"
+              value="${new Date().toISOString().slice(0, 7)}">
+            <button class="btn btn-outline-secondary" id="btnGuestYearView" title="年表示に切替">
+              <i class="bi bi-calendar-range"></i>
+            </button>
+          </div>
         </div>
         <div class="col-md-2">
           <span class="badge bg-secondary fs-6 mt-1" id="guestCount">-件</span>
@@ -83,6 +88,22 @@ const GuestsPage = {
     });
 
     document.getElementById("guestMonth").addEventListener("change", () => {
+      this._yearView = false;
+      document.getElementById("btnGuestYearView").classList.remove("btn-primary");
+      document.getElementById("btnGuestYearView").classList.add("btn-outline-secondary");
+      this.loadGuests();
+    });
+
+    document.getElementById("btnGuestYearView").addEventListener("click", () => {
+      this._yearView = !this._yearView;
+      const btn = document.getElementById("btnGuestYearView");
+      if (this._yearView) {
+        btn.classList.remove("btn-outline-secondary");
+        btn.classList.add("btn-primary");
+      } else {
+        btn.classList.remove("btn-primary");
+        btn.classList.add("btn-outline-secondary");
+      }
       this.loadGuests();
     });
 
@@ -100,7 +121,12 @@ const GuestsPage = {
     const month = document.getElementById("guestMonth").value;
     const params = {};
     if (search) params.search = search;
-    if (month) {
+    if (this._yearView) {
+      // 年表示: 選択月の年の1/1〜12/31
+      const year = month ? month.slice(0, 4) : new Date().getFullYear().toString();
+      params.from = year + "-01-01";
+      params.to = year + "-12-31";
+    } else if (month) {
       params.from = month + "-01";
       const d = new Date(month + "-01");
       d.setMonth(d.getMonth() + 1);
