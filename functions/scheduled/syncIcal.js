@@ -159,16 +159,44 @@ async function syncIcal() {
         const guestName = extractGuestName(event, platform);
 
         // ブロック/非公開/売り止めイベントは全プラットフォームでスキップ
-        // ゲスト名が空 + CLOSED/Not available/Blocked → 予約ではなくブロック
-        if (!guestName && /not available|closed|blocked/i.test(event.summary || "")) {
-          console.log(`[syncIcal] スキップ(ブロック): ${platform} ${checkIn}〜${checkOut} "${event.summary}"`);
+        const summary = (event.summary || "").trim();
+        const summaryLower = summary.toLowerCase();
+
+        // ゲスト名が空 + CLOSED/Not available/Blocked/Reserved → ブロック
+        if (!guestName && /not available|closed|blocked|reserved/i.test(summaryLower)) {
+          console.log(`[syncIcal] スキップ(ブロック): ${platform} ${checkIn}〜${checkOut} "${summary}"`);
           skipped++;
           continue;
         }
         // ゲスト名が空でsummaryもない → スキップ
-        if (!guestName && !(event.summary || "").trim()) {
+        if (!guestName && !summary) {
           skipped++;
           continue;
+        }
+        // ゲスト名が"Reserved"のみ → 実予約ではなくブロック（実予約は「予約済み - ゲスト名」形式）
+        if (guestName && /^reserved$/i.test(guestName.trim())) {
+          console.log(`[syncIcal] スキップ(Reserved): ${platform} ${checkIn}〜${checkOut}`);
+          skipped++;
+          continue;
+        }
+
+        // クロスプラットフォーム重複検出: 同じCI+COに別ソースの確定済み予約が既にある場合スキップ
+        // 例: Booking.com実予約 + Airbnb売り止め → Airbnb側をスキップ
+        if (!guestName || /^(airbnb|booking|予約)$/i.test(guestName.trim())) {
+          const dupSnap = await db.collection("bookings")
+            .where("checkIn", "==", checkIn)
+            .where("status", "==", "confirmed")
+            .limit(1)
+            .get();
+          if (!dupSnap.empty) {
+            const dupData = dupSnap.docs[0].data();
+            // 別プラットフォームの実予約（ゲスト名あり）が存在する → この曖昧な予約はスキップ
+            if (dupData.source !== platform && dupData.guestName && !/^(reserved|airbnb|booking|予約)/i.test(dupData.guestName)) {
+              console.log(`[syncIcal] スキップ(クロス重複): ${platform} ${checkIn}〜${checkOut} (${dupData.source}の実予約あり)`);
+              skipped++;
+              continue;
+            }
+          }
         }
 
         // bookingsコレクションに upsert（iCalのUIDをドキュメントIDに使用）
@@ -266,8 +294,35 @@ async function syncIcal() {
     if (cancelled > 0) {
       console.log(`[syncIcal] ${cancelled}件の予約を自動キャンセル（iCalから削除済み）`);
     }
+
+    // ===== クリーンアップ: 同じCI+COで確定済みと重複するキャンセル済みを削除 =====
+    // キャンセル→再予約のケースで古いドキュメントがゴミとして残るのを防ぐ
+    let cleaned = 0;
+    const cancelledSnap = await db.collection("bookings")
+      .where("syncSource", "==", "ical")
+      .where("status", "==", "cancelled")
+      .get();
+
+    for (const cDoc of cancelledSnap.docs) {
+      const cData = cDoc.data();
+      if (!cData.checkIn || !cData.checkOut) continue;
+      // 同じCI+COの確定済み予約があれば、このキャンセル済みは不要
+      const dupSnap = await db.collection("bookings")
+        .where("checkIn", "==", cData.checkIn)
+        .where("checkOut", "==", cData.checkOut)
+        .where("status", "==", "confirmed")
+        .limit(1)
+        .get();
+      if (!dupSnap.empty) {
+        await cDoc.ref.delete();
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) {
+      console.log(`[syncIcal] ${cleaned}件のキャンセル済み重複を削除`);
+    }
   } catch (e) {
-    console.error("[syncIcal] キャンセル処理エラー:", e.message);
+    console.error("[syncIcal] キャンセル/クリーンアップエラー:", e.message);
   }
 
   console.log(`[syncIcal] 完了: 合計 ${totalSynced}件同期, ${totalSkipped}件スキップ`);
