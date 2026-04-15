@@ -1,7 +1,6 @@
 /**
- * スタッフ用募集回答ページ
- * 横スクロールカレンダー（上部に予約バー、スタッフ行に回答状況）
- * セルタップで回答入力
+ * スタッフ用 清掃スケジュールページ
+ * 横スクロールカレンダー（予約バー + 募集ステータス + スタッフ回答）
  */
 const MyRecruitmentPage = {
   staffId: null,
@@ -9,6 +8,7 @@ const MyRecruitmentPage = {
   staffList: [],
   recruitments: [],
   bookings: [],
+  guestMap: {},
 
   async render(container) {
     const isOwner = Auth.isOwner();
@@ -36,10 +36,9 @@ const MyRecruitmentPage = {
         <span><span style="color:#dc3545;font-weight:bold;">✖</span> ×</span>
         <span><span style="color:#adb5bd;">−</span> 未回答</span>
         <span><span style="display:inline-block;width:10px;height:10px;border:2px solid #dc3545;border-radius:2px;vertical-align:middle;"></span> 確定済</span>
-        <span>👤 = あなた</span>
+        <span>👤 あなた</span>
       </div>
-      <p class="text-muted small mb-2">自分の行のセルをタップして回答できます。日付ヘッダーをタップすると予約詳細を確認できます。</p>
-      <div id="myCalContainer" style="overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:8px;border:1px solid var(--border, #e2e8f0);"></div>
+      <div id="myCalContainer" style="overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--radius,8px);border:1px solid var(--border,#e2e8f0);"></div>
 
       <!-- 回答モーダル -->
       <div class="modal fade" id="responseModal" tabindex="-1">
@@ -53,7 +52,7 @@ const MyRecruitmentPage = {
               <div id="responseModalInfo" class="small text-muted mb-3"></div>
               <div class="d-flex gap-2 justify-content-center">
                 <button class="btn btn-success btn-lg resp-btn" data-resp="◎" style="min-width:70px;">◎ OK</button>
-                <button class="btn btn-warning btn-lg resp-btn" data-resp="△" style="min-width:70px;">△ 微妙</button>
+                <button class="btn btn-warning btn-lg resp-btn" data-resp="△" style="min-width:70px;">△</button>
                 <button class="btn btn-danger btn-lg resp-btn" data-resp="×" style="min-width:70px;">× NG</button>
               </div>
             </div>
@@ -66,7 +65,7 @@ const MyRecruitmentPage = {
         <div class="modal-dialog modal-dialog-centered">
           <div class="modal-content">
             <div class="modal-header py-2">
-              <h6 class="modal-title">予約情報</h6>
+              <h6 class="modal-title">予約詳細</h6>
               <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body" id="bookingDetailBody"></div>
@@ -77,7 +76,7 @@ const MyRecruitmentPage = {
 
     try {
       if (isOwner) {
-        this.staffDoc = { name: Auth.currentUser.displayName || Auth.currentUser.email?.split("@")[0] || "オーナー", email: Auth.currentUser.email || "" };
+        this.staffDoc = { name: "オーナー", email: Auth.currentUser.email || "" };
       } else {
         const staffSnap = await db.collection("staff").doc(this.staffId).get();
         this.staffDoc = staffSnap.exists ? staffSnap.data() : {};
@@ -97,7 +96,6 @@ const MyRecruitmentPage = {
         this.renderCalendar();
       });
 
-      // 回答モーダルのボタン
       document.querySelectorAll(".resp-btn").forEach(btn => {
         btn.addEventListener("click", () => this.submitCurrentResponse(btn.dataset.resp));
       });
@@ -109,6 +107,15 @@ const MyRecruitmentPage = {
     }
   },
 
+  // 日付フィールド名の揺れを正規化
+  _normalizeDate(raw) {
+    if (!raw) return "";
+    if (typeof raw === "string") return raw.slice(0, 10);
+    if (raw.toDate) return raw.toDate().toLocaleDateString("sv-SE");
+    if (raw instanceof Date) return raw.toLocaleDateString("sv-SE");
+    return String(raw).slice(0, 10);
+  },
+
   async loadData() {
     const [recruitSnap, bookingSnap, staffSnap, guestSnap] = await Promise.all([
       db.collection("recruitments").get(),
@@ -117,10 +124,23 @@ const MyRecruitmentPage = {
       db.collection("guestRegistrations").get(),
     ]);
 
-    this.recruitments = recruitSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(r => r.checkoutDate);
+    // recruitments: checkOutDate/checkoutDate 両対応
+    this.recruitments = recruitSnap.docs.map(d => {
+      const raw = d.data();
+      const coDate = this._normalizeDate(raw.checkoutDate || raw.checkOutDate || raw.checkOutdate);
+      return { id: d.id, ...raw, checkoutDate: coDate };
+    }).filter(r => r.checkoutDate);
+
     this.bookings = bookingSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(b => b.status !== "cancelled");
 
-    // 名簿データ（CI日→名簿マッピング、個人情報除外）
+    this.staffList = staffSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+
+    // オーナーをリスト先頭に追加
+    if (Auth.isOwner() && !this.staffList.some(s => s.id === this.staffId)) {
+      this.staffList.unshift({ id: this.staffId, name: "オーナー", email: this.staffDoc?.email || "", displayOrder: -1 });
+    }
+
+    // 名簿マッピング（個人情報除外）
     this.guestMap = {};
     guestSnap.docs.forEach(d => {
       const g = d.data();
@@ -128,30 +148,15 @@ const MyRecruitmentPage = {
       if (ci) this.guestMap[ci] = {
         guestCount: g.guestCount || 0,
         guestCountInfants: g.guestCountInfants || 0,
-        checkIn: g.checkIn,
-        checkOut: g.checkOut,
-        bookingSite: g.bookingSite || g.source || "",
-        bbq: g.bbq || "",
-        parking: g.parking || "",
-        carCount: g.carCount || 0,
-        bedChoice: g.bedChoice || "",
-        nationality: g.nationality || "",
-        purpose: g.purpose || "",
-        noiseAgree: g.noiseAgree,
-        transport: g.transport || "",
+        checkIn: g.checkIn, checkOut: g.checkOut,
+        checkInTime: g.checkInTime || "", checkOutTime: g.checkOutTime || "",
+        bbq: g.bbq || "", carCount: g.carCount || 0,
+        paidParking: g.paidParking || "",
+        bedChoice: g.bedChoice || "", nationality: g.nationality || "",
+        parking: g.parking || "", transport: g.transport || "",
+        vehicleTypes: g.vehicleTypes || [],
       };
     });
-    this.staffList = staffSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
-
-    // オーナーがスタッフリストに含まれていなければ追加
-    if (Auth.isOwner() && !this.staffList.some(s => s.id === this.staffId)) {
-      this.staffList.unshift({
-        id: this.staffId,
-        name: this.staffDoc?.name || "オーナー",
-        email: this.staffDoc?.email || "",
-        displayOrder: -1,
-      });
-    }
   },
 
   renderCalendar() {
@@ -169,7 +174,6 @@ const MyRecruitmentPage = {
       months.push({ year: mDate.getFullYear(), month: mDate.getMonth() + 1, days: new Date(mDate.getFullYear(), mDate.getMonth() + 1, 0).getDate() });
     }
 
-    // 全日付
     const allDates = [];
     months.forEach(m => {
       for (let d = 1; d <= m.days; d++) {
@@ -185,11 +189,11 @@ const MyRecruitmentPage = {
     const recruitByDate = {};
     this.recruitments.forEach(r => {
       if (r.status === "キャンセル済み") return;
-      const d = (r.checkoutDate || "").slice(0, 10);
-      if (!recruitByDate[d]) recruitByDate[d] = r;
+      const d = r.checkoutDate;
+      if (d && !recruitByDate[d]) recruitByDate[d] = r;
     });
 
-    // 予約マップ（日付→予約リスト、個人情報除外）
+    // 予約マップ
     const bookingsByDate = {};
     this.bookings.forEach(b => {
       if (!b.checkIn || !b.checkOut) return;
@@ -199,151 +203,138 @@ const MyRecruitmentPage = {
         const ds = d.toLocaleDateString("sv-SE");
         if (!bookingsByDate[ds]) bookingsByDate[ds] = [];
         bookingsByDate[ds].push({
-          source: (b.source || "").toLowerCase(),
-          guestCount: b.guestCount || 0,
-          propertyName: b.propertyName || "",
-          checkIn: b.checkIn,
-          checkOut: b.checkOut,
+          source: (b.source || "").toLowerCase(), guestCount: b.guestCount || 0,
+          propertyName: b.propertyName || "", checkIn: b.checkIn, checkOut: b.checkOut,
         });
       }
     });
 
-    const C = {
-      headerBg: "#f8f9fa", stickyBg: "#fff", border: "#dee2e6",
-      noRecruit: "#f9f9f9", todayBg: "#e8f0fe",
-      confirmedBorder: "#dc3545", confirmedBg: "#fff5f5",
-      monthSepBg: "#e9ecef",
-      symOk: "#198754", symHold: "#cc9a06", symNg: "#dc3545", symNone: "#adb5bd",
-      airbnbBg: "rgba(255,90,95,0.2)", bookingBg: "rgba(0,53,128,0.2)", directBg: "rgba(13,110,253,0.2)",
-    };
+    // スタイル
+    const cellH = "38px";
+    const stickyW = "90px";
+    const colW = "36px";
 
-    let html = `<table class="table table-sm mb-0" style="font-size:12px;white-space:nowrap;border-collapse:collapse;min-width:${100 + allDates.length * 36}px;">`;
+    let html = `<table class="table table-sm table-hover mb-0 align-middle" style="font-size:12px;white-space:nowrap;border-collapse:collapse;min-width:calc(${stickyW} + ${allDates.length} * ${colW});">`;
 
-    // ヘッダー行1: 月ラベル
-    html += `<thead><tr><th rowspan="4" class="staff-cal-sticky" style="background:${C.headerBg};min-width:80px;max-width:100px;vertical-align:middle;position:sticky;left:0;z-index:3;">スタッフ</th>`;
+    // ===== ヘッダー =====
+    html += `<thead class="table-light">`;
+
+    // 行1: 月ラベル
+    html += `<tr><th rowspan="4" class="text-center" style="position:sticky;left:0;z-index:3;background:#f8f9fa;min-width:${stickyW};max-width:${stickyW};border-right:2px solid #dee2e6;">スタッフ</th>`;
     months.forEach(m => {
-      const isCurrent = m.month === month && m.year === year;
-      html += `<th colspan="${m.days}" class="text-center" style="background:${isCurrent ? C.headerBg : C.monthSepBg};border:1px solid ${C.border};font-size:13px;">${m.month}月</th>`;
+      const cur = m.month === month && m.year === year;
+      html += `<th colspan="${m.days}" class="text-center" style="background:${cur ? "#f8f9fa" : "#e9ecef"};border:1px solid #dee2e6;font-size:13px;">${m.year}/${m.month}月</th>`;
     });
     html += "</tr>";
 
-    // ヘッダー行2: 日付+曜日
+    // 行2: 日+曜
     html += "<tr>";
     allDates.forEach(dd => {
       const dow = new Date(dd.year, dd.month - 1, dd.day).getDay();
       const isToday = dd.dateStr === todayStr;
-      const hasRecruit = !!recruitByDate[dd.dateStr];
       const hasBooking = !!bookingsByDate[dd.dateStr];
       const dowColor = dow === 0 ? "#dc3545" : (dow === 6 ? "#0d6efd" : "");
-      const bgColor = isToday ? C.todayBg : (!dd.isCurrent ? C.monthSepBg : (hasRecruit ? C.headerBg : C.noRecruit));
-      html += `<th class="text-center${hasBooking ? " cal-date-booking" : ""}" data-cal-date="${dd.dateStr}" style="min-width:34px;padding-top:6px;${dowColor ? "color:" + dowColor + ";" : ""}background:${bgColor};border:1px solid ${C.border};cursor:${hasBooking ? "pointer" : "default"};"><div>${dd.day}</div><div style="font-size:10px;">${dayNames[dow]}</div></th>`;
+      const bg = isToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : "#f8f9fa");
+      html += `<th class="text-center${hasBooking ? " cal-date-hd" : ""}" data-cal-date="${dd.dateStr}" style="min-width:${colW};height:${cellH};${dowColor ? "color:" + dowColor + ";" : ""}background:${bg};border:1px solid #dee2e6;cursor:${hasBooking ? "pointer" : "default"};"><div>${dd.day}</div><div style="font-size:9px;">${dayNames[dow]}</div></th>`;
     });
     html += "</tr>";
 
-    // ヘッダー行3: 予約バー
+    // 行3: 予約バー
     html += "<tr>";
     allDates.forEach(dd => {
       const bs = bookingsByDate[dd.dateStr];
-      if (bs && bs.length > 0) {
+      if (bs && bs.length) {
         const b = bs[0];
-        let bg = C.directBg;
-        if (b.source.includes("airbnb")) bg = C.airbnbBg;
-        else if (b.source.includes("booking")) bg = C.bookingBg;
-        const label = b.guestCount > 0 ? `${b.guestCount}名` : "予約";
-        html += `<th class="text-center" style="background:${bg};border:1px solid ${C.border};font-size:10px;padding:1px;">${label}</th>`;
+        let bg = "rgba(13,110,253,0.15)";
+        if (b.source.includes("airbnb")) bg = "rgba(255,90,95,0.2)";
+        else if (b.source.includes("booking")) bg = "rgba(0,53,128,0.2)";
+        const label = b.guestCount > 0 ? `${b.guestCount}名` : "●";
+        html += `<th class="text-center" style="background:${bg};border:1px solid #dee2e6;font-size:10px;height:22px;padding:0;">${label}</th>`;
       } else {
-        html += `<th style="border:1px solid ${C.border};background:${!dd.isCurrent ? C.monthSepBg : "#fff"};"></th>`;
+        html += `<th style="border:1px solid #dee2e6;height:22px;background:${!dd.isCurrent ? "#e9ecef" : "#fff"};"></th>`;
       }
     });
     html += "</tr>";
 
-    // ヘッダー行4: 募集ステータス
+    // 行4: 募集ステータス
     html += "<tr>";
     allDates.forEach(dd => {
-      const recruit = recruitByDate[dd.dateStr];
-      if (recruit) {
+      const r = recruitByDate[dd.dateStr];
+      if (r) {
         let label = "", bg = "";
-        if (recruit.status === "スタッフ確定済み") { label = "確定"; bg = "#d4edda"; }
-        else if (recruit.status === "選定済") { label = "選定"; bg = "#fff3cd"; }
-        else if (recruit.status === "募集中") { label = "募集"; bg = "#ffc107"; }
-        else { label = ""; bg = C.noRecruit; }
-        html += `<th class="text-center" style="background:${bg};border:1px solid ${C.border};font-size:9px;padding:1px;font-weight:bold;">${label}</th>`;
+        if (r.status === "スタッフ確定済み") { label = "確定"; bg = "#d4edda"; }
+        else if (r.status === "選定済") { label = "選定"; bg = "#fff3cd"; }
+        else if (r.status === "募集中") { label = "募集"; bg = "#ffc107"; }
+        else { label = r.status?.slice(0, 2) || ""; bg = "#f5f5f5"; }
+        html += `<th class="text-center" style="background:${bg};border:1px solid #dee2e6;font-size:9px;height:20px;padding:0;font-weight:bold;">${label}</th>`;
       } else {
-        html += `<th style="border:1px solid ${C.border};background:${!dd.isCurrent ? C.monthSepBg : C.noRecruit};"></th>`;
+        html += `<th style="border:1px solid #dee2e6;height:20px;background:${!dd.isCurrent ? "#e9ecef" : "#f9f9f9"};"></th>`;
       }
     });
     html += "</tr></thead><tbody>";
 
-    // 各スタッフ行
+    // ===== スタッフ行 =====
     this.staffList.forEach(staff => {
       const isMe = staff.id === this.staffId;
-      const nameBg = isMe ? "#e3f2fd" : C.stickyBg;
-      const nameWeight = isMe ? "bold" : "normal";
-      html += `<tr><td class="staff-cal-sticky" style="background:${nameBg};font-weight:${nameWeight};border:1px solid ${C.border};border-right:2px solid ${C.border};max-width:100px;overflow:hidden;text-overflow:ellipsis;position:sticky;left:0;z-index:2;">${this.esc(staff.name)}${isMe ? " 👤" : ""}</td>`;
+      html += `<tr><td class="fw-medium" style="position:sticky;left:0;z-index:2;background:${isMe ? "#e3f2fd" : "#fff"};min-width:${stickyW};max-width:${stickyW};border-right:2px solid #dee2e6;overflow:hidden;text-overflow:ellipsis;height:${cellH};">${this.esc(staff.name)}${isMe ? " 👤" : ""}</td>`;
 
       allDates.forEach(dd => {
         const isToday = dd.dateStr === todayStr;
         const recruit = recruitByDate[dd.dateStr];
 
         if (!recruit) {
-          const bg = isToday ? C.todayBg : (!dd.isCurrent ? C.monthSepBg : C.noRecruit);
-          html += `<td class="text-center" style="background:${bg};border:1px solid ${C.border};color:${C.symNone};">-</td>`;
+          const bg = isToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : "#f9f9f9");
+          html += `<td class="text-center" style="background:${bg};border:1px solid #dee2e6;color:#adb5bd;height:${cellH};">-</td>`;
           return;
         }
 
-        // このスタッフの回答
         const responses = recruit.responses || [];
         let resp = "未回答";
         for (const r of responses) {
           if (r.staffId === staff.id || r.staffName === staff.name || (r.staffEmail && staff.email && r.staffEmail.toLowerCase() === staff.email.toLowerCase())) {
-            resp = r.response || "未回答";
-            break;
+            resp = r.response || "未回答"; break;
           }
         }
 
-        let symbol = "", symColor = "";
-        if (resp === "◎") { symbol = "●"; symColor = C.symOk; }
-        else if (resp === "△") { symbol = "▲"; symColor = C.symHold; }
-        else if (resp === "×") { symbol = "✖"; symColor = C.symNg; }
-        else { symbol = "−"; symColor = C.symNone; }
+        let symbol = "−", symColor = "#adb5bd";
+        if (resp === "◎") { symbol = "●"; symColor = "#198754"; }
+        else if (resp === "△") { symbol = "▲"; symColor = "#cc9a06"; }
+        else if (resp === "×") { symbol = "✖"; symColor = "#dc3545"; }
 
-        // 確定済みチェック
         let isConfirmed = false;
         const sel = (recruit.selectedStaff || "").trim();
         if (sel && (recruit.status === "選定済" || recruit.status === "スタッフ確定済み")) {
           isConfirmed = sel.split(/[,、\s]+/).map(s => s.trim()).includes(staff.name);
         }
 
-        const cellBg = isConfirmed ? C.confirmedBg : (isToday ? C.todayBg : (!dd.isCurrent ? C.monthSepBg : ""));
-        const cellShadow = isConfirmed ? `box-shadow:inset 0 0 0 2px ${C.confirmedBorder};` : "";
+        const cellBg = isConfirmed ? "#fff5f5" : (isToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : ""));
+        const shadow = isConfirmed ? "box-shadow:inset 0 0 0 2px #dc3545;" : "";
         const canAnswer = isMe && recruit.status === "募集中";
 
-        html += `<td class="text-center${canAnswer ? " cal-answer-cell" : ""}" data-date="${dd.dateStr}" data-staff-id="${staff.id}" style="cursor:${canAnswer ? "pointer" : "default"};border:1px solid ${C.border};${cellShadow}background:${cellBg};color:${symColor};font-weight:bold;">${symbol}</td>`;
+        html += `<td class="text-center${canAnswer ? " cal-cell" : ""}" data-date="${dd.dateStr}" data-staff="${staff.id}" style="cursor:${canAnswer ? "pointer" : "default"};border:1px solid #dee2e6;${shadow}background:${cellBg};color:${symColor};font-weight:bold;height:${cellH};">${symbol}</td>`;
       });
-
       html += "</tr>";
     });
 
     html += "</tbody></table>";
     container.innerHTML = html;
 
-    // 自分のセルタップ → 回答モーダル
-    container.querySelectorAll(".cal-answer-cell").forEach(td => {
+    // イベント: 自分のセルタップ → 回答
+    container.querySelectorAll(".cal-cell").forEach(td => {
       td.addEventListener("click", () => {
         const dateStr = td.dataset.date;
         const recruit = recruitByDate[dateStr];
         if (!recruit) return;
         this._pendingRecruitId = recruit.id;
         this._pendingDate = dateStr;
-        document.getElementById("responseModalTitle").textContent = `${dateStr} 回答`;
-        const prop = recruit.propertyName || "";
-        document.getElementById("responseModalInfo").textContent = prop ? `${dateStr} ${prop}` : dateStr;
+        document.getElementById("responseModalTitle").textContent = `${this.fmtDate(dateStr)} 回答`;
+        document.getElementById("responseModalInfo").textContent = recruit.propertyName ? `${this.fmtDate(dateStr)} ${recruit.propertyName}` : this.fmtDate(dateStr);
         new bootstrap.Modal(document.getElementById("responseModal")).show();
       });
     });
 
-    // 日付ヘッダータップ → 予約詳細（個人情報除外）
-    container.querySelectorAll(".cal-date-booking").forEach(th => {
+    // イベント: 日付ヘッダータップ → 予約詳細
+    container.querySelectorAll(".cal-date-hd").forEach(th => {
       th.addEventListener("click", () => {
         const dateStr = th.dataset.calDate;
         const bs = bookingsByDate[dateStr];
@@ -351,27 +342,21 @@ const MyRecruitmentPage = {
         let html = "";
         bs.forEach(b => {
           const src = b.source.includes("airbnb") ? "Airbnb" : (b.source.includes("booking") ? "Booking.com" : "直接予約");
-          // 名簿情報を検索
           const guest = this.guestMap[b.checkIn];
           html += `<div class="mb-2 p-2 border rounded">
-            <div><strong>${src}</strong></div>
+            <div class="fw-bold mb-1">${src}</div>
             <table class="table table-sm table-borderless small mb-0">
-              <tr><th class="text-muted" style="width:40%">チェックイン</th><td>${this.fmtDate(b.checkIn)}</td></tr>
-              <tr><th class="text-muted">チェックアウト</th><td>${this.fmtDate(b.checkOut)}</td></tr>
-              ${b.guestCount ? `<tr><th class="text-muted">宿泊人数</th><td>${b.guestCount}名</td></tr>` : ""}
+              <tr><th class="text-muted" style="width:35%">CI</th><td>${this.fmtDate(b.checkIn)}${guest?.checkInTime ? " " + guest.checkInTime : ""}</td></tr>
+              <tr><th class="text-muted">CO</th><td>${this.fmtDate(b.checkOut)}${guest?.checkOutTime ? " " + guest.checkOutTime : ""}</td></tr>
+              <tr><th class="text-muted">大人</th><td>${b.guestCount || "不明"}名${guest?.guestCountInfants ? ` + 乳幼児${guest.guestCountInfants}名` : ""}</td></tr>
               ${b.propertyName ? `<tr><th class="text-muted">物件</th><td>${b.propertyName}</td></tr>` : ""}
               ${guest ? `
                 ${guest.nationality ? `<tr><th class="text-muted">国籍</th><td>${guest.nationality}</td></tr>` : ""}
-                ${guest.guestCountInfants ? `<tr><th class="text-muted">乳幼児</th><td>${guest.guestCountInfants}名</td></tr>` : ""}
-                ${guest.bookingSite ? `<tr><th class="text-muted">予約サイト</th><td>${guest.bookingSite}</td></tr>` : ""}
-                ${guest.purpose ? `<tr><th class="text-muted">目的</th><td>${guest.purpose}</td></tr>` : ""}
                 ${guest.transport ? `<tr><th class="text-muted">交通手段</th><td>${guest.transport}</td></tr>` : ""}
-                ${guest.carCount ? `<tr><th class="text-muted">車</th><td>${guest.carCount}台</td></tr>` : ""}
+                ${guest.carCount ? `<tr><th class="text-muted">車</th><td>${guest.carCount}台${guest.paidParking ? ` / 有料駐車場: ${guest.paidParking}` : ""}</td></tr>` : ""}
                 ${guest.bbq ? `<tr><th class="text-muted">BBQ</th><td>${guest.bbq}</td></tr>` : ""}
                 ${guest.bedChoice ? `<tr><th class="text-muted">ベッド</th><td>${guest.bedChoice}</td></tr>` : ""}
-                ${guest.parking ? `<tr><th class="text-muted">駐車場</th><td>${guest.parking}</td></tr>` : ""}
-                ${guest.noiseAgree ? `<tr><th class="text-muted">騒音ルール</th><td>同意済み ✓</td></tr>` : ""}
-              ` : '<tr><td colspan="2" class="text-muted">名簿未提出</td></tr>'}
+              ` : '<tr><td colspan="2" class="text-muted fst-italic">名簿未提出</td></tr>'}
             </table>
           </div>`;
         });
@@ -380,11 +365,9 @@ const MyRecruitmentPage = {
       });
     });
 
-    // 今日までスクロール
+    // 今日に自動スクロール
     const todayTh = container.querySelector(`[data-cal-date="${todayStr}"]`);
-    if (todayTh) {
-      container.scrollLeft = todayTh.offsetLeft - 100;
-    }
+    if (todayTh) container.scrollLeft = todayTh.offsetLeft - 100;
   },
 
   _pendingRecruitId: null,
@@ -400,26 +383,21 @@ const MyRecruitmentPage = {
       const responses = data.responses || [];
 
       const entry = {
-        staffId: this.staffId,
-        staffName: this.staffDoc?.name || "不明",
-        staffEmail: this.staffDoc?.email || "",
-        response,
-        memo: "",
-        respondedAt: new Date().toISOString(),
+        staffId: this.staffId, staffName: this.staffDoc?.name || "不明",
+        staffEmail: this.staffDoc?.email || "", response,
+        memo: "", respondedAt: new Date().toISOString(),
       };
 
       const idx = responses.findIndex(r => r.staffId === this.staffId);
       if (idx >= 0) responses[idx] = entry; else responses.push(entry);
 
       await ref.update({ responses, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
-
       bootstrap.Modal.getInstance(document.getElementById("responseModal"))?.hide();
-      showToast("送信完了", `${this._pendingDate} → ${response}`, "success");
+      showToast("送信完了", `${this.fmtDate(this._pendingDate)} → ${response}`, "success");
 
-      // データ更新して再描画
       const updatedDoc = await ref.get();
       const ri = this.recruitments.findIndex(r => r.id === this._pendingRecruitId);
-      if (ri >= 0) this.recruitments[ri] = { id: this._pendingRecruitId, ...updatedDoc.data() };
+      if (ri >= 0) this.recruitments[ri] = { id: this._pendingRecruitId, ...updatedDoc.data(), checkoutDate: this.recruitments[ri].checkoutDate };
       this.renderCalendar();
     } catch (e) {
       showToast("エラー", e.message, "error");
@@ -428,7 +406,6 @@ const MyRecruitmentPage = {
 
   esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; },
 
-  // 日付フォーマット統一: "2026-04-15" → "4/15(火)"
   fmtDate(dateStr) {
     if (!dateStr) return "-";
     try {
