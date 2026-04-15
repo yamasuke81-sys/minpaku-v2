@@ -137,7 +137,7 @@ const GuestsPage = {
       const sourceIcon = this.getSourceIcon(g.source);
       return `
         <tr data-id="${g.id}" class="guest-row ${g._coMismatch ? "table-warning" : ""}">
-          <td>${this.escapeHtml(g.checkIn || "-")}${g.checkInTime ? `<br><small class="text-muted">${this.escapeHtml(g.checkInTime)}</small>` : ""}</td>
+          <td>${formatDate(g.checkIn)}${g.checkInTime ? `<br><small class="text-muted">${this.escapeHtml(g.checkInTime)}</small>` : ""}</td>
           <td>
             <strong>${this.escapeHtml(g.guestName || "-")}</strong>
             ${companionCount > 0 ? `<br><small class="text-muted">他${companionCount}名</small>` : ""}
@@ -146,7 +146,7 @@ const GuestsPage = {
             ${this.escapeHtml(g.nationality || "日本")}
           </td>
           <td>
-            ${totalGuests > 0 ? totalGuests + "名" : "-"}
+            ${totalGuests > 0 ? totalGuests + "名" : "-"}${g.guestCountInfants ? `<br><small class="text-muted">+乳幼児${g.guestCountInfants}</small>` : ""}
           </td>
           <td class="d-none d-md-table-cell">${sourceIcon}</td>
           <td class="d-none d-lg-table-cell">${this.escapeHtml(g.phone || "-")}</td>
@@ -415,9 +415,9 @@ const GuestsPage = {
         <div class="col-md-6">
           <h6 class="border-bottom pb-1 mb-2">宿泊情報</h6>
           <table class="table table-sm table-borderless">
-            <tr><th style="width:120px">チェックイン</th><td>${this.escapeHtml(g.checkIn || "-")} <strong>${this.escapeHtml(g.checkInTime || "")}</strong></td></tr>
-            <tr><th>チェックアウト</th><td>${this.escapeHtml(g.checkOut || "-")} <strong>${this.escapeHtml(g.checkOutTime || "")}</strong>${g._coMismatch ? `<br><span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle"></i> 予約サイトとCO日が異なります（${this.escapeHtml(g._coOriginal)} vs ${this.escapeHtml(g._coIncoming)}）</span>` : ""}</td></tr>
-            <tr><th>宿泊人数</th><td>${g.guestCount || "-"}名${g.guestCountInfants ? ` (乳幼児${g.guestCountInfants}名)` : ""}</td></tr>
+            <tr><th style="width:120px">チェックイン</th><td>${formatDate(g.checkIn)}${g.checkInTime ? ` <strong>${this.escapeHtml(g.checkInTime)}</strong>` : ""}</td></tr>
+            <tr><th>チェックアウト</th><td>${formatDate(g.checkOut)}${g.checkOutTime ? ` <strong>${this.escapeHtml(g.checkOutTime)}</strong>` : ""}${g._coMismatch ? `<br><span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle"></i> 予約サイトとCO日が異なります（${this.escapeHtml(g._coOriginal)} vs ${this.escapeHtml(g._coIncoming)}）</span>` : ""}</td></tr>
+            <tr><th>宿泊人数</th><td>${g.guestCount || "-"}名${g.guestCountInfants ? ` ＋ 乳幼児${g.guestCountInfants}名（3才以下）` : ""}</td></tr>
             <tr><th>予約元</th><td>${this.getSourceIcon(g.source)} ${this.escapeHtml(g.bookingSite || "")}</td></tr>
             <tr><th>BBQ</th><td>${this.escapeHtml(g.bbq || "-")}</td></tr>
             <tr><th>駐車場</th><td>${this.escapeHtml(g.parking || "-")}</td></tr>

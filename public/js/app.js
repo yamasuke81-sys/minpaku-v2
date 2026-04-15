@@ -139,11 +139,18 @@ function showToast(title, message, type = "info") {
   bootstrap.Toast.getOrCreateInstance(toast).show();
 }
 
-// 日付フォーマット
+// 日付フォーマット: "2026/4/30(金)" 統一形式
 function formatDate(date) {
   if (!date) return "-";
-  const d = date.toDate ? date.toDate() : new Date(date);
-  return d.toLocaleDateString("ja-JP");
+  let d;
+  if (typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    d = new Date(date + "T00:00:00"); // タイムゾーンずれ防止
+  } else {
+    d = date.toDate ? date.toDate() : new Date(date);
+  }
+  if (isNaN(d.getTime())) return String(date);
+  const dow = ["日", "月", "火", "水", "木", "金", "土"][d.getDay()];
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}(${dow})`;
 }
 
 // 金額フォーマット
