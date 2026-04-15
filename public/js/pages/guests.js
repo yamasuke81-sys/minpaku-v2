@@ -403,8 +403,10 @@ const GuestsPage = {
           <table class="table table-sm table-borderless">
             <tr><th style="width:120px">氏名</th><td><strong>${this.escapeHtml(g.guestName || "-")}</strong></td></tr>
             <tr><th>国籍</th><td>${this.escapeHtml(g.nationality || "日本")}</td></tr>
+            ${g.allGuests?.[0]?.age ? `<tr><th>年齢</th><td>${this.escapeHtml(g.allGuests[0].age)}</td></tr>` : ""}
             <tr><th>住所</th><td>${this.escapeHtml(g.address || "-")}</td></tr>
             <tr><th>電話</th><td>${this.escapeHtml(g.phone || "-")}</td></tr>
+            ${g.phone2 ? `<tr><th>電話2</th><td>${this.escapeHtml(g.phone2)}</td></tr>` : ""}
             <tr><th>メール</th><td>${this.escapeHtml(g.email || "-")}</td></tr>
             <tr><th>旅券番号</th><td>${this.escapeHtml(g.passportNumber || "-")}</td></tr>
             <tr><th>旅の目的</th><td>${this.escapeHtml(g.purpose || "-")}</td></tr>
@@ -426,7 +428,7 @@ const GuestsPage = {
       </div>
 
       <!-- 交通・駐車場 -->
-      ${g.transport ? `
+      ${g.transport || g.carCount || g.paidParking || (g.vehicleTypes || []).length ? `
       <hr>
       <h6><i class="bi bi-car-front"></i> 交通・駐車場</h6>
       <table class="table table-sm table-borderless">
@@ -472,13 +474,14 @@ const GuestsPage = {
         <div class="table-responsive">
           <table class="table table-sm table-bordered">
             <thead class="table-light">
-              <tr><th>氏名</th><th>年齢</th><th>国籍</th><th>旅券番号</th></tr>
+              <tr><th>氏名</th><th>年齢</th><th>住所</th><th>国籍</th><th>旅券番号</th></tr>
             </thead>
             <tbody>
               ${companions.map(c => `
                 <tr>
                   <td>${this.escapeHtml(c.name || "-")}</td>
                   <td>${this.escapeHtml(c.age || "-")}</td>
+                  <td>${this.escapeHtml(c.address || "-")}</td>
                   <td>${this.escapeHtml(c.nationality || "日本")}</td>
                   <td>${this.escapeHtml(c.passportNumber || "-")}</td>
                 </tr>
