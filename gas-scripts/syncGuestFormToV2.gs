@@ -1,22 +1,13 @@
 /**
  * Googleフォーム回答 → 民泊管理v2 宿泊者名簿 自動転記スクリプト
  *
- * 【設定手順】
- * 1. GASのスクリプトエディタ（スプレッドシート → 拡張機能 → Apps Script）にこのコードを貼り付け
- * 2. GAS_SECRET を設定（Firestoreの settings/taxDocs → gasSecret の値）
- * 3. トリガーを設定:
- *    → 左メニュー「トリガー」→「+ トリガーを追加」
- *    → 関数: onFormSubmit
- *    → イベントのソース: スプレッドシートから
- *    → イベントの種類: フォーム送信時
- *
- * 【列マッピング】（0始まりインデックス）
+ * 【実際の列インデックス（debugColumnsで確認済み）】
  *  0: タイムスタンプ
- *  3: チェックイン / Check-in
- *  4: チェックアウト / Check-out
+ *  3: チェックイン（日時）  例: "Mon Mar 30 2026 15:00:00"
+ *  4: チェックアウト（日時）例: "Tue Mar 31 2026 10:00:00"
  *  7: 備考
  *  8: 氏名（代表者）
- *  9: 電話番号
+ *  9: 電話番号1
  * 10: メールアドレス
  * 11: 住所
  * 12: 年齢
@@ -25,37 +16,47 @@
  * 15: パスポート写真
  * 16: 宿泊人数
  * 17: 乳幼児人数
- * 18〜: ゲスト2〜10（6列ずつ: 氏名,住所,年齢,国籍,旅券番号,パスポート写真）
- * 74: 軽自動車・小型車台数
- * 75: ミニバン以下台数
- * 76: 全長5m級台数
- * 77: 公共交通機関
- * 78: タクシー
- * 79: 有料駐車場
- * 80: BBQ利用
- * 82: 予約サイト
- * 86: 旅の目的
- * 88: ベッド数選択
- * 90: その他の車
- * 93: 前泊地
- * 94: 後泊地
+ * 42〜: 同行者（6列ずつ: 氏名,住所,年齢,国籍,旅券番号,パスポート写真）
+ *        ゲスト2=42, ゲスト3=48, ゲスト4=54, ゲスト5=60, ゲスト6=66
+ * 72: 軽自動車・小型車台数
+ * 73: ミニバン以下台数
+ * 74: 全長5m級台数
+ * 75: 公共交通機関
+ * 76: タクシー
+ * 78: BBQ利用
+ * 79: どこで知ったか
+ * 80: 予約サイト
+ * 82: 電話番号2
+ * 84: 旅の目的
+ * 86: ベッド数選択（存在する場合）
+ * 89: 有料駐車場
+ * 90: 前泊地（存在する場合）
+ * 91: 後泊地（存在する場合）
+ * 93: メールアドレス（確認用）
+ * 100: 連絡事項
  */
 
 // ===== 設定 =====
-const API_URL = "https://api-5qrfx7ujcq-an.a.run.app/guests";
-const GAS_SECRET = ""; // ← Firestore settings/taxDocs.gasSecret の値を入れる
+var API_URL = "https://api-5qrfx7ujcq-an.a.run.app/guests";
+var GAS_SECRET = "minpaku2026secret"; // ← Firestore settings/taxDocs.gasSecret の値
 
 /**
  * フォーム送信時トリガー
  */
 function onFormSubmit(e) {
   try {
-    const row = e.values;
+    var row = e.values;
     if (!row || row.length < 5) return;
 
-    const checkIn  = fmtDate(row[3] || "");
-    const checkOut = fmtDate(row[4] || "");
-    const guestName = (row[8] || "").trim();
+    // 日付+時刻を取得
+    var ciRaw = row[3] || "";
+    var coRaw = row[4] || "";
+    var checkIn = fmtDate(ciRaw);
+    var checkOut = fmtDate(coRaw);
+    var checkInTime = fmtTime(ciRaw);
+    var checkOutTime = fmtTime(coRaw);
+
+    var guestName = (row[8] || "").trim();
 
     if (!checkIn || !guestName) {
       Logger.log("スキップ: CI=" + checkIn + " 名前=" + guestName);
@@ -63,26 +64,34 @@ function onFormSubmit(e) {
     }
 
     // 代表者情報
-    const phone       = (row[9] || "").trim();
-    const email       = (row[10] || "").trim();
-    const address     = (row[11] || "").trim();
-    const age         = (row[12] || "").trim();
-    const nationality = (row[13] || "").trim();
-    const passport    = (row[14] || "").trim();
-    const passportPhoto = (row[15] || "").trim();
-    const guestCount     = parseInt(row[16]) || 1;
-    const guestCountInfants = parseInt(row[17]) || 0;
+    var phone       = (row[9] || "").trim();
+    var email       = (row[10] || "").trim();
+    var address     = (row[11] || "").trim();
+    var age         = (row[12] || "").trim();
+    var nationality = (row[13] || "").trim();
+    var passport    = (row[14] || "").trim();
+    var passportPhoto = (row[15] || "").trim();
+    var guestCount     = parseInt(row[16]) || 1;
+    var guestCountInfants = parseInt(row[17]) || 0;
+    var phone2      = (row[82] || "").trim();
+    var emailConfirm = (row[93] || "").trim();
 
-    // 同行者（ゲスト2〜10: index 18から6列ずつ）
-    const guests = [];
+    // メールが空なら確認用メールを使用
+    if (!email && emailConfirm) email = emailConfirm;
+
+    // 同行者（ゲスト2〜6: index 42から6列ずつ）
+    var guests = [];
+    // 代表者
     guests.push({
       name: guestName, address: address, age: age,
       nationality: nationality, passportNumber: passport,
       passportPhotoUrl: passportPhoto, phone: phone, email: email,
     });
 
-    for (var i = 0; i < 9; i++) {
-      var base = 18 + i * 6;
+    // 同行者: 42, 48, 54, 60, 66（最大5名追加）
+    var companionStarts = [42, 48, 54, 60, 66];
+    for (var i = 0; i < companionStarts.length; i++) {
+      var base = companionStarts[i];
       var name = (row[base] || "").trim();
       if (!name) continue;
       guests.push({
@@ -95,14 +104,12 @@ function onFormSubmit(e) {
       });
     }
 
-    // 車両情報（index 74〜79）
-    var carKei  = parseInt(row[74]) || 0;
-    var carMini = parseInt(row[75]) || 0;
-    var car5m   = parseInt(row[76]) || 0;
-    var publicTransport = (row[77] || "").trim();
-    var taxiUse = (row[78] || "").trim();
-    var paidParking = (row[79] || "").trim();
-    var otherCar = (row[90] || "").trim();
+    // 車両情報（72〜76）
+    var carKei  = parseCar(row[72]);
+    var carMini = parseCar(row[73]);
+    var car5m   = parseCar(row[74]);
+    var publicTransport = (row[75] || "").trim();
+    var taxiUse = (row[76] || "").trim();
 
     var carCount = carKei + carMini + car5m;
     var vehicleTypes = [];
@@ -116,23 +123,30 @@ function onFormSubmit(e) {
     else if (taxiUse) transport = "タクシー";
 
     // その他フィールド
-    var bbq       = (row[80] || "").trim();
-    var bookingSite = (row[82] || "").trim();
-    var purpose   = (row[86] || "").trim();
-    var bedChoice = (row[88] || "").trim();
-    var prevStay  = (row[93] || "").trim();
-    var nextStay  = (row[94] || "").trim();
-    var memo      = (row[7] || "").trim();
+    var bbq         = (row[78] || "").trim();
+    var bookingSite = (row[80] || "").trim();
+    var purpose     = (row[84] || "").trim();
+    var bedChoice   = (row[86] || "").trim();
+    var paidParking = (row[89] || "").trim();
+    var prevStay    = (row[90] || "").trim();
+    var nextStay    = (row[91] || "").trim();
+    var memo        = (row[7] || "").trim();
+    var contactNote = (row[100] || "").trim();
+    if (contactNote && memo) memo += "\n" + contactNote;
+    else if (contactNote) memo = contactNote;
 
     // API送信データ
     var data = {
       checkIn: checkIn,
       checkOut: checkOut,
+      checkInTime: checkInTime,
+      checkOutTime: checkOutTime,
       guestName: guestName,
       guestCount: guestCount,
       guestCountInfants: guestCountInfants,
       nationality: nationality,
       phone: phone,
+      phone2: phone2,
       email: email,
       address: address,
       passportNumber: passport,
@@ -176,13 +190,40 @@ function onFormSubmit(e) {
 }
 
 /**
- * 日付変換: "2026/10/25 0:00" → "2026-10-25"
+ * 日付変換: "Mon Mar 30 2026 15:00:00 GMT+0900" → "2026-03-30"
+ * または "2026/10/25 0:00" → "2026-10-25"
  */
 function fmtDate(raw) {
   if (!raw) return "";
   var d = new Date(raw);
   if (isNaN(d.getTime())) return "";
-  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+}
+
+/**
+ * 時刻抽出: "Mon Mar 30 2026 15:00:00 GMT+0900" → "15:00"
+ */
+function fmtTime(raw) {
+  if (!raw) return "";
+  var d = new Date(raw);
+  if (isNaN(d.getTime())) return "";
+  var h = d.getHours();
+  var m = d.getMinutes();
+  if (h === 0 && m === 0) return ""; // 0:00は時刻なしとみなす
+  return pad2(h) + ":" + pad2(m);
+}
+
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+/**
+ * 車台数パース: "1台" → 1, "2台" → 2, "" → 0
+ */
+function parseCar(val) {
+  if (!val) return 0;
+  var m = String(val).match(/(\d+)/);
+  return m ? parseInt(m[1]) : 0;
 }
 
 /**
@@ -203,4 +244,31 @@ function testSyncRow() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
   var values = sheet.getRange(rowNum, 1, 1, sheet.getLastColumn()).getValues()[0];
   onFormSubmit({ values: values.map(String) });
+}
+
+/**
+ * デバッグ: 指定ゲスト名の行の全列を出力
+ */
+function debugColumns() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  var data = sheet.getDataRange().getValues();
+  var headers = data[0];
+  var targetRow = null;
+  for (var i = 1; i < data.length; i++) {
+    for (var j = 0; j < data[i].length; j++) {
+      if (String(data[i][j]).indexOf("角田光琉") >= 0) {
+        targetRow = data[i];
+        break;
+      }
+    }
+    if (targetRow) break;
+  }
+  if (!targetRow) { Logger.log("角田光琉が見つかりません"); return; }
+  for (var i = 0; i < targetRow.length; i++) {
+    var val = String(targetRow[i]).trim();
+    if (val && val !== "" && val !== "undefined") {
+      var header = String(headers[i] || "").substring(0, 40);
+      Logger.log("INDEX " + i + " | " + header + " | " + val.substring(0, 60));
+    }
+  }
 }
