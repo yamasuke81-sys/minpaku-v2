@@ -233,7 +233,7 @@ const MyRecruitmentPage = {
     // 募集マップ
     const recruitByDate = {};
     this.recruitments.forEach(r => {
-      if (r.status === "キャンセル済み") return;
+      if (["キャンセル", "キャンセル済み", "期限切れ", "cancelled"].includes(r.status)) return;
       const d = r.checkoutDate;
       if (d && !recruitByDate[d]) recruitByDate[d] = r;
     });
@@ -255,11 +255,11 @@ const MyRecruitmentPage = {
     });
 
     // スタイル
-    const cellH = "38px";
-    const stickyW = "90px";
-    const colW = "36px";
+    const cellH = "44px";
+    const stickyW = "110px";
+    const colW = "44px";
 
-    let html = `<table class="table table-sm table-hover mb-0 align-middle" style="font-size:12px;white-space:nowrap;border-collapse:collapse;min-width:calc(${stickyW} + ${allDates.length} * ${colW});">`;
+    let html = `<table class="table table-sm table-hover mb-0 align-middle" style="font-size:13px;white-space:nowrap;border-collapse:collapse;min-width:calc(${stickyW} + ${allDates.length} * ${colW});">`;
 
     // ===== ヘッダー =====
     html += `<thead class="table-light">`;
@@ -268,7 +268,7 @@ const MyRecruitmentPage = {
     html += `<tr><th rowspan="4" class="text-center" style="position:sticky;left:0;z-index:3;background:#f8f9fa;min-width:${stickyW};max-width:${stickyW};border-right:2px solid #dee2e6;">スタッフ</th>`;
     months.forEach(m => {
       const cur = m.month === month && m.year === year;
-      html += `<th colspan="${m.days}" class="text-center" style="background:${cur ? "#f8f9fa" : "#e9ecef"};border:1px solid #dee2e6;font-size:13px;">${m.year}/${m.month}月</th>`;
+      html += `<th colspan="${m.days}" class="text-center" style="background:${cur ? "#f8f9fa" : "#e9ecef"};border:1px solid #dee2e6;font-size:14px;font-weight:600;">${m.year}/${m.month}月</th>`;
     });
     html += "</tr>";
 
@@ -280,7 +280,7 @@ const MyRecruitmentPage = {
       const hasBooking = !!bookingsByDate[dd.dateStr];
       const dowColor = dow === 0 ? "#dc3545" : (dow === 6 ? "#0d6efd" : "");
       const bg = isToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : "#f8f9fa");
-      html += `<th class="text-center${hasBooking ? " cal-date-hd" : ""}" data-cal-date="${dd.dateStr}" style="min-width:${colW};height:${cellH};${dowColor ? "color:" + dowColor + ";" : ""}background:${bg};border:1px solid #dee2e6;cursor:${hasBooking ? "pointer" : "default"};"><div>${dd.day}</div><div style="font-size:9px;">${dayNames[dow]}</div></th>`;
+      html += `<th class="text-center${hasBooking ? " cal-date-hd" : ""}" data-cal-date="${dd.dateStr}" style="min-width:${colW};height:${cellH};${dowColor ? "color:" + dowColor + ";" : ""}background:${bg};border:1px solid #dee2e6;cursor:${hasBooking ? "pointer" : "default"};"><div>${dd.day}</div><div style="font-size:11px;">${dayNames[dow]}</div></th>`;
     });
     html += "</tr>";
 
@@ -294,9 +294,9 @@ const MyRecruitmentPage = {
         if (b.source.includes("airbnb")) bg = "rgba(255,90,95,0.2)";
         else if (b.source.includes("booking")) bg = "rgba(0,53,128,0.2)";
         const label = b.guestCount > 0 ? `${b.guestCount}名` : "●";
-        html += `<th class="text-center" style="background:${bg};border:1px solid #dee2e6;font-size:10px;height:22px;padding:0;">${label}</th>`;
+        html += `<th class="text-center" style="background:${bg};border:1px solid #dee2e6;font-size:12px;height:26px;padding:0;">${label}</th>`;
       } else {
-        html += `<th style="border:1px solid #dee2e6;height:22px;background:${!dd.isCurrent ? "#e9ecef" : "#fff"};"></th>`;
+        html += `<th style="border:1px solid #dee2e6;height:26px;background:${!dd.isCurrent ? "#e9ecef" : "#fff"};"></th>`;
       }
     });
     html += "</tr>";
@@ -311,9 +311,9 @@ const MyRecruitmentPage = {
         else if (r.status === "選定済") { label = "選定"; bg = "#fff3cd"; }
         else if (r.status === "募集中") { label = "募集"; bg = "#ffc107"; }
         else { label = r.status?.slice(0, 2) || ""; bg = "#f5f5f5"; }
-        html += `<th class="text-center" style="background:${bg};border:1px solid #dee2e6;font-size:9px;height:20px;padding:0;font-weight:bold;">${label}</th>`;
+        html += `<th class="text-center" style="background:${bg};border:1px solid #dee2e6;font-size:11px;height:26px;padding:0;font-weight:bold;">${label}</th>`;
       } else {
-        html += `<th style="border:1px solid #dee2e6;height:20px;background:${!dd.isCurrent ? "#e9ecef" : "#f9f9f9"};"></th>`;
+        html += `<th style="border:1px solid #dee2e6;height:26px;background:${!dd.isCurrent ? "#e9ecef" : "#f9f9f9"};"></th>`;
       }
     });
     html += "</tr></thead><tbody>";

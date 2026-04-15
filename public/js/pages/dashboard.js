@@ -94,20 +94,20 @@ const DashboardPage = {
       ]);
 
       // === 募集データの正規化（checkOutDate/checkoutDate両対応 + volunteers統合） ===
+      const RECRUIT_EXCLUDE_STATUS = ["キャンセル", "キャンセル済み", "期限切れ", "cancelled"];
       let recruitments = recruitSnap.docs.map(doc => {
         const d = doc.data();
-        // フィールド名の揺れを吸収（移行データはcheckOutDate、新規作成はcheckoutDate）
         const coRaw = d.checkoutDate || d.checkOutDate || d.checkOutdate || "";
         const coStr = this.toDateStr(coRaw);
         return {
           id: doc.id,
           ...d,
-          checkoutDate: coStr, // 正規化済みの日付文字列
+          checkoutDate: coStr,
           responses: d.responses || [],
           status: d.status || "募集中",
           selectedStaff: d.selectedStaff || "",
         };
-      });
+      }).filter(r => !RECRUIT_EXCLUDE_STATUS.includes(r.status));
 
       // volunteers/コレクションの回答データをrecruitmentsに統合
       try {
