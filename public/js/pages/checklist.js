@@ -155,6 +155,7 @@ const ChecklistPage = {
     }
 
     const staffMap = Object.fromEntries(this.staffList.map(s => [s.id, s.name]));
+    const propMap = Object.fromEntries(this.properties.map(p => [p.id, p.name]));
 
     el.innerHTML = filtered.map(r => {
       const items = r.items || [];
@@ -162,14 +163,23 @@ const ChecklistPage = {
       const pct = items.length ? Math.round(checked / items.length * 100) : 0;
       const statusColor = r.status === "completed" ? "success" : "warning";
       const statusLabel = r.status === "completed" ? "完了" : "進行中";
+      const hasPhoto = items.some(i => i.photoUrl);
 
       return `
-        <div class="card mb-2">
+        <div class="card mb-2 cursor-pointer" style="cursor:pointer" onclick="location.hash='#/my-checklist/${r.id}'">
           <div class="card-body py-3">
             <div class="d-flex justify-content-between align-items-center">
               <div>
-                <h6 class="mb-1">${staffMap[r.staffId] || "-"}</h6>
-                <div class="text-muted small">${r.completedAt ? "完了: " + formatDate(r.completedAt) : "進行中"}</div>
+                <h6 class="mb-1">
+                  ${staffMap[r.staffId] || "-"}
+                  ${hasPhoto ? `<i class="bi bi-camera-fill text-primary ms-1" title="写真あり"></i>` : ""}
+                </h6>
+                <div class="text-muted small">
+                  ${r.propertyId ? (propMap[r.propertyId] || "-") : "全物件共通"}
+                </div>
+                <div class="text-muted small">
+                  ${r.completedAt ? "完了: " + formatDate(r.completedAt) : "進行中"}
+                </div>
               </div>
               <div class="text-end">
                 <span class="badge bg-${statusColor}">${statusLabel}</span>
