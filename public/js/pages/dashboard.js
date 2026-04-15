@@ -651,13 +651,13 @@ const DashboardPage = {
       }
     });
 
-    const respondBtns = (s) => r.status === "スタッフ確定済み" ? "" : `
-      <div class="btn-group btn-group-sm">
-        <button class="btn ${s.response === "◎" ? "btn-success" : "btn-outline-success"} btn-resp" data-r="◎" data-sid="${s.id}" data-sname="${this.esc(s.name)}" data-semail="${this.esc(s.email)}">◎</button>
-        <button class="btn ${s.response === "△" ? "btn-warning" : "btn-outline-warning"} btn-resp" data-r="△" data-sid="${s.id}" data-sname="${this.esc(s.name)}" data-semail="${this.esc(s.email)}">△</button>
-        <button class="btn ${s.response === "×" ? "btn-danger" : "btn-outline-danger"} btn-resp" data-r="×" data-sid="${s.id}" data-sname="${this.esc(s.name)}" data-semail="${this.esc(s.email)}">×</button>
-      </div>
-    `;
+    // 回答状況はバッジで表示のみ（代理回答は不可。各スタッフが清掃スケジュールページから回答する）
+    const respondBadge = (s) => {
+      if (s.response === "◎") return '<span class="badge bg-success">◎</span>';
+      if (s.response === "△") return '<span class="badge bg-warning text-dark">△</span>';
+      if (s.response === "×") return '<span class="badge bg-danger">×</span>';
+      return '<span class="badge bg-secondary">未回答</span>';
+    };
 
     const candidates = allEntries.filter(s => s.response === "◎" || s.response === "△");
     const currentSelected = (r.selectedStaff || "").split(",").map(s => s.trim()).filter(Boolean);
@@ -724,7 +724,7 @@ const DashboardPage = {
             <tr>
               <td>${this.esc(s.name)}</td>
               <td class="${{" ◎":"text-success fw-bold","△":"text-warning fw-bold","×":"text-danger fw-bold"}[s.response] || "text-muted"}">${s.response}</td>
-              <td>${respondBtns(s)}</td>
+              <td>${respondBadge(s)}</td>
             </tr>
           `).join("")}
         </tbody>
@@ -739,29 +739,6 @@ const DashboardPage = {
 
     const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
     modal.show();
-
-    // 回答ボタンイベント
-    modalEl.querySelectorAll(".btn-resp").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        try {
-          await API.recruitments.respond(r.id, {
-            staffId: btn.dataset.sid,
-            staffName: btn.dataset.sname,
-            staffEmail: btn.dataset.semail,
-            response: btn.dataset.r,
-          });
-          showToast("完了", `${btn.dataset.sname}: ${btn.dataset.r}`, "success");
-          modal.hide();
-          // リロードして再表示
-          this.recruitments = await API.recruitments.list();
-          const updated = this.recruitments.find(x => x.id === r.id);
-          this.refreshCalendar();
-          this.renderStats();
-          this.renderTodayActions();
-          if (updated) this.openRecruitmentModal(updated);
-        } catch (e) { showToast("エラー", e.message, "error"); }
-      });
-    });
 
     // 選定ボタン
     const selBtn = modalEl.querySelector("#calBtnSelect");
