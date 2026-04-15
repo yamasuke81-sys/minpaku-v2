@@ -236,8 +236,42 @@ function validateGuestData(body, isUpdate = false) {
   if (body.bookingSite !== undefined) data.bookingSite = String(body.bookingSite).trim();
   if (body.bbq !== undefined) data.bbq = String(body.bbq).trim();
   if (body.parking !== undefined) data.parking = String(body.parking).trim();
+  if (body.bedChoice !== undefined) data.bedChoice = String(body.bedChoice).trim();
   if (body.bedCount !== undefined) data.bedCount = String(body.bedCount).trim();
   if (body.memo !== undefined) data.memo = String(body.memo).trim();
+  // 時刻
+  if (body.checkInTime !== undefined) data.checkInTime = String(body.checkInTime).trim();
+  if (body.checkOutTime !== undefined) data.checkOutTime = String(body.checkOutTime).trim();
+  // 交通・駐車場
+  if (body.transport !== undefined) data.transport = String(body.transport).trim();
+  if (body.carCount !== undefined) data.carCount = Number(body.carCount) || 0;
+  if (body.vehicleTypes !== undefined) data.vehicleTypes = Array.isArray(body.vehicleTypes) ? body.vehicleTypes : [];
+  if (body.paidParking !== undefined) data.paidParking = String(body.paidParking).trim();
+  if (body.parkingAllocation !== undefined) data.parkingAllocation = body.parkingAllocation;
+  // 前後泊・緊急連絡先
+  if (body.previousStay !== undefined) data.previousStay = String(body.previousStay).trim();
+  if (body.nextStay !== undefined) data.nextStay = String(body.nextStay).trim();
+  if (body.emergencyName !== undefined) data.emergencyName = String(body.emergencyName).trim();
+  if (body.emergencyPhone !== undefined) data.emergencyPhone = String(body.emergencyPhone).trim();
+  // パスポート写真・同意
+  if (body.passportPhotoUrl !== undefined) data.passportPhotoUrl = String(body.passportPhotoUrl).trim();
+  if (body.noiseAgree !== undefined) data.noiseAgree = !!body.noiseAgree;
+  if (body.houseRuleAgree !== undefined) data.houseRuleAgree = !!body.houseRuleAgree;
+  // 全ゲスト（代表者+同行者、パスポート写真URL含む）
+  if (body.allGuests !== undefined) {
+    data.allGuests = Array.isArray(body.allGuests)
+      ? body.allGuests.map((g) => ({
+          name: String(g.name || "").trim(),
+          age: String(g.age || "").trim(),
+          nationality: String(g.nationality || "").trim(),
+          address: String(g.address || "").trim(),
+          passportNumber: String(g.passportNumber || "").trim(),
+          passportPhotoUrl: String(g.passportPhotoUrl || "").trim(),
+          phone: String(g.phone || "").trim(),
+          email: String(g.email || "").trim(),
+        }))
+      : [];
+  }
   // 同行者リスト（旅館業法: 全員の氏名・国籍・旅券番号が必要）
   if (body.guests !== undefined) {
     data.guests = Array.isArray(body.guests)
@@ -247,6 +281,7 @@ function validateGuestData(body, isUpdate = false) {
           nationality: String(g.nationality || "").trim(),
           address: String(g.address || "").trim(),
           passportNumber: String(g.passportNumber || "").trim(),
+          passportPhotoUrl: String(g.passportPhotoUrl || "").trim(),
         }))
       : [];
   }

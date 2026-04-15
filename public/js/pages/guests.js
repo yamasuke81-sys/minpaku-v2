@@ -415,8 +415,8 @@ const GuestsPage = {
         <div class="col-md-6">
           <h6 class="border-bottom pb-1 mb-2">宿泊情報</h6>
           <table class="table table-sm table-borderless">
-            <tr><th style="width:120px">チェックイン</th><td>${this.escapeHtml(g.checkIn || "-")} ${this.escapeHtml(g.checkInTime || "")}</td></tr>
-            <tr><th>チェックアウト</th><td>${this.escapeHtml(g.checkOut || "-")} ${this.escapeHtml(g.checkOutTime || "")}${g._coMismatch ? `<br><span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle"></i> 予約サイトとCO日が異なります（${this.escapeHtml(g._coOriginal)} vs ${this.escapeHtml(g._coIncoming)}）</span>` : ""}</td></tr>
+            <tr><th style="width:120px">チェックイン</th><td>${this.escapeHtml(g.checkIn || "-")} <strong>${this.escapeHtml(g.checkInTime || "")}</strong></td></tr>
+            <tr><th>チェックアウト</th><td>${this.escapeHtml(g.checkOut || "-")} <strong>${this.escapeHtml(g.checkOutTime || "")}</strong>${g._coMismatch ? `<br><span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle"></i> 予約サイトとCO日が異なります（${this.escapeHtml(g._coOriginal)} vs ${this.escapeHtml(g._coIncoming)}）</span>` : ""}</td></tr>
             <tr><th>宿泊人数</th><td>${g.guestCount || "-"}名${g.guestCountInfants ? ` (乳幼児${g.guestCountInfants}名)` : ""}</td></tr>
             <tr><th>予約元</th><td>${this.getSourceIcon(g.source)} ${this.escapeHtml(g.bookingSite || "")}</td></tr>
             <tr><th>BBQ</th><td>${this.escapeHtml(g.bbq || "-")}</td></tr>
