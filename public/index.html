@@ -9,7 +9,7 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <!-- FullCalendar（ダッシュボード用） -->
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet">
-  <link href="css/style.css?v=0404a" rel="stylesheet">
+  <link href="css/style.css?v=0416i" rel="stylesheet">
 </head>
 <body>
   <!-- モバイル用トップバー -->
@@ -38,6 +38,7 @@
       <a class="nav-link" href="#/shifts" data-page="shifts"><i class="bi bi-calendar-week"></i> シフト</a>
       <a class="nav-link" href="#/checklist" data-page="checklist"><i class="bi bi-clipboard-check"></i> チェックリスト</a>
       <a class="nav-link" href="#/laundry" data-page="laundry"><i class="bi bi-basket3"></i> ランドリー</a>
+      <a class="nav-link" href="#/rates" data-page="rates"><i class="bi bi-currency-yen"></i> 報酬単価</a>
       <a class="nav-link" href="#/invoices" data-page="invoices"><i class="bi bi-receipt"></i> 請求書</a>
       <a class="nav-link" href="#/notifications" data-page="notifications"><i class="bi bi-bell"></i> 通知設定</a>
       <a class="nav-link" href="#/reports" data-page="reports"><i class="bi bi-file-earmark-bar-graph"></i> 報告</a>
@@ -141,32 +142,25 @@
               <input type="tel" class="form-control" id="staffPhone">
             </div>
             <div class="col-md-6">
-              <label class="form-label">報酬単価（円/回）</label>
-              <input type="number" class="form-control" id="staffRate" value="0">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">交通費（円/回）</label>
-              <input type="number" class="form-control" id="staffTransport" value="0">
-            </div>
-            <div class="col-md-6">
               <label class="form-label">契約開始日</label>
               <input type="date" class="form-control" id="staffContractDate">
             </div>
-            <div class="col-12">
-              <label class="form-label">稼働可能曜日</label>
-              <div id="staffDays" class="d-flex flex-wrap gap-2">
-                <div class="form-check"><input class="form-check-input" type="checkbox" value="月" id="day_mon"><label class="form-check-label" for="day_mon">月</label></div>
-                <div class="form-check"><input class="form-check-input" type="checkbox" value="火" id="day_tue"><label class="form-check-label" for="day_tue">火</label></div>
-                <div class="form-check"><input class="form-check-input" type="checkbox" value="水" id="day_wed"><label class="form-check-label" for="day_wed">水</label></div>
-                <div class="form-check"><input class="form-check-input" type="checkbox" value="木" id="day_thu"><label class="form-check-label" for="day_thu">木</label></div>
-                <div class="form-check"><input class="form-check-input" type="checkbox" value="金" id="day_fri"><label class="form-check-label" for="day_fri">金</label></div>
-                <div class="form-check"><input class="form-check-input" type="checkbox" value="土" id="day_sat"><label class="form-check-label" for="day_sat">土</label></div>
-                <div class="form-check"><input class="form-check-input" type="checkbox" value="日" id="day_sun"><label class="form-check-label" for="day_sun">日</label></div>
+            <div class="col-md-6 d-flex align-items-end">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="staffIsTimee">
+                <label class="form-check-label" for="staffIsTimee">
+                  タイミー経由のスタッフ
+                  <small class="text-muted d-block">チェックすると報酬単価のスタッフ別単価表から除外され、タイミー時給が適用されます</small>
+                </label>
               </div>
             </div>
             <div class="col-12">
               <label class="form-label">スキル（カンマ区切り）</label>
               <input type="text" class="form-control" id="staffSkills" placeholder="清掃,ベッドメイク,BBQ片付け">
+            </div>
+            <div class="col-12">
+              <label class="form-label">担当物件 <small class="text-muted">(清掃できる民泊物件。デフォルトはすべて外れ)</small></label>
+              <div id="staffProperties" class="d-flex flex-wrap gap-3 border rounded p-2"></div>
             </div>
             <div class="col-12"><hr><h6>銀行口座情報</h6></div>
             <div class="col-md-4">
@@ -304,6 +298,89 @@
               <label class="form-label">必要スキル（カンマ区切り）</label>
               <input type="text" class="form-control" id="propertySkills" placeholder="清掃,BBQ片付け">
             </div>
+            <div class="col-md-4">
+              <label class="form-label">スタッフ選定方式</label>
+              <select class="form-select" id="propertySelectionMethod">
+                <option value="ownerConfirm">オーナーが確定（デフォルト）</option>
+                <option value="firstCome">早い者勝ち（◎回答順に自動確定）</option>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">清掃必要人数</label>
+              <input type="number" class="form-control" id="propertyCleaningRequiredCount" min="1" max="10" value="1">
+              <div class="form-text">早い者勝ち時のみ使用</div>
+            </div>
+            <div class="col-12">
+              <hr><h6><i class="bi bi-clipboard-check"></i> 直前点検設定 (チェックイン日)</h6>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">直前点検</label>
+              <div class="form-check form-switch mt-2">
+                <input class="form-check-input" type="checkbox" id="propertyInspectionEnabled">
+                <label class="form-check-label" for="propertyInspectionEnabled">有効にする</label>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">必要人数</label>
+              <input type="number" class="form-control" id="propertyInspectionRequiredCount" min="1" max="10" value="1">
+            </div>
+            <div class="col-md-6 d-flex align-items-end">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="propertyInspectionRecurYearly">
+                <label class="form-check-label" for="propertyInspectionRecurYearly">
+                  毎年繰り返し <small class="text-muted">(月日だけ指定、年をまたいで毎年同じ期間)</small>
+                </label>
+              </div>
+            </div>
+            <!-- 非繰り返し: 通常の日付 -->
+            <div class="inspection-period-block col-12" id="inspectionPeriodFull">
+              <div class="row g-3">
+                <div class="col-md-3">
+                  <label class="form-label">募集期間(開始)</label>
+                  <input type="date" class="form-control" id="propertyInspectionPeriodStart">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">募集期間(終了)</label>
+                  <input type="date" class="form-control" id="propertyInspectionPeriodEnd">
+                </div>
+              </div>
+            </div>
+            <!-- 繰り返し: 月日だけ -->
+            <div class="inspection-period-block col-12 d-none" id="inspectionPeriodRecur">
+              <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                  <label class="form-label small">毎年 開始月</label>
+                  <select class="form-select" id="propertyInspectionRecurStartMonth"></select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label small">開始日</label>
+                  <select class="form-select" id="propertyInspectionRecurStartDay"></select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label small">毎年 終了月</label>
+                  <select class="form-select" id="propertyInspectionRecurEndMonth"></select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label small">終了日</label>
+                  <select class="form-select" id="propertyInspectionRecurEndDay"></select>
+                </div>
+              </div>
+              <div class="form-text mt-1">例: 5/1〜10/31 で毎年夏場のみ募集</div>
+            </div>
+            <div class="col-12">
+              <small class="text-muted">チェックアウト当日に次のチェックインがある場合は直前点検を自動スキップ</small>
+            </div>
+            <div class="col-12"><hr></div>
+            <div class="col-md-3">
+              <label class="form-label">物件番号</label>
+              <input type="number" class="form-control" id="propertyNumber" min="1" max="999">
+              <div class="form-text">全画面共通の識別番号</div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">表示色</label>
+              <input type="color" class="form-control form-control-color" id="propertyColor" value="#0d6efd">
+              <div class="form-text">横カレンダー等で使用</div>
+            </div>
             <div class="col-12">
               <label class="form-label">メモ</label>
               <textarea class="form-control" id="propertyNotes" rows="2"></textarea>
@@ -394,29 +471,23 @@
           </div>
 
           <hr>
-          <!-- 回答状況テーブル -->
-          <h6><i class="bi bi-people"></i> スタッフ回答状況</h6>
+          <!-- スタッフ回答 + 選定 統合テーブル -->
+          <h6><i class="bi bi-people"></i> スタッフ回答 / 選定</h6>
           <div class="table-responsive">
             <table class="table table-sm table-hover align-middle">
               <thead class="table-light">
                 <tr>
+                  <th style="width:48px;" title="選定">選定</th>
                   <th>スタッフ名</th>
                   <th>回答</th>
-                  <th>回答日時</th>
+                  <th class="d-none d-md-table-cell">回答日時</th>
                   <th>操作</th>
                 </tr>
               </thead>
-              <tbody id="responseTableBody">
-              </tbody>
+              <tbody id="responseTableBody"></tbody>
             </table>
           </div>
-
-          <hr>
-          <!-- スタッフ選定 -->
-          <h6><i class="bi bi-person-check"></i> スタッフ選定</h6>
-          <div id="staffSelectContainer">
-            <p class="text-muted small">回答データを読み込み中...</p>
-          </div>
+          <div id="staffSelectContainer"></div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button>
@@ -602,19 +673,22 @@
   <!-- App -->
   <script src="js/firebase-config.js?v=0415a"></script>
   <script src="js/auth.js?v=0415a"></script>
-  <script src="js/api.js?v=0415a"></script>
-  <script src="js/pages/dashboard.js?v=0415a"></script>
-  <script src="js/pages/staff.js?v=0415a"></script>
-  <script src="js/pages/properties.js?v=0415a"></script>
-  <script src="js/pages/recruitment.js?v=0415a"></script>
+  <script src="js/api.js?v=0416l"></script>
+  <script src="js/pages/dashboard.js?v=0416x"></script>
+  <script src="js/pages/staff.js?v=0416q"></script>
+  <script src="js/pages/properties.js?v=0416u"></script>
+  <script src="js/pages/recruitment.js?v=0416z"></script>
   <script src="js/pages/guests.js?v=0415a"></script>
   <script src="js/pages/shifts.js?v=0415a"></script>
-  <script src="js/pages/notifications.js?v=0415a"></script>
+  <script src="js/pages/notifications.js?v=0416u"></script>
   <script src="js/pages/laundry.js?v=0415a"></script>
   <script src="js/pages/checklist.js?v=0415a"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <script src="js/pages/property-checklist.js?v=0416c"></script>
   <script src="js/pages/reports.js?v=0415a"></script>
   <script src="js/pages/projects.js?v=0415a"></script>
   <script src="js/pages/invoices.js?v=0415a"></script>
+  <script src="js/pages/rates.js?v=0416w"></script>
   <script src="js/pages/command-center.js?v=0415a"></script>
   <script src="js/data-transformer.js?v=0415a"></script>
   <script src="js/pages/scan-sorter.js?v=0415a"></script>
@@ -622,8 +696,8 @@
   <script src="js/pages/settings.js?v=0415a"></script>
   <!-- スタッフ用ページ -->
   <script src="js/pages/my-dashboard.js?v=0415a"></script>
-  <script src="js/pages/my-recruitment.js?v=0415a"></script>
-  <script src="js/pages/my-checklist.js?v=0415a"></script>
+  <script src="js/pages/my-recruitment.js?v=0416z"></script>
+  <script src="js/pages/my-checklist.js?v=0416d"></script>
   <script src="js/app.js?v=0415a"></script>
   <script>
   // サイドバートグル（PC: collapsed切替 / モバイル: show切替）

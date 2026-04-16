@@ -528,22 +528,24 @@ const DashboardPage = {
       const sankaku = responses.filter(v => v.response === "△").length;
       const totalResp = responses.length;
 
+      const wtPrefix = r.workType === "pre_inspection" ? "[直] " : "[清] ";
+      const wtIcon = r.workType === "pre_inspection" ? "🔍 " : "🧹 ";
       let cssClass, title;
       if (r.status === "スタッフ確定済み") {
         cssClass = "fc-event-cleaning-decided";
-        title = "🧹 " + (r.selectedStaff || "確定");
+        title = wtPrefix + wtIcon + (r.selectedStaff || "確定");
       } else if (r.status === "選定済") {
         cssClass = "fc-event-cleaning-selected";
-        title = "🧹 " + (r.selectedStaff || "") + "(選定済)";
+        title = wtPrefix + wtIcon + (r.selectedStaff || "") + "(選定済)";
       } else if (maru > 0) {
         cssClass = "fc-event-cleaning";
-        title = "🧹 募集中 ◎" + maru + (sankaku ? " △" + sankaku : "");
+        title = wtPrefix + wtIcon + "募集中 ◎" + maru + (sankaku ? " △" + sankaku : "");
       } else if (totalResp > 0) {
         cssClass = "fc-event-cleaning";
-        title = "🧹 募集中 (△" + sankaku + " ×" + (totalResp - sankaku) + ")";
+        title = wtPrefix + wtIcon + "募集中 (△" + sankaku + " ×" + (totalResp - sankaku) + ")";
       } else {
         cssClass = "fc-event-cleaning-noresponse";
-        title = "🧹 募集中（回答なし）";
+        title = wtPrefix + wtIcon + "募集中（回答なし）";
       }
 
       events.push({
@@ -718,12 +720,11 @@ const DashboardPage = {
         ${batsu.length ? `<span class="badge bg-danger">×${batsu.length}</span>` : ""}
       </div>
       <table class="table table-sm mb-0">
-        <thead><tr><th>スタッフ</th><th>回答</th><th></th></tr></thead>
+        <thead><tr><th>スタッフ</th><th>回答</th></tr></thead>
         <tbody>
           ${allEntries.map(s => `
             <tr>
               <td>${this.esc(s.name)}</td>
-              <td class="${{" ◎":"text-success fw-bold","△":"text-warning fw-bold","×":"text-danger fw-bold"}[s.response] || "text-muted"}">${s.response}</td>
               <td>${respondBadge(s)}</td>
             </tr>
           `).join("")}

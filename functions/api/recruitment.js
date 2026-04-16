@@ -79,7 +79,9 @@ module.exports = function recruitmentApi(db) {
 
           // オーナーLINEに送信
           if (targets.ownerLine) {
-            await notifyOwner(db, "recruit_start", title, `🧹 清掃スタッフ募集\n${data.checkoutDate} ${data.propertyName || ""}`);
+            await notifyOwner(db, "recruit_start", title,
+              `🧹 清掃スタッフ募集\n${data.checkoutDate} ${data.propertyName || ""}`,
+              { checkoutDate: data.checkoutDate, propertyName: data.propertyName || "" });
           }
           // グループLINEに送信
           if (targets.groupLine) {
@@ -282,7 +284,9 @@ module.exports = function recruitmentApi(db) {
               ? selectedIds.includes(staffDoc.id)
               : selectedNames.includes(sd.name);
             if (isSelected && sd.lineUserId) {
-              await notifyStaff(db, staffDoc.id, "staff_confirm", `確定: ${data.checkoutDate}`, text);
+              await notifyStaff(db, staffDoc.id, "staff_confirm",
+                `確定: ${data.checkoutDate}`, text,
+                { checkoutDate: data.checkoutDate, propertyName: data.propertyName || "", staffName: sd.name });
             }
           }
         }

@@ -28,32 +28,13 @@ const StaffPage = {
         </div>
       </div>
 
-      <div class="table-responsive" id="staffTableWrapper">
-        <table class="table table-hover align-middle" id="staffTable">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0" id="staffTable">
           <thead class="table-light" id="staffTableHead"></thead>
           <tbody id="staffTableBody">
-            <tr><td colspan="7" class="text-center py-4">読み込み中...</td></tr>
+            <tr><td colspan="6" class="text-center py-4">読み込み中...</td></tr>
           </tbody>
         </table>
-      </div>
-
-      <!-- 横スクロール回答カレンダー -->
-      <div class="mt-4">
-        <div class="d-flex align-items-center gap-2 mb-2">
-          <h5 class="mb-0"><i class="bi bi-calendar3"></i> スタッフ回答一覧</h5>
-          <input type="month" class="form-control form-control-sm" style="width:160px;" id="staffCalMonth">
-          <button class="btn btn-sm btn-outline-primary" id="btnStaffCalToday">今日</button>
-          <span class="badge bg-secondary" id="staffCalMonthOverlay" style="font-size:0.85rem;"></span>
-        </div>
-        <div class="d-flex gap-3 mb-2 small" id="staffCalLegend">
-          <span><span style="color:#198754;font-weight:bold;">●</span> ◎</span>
-          <span><span style="color:#cc9a06;font-weight:bold;">▲</span> △</span>
-          <span><span style="color:#dc3545;font-weight:bold;">✖</span> ×</span>
-          <span><span style="color:#adb5bd;">−</span> 未回答</span>
-          <span><span style="display:inline-block;width:12px;height:12px;border:2px solid #dc3545;border-radius:2px;vertical-align:middle;"></span> 確定済み</span>
-          <span><span style="display:inline-block;width:12px;height:12px;background:#e8f0fe;border:1px solid #dee2e6;border-radius:2px;vertical-align:middle;"></span> 今日</span>
-        </div>
-        <div id="staffCalContainer" style="overflow-x:auto;"></div>
       </div>
     `;
 
@@ -79,36 +60,22 @@ const StaffPage = {
       this.saveStaff();
     });
 
-    // カレンダー月変更
-    const monthInput = document.getElementById("staffCalMonth");
-    const now = new Date();
-    this._calMonth = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
-    monthInput.value = this._calMonth;
-    monthInput.addEventListener("change", () => {
-      this._calMonth = monthInput.value;
-      this.renderCalendar();
-    });
-
-    document.getElementById("btnStaffCalToday").addEventListener("click", () => {
-      const now = new Date();
-      const nowMonth = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
-      monthInput.value = nowMonth;
-      this._calMonth = nowMonth;
-      this.renderCalendar();
-    });
   },
 
   async loadData() {
     try {
-      const [staff, recruitments] = await Promise.all([
+      const [staff, recruitments, minpaku] = await Promise.all([
         API.staff.list(!this.showInactive),
         API.recruitments.list(),
+        API.properties.listMinpakuNumbered(),
       ]);
       this.staffList = staff;
       this._recruitments = recruitments;
+      this._propMap = {};
+      minpaku.forEach(p => { this._propMap[p.id] = p; });
       this.renderHeader();
       this.renderTable();
-      this.renderCalendar();
+      // this.renderCalendar();  // 横カレンダーは清掃スケジュールタブに統合
     } catch (e) {
       showToast("エラー", `データ読み込み失敗: ${e.message}`, "error");
     }
@@ -118,7 +85,7 @@ const StaffPage = {
     try {
       this.staffList = await API.staff.list(activeOnly);
       this.renderTable();
-      this.renderCalendar();
+      // this.renderCalendar();  // 横カレンダーは清掃スケジュールタブに統合
     } catch (e) {
       showToast("エラー", `スタッフ読み込み失敗: ${e.message}`, "error");
     }
@@ -129,8 +96,7 @@ const StaffPage = {
     { key: "name", label: "名前", resizable: true, minWidth: 100 },
     { key: "email", label: "メール", hideClass: "d-none d-md-table-cell", resizable: true, minWidth: 80 },
     { key: "phone", label: "電話", hideClass: "d-none d-md-table-cell", resizable: true, minWidth: 80 },
-    { key: "availableDays", label: "稼働曜日", resizable: true, minWidth: 80, sortFn: (a, b) => (a.availableDays || []).length - (b.availableDays || []).length },
-    { key: "ratePerJob", label: "報酬単価", align: "text-end", resizable: true, minWidth: 60 },
+    { key: "assignedPropertyIds", label: "担当物件", resizable: true, minWidth: 100, sortFn: (a, b) => (a.assignedPropertyIds || []).length - (b.assignedPropertyIds || []).length },
     { key: "active", label: "ステータス", resizable: false, minWidth: 60, sortFn: (a, b) => (a.active === b.active ? 0 : a.active ? -1 : 1) },
     { key: "_actions", label: "", resizable: false, sortable: false, minWidth: 60 },
   ],
@@ -237,7 +203,7 @@ const StaffPage = {
 
     if (!sorted.length) {
       tbody.innerHTML = `
-        <tr><td colspan="7">
+        <tr><td colspan="6">
           <div class="empty-state">
             <i class="bi bi-people"></i>
             <p>スタッフが登録されていません</p>
@@ -247,16 +213,19 @@ const StaffPage = {
       return;
     }
 
+    const canDrag = this.sortKey === "displayOrder" && this.sortAsc;
+    const propMap = this._propMap || {};
     tbody.innerHTML = sorted.map((s) => `
       <tr data-id="${s.id}">
         <td>
+          ${canDrag ? '<i class="bi bi-grip-vertical text-muted me-1 staff-handle" style="cursor:grab;"></i>' : ''}
           <strong>${this.escapeHtml(s.name)}</strong>
+          ${s.isTimee ? '<span class="badge bg-warning text-dark ms-1" title="タイミー">T</span>' : ""}
           ${s.skills && s.skills.length ? `<br><small class="text-muted">${s.skills.join(", ")}</small>` : ""}
         </td>
         <td class="d-none d-md-table-cell">${this.escapeHtml(s.email || "-")}</td>
         <td class="d-none d-md-table-cell">${this.escapeHtml(s.phone || "-")}</td>
-        <td>${this.renderDayChips(s.availableDays || [])}</td>
-        <td class="text-end">${formatCurrency(s.ratePerJob)}</td>
+        <td>${this.renderAssignedPropertyBadges(s.assignedPropertyIds || [], propMap)}</td>
         <td>
           <span class="badge ${s.active ? "bg-success" : "bg-secondary"} staff-status-badge">
             ${s.active ? "有効" : "無効"}
@@ -292,6 +261,37 @@ const StaffPage = {
         if (staff) this.deleteStaff(staff);
       });
     });
+
+    // D&D 並び替え (displayOrder 昇順で表示中のみ有効)
+    this.initSortable(tbody, canDrag);
+  },
+
+  initSortable(tbody, enabled) {
+    if (this._sortable) { try { this._sortable.destroy(); } catch {} this._sortable = null; }
+    if (!enabled || typeof Sortable === "undefined") return;
+    this._sortable = Sortable.create(tbody, {
+      handle: ".staff-handle",
+      animation: 150,
+      onEnd: async () => {
+        const ids = [...tbody.querySelectorAll("tr")].map(r => r.dataset.id).filter(Boolean);
+        try {
+          // displayOrder を並び順で再採番
+          const updates = ids.map((id, i) => {
+            return API.staff.update(id, { displayOrder: i + 1 });
+          });
+          await Promise.all(updates);
+          // ローカルも更新
+          this.staffList.forEach(s => {
+            const idx = ids.indexOf(s.id);
+            if (idx >= 0) s.displayOrder = idx + 1;
+          });
+          showToast("保存", "並び順を保存しました", "success");
+        } catch (e) {
+          showToast("エラー", "並び順保存失敗: " + e.message, "error");
+          await this.loadStaff(!this.showInactive);
+        }
+      }
+    });
   },
 
   renderDayChips(days) {
@@ -299,6 +299,16 @@ const StaffPage = {
     return allDays.map((d) =>
       `<span class="day-chip ${days.includes(d) ? "active" : ""}">${d}</span>`
     ).join("");
+  },
+
+  // 担当物件バッジ (番号+色+物件名、listMinpakuNumberedの結果を使用)
+  renderAssignedPropertyBadges(ids, propMap) {
+    if (!ids || !ids.length) return '<span class="text-muted small">未設定</span>';
+    return ids.map(id => {
+      const p = propMap[id];
+      if (!p) return `<span class="badge bg-secondary me-1">?</span>`;
+      return `<span class="badge me-1" style="background:${p._color};color:#fff;" title="${this.escapeHtml(p.name)}">${p._num} ${this.escapeHtml(p.name)}</span>`;
+    }).join("");
   },
 
   // === 横スクロール回答カレンダー ===
@@ -441,7 +451,7 @@ const StaffPage = {
         const cellBg = isConfirmed ? C.confirmedBg : (isToday ? C.todayBg : (!dd.isCurrentMonth ? C.monthSepBg : (C.cellBg || "")));
         const cellShadow = isConfirmed ? `box-shadow:inset 0 0 0 2px ${C.confirmedBorder};` : "";
 
-        html += `<td class="text-center staff-cal-cell" data-cal-date="${dd.dateStr}" data-cal-staff="${this.escapeHtml(staffName)}" style="cursor:pointer;border:1px solid ${C.tableBorder};${cellShadow}background:${cellBg};color:${symColor};font-weight:bold;">${symbol}</td>`;
+        html += `<td class="text-center staff-cal-cell" data-cal-date="${dd.dateStr}" data-cal-staff="${this.escapeHtml(staffName)}" data-staff-id="${staff.id}" data-staff-email="${this.escapeHtml(staff.email || "")}" style="cursor:pointer;border:1px solid ${C.tableBorder};${cellShadow}background:${cellBg};color:${symColor};font-weight:bold;vertical-align:middle;">${symbol}</td>`;
       });
 
       html += "</tr>";
@@ -450,19 +460,24 @@ const StaffPage = {
     html += "</tbody></table>";
     container.innerHTML = html;
 
-    // セルクリック → 募集詳細を開く（ダッシュボードのモーダルを利用）
+    // セルクリック → その場で代理回答ピッカー表示
     container.querySelectorAll(".staff-cal-cell").forEach((td) => {
-      td.addEventListener("click", () => {
+      td.addEventListener("click", (ev) => {
+        ev.stopPropagation();
         const dateStr = td.dataset.calDate;
         const recruit = recruitByDate[dateStr];
         if (!recruit) return;
-        // ダッシュボードのモーダルか、募集管理ページに遷移
-        window.location.hash = "#/recruitment";
-        setTimeout(() => {
-          if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
-            RecruitmentPage.openDetailModal(recruit);
-          }
-        }, 300);
+        if (recruit.status === "スタッフ確定済み") {
+          // 確定後は編集不可、詳細モーダルに遷移のみ
+          window.location.hash = "#/recruitment";
+          setTimeout(() => {
+            if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
+              RecruitmentPage.openDetailModal(recruit);
+            }
+          }, 300);
+          return;
+        }
+        this.openResponsePicker(td, recruit);
       });
     });
 
@@ -532,6 +547,109 @@ const StaffPage = {
     setTimeout(updateOverlay, 100);
   },
 
+  // 担当物件チェックボックス描画 (民泊物件のみ、番号+色付きバッジ)
+  async renderPropertyCheckboxes(assignedIds) {
+    const el = document.getElementById("staffProperties");
+    if (!el) return;
+    const minpaku = await API.properties.listMinpakuNumbered();
+    if (minpaku.length === 0) {
+      el.innerHTML = `<small class="text-muted">有効な民泊物件がありません</small>`;
+      return;
+    }
+    const set = new Set(assignedIds || []);
+    el.innerHTML = minpaku.map(p => `
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" value="${p.id}" id="sprop_${p.id}" ${set.has(p.id) ? "checked" : ""}>
+        <label class="form-check-label" for="sprop_${p.id}">
+          <span class="badge me-1" style="background:${p._color};color:#fff;">${p._num}</span>${this.escapeHtml(p.name)}
+        </label>
+      </div>
+    `).join("");
+  },
+
+  escapeHtml(s) {
+    return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+  },
+
+  // 横カレンダーのセルクリック時: 代理回答ピッカー
+  openResponsePicker(td, recruit) {
+    // 既存ピッカー除去
+    document.querySelectorAll(".staff-cal-picker").forEach(p => p.remove());
+
+    const staffId = td.dataset.staffId;
+    const staffName = td.dataset.calStaff;
+    const staffEmail = td.dataset.staffEmail;
+    const dateStr = td.dataset.calDate;
+
+    const picker = document.createElement("div");
+    picker.className = "staff-cal-picker card shadow";
+    picker.style.cssText = "position:absolute;z-index:1060;min-width:220px;";
+    picker.innerHTML = `
+      <div class="card-body p-2">
+        <div class="small text-muted mb-1"><i class="bi bi-person"></i> ${this.escapeHtml(staffName)} / ${dateStr}</div>
+        <div class="btn-group btn-group-sm w-100 mb-1">
+          <button class="btn btn-success" data-resp="◎">◎</button>
+          <button class="btn btn-warning" data-resp="△">△</button>
+          <button class="btn btn-danger" data-resp="×">×</button>
+          <button class="btn btn-secondary" data-resp="未回答">未回答</button>
+        </div>
+        <button class="btn btn-sm btn-outline-primary w-100 mt-1" data-act="detail">
+          <i class="bi bi-box-arrow-up-right"></i> 募集の詳細を開く
+        </button>
+      </div>
+    `;
+    const rect = td.getBoundingClientRect();
+    picker.style.top = (rect.bottom + window.scrollY + 4) + "px";
+    picker.style.left = (rect.left + window.scrollX) + "px";
+    document.body.appendChild(picker);
+
+    // はみ出したら左に寄せる
+    const pickerRect = picker.getBoundingClientRect();
+    if (pickerRect.right > window.innerWidth - 8) {
+      picker.style.left = (window.innerWidth - pickerRect.width - 8 + window.scrollX) + "px";
+    }
+
+    // 外側クリックで閉じる
+    const closeOnOutside = (e) => {
+      if (!picker.contains(e.target) && e.target !== td) {
+        picker.remove();
+        document.removeEventListener("click", closeOnOutside, true);
+      }
+    };
+    setTimeout(() => document.addEventListener("click", closeOnOutside, true), 10);
+
+    // 回答ボタン
+    picker.querySelectorAll("[data-resp]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const resp = btn.dataset.resp;
+        picker.remove();
+        document.removeEventListener("click", closeOnOutside, true);
+        try {
+          await API.recruitments.respond(recruit.id, {
+            staffId, staffName, staffEmail, response: resp
+          });
+          showToast("完了", `${staffName} の回答を ${resp} に設定しました`, "success");
+          // 募集を再読込 → カレンダー再描画
+          this._recruitments = await API.recruitments.list();
+          // this.renderCalendar();  // 横カレンダーは清掃スケジュールタブに統合
+        } catch (e) {
+          showToast("エラー", `回答設定失敗: ${e.message}`, "error");
+        }
+      });
+    });
+    // 詳細に移動
+    picker.querySelector('[data-act="detail"]').addEventListener("click", () => {
+      picker.remove();
+      document.removeEventListener("click", closeOnOutside, true);
+      window.location.hash = "#/recruitment";
+      setTimeout(() => {
+        if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
+          RecruitmentPage.openDetailModal(recruit);
+        }
+      }, 300);
+    });
+  },
+
   // === モーダル ===
   openModal(staff = null) {
     const isEdit = !!staff;
@@ -541,11 +659,11 @@ const StaffPage = {
     document.getElementById("staffName").value = staff?.name || "";
     document.getElementById("staffEmail").value = staff?.email || "";
     document.getElementById("staffPhone").value = staff?.phone || "";
-    document.getElementById("staffRate").value = staff?.ratePerJob || 0;
-    document.getElementById("staffTransport").value = staff?.transportationFee || 0;
     document.getElementById("staffContractDate").value = staff?.contractStartDate
       ? new Date(staff.contractStartDate.seconds ? staff.contractStartDate.seconds * 1000 : staff.contractStartDate).toISOString().split("T")[0]
       : "";
+    const isTimeeEl = document.getElementById("staffIsTimee");
+    if (isTimeeEl) isTimeeEl.checked = !!staff?.isTimee;
     document.getElementById("staffSkills").value = (staff?.skills || []).join(",");
     document.getElementById("staffBankName").value = staff?.bankName || "";
     document.getElementById("staffBranchName").value = staff?.branchName || "";
@@ -554,10 +672,8 @@ const StaffPage = {
     document.getElementById("staffAccountHolder").value = staff?.accountHolder || "";
     document.getElementById("staffMemo").value = staff?.memo || "";
 
-    const days = staff?.availableDays || [];
-    document.querySelectorAll("#staffDays input[type=checkbox]").forEach((cb) => {
-      cb.checked = days.includes(cb.value);
-    });
+    // 担当物件チェックボックス(民泊物件のみ、デフォルト外れ)
+    this.renderPropertyCheckboxes(staff?.assignedPropertyIds || []);
 
     // LINE連携セクション（編集時のみ表示）
     const lineSection = document.getElementById("staffLineSection");
@@ -626,23 +742,22 @@ const StaffPage = {
       return;
     }
 
-    const availableDays = [];
-    document.querySelectorAll("#staffDays input[type=checkbox]:checked").forEach((cb) => {
-      availableDays.push(cb.value);
-    });
-
     const skills = document.getElementById("staffSkills").value
       .split(",").map((s) => s.trim()).filter(Boolean);
+
+    const assignedPropertyIds = [];
+    document.querySelectorAll("#staffProperties input[type=checkbox]:checked").forEach(cb => {
+      assignedPropertyIds.push(cb.value);
+    });
 
     const data = {
       name,
       email: document.getElementById("staffEmail").value.trim(),
       phone: document.getElementById("staffPhone").value.trim(),
-      ratePerJob: Number(document.getElementById("staffRate").value) || 0,
-      transportationFee: Number(document.getElementById("staffTransport").value) || 0,
       contractStartDate: document.getElementById("staffContractDate").value || null,
-      availableDays,
+      isTimee: !!document.getElementById("staffIsTimee")?.checked,
       skills,
+      assignedPropertyIds,
       bankName: document.getElementById("staffBankName").value.trim(),
       branchName: document.getElementById("staffBranchName").value.trim(),
       accountType: document.getElementById("staffAccountType").value,

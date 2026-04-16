@@ -63,16 +63,32 @@ service cloud.firestore {
          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'confirmedAt']));
     }
 
-    // チェックリスト — スタッフは自分のチェックリストを操作、オーナーは全操作
+    // チェックリスト — 複数スタッフ対応、割当済みスタッフ全員が操作可
     match /checklists/{checklistId} {
-      allow read: if isOwner() || (isStaff() && resource.data.staffId == myStaffId());
+      allow read: if isOwner()
+        || (isStaff() && (resource.data.staffId == myStaffId()
+                       || (resource.data.staffIds is list && myStaffId() in resource.data.staffIds)));
       allow create: if isAuthenticated();
-      allow update: if isOwner() || (isStaff() && resource.data.staffId == myStaffId());
+      allow update: if isOwner()
+        || (isStaff() && (resource.data.staffId == myStaffId()
+                       || (resource.data.staffIds is list && myStaffId() in resource.data.staffIds)));
       allow delete: if isOwner();
     }
 
     // チェックリストテンプレート — オーナーのみ書き込み、全員読み取り
     match /checklistTemplates/{templateId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner();
+    }
+
+    // チェックリストマスタ — オーナーのみ書き込み、全員読み取り
+    match /checklistMaster/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner();
+    }
+
+    // 物件別 作業項目・単価マスタ — オーナーのみ書き込み、認証済み読み取り
+    match /propertyWorkItems/{propertyId} {
       allow read: if isAuthenticated();
       allow write: if isOwner();
     }

@@ -259,6 +259,12 @@ exports.onBookingChange = onDocumentWritten(
   require("./triggers/onBookingChange")
 );
 
+// シフト作成時→物件テンプレートをスナップショットしてチェックリスト自動生成
+exports.onShiftCreated = onDocumentCreated(
+  "shifts/{shiftId}",
+  require("./triggers/onShiftCreated")
+);
+
 // スキャンログ作成→確認待ちLINE通知（AI秘書「黒子」× 経理部連携）
 exports.onScanLogCreated = onDocumentCreated(
   "scanLogs/{logId}",

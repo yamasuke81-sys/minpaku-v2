@@ -40,6 +40,7 @@ const NotificationsPage = {
     invoice: [
       { name: "month",    label: "対象月",      sample: "4",            source: "invoice.yearMonth" },
       { name: "staff",    label: "スタッフ名",  sample: "山田太郎",      source: "invoice.staffName" },
+      { name: "property", label: "物件名",      sample: "長浜民泊A",     source: "invoice.propertyName" },
       { name: "total",    label: "合計金額",    sample: "¥45,000",      source: "invoice.total" },
       { name: "url",      label: "確認ページURL", sample: "https://minpaku-v2.web.app/#/my-dashboard", source: "自動生成" },
     ],
@@ -77,7 +78,9 @@ const NotificationsPage = {
     { key: "roster_remind", label: "名簿未入力リマインド", desc: "宿泊者名簿が未入力の予約についてリマインド", icon: "bi-person-vcard", group: "booking", varGroup: "booking", defaultTiming: "morning",
       defaultMsg: "📝 名簿入力のお願い\n\n{checkin} {property}\nゲスト: {guest}\n宿泊者名簿がまだ届いていません。" },
     { key: "invoice_request", label: "請求書要請", desc: "月末にスタッフへ請求書の提出を依頼", icon: "bi-receipt", group: "invoice", varGroup: "invoice", defaultTiming: "morning",
-      defaultMsg: "💰 {month}月分の請求書\n\n合計: {total}\n内容を確認してください。\n確認: {url}" },
+      defaultMsg: "💰 {month}月分の請求書作成をお願いします\n\n{property}の清掃分について、作業明細をご確認の上、請求書の送信をお願いします。\n作成ページ: {url}" },
+    { key: "invoice_submitted", label: "請求書提出通知", desc: "スタッフが請求書を送信した時にオーナーへ通知", icon: "bi-send-check", group: "invoice", varGroup: "invoice", defaultTiming: "immediate",
+      defaultMsg: "📨 請求書が提出されました\n\n{staff} さんから {month}月分の請求書が届きました。\n合計: {total}\n確認: {url}" },
     { key: "cleaning_done", label: "清掃完了通知", desc: "清掃チェックリスト完了時にオーナーに通知", icon: "bi-clipboard-check", group: "cleaning", varGroup: "cleaning", defaultTiming: "immediate",
       defaultMsg: "✨ 清掃完了\n\n{date} {property}\n{staff}さんが{time}に清掃を完了しました。" },
   ],
@@ -182,8 +185,21 @@ const NotificationsPage = {
         const customMessage = ch.customMessage || "";
         const msgValue = customMessage || n.defaultMsg || n.desc;
         const vars = this.systemVariables[n.varGroup] || [];
-        const timing = ch.timing || n.defaultTiming || "immediate";
-        const timingMinutes = ch.timingMinutes || "";
+
+        // タイミング配列化 (旧データは単一 timing/mode から復元)
+        let timings = Array.isArray(ch.timings) && ch.timings.length
+          ? ch.timings
+          : [{
+              mode: ch.mode || "event",
+              timing: ch.timing || n.defaultTiming || "immediate",
+              timingMinutes: ch.timingMinutes || "",
+              beforeDays: ch.beforeDays || 3,
+              beforeTime: ch.beforeTime || "09:00",
+              schedulePattern: ch.schedulePattern || "monthEnd",
+              scheduleDay: ch.scheduleDay || 1,
+              scheduleDow: ch.scheduleDow || 0,
+              scheduleTime: ch.scheduleTime || "09:00",
+            }];
 
         // 利用可能な変数タグ
         const varTags = vars.map(v =>
@@ -225,23 +241,15 @@ const NotificationsPage = {
                   </label>
                 </div>
 
-                <!-- 通知タイミング設定 -->
-                <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-                  <span class="small text-muted"><i class="bi bi-clock"></i> 通知タイミング:</span>
-                  <select class="form-select form-select-sm notify-timing-select" style="width:auto;" data-key="${n.key}" data-field="timing">
-                    <option value="immediate" ${timing === "immediate" ? "selected" : ""}>即時</option>
-                    <option value="5min" ${timing === "5min" ? "selected" : ""}>5分後</option>
-                    <option value="15min" ${timing === "15min" ? "selected" : ""}>15分後</option>
-                    <option value="30min" ${timing === "30min" ? "selected" : ""}>30分後</option>
-                    <option value="1hour" ${timing === "1hour" ? "selected" : ""}>1時間後</option>
-                    <option value="morning" ${timing === "morning" ? "selected" : ""}>翌朝6時</option>
-                    <option value="evening" ${timing === "evening" ? "selected" : ""}>当日18時</option>
-                    <option value="custom" ${timing === "custom" ? "selected" : ""}>カスタム（分指定）</option>
-                  </select>
-                  <input type="number" class="form-control form-control-sm notify-timing-minutes"
-                    style="width:90px; ${timing === "custom" ? "" : "display:none;"}"
-                    data-key="${n.key}" data-field="timingMinutes"
-                    value="${timingMinutes}" min="1" placeholder="分数">
+                <!-- 通知タイミング設定 (複数) -->
+                <div class="mb-2 notify-timings-wrap" data-key="${n.key}">
+                  <div class="small text-muted mb-1"><i class="bi bi-clock"></i> 通知タイミング (複数追加可能)</div>
+                  <div class="notify-timings" data-key="${n.key}">
+                    ${timings.map((t, idx) => this.renderTimingRow(n.key, t, idx)).join("")}
+                  </div>
+                  <button type="button" class="btn btn-sm btn-outline-primary mt-1 notify-add-timing" data-key="${n.key}">
+                    <i class="bi bi-plus"></i> タイミングを追加
+                  </button>
                 </div>
 
                 <!-- 利用可能な変数（クリックで挿入） -->
@@ -306,17 +314,127 @@ const NotificationsPage = {
         }
       });
 
-      // タイミングselect変更時 → カスタム入力欄の表示切替
+      // タイミング関連の表示切替 (data-key + data-idx 単位)
       container.addEventListener("change", (e) => {
-        if (e.target.classList.contains("notify-timing-select")) {
-          const key = e.target.dataset.key;
-          const minutesInput = container.querySelector(`.notify-timing-minutes[data-key="${key}"]`);
-          if (minutesInput) {
-            minutesInput.style.display = e.target.value === "custom" ? "" : "none";
+        const key = e.target.dataset.key;
+        const idx = e.target.dataset.idx;
+        if (!key || idx === undefined) return;
+        const row = container.querySelector(`.notify-timing-row[data-key="${key}"][data-idx="${idx}"]`);
+        if (!row) return;
+
+        if (e.target.classList.contains("notify-mode-radio")) {
+          const mode = e.target.value;
+          const eventBlock = row.querySelector(".notify-mode-event");
+          const dateBlock = row.querySelector(".notify-mode-date");
+          if (eventBlock) {
+            eventBlock.classList.toggle("d-flex", mode === "event");
+            eventBlock.classList.toggle("d-none", mode !== "event");
           }
+          if (dateBlock) {
+            dateBlock.classList.toggle("d-flex", mode === "date");
+            dateBlock.classList.toggle("d-none", mode !== "date");
+          }
+        }
+
+        if (e.target.classList.contains("notify-timing-select")) {
+          const val = e.target.value;
+          row.querySelector(".notify-timing-minutes")?.classList.toggle("d-none", val !== "custom");
+          row.querySelector(".notify-before-days")?.classList.toggle("d-none", val !== "beforeEvent");
+          row.querySelector(".notify-before-suffix")?.classList.toggle("d-none", val !== "beforeEvent");
+          row.querySelector(".notify-before-time")?.classList.toggle("d-none", val !== "beforeEvent");
+        }
+
+        if (e.target.classList.contains("notify-schedule-pattern")) {
+          const val = e.target.value;
+          row.querySelector(".notify-schedule-day")?.classList.toggle("d-none", val !== "monthlyDay");
+          row.querySelector(".notify-schedule-dow")?.classList.toggle("d-none", val !== "weekly");
+        }
+      });
+
+      // タイミング追加・削除
+      container.addEventListener("click", (e) => {
+        const addBtn = e.target.closest(".notify-add-timing");
+        if (addBtn) {
+          const key = addBtn.dataset.key;
+          const list = container.querySelector(`.notify-timings[data-key="${key}"]`);
+          if (!list) return;
+          const idx = list.querySelectorAll(".notify-timing-row").length;
+          const emptyT = { mode: "event", timing: "immediate", timingMinutes: "", beforeDays: 3, beforeTime: "09:00", schedulePattern: "monthEnd", scheduleDay: 1, scheduleDow: 0, scheduleTime: "09:00" };
+          list.insertAdjacentHTML("beforeend", this.renderTimingRow(key, emptyT, idx));
+        }
+        const rmBtn = e.target.closest(".notify-remove-timing");
+        if (rmBtn) {
+          const row = rmBtn.closest(".notify-timing-row");
+          const list = row?.parentElement;
+          row?.remove();
+          // idx再採番
+          list?.querySelectorAll(".notify-timing-row").forEach((r, i) => {
+            r.dataset.idx = i;
+            r.querySelectorAll("[data-idx]").forEach(el => el.dataset.idx = i);
+          });
         }
       });
     }
+  },
+
+  // 通知タイミング1行を描画
+  renderTimingRow(key, t, idx) {
+    const mode = t.mode || "event";
+    const timing = t.timing || "immediate";
+    const showEventBlock = mode === "event";
+    const showDateBlock = mode === "date";
+    const showMinutes = showEventBlock && timing === "custom";
+    const showBeforeEvent = showEventBlock && timing === "beforeEvent";
+    const pat = t.schedulePattern || "monthEnd";
+    return `
+      <div class="notify-timing-row d-flex flex-wrap align-items-center gap-1 p-2 mb-1 border rounded" data-key="${key}" data-idx="${idx}">
+        <div class="btn-group btn-group-sm" role="group">
+          <input type="radio" class="btn-check notify-mode-radio" name="mode-${key}-${idx}" id="mode-event-${key}-${idx}" value="event" ${mode==="event"?"checked":""} data-key="${key}" data-idx="${idx}">
+          <label class="btn btn-outline-secondary" for="mode-event-${key}-${idx}">都度</label>
+          <input type="radio" class="btn-check notify-mode-radio" name="mode-${key}-${idx}" id="mode-date-${key}-${idx}" value="date" ${mode==="date"?"checked":""} data-key="${key}" data-idx="${idx}">
+          <label class="btn btn-outline-secondary" for="mode-date-${key}-${idx}">日付</label>
+        </div>
+
+        <div class="notify-mode-event align-items-center gap-1 ${showEventBlock?"d-flex":"d-none"}" data-key="${key}" data-idx="${idx}">
+          <select class="form-select form-select-sm notify-timing-select" style="width:auto;" data-key="${key}" data-idx="${idx}" data-field="timing">
+            ${[["immediate","即時"],["5min","5分後"],["15min","15分後"],["30min","30分後"],["1hour","1時間後"],["morning","翌朝6時"],["evening","当日18時"],["custom","カスタム（分）"],["beforeEvent","N日前のHH:MM"]].map(([v,l]) => `<option value="${v}" ${timing===v?"selected":""}>${l}</option>`).join("")}
+          </select>
+          <input type="number" class="form-control form-control-sm notify-timing-minutes ${showMinutes?"":"d-none"}"
+            style="width:90px;" data-key="${key}" data-idx="${idx}" data-field="timingMinutes"
+            value="${t.timingMinutes||""}" min="1" placeholder="分数">
+          <input type="number" class="form-control form-control-sm notify-before-days ${showBeforeEvent?"":"d-none"}"
+            style="width:72px;" data-key="${key}" data-idx="${idx}" data-field="beforeDays"
+            value="${t.beforeDays||3}" min="0" placeholder="日">
+          <span class="small notify-before-suffix ${showBeforeEvent?"":"d-none"}" data-key="${key}" data-idx="${idx}">日前の</span>
+          <input type="time" class="form-control form-control-sm notify-before-time ${showBeforeEvent?"":"d-none"}"
+            style="width:110px;" data-key="${key}" data-idx="${idx}" data-field="beforeTime"
+            value="${t.beforeTime||"09:00"}">
+        </div>
+
+        <div class="notify-mode-date align-items-center gap-1 ${showDateBlock?"d-flex":"d-none"}" data-key="${key}" data-idx="${idx}">
+          <select class="form-select form-select-sm notify-schedule-pattern" style="width:auto;" data-key="${key}" data-idx="${idx}" data-field="schedulePattern">
+            <option value="monthEnd" ${pat==="monthEnd"?"selected":""}>毎月 月末</option>
+            <option value="monthlyDay" ${pat==="monthlyDay"?"selected":""}>毎月 N日</option>
+            <option value="weekly" ${pat==="weekly"?"selected":""}>毎週 曜日</option>
+            <option value="daily" ${pat==="daily"?"selected":""}>毎日</option>
+          </select>
+          <input type="number" class="form-control form-control-sm notify-schedule-day ${pat==="monthlyDay"?"":"d-none"}"
+            style="width:70px;" data-key="${key}" data-idx="${idx}" data-field="scheduleDay"
+            value="${t.scheduleDay||1}" min="1" max="31" placeholder="日">
+          <select class="form-select form-select-sm notify-schedule-dow ${pat==="weekly"?"":"d-none"}"
+            style="width:auto;" data-key="${key}" data-idx="${idx}" data-field="scheduleDow">
+            ${["日","月","火","水","木","金","土"].map((d,i)=>`<option value="${i}" ${(t.scheduleDow||0)==i?"selected":""}>${d}</option>`).join("")}
+          </select>
+          <input type="time" class="form-control form-control-sm notify-schedule-time"
+            style="width:110px;" data-key="${key}" data-idx="${idx}" data-field="scheduleTime"
+            value="${t.scheduleTime||"09:00"}">
+        </div>
+
+        <button type="button" class="btn btn-sm btn-link text-danger ms-auto notify-remove-timing" data-key="${key}" data-idx="${idx}" title="このタイミングを削除">
+          <i class="bi bi-x-circle"></i>
+        </button>
+      </div>
+    `;
   },
 
   updatePreview(key) {
@@ -395,9 +513,34 @@ const NotificationsPage = {
           return el ? el.checked : false;
         };
         const ta = document.querySelector(`textarea[data-key="${n.key}"][data-field="customMessage"]`);
-        const timingSel = document.querySelector(`select[data-key="${n.key}"][data-field="timing"]`);
-        const timingMinEl = document.querySelector(`input[data-key="${n.key}"][data-field="timingMinutes"]`);
-        const timingVal = timingSel ? timingSel.value : (n.defaultTiming || "immediate");
+        // タイミング配列を収集
+        const rows = document.querySelectorAll(`.notify-timings[data-key="${n.key}"] .notify-timing-row`);
+        const timings = [];
+        rows.forEach((row, idx) => {
+          const modeChecked = row.querySelector(`input[name^="mode-${n.key}-"]:checked`);
+          const mode = modeChecked ? modeChecked.value : "event";
+          const q = (sel) => row.querySelector(sel);
+          const t = { mode };
+          if (mode === "event") {
+            const timing = q(`select[data-field="timing"]`)?.value || "immediate";
+            t.timing = timing;
+            if (timing === "custom") {
+              t.timingMinutes = parseInt(q(`input[data-field="timingMinutes"]`)?.value, 10) || 0;
+            } else if (timing === "beforeEvent") {
+              t.beforeDays = parseInt(q(`input[data-field="beforeDays"]`)?.value, 10) || 0;
+              t.beforeTime = q(`input[data-field="beforeTime"]`)?.value || "09:00";
+            }
+          } else {
+            t.schedulePattern = q(`select[data-field="schedulePattern"]`)?.value || "monthEnd";
+            t.scheduleTime = q(`input[data-field="scheduleTime"]`)?.value || "09:00";
+            if (t.schedulePattern === "monthlyDay") {
+              t.scheduleDay = parseInt(q(`input[data-field="scheduleDay"]`)?.value, 10) || 1;
+            } else if (t.schedulePattern === "weekly") {
+              t.scheduleDow = parseInt(q(`select[data-field="scheduleDow"]`)?.value, 10) || 0;
+            }
+          }
+          timings.push(t);
+        });
         const entry = {
           enabled: get("enabled"),
           ownerLine: get("ownerLine"),
@@ -405,11 +548,23 @@ const NotificationsPage = {
           staffLine: get("staffLine"),
           ownerEmail: get("ownerEmail"),
           customMessage: ta ? ta.value : "",
-          timing: timingVal,
+          timings,            // 複数タイミング配列
         };
-        if (timingVal === "custom" && timingMinEl && timingMinEl.value) {
-          entry.timingMinutes = parseInt(timingMinEl.value, 10) || 0;
+        // 後方互換: 旧UIの単一フィールドも代表値として埋める (undefinedは入れない)
+        if (timings[0]) {
+          const t0 = timings[0];
+          if (t0.mode) entry.mode = t0.mode;
+          if (t0.timing) entry.timing = t0.timing;
+          if (t0.timingMinutes !== undefined) entry.timingMinutes = t0.timingMinutes;
+          if (t0.beforeDays !== undefined) entry.beforeDays = t0.beforeDays;
+          if (t0.beforeTime) entry.beforeTime = t0.beforeTime;
+          if (t0.schedulePattern) entry.schedulePattern = t0.schedulePattern;
+          if (t0.scheduleDay !== undefined) entry.scheduleDay = t0.scheduleDay;
+          if (t0.scheduleDow !== undefined) entry.scheduleDow = t0.scheduleDow;
+          if (t0.scheduleTime) entry.scheduleTime = t0.scheduleTime;
         }
+        // 安全策: entryからundefinedを除去
+        Object.keys(entry).forEach(k => { if (entry[k] === undefined) delete entry[k]; });
         channels[n.key] = entry;
       });
 

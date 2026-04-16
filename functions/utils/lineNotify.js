@@ -279,14 +279,39 @@ function resolveNotifyTargets(settings, notifyType) {
 // ========== スタッフ・グループ通知 ==========
 
 /**
- * 個別スタッフにLINE通知送信
- * @param {FirebaseFirestore.Firestore} db
- * @param {string} staffId - Firestoreのstaff/{staffId}
- * @param {string} type - 通知種別
- * @param {string} title - タイトル（ログ用）
- * @param {string|object} body - テキスト文字列 or Flexメッセージオブジェクト
+ * settings/notifications の channels[type].customMessage を読んで
+ * {変数名} を vars オブジェクトで置換した文字列を返す。カスタムなしなら fallback を返す。
  */
-async function notifyStaff(db, staffId, type, title, body) {
+async function resolveMessage_(db, type, fallback, vars) {
+  try {
+    if (typeof fallback !== "string") return fallback; // Flex等はカスタム対象外
+    const doc = await db.collection("settings").doc("notifications").get();
+    if (!doc.exists) return fallback;
+    const ch = (doc.data().channels || {})[type];
+    if (!ch || !ch.customMessage || !String(ch.customMessage).trim()) return fallback;
+    let msg = String(ch.customMessage);
+    if (vars && typeof vars === "object") {
+      Object.keys(vars).forEach(k => {
+        msg = msg.replace(new RegExp(`\\{${k}\\}`, "g"), String(vars[k] ?? ""));
+      });
+    }
+    return msg;
+  } catch (e) {
+    console.warn("customMessage 解決失敗、fallback 使用:", e.message);
+    return fallback;
+  }
+}
+
+/**
+ * 個別スタッフにLINE通知送信
+ * @param {string} staffId
+ * @param {string} type - 通知種別（settings.channels のキー）
+ * @param {string} title - ログ用タイトル
+ * @param {string|object} body - デフォルトテキスト or Flex（customMessageがあれば置換）
+ * @param {object} [vars] - customMessage 内の {変数名} に差し込む値
+ */
+async function notifyStaff(db, staffId, type, title, body, vars) {
+  body = await resolveMessage_(db, type, body, vars);
   // スタッフのlineUserId取得
   const staffDoc = await db.collection("staff").doc(staffId).get();
   if (!staffDoc.exists) {
@@ -334,12 +359,12 @@ async function notifyStaff(db, staffId, type, title, body) {
 
 /**
  * LINEグループに通知送信
- * @param {FirebaseFirestore.Firestore} db
- * @param {string} type - 通知種別
- * @param {string} title - タイトル（ログ用）
- * @param {string|object} body - テキスト文字列 or Flexメッセージオブジェクト
+ * @param {string} type 通知種別キー
+ * @param {string|object} body デフォルト or Flex
+ * @param {object} [vars] customMessage 置換用変数
  */
-async function notifyGroup(db, type, title, body) {
+async function notifyGroup(db, type, title, body, vars) {
+  body = await resolveMessage_(db, type, body, vars);
   const { channelToken, groupId } = await getNotificationSettings_(db);
   if (!channelToken) {
     return { success: false, error: "LINEチャネルトークン未設定" };
@@ -461,7 +486,8 @@ function buildRecruitmentFlex(recruitment, baseUrl) {
  * Firestoreから通知設定を読み取り、LINE/メールで送信+通知ログ記録
  * settings/notifications の enableLine / enableEmail / notifyEmails で制御
  */
-async function notifyOwner(db, type, title, body) {
+async function notifyOwner(db, type, title, body, vars) {
+  body = await resolveMessage_(db, type, body, vars);
   const { settings, channelToken, ownerUserId } = await getNotificationSettings_(db);
   if (!settings) {
     console.warn("通知設定が未登録です（settings/notifications）");

@@ -5,6 +5,7 @@
 const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
 const { getStorage } = require("firebase-admin/storage");
+const { notifyOwner } = require("../utils/lineNotify");
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
@@ -500,6 +501,28 @@ module.exports = function invoicesApi(db) {
         status: "confirmed",
         confirmedAt: FieldValue.serverTimestamp(),
       });
+
+      // オーナー通知
+      try {
+        const [y, m] = String(data.yearMonth || "").split("-");
+        const total = Number(data.total || 0);
+        const body = `📨 請求書が提出されました\n\n` +
+          `${data.staffName || "スタッフ"} さんから ${m || data.yearMonth}月分の請求書が届きました。\n` +
+          `合計: ¥${total.toLocaleString()}\n` +
+          `確認: https://minpaku-v2.web.app/#/invoices`;
+        await notifyOwner(db, "invoice_submitted",
+          `請求書提出: ${data.staffName || ""} (${data.yearMonth})`,
+          body,
+          {
+            month: m || data.yearMonth,
+            staff: data.staffName || "",
+            property: "",
+            total: `¥${total.toLocaleString()}`,
+            url: "https://minpaku-v2.web.app/#/invoices"
+          });
+      } catch (notifyErr) {
+        console.error("請求書提出通知エラー（無視）:", notifyErr);
+      }
 
       res.json({ message: "請求書を確定しました" });
     } catch (e) {

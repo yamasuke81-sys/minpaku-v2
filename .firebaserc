@@ -1,5 +1,15 @@
 {
   "projects": {
     "default": "minpaku-v2"
-  }
+  },
+  "targets": {
+    "minpaku-v2": {
+      "storage": {
+        "default": [
+          "minpaku-v2.firebasestorage.app"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

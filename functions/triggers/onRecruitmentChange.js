@@ -1,7 +1,7 @@
 /**
  * 募集変更トリガー
- * 回答が追加された → オーナーにLINE通知
- * 全員回答済み → 「選定してください」通知
+ * - 回答が追加された → オーナーにLINE通知
+ * - 物件の selectionMethod が "firstCome" で新規◎回答 → 即自動確定
  */
 const { notifyOwner } = require("../utils/lineNotify");
 
@@ -11,17 +11,12 @@ module.exports = async function onRecruitmentChange(event) {
 
   const before = event.data.before?.data();
   const after = event.data.after?.data();
-
-  // 削除の場合はスキップ
   if (!after) return;
 
   const beforeResponses = before?.responses || [];
   const afterResponses = after.responses || [];
-
-  // 回答数が増えた場合のみ通知
   if (afterResponses.length <= beforeResponses.length) return;
 
-  // 新しい回答を特定
   const newResponse = afterResponses[afterResponses.length - 1];
   if (!newResponse) return;
 
@@ -29,14 +24,64 @@ module.exports = async function onRecruitmentChange(event) {
   const response = newResponse.response || "?";
   const checkoutDate = after.checkoutDate || "?";
   const propertyName = after.propertyName || "";
+  const propertyId = after.propertyId || "";
+  const recruitmentId = event.params.recruitmentId;
 
+  // 物件の selectionMethod を取得
+  let selectionMethod = "ownerConfirm";
+  if (propertyId) {
+    const pd = await db.collection("properties").doc(propertyId).get();
+    if (pd.exists) selectionMethod = pd.data().selectionMethod || "ownerConfirm";
+  }
+
+  // firstCome: ◎回答で即自動確定
+  if (selectionMethod === "firstCome" && response === "◎" && after.status !== "スタッフ確定済み") {
+    const staffId = newResponse.staffId || "";
+    try {
+      await db.collection("recruitments").doc(recruitmentId).update({
+        status: "スタッフ確定済み",
+        selectedStaff: staffName,
+        selectedStaffIds: staffId ? [staffId] : [],
+        confirmedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      const shiftSnap = await db.collection("shifts")
+        .where("propertyId", "==", propertyId)
+        .where("date", "==", new Date(checkoutDate))
+        .limit(1).get();
+      if (!shiftSnap.empty) {
+        await shiftSnap.docs[0].ref.update({
+          staffId: staffId || null,
+          staffName,
+          staffIds: staffId ? [staffId] : [],
+          status: "assigned",
+          assignMethod: "firstCome",
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+
+      await notifyOwner(
+        db, "response",
+        `自動確定: ${checkoutDate}`,
+        `⚡ 早い者勝ちルールにより自動確定\n\n` +
+        `日付: ${checkoutDate}${propertyName ? ` (${propertyName})` : ""}\n` +
+        `担当: ${staffName}\n`,
+        { checkoutDate, propertyName, staffName, response }
+      );
+      return;
+    } catch (e) {
+      console.error("firstCome 自動確定失敗:", e);
+    }
+  }
+
+  // 通常通知
   let text = `📋 募集に回答がありました\n\n`;
   text += `日付: ${checkoutDate}`;
   if (propertyName) text += ` (${propertyName})`;
   text += `\n`;
   text += `${staffName}: ${response}\n`;
 
-  // 回答状況サマリー
   const available = afterResponses.filter((r) => r.response === "◎" || r.response === "△");
   const declined = afterResponses.filter((r) => r.response === "×");
   text += `\n現在の回答状況: ◎△ ${available.length}名 / × ${declined.length}名\n`;
@@ -46,5 +91,6 @@ module.exports = async function onRecruitmentChange(event) {
     text += "→ スタッフを選定・確定してください";
   }
 
-  await notifyOwner(db, "response", `募集回答: ${checkoutDate}`, text);
+  await notifyOwner(db, "response", `募集回答: ${checkoutDate}`, text,
+    { checkoutDate, propertyName, staffName, response });
 };

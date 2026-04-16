@@ -111,6 +111,86 @@ const API = {
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
     },
+
+    async activate(id) {
+      await db.collection("properties").doc(id).update({
+        active: true,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    },
+
+    /**
+     * 民泊物件を番号+色付きで取得。
+     * 番号・色は物件ドキュメントの propertyNumber / color フィールドに永続化されていれば優先使用。
+     * 追加・削除があっても既存の番号と色は崩れない設計。
+     * 未設定の物件には空いている最小番号と、デフォルトパレットから色を割り当てる(書き込みはしない)。
+     */
+    async listMinpakuNumbered(includeInactive = false) {
+      const PALETTE = ["#0d6efd","#ffc107","#198754","#dc3545","#6f42c1","#fd7e14","#20c997","#6610f2","#0dcaf0","#d63384"];
+      const snap = await db.collection("properties").get();
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      let minpaku = all.filter(p => p.type === "minpaku");
+      if (!includeInactive) minpaku = minpaku.filter(p => p.active === true);
+
+      // 保存済みの propertyNumber を優先、無ければ空いてる最小番号を仮割当(書き込みはしない)
+      const usedNums = new Set(minpaku.map(p => p.propertyNumber).filter(n => typeof n === "number"));
+      function nextFreeNum() {
+        for (let i = 1; i <= 999; i++) if (!usedNums.has(i)) { usedNums.add(i); return i; }
+        return 999;
+      }
+      const withNums = minpaku.map(p => ({
+        ...p,
+        _num: typeof p.propertyNumber === "number" ? p.propertyNumber : nextFreeNum(),
+        _color: p.color || PALETTE[((p.propertyNumber || 0) - 1) % PALETTE.length] || "#6c757d"
+      }));
+      withNums.sort((a, b) => a._num - b._num);
+      return withNums;
+    },
+
+    /**
+     * 物件の作業項目リスト (報酬単価マスタ) を取得
+     * ドキュメント: propertyWorkItems/{propertyId}
+     */
+    async getWorkItems(propertyId) {
+      const d = await db.collection("propertyWorkItems").doc(propertyId).get();
+      if (!d.exists) return { propertyId, items: [] };
+      return { propertyId, ...d.data(), items: d.data().items || [] };
+    },
+
+    async saveWorkItems(propertyId, items) {
+      await db.collection("propertyWorkItems").doc(propertyId).set({
+        propertyId,
+        items: items || [],
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+    },
+
+    /**
+     * 物件に永続的な番号と色を割り当てる。
+     * 未設定の物件すべてに番号・色を埋める(既存は保持)
+     */
+    async persistNumbers() {
+      const PALETTE = ["#0d6efd","#ffc107","#198754","#dc3545","#6f42c1","#fd7e14","#20c997","#6610f2","#0dcaf0","#d63384"];
+      const snap = await db.collection("properties").get();
+      const all = snap.docs.map(d => ({ id: d.id, ref: d.ref, ...d.data() }))
+        .filter(p => p.type === "minpaku");
+      const used = new Set(all.map(p => p.propertyNumber).filter(n => typeof n === "number"));
+      let nextNum = 1;
+      const nextFree = () => { while (used.has(nextNum)) nextNum++; used.add(nextNum); return nextNum++; };
+
+      const updates = [];
+      for (const p of all) {
+        const update = {};
+        if (typeof p.propertyNumber !== "number") update.propertyNumber = nextFree();
+        if (!p.color) update.color = PALETTE[((update.propertyNumber || p.propertyNumber || 1) - 1) % PALETTE.length];
+        if (Object.keys(update).length > 0) {
+          update.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+          updates.push(p.ref.update(update));
+        }
+      }
+      await Promise.all(updates);
+      return { updated: updates.length };
+    },
   },
 
   // シフト API
@@ -1004,6 +1084,57 @@ const API = {
 
   // チェックリスト API
   checklist: {
+    // === ツリー構造版（新UI用） ===
+    async getMaster() {
+      const doc = await db.collection("checklistMaster").doc("main").get();
+      return doc.exists ? doc.data() : null;
+    },
+
+    async getTemplateTree(propertyId) {
+      const doc = await db.collection("checklistTemplates").doc(propertyId).get();
+      return doc.exists ? { id: doc.id, ...doc.data() } : null;
+    },
+
+    async saveTemplateTree(propertyId, tree) {
+      const data = {
+        propertyId,
+        areas: tree.areas || [],
+        _meta: tree._meta || null,
+        version: (tree.version || 1) + 1,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      };
+      await db.collection("checklistTemplates").doc(propertyId).set(data, { merge: true });
+      return data;
+    },
+
+    async copyTemplate(propertyId, sourceType, sourcePropertyId = null) {
+      let src;
+      if (sourceType === "master") {
+        const d = await db.collection("checklistMaster").doc("main").get();
+        if (!d.exists) throw new Error("マスタが存在しません");
+        src = d.data();
+      } else if (sourceType === "template" && sourcePropertyId) {
+        const d = await db.collection("checklistTemplates").doc(sourcePropertyId).get();
+        if (!d.exists) throw new Error("コピー元テンプレートが存在しません");
+        src = d.data();
+      } else {
+        throw new Error("sourceType と sourcePropertyId を指定してください");
+      }
+      const data = {
+        propertyId,
+        sourcePropertyId: sourceType === "template" ? sourcePropertyId : null,
+        copiedFrom: sourceType,
+        copiedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        _meta: src._meta || null,
+        areas: src.areas || [],
+        version: 1,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      };
+      await db.collection("checklistTemplates").doc(propertyId).set(data);
+      return { id: propertyId, ...data };
+    },
+
+    // === レガシー: フラット構造 ===
     async templates() {
       const snap = await db.collection("checklistTemplates").get();
       return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));

@@ -93,9 +93,19 @@ const PropertiesPage = {
             <button class="btn btn-sm btn-outline-primary btn-edit-property" data-id="${p.id}">
               <i class="bi bi-pencil"></i> 編集
             </button>
-            <button class="btn btn-sm btn-outline-danger btn-delete-property float-end" data-id="${p.id}">
-              <i class="bi bi-trash"></i> 無効化
-            </button>
+            ${p.type === "minpaku" ? `
+              <a href="#/property-checklist/${p.id}" class="btn btn-sm btn-outline-success ms-1">
+                <i class="bi bi-list-check"></i> チェックリスト
+              </a>` : ""}
+            ${p.active === true ? `
+              <button class="btn btn-sm btn-outline-danger btn-delete-property float-end" data-id="${p.id}">
+                <i class="bi bi-trash"></i> 無効化
+              </button>
+            ` : `
+              <button class="btn btn-sm btn-success btn-activate-property float-end" data-id="${p.id}">
+                <i class="bi bi-check2-circle"></i> 有効化
+              </button>
+            `}
           </div>
         </div>
       </div>
@@ -113,6 +123,20 @@ const PropertiesPage = {
       btn.addEventListener("click", () => {
         const prop = this.propertyList.find((p) => p.id === btn.dataset.id);
         if (prop) this.deleteProperty(prop);
+      });
+    });
+
+    container.querySelectorAll(".btn-activate-property").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const prop = this.propertyList.find((p) => p.id === btn.dataset.id);
+        if (!prop) return;
+        try {
+          await API.properties.activate(prop.id);
+          showToast("完了", `${prop.name} を有効化しました`, "success");
+          await this.loadProperties();
+        } catch (e) {
+          showToast("エラー", `有効化失敗: ${e.message}`, "error");
+        }
       });
     });
   },
@@ -136,6 +160,34 @@ const PropertiesPage = {
       ? new Date(property.purchaseDate.seconds ? property.purchaseDate.seconds * 1000 : property.purchaseDate).toISOString().split("T")[0]
       : "";
     document.getElementById("propertySkills").value = (property?.requiredSkills || []).join(",");
+    document.getElementById("propertySelectionMethod").value = property?.selectionMethod || "ownerConfirm";
+    document.getElementById("propertyCleaningRequiredCount").value = property?.cleaningRequiredCount || 1;
+    document.getElementById("propertyNumber").value = property?.propertyNumber || "";
+    document.getElementById("propertyColor").value = property?.color || "#0d6efd";
+
+    // 直前点検設定
+    const inspection = property?.inspection || {};
+    document.getElementById("propertyInspectionEnabled").checked = !!inspection.enabled;
+    document.getElementById("propertyInspectionRequiredCount").value = inspection.requiredCount || 1;
+    document.getElementById("propertyInspectionPeriodStart").value = inspection.periodStart || "";
+    document.getElementById("propertyInspectionPeriodEnd").value = inspection.periodEnd || "";
+
+    // 繰り返しモード
+    const recur = !!inspection.recurYearly;
+    const recurCb = document.getElementById("propertyInspectionRecurYearly");
+    recurCb.checked = recur;
+    this.populateMonthDaySelects();
+    const recurStart = inspection.recurStart || "";  // "MM-DD"
+    const recurEnd = inspection.recurEnd || "";
+    const [rsm, rsd] = recurStart.split("-");
+    const [rem, red] = recurEnd.split("-");
+    document.getElementById("propertyInspectionRecurStartMonth").value = rsm || "5";
+    document.getElementById("propertyInspectionRecurStartDay").value = rsd || "1";
+    document.getElementById("propertyInspectionRecurEndMonth").value = rem || "10";
+    document.getElementById("propertyInspectionRecurEndDay").value = red || "31";
+    this.toggleInspectionPeriodBlocks(recur);
+    recurCb.onchange = () => this.toggleInspectionPeriodBlocks(recurCb.checked);
+
     document.getElementById("propertyNotes").value = property?.notes || "";
 
     this.modal.show();
@@ -166,6 +218,29 @@ const PropertiesPage = {
       purchasePrice: Number(document.getElementById("propertyPurchasePrice").value) || 0,
       purchaseDate: document.getElementById("propertyPurchaseDate").value || null,
       requiredSkills,
+      selectionMethod: document.getElementById("propertySelectionMethod").value || "ownerConfirm",
+      cleaningRequiredCount: Number(document.getElementById("propertyCleaningRequiredCount").value) || 1,
+      propertyNumber: Number(document.getElementById("propertyNumber").value) || null,
+      color: document.getElementById("propertyColor").value || null,
+      inspection: (() => {
+        const recur = !!document.getElementById("propertyInspectionRecurYearly").checked;
+        const pad = (v) => String(v).padStart(2, "0");
+        const rsm = document.getElementById("propertyInspectionRecurStartMonth").value;
+        const rsd = document.getElementById("propertyInspectionRecurStartDay").value;
+        const rem = document.getElementById("propertyInspectionRecurEndMonth").value;
+        const red = document.getElementById("propertyInspectionRecurEndDay").value;
+        return {
+          enabled: !!document.getElementById("propertyInspectionEnabled").checked,
+          requiredCount: Number(document.getElementById("propertyInspectionRequiredCount").value) || 1,
+          recurYearly: recur,
+          // 繰り返し時は recurStart/End を MM-DD 形式で保存
+          recurStart: recur ? `${pad(rsm)}-${pad(rsd)}` : null,
+          recurEnd: recur ? `${pad(rem)}-${pad(red)}` : null,
+          // 通常期間は recur=false 時のみ有効
+          periodStart: recur ? null : (document.getElementById("propertyInspectionPeriodStart").value || null),
+          periodEnd: recur ? null : (document.getElementById("propertyInspectionPeriodEnd").value || null),
+        };
+      })(),
       notes: document.getElementById("propertyNotes").value.trim(),
     };
 
@@ -194,6 +269,28 @@ const PropertiesPage = {
     } catch (e) {
       showToast("エラー", `無効化に失敗しました: ${e.message}`, "error");
     }
+  },
+
+  populateMonthDaySelects() {
+    const monthSels = ["propertyInspectionRecurStartMonth", "propertyInspectionRecurEndMonth"];
+    const daySels = ["propertyInspectionRecurStartDay", "propertyInspectionRecurEndDay"];
+    monthSels.forEach(id => {
+      const el = document.getElementById(id);
+      if (el && !el.options.length) {
+        el.innerHTML = Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}月</option>`).join("");
+      }
+    });
+    daySels.forEach(id => {
+      const el = document.getElementById(id);
+      if (el && !el.options.length) {
+        el.innerHTML = Array.from({length:31},(_,i)=>`<option value="${i+1}">${i+1}日</option>`).join("");
+      }
+    });
+  },
+
+  toggleInspectionPeriodBlocks(recur) {
+    document.getElementById("inspectionPeriodFull")?.classList.toggle("d-none", recur);
+    document.getElementById("inspectionPeriodRecur")?.classList.toggle("d-none", !recur);
   },
 
   escapeHtml(str) {

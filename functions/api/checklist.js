@@ -8,7 +8,101 @@ const { FieldValue } = require("firebase-admin/firestore");
 module.exports = function checklistApi(db) {
   const router = Router();
 
-  // ===== テンプレート =====
+  // ===== ツリー構造テンプレート (新UI用) =====
+
+  // マスタツリー取得
+  router.get("/master", async (req, res) => {
+    try {
+      const doc = await db.collection("checklistMaster").doc("main").get();
+      if (!doc.exists) return res.status(404).json({ error: "マスタ未投入" });
+      res.json(doc.data());
+    } catch (e) {
+      console.error("マスタ取得エラー:", e);
+      res.status(500).json({ error: "マスタの取得に失敗しました" });
+    }
+  });
+
+  // 物件テンプレート(ツリー)取得
+  router.get("/templates/:propertyId/tree", async (req, res) => {
+    try {
+      const { propertyId } = req.params;
+      const doc = await db.collection("checklistTemplates").doc(propertyId).get();
+      if (!doc.exists) return res.status(404).json({ error: "テンプレート未作成", propertyId });
+      res.json({ id: doc.id, ...doc.data() });
+    } catch (e) {
+      console.error("テンプレート取得エラー:", e);
+      res.status(500).json({ error: "テンプレートの取得に失敗しました" });
+    }
+  });
+
+  // 物件テンプレート(ツリー)保存 ※オーナーのみ、areas全体を差し替える想定
+  router.put("/templates/:propertyId/tree", async (req, res) => {
+    try {
+      if (req.user.role !== "owner") {
+        return res.status(403).json({ error: "オーナー権限が必要です" });
+      }
+      const { propertyId } = req.params;
+      const { areas, _meta } = req.body;
+      if (!Array.isArray(areas)) {
+        return res.status(400).json({ error: "areas配列が必要です" });
+      }
+      const data = {
+        propertyId,
+        areas,
+        _meta: _meta || null,
+        updatedAt: FieldValue.serverTimestamp(),
+        version: (req.body.version || 1)
+      };
+      await db.collection("checklistTemplates").doc(propertyId).set(data, { merge: true });
+      res.json({ id: propertyId, ...data });
+    } catch (e) {
+      console.error("テンプレート保存エラー:", e);
+      res.status(500).json({ error: "テンプレートの保存に失敗しました" });
+    }
+  });
+
+  // 別物件 or マスタからコピー ※オーナーのみ
+  // body: { sourceType: "master" | "template", sourcePropertyId?: string }
+  router.post("/templates/:propertyId/copyFrom", async (req, res) => {
+    try {
+      if (req.user.role !== "owner") {
+        return res.status(403).json({ error: "オーナー権限が必要です" });
+      }
+      const { propertyId } = req.params;
+      const { sourceType, sourcePropertyId } = req.body;
+
+      let sourceData;
+      if (sourceType === "master") {
+        const doc = await db.collection("checklistMaster").doc("main").get();
+        if (!doc.exists) return res.status(404).json({ error: "マスタが存在しません" });
+        sourceData = doc.data();
+      } else if (sourceType === "template" && sourcePropertyId) {
+        const doc = await db.collection("checklistTemplates").doc(sourcePropertyId).get();
+        if (!doc.exists) return res.status(404).json({ error: "コピー元テンプレートが存在しません" });
+        sourceData = doc.data();
+      } else {
+        return res.status(400).json({ error: "sourceType(master/template) と sourcePropertyId(template時) が必要です" });
+      }
+
+      const data = {
+        propertyId,
+        sourcePropertyId: sourceType === "template" ? sourcePropertyId : null,
+        copiedFrom: sourceType,
+        copiedAt: FieldValue.serverTimestamp(),
+        _meta: sourceData._meta || null,
+        areas: sourceData.areas || [],
+        updatedAt: FieldValue.serverTimestamp(),
+        version: 1
+      };
+      await db.collection("checklistTemplates").doc(propertyId).set(data);
+      res.json({ id: propertyId, ...data });
+    } catch (e) {
+      console.error("テンプレートコピーエラー:", e);
+      res.status(500).json({ error: "テンプレートのコピーに失敗しました" });
+    }
+  });
+
+  // ===== レガシー: フラット構造テンプレート (旧UI用、当面残す) =====
 
   // テンプレート一覧
   router.get("/templates", async (req, res) => {
