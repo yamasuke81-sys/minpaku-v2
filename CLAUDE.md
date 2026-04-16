@@ -25,11 +25,11 @@
 
 ### 未対応要件（次セッションで着手予定）
 
-#### 優先度高(直近指摘)
-- **4/16 予約と清掃募集の実態不整合** — 1件の確認要 (Airbnb Not availableの残存の可能性)
-- **横カレンダー 宿泊イベントをバー高さ統一**: 現状のセル塗りつぶしではなく、清掃募集バーと同じ太さのバー形式に変更。バー内に宿泊人数、左端に名簿ドット(GAS版同等)
-- **代理回答後の自動スクロール抑止**: 回答後 `renderCalendar()` で「今日」まで scrollLeft がリセットされる → 元のスクロール位置を保持
-- **スタッフ回答マークが小さい** — 現状font-size 18px を更に大きく、またはアイコン化
+#### 解消済み（2026-04-16 追加対応）
+- ~~4/16 予約と清掃募集の実態不整合~~: `syncIcal.js` の `extractGuestName` が "Airbnb (Not available)" 形式を弾けず再ingestしていた → 正規表現を `/not available/i` に修正。既存ブロックは `cancel-not-available.js` + `delete-orphan-recruitments.js` で除去
+- ~~横カレンダー 宿泊イベントをバー高さ統一~~: 予約セルを `flex` バー (height:22px, border-radius:11px) に変更、バー内に名簿ドット+宿泊人数表示
+- ~~代理回答後の自動スクロール抑止~~: `_initialScrollDone` フラグで初回のみ「今日」へスクロール、再描画時は `prevScrollLeft` を維持
+- ~~スタッフ回答マークが小さい~~: font-size 18px → 28px、シンボルも ●/▲/✖ → ◎/△/× に変更
 
 #### 優先度中
 - **直前点検の表示対応** (workType=pre_inspection のシフト/募集もカレンダーに出す)

@@ -33,9 +33,11 @@ const MyRecruitmentPage = {
     container.innerHTML = `
       <div class="page-header">
         <h2><i class="bi bi-calendar-check"></i> 清掃スケジュール</h2>
-        <div class="d-flex align-items-center gap-2">
-          <input type="month" class="form-control form-control-sm" style="width:150px;" id="myCalMonth">
-          <button class="btn btn-sm btn-outline-primary" id="btnMyCalToday">今日</button>
+        <div class="d-flex align-items-center gap-1">
+          <button class="btn btn-sm btn-outline-secondary" id="btnMyCalPrev" title="前の月" style="min-width:36px;">◀</button>
+          <input type="month" class="form-control form-control-sm" style="width:140px;" id="myCalMonth">
+          <button class="btn btn-sm btn-outline-secondary" id="btnMyCalNext" title="次の月" style="min-width:36px;">▶</button>
+          <button class="btn btn-sm btn-outline-primary ms-2" id="btnMyCalToday">今日</button>
         </div>
       </div>
       <div class="d-flex flex-wrap gap-3 mb-3 text-muted" style="font-size:13px;">
@@ -43,10 +45,35 @@ const MyRecruitmentPage = {
         <span><span style="background:#003580;display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:middle;"></span> Booking.com</span>
         <span><span style="background:#198754;display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;"></span> 名簿提出済み</span>
         <span><span style="background:#dc3545;display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;"></span> 名簿未提出</span>
-        <span><span style="display:inline-block;width:12px;height:12px;border:2px solid #dc3545;border-radius:2px;vertical-align:middle;"></span> 確定済</span>
+        <span><span style="display:inline-block;width:12px;height:12px;background:#a7c7ff;border-radius:2px;vertical-align:middle;"></span> 確定済</span>
         <span>👤 あなた</span>
       </div>
-      <div id="myCalContainer" style="overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--radius,8px);border:1px solid var(--border,#e2e8f0);"></div>
+      <style>
+        #myCalContainer .col-resizer { opacity:0; transition:opacity 0.15s; }
+        #myCalContainer .col-resizer:hover, #myCalContainer .col-resizer:active { opacity:1; }
+        #myCalContainer .sticky-col:hover .col-resizer { opacity:0.5; }
+        @media (hover: none) { #myCalContainer .col-resizer { opacity:0.35; } }
+        /* セル罫線を1箇所に集約。TDは全て border:0 とし、行 tr / ブロック単位で線を引く */
+        #myCalContainer table { border-collapse:separate; border-spacing:0; }
+        #myCalContainer table td, #myCalContainer table th { border:0; background-clip:padding-box; }
+        /* 日付ヘッダーの下線 */
+        #myCalContainer thead th { border-bottom:1px solid #dee2e6; }
+        /* sticky 左列の右側セパレータ */
+        #myCalContainer .sticky-col { border-right:2px solid #dee2e6; }
+        /* 物件ブロック (宿泊+清掃) の下端のみ線: 同一物件内の宿泊段と清掃段の間には線を引かない */
+        #myCalContainer tr[data-row-type="recruit"] > td { border-bottom:1px solid #dee2e6; }
+        /* スタッフ行の上端に線 (スタッフ同士を区切る) */
+        #myCalContainer tr.staff-row > td { border-top:1px solid #e9ecef; }
+        /* セクション見出しの下線 */
+        #myCalContainer tr.section-header > td { border-bottom:2px solid #adb5bd; }
+        /* thead / セクション見出しを縦・横スクロール両方で固定 */
+        #myCalContainer thead th { position:sticky; top:0; z-index:6; }
+        #myCalContainer thead th.sticky-col { z-index:15; }
+        /* セクション見出しは横スクロールでも左端に貼り付けて常時読めるようにする */
+        #myCalContainer tr.section-header > td { position:sticky; top:65px; left:0; z-index:8; }
+        #myCalContainer tr.section-header > td > .section-content { position:sticky; left:10px; display:inline-block; padding-left:4px; }
+      </style>
+      <div id="myCalContainer" style="position:relative;overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--radius,8px);border:1px solid var(--border,#e2e8f0);"></div>
 
       <!-- 回答モーダル -->
       <div class="modal fade" id="responseModal" tabindex="-1">
@@ -109,11 +136,26 @@ const MyRecruitmentPage = {
       this._calMonth = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
       const monthInput = document.getElementById("myCalMonth");
       monthInput.value = this._calMonth;
-      monthInput.addEventListener("change", () => { this._calMonth = monthInput.value; this.renderCalendar(); });
+      monthInput.addEventListener("change", () => {
+        this._calMonth = monthInput.value;
+        this._initialScrollDone = false; // 月切替時は「今日」へ再スクロール
+        this.renderCalendar();
+      });
+      const shiftMonth = (delta) => {
+        const [y, m] = (this._calMonth || "").split("-").map(Number);
+        const d = new Date(y, (m || 1) - 1 + delta, 1);
+        this._calMonth = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+        monthInput.value = this._calMonth;
+        this._initialScrollDone = false;
+        this.renderCalendar();
+      };
+      document.getElementById("btnMyCalPrev").addEventListener("click", () => shiftMonth(-1));
+      document.getElementById("btnMyCalNext").addEventListener("click", () => shiftMonth(1));
       document.getElementById("btnMyCalToday").addEventListener("click", () => {
         const n = new Date();
         this._calMonth = n.getFullYear() + "-" + String(n.getMonth() + 1).padStart(2, "0");
         monthInput.value = this._calMonth;
+        this._initialScrollDone = false; // 「今日」ボタン押下時は今日へ再スクロール
         this.renderCalendar();
       });
 
@@ -227,6 +269,8 @@ const MyRecruitmentPage = {
 
   renderCalendar() {
     const container = document.getElementById("myCalContainer");
+    // 再描画前のスクロール位置を保持
+    const prevScrollLeft = container ? container.scrollLeft : 0;
     const ym = (this._calMonth || "").split("-");
     const year = parseInt(ym[0]) || new Date().getFullYear();
     const month = parseInt(ym[1]) || (new Date().getMonth() + 1);
@@ -293,27 +337,39 @@ const MyRecruitmentPage = {
       }
     });
 
-    // スタイル（拡大）— stickyW はセッション間で保持
-    const cellH = "48px";
-    const stickyW = (this._stickyW || 190) + "px";
-    const colW = "52px";
+    // スタイル — 左列幅はセッション間で保持 (物件/スタッフ共通)
+    const cellH = "44px";             // スタッフ行の高さ
+    const propRowH = "24px";          // 物件の各段 (宿泊/清掃) の高さ (清掃pill高さに合わせる)
+    const stickyWN = (this._stickyW || 140);
+    const stickyW = stickyWN + "px";
+    const colWN = 36;
+    const colW = colWN + "px";        // 最小セル幅
 
-    let html = `
-      <div class="d-flex align-items-center gap-2 mb-2 small text-muted">
-        <span>左列の幅:</span>
-        <input type="range" min="130" max="320" step="10" id="myCalStickyW" value="${parseInt(stickyW, 10)}" style="width:200px;">
-        <span id="myCalStickyWVal">${stickyW}</span>
-      </div>
-      <table class="table table-sm table-hover mb-0 align-middle" style="font-size:13px;white-space:nowrap;border-collapse:collapse;min-width:calc(${stickyW} + ${allDates.length} * ${colW});">`;
+    // 予約ソース別の色
+    const bookingColor = (src, fallback) => {
+      const s = (src || "").toLowerCase();
+      if (s.includes("airbnb")) return "#ff5a5f";
+      if (s.includes("booking")) return "#003580";
+      return fallback;
+    };
+
+    // 非表示中の物件一覧 (セクション見出し内に復旧ボタンを出す)
+    const hiddenProps = this.minpakuProperties.filter(p => this._propertyVisibility[p.id] === false);
+
+    // border-collapse:separate + border-spacing:0 にしないとセルの境界線がバー (z-index) の前面に描画される
+    let html = `<table class="table table-sm table-hover mb-0 align-middle" style="font-size:13px;white-space:nowrap;border-collapse:separate;border-spacing:0;min-width:calc(${stickyW} + ${allDates.length} * ${colW});">`;
 
     // ===== ヘッダー =====
     html += `<thead class="table-light">`;
 
-    // 行1: 月ラベル
-    html += `<tr><th rowspan="2" class="text-center" style="position:sticky;left:0;z-index:3;background:#f8f9fa;min-width:${stickyW};max-width:${stickyW};border-right:2px solid #dee2e6;font-size:14px;vertical-align:middle;">日付</th>`;
+    // 行1: 月ラベル (日付TH 内に列幅 ±ボタン埋め込み / sticky で常時表示)
+    html += `<tr><th rowspan="2" class="text-center sticky-col" style="position:sticky;left:0;z-index:15;background:#f8f9fa;min-width:${stickyW};max-width:${stickyW};font-size:14px;font-weight:600;vertical-align:middle;padding:6px 10px 6px 4px;">
+      日付
+      <div class="col-resizer" title="ドラッグで列幅を変更" style="position:absolute;top:0;right:0;width:8px;height:100%;cursor:col-resize;z-index:4;user-select:none;background:repeating-linear-gradient(to bottom, rgba(108,117,125,0.45) 0 4px, transparent 4px 8px);touch-action:none;"></div>
+    </th>`;
     months.forEach(m => {
       const cur = m.month === month && m.year === year;
-      html += `<th colspan="${m.days}" class="text-center" style="background:${cur ? "#f8f9fa" : "#e9ecef"};border:1px solid #dee2e6;font-size:15px;font-weight:600;">${m.year}/${m.month}月</th>`;
+      html += `<th colspan="${m.days}" class="text-center" style="background:${cur ? "#f8f9fa" : "#e9ecef"};font-size:15px;font-weight:600;">${m.year}/${m.month}月</th>`;
     });
     html += "</tr>";
 
@@ -325,7 +381,7 @@ const MyRecruitmentPage = {
       const hasBooking = !!bookingsByDate[dd.dateStr];
       const dowColor = dow === 0 ? "#dc3545" : (dow === 6 ? "#0d6efd" : "");
       const bg = isToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : "#f8f9fa");
-      html += `<th class="text-center${hasBooking ? " cal-date-hd" : ""}" data-cal-date="${dd.dateStr}" style="min-width:${colW};height:42px;font-size:14px;${dowColor ? "color:" + dowColor + ";" : ""}background:${bg};border:1px solid #dee2e6;cursor:${hasBooking ? "pointer" : "default"};vertical-align:middle;"><div style="font-size:14px;font-weight:600;">${dd.day}</div><div style="font-size:12px;">${dayNames[dow]}</div></th>`;
+      html += `<th class="text-center${hasBooking ? " cal-date-hd" : ""}" data-cal-date="${dd.dateStr}" style="min-width:${colW};height:42px;font-size:14px;${dowColor ? "color:" + dowColor + ";" : ""}background:${bg};cursor:${hasBooking ? "pointer" : "default"};vertical-align:middle;"><div style="font-size:14px;font-weight:600;">${dd.day}</div><div style="font-size:12px;">${dayNames[dow]}</div></th>`;
     });
     html += "</tr>";
     html += `</thead><tbody>`;
@@ -333,82 +389,151 @@ const MyRecruitmentPage = {
     // ===== 物件セクション =====
     const visibleProps = this.minpakuProperties.filter(p => this._propertyVisibility[p.id] !== false);
     if (this.minpakuProperties.length > 0) {
-      // セクション見出し
-      html += `<tr><td style="position:sticky;left:0;z-index:2;background:#eef5ff;font-weight:bold;font-size:13px;padding:6px 10px;border-right:2px solid #dee2e6;" colspan="${allDates.length + 1}">
-        <i class="bi bi-building"></i> 物件別 宿泊・募集状況
-        <small class="text-muted ms-2">(目のアイコンで表示切替)</small>
+      // セクション見出し (非表示物件の復旧ボタンもここに)
+      const restoreButtons = hiddenProps.length
+        ? hiddenProps.map(p => `<button type="button" class="prop-restore ms-1" data-prop-id="${p.id}" title="${this.esc(p.name)} を再表示" style="border:1px solid #ced4da;background:#fff;border-radius:4px;padding:2px 6px;font-size:12px;cursor:pointer;">
+            <span class="badge" style="background:${p._color};color:#fff;">${p._num}</span> <i class="bi bi-eye text-muted"></i>
+          </button>`).join("")
+        : "";
+      html += `<tr class="section-header"><td style="background:#eef5ff;font-weight:bold;font-size:13px;padding:6px 10px;" colspan="${allDates.length + 1}">
+        <span class="section-content">
+          <i class="bi bi-building"></i> 物件別 宿泊・募集状況
+          ${hiddenProps.length ? `<span class="text-muted ms-2" style="font-weight:normal;font-size:11px;">非表示${hiddenProps.length}件:</span>${restoreButtons}` : `<small class="text-muted ms-2">(目のアイコンで表示切替)</small>`}
+        </span>
       </td></tr>`;
 
-      // 各物件行
+      // 各物件は常に 2 段 (1段目=宿泊バー / 2段目=清掃募集)。
+      // 同日 CI/CO は半セル吸収で同一セル内に並べる (レーン分離なし)。
+      // 非表示の物件は描画をスキップ (復旧は見出しの目アイコンボタンから)。
       this.minpakuProperties.forEach(p => {
         const visible = this._propertyVisibility[p.id] !== false;
-        const bookStarts = bookingsByPropStart[p.id] || {};
-        const bookByDate = bookingsByPropDate[p.id] || {};
+        if (!visible) return;
         const recruitByD = recruitByPropDate[p.id] || {};
+        const rangeStart = allDates[0].dateStr;
+        const rangeEnd = allDates[allDates.length - 1].dateStr;
+        const propBookings = this.bookings.filter(b =>
+          b.propertyId === p.id && b.checkIn && b.checkOut &&
+          b.checkIn <= rangeEnd && b.checkOut >= rangeStart
+        );
+        const fallbackColor = p._color || "#0d6efd";
 
-        html += `<tr data-prop-row="${p.id}" style="${visible ? "" : "opacity:0.35;"}">`;
-        html += `<td class="fw-medium" style="position:sticky;left:0;z-index:2;background:#f9fafb;min-width:${stickyW};max-width:${stickyW};border-right:2px solid #dee2e6;height:${cellH};vertical-align:middle;font-size:13px;padding:4px 8px;white-space:normal;word-break:break-all;line-height:1.3;">
-          <span class="badge me-1" style="background:${p._color};color:#fff;">${p._num}</span>${this.esc(p.name)}
-          <button class="btn btn-sm btn-link p-0 ms-1 prop-toggle" data-prop-id="${p.id}" title="${visible ? "非表示にする" : "表示する"}" style="vertical-align:middle;">
-            <i class="bi ${visible ? "bi-eye" : "bi-eye-slash"} text-muted"></i>
-          </button>
+        // ---- 1段目: 宿泊バー ----
+        html += `<tr data-prop-row="${p.id}" data-row-type="stay" style="${visible ? "" : "opacity:0.35;"}">`;
+        // 物件名セル (rowspan=2 で清掃段と結合)。右端にドラッグハンドル
+        html += `<td rowspan="2" class="fw-medium sticky-col" style="position:sticky;left:0;z-index:10;background:#f9fafb;min-width:${stickyW};max-width:${stickyW};vertical-align:middle;font-size:13px;padding:4px 10px 4px 6px;line-height:1.3;">
+          <div style="display:flex;align-items:center;gap:4px;">
+            <button type="button" class="prop-toggle" data-prop-id="${p.id}" title="非表示にする" style="flex-shrink:0;padding:2px 4px;border:1px solid #ced4da;background:#fff;border-radius:4px;cursor:pointer;min-width:26px;min-height:26px;line-height:1;">
+              <i class="bi bi-eye" style="color:#6c757d;font-size:14px;"></i>
+            </button>
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+              <span class="badge me-1" style="background:${p._color};color:#fff;">${p._num}</span>${this.esc(p.name)}
+            </span>
+          </div>
+          <div class="col-resizer" title="ドラッグで列幅を変更" style="position:absolute;top:0;right:0;width:8px;height:100%;cursor:col-resize;z-index:4;user-select:none;background:repeating-linear-gradient(to bottom, rgba(108,117,125,0.45) 0 4px, transparent 4px 8px);touch-action:none;"></div>
         </td>`;
 
-        if (!visible) {
-          // 折り畳み時: 横線のみの薄い行
-          for (let i = 0; i < allDates.length; i++) {
-            html += `<td style="border:1px solid #dee2e6;height:${cellH};background:#f8f9fa;"></td>`;
+        allDates.forEach(dd => {
+          if (!visible) {
+            html += `<td style="height:${propRowH};background:#f8f9fa;padding:0;"></td>`;
+            return;
           }
-        } else {
-          // 予約バー: colspan で連泊
-          const skipTbl = {};
-          for (let i = 0; i < allDates.length; i++) {
-            if (skipTbl[i]) continue;
-            const dd = allDates[i];
-            const starts = bookStarts[dd.dateStr];
-            const hasRecruit = !!recruitByD[dd.dateStr];
+          const d = dd.dateStr;
+          // この日をカバーする予約を検索 (CI / CO / middle を分離)
+          let starting = null, ending = null, middle = null;
+          for (const b of propBookings) {
+            if (b.checkIn === d) starting = b;
+            else if (b.checkOut === d) ending = b;
+            else if (b.checkIn < d && d < b.checkOut) middle = b;
+          }
+          const isHdToday = dd.dateStr === todayStr;
+          const tdBg = isHdToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : "#fff");
 
-            if (starts && starts.length) {
-              const b = starts[0];
-              const ciD = new Date(b.checkIn + "T00:00:00");
-              const coD = new Date(b.checkOut + "T00:00:00");
-              const nights = Math.max(1, Math.round((coD - ciD) / 86400000));
-              const span = Math.min(nights, allDates.length - i);
-              for (let k = 1; k < span; k++) skipTbl[i + k] = true;
+          // セグメント描画 (バー高さ = 清掃pillと同じ 20px 固定、上下中央)
+          // z-index:2 でセル罫線より前面に表示
+          const barTopStyle = "top:50%;transform:translateY(-50%);height:20px;";
+          let segs = "";
+          if (ending) {
+            const c = bookingColor(ending.source, fallbackColor);
+            segs += `<div style="position:absolute;left:0;right:50%;${barTopStyle}background:${c};border-top-right-radius:999px;border-bottom-right-radius:999px;z-index:2;"></div>`;
+          }
+          if (middle) {
+            const c = bookingColor(middle.source, fallbackColor);
+            segs += `<div style="position:absolute;left:0;right:0;${barTopStyle}background:${c};z-index:2;"></div>`;
+          }
+          if (starting) {
+            const c = bookingColor(starting.source, fallbackColor);
+            segs += `<div style="position:absolute;left:50%;right:0;${barTopStyle}background:${c};border-top-left-radius:999px;border-bottom-left-radius:999px;z-index:2;"></div>`;
+            // 名簿ドット (CIの右半分、左寄せ)
+            const hasGuest = !!this.guestMap[starting.checkIn];
+            const dotColor = hasGuest ? "#198754" : "#dc3545";
+            const dotTitle = hasGuest ? "名簿提出済み" : "名簿未提出";
+            segs += `<span style="position:absolute;left:calc(50% + 4px);top:50%;transform:translateY(-50%);width:9px;height:9px;border-radius:50%;background:${dotColor};border:1.5px solid #fff;z-index:4;" title="${dotTitle}"></span>`;
+          }
 
-              let bg = "rgba(13,110,253,0.18)", borderColor = p._color || "#0d6efd";
-              if (b.source.includes("airbnb")) bg = "rgba(255,90,95,0.22)";
-              else if (b.source.includes("booking")) bg = "rgba(0,53,128,0.22)";
-              const countLabel = b.guestCount > 0 ? `${b.guestCount}名` : "";
-              const hasGuest = !!this.guestMap[b.checkIn];
-              const dotColor = hasGuest ? "#198754" : "#dc3545";
-              const dotTitle = hasGuest ? "名簿提出済み" : "名簿未提出";
-              // 予約の checkOut 日 (checkOutDate) に募集があるか
-              const recCheckOut = recruitByD[b.checkOut];
-              const pill = recCheckOut ? this._recruitPill(recCheckOut) : "";
-
-              html += `<td colspan="${span}" class="cal-date-hd" data-cal-date="${b.checkIn}" style="background:${bg};border:1px solid #dee2e6;border-left:4px solid ${borderColor};font-size:13px;height:${cellH};padding:2px 6px;cursor:pointer;text-align:left;vertical-align:middle;white-space:nowrap;overflow:hidden;">
-                <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${dotColor};vertical-align:middle;margin-right:5px;" title="${dotTitle}"></span>
-                <span style="font-weight:600;">${countLabel}</span>
-                ${nights > 1 ? `<span class="text-muted ms-1" style="font-size:11px;">${nights}泊</span>` : ""}
-                ${pill ? `<span class="float-end">${pill}</span>` : ""}
-              </td>`;
-            } else if (hasRecruit) {
-              // 予約バー外だが募集が存在（別予約のcheckOut日等）
-              const r = recruitByD[dd.dateStr];
-              html += `<td class="text-center" style="border:1px solid #dee2e6;height:${cellH};background:${!dd.isCurrent ? "#e9ecef" : "#fff"};vertical-align:middle;padding:2px;">${this._recruitPill(r)}</td>`;
+          // ラベル (宿泊人数) 表示: 連泊なら CI+1 日 (中間セル中央)、1泊なら CI+CO 境界を跨いで中央
+          let labelTarget = null;
+          if (middle) {
+            const ciNext = new Date(middle.checkIn + "T00:00:00");
+            ciNext.setDate(ciNext.getDate() + 1);
+            if (d === ciNext.toLocaleDateString("sv-SE")) labelTarget = middle;
+          } else if (starting) {
+            const coD = new Date(starting.checkOut + "T00:00:00");
+            const ciD = new Date(starting.checkIn + "T00:00:00");
+            const n = Math.round((coD - ciD) / 86400000);
+            if (n === 1) labelTarget = starting;
+          }
+          if (labelTarget) {
+            const coD = new Date(labelTarget.checkOut + "T00:00:00");
+            const ciD = new Date(labelTarget.checkIn + "T00:00:00");
+            const n = Math.round((coD - ciD) / 86400000);
+            // 泊数は表示しない。人数のみ
+            const txt = labelTarget.guestCount > 0 ? `${labelTarget.guestCount}名` : "";
+            // ラベルは「名簿ドットの右隣に左寄せ」で配置。
+            // 名簿ドットは CI の右半分左端 = starting セル内 left:50% + 4px、width 9px + border
+            // ラベル開始位置 = ドット直後 (約 17-20px 右)
+            if (n === 1) {
+              // 1泊: CI セル内、50%+18px から右にラベル (CO セル側にはみ出す)
+              segs += `<span style="position:absolute;left:calc(50% + 18px);top:50%;transform:translateY(-50%);color:#fff;font-size:13px;font-weight:600;text-align:left;white-space:nowrap;z-index:3;pointer-events:none;">${txt}</span>`;
             } else {
-              const bgEmpty = !dd.isCurrent ? "#e9ecef" : "#fff";
-              html += `<td style="border:1px solid #dee2e6;height:${cellH};background:${bgEmpty};"></td>`;
+              // 連泊: CI+1 セル内に配置、left:-colW/2 + 18px で名簿ドット直後からラベル開始
+              segs += `<span style="position:absolute;left:calc(-${colWN / 2}px + 18px);top:50%;transform:translateY(-50%);color:#fff;font-size:13px;font-weight:600;text-align:left;white-space:nowrap;z-index:3;pointer-events:none;">${txt}</span>`;
             }
           }
-        }
+
+          const ref = starting || middle || ending;
+          const clickAttr = ref ? ` class="cal-date-hd" data-cal-date="${ref.checkIn}"` : "";
+          const cursor = ref ? "cursor:pointer;" : "";
+          html += `<td${clickAttr} style="position:relative;height:${propRowH};background:${tdBg};padding:0;overflow:visible;${cursor}">${segs}</td>`;
+        });
+        html += "</tr>";
+
+        // ---- 2段目: 清掃募集 ----
+        html += `<tr data-prop-row="${p.id}" data-row-type="recruit" style="${visible ? "" : "opacity:0.35;"}">`;
+        allDates.forEach(dd => {
+          if (!visible) {
+            html += `<td style="border-left:1px solid #dee2e6;border-right:1px solid #dee2e6;border-bottom:1px solid #dee2e6;height:${propRowH};background:#f8f9fa;padding:0;"></td>`;
+            return;
+          }
+          const r = recruitByD[dd.dateStr];
+          const isHdToday = dd.dateStr === todayStr;
+          const cellBg = isHdToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : "#fff");
+          if (r) {
+            html += `<td class="text-center" style="height:${propRowH};background:${cellBg};padding:1px;vertical-align:middle;">${this._recruitPill(r)}</td>`;
+          } else {
+            html += `<td style="height:${propRowH};background:${cellBg};padding:0;"></td>`;
+          }
+        });
         html += "</tr>";
       });
 
       // セクション見出し: スタッフ
-      html += `<tr><td style="position:sticky;left:0;z-index:2;background:#eef5ff;font-weight:bold;font-size:13px;padding:6px 10px;border-right:2px solid #dee2e6;" colspan="${allDates.length + 1}">
-        <i class="bi bi-people"></i> スタッフ別 回答状況
+      html += `<tr class="section-header"><td style="background:#eef5ff;font-weight:bold;font-size:13px;padding:6px 10px;" colspan="${allDates.length + 1}">
+        <span class="section-content">
+          <i class="bi bi-people"></i> スタッフ別 回答状況
+          <button type="button" id="btnShowOnlyMe" class="ms-2" style="border:1px solid ${this._showOnlyMe ? '#0d6efd' : '#ced4da'};background:${this._showOnlyMe ? '#0d6efd' : '#fff'};color:${this._showOnlyMe ? '#fff' : '#495057'};border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;cursor:pointer;">
+            ${this._showOnlyMe ? '✓ ' : ''}自分だけ <i class="bi bi-eye"></i>
+          </button>
+        </span>
       </td></tr>`;
     }
 
@@ -416,75 +541,86 @@ const MyRecruitmentPage = {
     const isOwner = Auth?.isOwner?.() === true;
     this.staffList.forEach(staff => {
       const isMe = staff.id === this.staffId;
+      // 「自分だけ」モード: 自分以外は描画しない
+      if (this._showOnlyMe && !isMe) return;
       const assigned = Array.isArray(staff.assignedPropertyIds) ? staff.assignedPropertyIds : [];
       const hasAssignments = assigned.length > 0;
-      html += `<tr><td class="fw-medium" style="position:sticky;left:0;z-index:2;background:${isMe ? "#e3f2fd" : "#fff"};min-width:${stickyW};max-width:${stickyW};border-right:2px solid #dee2e6;height:${cellH};font-size:14px;vertical-align:middle;padding:4px 8px;white-space:normal;word-break:break-all;line-height:1.3;">
+      html += `<tr class="staff-row"><td class="fw-medium sticky-col" style="position:sticky;left:0;z-index:10;background:${isMe ? "#e3f2fd" : "#fff"};min-width:${stickyW};max-width:${stickyW};height:${cellH};font-size:14px;vertical-align:middle;padding:4px 10px 4px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3;">
         ${this.esc(staff.name)}${isMe ? " 👤" : ""}${staff.isOwner ? ' <span class="badge bg-info" style="font-size:9px;">OWN</span>' : ""}
+        <div class="col-resizer" title="ドラッグで列幅を変更" style="position:absolute;top:0;right:0;width:8px;height:100%;cursor:col-resize;z-index:4;user-select:none;background:repeating-linear-gradient(to bottom, rgba(108,117,125,0.45) 0 4px, transparent 4px 8px);touch-action:none;"></div>
       </td>`;
 
       allDates.forEach(dd => {
         const isToday = dd.dateStr === todayStr;
-        // この日、このスタッフの担当物件すべてについて募集を探す
-        // オーナーの場合は全物件を対象にする(代理回答できるように)
-        const targetPropIds = (staff.isOwner || !hasAssignments) ? null : assigned;
-        let recruit = null;
-        let recruitProp = null;
+        // このスタッフが対象にしうる物件ID群 (オーナー or 担当未設定は全物件)
+        const targetPropIds = (staff.isOwner || !hasAssignments)
+          ? this.minpakuProperties.map(p => p.id)
+          : assigned;
 
-        if (targetPropIds === null) {
-          // 全物件対象 (オーナー or 担当未設定スタッフ)
-          recruit = recruitByDate[dd.dateStr];
-          recruitProp = recruit ? this.propertyMap[recruit.propertyId] : null;
-        } else {
-          for (const pid of targetPropIds) {
-            const byD = recruitByPropDate[pid];
-            if (byD && byD[dd.dateStr]) {
-              recruit = byD[dd.dateStr];
-              recruitProp = this.propertyMap[pid];
-              break;
-            }
+        // この日の該当募集を全て収集 (物件単位)
+        const cellRecruits = [];
+        for (const pid of targetPropIds) {
+          const byD = recruitByPropDate[pid];
+          if (byD && byD[dd.dateStr]) {
+            cellRecruits.push({ recruit: byD[dd.dateStr], prop: this.propertyMap[pid] });
           }
         }
 
-        if (!recruit) {
+        if (cellRecruits.length === 0) {
           const bg = isToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : "#f9f9f9");
-          html += `<td class="text-center" style="background:${bg};border:1px solid #dee2e6;color:#adb5bd;height:${cellH};vertical-align:middle;">-</td>`;
+          html += `<td class="text-center" style="background:${bg};color:#adb5bd;height:${cellH};vertical-align:middle;">-</td>`;
           return;
         }
 
-        const responses = recruit.responses || [];
-        let resp = "未回答";
-        for (const r of responses) {
-          if (r.staffId === staff.id || r.staffName === staff.name || (r.staffEmail && staff.email && r.staffEmail.toLowerCase() === staff.email.toLowerCase())) {
-            resp = r.response || "未回答"; break;
+        // 各募集ごとに物件バッジ+回答記号のアイテムを生成
+        let anyConfirmed = false;
+        const items = cellRecruits.map(({recruit, prop}) => {
+          const responses = recruit.responses || [];
+          let resp = "未回答";
+          for (const r of responses) {
+            if (r.staffId === staff.id || r.staffName === staff.name || (r.staffEmail && staff.email && r.staffEmail.toLowerCase() === staff.email.toLowerCase())) {
+              resp = r.response || "未回答";
+              break;
+            }
           }
-        }
+          let symbol = "−", symColor = "#adb5bd";
+          if (resp === "◎") { symbol = "●"; symColor = "#198754"; }
+          else if (resp === "△") { symbol = "▲"; symColor = "#cc9a06"; }
+          else if (resp === "×") { symbol = "✖"; symColor = "#dc3545"; }
 
-        let symbol = "−", symColor = "#adb5bd";
-        if (resp === "◎") { symbol = "●"; symColor = "#198754"; }
-        else if (resp === "△") { symbol = "▲"; symColor = "#cc9a06"; }
-        else if (resp === "×") { symbol = "✖"; symColor = "#dc3545"; }
+          let confirmed = false;
+          const sel = (recruit.selectedStaff || "").trim();
+          if (sel && (recruit.status === "選定済" || recruit.status === "スタッフ確定済み")) {
+            confirmed = sel.split(/[,、\s]+/).map(s => s.trim()).includes(staff.name);
+          }
+          if (confirmed) anyConfirmed = true;
 
-        let isConfirmed = false;
-        const sel = (recruit.selectedStaff || "").trim();
-        if (sel && (recruit.status === "選定済" || recruit.status === "スタッフ確定済み")) {
-          isConfirmed = sel.split(/[,、\s]+/).map(s => s.trim()).includes(staff.name);
-        }
+          const clickable = (recruit.status === "スタッフ確定済み") ? isOwner : (isMe || isOwner);
+          const clickMode = (recruit.status === "スタッフ確定済み") ? "detail" : "respond";
+          // 物件番号バッジは回答済みのときのみ表示 (未回答は記号だけ)
+          const propBadge = (resp !== "未回答" && prop)
+            ? `<span style="color:#fff;background:${prop._color};padding:1px 4px;border-radius:3px;font-size:11px;font-weight:700;">${prop._num}</span>`
+            : "";
 
-        const cellBg = isConfirmed ? "#fff5f5" : (isToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : ""));
-        const shadow = isConfirmed ? "box-shadow:inset 0 0 0 2px #dc3545;" : "";
-        // 確定済: オーナーはクリックで詳細モーダルへ、スタッフは閲覧のみ
-        // 確定前: isMe or オーナーなら回答編集可
-        const clickable = (recruit.status === "スタッフ確定済み")
-          ? isOwner
-          : (isMe || isOwner);
-        const clickMode = (recruit.status === "スタッフ確定済み") ? "detail" : "respond";
+          // ● だけ Unicode 文字は上下ずれるので CSS 描画円にする (完全な垂直中央揃え)
+          // ▲ ✖ は Unicode のまま、− は線
+          let symHtml;
+          if (symbol === "●") {
+            symHtml = `<span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:${symColor};vertical-align:middle;"></span>`;
+          } else if (symbol === "▲") {
+            symHtml = `<span style="display:inline-block;color:${symColor};font-size:17px;font-weight:bold;line-height:16px;vertical-align:middle;">▲</span>`;
+          } else if (symbol === "✖") {
+            symHtml = `<span style="display:inline-block;color:${symColor};font-size:17px;font-weight:bold;line-height:16px;vertical-align:middle;">✖</span>`;
+          } else {
+            symHtml = `<span style="display:inline-block;color:${symColor};font-size:14px;font-weight:bold;line-height:16px;vertical-align:middle;">−</span>`;
+          }
+          return `<span class="${clickable ? 'cal-cell-item' : ''}" data-recruit-id="${recruit.id}" data-prop-id="${prop ? prop.id : ''}" data-prop-name="${prop ? this.esc(prop.name) : ''}" data-click-mode="${clickMode}" data-staff-id="${staff.id}" data-staff-name="${this.esc(staff.name)}" data-staff-email="${this.esc(staff.email||"")}" data-is-me="${isMe}" data-date="${dd.dateStr}" style="display:inline-flex;align-items:center;gap:3px;line-height:1;padding:1px 3px;border-radius:4px;${clickable ? 'cursor:pointer;' : ''}">${propBadge}${symHtml}</span>`;
+        });
 
-        // 物件番号+色バッジ (セル左上に小さく)
-        const propBadge = recruitProp
-          ? `<span style="position:absolute;top:1px;left:2px;background:${recruitProp._color};color:#fff;font-size:9px;padding:0 3px;border-radius:2px;line-height:1.2;">${recruitProp._num}</span>`
-          : "";
-
-        html += `<td class="text-center${clickable ? " cal-cell" : ""}" data-date="${dd.dateStr}" data-recruit-id="${recruit.id}" data-click-mode="${clickMode}" data-staff-id="${staff.id}" data-staff-name="${this.esc(staff.name)}" data-staff-email="${this.esc(staff.email||"")}" data-is-me="${isMe}" style="position:relative;cursor:${clickable ? "pointer" : "default"};border:1px solid #dee2e6;${shadow}background:${cellBg};color:${symColor};font-weight:bold;height:${cellH};vertical-align:middle;font-size:18px;">${propBadge}${symbol}</td>`;
+        const cellBg = anyConfirmed ? "#a7c7ff" : (isToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : ""));
+        html += `<td class="text-center" style="background:${cellBg};height:${cellH};vertical-align:middle;padding:2px 3px;white-space:nowrap;">
+          <span style="display:inline-flex;flex-wrap:wrap;gap:3px;justify-content:center;align-items:center;">${items.join("")}</span>
+        </td>`;
       });
       html += "</tr>";
     });
@@ -492,18 +628,51 @@ const MyRecruitmentPage = {
     html += "</tbody></table>";
     container.innerHTML = html;
 
-    // sticky 幅スライダー
-    const stickySlider = document.getElementById("myCalStickyW");
-    const stickyVal = document.getElementById("myCalStickyWVal");
-    if (stickySlider) {
-      stickySlider.addEventListener("input", (e) => {
-        this._stickyW = parseInt(e.target.value, 10) || 190;
-        if (stickyVal) stickyVal.textContent = this._stickyW + "px";
+    // 列幅ドラッグハンドル (PC=マウス / スマホ=タッチ 両対応)
+    const applyStickyW = (newW) => {
+      container.querySelectorAll('.sticky-col').forEach(td => {
+        td.style.minWidth = newW + 'px';
+        td.style.maxWidth = newW + 'px';
       });
-      stickySlider.addEventListener("change", () => this.renderCalendar());
-    }
+    };
+    container.querySelectorAll('.col-resizer').forEach(handle => {
+      const onStart = (startX) => {
+        const startW = this._stickyW || 140;
+        const onMove = (x) => {
+          const newW = Math.max(80, Math.min(360, startW + (x - startX)));
+          this._stickyW = newW;
+          applyStickyW(newW);
+        };
+        const mouseMove = (e) => onMove(e.clientX);
+        const touchMove = (e) => {
+          if (e.touches && e.touches[0]) { e.preventDefault(); onMove(e.touches[0].clientX); }
+        };
+        const end = () => {
+          document.removeEventListener('mousemove', mouseMove);
+          document.removeEventListener('mouseup', end);
+          document.removeEventListener('touchmove', touchMove);
+          document.removeEventListener('touchend', end);
+          document.body.style.userSelect = '';
+        };
+        document.body.style.userSelect = 'none';
+        document.addEventListener('mousemove', mouseMove);
+        document.addEventListener('mouseup', end);
+        document.addEventListener('touchmove', touchMove, { passive: false });
+        document.addEventListener('touchend', end);
+      };
+      handle.addEventListener('mousedown', (e) => { e.preventDefault(); onStart(e.clientX); });
+      handle.addEventListener('touchstart', (e) => {
+        if (e.touches && e.touches[0]) { e.preventDefault(); onStart(e.touches[0].clientX); }
+      }, { passive: false });
+    });
 
-    // 物件表示トグル
+    // 「自分だけ」トグル
+    document.getElementById("btnShowOnlyMe")?.addEventListener("click", () => {
+      this._showOnlyMe = !this._showOnlyMe;
+      this.renderCalendar();
+    });
+
+    // 物件表示トグル (セル内の目アイコンボタン)
     container.querySelectorAll(".prop-toggle").forEach(btn => {
       btn.addEventListener("click", (ev) => {
         ev.stopPropagation();
@@ -513,10 +682,20 @@ const MyRecruitmentPage = {
       });
     });
 
-    // 確定済セル → オーナーはその場で詳細モーダル表示(ページ遷移なし)
-    container.querySelectorAll('.cal-cell[data-click-mode="detail"]').forEach(td => {
-      td.addEventListener("click", async () => {
-        const recruitId = td.dataset.recruitId;
+    // 非表示物件の復旧ボタン
+    container.querySelectorAll(".prop-restore").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const pid = btn.dataset.propId;
+        this._propertyVisibility[pid] = true;
+        this.renderCalendar();
+      });
+    });
+
+    // 確定済セル item → オーナーはその場で詳細モーダル表示(ページ遷移なし)
+    container.querySelectorAll('.cal-cell-item[data-click-mode="detail"]').forEach(el => {
+      el.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const recruitId = el.dataset.recruitId;
         const recruit = this.recruitments.find(r => r.id === recruitId);
         if (!recruit) return;
         if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
@@ -526,28 +705,35 @@ const MyRecruitmentPage = {
       });
     });
 
-    // イベント: セルタップ → 回答 or 代理回答(オーナー)
-    container.querySelectorAll('.cal-cell[data-click-mode="respond"]').forEach(td => {
-      td.addEventListener("click", () => {
-        const dateStr = td.dataset.date;
-        const recruitId = td.dataset.recruitId;
-        const recruit = this.recruitments.find(r => r.id === recruitId) || recruitByDate[dateStr];
+    // イベント: item タップ → 回答 or 代理回答(オーナー)
+    container.querySelectorAll('.cal-cell-item[data-click-mode="respond"]').forEach(el => {
+      el.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const dateStr = el.dataset.date;
+        const recruitId = el.dataset.recruitId;
+        const recruit = this.recruitments.find(r => r.id === recruitId);
         if (!recruit) return;
         this._pendingRecruitId = recruit.id;
         this._pendingDate = dateStr;
-        this._pendingStaffId = td.dataset.staffId;
-        this._pendingStaffName = td.dataset.staffName;
-        this._pendingStaffEmail = td.dataset.staffEmail;
-        this._pendingIsMe = td.dataset.isMe === "true";
+        this._pendingStaffId = el.dataset.staffId;
+        this._pendingStaffName = el.dataset.staffName;
+        this._pendingStaffEmail = el.dataset.staffEmail;
+        this._pendingIsMe = el.dataset.isMe === "true";
+        const propName = el.dataset.propName || recruit.propertyName || "";
         const suffix = this._pendingIsMe ? "" : `（${this._pendingStaffName} さんとして代理回答）`;
-        document.getElementById("responseModalTitle").textContent = `${this.fmtDate(dateStr)} 回答 ${suffix}`;
-        document.getElementById("responseModalInfo").textContent = recruit.propertyName ? `${this.fmtDate(dateStr)} ${recruit.propertyName}` : this.fmtDate(dateStr);
+        document.getElementById("responseModalTitle").textContent = `${this.fmtDate(dateStr)} ${propName} 回答 ${suffix}`;
+        document.getElementById("responseModalInfo").textContent = propName ? `${this.fmtDate(dateStr)} / ${propName}` : this.fmtDate(dateStr);
         document.getElementById("triangleReasonArea").classList.add("d-none");
         document.getElementById("triangleReason").value = "";
         // 既存回答がある場合は「取消」ボタン表示
-        const existing = (recruit.responses || []).find(r =>
-          r.staffId === this._pendingStaffId || r.staffName === this._pendingStaffName
-        );
+        // staffId / staffName / staffEmail のいずれかで照合 (過去のデータ形式互換)
+        const pendingEmail = (this._pendingStaffEmail || "").toLowerCase();
+        const existing = (recruit.responses || []).find(r => {
+          if (r.staffId && this._pendingStaffId && r.staffId === this._pendingStaffId) return true;
+          if (r.staffName && this._pendingStaffName && r.staffName === this._pendingStaffName) return true;
+          if (r.staffEmail && pendingEmail && r.staffEmail.toLowerCase() === pendingEmail) return true;
+          return false;
+        });
         let cancelBtn = document.getElementById("btnCancelMyResponse");
         if (!cancelBtn) {
           const footer = document.querySelector("#responseModal .modal-body");
@@ -594,9 +780,22 @@ const MyRecruitmentPage = {
       });
     });
 
-    // 今日に自動スクロール
-    const todayTh = container.querySelector(`[data-cal-date="${todayStr}"]`);
-    if (todayTh) container.scrollLeft = todayTh.offsetLeft - 100;
+    // 初回描画時のみ「今日」へスクロール。再描画時は元の位置を維持
+    if (this._initialScrollDone) {
+      container.scrollLeft = prevScrollLeft;
+    } else {
+      const todayTh = container.querySelector(`[data-cal-date="${todayStr}"]`);
+      if (todayTh) {
+        // offsetLeft は sticky 状態や ancestor 構造でずれることがあるので
+        // getBoundingClientRect ベースで「sticky 左列の直後 ~40px」に今日が来るよう調整
+        const thRect = todayTh.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        const targetOffset = (this._stickyW || 140) + 40; // sticky列直後から 40px
+        const delta = thRect.left - containerRect.left - targetOffset;
+        container.scrollLeft = Math.max(0, container.scrollLeft + delta);
+      }
+      this._initialScrollDone = true;
+    }
   },
 
   _pendingRecruitId: null,
@@ -628,7 +827,14 @@ const MyRecruitmentPage = {
         proxy: !isMe,  // 代理回答フラグ
       };
 
-      const idx = responses.findIndex(r => r.staffId === targetStaffId);
+      // 既存エントリは staffId / staffName / staffEmail のいずれかで検出して上書き (過去のデータ形式互換)
+      const targetEmailLower = (targetStaffEmail || "").toLowerCase();
+      const idx = responses.findIndex(r => {
+        if (r.staffId && targetStaffId && r.staffId === targetStaffId) return true;
+        if (r.staffName && targetStaffName && r.staffName === targetStaffName) return true;
+        if (r.staffEmail && targetEmailLower && r.staffEmail.toLowerCase() === targetEmailLower) return true;
+        return false;
+      });
       if (idx >= 0) responses[idx] = entry; else responses.push(entry);
 
       await ref.update({ responses, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
@@ -655,9 +861,14 @@ const MyRecruitmentPage = {
       if (data.status === "スタッフ確定済み") throw new Error("確定済みの募集は取消できません");
       const targetStaffId = this._pendingStaffId || this.staffId;
       const targetStaffName = this._pendingStaffName || "";
-      const responses = (data.responses || []).filter(r =>
-        r.staffId !== targetStaffId && r.staffName !== targetStaffName
-      );
+      const targetEmail = (this._pendingStaffEmail || "").toLowerCase();
+      // staffId / staffName / staffEmail のいずれかに一致するエントリを削除 (過去のデータ形式互換)
+      const responses = (data.responses || []).filter(r => {
+        if (r.staffId && targetStaffId && r.staffId === targetStaffId) return false;
+        if (r.staffName && targetStaffName && r.staffName === targetStaffName) return false;
+        if (r.staffEmail && targetEmail && r.staffEmail.toLowerCase() === targetEmail) return false;
+        return true;
+      });
       await ref.update({ responses, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
       bootstrap.Modal.getInstance(document.getElementById("responseModal"))?.hide();
       showToast("取消完了", `${this.fmtDate(this._pendingDate)} の回答を取り消しました`, "success");
@@ -670,19 +881,16 @@ const MyRecruitmentPage = {
     }
   },
 
-  // 募集ピル (物件行内で使用)
+  // 募集ピル (物件行内で使用) — ステータスは色で表現、中は「清」or「直」1文字のみ
+  // 高さ20px、文字を上下左右完全に中央
   _recruitPill(r) {
     if (!r) return "";
-    let label = "", bg = "#f5f5f5", color = "#333";
-    if (r.status === "スタッフ確定済み") { label = "確定"; bg = "#198754"; color = "#fff"; }
-    else if (r.status === "選定済") { label = "選定"; bg = "#ffc107"; color = "#333"; }
-    else if (r.status === "募集中") { label = "募集"; bg = "#fd7e14"; color = "#fff"; }
-    else { label = (r.status||"").slice(0,2); }
+    let bg = "#adb5bd", color = "#fff";
+    if (r.status === "スタッフ確定済み") { bg = "#198754"; color = "#fff"; }
+    else if (r.status === "選定済") { bg = "#ffc107"; color = "#333"; }
+    else if (r.status === "募集中") { bg = "#fd7e14"; color = "#fff"; }
     const wtChar = r.workType === "pre_inspection" ? "直" : "清";
-    const wtColor = r.workType === "pre_inspection" ? "#6f42c1" : "#0d6efd";
-    return `<span style="display:inline-flex;align-items:center;gap:2px;font-size:10px;padding:1px 4px;background:${bg};color:${color};border-radius:3px;font-weight:600;">
-      <span style="background:${wtColor};color:#fff;padding:0 3px;border-radius:2px;font-size:9px;">${wtChar}</span>${label}
-    </span>`;
+    return `<span style="display:inline-flex;align-items:center;justify-content:center;height:20px;min-width:30px;padding:0 10px;background:${bg};color:${color};border-radius:999px;font-weight:700;font-size:13px;line-height:1;text-align:center;position:relative;z-index:2;box-sizing:border-box;">${wtChar}</span>`;
   },
 
   esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; },

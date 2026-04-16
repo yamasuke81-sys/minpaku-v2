@@ -33,10 +33,10 @@ function extractGuestName(event, platform) {
   const summary = (event.summary || "").trim();
   if (!summary) return "";
 
-  // Airbnb: "予約済み - ゲスト名" or "Reserved - Guest Name" or "Not available"
+  // Airbnb: "予約済み - ゲスト名" or "Reserved - Guest Name" or "Not available" or "Airbnb (Not available)"
   if (platform === "Airbnb") {
-    // ブロック・非公開
-    if (/^(not available|closed|blocked)/i.test(summary)) return "";
+    // ブロック・非公開（"Airbnb (Not available)" 形式や括弧付きにも対応）
+    if (/not available|closed|blocked/i.test(summary)) return "";
     // "予約済み - XXX" → XXX
     const m = summary.match(/^(?:予約済み|Reserved|Booked)\s*[-–—]\s*(.+)/i);
     if (m) return m[1].trim();
@@ -45,7 +45,7 @@ function extractGuestName(event, platform) {
 
   // Booking.com: "ゲスト名" or "CLOSED"
   if (platform === "Booking.com") {
-    if (/^(closed|not available)/i.test(summary)) return "";
+    if (/closed|not available/i.test(summary)) return "";
     return summary;
   }
 
