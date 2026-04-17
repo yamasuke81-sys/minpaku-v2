@@ -36,7 +36,7 @@ module.exports = function notificationsApi(db) {
    *   }
    */
   router.post("/test", requireOwner, async (req, res) => {
-    const { type, message, targets } = req.body;
+    const { type, message, targets, vars } = req.body;
 
     // バリデーション
     if (!type || typeof type !== "string") {
@@ -51,12 +51,14 @@ module.exports = function notificationsApi(db) {
 
     const title = `【テスト送信】${type}`;
     const body = message;
+    // vars を受け取って customMessage 内 {変数} の置換に使う (フロントが systemVariables のサンプル値を渡す想定)
+    const testVars = (vars && typeof vars === "object") ? vars : {};
     const results = [];
 
     // オーナーLINE送信
     if (targets.ownerLine) {
       try {
-        const r = await notifyOwner(db, type, title, body);
+        const r = await notifyOwner(db, type, title, body, testVars);
         results.push({ target: "ownerLine", ...r });
       } catch (e) {
         console.error("オーナーLINE送信エラー:", e);
@@ -67,7 +69,7 @@ module.exports = function notificationsApi(db) {
     // グループLINE送信
     if (targets.groupLine) {
       try {
-        const r = await notifyGroup(db, type, title, body);
+        const r = await notifyGroup(db, type, title, body, testVars);
         results.push({ target: "groupLine", ...r });
       } catch (e) {
         console.error("グループLINE送信エラー:", e);
@@ -88,7 +90,7 @@ module.exports = function notificationsApi(db) {
           if (!staffData.lineUserId) continue;
 
           try {
-            const r = await notifyStaff(db, doc.id, type, title, body);
+            const r = await notifyStaff(db, doc.id, type, title, body, testVars);
             staffResults.push({ staffId: doc.id, staffName: staffData.name, ...r });
           } catch (e) {
             console.error(`スタッフ${doc.id} LINE送信エラー:`, e);

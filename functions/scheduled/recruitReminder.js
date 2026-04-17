@@ -73,18 +73,29 @@ module.exports = async function recruitReminder(event) {
 
       // リマインドメッセージ
       const baseUrl = process.env.APP_BASE_URL || "https://minpaku-v2.web.app/";
+      const recruitUrl = `${baseUrl.replace(/\/$/, "")}/#/my-recruitment`;
       const text = [
         `📋 募集回答のお願い`,
         ``,
         `${recruitment.checkoutDate} ${recruitment.propertyName || ""}`,
         `清掃スタッフ募集にまだ回答がありません。`,
         ``,
-        `回答はこちら: ${baseUrl}#/my-recruitment`,
+        `回答はこちら: ${recruitUrl}`,
       ].join("\n");
+
+      // 変数置換用 vars (customMessage 使用時)
+      const remindVars = {
+        date: recruitment.checkoutDate,
+        checkoutDate: recruitment.checkoutDate,
+        property: recruitment.propertyName || "",
+        propertyName: recruitment.propertyName || "",
+        url: recruitUrl,
+        count: String((recruitment.responses || []).length),
+      };
 
       // 未回答スタッフに個別送信
       const sends = unreplied.map(s =>
-        notifyStaff(db, s.id, "recruit_remind", `リマインド: ${recruitment.checkoutDate}`, text)
+        notifyStaff(db, s.id, "recruit_remind", `リマインド: ${recruitment.checkoutDate}`, text, remindVars)
       );
       const results = await Promise.allSettled(sends);
       sentCount += results.filter(r => r.status === "fulfilled" && r.value?.success).length;

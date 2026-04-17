@@ -192,11 +192,20 @@ module.exports = async function onBookingChange(event) {
 
     // アプリベースURL取得（settings/notifications.appUrl or デフォルト）
     const appUrl = settings?.appUrl || "https://minpaku-v2.web.app";
+    const recruitUrl = `${appUrl}/#/my-recruitment`;
 
     const flexMessage = buildRecruitmentFlex(
       { checkoutDate: checkOut, propertyName, memo },
       appUrl
     );
+
+    // 変数置換用 vars (customMessage で {date}/{property}/{url}/{memo} が置換される)
+    const baseVars = {
+      date: checkOut,
+      property: propertyName || "",
+      url: recruitUrl,
+      memo: memo || "",
+    };
 
     // オーナーLINE通知
     if (targets.ownerLine) {
@@ -204,7 +213,8 @@ module.exports = async function onBookingChange(event) {
         db,
         "recruit_start",
         `清掃スタッフ募集: ${checkOut}`,
-        `【清掃スタッフ募集】\n${checkOut} ${propertyName}\n${memo}`
+        `【清掃スタッフ募集】\n${checkOut} ${propertyName}\n${memo}\n回答: ${recruitUrl}`,
+        baseVars
       );
     }
 
@@ -214,7 +224,8 @@ module.exports = async function onBookingChange(event) {
         db,
         "recruit_start",
         `清掃スタッフ募集: ${checkOut}`,
-        flexMessage
+        flexMessage,
+        baseVars
       );
     }
 
@@ -229,7 +240,8 @@ module.exports = async function onBookingChange(event) {
           doc.id,
           "recruit_start",
           `清掃スタッフ募集: ${checkOut}`,
-          flexMessage
+          flexMessage,
+          baseVars
         )
       );
       await Promise.all(notifyPromises);

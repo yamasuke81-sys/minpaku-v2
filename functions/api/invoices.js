@@ -5,7 +5,7 @@
 const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
 const { getStorage } = require("firebase-admin/storage");
-const { notifyOwner } = require("../utils/lineNotify");
+const { notifyOwner, getNotificationSettings_ } = require("../utils/lineNotify");
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
@@ -506,10 +506,17 @@ module.exports = function invoicesApi(db) {
       try {
         const [y, m] = String(data.yearMonth || "").split("-");
         const total = Number(data.total || 0);
+        // appUrl を settings から取得 (ハードコード回避)
+        let appUrl = "https://minpaku-v2.web.app";
+        try {
+          const { settings } = await getNotificationSettings_(db);
+          appUrl = settings?.appUrl || appUrl;
+        } catch (_) { /* デフォルト */ }
+        const invoiceUrl = `${appUrl.replace(/\/$/, "")}/#/invoices`;
         const body = `📨 請求書が提出されました\n\n` +
           `${data.staffName || "スタッフ"} さんから ${m || data.yearMonth}月分の請求書が届きました。\n` +
           `合計: ¥${total.toLocaleString()}\n` +
-          `確認: https://minpaku-v2.web.app/#/invoices`;
+          `確認: ${invoiceUrl}`;
         await notifyOwner(db, "invoice_submitted",
           `請求書提出: ${data.staffName || ""} (${data.yearMonth})`,
           body,
@@ -518,7 +525,7 @@ module.exports = function invoicesApi(db) {
             staff: data.staffName || "",
             property: "",
             total: `¥${total.toLocaleString()}`,
-            url: "https://minpaku-v2.web.app/#/invoices"
+            url: invoiceUrl,
           });
       } catch (notifyErr) {
         console.error("請求書提出通知エラー（無視）:", notifyErr);

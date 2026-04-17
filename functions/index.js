@@ -265,6 +265,12 @@ exports.onShiftCreated = onDocumentCreated(
   require("./triggers/onShiftCreated")
 );
 
+// チェックリスト原紙更新→該当物件の未着手 checklist を最新化 (方針B自動同期)
+exports.onChecklistTemplateUpdate = onDocumentUpdated(
+  "checklistTemplates/{propertyId}",
+  require("./triggers/onChecklistTemplateUpdate")
+);
+
 // スキャンログ作成→確認待ちLINE通知（AI秘書「黒子」× 経理部連携）
 exports.onScanLogCreated = onDocumentCreated(
   "scanLogs/{logId}",
@@ -275,6 +281,13 @@ exports.onScanLogCreated = onDocumentCreated(
 exports.onChecklistComplete = onDocumentUpdated(
   "checklists/{checklistId}",
   require("./triggers/onChecklistComplete")
+);
+
+// チェックリスト laundry フィールド変更→対応する通知 type を送信
+// (laundry_put_out / laundry_collected / laundry_stored)
+exports.onChecklistLaundryChange = onDocumentUpdated(
+  "checklists/{checklistId}",
+  require("./triggers/onChecklistLaundryChange")
 );
 
 // エラーログ作成→AI翻訳+LINE通知（情シス機能）

@@ -29,12 +29,14 @@ const NotificationsPage = {
       { name: "guest",    label: "ゲスト名",        sample: "John Smith", source: "booking.guestName" },
       { name: "nights",   label: "宿泊数",          sample: "2",          source: "自動計算" },
       { name: "site",     label: "予約サイト",       sample: "Airbnb",     source: "booking.source" },
+      { name: "url",      label: "名簿ページURL",   sample: "https://minpaku-v2.web.app/#/guests", source: "自動生成" },
     ],
     // スタッフ系で使える変数
     staff: [
       { name: "staff",    label: "スタッフ名",  sample: "山田太郎",      source: "staff.name" },
       { name: "date",     label: "対象日",      sample: "2026/04/20",   source: "shift.date" },
       { name: "property", label: "物件名",      sample: "長浜民泊A",     source: "shift.propertyName" },
+      { name: "url",      label: "マイページURL", sample: "https://minpaku-v2.web.app/#/my-dashboard", source: "自動生成" },
     ],
     // 経理系で使える変数
     invoice: [
@@ -46,10 +48,19 @@ const NotificationsPage = {
     ],
     // 清掃系で使える変数
     cleaning: [
-      { name: "date",     label: "清掃日",      sample: "2026/04/20",   source: "checklist.date" },
-      { name: "property", label: "物件名",      sample: "長浜民泊A",     source: "checklist.propertyName" },
-      { name: "staff",    label: "スタッフ名",  sample: "山田太郎",      source: "checklist.staffName" },
-      { name: "time",     label: "完了時刻",    sample: "14:30",        source: "checklist.completedAt" },
+      { name: "date",     label: "清掃日",          sample: "2026/04/20",   source: "checklist.date" },
+      { name: "property", label: "物件名",          sample: "長浜民泊A",     source: "checklist.propertyName" },
+      { name: "staff",    label: "スタッフ名",       sample: "山田太郎",      source: "checklist.staffName" },
+      { name: "time",     label: "完了時刻",        sample: "14:30",        source: "checklist.completedAt" },
+      { name: "url",      label: "チェックリストURL", sample: "https://minpaku-v2.web.app/#/my-checklist/xxx", source: "自動生成 (該当シフトのチェックリストページ)" },
+    ],
+    // ランドリー系で使える変数 (アクション違いは通知type別に定義、action 変数は使わない)
+    laundry: [
+      { name: "date",     label: "清掃日",          sample: "2026/04/20",   source: "checklist.checkoutDate" },
+      { name: "property", label: "物件名",          sample: "長浜民泊A",     source: "checklist.propertyName" },
+      { name: "staff",    label: "担当スタッフ",     sample: "山田太郎",     source: "checklist.laundry.*.by.name" },
+      { name: "time",     label: "実施時刻",         sample: "19:30",       source: "checklist.laundry.*.at" },
+      { name: "url",      label: "チェックリストURL", sample: "https://minpaku-v2.web.app/#/my-checklist/xxx", source: "自動生成 (該当シフトのチェックリストページ)" },
     ],
   },
 
@@ -82,14 +93,23 @@ const NotificationsPage = {
     { key: "invoice_submitted", label: "請求書提出通知", desc: "スタッフが請求書を送信した時にオーナーへ通知", icon: "bi-send-check", group: "invoice", varGroup: "invoice", defaultTiming: "immediate",
       defaultMsg: "📨 請求書が提出されました\n\n{staff} さんから {month}月分の請求書が届きました。\n合計: {total}\n確認: {url}" },
     { key: "cleaning_done", label: "清掃完了通知", desc: "清掃チェックリスト完了時にオーナーに通知", icon: "bi-clipboard-check", group: "cleaning", varGroup: "cleaning", defaultTiming: "immediate",
-      defaultMsg: "✨ 清掃完了\n\n{date} {property}\n{staff}さんが{time}に清掃を完了しました。" },
+      defaultMsg: "✨ 清掃完了\n\n{date} {property}\n{staff}さんが{time}に清掃を完了しました。\n詳細: {url}" },
+    { key: "laundry_put_out", label: "ランドリー 出した", desc: "スタッフが「洗濯物を出した」ボタンを押した時にオーナー等へ通知", icon: "bi-arrow-up-circle", group: "cleaning", varGroup: "laundry", defaultTiming: "immediate",
+      defaultMsg: "🧺 ランドリー 出した\n\n{date} {property}\n{staff}さんが{time}に洗濯物を出しました。\n詳細: {url}" },
+    { key: "laundry_collected", label: "ランドリー 回収した", desc: "スタッフが「洗濯物を回収した」ボタンを押した時にオーナー等へ通知", icon: "bi-arrow-down-circle", group: "cleaning", varGroup: "laundry", defaultTiming: "immediate",
+      defaultMsg: "🧺 ランドリー 回収した\n\n{date} {property}\n{staff}さんが{time}に洗濯物を回収しました。\n詳細: {url}" },
+    { key: "laundry_stored", label: "ランドリー 収納した", desc: "スタッフが「洗濯物を収納した」ボタンを押した時にオーナー等へ通知", icon: "bi-check2-circle", group: "cleaning", varGroup: "laundry", defaultTiming: "immediate",
+      defaultMsg: "🧺 ランドリー 収納した\n\n{date} {property}\n{staff}さんが{time}に洗濯物を収納しました。\n詳細: {url}" },
   ],
 
   async render(container) {
     container.innerHTML = `
       <div class="page-header">
         <h2><i class="bi bi-bell"></i> 通知設定</h2>
-        <button class="btn btn-primary" id="btnSaveNotifySettings"><i class="bi bi-check-lg"></i> 保存</button>
+        <div class="d-flex align-items-center gap-2">
+          <span id="notifyAutoSaveStatus" style="min-width:110px;text-align:right;"></span>
+          <small class="text-muted d-none d-sm-inline">(自動保存)</small>
+        </div>
       </div>
 
       <!-- LINE接続設定 -->
@@ -146,9 +166,10 @@ const NotificationsPage = {
       <div id="notifyGroup_cleaning" class="mb-4"></div>
     `;
 
-    document.getElementById("btnSaveNotifySettings").addEventListener("click", () => this.saveSettings());
     await this.loadSettings();
     this.renderNotifications();
+    // 自動保存をセットアップ (各入力の change/input で debounced 保存)
+    this._setupAutoSave();
   },
 
   async loadSettings() {
@@ -456,11 +477,14 @@ const NotificationsPage = {
     const ta = document.querySelector(`textarea[data-key="${key}"][data-field="customMessage"]`);
     const vars = this.systemVariables[varGroup] || [];
 
-    // メッセージをサンプル値で置換して送信
+    // メッセージをサンプル値で置換してプレビュー用 body を作成
     let message = ta ? ta.value : "";
     vars.forEach(v => {
       message = message.replace(new RegExp(`\\{${v.name}\\}`, "g"), v.sample);
     });
+    // バックエンドの resolveMessage_ で customMessage を再置換する時に使うサンプル値 map
+    const sampleVars = {};
+    vars.forEach(v => { sampleVars[v.name] = v.sample; });
 
     const get = (field) => {
       const el = document.querySelector(`[data-key="${key}"][data-field="${field}"]`);
@@ -487,7 +511,7 @@ const NotificationsPage = {
       const res = await fetch(this.TEST_API_URL, {
         method: "POST",
         headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ type: key, message: `【テスト】${message}`, targets }),
+        body: JSON.stringify({ type: key, message: `【テスト】${message}`, targets, vars: sampleVars }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -504,7 +528,7 @@ const NotificationsPage = {
     }
   },
 
-  async saveSettings() {
+  async saveSettings(opts = {}) {
     try {
       const channels = {};
       this.notifications.forEach(n => {
@@ -580,9 +604,67 @@ const NotificationsPage = {
 
       await db.collection("settings").doc("notifications").set(data, { merge: true });
       this.settings = { ...this.settings, ...data };
-      showToast("成功", "通知設定を保存しました", "success");
+      if (opts && opts.silent) {
+        this._showAutoSaveIndicator("saved");
+      } else {
+        showToast("成功", "通知設定を保存しました", "success");
+      }
     } catch (e) {
-      showToast("エラー", e.message, "error");
+      if (opts && opts.silent) {
+        this._showAutoSaveIndicator("error", e.message);
+      } else {
+        showToast("エラー", e.message, "error");
+      }
     }
+  },
+
+  // 自動保存の状態表示 (ヘッダーの保存ボタン横に小さく)
+  _showAutoSaveIndicator(state, msg) {
+    const el = document.getElementById("notifyAutoSaveStatus");
+    if (!el) return;
+    if (state === "saving") {
+      el.innerHTML = `<span class="text-muted small"><i class="bi bi-arrow-repeat spin"></i> 保存中…</span>`;
+    } else if (state === "saved") {
+      el.innerHTML = `<span class="text-success small"><i class="bi bi-check-circle-fill"></i> 保存済み</span>`;
+      // 3秒後にフェードアウト
+      setTimeout(() => { if (el.innerHTML.includes("保存済み")) el.innerHTML = ""; }, 3000);
+    } else if (state === "error") {
+      el.innerHTML = `<span class="text-danger small"><i class="bi bi-exclamation-triangle"></i> 保存失敗: ${this._escapeHtml(msg || "")}</span>`;
+    } else {
+      el.innerHTML = "";
+    }
+  },
+
+  _escapeHtml(s) {
+    const d = document.createElement("div"); d.textContent = String(s || ""); return d.innerHTML;
+  },
+
+  // ページ全体の input/change イベントを監視して debounced で自動保存
+  _setupAutoSave() {
+    if (this._autoSaveAttached) return;
+    this._autoSaveAttached = true;
+    const container = document.getElementById("pageContainer") || document.body;
+    const debouncedSave = () => {
+      this._showAutoSaveIndicator("saving");
+      if (this._autoSaveTimer) clearTimeout(this._autoSaveTimer);
+      this._autoSaveTimer = setTimeout(() => {
+        this.saveSettings({ silent: true });
+      }, 800);
+    };
+    container.addEventListener("input", (e) => {
+      // button や non-data 要素からの input イベントは無視
+      const t = e.target;
+      if (!t) return;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT") {
+        debouncedSave();
+      }
+    });
+    container.addEventListener("change", (e) => {
+      const t = e.target;
+      if (!t) return;
+      if (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA") {
+        debouncedSave();
+      }
+    });
   },
 };

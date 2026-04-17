@@ -73,26 +73,36 @@ module.exports = function recruitmentApi(db) {
         const { settings } = await getNotificationSettings_(db);
         const targets = resolveNotifyTargets(settings, "recruit_start");
         if (targets.enabled) {
-          const baseUrl = process.env.APP_BASE_URL || "https://minpaku-v2.web.app/";
-          const flex = buildRecruitmentFlex(data, baseUrl);
+          const appUrl = (settings && settings.appUrl) || process.env.APP_BASE_URL || "https://minpaku-v2.web.app";
+          const recruitUrl = `${appUrl.replace(/\/$/, "")}/#/my-recruitment`;
+          const flex = buildRecruitmentFlex(data, appUrl);
           const title = `募集: ${data.checkoutDate}`;
+          // 変数置換用 vars (customMessage で使う)
+          const baseVars = {
+            date: data.checkoutDate,
+            checkoutDate: data.checkoutDate,
+            property: data.propertyName || "",
+            propertyName: data.propertyName || "",
+            url: recruitUrl,
+            memo: data.memo || "",
+          };
 
           // オーナーLINEに送信
           if (targets.ownerLine) {
             await notifyOwner(db, "recruit_start", title,
-              `🧹 清掃スタッフ募集\n${data.checkoutDate} ${data.propertyName || ""}`,
-              { checkoutDate: data.checkoutDate, propertyName: data.propertyName || "" });
+              `🧹 清掃スタッフ募集\n${data.checkoutDate} ${data.propertyName || ""}\n回答: ${recruitUrl}`,
+              baseVars);
           }
           // グループLINEに送信
           if (targets.groupLine) {
-            await notifyGroup(db, "recruit_start", title, flex);
+            await notifyGroup(db, "recruit_start", title, flex, baseVars);
           }
           // スタッフ個別LINEに送信
           if (targets.staffLine) {
             const staffSnap = await db.collection("staff").where("active", "==", true).get();
             const sends = staffSnap.docs
               .filter(d => d.data().lineUserId)
-              .map(d => notifyStaff(db, d.id, "recruit_start", title, flex));
+              .map(d => notifyStaff(db, d.id, "recruit_start", title, flex, baseVars));
             await Promise.allSettled(sends);
           }
         }
@@ -275,8 +285,15 @@ module.exports = function recruitmentApi(db) {
         const hasIdList = selectedIds.length > 0;
 
         if (hasIdList || selectedNames.length > 0) {
+          // 確定通知用の appUrl + dashboard URL
+          let appUrl = "https://minpaku-v2.web.app";
+          try {
+            const { settings } = await getNotificationSettings_(db);
+            appUrl = settings?.appUrl || appUrl;
+          } catch (_) { /* デフォルトで続行 */ }
+          const dashUrl = `${appUrl.replace(/\/$/, "")}/#/my-dashboard`;
           const staffSnap = await db.collection("staff").where("active", "==", true).get();
-          const text = `✅ 清掃確定のお知らせ\n\n${data.checkoutDate} ${data.propertyName || ""}\nあなたが清掃担当に確定されました。`;
+          const text = `✅ 清掃確定のお知らせ\n\n${data.checkoutDate} ${data.propertyName || ""}\nあなたが清掃担当に確定されました。\n詳細: ${dashUrl}`;
           for (const staffDoc of staffSnap.docs) {
             const sd = staffDoc.data();
             // IDリストがあればID照合優先、なければ名前照合にフォールバック
@@ -286,7 +303,15 @@ module.exports = function recruitmentApi(db) {
             if (isSelected && sd.lineUserId) {
               await notifyStaff(db, staffDoc.id, "staff_confirm",
                 `確定: ${data.checkoutDate}`, text,
-                { checkoutDate: data.checkoutDate, propertyName: data.propertyName || "", staffName: sd.name });
+                {
+                  date: data.checkoutDate,
+                  checkoutDate: data.checkoutDate,
+                  property: data.propertyName || "",
+                  propertyName: data.propertyName || "",
+                  staff: sd.name,
+                  staffName: sd.name,
+                  url: dashUrl,
+                });
             }
           }
         }
