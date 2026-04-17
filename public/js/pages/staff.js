@@ -238,10 +238,14 @@ const StaffPage = {
             <button class="btn btn-outline-primary btn-edit" title="編集">
               <i class="bi bi-pencil"></i>
             </button>
+            ${!s.active ? `<button class="btn btn-outline-success btn-reactivate" title="非アクティブ解除">
+              <i class="bi bi-arrow-counterclockwise"></i>
+            </button>` : ""}
             <button class="btn btn-outline-danger btn-delete" title="無効化">
               <i class="bi bi-trash"></i>
             </button>
           </div>
+          ${!s.active && s.inactiveReason ? `<div class="text-muted small mt-1"><i class="bi bi-info-circle"></i> ${this.escapeHtml(s.inactiveReason)}</div>` : ""}
         </td>
       </tr>
     `).join("");
@@ -259,6 +263,31 @@ const StaffPage = {
         const id = e.currentTarget.closest("tr").dataset.id;
         const staff = this.staffList.find((s) => s.id === id);
         if (staff) this.deleteStaff(staff);
+      });
+    });
+
+    tbody.querySelectorAll(".btn-reactivate").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        const id = e.currentTarget.closest("tr").dataset.id;
+        const staff = this.staffList.find((s) => s.id === id);
+        if (!staff) return;
+        const ok = await showConfirm(`${staff.name} を再アクティブ化しますか？未回答カウントもリセットされます。`, "再アクティブ化");
+        if (!ok) return;
+        try {
+          const token = await firebase.auth().currentUser.getIdToken();
+          const res = await fetch(`https://api-5qrfx7ujcq-an.a.run.app/staff/${id}/reactivate`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({ error: res.statusText }));
+            throw new Error(err.error || "失敗");
+          }
+          showToast("完了", `${staff.name} を再アクティブ化しました`, "success");
+          await this.loadStaff(!this.showInactive);
+        } catch (e) {
+          showToast("エラー", `再アクティブ化失敗: ${e.message}`, "error");
+        }
       });
     });
 

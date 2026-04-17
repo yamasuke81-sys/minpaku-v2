@@ -8,6 +8,7 @@ const {
   notifyStaff, notifyGroup, notifyOwner,
   buildRecruitmentFlex, resolveNotifyTargets, getNotificationSettings_,
 } = require("../utils/lineNotify");
+const { addRecruitmentToActiveStaff, removeRecruitmentFromStaff } = require("../utils/inactiveStaff");
 
 module.exports = function recruitmentApi(db) {
   const router = Router();
@@ -83,6 +84,7 @@ module.exports = function recruitmentApi(db) {
             checkoutDate: data.checkoutDate,
             property: data.propertyName || "",
             propertyName: data.propertyName || "",
+            work: data.workType === "pre_inspection" ? "直前点検" : "清掃",
             url: recruitUrl,
             memo: data.memo || "",
           };
@@ -109,6 +111,9 @@ module.exports = function recruitmentApi(db) {
       } catch (notifyErr) {
         console.error("募集通知エラー（無視）:", notifyErr);
       }
+
+      // E: pendingRecruitmentIds 更新
+      try { await addRecruitmentToActiveStaff(db, docRef.id); } catch (e) { console.error("addRecruitmentToActiveStaff エラー:", e); }
 
       res.status(201).json({ id: docRef.id, ...data });
     } catch (e) {
@@ -184,6 +189,19 @@ module.exports = function recruitmentApi(db) {
       if (!["◎", "△", "×"].includes(response)) {
         return res.status(400).json({ error: "無効な回答です。◎/△/×で回答してください" });
       }
+      // E: 非アクティブスタッフは回答不可
+      if (staffId) {
+        try {
+          const sDoc = await db.collection("staff").doc(staffId).get();
+          if (sDoc.exists && sDoc.data().active === false) {
+            return res.status(403).json({
+              error: sDoc.data().inactiveReason ||
+                "直近15回の清掃募集について回答がなかったため、非アクティブとなりました。解除する場合はオーナーまでご連絡ください。",
+              inactive: true,
+            });
+          }
+        } catch (_) {}
+      }
       // Upsert: staffIdまたはstaffEmailで既存回答を検索
       const respColl = recruitRef.collection("responses");
       let existingDoc = null;
@@ -205,10 +223,17 @@ module.exports = function recruitmentApi(db) {
       };
       if (existingDoc) {
         await existingDoc.ref.update(responseData);
+      } else {
+        await respColl.add(responseData);
+      }
+      // E: pendingRecruitmentIds から除去
+      try {
+        if (staffId) await removeRecruitmentFromStaff(db, staffId, req.params.id);
+      } catch (e) { console.error("removeRecruitmentFromStaff エラー:", e); }
+      if (existingDoc) {
         res.json({ id: existingDoc.id, updated: true, ...responseData });
       } else {
-        const ref = await respColl.add(responseData);
-        res.status(201).json({ id: ref.id, ...responseData });
+        res.status(201).json({ ok: true, ...responseData });
       }
     } catch (e) {
       console.error("回答エラー:", e);

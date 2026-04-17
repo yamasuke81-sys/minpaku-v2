@@ -19,6 +19,7 @@ const App = {
     notifications: NotificationsPage,
     laundry: LaundryPage,
     checklist: ChecklistPage,
+    "cleaning-flow": CleaningFlowPage,
     reports: ReportsPage,
     command: CommandCenterPage,
     projects: ProjectsPage,
@@ -32,6 +33,7 @@ const App = {
     "my-dashboard": MyDashboardPage,
     "my-recruitment": MyRecruitmentPage,
     "my-checklist": MyChecklistPage,
+    "my-invoice-create": MyInvoiceCreatePage,
   },
 
   init() {

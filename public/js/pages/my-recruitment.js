@@ -130,6 +130,17 @@ const MyRecruitmentPage = {
         ? { name: Auth.currentUser.displayName || "オーナー", email: Auth.currentUser.email || "" }
         : {});
 
+      // E: 非アクティブスタッフは回答操作不可、メッセージを最上部に表示
+      this._isInactive = !isOwner && this.staffDoc && this.staffDoc.active === false;
+      if (this._isInactive) {
+        const msg = this.staffDoc.inactiveReason ||
+          "直近15回の清掃募集について回答がなかったため、非アクティブとなりました。解除する場合はオーナーまでご連絡ください。";
+        const banner = document.createElement("div");
+        banner.className = "alert alert-warning mb-3";
+        banner.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i> <strong>非アクティブ状態です</strong><br>${msg.replace(/\n/g, "<br>")}`;
+        container.insertBefore(banner, container.querySelector("#myCalContainer"));
+      }
+
       await this.loadData();
 
       const now = new Date();
@@ -716,6 +727,11 @@ const MyRecruitmentPage = {
     container.querySelectorAll('.cal-cell-item[data-click-mode="respond"]').forEach(el => {
       el.addEventListener("click", (ev) => {
         ev.stopPropagation();
+        // 非アクティブスタッフは回答UIを開かない
+        if (this._isInactive) {
+          showToast("非アクティブ", this.staffDoc?.inactiveReason || "直近15回の清掃募集について回答がなかったため、非アクティブとなりました。解除する場合はオーナーまでご連絡ください。", "warning");
+          return;
+        }
         const dateStr = el.dataset.date;
         const recruitId = el.dataset.recruitId;
         const recruit = this.recruitments.find(r => r.id === recruitId);

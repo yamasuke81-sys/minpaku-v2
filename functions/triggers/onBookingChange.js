@@ -10,6 +10,44 @@ const {
   resolveNotifyTargets,
   getNotificationSettings_,
 } = require("../utils/lineNotify");
+const { addRecruitmentToActiveStaff } = require("../utils/inactiveStaff");
+
+// before/after のどちらかがキャンセル状態なら日程変更処理は行わない
+function wasCancelledShortcut(before, after, isCancelled) {
+  return isCancelled(before.status) || isCancelled(after.status);
+}
+
+// 指定物件+日付の清掃 shift/recruitment/checklist を削除(同日の他active予約があればスキップ)
+async function cancelCleaningForDate_(db, propertyId, dateStr, excludeBookingId, isCancelled) {
+  if (!propertyId || !dateStr) return;
+  const others = await db.collection("bookings")
+    .where("propertyId", "==", propertyId)
+    .where("checkOut", "==", dateStr)
+    .get();
+  const stillHasActive = others.docs.some(d => {
+    if (d.id === excludeBookingId) return false;
+    return !isCancelled(d.data().status);
+  });
+  if (stillHasActive) {
+    console.log(`[cancelCleaningForDate_] ${dateStr} に他active予約あり、キャンセルスキップ`);
+    return;
+  }
+  const dObj = new Date(dateStr); dObj.setHours(0,0,0,0);
+  const shiftSnap = await db.collection("shifts")
+    .where("propertyId", "==", propertyId)
+    .where("date", "==", dObj)
+    .get();
+  for (const s of shiftSnap.docs) {
+    const cls = await db.collection("checklists").where("shiftId", "==", s.id).get();
+    for (const c of cls.docs) await c.ref.delete();
+    await s.ref.delete();
+  }
+  const recSnap = await db.collection("recruitments")
+    .where("propertyId", "==", propertyId)
+    .where("checkoutDate", "==", dateStr)
+    .get();
+  for (const r of recSnap.docs) await r.ref.delete();
+}
 
 module.exports = async function onBookingChange(event) {
   const admin = require("firebase-admin");
@@ -22,6 +60,31 @@ module.exports = async function onBookingChange(event) {
     const x = String(s || "").toLowerCase();
     return x.includes("cancel") || s === "キャンセル" || s === "キャンセル済み";
   };
+
+  // ========== D: 予約日程変更時の自動処理 ==========
+  // before/after どちらも存在し、両方アクティブの場合に限って判定
+  // ルール:
+  //  - CI/COどちらも変更: 旧CO/新CI 両方の shift/recruitment をキャンセル→新規募集
+  //  - CIのみ変更       : そのまま続行
+  //  - COのみ変更       : 旧COの shift/recruitment をキャンセル→新CO日で再募集
+  // (キャンセル自体は下部で after 非active扱いとしてフロー継続で処理)
+  if (before && after && !wasCancelledShortcut(before, after, isCancelled)) {
+    try {
+      const ciChanged = before.checkIn && after.checkIn && before.checkIn !== after.checkIn;
+      const coChanged = before.checkOut && after.checkOut && before.checkOut !== after.checkOut;
+      const pid = after.propertyId || before.propertyId;
+      if (pid && (coChanged || (ciChanged && coChanged))) {
+        // 旧COの shift/recruitment を削除(同日他active無ければ)
+        await cancelCleaningForDate_(db, pid, before.checkOut, event.params.bookingId, isCancelled);
+        console.log(`[onBookingChange] 日程変更: ${event.params.bookingId} 旧CO=${before.checkOut} → 新CO=${after.checkOut} の清掃キャンセル完了`);
+      } else if (ciChanged && !coChanged) {
+        console.log(`[onBookingChange] CIのみ変更: ${event.params.bookingId} 続行 (清掃維持)`);
+      }
+      // 新CO日付の募集は後段の通常フローで自動生成される
+    } catch (e) {
+      console.error("日程変更処理エラー:", e);
+    }
+  }
 
   // 削除 or キャンセル化: 対応する shifts/recruitments/checklists を削除
   const wasCancelled = before && isCancelled(before.status);
@@ -165,6 +228,7 @@ module.exports = async function onBookingChange(event) {
       propertyId,
       propertyName,
       bookingId,
+      workType: "cleaning",
       status: "募集中",
       selectedStaff: "",
       selectedStaffIds: [],
@@ -175,6 +239,8 @@ module.exports = async function onBookingChange(event) {
     });
     recruitmentId = recruitmentRef.id;
     console.log(`予約 ${bookingId}: 募集自動生成完了 (${checkOut}) recruitmentId=${recruitmentId}`);
+    // E: pendingRecruitmentIds に追加 + しきい値超過で非アクティブ化
+    try { await addRecruitmentToActiveStaff(db, recruitmentId); } catch (e) { console.error("addRecruitmentToActiveStaff エラー:", e); }
   } catch (e) {
     console.error("募集生成エラー:", e);
     return;
@@ -199,10 +265,11 @@ module.exports = async function onBookingChange(event) {
       appUrl
     );
 
-    // 変数置換用 vars (customMessage で {date}/{property}/{url}/{memo} が置換される)
+    // 変数置換用 vars (customMessage で {date}/{property}/{work}/{url}/{memo} が置換される)
     const baseVars = {
       date: checkOut,
       property: propertyName || "",
+      work: "清掃",
       url: recruitUrl,
       memo: memo || "",
     };
@@ -315,8 +382,9 @@ module.exports = async function onBookingChange(event) {
       .where("checkoutDate", "==", checkIn)
       .where("workType", "==", "pre_inspection")
       .limit(1).get();
+    let insRecruitmentId = null;
     if (insRecSnap.empty) {
-      await db.collection("recruitments").add({
+      const insRef = await db.collection("recruitments").add({
         checkoutDate: checkIn,           // 直前点検の実施日(=checkIn)
         propertyId, propertyName,
         bookingId,
@@ -328,7 +396,37 @@ module.exports = async function onBookingChange(event) {
         responses: [],
         createdAt: now, updatedAt: now,
       });
+      insRecruitmentId = insRef.id;
       console.log(`予約 ${bookingId}: 直前点検募集生成 (${checkIn})`);
+      try { await addRecruitmentToActiveStaff(db, insRecruitmentId); } catch (e) { console.error("addRecruitmentToActiveStaff(直前点検) エラー:", e); }
+    }
+
+    // 直前点検の募集通知
+    try {
+      const { settings: s2 } = await getNotificationSettings_(db);
+      const tgt2 = resolveNotifyTargets(s2, "recruit_start");
+      if (!tgt2.enabled || !insRecruitmentId) return;
+      const appUrl2 = s2?.appUrl || "https://minpaku-v2.web.app";
+      const recruitUrl2 = `${appUrl2}/#/my-recruitment`;
+      const memo2 = `直前点検: ゲスト ${guestName || "不明"} (${source || ""})`;
+      const flex2 = buildRecruitmentFlex({ checkoutDate: checkIn, propertyName, memo: memo2 }, appUrl2);
+      const baseVars2 = { date: checkIn, property: propertyName || "", work: "直前点検", url: recruitUrl2, memo: memo2 };
+
+      if (tgt2.ownerLine) {
+        await notifyOwner(db, "recruit_start", `直前点検スタッフ募集: ${checkIn}`,
+          `【直前点検スタッフ募集】\n${checkIn} ${propertyName}\n${memo2}\n回答: ${recruitUrl2}`, baseVars2);
+      }
+      if (tgt2.groupLine) {
+        await notifyGroup(db, "recruit_start", `直前点検スタッフ募集: ${checkIn}`, flex2, baseVars2);
+      }
+      if (tgt2.staffLine) {
+        const staffSnap2 = await db.collection("staff").where("active", "==", true).get();
+        await Promise.all(staffSnap2.docs.map(doc =>
+          notifyStaff(db, doc.id, "recruit_start", `直前点検スタッフ募集: ${checkIn}`, flex2, baseVars2)
+        ));
+      }
+    } catch (notifErr) {
+      console.error("直前点検LINE通知エラー:", notifErr);
     }
   } catch (e) {
     console.error("直前点検 処理エラー:", e);

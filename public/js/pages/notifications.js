@@ -14,12 +14,13 @@ const NotificationsPage = {
   systemVariables: {
     // 募集系で使える変数
     recruit: [
-      { name: "date",     label: "清掃日",       sample: "2026/04/20",  source: "recruitment.checkoutDate" },
-      { name: "property", label: "物件名",       sample: "長浜民泊A",    source: "recruitment.propertyName" },
+      { name: "date",     label: "作業日",        sample: "2026/04/20",  source: "recruitment.checkoutDate" },
+      { name: "property", label: "物件名",        sample: "長浜民泊A",    source: "recruitment.propertyName" },
+      { name: "work",     label: "作業内容",      sample: "清掃",         source: "recruitment.workType (清掃 / 直前点検)" },
       { name: "url",      label: "回答ページURL", sample: "https://minpaku-v2.web.app/#/my-recruitment", source: "自動生成" },
-      { name: "count",    label: "回答数",       sample: "3",           source: "recruitment.responses.length" },
+      { name: "count",    label: "回答数",        sample: "3",           source: "recruitment.responses.length" },
       { name: "staff",    label: "確定スタッフ名", sample: "山田太郎",    source: "recruitment.selectedStaff" },
-      { name: "memo",     label: "メモ",         sample: "BBQ後の片付けあり", source: "recruitment.memo" },
+      { name: "memo",     label: "メモ",          sample: "BBQ後の片付けあり", source: "recruitment.memo" },
     ],
     // 予約系で使える変数
     booking: [
@@ -37,6 +38,7 @@ const NotificationsPage = {
       { name: "date",     label: "対象日",      sample: "2026/04/20",   source: "shift.date" },
       { name: "property", label: "物件名",      sample: "長浜民泊A",     source: "shift.propertyName" },
       { name: "url",      label: "マイページURL", sample: "https://minpaku-v2.web.app/#/my-dashboard", source: "自動生成" },
+      { name: "reason",   label: "理由",        sample: "直近15回の募集に無回答", source: "staff.inactiveReason" },
     ],
     // 経理系で使える変数
     invoice: [
@@ -44,7 +46,7 @@ const NotificationsPage = {
       { name: "staff",    label: "スタッフ名",  sample: "山田太郎",      source: "invoice.staffName" },
       { name: "property", label: "物件名",      sample: "長浜民泊A",     source: "invoice.propertyName" },
       { name: "total",    label: "合計金額",    sample: "¥45,000",      source: "invoice.total" },
-      { name: "url",      label: "確認ページURL", sample: "https://minpaku-v2.web.app/#/my-dashboard", source: "自動生成" },
+      { name: "url",      label: "確認/作成ページURL", sample: "https://minpaku-v2.web.app/#/my-invoice-create", source: "請求書要請: /#/my-invoice-create、提出通知: /#/invoices" },
     ],
     // 清掃系で使える変数
     cleaning: [
@@ -66,16 +68,16 @@ const NotificationsPage = {
 
   // 通知種別ごとに使えるグループを紐付け
   notifications: [
-    { key: "recruit_start", label: "清掃スタッフ募集", desc: "新しい清掃予定に対してスタッフへ募集通知を送信", icon: "bi-megaphone", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
-      defaultMsg: "🧹 清掃スタッフ募集\n\n{date} {property}\n清掃スタッフを募集しています。\n回答をお願いします（◎OK / △微妙 / ×NG）\n\n回答: {url}" },
+    { key: "recruit_start", label: "作業スタッフ募集", desc: "新しい清掃/直前点検に対してスタッフへ募集通知を送信", icon: "bi-megaphone", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
+      defaultMsg: "🧹 {work}スタッフ募集\n\n{date} {property}\n{work}スタッフを募集しています。\n回答をお願いします（◎OK / △微妙 / ×NG）\n\n回答: {url}" },
     { key: "recruit_remind", label: "募集リマインド", desc: "回答が集まらない場合にリマインド送信", icon: "bi-alarm", group: "recruit", varGroup: "recruit", defaultTiming: "evening",
-      defaultMsg: "📋 募集回答のお願い\n\n{date} {property}\nまだ回答が届いていません（現在{count}件）。\n回答: {url}" },
+      defaultMsg: "📋 {work}募集 回答のお願い\n\n{date} {property}\nまだ回答が届いていません（現在{count}件）。\n回答: {url}" },
     { key: "staff_confirm", label: "スタッフ確定通知", desc: "スタッフ確定時に本人とオーナーに通知", icon: "bi-person-check", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
-      defaultMsg: "✅ 清掃担当が確定しました\n\n{date} {property}\n担当: {staff}\nよろしくお願いします。" },
-    { key: "staff_undecided", label: "スタッフ未決定リマインド", desc: "清掃日が近いのにスタッフ未確定の場合にオーナーへ通知", icon: "bi-exclamation-triangle", group: "recruit", varGroup: "recruit", defaultTiming: "morning",
-      defaultMsg: "⚠️ スタッフ未確定\n\n{date} {property}\n清掃日が近づいていますが、まだスタッフが確定していません。\n回答状況: {count}件" },
+      defaultMsg: "✅ {work}担当が確定しました\n\n{date} {property}\n担当: {staff}\nよろしくお願いします。" },
+    { key: "staff_undecided", label: "スタッフ未決定リマインド", desc: "作業日が近いのにスタッフ未確定の場合にオーナーへ通知", icon: "bi-exclamation-triangle", group: "recruit", varGroup: "recruit", defaultTiming: "morning",
+      defaultMsg: "⚠️ {work}スタッフ未確定\n\n{date} {property}\n作業日が近づいていますが、まだスタッフが確定していません。\n回答状況: {count}件" },
     { key: "urgent_remind", label: "直前予約リマインド", desc: "直前予約に対する緊急リマインド", icon: "bi-lightning", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
-      defaultMsg: "🔴 緊急: 直前予約の清掃手配\n\n{date} {property}\n直前予約が入りました。至急スタッフの手配をお願いします。" },
+      defaultMsg: "🔴 緊急: 直前予約の{work}手配\n\n{date} {property}\n直前予約が入りました。至急スタッフの手配をお願いします。" },
     { key: "booking_cancel", label: "予約キャンセル通知", desc: "予約がキャンセルされた場合に通知", icon: "bi-x-circle", group: "booking", varGroup: "booking", defaultTiming: "immediate",
       defaultMsg: "❌ 予約キャンセル\n\n{checkin}〜{date} {property}\nゲスト: {guest}（{site}）\n予約がキャンセルされました。" },
     { key: "booking_change", label: "予約変更通知", desc: "予約日程が変更された場合に通知", icon: "bi-arrow-repeat", group: "booking", varGroup: "booking", defaultTiming: "immediate",
@@ -86,10 +88,12 @@ const NotificationsPage = {
       defaultMsg: "✅ キャンセル承認\n\n{date} {property}の出勤キャンセルが承認されました。" },
     { key: "cancel_reject", label: "キャンセル却下通知", desc: "出勤キャンセルを却下した場合にスタッフに通知", icon: "bi-dash-circle", group: "staff", varGroup: "staff", defaultTiming: "immediate",
       defaultMsg: "❌ キャンセル不可\n\n{date} {property}の出勤キャンセルは対応できませんでした。出勤をお願いします。" },
+    { key: "staff_inactive", label: "スタッフ非アクティブ化通知", desc: "直近15回の募集に無回答のスタッフを非アクティブ化した時にオーナーへ通知", icon: "bi-person-slash", group: "staff", varGroup: "staff", defaultTiming: "immediate",
+      defaultMsg: "⚠️ スタッフ非アクティブ化\n\n{staff} さんを非アクティブに変更しました。\n理由: {reason}\n解除はスタッフ管理から行えます。" },
     { key: "roster_remind", label: "名簿未入力リマインド", desc: "宿泊者名簿が未入力の予約についてリマインド", icon: "bi-person-vcard", group: "booking", varGroup: "booking", defaultTiming: "morning",
       defaultMsg: "📝 名簿入力のお願い\n\n{checkin} {property}\nゲスト: {guest}\n宿泊者名簿がまだ届いていません。" },
-    { key: "invoice_request", label: "請求書要請", desc: "月末にスタッフへ請求書の提出を依頼", icon: "bi-receipt", group: "invoice", varGroup: "invoice", defaultTiming: "morning",
-      defaultMsg: "💰 {month}月分の請求書作成をお願いします\n\n{property}の清掃分について、作業明細をご確認の上、請求書の送信をお願いします。\n作成ページ: {url}" },
+    { key: "invoice_request", label: "請求書要請", desc: "月末にスタッフへ請求書の提出を依頼（URLは請求書作成ページ）", icon: "bi-receipt", group: "invoice", varGroup: "invoice", defaultTiming: "morning",
+      defaultMsg: "💰 {month}月分の請求書作成をお願いします\n\n作業明細をご確認の上、請求書の送信をお願いします。\n作成ページ: {url}" },
     { key: "invoice_submitted", label: "請求書提出通知", desc: "スタッフが請求書を送信した時にオーナーへ通知", icon: "bi-send-check", group: "invoice", varGroup: "invoice", defaultTiming: "immediate",
       defaultMsg: "📨 請求書が提出されました\n\n{staff} さんから {month}月分の請求書が届きました。\n合計: {total}\n確認: {url}" },
     { key: "cleaning_done", label: "清掃完了通知", desc: "清掃チェックリスト完了時にオーナーに通知", icon: "bi-clipboard-check", group: "cleaning", varGroup: "cleaning", defaultTiming: "immediate",
@@ -515,8 +519,29 @@ const NotificationsPage = {
       });
       const data = await res.json();
       if (res.ok) {
-        const sent = (data.results || []).filter(r => r.success).length;
-        showToast("送信完了", `${sent}件送信しました`, "success");
+        // バックエンドが返す sentCount を優先。旧互換で results を集計。
+        let sent = (typeof data.sentCount === "number") ? data.sentCount : 0;
+        if (!data.sentCount && Array.isArray(data.results)) {
+          for (const r of data.results) {
+            if (r.success === true) sent++;
+            if (Array.isArray(r.staffResults)) {
+              sent += r.staffResults.filter(s => s.success).length;
+            }
+          }
+        }
+        const errs = [];
+        (data.results || []).forEach(r => {
+          if (r.error) errs.push(`${r.target}: ${r.error}`);
+          if (Array.isArray(r.staffResults)) {
+            r.staffResults.forEach(s => { if (!s.success && s.error) errs.push(`${s.staffName || s.staffId}: ${s.error}`); });
+          }
+        });
+        if (sent > 0) {
+          showToast("送信完了", `${sent}件送信しました${errs.length ? "（一部失敗あり）" : ""}`, "success");
+        } else {
+          showToast("送信失敗", errs[0] || "送信できませんでした（設定を確認してください）", "error");
+        }
+        if (errs.length) console.warn("テスト送信エラー詳細:", errs);
       } else {
         showToast("エラー", data.error || "送信に失敗しました", "error");
       }

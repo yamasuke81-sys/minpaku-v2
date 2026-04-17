@@ -714,8 +714,35 @@ const MyChecklistPage = {
       for (let i = idx; i < order.length; i++) {
         patch[`laundry.${order[i]}`] = null;
       }
+    } else if (key === "putOut") {
+      // 出した: 提出先/支払方法/金額を入力させる
+      const info = await this.askLaundryPutOutInfo();
+      if (info === null) return; // キャンセル
+      patch[`laundry.${key}`] = {
+        at: firebase.firestore.FieldValue.serverTimestamp(),
+        by,
+        depot: info.depot || "",
+        depotOther: info.depotOther || "",
+        paymentMethod: info.paymentMethod || "",
+        amount: Number(info.amount) || 0,
+        note: info.note || "",
+      };
+      // laundry コレクションにも記録 (請求書自動集計用)
+      try {
+        await firebase.firestore().collection("laundry").add({
+          date: new Date(),
+          staffId: this.staffDoc?.id || "",
+          propertyId: this.checklist?.propertyId || "",
+          amount: Number(info.amount) || 0,
+          depot: info.depot || "",
+          depotOther: info.depotOther || "",
+          paymentMethod: info.paymentMethod || "",
+          memo: info.note || "",
+          checklistId: this.checklistId,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+      } catch (e) { console.warn("laundry 集計追加失敗:", e.message); }
     } else {
-      // 記録
       patch[`laundry.${key}`] = { at: firebase.firestore.FieldValue.serverTimestamp(), by };
     }
     try {
@@ -723,6 +750,93 @@ const MyChecklistPage = {
     } catch (e) {
       showToast("エラー", e.message, "error");
     }
+  },
+
+  // ランドリー「出した」時の入力モーダル (Promise<{depot, paymentMethod, amount} | null>)
+  async askLaundryPutOutInfo() {
+    return new Promise((resolve) => {
+      // 既存のモーダルがあれば削除
+      const existing = document.getElementById("laundryPutOutModal");
+      if (existing) existing.remove();
+      const modalEl = document.createElement("div");
+      modalEl.className = "modal fade";
+      modalEl.id = "laundryPutOutModal";
+      modalEl.tabIndex = -1;
+      modalEl.innerHTML = `
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="bi bi-arrow-up-circle"></i> 洗濯物を出した</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <label class="form-label">提出先 <span class="text-danger">*</span></label>
+                <select class="form-select" id="lpoDepot">
+                  <option value="">-- 選択 --</option>
+                  <option value="coin_laundry">コインランドリー</option>
+                  <option value="linen_shop">リネン屋</option>
+                  <option value="other">その他</option>
+                </select>
+                <input type="text" class="form-control mt-2 d-none" id="lpoDepotOther" placeholder="提出先名">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">支払方法 <span class="text-danger">*</span></label>
+                <select class="form-select" id="lpoPayment">
+                  <option value="">-- 選択 --</option>
+                  <option value="cash">現金(立替)</option>
+                  <option value="credit">クレジットカード(立替)</option>
+                  <option value="prepaid">プリペイド</option>
+                  <option value="invoice">店舗請求(後払い)</option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">金額 (円)</label>
+                <input type="number" class="form-control" id="lpoAmount" min="0" value="0">
+                <div class="form-text">立替の場合は実費を入力してください</div>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">メモ</label>
+                <input type="text" class="form-control" id="lpoNote">
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="lpoCancel">キャンセル</button>
+              <button type="button" class="btn btn-primary" id="lpoSubmit"><i class="bi bi-check-lg"></i> 記録する</button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modalEl);
+      const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+      let decided = false;
+      modalEl.querySelector("#lpoDepot").addEventListener("change", (e) => {
+        const show = e.target.value === "other";
+        const other = modalEl.querySelector("#lpoDepotOther");
+        other.classList.toggle("d-none", !show);
+        if (show) other.focus();
+      });
+      modalEl.querySelector("#lpoSubmit").addEventListener("click", () => {
+        const depot = modalEl.querySelector("#lpoDepot").value;
+        const paymentMethod = modalEl.querySelector("#lpoPayment").value;
+        if (!depot) { showToast("入力エラー", "提出先を選択してください", "error"); return; }
+        if (!paymentMethod) { showToast("入力エラー", "支払方法を選択してください", "error"); return; }
+        decided = true;
+        const info = {
+          depot,
+          depotOther: modalEl.querySelector("#lpoDepotOther").value.trim(),
+          paymentMethod,
+          amount: modalEl.querySelector("#lpoAmount").value,
+          note: modalEl.querySelector("#lpoNote").value.trim(),
+        };
+        modal.hide();
+        modalEl.addEventListener("hidden.bs.modal", () => { modalEl.remove(); resolve(info); }, { once: true });
+      });
+      modalEl.addEventListener("hidden.bs.modal", () => {
+        if (!decided) { modalEl.remove(); resolve(null); }
+      });
+      modal.show();
+    });
   },
 
   async completeChecklist(allDone, unchecked) {

@@ -90,6 +90,30 @@ module.exports = function staffApi(db) {
     }
   });
 
+  // スタッフ 非アクティブ解除（active=true + pendingRecruitmentIds クリア）
+  router.post("/:id/reactivate", async (req, res) => {
+    try {
+      if (req.user.role !== "owner") {
+        return res.status(403).json({ error: "オーナー権限が必要です" });
+      }
+      const ref = collection.doc(req.params.id);
+      const d = await ref.get();
+      if (!d.exists) return res.status(404).json({ error: "スタッフが見つかりません" });
+      await ref.update({
+        active: true,
+        pendingRecruitmentIds: [],
+        inactiveReason: "",
+        inactivatedAt: null,
+        reactivatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      res.json({ message: "スタッフを再アクティブ化しました" });
+    } catch (e) {
+      console.error("reactivate エラー:", e);
+      res.status(500).json({ error: "再アクティブ化に失敗しました" });
+    }
+  });
+
   // スタッフ削除（論理削除: active=false）
   router.delete("/:id", async (req, res) => {
     try {

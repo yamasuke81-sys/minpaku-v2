@@ -14,6 +14,9 @@ const GuestsPage = {
       <div class="page-header">
         <h2><i class="bi bi-person-vcard"></i> 宿泊者名簿</h2>
         <div>
+          <button class="btn btn-outline-info me-2" id="btnImportGas" title="GAS版スプレッドシートから指定期間をインポート">
+            <i class="bi bi-cloud-download"></i> GASインポート
+          </button>
           <button class="btn btn-outline-success me-2" id="btnFormUrl">
             <i class="bi bi-link-45deg"></i> フォームURL生成
           </button>
@@ -80,6 +83,10 @@ const GuestsPage = {
 
     document.getElementById("btnFormUrl").addEventListener("click", () => {
       this.showFormUrlDialog();
+    });
+
+    document.getElementById("btnImportGas").addEventListener("click", () => {
+      this.showGasImportDialog();
     });
 
     document.getElementById("guestSearch").addEventListener("input", () => {
@@ -224,21 +231,105 @@ const GuestsPage = {
     return map[source] || "";
   },
 
+  // === GASインポートダイアログ ===
+  async showGasImportDialog() {
+    // 保存済み Web App URL とシークレットを取得
+    let settings = {};
+    try {
+      const doc = await db.collection("settings").doc("notifications").get();
+      if (doc.exists) settings = doc.data();
+    } catch (_) {}
+    const webAppUrl = settings.gasSyncWebAppUrl || "";
+    const gasSecret = settings.gasSecret || "";
+    const today = new Date().toISOString().slice(0, 10);
+    const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+
+    const html = `
+      <div class="alert alert-info small mb-3">
+        GAS版スプレッドシートからチェックイン日を絞って v2 の宿泊者名簿へ転記します。
+      </div>
+      <div class="mb-2">
+        <label class="form-label small">GAS Web App URL</label>
+        <input type="url" class="form-control form-control-sm" id="gasWebAppUrl" placeholder="https://script.google.com/macros/s/.../exec" value="${webAppUrl}">
+        <small class="text-muted">GAS: デプロイ→新しいデプロイ→種類「ウェブアプリ」→URLを貼り付け</small>
+      </div>
+      <div class="mb-2">
+        <label class="form-label small">GASシークレット</label>
+        <input type="text" class="form-control form-control-sm" id="gasSecret" placeholder="gas_...(任意)" value="${gasSecret}">
+      </div>
+      <div class="row g-2 mb-2">
+        <div class="col-6">
+          <label class="form-label small">CI From</label>
+          <input type="date" class="form-control form-control-sm" id="importFrom" value="${sevenDaysAgo}">
+        </div>
+        <div class="col-6">
+          <label class="form-label small">CI To</label>
+          <input type="date" class="form-control form-control-sm" id="importTo" value="${today}">
+        </div>
+      </div>
+      <button class="btn btn-primary btn-sm w-100" id="btnRunGasImport"><i class="bi bi-cloud-download"></i> インポート実行</button>
+      <div id="gasImportResult" class="small mt-2"></div>
+    `;
+    const body = document.getElementById("guestDetailBody");
+    body.innerHTML = html;
+    document.querySelector("#guestDetailModal .modal-title").innerHTML =
+      '<i class="bi bi-cloud-download"></i> GAS版宿泊者名簿 取り込み';
+    this.detailModal.show();
+
+    setTimeout(() => {
+      document.getElementById("btnRunGasImport").addEventListener("click", async () => {
+        const url = document.getElementById("gasWebAppUrl").value.trim();
+        const secret = document.getElementById("gasSecret").value.trim();
+        const from = document.getElementById("importFrom").value;
+        const to = document.getElementById("importTo").value;
+        const resultEl = document.getElementById("gasImportResult");
+        if (!url) { resultEl.innerHTML = `<span class="text-danger">Web App URL を入力してください</span>`; return; }
+        if (!from || !to) { resultEl.innerHTML = `<span class="text-danger">CI日付範囲を指定してください</span>`; return; }
+
+        // URL・シークレットを保存
+        try {
+          await db.collection("settings").doc("notifications").set({
+            gasSyncWebAppUrl: url, gasSecret: secret,
+          }, { merge: true });
+        } catch (_) {}
+
+        resultEl.innerHTML = `<span class="text-muted"><span class="spinner-border spinner-border-sm"></span> 実行中...</span>`;
+        try {
+          const params = new URLSearchParams({ from, to, secret });
+          const res = await fetch(`${url}?${params.toString()}`);
+          const text = await res.text();
+          let data;
+          try { data = JSON.parse(text); } catch { data = { message: text }; }
+          if (data.error) {
+            resultEl.innerHTML = `<span class="text-danger">エラー: ${data.error}</span>`;
+          } else {
+            resultEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> ${data.message || JSON.stringify(data)}</span>`;
+            // 一覧を更新
+            await this.loadGuests();
+          }
+        } catch (e) {
+          resultEl.innerHTML = `<span class="text-danger">通信失敗: ${e.message}</span>`;
+        }
+      });
+    }, 100);
+  },
+
   // === フォームURL生成ダイアログ ===
   showFormUrlDialog() {
     const baseUrl = location.origin + "/form/";
     const html = `
-      <div class="mb-3">
-        <label class="form-label fw-bold">基本URL（パラメータなし）</label>
+      <div class="alert alert-success mb-3">
+        <strong><i class="bi bi-check-circle"></i> 共通URL（推奨）</strong>
+        <p class="small mb-2 mt-1">Airbnb / Booking.com の自動メッセージにはこの共通URLのみを貼り付けてください。宿泊客自身がチェックイン日を入力すれば、その日のフォームが自動で表示されます。</p>
         <div class="input-group">
           <input type="text" class="form-control" value="${baseUrl}" readonly id="formUrlBasic">
-          <button class="btn btn-outline-primary" onclick="navigator.clipboard.writeText(document.getElementById('formUrlBasic').value);this.innerHTML='<i class=\\'bi bi-check\\'></i>'">
-            <i class="bi bi-clipboard"></i>
+          <button class="btn btn-primary" onclick="navigator.clipboard.writeText(document.getElementById('formUrlBasic').value);this.innerHTML='<i class=\\'bi bi-check\\'></i>'">
+            <i class="bi bi-clipboard"></i> コピー
           </button>
         </div>
-        <small class="text-muted">ゲストに送る基本リンク</small>
       </div>
-      <hr>
+      <details class="mb-2">
+        <summary class="text-muted small">▸ 特定のCI日を指定したカスタムURL（上級）</summary>
       <label class="form-label fw-bold">カスタムURL生成</label>
       <div class="row g-2 mb-2">
         <div class="col-6">
@@ -268,6 +359,7 @@ const GuestsPage = {
           <i class="bi bi-clipboard"></i>
         </button>
       </div>
+      </details>
     `;
 
     // 既存の詳細モーダルを流用（bodyを差し替え）

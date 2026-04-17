@@ -36,6 +36,7 @@
       <a class="nav-link" href="/guest-guide.html" target="_blank"><i class="bi bi-book"></i> ゲスト案内 <i class="bi bi-box-arrow-up-right" style="font-size:0.7rem;margin-left:auto"></i></a>
       <a class="nav-link" href="#/recruitment" data-page="recruitment"><i class="bi bi-megaphone"></i> 募集</a>
       <a class="nav-link" href="#/laundry" data-page="laundry"><i class="bi bi-basket3"></i> ランドリー</a>
+      <a class="nav-link" href="#/cleaning-flow" data-page="cleaning-flow"><i class="bi bi-diagram-3"></i> 清掃フロー構成</a>
       <a class="nav-link" href="#/rates" data-page="rates"><i class="bi bi-currency-yen"></i> 報酬単価</a>
       <a class="nav-link" href="#/invoices" data-page="invoices"><i class="bi bi-receipt"></i> 請求書</a>
       <a class="nav-link" href="#/reports" data-page="reports"><i class="bi bi-file-earmark-bar-graph"></i> 定期報告（住宅宿泊事業法）</a>
@@ -47,6 +48,7 @@
       <a class="nav-link" href="#/my-dashboard" data-page="my-dashboard"><i class="bi bi-house-door"></i> マイページ</a>
       <a class="nav-link" href="#/my-recruitment" data-page="my-recruitment"><i class="bi bi-calendar-check"></i> 清掃スケジュール</a>
       <a class="nav-link" href="#/my-checklist" data-page="my-checklist"><i class="bi bi-clipboard-check"></i> チェックリスト</a>
+      <a class="nav-link" href="#/my-invoice-create" data-page="my-invoice-create"><i class="bi bi-receipt-cutoff"></i> 請求書作成</a>
 
       <div class="sidebar-section">他部門</div>
       <a class="nav-link" href="#/tax-docs" data-page="tax-docs"><i class="bi bi-folder-check"></i> 税理士資料</a>
@@ -66,6 +68,7 @@
       <a class="nav-link" href="#/my-dashboard" data-page="my-dashboard"><i class="bi bi-house-door"></i> マイページ</a>
       <a class="nav-link" href="#/my-recruitment" data-page="my-recruitment"><i class="bi bi-calendar-check"></i> 清掃スケジュール</a>
       <a class="nav-link" href="#/my-checklist" data-page="my-checklist"><i class="bi bi-clipboard-check"></i> チェックリスト</a>
+      <a class="nav-link" href="#/my-invoice-create" data-page="my-invoice-create"><i class="bi bi-receipt-cutoff"></i> 請求書作成</a>
     </nav>
     <div class="sidebar-footer">
       <a href="#" id="btnLogout"><i class="bi bi-box-arrow-right"></i> <span id="userName">オーナー</span></a>
@@ -680,8 +683,9 @@
   <script src="js/pages/guests.js?v=0415a"></script>
   <script src="js/pages/shifts.js?v=0415a"></script>
   <script src="js/pages/notifications.js?v=0418b"></script>
-  <script src="js/pages/laundry.js?v=0415a"></script>
+  <script src="js/pages/laundry.js?v=0418b"></script>
   <script src="js/pages/checklist.js?v=0415a"></script>
+  <script src="js/pages/cleaning-flow.js?v=0418a"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
   <script src="js/pages/property-checklist.js?v=0417e"></script>
   <script src="js/pages/reports.js?v=0415a"></script>
@@ -697,7 +701,8 @@
   <script src="js/pages/my-dashboard.js?v=0417a"></script>
   <script src="js/pages/my-recruitment.js?v=0417f"></script>
   <script src="js/pages/my-checklist.js?v=0417e"></script>
-  <script src="js/app.js?v=0417a"></script>
+  <script src="js/pages/my-invoice-create.js?v=0418a"></script>
+  <script src="js/app.js?v=0418a"></script>
   <script>
   // サイドバートグル（PC: collapsed切替 / モバイル: show切替）
   document.getElementById('btnToggleSidebar')?.addEventListener('click', () => {

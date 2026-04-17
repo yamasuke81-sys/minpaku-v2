@@ -92,6 +92,101 @@ module.exports = function invoicesApi(db) {
     }
   });
 
+  // スタッフが自分の請求書を作成 or 更新（月次集計）
+  // POST /invoices/my-submit  body: { yearMonth: "YYYY-MM", manualItems?: [...] }
+  router.post("/my-submit", async (req, res) => {
+    try {
+      const { yearMonth, manualItems = [] } = req.body || {};
+      if (!yearMonth || !/^\d{4}-\d{2}$/.test(yearMonth)) {
+        return res.status(400).json({ error: "yearMonth(YYYY-MM)は必須です" });
+      }
+      const uid = req.user.uid;
+      const staffId = req.user.staffId;
+      // staff ドキュメントを特定 (staffId or authUid ベース)
+      let staffDoc = null;
+      if (staffId) {
+        const d = await db.collection("staff").doc(staffId).get();
+        if (d.exists) staffDoc = { id: d.id, ...d.data() };
+      }
+      if (!staffDoc) {
+        const snap = await db.collection("staff").where("authUid", "==", uid).limit(1).get();
+        if (!snap.empty) staffDoc = { id: snap.docs[0].id, ...snap.docs[0].data() };
+      }
+      if (!staffDoc) return res.status(404).json({ error: "スタッフ情報が見つかりません" });
+
+      const [y, m] = yearMonth.split("-").map(Number);
+      const start = new Date(y, m - 1, 1);
+      const end = new Date(y, m, 0, 23, 59, 59);
+
+      const shiftsSnap = await db.collection("shifts")
+        .where("staffId", "==", staffDoc.id)
+        .where("date", ">=", start)
+        .where("date", "<=", end)
+        .get();
+      const shifts = shiftsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      const laundrySnap = await db.collection("laundry")
+        .where("staffId", "==", staffDoc.id)
+        .where("date", ">=", start)
+        .where("date", "<=", end)
+        .get();
+      const laundry = laundrySnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      const basePayment = shifts.length * (staffDoc.ratePerJob || 0);
+      const laundryFee = laundry.reduce((s, l) => s + (l.amount || 0), 0);
+      const transportationFee = shifts.length * (staffDoc.transportationFee || 0);
+      const manualTotal = (manualItems || []).reduce((s, i) => s + (Number(i.amount) || 0), 0);
+      const total = basePayment + laundryFee + transportationFee + manualTotal;
+
+      const invoiceId = `INV-${yearMonth.replace("-", "")}-${staffDoc.id.substring(0, 6)}`;
+      const invoiceData = {
+        yearMonth,
+        staffId: staffDoc.id,
+        staffName: staffDoc.name,
+        basePayment, laundryFee, transportationFee,
+        specialAllowance: manualTotal, total,
+        status: "submitted",
+        manualItems: (manualItems || []).map(i => ({
+          label: String(i.label || ""), amount: Number(i.amount) || 0, memo: String(i.memo || ""),
+        })),
+        details: {
+          shifts: shifts.map(s => ({ date: s.date, propertyId: s.propertyId, amount: staffDoc.ratePerJob || 0 })),
+          laundry: laundry.map(l => ({ date: l.date, amount: l.amount || 0 })),
+        },
+        submittedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      // 初回作成時のみ createdAt
+      const existing = await collection.doc(invoiceId).get();
+      if (!existing.exists) invoiceData.createdAt = FieldValue.serverTimestamp();
+
+      await collection.doc(invoiceId).set(invoiceData, { merge: true });
+
+      // invoice_submitted 通知
+      try {
+        const { settings } = await getNotificationSettings_(db);
+        const appUrl = (settings && settings.appUrl) || "https://minpaku-v2.web.app";
+        const confirmUrl = `${appUrl}/#/invoices`;
+        const baseVars = {
+          month: String(m),
+          staff: staffDoc.name || "",
+          property: "",
+          total: `¥${Number(total).toLocaleString("ja-JP")}`,
+          url: confirmUrl,
+        };
+        const body = `📨 請求書が提出されました\n\n${staffDoc.name} さんから ${m}月分の請求書が届きました。\n合計: ¥${Number(total).toLocaleString("ja-JP")}\n確認: ${confirmUrl}`;
+        await notifyOwner(db, "invoice_submitted", `請求書提出: ${staffDoc.name} ${yearMonth}`, body, baseVars);
+      } catch (notifyErr) {
+        console.error("invoice_submitted 通知エラー:", notifyErr);
+      }
+
+      res.status(201).json({ id: invoiceId, ...invoiceData });
+    } catch (e) {
+      console.error("my-submit エラー:", e);
+      res.status(500).json({ error: "請求書の提出に失敗しました: " + e.message });
+    }
+  });
+
   // 請求書生成（月次集計）— オーナーが手動実行 or 定期ジョブ
   router.post("/generate", async (req, res) => {
     try {

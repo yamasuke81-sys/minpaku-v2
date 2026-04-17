@@ -237,6 +237,61 @@ function testSyncLatestRow() {
 }
 
 /**
+ * CI日範囲を指定して v2 へインポート
+ * fromDate / toDate は "YYYY-MM-DD" 形式
+ * GASエディタから直接呼ぶ or doGet 経由で v2 フロントから呼ばれる
+ */
+function syncByCheckInDateRange(fromDate, toDate) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { count: 0, message: "データがありません" };
+  var values = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  var count = 0, skipped = 0, errors = 0;
+  for (var i = 0; i < values.length; i++) {
+    var row = values[i];
+    var ci = fmtDate(row[3]);
+    if (!ci) { skipped++; continue; }
+    if (fromDate && ci < fromDate) { skipped++; continue; }
+    if (toDate && ci > toDate) { skipped++; continue; }
+    try {
+      onFormSubmit({ values: row.map(String) });
+      count++;
+    } catch (e) {
+      Logger.log("エラー 行" + (i+2) + ": " + e.message);
+      errors++;
+    }
+  }
+  var msg = count + "件インポート / " + skipped + "件スキップ / " + errors + "件エラー";
+  Logger.log(msg);
+  return { count: count, skipped: skipped, errors: errors, message: msg };
+}
+
+/**
+ * v2 フロントから呼び出すための Web App エンドポイント
+ * デプロイ手順: GASエディタ → デプロイ → 新しいデプロイ → 種類:「ウェブアプリ」
+ *   実行ユーザー: 自分、アクセス: 全員
+ * URL は Firestore settings/notifications.gasSyncWebAppUrl に保存して使う
+ *
+ * パラメータ: ?from=YYYY-MM-DD&to=YYYY-MM-DD&secret=...
+ */
+function doGet(e) {
+  try {
+    var p = e && e.parameter ? e.parameter : {};
+    // 簡易シークレットチェック（GAS_SECRET と同じ値）
+    if (p.secret !== GAS_SECRET) {
+      return ContentService.createTextOutput(JSON.stringify({ error: "Invalid secret" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    var result = syncByCheckInDateRange(p.from || "", p.to || "");
+    return ContentService.createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+/**
  * テスト: 指定行番号を転記
  */
 function testSyncRow() {
