@@ -236,7 +236,10 @@ const MyRecruitmentPage = {
     this.propertyMap = {};
     minpakuProps.forEach(p => { this.propertyMap[p.id] = p; });
 
-    // 物件表示フラグ（セッション内保持、初回は全部表示）
+    // 端末別設定を localStorage から読み込み (スタッフ毎 key)
+    this._loadSettings();
+
+    // 物件表示フラグ（初回は全部表示、以降は localStorage の値を維持）
     if (!this._propertyVisibility) this._propertyVisibility = {};
     minpakuProps.forEach(p => {
       if (this._propertyVisibility[p.id] === undefined) this._propertyVisibility[p.id] = true;
@@ -653,6 +656,7 @@ const MyRecruitmentPage = {
           document.removeEventListener('touchmove', touchMove);
           document.removeEventListener('touchend', end);
           document.body.style.userSelect = '';
+          this._saveSettings(); // ドラッグ終了時に幅を永続化
         };
         document.body.style.userSelect = 'none';
         document.addEventListener('mousemove', mouseMove);
@@ -669,6 +673,7 @@ const MyRecruitmentPage = {
     // 「自分だけ」トグル
     document.getElementById("btnShowOnlyMe")?.addEventListener("click", () => {
       this._showOnlyMe = !this._showOnlyMe;
+      this._saveSettings();
       this.renderCalendar();
     });
 
@@ -678,6 +683,7 @@ const MyRecruitmentPage = {
         ev.stopPropagation();
         const pid = btn.dataset.propId;
         this._propertyVisibility[pid] = !this._propertyVisibility[pid];
+        this._saveSettings();
         this.renderCalendar();
       });
     });
@@ -687,6 +693,7 @@ const MyRecruitmentPage = {
       btn.addEventListener("click", () => {
         const pid = btn.dataset.propId;
         this._propertyVisibility[pid] = true;
+        this._saveSettings();
         this.renderCalendar();
       });
     });
@@ -891,6 +898,34 @@ const MyRecruitmentPage = {
     else if (r.status === "募集中") { bg = "#fd7e14"; color = "#fff"; }
     const wtChar = r.workType === "pre_inspection" ? "直" : "清";
     return `<span style="display:inline-flex;align-items:center;justify-content:center;height:20px;min-width:30px;padding:0 10px;background:${bg};color:${color};border-radius:999px;font-weight:700;font-size:13px;line-height:1;text-align:center;position:relative;z-index:2;box-sizing:border-box;">${wtChar}</span>`;
+  },
+
+  // 端末別設定の localStorage 永続化 (スタッフ毎 key でこの端末にのみ保存)
+  _settingsKey() {
+    return this.staffId ? `mrCal_${this.staffId}` : null;
+  },
+  _loadSettings() {
+    const key = this._settingsKey();
+    if (!key) return;
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (s.propertyVisibility && typeof s.propertyVisibility === "object") this._propertyVisibility = s.propertyVisibility;
+      if (typeof s.showOnlyMe === "boolean") this._showOnlyMe = s.showOnlyMe;
+      if (typeof s.stickyW === "number" && s.stickyW >= 80 && s.stickyW <= 400) this._stickyW = s.stickyW;
+    } catch (e) { /* ignore */ }
+  },
+  _saveSettings() {
+    const key = this._settingsKey();
+    if (!key) return;
+    try {
+      localStorage.setItem(key, JSON.stringify({
+        propertyVisibility: this._propertyVisibility || {},
+        showOnlyMe: !!this._showOnlyMe,
+        stickyW: this._stickyW || 140,
+      }));
+    } catch (e) { /* ignore */ }
   },
 
   esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; },
