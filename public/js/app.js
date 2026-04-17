@@ -141,6 +141,117 @@ function showToast(title, message, type = "info") {
   bootstrap.Toast.getOrCreateInstance(toast).show();
 }
 
+// ===== 確認ダイアログ (ネイティブ confirm/alert/prompt の Bootstrap モーダル置換) =====
+// ブラウザ別ネイティブ UI を避け、意匠を統一するため使用する。
+function _escAttr(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/"/g, "&quot;"); }
+function _escHtml(s) { const d = document.createElement("div"); d.textContent = String(s == null ? "" : s); return d.innerHTML; }
+
+/** Promise<boolean> を返す確認モーダル。OK=true / キャンセル=false */
+function showConfirm(message, opts = {}) {
+  return new Promise((resolve) => {
+    const title = opts.title || "確認";
+    const okLabel = opts.okLabel || "OK";
+    const cancelLabel = opts.cancelLabel || "キャンセル";
+    const okClass = opts.okClass || "btn-primary";
+    const modalId = `confirmModal_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+    const html = `
+      <div class="modal fade" id="${modalId}" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">${_escHtml(title)}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="white-space:pre-wrap;">${_escHtml(message)}</div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">${_escHtml(cancelLabel)}</button>
+              <button type="button" class="btn ${okClass}" data-role="ok">${_escHtml(okLabel)}</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML("beforeend", html);
+    const el = document.getElementById(modalId);
+    const modal = new bootstrap.Modal(el);
+    let confirmed = false;
+    el.querySelector('[data-role="ok"]').addEventListener("click", () => { confirmed = true; modal.hide(); });
+    el.addEventListener("hidden.bs.modal", () => { resolve(confirmed); el.remove(); });
+    modal.show();
+  });
+}
+
+/** Promise<void> を返す通知モーダル (alert 代替) */
+function showAlert(message, opts = {}) {
+  return new Promise((resolve) => {
+    const title = opts.title || "通知";
+    const okLabel = opts.okLabel || "OK";
+    const modalId = `alertModal_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+    const html = `
+      <div class="modal fade" id="${modalId}" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">${_escHtml(title)}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="white-space:pre-wrap;">${_escHtml(message)}</div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-primary" data-bs-dismiss="modal">${_escHtml(okLabel)}</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML("beforeend", html);
+    const el = document.getElementById(modalId);
+    const modal = new bootstrap.Modal(el);
+    el.addEventListener("hidden.bs.modal", () => { resolve(); el.remove(); });
+    modal.show();
+  });
+}
+
+/** Promise<string|null> を返す入力モーダル (prompt 代替)。キャンセル時は null */
+function showPrompt(message, opts = {}) {
+  return new Promise((resolve) => {
+    const title = opts.title || "入力";
+    const okLabel = opts.okLabel || "OK";
+    const cancelLabel = opts.cancelLabel || "キャンセル";
+    const defaultValue = opts.defaultValue != null ? String(opts.defaultValue) : "";
+    const inputType = opts.type || "text";
+    const placeholder = opts.placeholder || "";
+    const modalId = `promptModal_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+    const html = `
+      <div class="modal fade" id="${modalId}" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">${_escHtml(title)}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-2" style="white-space:pre-wrap;">${_escHtml(message)}</div>
+              <input type="${_escAttr(inputType)}" class="form-control" data-role="input"
+                     placeholder="${_escAttr(placeholder)}" value="${_escAttr(defaultValue)}">
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">${_escHtml(cancelLabel)}</button>
+              <button type="button" class="btn btn-primary" data-role="ok">${_escHtml(okLabel)}</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML("beforeend", html);
+    const el = document.getElementById(modalId);
+    const input = el.querySelector('[data-role="input"]');
+    const modal = new bootstrap.Modal(el);
+    let result = null;
+    el.querySelector('[data-role="ok"]').addEventListener("click", () => { result = input.value; modal.hide(); });
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); result = input.value; modal.hide(); } });
+    el.addEventListener("shown.bs.modal", () => { input.focus(); input.select(); });
+    el.addEventListener("hidden.bs.modal", () => { resolve(result); el.remove(); });
+    modal.show();
+  });
+}
+
 // 日付フォーマット: "2026/4/30(金)" 統一形式
 function formatDate(date) {
   if (!date) return "-";

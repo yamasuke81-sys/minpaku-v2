@@ -1107,6 +1107,50 @@ const API = {
       return data;
     },
 
+    // 原紙を既存 checklists に反映 (方針C 手動再生成)
+    // opts: { alsoInProgress?: boolean } — 進行中も最新化するか
+    // Firestore 直接書き込み版 (Cloud Functions 経由で HTML レスポンスが返るケースを回避)
+    async regenerate(propertyId, opts = {}) {
+      const alsoInProgress = !!opts.alsoInProgress;
+      const tmplDoc = await db.collection("checklistTemplates").doc(propertyId).get();
+      if (!tmplDoc.exists) throw new Error("原紙(テンプレート)が見つかりません");
+      const tmpl = tmplDoc.data();
+      const newAreas = tmpl.areas || [];
+      const newVersion = tmpl.version || 1;
+      // 新 areas の全項目 ID 集合
+      const newIds = new Set();
+      const walk = (node) => {
+        (node.items || node.directItems || []).forEach(it => { if (it && it.id) newIds.add(it.id); });
+        (node.taskTypes || []).forEach(walk);
+        (node.subCategories || []).forEach(walk);
+        (node.subSubCategories || []).forEach(walk);
+      };
+      newAreas.forEach(walk);
+      const snap = await db.collection("checklists").where("propertyId", "==", propertyId).get();
+      let updated = 0, skippedCompleted = 0, skippedInProgress = 0;
+      const batch = db.batch();
+      for (const doc of snap.docs) {
+        const c = doc.data();
+        if (c.status === "completed") { skippedCompleted++; continue; }
+        const states = c.itemStates || {};
+        const hasWork = Object.values(states).some(s => s && (s.checked || s.needsRestock));
+        if (hasWork && !alsoInProgress) { skippedInProgress++; continue; }
+        // smart merge: 新 areas に残る ID の state だけ維持
+        const newStates = {};
+        Object.keys(states).forEach(id => { if (newIds.has(id)) newStates[id] = states[id]; });
+        batch.update(doc.ref, {
+          templateSnapshot: newAreas,
+          templateVersion: newVersion,
+          itemStates: newStates,
+          templateSyncedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+        updated++;
+      }
+      await batch.commit();
+      return { ok: true, propertyId, summary: { updated, skippedCompleted, skippedInProgress } };
+    },
+
     async copyTemplate(propertyId, sourceType, sourcePropertyId = null) {
       let src;
       if (sourceType === "master") {

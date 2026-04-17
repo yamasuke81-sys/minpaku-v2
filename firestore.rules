@@ -63,11 +63,9 @@ service cloud.firestore {
          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'confirmedAt']));
     }
 
-    // チェックリスト — 複数スタッフ対応、割当済みスタッフ全員が操作可
+    // チェックリスト — 読取は全スタッフ+オーナー可(履歴確認用)、更新は割当済みスタッフのみ
     match /checklists/{checklistId} {
-      allow read: if isOwner()
-        || (isStaff() && (resource.data.staffId == myStaffId()
-                       || (resource.data.staffIds is list && myStaffId() in resource.data.staffIds)));
+      allow read: if isOwner() || isStaff();
       allow create: if isAuthenticated();
       allow update: if isOwner()
         || (isStaff() && (resource.data.staffId == myStaffId()

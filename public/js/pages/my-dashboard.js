@@ -144,8 +144,11 @@ const MyDashboardPage = {
     // オーナー表示時はスタッフ名も表示
     const staffLabel = Auth.isOwner() && staffName ? `<span class="text-muted small ms-2">担当: ${staffName}</span>` : "";
 
-    return `
-      <div class="card staff-card mb-2">
+    // 今後の予定 (未来) カードはクリックでチェックリスト詳細へ遷移 (事前確認用)
+    // 今日カードは既存の「チェックリスト開始」ボタンに任せる (a in a 回避)
+    const linkable = !isToday && shift.id && shift.status !== "cancelled";
+    const cardInner = `
+      <div class="card staff-card mb-2" ${linkable ? 'style="cursor:pointer;"' : ""}>
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-start">
             <div>
@@ -155,8 +158,12 @@ const MyDashboardPage = {
             <span class="badge ${st.class}">${st.label}</span>
           </div>
           ${checklistBtn}
+          ${linkable ? `<div class="small text-muted mt-1"><i class="bi bi-arrow-right-circle"></i> タップでチェックリストを事前確認</div>` : ""}
         </div>
       </div>
     `;
+    return linkable
+      ? `<a href="#/my-checklist/${shift.id}" class="text-decoration-none text-reset d-block">${cardInner}</a>`
+      : cardInner;
   },
 };

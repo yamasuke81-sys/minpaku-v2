@@ -61,6 +61,80 @@ module.exports = function checklistApi(db) {
     }
   });
 
+  // 未完了チェックリストを原紙の最新版で再生成 ※オーナーのみ (方針C)
+  // - 対象: 該当物件の status !== "completed" の checklist
+  // - 完了済みは保護、進行中は itemStates を smart merge (ID 一致のみ保持)
+  // - body: { alsoInProgress?: boolean } — デフォルト false (進行中は触らない)
+  router.post("/templates/:propertyId/regenerate", async (req, res) => {
+    try {
+      if (req.user.role !== "owner") {
+        return res.status(403).json({ error: "オーナー権限が必要です" });
+      }
+      const { propertyId } = req.params;
+      const alsoInProgress = !!req.body.alsoInProgress;
+
+      const tmplDoc = await db.collection("checklistTemplates").doc(propertyId).get();
+      if (!tmplDoc.exists) return res.status(404).json({ error: "原紙(テンプレート)が見つかりません" });
+      const tmpl = tmplDoc.data();
+      const newAreas = tmpl.areas || [];
+      const newVersion = tmpl.version || 1;
+
+      // 新 areas の項目ID 集合
+      const newIds = new Set();
+      const walk = (node) => {
+        (node.items || node.directItems || []).forEach(it => { if (it && it.id) newIds.add(it.id); });
+        (node.taskTypes || []).forEach(walk);
+        (node.subCategories || []).forEach(walk);
+        (node.subSubCategories || []).forEach(walk);
+      };
+      newAreas.forEach(walk);
+
+      const snap = await db.collection("checklists")
+        .where("propertyId", "==", propertyId)
+        .get();
+
+      let updated = 0;
+      let skippedCompleted = 0;
+      let skippedInProgress = 0;
+      const mergedItems = [];
+
+      for (const doc of snap.docs) {
+        const c = doc.data();
+        if (c.status === "completed") { skippedCompleted++; continue; }
+        const states = c.itemStates || {};
+        const hasWork = Object.values(states).some(s => s && (s.checked || s.needsRestock));
+
+        if (hasWork && !alsoInProgress) { skippedInProgress++; continue; }
+
+        // smart merge: 新 areas に残る ID の state だけ維持
+        const newStates = {};
+        Object.keys(states).forEach(id => {
+          if (newIds.has(id)) newStates[id] = states[id];
+        });
+
+        await doc.ref.update({
+          templateSnapshot: newAreas,
+          templateVersion: newVersion,
+          itemStates: newStates,
+          templateSyncedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        updated++;
+        if (hasWork) mergedItems.push({ id: doc.id, checkoutDate: c.checkoutDate });
+      }
+
+      res.json({
+        ok: true,
+        propertyId,
+        summary: { updated, skippedCompleted, skippedInProgress },
+        mergedWithWork: mergedItems,
+      });
+    } catch (e) {
+      console.error("再生成エラー:", e);
+      res.status(500).json({ error: e.message || "再生成に失敗しました" });
+    }
+  });
+
   // 別物件 or マスタからコピー ※オーナーのみ
   // body: { sourceType: "master" | "template", sourcePropertyId?: string }
   router.post("/templates/:propertyId/copyFrom", async (req, res) => {

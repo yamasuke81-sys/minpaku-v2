@@ -22,28 +22,64 @@ const PropertyChecklistPage = {
     }
 
     container.innerHTML = `
-      <div class="d-flex align-items-center mb-3">
-        <a href="#/properties" class="btn btn-sm btn-outline-secondary me-2">
-          <i class="bi bi-arrow-left"></i> 物件一覧
-        </a>
-        <h4 class="mb-0 flex-grow-1" id="pclHeader">チェックリスト編集</h4>
-        <button class="btn btn-outline-info btn-sm me-2" id="btnCopyFrom">
-          <i class="bi bi-clipboard"></i> 別の宿からコピー
-        </button>
-        <button class="btn btn-success btn-sm" id="btnSave" disabled>
-          <i class="bi bi-check2"></i> 保存
-        </button>
+      <div class="pcl-page-header" style="position:fixed;top:0;z-index:29;background:#fff;padding:6px 10px;box-shadow:0 1px 0 #eee;">
+        <div class="d-flex align-items-center flex-wrap gap-1">
+          <a href="#/properties" class="btn btn-sm btn-outline-secondary me-2" title="物件一覧">
+            <i class="bi bi-arrow-left"></i>
+          </a>
+          <h6 class="mb-0 flex-grow-1" id="pclHeader" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">チェックリスト編集</h6>
+          <button class="btn btn-outline-warning btn-sm" id="btnRegenerate" title="原紙を既存のチェックリストに反映 (未着手・進行中を選べる)">
+            <i class="bi bi-arrow-clockwise"></i> 未着手を最新化
+          </button>
+          <button class="btn btn-outline-info btn-sm" id="btnCopyFrom">
+            <i class="bi bi-clipboard"></i> コピー
+          </button>
+          <button class="btn btn-success btn-sm" id="btnSave" disabled>
+            <i class="bi bi-check2"></i> 保存
+          </button>
+        </div>
+      </div>
+      <div class="pcl-page-header-spacer"></div>
+      <div class="alert alert-light small mb-3 py-2" style="border-left:3px solid #0d6efd;">
+        <i class="bi bi-info-circle"></i>
+        原紙を保存すると<strong>未着手のチェックリスト(生成済みだが未チェック)は自動で最新に同期</strong>されます。
+        進行中のものも最新化したい場合は <span class="badge bg-warning text-dark">未着手を最新化</span> から実行してください。
+        <strong>完了済みの履歴</strong>は常に保護されます。
       </div>
       <div id="pclBody"><div class="text-center text-muted py-5"><div class="spinner-border"></div></div></div>
     `;
 
     document.getElementById("btnSave").addEventListener("click", () => this.save());
     document.getElementById("btnCopyFrom").addEventListener("click", () => this.openCopyModal());
+    document.getElementById("btnRegenerate").addEventListener("click", () => this.openRegenerateModal());
     window.addEventListener("beforeunload", this._beforeUnloadHandler = (e) => {
       if (this.dirty) { e.preventDefault(); e.returnValue = ""; }
     });
 
+    // ヘッダー位置合わせ
+    this._applyHeaderLayout();
+    if (this._headerResizeHandler) window.removeEventListener("resize", this._headerResizeHandler);
+    this._headerResizeHandler = () => this._applyHeaderLayout();
+    window.addEventListener("resize", this._headerResizeHandler, { passive: true });
+
     await this.loadData();
+  },
+
+  _applyHeaderLayout() {
+    const header = document.querySelector(".pcl-page-header");
+    if (!header) return;
+    const mainEl = document.querySelector(".app-main");
+    const rect = mainEl ? mainEl.getBoundingClientRect() : { left: 0, width: window.innerWidth };
+    header.style.left = rect.left + "px";
+    header.style.width = rect.width + "px";
+    // fixed 化後の実レイアウトを待ってから spacer 計算 (offsetHeight より正確)
+    requestAnimationFrame(() => {
+      const headerH = header.getBoundingClientRect().height;
+      const tabsWrap = document.querySelector(".pcl-tabs-wrap");
+      const tabsH = tabsWrap ? tabsWrap.getBoundingClientRect().height : 0;
+      const spacer = document.querySelector(".pcl-page-header-spacer");
+      if (spacer) spacer.style.height = (headerH + tabsH) + "px";
+    });
   },
 
   async loadData() {
@@ -108,32 +144,51 @@ const PropertyChecklistPage = {
     const body = document.getElementById("pclBody");
     const areas = this.template.areas || [];
 
-    const tabs = areas.map((a, i) => `
+    // タブ見た目をスタッフ側(my-checklist) と統一: 非 active は灰色背景+枠線で区別
+    const tabs = areas.map((a) => {
+      const isActive = a.id === this.activeAreaId;
+      return `
       <li class="nav-item">
-        <a class="nav-link ${a.id === this.activeAreaId ? "active" : ""}" href="#" data-area-id="${a.id}">
+        <a class="nav-link ${isActive ? "active" : ""}" href="#" data-area-id="${a.id}"
+           style="${isActive ? '' : 'background:#f1f3f5;border:1px solid #ced4da;color:#495057;'}font-weight:600;">
           ${this.escapeHtml(a.name)}
-          <span class="badge bg-light text-dark ms-1">${this.countLeaves(a)}</span>
+          <span class="badge ${isActive ? 'bg-light text-dark' : 'bg-secondary'} ms-1">${this.countLeaves(a)}</span>
         </a>
-      </li>
-    `).join("");
+      </li>`;
+    }).join("");
 
+    // タブ上部固定 (IntersectionObserver 方式、my-checklist と同じ)
     body.innerHTML = `
-      <div class="mb-3">
-        <ul class="nav nav-pills flex-nowrap overflow-auto pb-2" id="areaTabs" style="white-space:nowrap;">
+      <div class="pcl-tabs-sentinel" style="height:1px;"></div>
+      <div class="pcl-tabs-wrap" style="background:#fff;border-bottom:1px solid #dee2e6;padding:4px 4px;">
+        <ul class="nav nav-pills flex-nowrap overflow-auto pb-0 mb-0" id="areaTabs" style="white-space:nowrap;gap:8px;">
           ${tabs}
           <li class="nav-item">
-            <a class="nav-link text-success" href="#" id="btnAddArea"><i class="bi bi-plus"></i> エリア追加</a>
+            <a class="nav-link text-success" href="#" id="btnAddArea" style="border:1px dashed #74c786;font-weight:600;"><i class="bi bi-plus"></i> エリア追加</a>
           </li>
         </ul>
       </div>
       <div id="areaContent"></div>
     `;
+    this._setupTabStickyObserver(body);
 
+    // タブクリック時は body 全体を再構築せず、active クラスと inline style を直接更新
+    // (renderTree() を呼ぶとタブの横スクロール位置が一番左にリセットされてしまうため)
     body.querySelectorAll("[data-area-id]").forEach(el => {
       el.addEventListener("click", (ev) => {
         ev.preventDefault();
         this.activeAreaId = el.dataset.areaId;
-        this.renderTree();
+        body.querySelectorAll(".nav-link[data-area-id]").forEach(n => {
+          const isActive = n.dataset.areaId === this.activeAreaId;
+          n.classList.toggle("active", isActive);
+          // active 時は inline style クリアし Bootstrap の青ピルを有効化
+          n.setAttribute("style", isActive
+            ? "font-weight:600;"
+            : "background:#f1f3f5;border:1px solid #ced4da;color:#495057;font-weight:600;");
+          const badge = n.querySelector(".badge");
+          if (badge) badge.className = `badge ${isActive ? 'bg-light text-dark' : 'bg-secondary'} ms-1`;
+        });
+        this.renderAreaContent();
       });
     });
     document.getElementById("btnAddArea").addEventListener("click", (ev) => {
@@ -151,11 +206,12 @@ const PropertyChecklistPage = {
 
     content.innerHTML = `
       <div class="card">
-        <div class="card-header d-flex align-items-center">
+        <div class="card-header d-flex align-items-center flex-wrap gap-1">
           <strong>エリア: ${this.escapeHtml(area.name)}</strong>
           <button class="btn btn-sm btn-link ms-2" data-act="rename-area"><i class="bi bi-pencil"></i></button>
           <button class="btn btn-sm btn-link text-danger" data-act="delete-area"><i class="bi bi-trash"></i></button>
-          <div class="ms-auto">
+          <button class="btn btn-sm btn-outline-secondary ms-2" data-act="toggle-expand-all"><i class="bi bi-arrows-expand"></i> 全展開/全折りたたみ</button>
+          <div class="ms-auto d-flex gap-1">
             <button class="btn btn-sm btn-outline-primary" data-act="add-item"><i class="bi bi-plus"></i> 項目</button>
             <button class="btn btn-sm btn-outline-primary" data-act="add-tt"><i class="bi bi-plus"></i> 掃除種類</button>
           </div>
@@ -170,9 +226,65 @@ const PropertyChecklistPage = {
     content.querySelector(`[data-act="delete-area"]`).addEventListener("click", () => this.deleteArea(area));
     content.querySelector(`[data-act="add-item"]`).addEventListener("click", () => this.addItem(area, "directItems"));
     content.querySelector(`[data-act="add-tt"]`).addEventListener("click", () => this.addTaskType(area));
+    content.querySelector(`[data-act="toggle-expand-all"]`).addEventListener("click", () => this.toggleExpandAll(content));
 
     this.wireNodeHandlers(content);
     this.makeSortables();
+  },
+
+  // タブを「常に画面上端固定」にする (my-checklist と同型、page-header の直下に配置)
+  _setupTabStickyObserver(body) {
+    const wrap = body.querySelector(".pcl-tabs-wrap");
+    if (!wrap) return;
+    const applyLayout = () => {
+      const mainEl = document.querySelector(".app-main");
+      const rect = mainEl ? mainEl.getBoundingClientRect() : { left: 0, width: window.innerWidth };
+      const header = document.querySelector(".pcl-page-header");
+      const headerH = header ? header.getBoundingClientRect().height : 0;
+      wrap.style.position = "fixed";
+      wrap.style.top = headerH + "px";
+      wrap.style.left = rect.left + "px";
+      wrap.style.width = rect.width + "px";
+      wrap.style.zIndex = "28";
+      wrap.style.background = "#fff";
+      wrap.style.boxShadow = "0 2px 6px rgba(0,0,0,0.06)";
+      // fixed 化後に rAF で実レイアウト高さを測って spacer 更新
+      requestAnimationFrame(() => {
+        const spacer = document.querySelector(".pcl-page-header-spacer");
+        if (spacer) spacer.style.height = (headerH + wrap.getBoundingClientRect().height) + "px";
+      });
+    };
+    // 旧 observer / handler クリーンアップ
+    if (this._tabsObserver) { this._tabsObserver.disconnect(); this._tabsObserver = null; }
+    if (this._tabsResizeHandler) window.removeEventListener("resize", this._tabsResizeHandler);
+    this._tabsResizeHandler = applyLayout;
+    window.addEventListener("resize", applyLayout, { passive: true });
+    requestAnimationFrame(applyLayout);
+    // タブクリック時にそのタブを左端へ scrollTo
+    const listEl = wrap.querySelector(".nav-pills");
+    if (listEl) {
+      wrap.querySelectorAll(".nav-link[data-area-id]").forEach(el => {
+        el.addEventListener("click", () => {
+          setTimeout(() => {
+            const left = el.offsetLeft;
+            listEl.scrollTo({ left: Math.max(0, left - 4), behavior: "smooth" });
+          }, 0);
+        });
+      });
+    }
+  },
+
+  // エリア内のアコーディオンを一括で全展開 or 全折りたたみ (どれか閉じていれば全展開、全開なら全折りたたみ)
+  toggleExpandAll(scope) {
+    const root = scope || document.getElementById("areaContent");
+    if (!root) return;
+    const collapses = root.querySelectorAll(".accordion-collapse");
+    if (!collapses.length) return;
+    const anyClosed = Array.from(collapses).some(c => !c.classList.contains("show"));
+    collapses.forEach(c => {
+      const inst = bootstrap.Collapse.getOrCreateInstance(c, { toggle: false });
+      if (anyClosed) inst.show(); else inst.hide();
+    });
   },
 
   // === 階層ごとの「子」配列を sortOrder で統合して描画 ===
@@ -813,6 +925,70 @@ const PropertyChecklistPage = {
   },
 
   // === コピー機能 ===
+  async openRegenerateModal() {
+    const html = `
+      <div class="modal fade" id="regenerateModal" tabindex="-1">
+        <div class="modal-dialog"><div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">原紙を既存チェックリストに反映</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-2">この物件で生成済みのチェックリストに、いまの原紙を反映します。</p>
+            <div class="alert alert-success small mb-3 py-2">
+              <i class="bi bi-shield-check"></i> <strong>完了済みの履歴は常に保護</strong>されます（反映対象外）
+            </div>
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="radio" name="regenScope" id="regenScopePristine" value="pristine" checked>
+              <label class="form-check-label" for="regenScopePristine">
+                <strong>未着手のみ</strong>（推奨・安全）<br>
+                <small class="text-muted">誰もチェックしていない checklist だけ最新化。進行中は触りません。</small>
+              </label>
+            </div>
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="radio" name="regenScope" id="regenScopeInProgress" value="inProgress">
+              <label class="form-check-label" for="regenScopeInProgress">
+                <strong>進行中も含めて最新化</strong><br>
+                <small class="text-muted">既存のチェック済み項目は ID が一致すれば維持。削除された項目は破棄され、新規項目は未チェックで追加されます。</small>
+              </label>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+            <button type="button" class="btn btn-warning" id="btnDoRegenerate">
+              <i class="bi bi-arrow-clockwise"></i> 実行
+            </button>
+          </div>
+        </div></div>
+      </div>`;
+    document.getElementById("regenerateModal")?.remove();
+    document.body.insertAdjacentHTML("beforeend", html);
+    const modalEl = document.getElementById("regenerateModal");
+    const modal = new bootstrap.Modal(modalEl);
+    modal.show();
+    document.getElementById("btnDoRegenerate").addEventListener("click", async () => {
+      const scope = document.querySelector('input[name="regenScope"]:checked').value;
+      const btn = document.getElementById("btnDoRegenerate");
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 実行中...';
+      try {
+        const result = await API.checklist.regenerate(this.propertyId, { alsoInProgress: scope === "inProgress" });
+        modal.hide();
+        const s = result.summary || {};
+        showToast(
+          "反映完了",
+          `最新化: ${s.updated||0}件 / スキップ(完了済): ${s.skippedCompleted||0}件` +
+          (s.skippedInProgress ? ` / スキップ(進行中): ${s.skippedInProgress}件` : ""),
+          "success"
+        );
+      } catch (e) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 実行';
+        showToast("エラー", e.message, "error");
+      }
+    });
+  },
+
   async openCopyModal() {
     const properties = (await API.properties.list(true)).filter(p => p.type === "minpaku" && p.id !== this.propertyId);
     // 既存テンプレートを持つ物件のみに絞る
