@@ -149,9 +149,20 @@ service cloud.firestore {
       allow read, write: if isOwner();
     }
 
-    // 設定 — オーナーのみ (例外: guestForm は匿名ゲストも読取可)
+    // 設定 — オーナーのみ (例外あり)
+    // guestForm: 匿名ゲストも読取可
     match /settings/guestForm {
       allow read: if true;
+      allow write: if isOwner();
+    }
+    // prepaidCards / laundryDepots: スタッフも読取可 (洗濯物を出す時に必要)
+    // 書き込みは認証済みなら可 (スタッフの残高減算を許可)
+    match /settings/prepaidCards {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    match /settings/laundryDepots {
+      allow read: if isAuthenticated();
       allow write: if isOwner();
     }
     match /settings/{document=**} {

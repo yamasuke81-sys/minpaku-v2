@@ -35,6 +35,7 @@ const App = {
     "my-recruitment": MyRecruitmentPage,
     "my-checklist": MyChecklistPage,
     "my-invoice-create": MyInvoiceCreatePage,
+    "prepaid-cards": PrepaidCardsPage,
   },
 
   init() {
@@ -89,7 +90,32 @@ const App = {
     if (ownerNav) ownerNav.classList.toggle("d-none", role === "staff");
     if (staffNav) staffNav.classList.toggle("d-none", role !== "staff");
 
+    // スタッフ側のプリカ管理タブ: 担当物件に紐づくカードがある場合のみ表示
+    if (role === "staff") this._maybeShowStaffPrepaidNav();
+
     this.route();
+  },
+
+  // スタッフの担当物件に紐づくプリカが存在する時だけサイドバーに「プリカ管理」を表示
+  async _maybeShowStaffPrepaidNav() {
+    const link = document.getElementById("staffNavPrepaid");
+    if (!link) return;
+    try {
+      const staffId = Auth.currentUser?.staffId;
+      if (!staffId) return;
+      const db = firebase.firestore();
+      const sDoc = await db.collection("staff").doc(staffId).get();
+      if (!sDoc.exists) return;
+      const assigned = new Set(sDoc.data().assignedPropertyIds || []);
+      if (!assigned.size) return;
+      const pDoc = await db.collection("settings").doc("prepaidCards").get();
+      if (!pDoc.exists) return;
+      const items = pDoc.data().items || [];
+      const hasMatch = items.some(c => (c.propertyIds || []).some(pid => assigned.has(pid)));
+      if (hasMatch) link.classList.remove("d-none");
+    } catch (e) {
+      console.warn("プリカナビ表示判定エラー:", e.message);
+    }
   },
 
   route() {
