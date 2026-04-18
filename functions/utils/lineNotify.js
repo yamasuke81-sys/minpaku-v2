@@ -238,28 +238,31 @@ async function getNotificationSettings_(db) {
 
 /**
  * 通知種別ごとの送信先を判定
- * settings.channels[notifyType] の ownerLine / groupLine / ownerEmail で制御
+ * settings.channels[notifyType] の ownerLine / groupLine / ownerEmail / fcmStaff / fcmOwner で制御
  * @param {object} settings - settings/notifications ドキュメント
  * @param {string} notifyType - 通知種別キー（例: "recruit_start"）
- * @returns {{ enabled: boolean, ownerLine: boolean, groupLine: boolean, staffLine: boolean, ownerEmail: boolean, sendToGroup: boolean, sendToIndividual: boolean }}
+ * @returns {{ enabled: boolean, ownerLine: boolean, groupLine: boolean, staffLine: boolean, ownerEmail: boolean, fcmStaff: boolean, fcmOwner: boolean, sendToGroup: boolean, sendToIndividual: boolean }}
  */
 function resolveNotifyTargets(settings, notifyType) {
-  const defaults = { enabled: true, ownerLine: true, groupLine: false, staffLine: false, ownerEmail: false, discordOwner: false, discordSubOwner: false, sendToGroup: false, sendToIndividual: true };
+  const defaults = { enabled: true, ownerLine: true, groupLine: false, staffLine: false, ownerEmail: false, discordOwner: false, discordSubOwner: false, fcmStaff: false, fcmOwner: false, sendToGroup: false, sendToIndividual: true };
   if (!settings || !settings.channels) return defaults;
   const ch = settings.channels[notifyType];
   if (!ch) return defaults;
   if (ch.enabled === false) {
-    return { enabled: false, ownerLine: false, groupLine: false, staffLine: false, ownerEmail: false, discordOwner: false, discordSubOwner: false, sendToGroup: false, sendToIndividual: false };
+    return { enabled: false, ownerLine: false, groupLine: false, staffLine: false, ownerEmail: false, discordOwner: false, discordSubOwner: false, fcmStaff: false, fcmOwner: false, sendToGroup: false, sendToIndividual: false };
   }
 
-  // 新形式: ownerLine / groupLine / staffLine / ownerEmail / discordOwner / discordSubOwner
-  if (ch.ownerLine !== undefined || ch.groupLine !== undefined || ch.staffLine !== undefined || ch.ownerEmail !== undefined || ch.discordOwner !== undefined || ch.discordSubOwner !== undefined) {
+  // 新形式: ownerLine / groupLine / staffLine / ownerEmail / discordOwner / discordSubOwner / fcmStaff / fcmOwner
+  if (ch.ownerLine !== undefined || ch.groupLine !== undefined || ch.staffLine !== undefined || ch.ownerEmail !== undefined || ch.discordOwner !== undefined || ch.discordSubOwner !== undefined || ch.fcmStaff !== undefined || ch.fcmOwner !== undefined) {
     const ownerLine = ch.ownerLine !== false;
     const groupLine = !!ch.groupLine;
     const staffLine = !!ch.staffLine;
     const ownerEmail = !!ch.ownerEmail;
     const discordOwner = !!ch.discordOwner;
     const discordSubOwner = !!ch.discordSubOwner;
+    // FCMチャネル（Web Push）
+    const fcmStaff = !!ch.fcmStaff;
+    const fcmOwner = !!ch.fcmOwner;
     return {
       enabled: true,
       ownerLine,
@@ -268,6 +271,8 @@ function resolveNotifyTargets(settings, notifyType) {
       ownerEmail,
       discordOwner,
       discordSubOwner,
+      fcmStaff,
+      fcmOwner,
       // 後方互換
       sendToGroup: groupLine,
       sendToIndividual: staffLine,
@@ -282,6 +287,8 @@ function resolveNotifyTargets(settings, notifyType) {
     groupLine: targets === "both" || targets === "group",
     staffLine: targets === "both" || targets === "individual",
     ownerEmail: !!(ch.channel === "email" || ch.channel === "both"),
+    fcmStaff: false,
+    fcmOwner: false,
     sendToGroup: targets === "both" || targets === "group",
     sendToIndividual: targets === "both" || targets === "individual",
   };

@@ -253,6 +253,9 @@ const NotificationsPage = {
         const ownerEmail = !!ch.ownerEmail;
         const discordOwner = !!ch.discordOwner;
         const discordSubOwner = !!ch.discordSubOwner;
+        // FCM (Web Push) チャネル
+        const fcmStaff = !!ch.fcmStaff;
+        const fcmOwner = !!ch.fcmOwner;
         const customMessage = ch.customMessage || "";
         const msgValue = customMessage || n.defaultMsg || n.desc;
         const vars = this.systemVariables[n.varGroup] || [];
@@ -319,6 +322,14 @@ const NotificationsPage = {
                   <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="discordSubOwner" ${discordSubOwner ? "checked" : ""}>
                     <span class="form-check-label small"><i class="bi bi-discord" style="color:#8da0f8"></i> Discord(サブオーナー)</span>
+                  </label>
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
+                    <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="fcmStaff" ${fcmStaff ? "checked" : ""}>
+                    <span class="form-check-label small"><i class="bi bi-bell-fill text-primary"></i> Web Push(スタッフ)</span>
+                  </label>
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
+                    <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="fcmOwner" ${fcmOwner ? "checked" : ""}>
+                    <span class="form-check-label small"><i class="bi bi-bell text-success"></i> Web Push(オーナー)</span>
                   </label>
                 </div>
 
@@ -569,9 +580,11 @@ const NotificationsPage = {
       groupLine: get("groupLine"),
       staffLine: get("staffLine"),
       ownerEmail: get("ownerEmail"),
+      fcmStaff: get("fcmStaff"),
+      fcmOwner: get("fcmOwner"),
     };
 
-    if (!targets.ownerLine && !targets.groupLine && !targets.staffLine && !targets.ownerEmail) {
+    if (!targets.ownerLine && !targets.groupLine && !targets.staffLine && !targets.ownerEmail && !targets.fcmStaff && !targets.fcmOwner) {
       showToast("エラー", "送信先を1つ以上チェックしてください", "error");
       return;
     }
@@ -592,7 +605,7 @@ const NotificationsPage = {
         // チャネル別に成功/失敗を集計
         const successes = [];  // ラベル(例: オーナーLINE)
         const errs = [];       // { label, reason }
-        const labelMap = { ownerLine: "オーナーLINE", groupLine: "グループLINE", staffLine: "スタッフ個別LINE", ownerEmail: "オーナーメール" };
+        const labelMap = { ownerLine: "オーナーLINE", groupLine: "グループLINE", staffLine: "スタッフ個別LINE", ownerEmail: "オーナーメール", fcmStaff: "Web Push(スタッフ)", fcmOwner: "Web Push(オーナー)" };
         for (const r of (data.results || [])) {
           const label = labelMap[r.target] || r.target;
           if (Array.isArray(r.staffResults)) {
@@ -674,6 +687,9 @@ const NotificationsPage = {
           groupLine: get("groupLine"),
           staffLine: get("staffLine"),
           ownerEmail: get("ownerEmail"),
+          // FCM (Web Push) チャネル
+          fcmStaff: get("fcmStaff"),
+          fcmOwner: get("fcmOwner"),
           customMessage: ta ? ta.value : "",
           timings,            // 複数タイミング配列
         };

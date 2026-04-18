@@ -31,10 +31,32 @@
             <i class="bi bi-person-check" style="font-size:3rem;color:#2196F3;"></i>
           </div>
           <h5 class="mb-2"><span id="staffName">スタッフ</span> さん</h5>
-          <p class="text-muted">民泊管理アプリへの招待です。<br>「参加する」を押してアカウントを作成してください。</p>
-          <button class="btn btn-primary btn-lg w-100 mt-3" id="btnAccept">
-            <i class="bi bi-check-circle"></i> 参加する
+          <p class="text-muted">民泊管理アプリへの招待です。<br>登録方法を選択してください。</p>
+
+          <!-- LINEで参加（既存） -->
+          <button class="btn btn-lg w-100 mt-3" id="btnAccept" style="background-color:#06C755;color:#fff;font-weight:bold;">
+            <svg viewBox="0 0 24 24" width="20" height="20" style="vertical-align:middle;margin-right:6px;fill:#fff"><path d="M12 2C6.48 2 2 5.83 2 10.5c0 4.07 3.44 7.47 8.09 8.18.31.07.74.21.85.48.1.25.06.63.03.88l-.14.82c-.04.25-.2.98.86.54s5.71-3.36 7.79-5.76C21.42 13.42 22 11.87 22 10.5 22 5.83 17.52 2 12 2z"/></svg>
+            LINEで参加する
           </button>
+
+          <!-- メールで参加（新規） -->
+          <button class="btn btn-outline-primary btn-lg w-100 mt-2" id="btnAcceptEmail">
+            <i class="bi bi-envelope-arrow-up"></i> メールで参加する
+          </button>
+
+          <!-- メールアドレス入力フォーム（初期非表示） -->
+          <div class="d-none mt-3" id="emailRegisterForm">
+            <div class="input-group">
+              <input type="email" class="form-control" id="registerEmail" placeholder="メールアドレスを入力">
+              <button class="btn btn-primary" id="btnSendRegisterEmail">
+                <span id="registerEmailBtnLabel"><i class="bi bi-send"></i></span>
+              </button>
+            </div>
+            <div class="alert alert-success d-none mt-2 py-2 small" id="registerEmailSent">
+              <i class="bi bi-check-circle"></i> メールを送信しました。メール内のリンクをクリックして登録完了です。
+            </div>
+          </div>
+
           <div class="alert alert-danger d-none mt-3" id="acceptError"></div>
         </div>
 
@@ -66,6 +88,7 @@
   <script src="js/firebase-config.js"></script>
   <script>
     (async function() {
+      const auth = firebase.auth();
       const params = new URLSearchParams(location.search);
       const token = params.get("token");
 
@@ -89,7 +112,61 @@
         document.getElementById("validState").classList.remove("d-none");
         document.getElementById("staffName").textContent = info.staffName;
 
-        // 参加ボタン
+        // メールで参加ボタン: フォームトグル
+        document.getElementById("btnAcceptEmail").addEventListener("click", () => {
+          const form = document.getElementById("emailRegisterForm");
+          const isHidden = form.classList.contains("d-none");
+          form.classList.toggle("d-none", !isHidden);
+          if (!isHidden) return;
+          setTimeout(() => document.getElementById("registerEmail").focus(), 50);
+        });
+
+        // メール送信ボタン
+        document.getElementById("btnSendRegisterEmail").addEventListener("click", async () => {
+          const emailInput = document.getElementById("registerEmail");
+          const sentEl = document.getElementById("registerEmailSent");
+          const errorEl = document.getElementById("acceptError");
+          const btnLabel = document.getElementById("registerEmailBtnLabel");
+          const sendBtn = document.getElementById("btnSendRegisterEmail");
+          const email = emailInput.value.trim();
+
+          errorEl.classList.add("d-none");
+          sentEl.classList.add("d-none");
+
+          if (!email) {
+            errorEl.textContent = "メールアドレスを入力してください";
+            errorEl.classList.remove("d-none");
+            return;
+          }
+
+          sendBtn.disabled = true;
+          btnLabel.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+          try {
+            // マジックリンクのURLに inviteToken も付与（受信ページで招待受諾処理）
+            const redirectUrl = `${location.origin}/email-signin.html?inviteToken=${encodeURIComponent(token)}`;
+            const actionCodeSettings = {
+              url: redirectUrl,
+              handleCodeInApp: true,
+            };
+            await auth.sendSignInLinkToEmail(email, actionCodeSettings);
+            localStorage.setItem("emailForSignIn", email);
+            sentEl.classList.remove("d-none");
+          } catch (e) {
+            const messages = {
+              "auth/invalid-email": "メールアドレスの形式が正しくありません",
+              "auth/operation-not-allowed": "メールリンク認証が無効です。Firebase ConsoleでEmail Link Sign-inを有効にしてください",
+              "auth/too-many-requests": "送信回数が多すぎます",
+            };
+            errorEl.textContent = messages[e.code] || `送信失敗: ${e.message}`;
+            errorEl.classList.remove("d-none");
+          } finally {
+            sendBtn.disabled = false;
+            btnLabel.innerHTML = '<i class="bi bi-send"></i>';
+          }
+        });
+
+        // LINEで参加ボタン（既存）
         document.getElementById("btnAccept").addEventListener("click", async () => {
           const btn = document.getElementById("btnAccept");
           const errorEl = document.getElementById("acceptError");

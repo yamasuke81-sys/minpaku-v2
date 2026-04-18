@@ -183,6 +183,75 @@ module.exports = function authApi(db) {
   });
 
   /**
+   * POST /auth/accept-invite-email
+   * メールリンク認証後の招待受諾 — Firebase Authユーザーにrole:staff + staffIdクレームを付与
+   * リクエスト: { token: string, email: string }
+   * ※ 呼び出し時点でFirebase Auth済み（email-signin.htmlからIDトークン付きで呼ばれる）
+   */
+  router.post("/accept-invite-email", async (req, res) => {
+    try {
+      // 認証済みユーザーのIDトークン検証
+      const user = await authenticateRequest_(req);
+      if (!user) {
+        return res.status(401).json({ error: "認証が必要です" });
+      }
+
+      const { token, email } = req.body;
+      if (!token) {
+        return res.status(400).json({ error: "招待トークンが必要です" });
+      }
+
+      // 招待トークン検証
+      const inviteDoc = await db.collection("staffInvites").doc(token).get();
+      if (!inviteDoc.exists) {
+        return res.status(404).json({ error: "無効な招待リンクです" });
+      }
+
+      const invite = inviteDoc.data();
+      if (invite.used) {
+        return res.status(400).json({ error: "この招待リンクは使用済みです" });
+      }
+      if (invite.expiresAt && invite.expiresAt.toDate() < new Date()) {
+        return res.status(400).json({ error: "招待リンクの有効期限が切れています" });
+      }
+
+      // スタッフドキュメント取得
+      const staffDoc = await db.collection("staff").doc(invite.staffId).get();
+      if (!staffDoc.exists || !staffDoc.data().active) {
+        return res.status(404).json({ error: "対象スタッフが見つかりません" });
+      }
+
+      const staffId = invite.staffId;
+      const uid = user.uid;
+
+      // カスタムクレーム設定（role: staff + staffId）
+      await admin.auth().setCustomUserClaims(uid, { role: "staff", staffId });
+
+      // スタッフドキュメントに authUid と email を記録
+      const updateData = {
+        authUid: uid,
+        updatedAt: new Date(),
+      };
+      if (email) updateData.email = email;
+      await staffDoc.ref.update(updateData);
+
+      // 招待トークンを使用済みに
+      await inviteDoc.ref.update({
+        used: true,
+        usedAt: new Date(),
+        usedByUid: uid,
+        usedByEmail: email || null,
+        authMethod: "email_link",
+      });
+
+      res.json({ success: true, staffName: staffDoc.data().name });
+    } catch (e) {
+      console.error("メールリンク招待受諾エラー:", e);
+      res.status(500).json({ error: `サーバーエラー: ${e.message}` });
+    }
+  });
+
+  /**
    * GET /auth/invite-info
    * 招待トークンの情報を取得（認証不要、スタッフ名表示用）
    * クエリ: ?token=xxx

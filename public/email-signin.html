@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>民泊管理v2 — メールリンクでログイン</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <style>
+    body { background: #f0f2f5; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .signin-card { max-width: 420px; width: 100%; }
+  </style>
+</head>
+<body>
+  <div class="signin-card">
+    <div class="card shadow-sm">
+      <div class="card-header bg-primary text-white text-center py-3">
+        <h5 class="mb-0"><i class="bi bi-house-door"></i> 民泊管理v2</h5>
+        <small>メールリンク認証</small>
+      </div>
+      <div class="card-body p-4">
+        <!-- 処理中 -->
+        <div id="processingState" class="text-center py-4">
+          <div class="spinner-border text-primary" role="status"></div>
+          <p class="mt-2 text-muted">認証処理中...</p>
+        </div>
+
+        <!-- メールアドレス入力要求（別デバイスで開いた場合） -->
+        <div id="emailInputState" class="d-none">
+          <div class="mb-3 text-center">
+            <i class="bi bi-envelope-check" style="font-size:3rem;color:#0d6efd;"></i>
+          </div>
+          <p class="text-muted small text-center">セキュリティのため、ログインに使用したメールアドレスを入力してください。</p>
+          <div class="mb-3">
+            <input type="email" class="form-control" id="confirmEmail" placeholder="メールアドレスを入力">
+          </div>
+          <div class="alert alert-danger d-none" id="emailInputError"></div>
+          <button class="btn btn-primary w-100" id="btnConfirmEmail">
+            <i class="bi bi-check-circle"></i> ログイン
+          </button>
+        </div>
+
+        <!-- 成功 -->
+        <div id="successState" class="d-none text-center">
+          <div class="mb-3">
+            <i class="bi bi-check-circle-fill" style="font-size:3rem;color:#198754;"></i>
+          </div>
+          <h5 class="text-success">ログイン完了！</h5>
+          <p class="text-muted">アプリに移動します...</p>
+        </div>
+
+        <!-- エラー -->
+        <div id="errorState" class="d-none text-center">
+          <div class="mb-3">
+            <i class="bi bi-x-circle" style="font-size:3rem;color:#dc3545;"></i>
+          </div>
+          <h5 class="text-danger">認証に失敗しました</h5>
+          <p class="text-muted" id="errorMessage">リンクが無効か期限切れです。</p>
+          <a href="/index.html" class="btn btn-outline-primary btn-sm mt-2">ログイン画面に戻る</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-auth-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script>
+    (async function() {
+      const auth = firebase.auth();
+      const currentUrl = location.href;
+
+      // メールリンクかどうか確認
+      if (!auth.isSignInWithEmailLink(currentUrl)) {
+        showError("このリンクはメールログイン用ではありません。");
+        return;
+      }
+
+      // localStorageからメールアドレスを復元
+      let email = localStorage.getItem("emailForSignIn");
+
+      if (!email) {
+        // 別デバイスで開いた場合：メールアドレス入力を要求
+        showEmailInput();
+        return;
+      }
+
+      // メールアドレスがある場合は即座に認証実行
+      await doSignIn(email);
+
+      // ========== ヘルパー関数 ==========
+
+      function showEmailInput() {
+        document.getElementById("processingState").classList.add("d-none");
+        document.getElementById("emailInputState").classList.remove("d-none");
+
+        document.getElementById("btnConfirmEmail").addEventListener("click", async () => {
+          const inputEmail = document.getElementById("confirmEmail").value.trim();
+          const errEl = document.getElementById("emailInputError");
+          errEl.classList.add("d-none");
+
+          if (!inputEmail) {
+            errEl.textContent = "メールアドレスを入力してください";
+            errEl.classList.remove("d-none");
+            return;
+          }
+
+          document.getElementById("emailInputState").classList.add("d-none");
+          document.getElementById("processingState").classList.remove("d-none");
+          await doSignIn(inputEmail);
+        });
+      }
+
+      async function doSignIn(emailAddr) {
+        try {
+          const result = await auth.signInWithEmailLink(emailAddr, currentUrl);
+          // 使用済みのメールアドレスをlocalStorageから削除
+          localStorage.removeItem("emailForSignIn");
+
+          // URLパラメータから招待トークンを取得
+          const params = new URLSearchParams(location.search);
+          const inviteToken = params.get("inviteToken");
+
+          if (inviteToken) {
+            // 招待トークンがある場合: accept-invite-email APIを叩いてロール付与
+            await acceptInvite(result.user, inviteToken);
+          }
+
+          // ログイン成功 → アプリへリダイレクト
+          document.getElementById("processingState").classList.add("d-none");
+          document.getElementById("successState").classList.remove("d-none");
+
+          setTimeout(() => {
+            location.href = "/index.html#/my-dashboard";
+          }, 1500);
+        } catch (e) {
+          console.error("メールリンク認証エラー:", e);
+          const messages = {
+            "auth/invalid-action-code": "リンクが無効か期限切れです。再度ログインメールを送信してください。",
+            "auth/expired-action-code": "リンクの有効期限が切れています。再度ログインメールを送信してください。",
+            "auth/invalid-email": "メールアドレスが一致しません。",
+          };
+          showError(messages[e.code] || `認証エラー: ${e.message}`);
+        }
+      }
+
+      async function acceptInvite(user, token) {
+        try {
+          const idToken = await user.getIdToken();
+          const res = await fetch("/api/auth/accept-invite-email", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({ token, email: user.email }),
+          });
+          const data = await res.json();
+          if (!data.success) {
+            console.warn("招待受諾API失敗:", data.error);
+          }
+          // カスタムクレームを反映するためにトークンをリフレッシュ
+          await user.getIdToken(true);
+        } catch (e) {
+          console.error("招待受諾エラー:", e);
+        }
+      }
+
+      function showError(message) {
+        document.getElementById("processingState").classList.add("d-none");
+        document.getElementById("emailInputState").classList.add("d-none");
+        document.getElementById("errorState").classList.remove("d-none");
+        document.getElementById("errorMessage").textContent = message;
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -90,6 +90,64 @@ module.exports = function staffApi(db) {
     }
   });
 
+  // FCMトークン登録（本人のみ自分のスタッフdocにトークン追加）
+  router.post("/:id/fcm-token", async (req, res) => {
+    try {
+      const targetStaffId = req.params.id;
+      // オーナーは全員分更新可。スタッフは自分のみ
+      if (req.user.role !== "owner" && req.user.staffId !== targetStaffId) {
+        return res.status(403).json({ error: "自分のトークンのみ登録できます" });
+      }
+
+      const { token } = req.body;
+      if (!token || typeof token !== "string") {
+        return res.status(400).json({ error: "tokenが必要です" });
+      }
+
+      const ref = collection.doc(targetStaffId);
+      const doc = await ref.get();
+      if (!doc.exists) {
+        return res.status(404).json({ error: "スタッフが見つかりません" });
+      }
+
+      // fcmTokens配列に追加（重複しない）
+      await ref.update({
+        fcmTokens: FieldValue.arrayUnion(token),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      res.json({ success: true });
+    } catch (e) {
+      console.error("FCMトークン登録エラー:", e);
+      res.status(500).json({ error: "FCMトークンの登録に失敗しました" });
+    }
+  });
+
+  // FCMトークン削除（本人またはオーナー）
+  router.delete("/:id/fcm-token", async (req, res) => {
+    try {
+      const targetStaffId = req.params.id;
+      if (req.user.role !== "owner" && req.user.staffId !== targetStaffId) {
+        return res.status(403).json({ error: "自分のトークンのみ削除できます" });
+      }
+
+      const { token } = req.body;
+      if (!token) {
+        return res.status(400).json({ error: "tokenが必要です" });
+      }
+
+      await collection.doc(targetStaffId).update({
+        fcmTokens: FieldValue.arrayRemove(token),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      res.json({ success: true });
+    } catch (e) {
+      console.error("FCMトークン削除エラー:", e);
+      res.status(500).json({ error: "FCMトークンの削除に失敗しました" });
+    }
+  });
+
   // スタッフ 非アクティブ解除（active=true + pendingRecruitmentIds クリア）
   router.post("/:id/reactivate", async (req, res) => {
     try {
@@ -172,6 +230,10 @@ function validateStaffData(body, isUpdate = false) {
   if (body.active !== undefined) data.active = Boolean(body.active);
   if (body.displayOrder !== undefined) data.displayOrder = Number(body.displayOrder) || 0;
   if (body.memo !== undefined) data.memo = String(body.memo).trim();
+  // fcmTokensは配列（複数デバイス対応）
+  if (body.fcmTokens !== undefined) {
+    data.fcmTokens = Array.isArray(body.fcmTokens) ? body.fcmTokens : [];
+  }
 
   // 新規登録時のデフォルト値
   if (!isUpdate) {

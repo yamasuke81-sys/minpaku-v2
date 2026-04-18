@@ -15,6 +15,7 @@ const {
   sendNotificationEmail_,
   sendDiscord_,
 } = require("../utils/lineNotify");
+const { notifyAllStaffFCM, notifyOwnerFCM } = require("../utils/fcmSender");
 
 module.exports = function notificationsApi(db) {
   const router = Router();
@@ -160,6 +161,32 @@ module.exports = function notificationsApi(db) {
           results.push({ target: "ownerEmail", success: false, error: e.message });
           failCount++;
         }
+      }
+    }
+
+    // FCM Web Push (スタッフ)
+    if (targets.fcmStaff) {
+      try {
+        const r = await notifyAllStaffFCM(db, title, body, { url: "/index.html#/my-dashboard" });
+        if (r.success) sentCount++; else failCount++;
+        results.push({ target: "fcmStaff", ...r });
+      } catch (e) {
+        console.error("FCMスタッフ送信エラー:", e);
+        results.push({ target: "fcmStaff", success: false, error: e.message });
+        failCount++;
+      }
+    }
+
+    // FCM Web Push (オーナー)
+    if (targets.fcmOwner) {
+      try {
+        const r = await notifyOwnerFCM(db, title, body, { url: "/index.html" });
+        if (r.success) sentCount++; else failCount++;
+        results.push({ target: "fcmOwner", ...r });
+      } catch (e) {
+        console.error("FCMオーナー送信エラー:", e);
+        results.push({ target: "fcmOwner", success: false, error: e.message });
+        failCount++;
       }
     }
 

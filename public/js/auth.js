@@ -22,6 +22,13 @@ const Auth = {
     const lineBtn = document.getElementById("btnLineLogin");
     if (lineBtn) lineBtn.addEventListener("click", () => this.loginWithLine());
 
+    // マジックリンクログインボタン
+    const magicBtn = document.getElementById("btnMagicLinkLogin");
+    if (magicBtn) magicBtn.addEventListener("click", () => this.toggleMagicLinkForm());
+
+    const sendBtn = document.getElementById("btnSendMagicLink");
+    if (sendBtn) sendBtn.addEventListener("click", () => this.sendMagicLink());
+
     // ログアウトボタン（存在すれば）
     const logoutBtn = document.getElementById("btnLogout");
     if (logoutBtn) logoutBtn.addEventListener("click", () => this.logout());
@@ -203,6 +210,72 @@ const Auth = {
 
   async logout() {
     await firebase.auth().signOut();
+  },
+
+  // ========== マジックリンク (Email Link Sign-in) ==========
+
+  /**
+   * マジックリンクフォームの表示/非表示切替
+   */
+  toggleMagicLinkForm() {
+    const form = document.getElementById("magicLinkForm");
+    if (!form) return;
+    const isHidden = form.classList.contains("d-none");
+    form.classList.toggle("d-none", !isHidden);
+    if (!isHidden) return;
+    // 表示時はメールアドレス欄にフォーカス
+    const emailInput = document.getElementById("magicLinkEmail");
+    if (emailInput) setTimeout(() => emailInput.focus(), 50);
+  },
+
+  /**
+   * マジックリンクメール送信
+   * Firebase Auth の sendSignInLinkToEmail を使用
+   */
+  async sendMagicLink() {
+    const emailInput = document.getElementById("magicLinkEmail");
+    const sentEl = document.getElementById("magicLinkSent");
+    const errorEl = document.getElementById("loginError");
+    const btnLabel = document.getElementById("magicLinkBtnLabel");
+    const sendBtn = document.getElementById("btnSendMagicLink");
+
+    const email = emailInput?.value.trim();
+    errorEl.classList.add("d-none");
+    sentEl?.classList.add("d-none");
+
+    if (!email) {
+      errorEl.textContent = "メールアドレスを入力してください";
+      errorEl.classList.remove("d-none");
+      return;
+    }
+
+    sendBtn.disabled = true;
+    if (btnLabel) btnLabel.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+    try {
+      const actionCodeSettings = {
+        // メールリンクのリダイレクト先
+        url: `${location.origin}/email-signin.html`,
+        handleCodeInApp: true,
+      };
+      await firebase.auth().sendSignInLinkToEmail(email, actionCodeSettings);
+
+      // 受信ページで使うためにlocalStorageに保存
+      localStorage.setItem("emailForSignIn", email);
+
+      sentEl?.classList.remove("d-none");
+    } catch (e) {
+      const messages = {
+        "auth/invalid-email": "メールアドレスの形式が正しくありません",
+        "auth/operation-not-allowed": "メールリンクログインが無効です。Firebase ConsoleでEmail Link Sign-inを有効にしてください",
+        "auth/too-many-requests": "送信回数が多すぎます。しばらくお待ちください",
+      };
+      errorEl.textContent = messages[e.code] || `送信失敗: ${e.message}`;
+      errorEl.classList.remove("d-none");
+    } finally {
+      sendBtn.disabled = false;
+      if (btnLabel) btnLabel.innerHTML = '<i class="bi bi-send"></i> 送信';
+    }
   },
 
   isOwner() {
