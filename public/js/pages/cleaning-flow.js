@@ -72,22 +72,26 @@ const CleaningFlowPage = {
     this.renderList();
   },
 
-  async _fetchRates() {
-    if (this._rates) return this._rates;
-    this._rates = {};
+  // 物件別 + 作業項目 毎の報酬一覧を返す (重複削除、物件名つきラベル、共通金額)
+  async _fetchRatesForProperty(propertyId) {
+    const result = [];
     try {
-      const snap = await db.collection("propertyWorkItems").get();
-      const map = {};
-      snap.docs.forEach(d => {
-        const items = (d.data().items || []);
+      // まず該当物件の propertyWorkItems
+      const doc = await db.collection("propertyWorkItems").doc(propertyId).get();
+      if (doc.exists) {
+        const items = (doc.data().items || []);
         items.forEach(it => {
-          const id = `${d.id}:${it.id || it.name}`;
-          map[id] = { label: it.name, commonRate: it.commonRate || 0 };
+          if (!it || !it.name) return;
+          const id = `${propertyId}:${it.id || it.name}`;
+          result.push({
+            id,
+            label: it.name,
+            commonRate: Number(it.commonRate) || 0,
+          });
         });
-      });
-      this._rates = map;
+      }
     } catch (_) {}
-    return this._rates;
+    return result;
   },
 
   async renderList() {
@@ -96,9 +100,11 @@ const CleaningFlowPage = {
       wrap.innerHTML = `<div class="col-12 text-muted">民泊物件がありません</div>`;
       return;
     }
-    const rates = await this._fetchRates();
-    const rateOptions = `<option value="">報酬なし</option>` +
-      Object.entries(rates).map(([id, r]) => `<option value="${id}">${this._esc(r.label)} (¥${(r.commonRate || 0).toLocaleString()})</option>`).join("");
+    // 物件ごとに非同期で報酬項目を取得してマップ化
+    const ratesPerProp = {};
+    for (const p of this.properties) {
+      ratesPerProp[p.id] = await this._fetchRatesForProperty(p.id);
+    }
 
     const chk = (v, def) => (v === undefined ? def : !!v);
     const depots = this.depotMaster;
@@ -109,6 +115,12 @@ const CleaningFlowPage = {
       const usePhoto = chk(f.checkoutPhoto, false);
       const hasLaundry = selectedIds.length > 0;
       const rewards = f.laundryRewards || {}; // { putOut, collected, stored } = rateId or ""
+
+      // 物件ごとの報酬プルダウンオプション
+      const propRates = ratesPerProp[p.id] || [];
+      const rateOptions = `<option value="">報酬なし</option>` +
+        propRates.map(r => `<option value="${r.id}">${this._esc(r.label)} (共通 ¥${(r.commonRate || 0).toLocaleString()})</option>`).join("");
+
       const depotChecks = depots.length
         ? depots.map(d => `
             <div class="form-check">
@@ -121,25 +133,7 @@ const CleaningFlowPage = {
           `).join("")
         : `<div class="small text-muted">提出先マスターが未登録です。<a href="#/laundry">ランドリーページ</a>で追加してください。</div>`;
 
-      // フロー図: チェックリスト → 写真 → ランドリー
-      const flowDiagram = `
-        <div class="cf-flow mb-3">
-          <div class="cf-step ${useChk ? 'active' : 'disabled'}">
-            <div class="cf-step-title"><i class="bi bi-clipboard-check"></i> チェックリスト</div>
-            <div class="cf-step-body">${useChk ? '有効' : '無効'}</div>
-          </div>
-          <div class="cf-arrow">→</div>
-          <div class="cf-step ${usePhoto ? 'active' : 'disabled'}">
-            <div class="cf-step-title"><i class="bi bi-camera"></i> 全景写真</div>
-            <div class="cf-step-body">${usePhoto ? '必須' : '任意'}</div>
-          </div>
-          <div class="cf-arrow">→</div>
-          <div class="cf-step ${hasLaundry ? 'active' : 'disabled'}">
-            <div class="cf-step-title"><i class="bi bi-basket3"></i> ランドリー</div>
-            <div class="cf-step-body">${hasLaundry ? `${selectedIds.length}業者` : '未使用'}</div>
-          </div>
-        </div>`;
-
+      // 各フローステップをカード内に統合 (詳細設定をステップの中に収める)
       return `
       <div class="col-12 col-xl-6">
         <div class="card h-100" data-pid="${p.id}">
@@ -148,42 +142,62 @@ const CleaningFlowPage = {
               <span class="badge" style="background:${p.color || '#6c757d'}">${p.propertyNumber || "-"}</span>
               ${this._esc(p.name)}
             </h6>
-            ${flowDiagram}
-            <div class="row g-2">
-              <div class="col-md-6">
-                <div class="form-check form-switch mb-2">
-                  <input class="form-check-input flow-toggle" type="checkbox" data-field="useChecklist" ${useChk ? "checked" : ""}>
-                  <label class="form-check-label"><i class="bi bi-clipboard-check"></i> 清掃チェックリストを使う</label>
-                </div>
-                <div class="form-check form-switch mb-2">
-                  <input class="form-check-input flow-toggle" type="checkbox" data-field="checkoutPhoto" ${usePhoto ? "checked" : ""}>
-                  <label class="form-check-label"><i class="bi bi-camera"></i> 全景写真を必須化</label>
-                </div>
-                <div class="mb-0">
-                  <label class="form-label small">完了後の案内メモ</label>
-                  <textarea rows="2" class="form-control form-control-sm flow-input" data-field="postComplete" placeholder="次ゲストへの案内・鍵引き継ぎ等">${this._esc(f.postComplete || "")}</textarea>
+
+            <div class="cf-flow mb-2">
+              <!-- ステップ1: チェックリスト -->
+              <div class="cf-step ${useChk ? 'active' : 'disabled'}" style="flex-basis:32%;">
+                <div class="cf-step-title"><i class="bi bi-clipboard-check"></i> ① チェックリスト</div>
+                <div class="form-check form-switch mb-1 mt-1">
+                  <input class="form-check-input flow-toggle" type="checkbox" data-field="useChecklist" ${useChk ? "checked" : ""} id="cf-use-${p.id}">
+                  <label class="form-check-label small" for="cf-use-${p.id}">${useChk ? '有効' : '無効'}</label>
                 </div>
               </div>
-              <div class="col-md-6">
-                <label class="form-label small mb-1 fw-bold"><i class="bi bi-basket3"></i> ランドリー提出先 (複数選択可)</label>
-                ${depotChecks}
-                <div class="mt-3">
-                  <label class="form-label small mb-1 fw-bold"><i class="bi bi-coin"></i> ランドリー操作の報酬</label>
+              <div class="cf-arrow">→</div>
+              <!-- ステップ2: 全景写真 -->
+              <div class="cf-step ${usePhoto ? 'active' : 'disabled'}" style="flex-basis:32%;">
+                <div class="cf-step-title"><i class="bi bi-camera"></i> ② 全景写真</div>
+                <div class="form-check form-switch mb-1 mt-1">
+                  <input class="form-check-input flow-toggle" type="checkbox" data-field="checkoutPhoto" ${usePhoto ? "checked" : ""} id="cf-photo-${p.id}">
+                  <label class="form-check-label small" for="cf-photo-${p.id}">${usePhoto ? '必須' : '任意'}</label>
+                </div>
+              </div>
+              <div class="cf-arrow">→</div>
+              <!-- ステップ3: ランドリー (業者数サマリ) -->
+              <div class="cf-step ${hasLaundry ? 'active' : 'disabled'}" style="flex-basis:32%;">
+                <div class="cf-step-title"><i class="bi bi-basket3"></i> ③ ランドリー</div>
+                <div class="small mt-1">${hasLaundry ? `${selectedIds.length}業者` : '未使用'}</div>
+              </div>
+            </div>
+
+            <details class="mb-2">
+              <summary class="small text-muted">▸ ランドリー提出先・報酬の詳細</summary>
+              <div class="row g-2 mt-1">
+                <div class="col-md-6">
+                  <label class="form-label small mb-1 fw-bold"><i class="bi bi-basket3"></i> 提出先 (複数可)</label>
+                  ${depotChecks}
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small mb-1 fw-bold"><i class="bi bi-coin"></i> 操作ごとの報酬</label>
                   <div class="row g-1 align-items-center mb-1">
-                    <div class="col-5 small text-muted">① 出した時</div>
+                    <div class="col-5 small text-muted">① 出した</div>
                     <div class="col-7"><select class="form-select form-select-sm flow-reward" data-field="putOut">${rateOptions}</select></div>
                   </div>
                   <div class="row g-1 align-items-center mb-1">
-                    <div class="col-5 small text-muted">② 回収した時</div>
+                    <div class="col-5 small text-muted">② 回収した</div>
                     <div class="col-7"><select class="form-select form-select-sm flow-reward" data-field="collected">${rateOptions}</select></div>
                   </div>
                   <div class="row g-1 align-items-center">
-                    <div class="col-5 small text-muted">③ 収納した時</div>
+                    <div class="col-5 small text-muted">③ 収納した</div>
                     <div class="col-7"><select class="form-select form-select-sm flow-reward" data-field="stored">${rateOptions}</select></div>
                   </div>
-                  <div class="form-text small">押したスタッフに選択した報酬単価が加算されます (請求書集計時)。</div>
+                  <div class="form-text small">押したスタッフに報酬が加算 (請求書集計時)。</div>
                 </div>
               </div>
+            </details>
+
+            <div class="mb-0">
+              <label class="form-label small">完了後の案内メモ</label>
+              <textarea rows="2" class="form-control form-control-sm flow-input" data-field="postComplete" placeholder="次ゲストへの案内・鍵引き継ぎ等">${this._esc(f.postComplete || "")}</textarea>
             </div>
           </div>
         </div>

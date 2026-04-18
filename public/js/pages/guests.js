@@ -620,7 +620,6 @@ const GuestsPage = {
       <h6><i class="bi bi-check-circle"></i> 同意状況</h6>
       <table class="table table-sm table-borderless">
         <tr><th style="width:120px">騒音ルール</th><td>${g.noiseAgree ? '<span class="badge bg-success">同意済</span>' : '<span class="badge bg-danger">未同意</span>'}</td></tr>
-        <tr><th>ハウスルール</th><td>${g.houseRuleAgree ? '<span class="badge bg-success">同意済</span>' : '<span class="badge bg-danger">未同意</span>'}</td></tr>
       </table>
 
       ${companions.length > 0 ? `

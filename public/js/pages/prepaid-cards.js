@@ -1,14 +1,14 @@
 /**
  * プリペイドカード管理
- *   オーナー/サブオーナーがコインランドリー等で使うプリカを登録。
- *   洗濯物を出した時にスタッフが選んだプリカから残高が自動減算される。
+ *   コインランドリー店舗ごとに自動連番(ex: 小柴001, 小柴002) でカード登録
+ *   残高は洗濯物を出す時に自動減算
  *
- * データ: settings/prepaidCards.items = [{ id, label, cardNumber, balance, depotId }]
+ * データ: settings/prepaidCards.items = [{ id, label, cardNumber, balance, depotId, memo }]
  * ルート: #/prepaid-cards
  */
 const PrepaidCardsPage = {
   cards: [],
-  depots: [],
+  depots: [],  // コインランドリー種別のみ
 
   async render(container) {
     container.innerHTML = `
@@ -20,7 +20,7 @@ const PrepaidCardsPage = {
           <button class="btn btn-primary" id="btnSavePrepaid"><i class="bi bi-check-lg"></i> 保存</button>
         </div>
       </div>
-      <p class="text-muted small">ランドリー提出先ごとに複数のプリカを管理できます。洗濯物を出した時にスタッフが選んだカードから金額が自動減算されます。</p>
+      <p class="text-muted small">コインランドリー店舗ごとに複数のプリカを管理できます。カード番号は<strong>店舗ごとに自動採番</strong>されます (例: 小柴001, 小柴002)。残高は洗濯物を出した時に自動減算、残高不足時はエラーで使用不可となります。</p>
       <div id="prepaidList" class="row g-3">
         <div class="col-12 text-muted">読込中...</div>
       </div>
@@ -35,11 +35,41 @@ const PrepaidCardsPage = {
       const doc = await db.collection("settings").doc("prepaidCards").get();
       this.cards = (doc.exists && Array.isArray(doc.data().items)) ? doc.data().items : [];
     } catch (_) { this.cards = []; }
+    // 提出先マスター: コインランドリーのみを表示対象に
     try {
       const doc = await db.collection("settings").doc("laundryDepots").get();
-      this.depots = (doc.exists && Array.isArray(doc.data().items)) ? doc.data().items : [];
+      const all = (doc.exists && Array.isArray(doc.data().items)) ? doc.data().items : [];
+      this.depots = all.filter(d => d.kind === "coin_laundry");
     } catch (_) { this.depots = []; }
     this.renderList();
+  },
+
+  // 店舗名から自動連番を生成。既存カードの同じ店舗名の最大番号+1
+  _nextCardNumber(depotName) {
+    if (!depotName) return "";
+    // 店舗名の先頭キーワードを取り出す (例: "小柴 藤三広店" → "小柴")
+    const keyword = (depotName.match(/[一-龯ぁ-んァ-ヴー]+/)?.[0] || depotName.slice(0, 6)).trim();
+    const pattern = new RegExp(`^${keyword}(\\d{3})$`);
+    let max = 0;
+    this.cards.forEach(c => {
+      const m = (c.cardNumber || "").match(pattern);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    return `${keyword}${String(max + 1).padStart(3, "0")}`;
+  },
+
+  // 表示用ソート: 紐付け提出先 → カード番号(自動振分) → 残高 → メモ
+  _sortedCards() {
+    const depotOrder = {};
+    this.depots.forEach((d, i) => { depotOrder[d.id || d.name] = i; });
+    return [...this.cards]
+      .map((c, _idx) => ({ c, _idx }))
+      .sort((a, b) => {
+        const ao = depotOrder[a.c.depotId] ?? 999;
+        const bo = depotOrder[b.c.depotId] ?? 999;
+        if (ao !== bo) return ao - bo;
+        return String(a.c.cardNumber || "").localeCompare(String(b.c.cardNumber || ""), "ja");
+      });
   },
 
   renderList() {
@@ -48,41 +78,84 @@ const PrepaidCardsPage = {
       wrap.innerHTML = `<div class="col-12 text-muted">プリカが登録されていません。「プリカ追加」から登録してください。</div>`;
       return;
     }
-    const depotOpts = `<option value="">-- 任意 (全提出先で利用可) --</option>` +
+    if (!this.depots.length) {
+      wrap.innerHTML = `<div class="col-12"><div class="alert alert-warning">コインランドリー種別の提出先が登録されていません。<a href="#/laundry">ランドリーページ</a>で提出先マスターに「種別=コインランドリー」の業者を追加してください。</div></div>`;
+      return;
+    }
+    const depotOpts = `<option value="">-- 選択 --</option>` +
       this.depots.map(d => `<option value="${d.id || d.name}">${this._esc(d.name)}</option>`).join("");
-    wrap.innerHTML = this.cards.map((c, i) => `
-      <div class="col-md-6 col-lg-4">
-        <div class="card h-100" data-idx="${i}">
-          <div class="card-body">
-            <div class="mb-2">
-              <label class="form-label small">名称</label>
-              <input type="text" class="form-control form-control-sm c-label" value="${this._esc(c.label || '')}" placeholder="例: コインランドリーA プリカ①">
-            </div>
-            <div class="row g-2 mb-2">
-              <div class="col-7">
-                <label class="form-label small">カード番号</label>
-                <input type="text" class="form-control form-control-sm c-number" value="${this._esc(c.cardNumber || '')}" placeholder="#001">
+
+    const sorted = this._sortedCards();
+    // カードを紐付け提出先でグルーピング表示
+    const grouped = {};
+    sorted.forEach(({ c, _idx }) => {
+      const key = c.depotId || "__unassigned__";
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push({ c, _idx });
+    });
+
+    wrap.innerHTML = Object.entries(grouped).map(([depotId, list]) => {
+      const depot = this.depots.find(d => (d.id || d.name) === depotId);
+      const title = depot ? depot.name : "紐付け未設定";
+      return `
+        <div class="col-12">
+          <h6 class="mt-2"><i class="bi bi-shop"></i> ${this._esc(title)} <span class="badge bg-secondary">${list.length}枚</span></h6>
+          <div class="row g-2">
+            ${list.map(({ c, _idx }) => `
+              <div class="col-md-6 col-lg-4">
+                <div class="card" data-idx="${_idx}">
+                  <div class="card-body">
+                    <div class="row g-2">
+                      <div class="col-12">
+                        <label class="form-label small mb-1">紐付け提出先 (コインランドリー)</label>
+                        <select class="form-select form-select-sm c-depot">${depotOpts}</select>
+                      </div>
+                      <div class="col-12">
+                        <label class="form-label small mb-1">カード番号 (自動採番)</label>
+                        <input type="text" class="form-control form-control-sm c-number" value="${this._esc(c.cardNumber || '')}" readonly style="background:#f8f9fa;">
+                      </div>
+                      <div class="col-12">
+                        <label class="form-label small mb-1">残高 (円)</label>
+                        <input type="number" class="form-control form-control-sm c-balance" value="${c.balance || 0}" min="0">
+                      </div>
+                      <div class="col-12">
+                        <label class="form-label small mb-1">メモ</label>
+                        <input type="text" class="form-control form-control-sm c-memo" value="${this._esc(c.memo || '')}" placeholder="例: 購入日、使用頻度 etc.">
+                      </div>
+                      <div class="col-12 text-end">
+                        <button class="btn btn-sm btn-outline-danger c-remove"><i class="bi bi-trash"></i> 削除</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div class="col-5">
-                <label class="form-label small">残高 (円)</label>
-                <input type="number" class="form-control form-control-sm c-balance" value="${c.balance || 0}" min="0">
-              </div>
-            </div>
-            <div class="mb-2">
-              <label class="form-label small">紐付け提出先</label>
-              <select class="form-select form-select-sm c-depot">${depotOpts}</select>
-            </div>
-            <button class="btn btn-sm btn-outline-danger c-remove"><i class="bi bi-trash"></i> 削除</button>
+            `).join("")}
           </div>
-        </div>
-      </div>
-    `).join("");
-    // depot 値を反映
-    wrap.querySelectorAll(".card").forEach(el => {
+        </div>`;
+    }).join("");
+
+    // depot値を反映
+    wrap.querySelectorAll(".card[data-idx]").forEach(el => {
       const i = +el.dataset.idx;
-      const dep = this.cards[i].depotId;
-      if (dep) el.querySelector(".c-depot").value = dep;
-      el.querySelector(".c-remove").addEventListener("click", () => {
+      const card = this.cards[i];
+      if (card.depotId) el.querySelector(".c-depot").value = card.depotId;
+      // depot 変更時にカード番号を再採番
+      el.querySelector(".c-depot").addEventListener("change", (e) => {
+        const newDepotId = e.target.value;
+        const depot = this.depots.find(d => (d.id || d.name) === newDepotId);
+        this.cards[i].depotId = newDepotId;
+        if (depot) {
+          this.cards[i].cardNumber = this._nextCardNumber(depot.name);
+        }
+        this.renderList();
+      });
+      el.querySelector(".c-remove").addEventListener("click", async () => {
+        const label = card.cardNumber || `カード #${i + 1}`;
+        const ok = await showConfirm(
+          `「${label}」を削除しますか？\n残高 ¥${(card.balance || 0).toLocaleString()} の情報も失われます。`,
+          { title: "プリカ削除", okLabel: "削除する", okClass: "btn-danger" }
+        );
+        if (!ok) return;
         this.cards.splice(i, 1);
         this.renderList();
       });
@@ -90,9 +163,16 @@ const PrepaidCardsPage = {
   },
 
   addCard() {
+    // デフォルト: 最初のコインランドリー店舗 + 自動採番
+    const defaultDepot = this.depots[0];
+    const depotId = defaultDepot ? (defaultDepot.id || defaultDepot.name) : "";
+    const cardNumber = defaultDepot ? this._nextCardNumber(defaultDepot.name) : "";
     this.cards.push({
       id: "prepaid_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      label: "", cardNumber: "", balance: 0, depotId: "",
+      cardNumber,
+      balance: 0,
+      depotId,
+      memo: "",
     });
     this.renderList();
   },
@@ -102,14 +182,12 @@ const PrepaidCardsPage = {
     document.querySelectorAll("#prepaidList .card[data-idx]").forEach(el => {
       const i = +el.dataset.idx;
       const existing = this.cards[i] || {};
-      const label = el.querySelector(".c-label").value.trim();
-      if (!label) return;
       items.push({
         id: existing.id || ("prepaid_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
-        label,
         cardNumber: el.querySelector(".c-number").value.trim(),
         balance: Number(el.querySelector(".c-balance").value) || 0,
         depotId: el.querySelector(".c-depot").value || "",
+        memo: el.querySelector(".c-memo").value.trim(),
       });
     });
     const status = document.getElementById("prepaidSaveStatus");

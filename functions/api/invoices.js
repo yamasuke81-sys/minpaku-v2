@@ -50,6 +50,22 @@ async function generateInvoicePdf_(db, invoiceId) {
   const staffDoc = await db.collection("staff").doc(invoice.staffId).get();
   const staff = staffDoc.exists ? staffDoc.data() : {};
 
+  // 宛先(請求先)情報: settings/clientInfo に保存されたメインオーナーの会社情報
+  let client = {};
+  try {
+    const cDoc = await db.collection("settings").doc("clientInfo").get();
+    if (cDoc.exists) client = cDoc.data();
+  } catch (_) {}
+  // デフォルト宛先 (合同会社八朔)
+  if (!client.companyName) {
+    client = {
+      zipCode: "736-0061",
+      address: "広島県安芸郡海田町上市4-23-12",
+      companyName: "合同会社八朔",
+      ...client,
+    };
+  }
+
   const propertyIds = [...new Set((invoice.details?.shifts || []).map((s) => s.propertyId).filter(Boolean))];
   const propertyMap = {};
   if (propertyIds.length > 0) {
@@ -63,71 +79,153 @@ async function generateInvoicePdf_(db, invoiceId) {
   const tmpPath = path.join(os.tmpdir(), `${invoice.id}.pdf`);
 
   await new Promise((resolve, reject) => {
-    const pdfOpts = { margin: 50, size: "A4" };
+    const pdfOpts = { margin: 40, size: "A4" };
     if (cjkFont) pdfOpts.font = cjkFont;
     const pdfDoc = new PDFDocument(pdfOpts);
     const stream = fs.createWriteStream(tmpPath);
     pdfDoc.pipe(stream);
-    const setFont = (size = 12) => { if (cjkFont) pdfDoc.font(cjkFont).fontSize(size); else pdfDoc.font("Helvetica").fontSize(size); };
+    const setFont = (size = 10) => { if (cjkFont) pdfDoc.font(cjkFont).fontSize(size); else pdfDoc.font("Helvetica").fontSize(size); };
+
     const today = new Date();
-    const issuedDate = `${today.getFullYear()}/${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}`;
-    setFont(22); pdfDoc.text(cjkFont ? "請求書" : "Invoice", { align: "center" }); pdfDoc.moveDown(0.5);
+    const issuedDate = `${today.getFullYear()}年${String(today.getMonth() + 1).padStart(2, "0")}月${String(today.getDate()).padStart(2, "0")}日`;
+    const [yy, mm] = (invoice.yearMonth || "").split("-").map(Number);
+    const firstDay = new Date(yy, mm - 1, 1);
+    const lastDay = new Date(yy, mm, 0);
+    const fmt = (d) => `${d.getFullYear()}年${String(d.getMonth() + 1).padStart(2, "0")}月${String(d.getDate()).padStart(2, "0")}日`;
+    const periodLabel = `${yy}年${mm}月分`;
+    const periodRange = `${fmt(firstDay)}〜${fmt(lastDay)}`;
+    // 支払期限: 翌月5日
+    const paymentDue = new Date(yy, mm, 5);
+
+    const leftX = 40;
+    const rightX = 340;
+    const pageWidth = 515;
+
+    // ── 上部: 宛先(左) + 請求元(右) ──
+    let topY = pdfDoc.y;
     setFont(10);
-    pdfDoc.text(`${cjkFont ? "発行日" : "Issued"}: ${issuedDate}`, { align: "right" });
-    pdfDoc.text(`${cjkFont ? "請求書番号" : "Invoice No"}: ${invoice.id}`, { align: "right" });
+    pdfDoc.text(`〒${client.zipCode || ""}`, leftX, topY);
+    pdfDoc.text(client.address || "", leftX, topY + 14);
+    setFont(12);
+    pdfDoc.text(`${client.companyName || ""}  御中`, leftX, topY + 28, { underline: true });
+
+    setFont(9);
+    pdfDoc.text(staff.address || staff.memo || "", rightX, topY, { width: 210, align: "right" });
+    pdfDoc.text(invoice.staffName || staff.name || "", rightX, topY + 14, { width: 210, align: "right" });
+
+    // ── タイトル ──
+    pdfDoc.moveDown(3);
+    setFont(22);
+    pdfDoc.text("請求書", leftX, pdfDoc.y, { width: pageWidth, align: "center" });
+    pdfDoc.moveDown(0.5);
+
+    setFont(10);
+    pdfDoc.text(`請求日：${issuedDate}`, leftX, pdfDoc.y, { width: pageWidth, align: "right" });
     pdfDoc.moveDown(1);
-    setFont(11); pdfDoc.text(cjkFont ? "【請求元スタッフ情報】" : "--- Staff ---"); setFont(10);
-    pdfDoc.text(`${cjkFont ? "氏名" : "Name"}: ${invoice.staffName || staff.name || "-"}`);
-    if (staff.address || staff.memo) pdfDoc.text(`${cjkFont ? "住所" : "Address"}: ${staff.address || staff.memo}`);
-    if (staff.email) pdfDoc.text(`${cjkFont ? "メール" : "Email"}: ${staff.email}`);
-    if (staff.phone) pdfDoc.text(`${cjkFont ? "電話" : "Phone"}: ${staff.phone}`);
+
+    // ── 挨拶 ──
+    setFont(10);
+    pdfDoc.text("下記の通り、御請求申し上げます。", leftX, pdfDoc.y);
     pdfDoc.moveDown(0.8);
-    setFont(11); pdfDoc.text(cjkFont ? "【対象期間】" : "--- Period ---"); setFont(10);
-    pdfDoc.text(`${cjkFont ? "対象月" : "Period"}: ${invoice.yearMonth}`); pdfDoc.moveDown(0.8);
+
+    // ── 請求対象年月 ──
+    pdfDoc.text(`請求対象年月：${periodLabel}（${periodRange}）`, leftX, pdfDoc.y);
+    pdfDoc.moveDown(0.8);
+
+    // ── 合計金額 ──
+    setFont(14);
+    pdfDoc.text(`合計金額：  ¥${fmtYen(invoice.total)}（税込）`, leftX, pdfDoc.y, { underline: true });
+    pdfDoc.moveDown(1);
+
+    // ── 明細テーブル ──
+    // 行を構築: 清掃明細 + ランドリー明細 + 追加項目
+    const rows = [];
     const shifts = invoice.details?.shifts || [];
-    if (shifts.length > 0) {
-      setFont(11); pdfDoc.text(cjkFont ? "【清掃明細】" : "--- Cleaning ---"); setFont(10);
-      shifts.forEach((s, i) => {
-        const propName = propertyMap[s.propertyId] || s.propertyId || "-";
-        const dateStr = s.date ? fmtDate(s.date) : "-";
-        pdfDoc.text(`  ${i + 1}. ${dateStr}  ${propName}  ${fmtYen(s.amount)}${cjkFont ? "円" : "JPY"}`);
+    shifts.forEach((s) => {
+      const propName = propertyMap[s.propertyId] || s.propertyId || "";
+      const memo = s.memo || "";
+      rows.push({
+        date: s.date ? fmtDate(s.date) : "",
+        label: `清掃 ${propName}`,
+        amount: s.amount || 0,
+        memo,
       });
-      pdfDoc.moveDown(0.8);
-    }
+    });
     const laundry = invoice.details?.laundry || [];
-    if (laundry.length > 0) {
-      setFont(11); pdfDoc.text(cjkFont ? "【ランドリー明細】" : "--- Laundry ---"); setFont(10);
-      laundry.forEach((l, i) => {
-        const dateStr = l.date ? fmtDate(l.date) : "-";
-        pdfDoc.text(`  ${i + 1}. ${dateStr}  ${fmtYen(l.amount)}${cjkFont ? "円" : "JPY"}`);
+    laundry.forEach((l) => {
+      rows.push({
+        date: l.date ? fmtDate(l.date) : "",
+        label: l.label || "ランドリー",
+        amount: l.amount || 0,
+        memo: l.memo || l.note || "",
       });
-      pdfDoc.moveDown(0.8);
-    }
-    // 追加項目 (manualItems) は invoice.manualItems から読む (details.manualItems の順位も互換)
+    });
     const manualItems = invoice.manualItems || invoice.details?.manualItems || [];
-    if (manualItems.length > 0) {
-      setFont(11); pdfDoc.text(cjkFont ? "【追加項目】" : "--- Additional ---"); setFont(10);
-      manualItems.forEach((item, i) => {
-        pdfDoc.text(`  ${i + 1}. ${item.label}  ${fmtYen(item.amount)}${cjkFont ? "円" : "JPY"}${item.memo ? `  ${cjkFont ? "備考" : "note"}: ${item.memo}` : ""}`);
+    manualItems.forEach((item) => {
+      rows.push({
+        date: item.date ? fmtDate(item.date) : "",
+        label: item.label || "",
+        amount: item.amount || 0,
+        memo: item.memo || "",
       });
-      pdfDoc.moveDown(0.8);
-    }
-    setFont(11); pdfDoc.text(cjkFont ? "【集計】" : "--- Summary ---"); setFont(10);
-    const manualTotal = manualItems.reduce((s, item) => s + (item.amount || 0), 0);
-    pdfDoc.text(`  ${cjkFont ? "基本報酬" : "Base Pay"}: ${fmtYen(invoice.basePayment)}${cjkFont ? "円" : "JPY"}`);
-    pdfDoc.text(`  ${cjkFont ? "ランドリー費" : "Laundry"}: ${fmtYen(invoice.laundryFee)}${cjkFont ? "円" : "JPY"}`);
-    pdfDoc.text(`  ${cjkFont ? "交通費" : "Transportation"}: ${fmtYen(invoice.transportationFee)}${cjkFont ? "円" : "JPY"}`);
-    if (manualItems.length > 0) pdfDoc.text(`  ${cjkFont ? "追加項目合計" : "Additional Total"}: ${fmtYen(manualTotal)}${cjkFont ? "円" : "JPY"}`);
-    pdfDoc.moveDown(0.3); pdfDoc.lineCap("butt").moveTo(50, pdfDoc.y).lineTo(545, pdfDoc.y).stroke(); pdfDoc.moveDown(0.3);
-    setFont(13); pdfDoc.text(`  ${cjkFont ? "合計金額" : "Total"}: ${fmtYen(invoice.total)}${cjkFont ? "円" : "JPY"}`); pdfDoc.moveDown(1.2);
-    if (staff.bankName || staff.accountNumber) {
-      setFont(11); pdfDoc.text(cjkFont ? "【振込先】" : "--- Bank Info ---"); setFont(10);
-      if (staff.bankName) pdfDoc.text(`  ${cjkFont ? "銀行名" : "Bank"}: ${staff.bankName}`);
-      if (staff.branchName) pdfDoc.text(`  ${cjkFont ? "支店名" : "Branch"}: ${staff.branchName}`);
-      if (staff.accountType) pdfDoc.text(`  ${cjkFont ? "口座種別" : "Type"}: ${staff.accountType}`);
-      if (staff.accountNumber) pdfDoc.text(`  ${cjkFont ? "口座番号" : "Account"}: ${staff.accountNumber}`);
-      if (staff.accountHolder) pdfDoc.text(`  ${cjkFont ? "口座名義" : "Holder"}: ${staff.accountHolder}`);
-    }
+    });
+
+    // テーブル描画
+    setFont(10);
+    const col = { date: leftX, label: leftX + 90, amount: leftX + 400 };
+    const colW = { date: 85, label: 300, amount: 110 };
+    const tableStartY = pdfDoc.y;
+    // ヘッダー
+    pdfDoc.rect(leftX, tableStartY, pageWidth, 22).fillAndStroke("#f0f0f0", "#aaaaaa");
+    pdfDoc.fillColor("#000");
+    pdfDoc.text("日付", col.date + 4, tableStartY + 6, { width: colW.date - 4 });
+    pdfDoc.text("作業内容", col.label + 4, tableStartY + 6, { width: colW.label - 4 });
+    pdfDoc.text("金額", col.amount + 4, tableStartY + 6, { width: colW.amount - 8, align: "right" });
+    let y = tableStartY + 22;
+    rows.forEach((r) => {
+      const memoH = r.memo ? 12 : 0;
+      const rowH = 20 + memoH;
+      // ページ末端が近づいたら改ページ
+      if (y + rowH > 780) {
+        pdfDoc.addPage();
+        y = 40;
+      }
+      pdfDoc.rect(leftX, y, pageWidth, rowH).stroke("#cccccc");
+      pdfDoc.fillColor("#000");
+      setFont(10);
+      pdfDoc.text(r.date, col.date + 4, y + 5, { width: colW.date - 4 });
+      pdfDoc.text(r.label, col.label + 4, y + 5, { width: colW.label - 4 });
+      pdfDoc.text(`¥${fmtYen(r.amount)}`, col.amount + 4, y + 5, { width: colW.amount - 8, align: "right" });
+      if (r.memo) {
+        setFont(8);
+        pdfDoc.fillColor("#666");
+        pdfDoc.text(`備考: ${r.memo}`, col.label + 4, y + 19, { width: colW.label + colW.amount - 4 });
+        pdfDoc.fillColor("#000");
+      }
+      y += rowH;
+    });
+    pdfDoc.y = y + 16;
+
+    // ── 支払期限 ──
+    setFont(10);
+    pdfDoc.text(`支払期限：   ${fmt(paymentDue)}`, leftX, pdfDoc.y);
+    pdfDoc.moveDown(0.5);
+
+    // ── 振込先 ──
+    const bankLine = [
+      staff.bankName || "-",
+      staff.branchName ? `${staff.branchName}支店` : "",
+      staff.accountType || "",
+      staff.accountNumber || "",
+      staff.accountHolder || "",
+    ].filter(Boolean).join("  ");
+    pdfDoc.text(`振込先：     ${bankLine}`, leftX, pdfDoc.y);
+    pdfDoc.moveDown(0.5);
+
+    // ── 備考 ──
+    pdfDoc.text("備考：", leftX, pdfDoc.y);
+    pdfDoc.text(invoice.remarks || "", leftX, pdfDoc.y + 14, { width: pageWidth });
+
     pdfDoc.end();
     stream.on("finish", resolve);
     stream.on("error", reject);
@@ -137,8 +235,81 @@ async function generateInvoicePdf_(db, invoiceId) {
   const destPath = `invoices/${invoice.id}.pdf`;
   await bucket.upload(tmpPath, { destination: destPath, metadata: { contentType: "application/pdf" } });
   const [pdfUrl] = await bucket.file(destPath).getSignedUrl({ action: "read", expires: Date.now() + 7 * 24 * 60 * 60 * 1000 });
+
+  // Google Drive にも保存 (年月フォルダ自動作成) ※Drive API 有効時のみ
+  try {
+    await uploadInvoiceToDrive_(db, tmpPath, invoice, staff);
+  } catch (e) {
+    console.warn("Drive アップロード失敗(Firebase Storage は成功):", e.message);
+  }
+
   try { fs.unlinkSync(tmpPath); } catch (_) {}
   return pdfUrl;
+}
+
+/**
+ * Google Drive に請求書PDFを保存
+ * settings/driveInvoice.parentFolderId = 親フォルダID (デフォルトあり)
+ * その下に YYYY-MM フォルダを作成 (既存なら流用)
+ * ファイル名: {invoiceId}_{staffName}_{yearMonth}.pdf
+ *
+ * Gmail OAuth と同じ refresh token を使うため、Drive scope が必要。
+ * 既存の scope に drive.file が含まれている前提。不足時はスキップ。
+ */
+async function uploadInvoiceToDrive_(db, filePath, invoice, staff) {
+  const admin = require("firebase-admin");
+  const dbRef = admin.firestore();
+
+  // 設定から親フォルダID取得 (デフォルト: ユーザー指定フォルダ)
+  let parentFolderId = "1ucWQQtv8xYsblcWiSSg1gcpgC9dfa5kh";
+  try {
+    const s = await dbRef.collection("settings").doc("driveInvoice").get();
+    if (s.exists && s.data().parentFolderId) parentFolderId = s.data().parentFolderId;
+  } catch (_) {}
+
+  const { google } = require("googleapis");
+  const oauthDoc = await dbRef.collection("settings").doc("gmailOAuth").get();
+  if (!oauthDoc.exists) throw new Error("Gmail/Drive OAuth 未設定");
+  const { clientId, clientSecret } = oauthDoc.data();
+  const tokensSnap = await dbRef.collection("settings").doc("gmailOAuth").collection("tokens").limit(1).get();
+  if (tokensSnap.empty) throw new Error("OAuth tokens 未登録");
+  const tokenData = tokensSnap.docs[0].data();
+  if (!tokenData.refreshToken) throw new Error("refreshToken なし");
+
+  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+  oauth2Client.setCredentials({ refresh_token: tokenData.refreshToken });
+  const drive = google.drive({ version: "v3", auth: oauth2Client });
+
+  // 年月フォルダを検索or作成
+  const yearMonth = invoice.yearMonth || "";
+  const folderName = yearMonth;  // "YYYY-MM"
+  let folderId = null;
+  const search = await drive.files.list({
+    q: `'${parentFolderId}' in parents and name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: "files(id, name)",
+    pageSize: 1,
+  });
+  if (search.data.files && search.data.files.length) {
+    folderId = search.data.files[0].id;
+  } else {
+    const created = await drive.files.create({
+      requestBody: {
+        name: folderName,
+        mimeType: "application/vnd.google-apps.folder",
+        parents: [parentFolderId],
+      },
+      fields: "id",
+    });
+    folderId = created.data.id;
+  }
+
+  const fileName = `${invoice.id}_${invoice.staffName || "unknown"}_${yearMonth}.pdf`;
+  await drive.files.create({
+    requestBody: { name: fileName, parents: [folderId] },
+    media: { mimeType: "application/pdf", body: fs.createReadStream(filePath) },
+    fields: "id",
+  });
+  console.log(`Drive アップロード成功: ${fileName}`);
 }
 
 module.exports = function invoicesApi(db) {

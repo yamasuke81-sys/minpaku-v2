@@ -148,6 +148,10 @@
               <label class="form-label">契約開始日</label>
               <input type="date" class="form-control" id="staffContractDate">
             </div>
+            <div class="col-12">
+              <label class="form-label">住所 <small class="text-muted">(請求書に記載)</small></label>
+              <input type="text" class="form-control" id="staffAddress">
+            </div>
             <div class="col-md-6 d-flex align-items-end">
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="staffIsTimee">
@@ -276,11 +280,19 @@
               <label class="form-label">住所</label>
               <input type="text" class="form-control" id="propertyAddress">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label">清掃所要時間（分）</label>
               <input type="number" class="form-control" id="propertyCleaningDuration" value="90">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
+              <label class="form-label">清掃開始時間</label>
+              <input type="time" class="form-control" id="propertyCleaningStartTime" value="10:30">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">直前点検開始時間</label>
+              <input type="time" class="form-control" id="propertyInspectionStartTime" value="10:00">
+            </div>
+            <div class="col-md-3">
               <label class="form-label">清掃費用（円/回）</label>
               <input type="number" class="form-control" id="propertyCleaningFee" value="0">
             </div>
@@ -678,17 +690,17 @@
   <script src="js/auth.js?v=0415a"></script>
   <script src="js/api.js?v=0417b"></script>
   <script src="js/pages/dashboard.js?v=0416x"></script>
-  <script src="js/pages/staff.js?v=0416q"></script>
-  <script src="js/pages/properties.js?v=0416u"></script>
+  <script src="js/pages/staff.js?v=0418c"></script>
+  <script src="js/pages/properties.js?v=0418c"></script>
   <script src="js/pages/recruitment.js?v=0416z"></script>
-  <script src="js/pages/guests.js?v=0415a"></script>
+  <script src="js/pages/guests.js?v=0418c"></script>
   <script src="js/pages/shifts.js?v=0415a"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
-  <script src="js/pages/notifications.js?v=0418d"></script>
+  <script src="js/pages/notifications.js?v=0418e"></script>
   <script src="js/pages/laundry.js?v=0418d"></script>
   <script src="js/pages/checklist.js?v=0415a"></script>
-  <script src="js/pages/cleaning-flow.js?v=0418d"></script>
-  <script src="js/pages/prepaid-cards.js?v=0418a"></script>
+  <script src="js/pages/cleaning-flow.js?v=0418e"></script>
+  <script src="js/pages/prepaid-cards.js?v=0418b"></script>
   <script src="js/pages/property-checklist.js?v=0418b"></script>
   <script src="js/pages/reports.js?v=0415a"></script>
   <script src="js/pages/projects.js?v=0415a"></script>
@@ -702,9 +714,9 @@
   <!-- スタッフ用ページ -->
   <script src="js/pages/my-dashboard.js?v=0417a"></script>
   <script src="js/pages/my-recruitment.js?v=0417f"></script>
-  <script src="js/pages/my-checklist.js?v=0418c"></script>
+  <script src="js/pages/my-checklist.js?v=0418d"></script>
   <script src="js/pages/my-invoice-create.js?v=0418c"></script>
-  <script src="js/app.js?v=0418b"></script>
+  <script src="js/app.js?v=0418c"></script>
   <script>
   // サイドバートグル（PC: collapsed切替 / モバイル: show切替）
   document.getElementById('btnToggleSidebar')?.addEventListener('click', () => {

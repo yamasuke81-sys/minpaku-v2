@@ -118,6 +118,12 @@ const App = {
     if (page) {
       this.currentPage = pageName;
       page.render(document.getElementById("pageContainer"), path.slice(1));
+      // ページ切り替え時にビュー最上部へスクロール
+      try {
+        window.scrollTo({ top: 0, behavior: "instant" });
+        const mainEl = document.querySelector(".app-main");
+        if (mainEl) mainEl.scrollTop = 0;
+      } catch (_) {}
     } else {
       // スタッフがオーナーページにアクセスしようとした場合など
       const backPage = role === "staff" ? "my-dashboard" : "dashboard";

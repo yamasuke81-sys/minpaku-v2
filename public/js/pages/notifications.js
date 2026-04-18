@@ -92,6 +92,8 @@ const NotificationsPage = {
       defaultMsg: "⚠️ スタッフ非アクティブ化\n\n{staff} さんを非アクティブに変更しました。\n理由: {reason}\n解除はスタッフ管理から行えます。" },
     { key: "roster_remind", label: "名簿未入力リマインド", desc: "宿泊者名簿が未入力の予約についてリマインド", icon: "bi-person-vcard", group: "booking", varGroup: "booking", defaultTiming: "morning",
       defaultMsg: "📝 名簿入力のお願い\n\n{checkin} {property}\nゲスト: {guest}\n宿泊者名簿がまだ届いていません。" },
+    { key: "roster_received", label: "宿泊者名簿 受信通知", desc: "宿泊者名簿のフォーム回答が届いた時にオーナー等へ通知", icon: "bi-envelope-check", group: "booking", varGroup: "booking", defaultTiming: "immediate",
+      defaultMsg: "📨 宿泊者名簿が届きました\n\n{checkin} {property}\nゲスト: {guest}\n詳細: {url}" },
     { key: "invoice_request", label: "請求書要請", desc: "月末にスタッフへ請求書の提出を依頼（URLは請求書作成ページ）", icon: "bi-receipt", group: "invoice", varGroup: "invoice", defaultTiming: "morning",
       defaultMsg: "💰 {month}月分の請求書作成をお願いします\n\n作業明細をご確認の上、請求書の送信をお願いします。\n作成ページ: {url}" },
     { key: "invoice_submitted", label: "請求書提出通知", desc: "スタッフが請求書を送信した時にオーナーへ通知", icon: "bi-send-check", group: "invoice", varGroup: "invoice", defaultTiming: "immediate",
@@ -285,10 +287,12 @@ const NotificationsPage = {
           <div class="notify-channel-card">
             <div class="d-flex justify-content-between align-items-start">
               <div class="flex-grow-1">
-                <div class="d-flex align-items-center gap-2 mb-1">
+                <div class="d-flex align-items-center gap-2 mb-1" style="cursor:pointer;" data-notify-toggle="${n.key}">
+                  <i class="bi bi-chevron-right notify-chevron" data-key="${n.key}" style="transition:transform 0.2s;"></i>
                   <i class="bi ${n.icon} text-primary"></i>
                   <strong>${n.label}</strong>
                 </div>
+                <div class="notify-collapse" data-key="${n.key}" style="display:none;">
                 <div class="text-muted small mb-2">${n.desc}</div>
 
                 <div class="d-flex flex-wrap gap-3 mb-2">
@@ -355,6 +359,7 @@ const NotificationsPage = {
                         data-key="${n.key}" data-var-group="${n.varGroup}">
                   <i class="bi bi-send"></i> テスト送信
                 </button>
+                </div><!-- /notify-collapse -->
               </div>
 
               <div class="form-check form-switch notify-toggle ms-3">
@@ -366,6 +371,19 @@ const NotificationsPage = {
 
       // イベント委譲
       container.addEventListener("click", (e) => {
+        // 折り畳みトグル
+        const toggler = e.target.closest("[data-notify-toggle]");
+        if (toggler && !e.target.closest("input") && !e.target.closest("button")) {
+          const key = toggler.dataset.notifyToggle;
+          const body = container.querySelector(`.notify-collapse[data-key="${key}"]`);
+          const chev = container.querySelector(`.notify-chevron[data-key="${key}"]`);
+          if (body) {
+            const isOpen = body.style.display !== "none";
+            body.style.display = isOpen ? "none" : "";
+            if (chev) chev.style.transform = isOpen ? "rotate(0deg)" : "rotate(90deg)";
+          }
+          return;
+        }
         // テスト送信
         const btn = e.target.closest(".btn-test-send");
         if (btn) this.sendTestNotification(btn);

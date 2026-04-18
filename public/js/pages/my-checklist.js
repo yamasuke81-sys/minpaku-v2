@@ -901,9 +901,9 @@ const MyChecklistPage = {
                 </select>
                 <div class="form-text">残高表示付き。プリカ管理はオーナー側で登録してください。</div>
               </div>
-              <!-- ステップ3': 料金プリセット (支払方法=cash/credit/invoice 時) -->
+              <!-- ステップ3': 金額 (支払方法=cash/credit/invoice 時) -->
               <div class="mb-3 d-none" id="lpoRateWrap">
-                <label class="form-label">③ 料金プリセット <span class="text-danger">*</span></label>
+                <label class="form-label">③ 金額 <span class="text-danger">*</span></label>
                 <select class="form-select" id="lpoRate"></select>
                 <input type="number" class="form-control mt-2 d-none" id="lpoRateOther" min="0" placeholder="金額を手入力(円)">
               </div>
@@ -967,7 +967,7 @@ const MyChecklistPage = {
           rateWrap.classList.remove("d-none");
           const depot = depotV === "__other__" ? null : depotMaster[+depotV];
           const rates = (depot && depot.rates) || [];
-          rateSel.innerHTML = `<option value="">-- 料金プリセットを選択 --</option>` +
+          rateSel.innerHTML = `<option value="">-- 金額を選択 --</option>` +
             rates.map((r, ri) => `<option value="${ri}" data-amount="${r.amount||0}" data-label="${(r.label||'').replace(/"/g,'&quot;')}">${(r.label||"").replace(/</g,"&lt;")} ¥${(r.amount||0).toLocaleString()}</option>`).join("") +
             `<option value="__other__">その他 (金額手入力)</option>`;
           rateSel.onchange = () => {
@@ -1007,7 +1007,7 @@ const MyChecklistPage = {
           rateLabel = firstRate?.label || "";
         } else {
           const rv = rateSel.value;
-          if (!rv) { showToast("入力エラー", "料金プリセットを選択してください", "error"); return; }
+          if (!rv) { showToast("入力エラー", "金額を選択してください", "error"); return; }
           if (rv === "__other__") {
             amount = Number(rateOther.value) || 0;
             if (!amount) { showToast("入力エラー", "金額を入力してください", "error"); return; }

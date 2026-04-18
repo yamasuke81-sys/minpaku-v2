@@ -104,7 +104,16 @@ module.exports = async function onGuestFormSubmit(event) {
     }
   }
 
-  await notifyOwner(db, "guest_form", `名簿受信: ${guestName}`, lineText);
+  // roster_received 通知 (通知設定タブで編集可能)
+  await notifyOwner(db, "roster_received", `名簿受信: ${guestName}`, lineText, {
+    checkin: checkIn,
+    date: checkOut,
+    property: data.propertyName || "",
+    guest: guestName,
+    nights: data.nights || "",
+    site: data.bookingSite || "",
+    url: `${APP_URL}/#/guests`,
+  });
 
   // === 4. bookingsコレクションとの照合・情報補完 ===
   try {

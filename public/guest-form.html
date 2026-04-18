@@ -358,12 +358,8 @@
           <i class="bi bi-x-circle me-1"></i><span id="lbl_emergencyPhoneError"></span>
         </div>
 
-        <!-- === 6. 同意 === -->
-        <h6 class="section-title" id="sec_agreement"></h6>
-        <div class="form-check mb-3">
-          <input class="form-check-input" type="checkbox" id="f_houseRuleAgree" required>
-          <label class="form-check-label" for="f_houseRuleAgree" id="lbl_houseRuleAgree"></label>
-        </div>
+        <!-- === 6. 同意 (削除済み - 騒音ルール同意で代替) === -->
+        <input type="hidden" id="f_houseRuleAgree" value="true">
 
         <div class="d-grid mt-4 mb-2">
           <button type="submit" class="btn btn-primary btn-lg" id="btnSubmit"><i class="bi bi-send"></i> <span id="lbl_submit">送信する</span></button>
@@ -1293,7 +1289,7 @@
           emergencyName: document.getElementById("f_emergencyName").value.trim(),
           emergencyPhone: document.getElementById("f_emergencyPhone").value.trim(),
           noiseAgree: document.getElementById("f_noiseAgree").value === "true",
-          houseRuleAgree: document.getElementById("f_houseRuleAgree").checked,
+          houseRuleAgree: true,
           allGuests: guests, source: "guest_form",
           submittedAt: firebase.firestore.FieldValue.serverTimestamp(),
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),

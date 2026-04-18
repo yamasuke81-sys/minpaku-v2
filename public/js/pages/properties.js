@@ -153,6 +153,8 @@ const PropertiesPage = {
     document.getElementById("propertyArea").value = property?.area || "";
     document.getElementById("propertyAddress").value = property?.address || "";
     document.getElementById("propertyCleaningDuration").value = property?.cleaningDuration || 90;
+    document.getElementById("propertyCleaningStartTime").value = property?.cleaningStartTime || "10:30";
+    document.getElementById("propertyInspectionStartTime").value = property?.inspectionStartTime || "10:00";
     document.getElementById("propertyCleaningFee").value = property?.cleaningFee || 0;
     document.getElementById("propertyMonthlyCost").value = property?.monthlyFixedCost || 0;
     document.getElementById("propertyPurchasePrice").value = property?.purchasePrice || 0;
@@ -213,6 +215,8 @@ const PropertiesPage = {
       area: document.getElementById("propertyArea").value.trim(),
       address: document.getElementById("propertyAddress").value.trim(),
       cleaningDuration: Number(document.getElementById("propertyCleaningDuration").value) || 90,
+      cleaningStartTime: document.getElementById("propertyCleaningStartTime").value || "10:30",
+      inspectionStartTime: document.getElementById("propertyInspectionStartTime").value || "10:00",
       cleaningFee: Number(document.getElementById("propertyCleaningFee").value) || 0,
       monthlyFixedCost: Number(document.getElementById("propertyMonthlyCost").value) || 0,
       purchasePrice: Number(document.getElementById("propertyPurchasePrice").value) || 0,

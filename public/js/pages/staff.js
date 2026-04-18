@@ -688,6 +688,8 @@ const StaffPage = {
     document.getElementById("staffName").value = staff?.name || "";
     document.getElementById("staffEmail").value = staff?.email || "";
     document.getElementById("staffPhone").value = staff?.phone || "";
+    const addrEl = document.getElementById("staffAddress");
+    if (addrEl) addrEl.value = staff?.address || "";
     document.getElementById("staffContractDate").value = staff?.contractStartDate
       ? new Date(staff.contractStartDate.seconds ? staff.contractStartDate.seconds * 1000 : staff.contractStartDate).toISOString().split("T")[0]
       : "";
@@ -783,6 +785,7 @@ const StaffPage = {
       name,
       email: document.getElementById("staffEmail").value.trim(),
       phone: document.getElementById("staffPhone").value.trim(),
+      address: (document.getElementById("staffAddress")?.value || "").trim(),
       contractStartDate: document.getElementById("staffContractDate").value || null,
       isTimee: !!document.getElementById("staffIsTimee")?.checked,
       skills,
