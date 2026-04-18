@@ -1,19 +1,28 @@
 /**
- * 清掃フロー組み合わせ設定画面
- *   物件毎に、清掃時に使うカード構成(チェックリスト/コインランドリー/リネン屋)をON/OFFする
- *   Firestore: properties/{id}.cleaningFlow = {
+ * 清掃フロー構成画面
+ *   物件毎に、清掃時に使うカード構成(チェックリスト/ランドリー業者)をON/OFFする
+ *
+ * データ:
+ *   properties/{id}.cleaningFlow = {
  *     useChecklist: bool,
- *     useCoinLaundry: bool,
- *     useLinenShop: bool,
- *     linenShopName: string,
- *     checkoutPhoto: bool,   // チェックアウト後の全景写真要否
- *     postComplete: string,  // 完了後の案内(チェックアウト/次ゲストへのメッセージ自動送信等)
+ *     laundryDepotIds: string[],  // settings/laundryDepots.items[].id のサブセット
+ *     checkoutPhoto: bool,
+ *     postComplete: string,
  *   }
+ *   settings/laundryDepots.items = [{ id, name, kind: "coin_laundry"|"linen_shop"|"other", rates: [...] }]
+ *
+ * 挙動 (清掃画面 my-checklist 側):
+ *   - laundryDepotIds が空 or useChecklist=false → 清掃画面のランドリーセクション非表示
+ *   - 1件以上あり → 「洗濯物を出した」モーダルで各 depot が選択肢として出現
+ *   - 複数選択 OK (業者A+業者Bの併用、コインランドリー+リネン屋の併用)
+ *   - "linen_shop" kind の depot: 回収・収納ステップは不要扱い (業者が処理)
+ *   - "coin_laundry" kind の depot: 出した→回収した→収納した の3ステップ全部表示
  *
  * ルート: #/cleaning-flow
  */
 const CleaningFlowPage = {
   properties: [],
+  depotMaster: [],  // settings/laundryDepots.items
 
   async render(container) {
     container.innerHTML = `
@@ -21,7 +30,7 @@ const CleaningFlowPage = {
         <h2><i class="bi bi-diagram-3"></i> 清掃フロー構成</h2>
         <span id="flowSaveStatus" class="small text-muted"></span>
       </div>
-      <p class="text-muted small">物件ごとに、清掃時に使うカード構成をON/OFFします。変更は自動保存されます。</p>
+      <p class="text-muted small">物件ごとに、清掃時に使うカード構成をON/OFFします。提出先マスターは <a href="#/laundry">ランドリーページ</a> で管理できます。変更は自動保存されます。</p>
       <div id="flowList" class="row g-3">
         <div class="col-12 text-muted">読込中...</div>
       </div>
@@ -30,7 +39,7 @@ const CleaningFlowPage = {
   },
 
   async load() {
-    // API.properties.listMinpakuNumbered() で民泊物件のみ取得 (rates/shifts 等と同じ定義)
+    // 民泊物件のみ取得
     try {
       if (API.properties && typeof API.properties.listMinpakuNumbered === "function") {
         this.properties = await API.properties.listMinpakuNumbered();
@@ -44,21 +53,41 @@ const CleaningFlowPage = {
       console.warn("properties 取得失敗:", e.message);
       this.properties = [];
     }
+    // 提出先マスター取得 (並び順保持)
+    try {
+      const doc = await db.collection("settings").doc("laundryDepots").get();
+      this.depotMaster = (doc.exists && Array.isArray(doc.data().items)) ? doc.data().items : [];
+    } catch (_) {
+      this.depotMaster = [];
+    }
     this.renderList();
   },
 
   renderList() {
     const wrap = document.getElementById("flowList");
     if (!this.properties.length) {
-      wrap.innerHTML = `<div class="col-12 text-muted">物件がありません</div>`;
+      wrap.innerHTML = `<div class="col-12 text-muted">民泊物件がありません</div>`;
       return;
     }
+    const chk = (v, def) => (v === undefined ? def : !!v);
+    const depots = this.depotMaster;
     wrap.innerHTML = this.properties.map(p => {
       const f = p.cleaningFlow || {};
-      const chk = (v, def) => (v === undefined ? def : !!v);
+      const selectedIds = Array.isArray(f.laundryDepotIds) ? f.laundryDepotIds : [];
+      const depotChecks = depots.length
+        ? depots.map(d => `
+            <div class="form-check">
+              <input class="form-check-input flow-depot" type="checkbox" data-depot-id="${d.id || d.name}" id="flow-${p.id}-${(d.id || d.name).replace(/[^a-z0-9]/gi,'_')}" ${selectedIds.includes(d.id || d.name) ? "checked" : ""}>
+              <label class="form-check-label small" for="flow-${p.id}-${(d.id || d.name).replace(/[^a-z0-9]/gi,'_')}">
+                <span class="badge bg-light text-dark border">${this._kindLabel(d.kind)}</span>
+                ${this._esc(d.name)}
+              </label>
+            </div>
+          `).join("")
+        : `<div class="small text-muted">提出先マスターが未登録です。<a href="#/laundry">ランドリーページ</a>で追加してください。</div>`;
       return `
       <div class="col-md-6 col-lg-4">
-        <div class="card" data-pid="${p.id}">
+        <div class="card h-100" data-pid="${p.id}">
           <div class="card-body">
             <h6 class="card-title d-flex align-items-center gap-2">
               <span class="badge" style="background:${p.color || '#6c757d'}">${p.propertyNumber || "-"}</span>
@@ -68,17 +97,9 @@ const CleaningFlowPage = {
               <input class="form-check-input flow-toggle" type="checkbox" data-field="useChecklist" ${chk(f.useChecklist, true) ? "checked" : ""}>
               <label class="form-check-label">清掃チェックリストを使う</label>
             </div>
-            <div class="form-check form-switch mb-2">
-              <input class="form-check-input flow-toggle" type="checkbox" data-field="useCoinLaundry" ${chk(f.useCoinLaundry, true) ? "checked" : ""}>
-              <label class="form-check-label">コインランドリー利用あり</label>
-            </div>
-            <div class="form-check form-switch mb-2">
-              <input class="form-check-input flow-toggle" type="checkbox" data-field="useLinenShop" ${chk(f.useLinenShop, false) ? "checked" : ""}>
-              <label class="form-check-label">リネン屋に委託する</label>
-            </div>
-            <div class="mb-2 flow-linen-shop-name ${chk(f.useLinenShop, false) ? "" : "d-none"}">
-              <label class="form-label small">リネン屋名</label>
-              <input type="text" class="form-control form-control-sm flow-input" data-field="linenShopName" value="${this._esc(f.linenShopName || "")}">
+            <div class="mb-2">
+              <label class="form-label small mb-1 fw-bold"><i class="bi bi-basket3"></i> ランドリー提出先 (複数選択可)</label>
+              ${depotChecks}
             </div>
             <div class="form-check form-switch mb-2">
               <input class="form-check-input flow-toggle" type="checkbox" data-field="checkoutPhoto" ${chk(f.checkoutPhoto, false) ? "checked" : ""}>
@@ -94,19 +115,17 @@ const CleaningFlowPage = {
       `;
     }).join("");
 
-    // 変更イベント (自動保存, 800ms debounce)
-    wrap.querySelectorAll(".flow-toggle, .flow-input").forEach(el => {
-      const handler = () => {
-        // リネン屋ON/OFFで店名欄の表示切替
-        if (el.dataset.field === "useLinenShop") {
-          const card = el.closest(".card");
-          card.querySelector(".flow-linen-shop-name").classList.toggle("d-none", !el.checked);
-        }
-        this._queueSave(el.closest(".card").dataset.pid);
-      };
+    wrap.querySelectorAll(".flow-toggle, .flow-input, .flow-depot").forEach(el => {
+      const handler = () => this._queueSave(el.closest(".card").dataset.pid);
       el.addEventListener("input", handler);
       el.addEventListener("change", handler);
     });
+  },
+
+  _kindLabel(kind) {
+    if (kind === "coin_laundry") return "コインランドリー";
+    if (kind === "linen_shop") return "リネン屋";
+    return "提出先";
   },
 
   _queueSave(propertyId) {
@@ -122,6 +141,8 @@ const CleaningFlowPage = {
     const flow = {};
     card.querySelectorAll(".flow-toggle").forEach(el => { flow[el.dataset.field] = !!el.checked; });
     card.querySelectorAll(".flow-input").forEach(el => { flow[el.dataset.field] = el.value || ""; });
+    // ランドリー提出先 (複数選択)
+    flow.laundryDepotIds = [...card.querySelectorAll(".flow-depot")].filter(el => el.checked).map(el => el.dataset.depotId);
     try {
       await db.collection("properties").doc(propertyId).set({
         cleaningFlow: flow,

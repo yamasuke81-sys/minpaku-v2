@@ -535,37 +535,35 @@ const NotificationsPage = {
       });
       const data = await res.json();
       if (res.ok) {
-        // バックエンドが返す sentCount を優先。旧互換で results を集計。
-        let sent = (typeof data.sentCount === "number") ? data.sentCount : 0;
-        if (!data.sentCount && Array.isArray(data.results)) {
-          for (const r of data.results) {
-            if (r.success === true) sent++;
-            if (Array.isArray(r.staffResults)) {
-              sent += r.staffResults.filter(s => s.success).length;
-            }
+        // チャネル別に成功/失敗を集計
+        const successes = [];  // ラベル(例: オーナーLINE)
+        const errs = [];       // { label, reason }
+        const labelMap = { ownerLine: "オーナーLINE", groupLine: "グループLINE", staffLine: "スタッフ個別LINE", ownerEmail: "オーナーメール" };
+        for (const r of (data.results || [])) {
+          const label = labelMap[r.target] || r.target;
+          if (Array.isArray(r.staffResults)) {
+            r.staffResults.forEach(s => {
+              if (s.success) successes.push(`${label}(${s.staffName})`);
+              else errs.push({ label: `${label}:${s.staffName}`, reason: this._friendlyError(s.error) });
+            });
+            // staffLine 全体にエラーがある場合も追加
+            if (r.error && !r.staffResults.length) errs.push({ label, reason: this._friendlyError(r.error) });
+          } else if (r.success === true) {
+            successes.push(label);
+          } else if (r.success === false) {
+            errs.push({ label, reason: this._friendlyError(r.error) });
           }
         }
-        const errs = [];
-        (data.results || []).forEach(r => {
-          if (r.error) errs.push(`${r.target}: ${r.error}`);
-          if (Array.isArray(r.staffResults)) {
-            r.staffResults.forEach(s => { if (!s.success && s.error) errs.push(`${s.staffName || s.staffId}: ${s.error}`); });
-          }
-        });
-        if (sent > 0) {
-          showToast("送信完了", `${sent}件送信しました${errs.length ? "（一部失敗あり）" : ""}`, "success");
-        } else {
-          // よくあるエラーパターンを親切に翻訳
-          const firstErr = errs[0] || "送信できませんでした";
-          let friendly = firstErr;
-          if (/429/.test(firstErr)) {
-            friendly = "LINE月間送信上限に到達しました。来月まで待つか LINE Developers で有料プランに切替。オーナーメールへの切替も検討してください。";
-          } else if (/invalid_grant/.test(firstErr)) {
-            friendly = "Gmail認証が失効しています。画面上の「Gmail再接続」ボタンを押して再認証してください。";
-          } else if (/未設定|未登録|トークン|User ID/.test(firstErr)) {
-            friendly = firstErr; // 元メッセージのまま
-          }
-          showToast("送信失敗", friendly, "error");
+        // トーストを分割表示 (成功+エラー両方)
+        if (successes.length) {
+          showToast("送信成功", `${successes.length}件: ${successes.join(", ")}`, "success");
+        }
+        if (errs.length) {
+          const msg = errs.map(e => `• ${e.label}: ${e.reason}`).join("\n");
+          showToast("送信失敗", msg, "error");
+        }
+        if (!successes.length && !errs.length) {
+          showToast("送信失敗", "どの送信先も処理されませんでした", "error");
         }
         if (errs.length) console.warn("テスト送信エラー詳細:", errs);
       } else {
@@ -688,6 +686,23 @@ const NotificationsPage = {
 
   _escapeHtml(s) {
     const d = document.createElement("div"); d.textContent = String(s || ""); return d.innerHTML;
+  },
+
+  // エラーメッセージを日本語で分かりやすく翻訳
+  _friendlyError(err) {
+    const s = String(err || "");
+    if (/429.*monthly/i.test(s)) return "LINE月間送信上限到達";
+    if (/429/.test(s)) return "LINEレート制限(429)";
+    if (/invalid_grant/.test(s)) return "Gmail認証失効 → Gmail再接続ボタンを押してください";
+    if (/Gmail OAuth/i.test(s) || /gmailOAuth/.test(s)) return "Gmail未設定";
+    if (/LINEチャネルトークン未設定/.test(s)) return "LINE設定未入力(チャネルトークン)";
+    if (/\u30aa\u30fc\u30ca\u30fcLINE User ID\u672a\u8a2d\u5b9a/.test(s) || /Owner.*User ID/i.test(s)) return "オーナーLINE User ID 未設定";
+    if (/LINE\u30b0\u30eb\u30fc\u30d7ID \u672a\u8a2d\u5b9a/.test(s)) return "LINEグループID未設定";
+    if (/LINE\u672a\u9023\u643a/.test(s)) return "このスタッフはLINE未連携";
+    if (/\u30aa\u30fc\u30ca\u30fc\u30e1\u30fc\u30eb\u30a2\u30c9\u30ec\u30b9\u672a\u8a2d\u5b9a/.test(s)) return "オーナーメールアドレス未入力";
+    if (/401|Unauthorized/.test(s)) return "認証エラー(ログインし直してください)";
+    if (/fetch|network|ENOTFOUND/i.test(s)) return "ネットワークエラー";
+    return s.slice(0, 160);
   },
 
   // ページ全体の input/change イベントを監視して debounced で自動保存

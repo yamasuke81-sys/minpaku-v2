@@ -207,14 +207,24 @@ const MyInvoiceCreatePage = {
     const start = new Date(y, m - 1, 1);
     const end = new Date(y, m, 0, 23, 59, 59);
 
-    const [shSnap, lnSnap] = await Promise.all([
-      db.collection("shifts").where("staffId", "==", this.staffId)
-        .where("date", ">=", start).where("date", "<=", end).get(),
-      db.collection("laundry").where("staffId", "==", this.staffId)
-        .where("date", ">=", start).where("date", "<=", end).get(),
-    ]);
-    const shifts = shSnap.docs.map(d => d.data());
-    const laundry = lnSnap.docs.map(d => d.data());
+    const sumEl = document.getElementById("invSummary");
+    sumEl.innerHTML = `<div class="text-muted"><span class="spinner-border spinner-border-sm"></span> 集計中...</div>`;
+
+    let shifts = [], laundry = [];
+    try {
+      const [shSnap, lnSnap] = await Promise.all([
+        db.collection("shifts").where("staffId", "==", this.staffId)
+          .where("date", ">=", start).where("date", "<=", end).get(),
+        db.collection("laundry").where("staffId", "==", this.staffId)
+          .where("date", ">=", start).where("date", "<=", end).get(),
+      ]);
+      shifts = shSnap.docs.map(d => d.data());
+      laundry = lnSnap.docs.map(d => d.data());
+    } catch (e) {
+      sumEl.innerHTML = `<div class="alert alert-danger mb-0"><i class="bi bi-exclamation-triangle"></i> 集計に失敗しました: ${(e && e.message) || e}<br><small class="text-muted">Firestore 権限/インデックスエラーの可能性があります。コンソールを確認してください。</small></div>`;
+      console.error("loadSummary エラー:", e);
+      return;
+    }
 
     this._shiftCount = shifts.length;
     this._laundryTotal = laundry.reduce((s, l) => s + (l.amount || 0), 0);

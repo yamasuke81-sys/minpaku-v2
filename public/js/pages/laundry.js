@@ -164,9 +164,13 @@ const LaundryPage = {
 
   _defaultDepots() {
     return [
-      { name: "コインランドリー", rates: [{ label: "標準", amount: 1000 }] },
-      { name: "リネン屋", rates: [{ label: "1泊分", amount: 3000 }] },
+      { id: "depot_coin_1", kind: "coin_laundry", name: "コインランドリー", rates: [{ label: "標準", amount: 1000 }] },
+      { id: "depot_linen_1", kind: "linen_shop", name: "リネン屋", rates: [{ label: "1泊分", amount: 3000 }] },
     ];
+  },
+
+  _genDepotId() {
+    return "depot_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   },
 
   renderDepotMasterList() {
@@ -175,26 +179,58 @@ const LaundryPage = {
       wrap.innerHTML = `<div class="text-muted">提出先がありません。追加してください。</div>`;
       return;
     }
-    wrap.innerHTML = this.depotMaster.map((d, i) => `
-      <div class="card mb-2" data-depot-idx="${i}">
-        <div class="card-body p-2">
-          <div class="d-flex gap-2 align-items-center mb-2">
-            <input type="text" class="form-control form-control-sm d-name" value="${(d.name||'').replace(/"/g,'&quot;')}" placeholder="提出先名">
-            <button class="btn btn-sm btn-outline-danger d-remove-depot" title="削除"><i class="bi bi-trash"></i></button>
-          </div>
-          <div class="d-rates">
-            ${(d.rates || []).map((r, ri) => `
-              <div class="d-flex gap-2 mb-1 d-rate-row" data-rate-idx="${ri}">
-                <input type="text" class="form-control form-control-sm r-label" value="${(r.label||'').replace(/"/g,'&quot;')}" placeholder="料金名 (標準/1泊分 など)">
-                <input type="number" class="form-control form-control-sm r-amount" value="${r.amount||0}" min="0" style="width:120px;">
-                <button class="btn btn-sm btn-outline-danger d-remove-rate" title="削除"><i class="bi bi-x"></i></button>
+    // id が無い旧データに自動付与
+    this.depotMaster.forEach(d => { if (!d.id) d.id = this._genDepotId(); });
+    wrap.innerHTML = `
+      <div class="small text-muted mb-2"><i class="bi bi-arrows-move"></i> グリップ(⋮⋮)をドラッグで並び替えできます。この順番が他画面にも反映されます。</div>
+      <div id="depotSortable">
+        ${this.depotMaster.map((d, i) => `
+          <div class="card mb-2 depot-item" data-depot-idx="${i}">
+            <div class="card-body p-2">
+              <div class="d-flex gap-2 align-items-center mb-2">
+                <i class="bi bi-grip-vertical text-muted depot-handle" style="cursor:grab;"></i>
+                <select class="form-select form-select-sm d-kind" style="width:140px;">
+                  <option value="coin_laundry" ${d.kind === "coin_laundry" ? "selected" : ""}>コインランドリー</option>
+                  <option value="linen_shop" ${d.kind === "linen_shop" ? "selected" : ""}>リネン屋</option>
+                  <option value="other" ${d.kind === "other" ? "selected" : ""}>その他</option>
+                </select>
+                <input type="text" class="form-control form-control-sm d-name" value="${(d.name||'').replace(/"/g,'&quot;')}" placeholder="提出先名">
+                <button class="btn btn-sm btn-outline-danger d-remove-depot" title="削除"><i class="bi bi-trash"></i></button>
               </div>
-            `).join("")}
+              <div class="d-rates">
+                ${(d.rates || []).map((r, ri) => `
+                  <div class="d-flex gap-2 mb-1 d-rate-row" data-rate-idx="${ri}">
+                    <input type="text" class="form-control form-control-sm r-label" value="${(r.label||'').replace(/"/g,'&quot;')}" placeholder="料金名 (標準/1泊分 など)">
+                    <input type="number" class="form-control form-control-sm r-amount" value="${r.amount||0}" min="0" style="width:120px;">
+                    <button class="btn btn-sm btn-outline-danger d-remove-rate" title="削除"><i class="bi bi-x"></i></button>
+                  </div>
+                `).join("")}
+              </div>
+              <button class="btn btn-sm btn-outline-secondary d-add-rate"><i class="bi bi-plus"></i> 料金プリセット追加</button>
+            </div>
           </div>
-          <button class="btn btn-sm btn-outline-secondary d-add-rate"><i class="bi bi-plus"></i> 料金プリセット追加</button>
-        </div>
+        `).join("")}
       </div>
-    `).join("");
+    `;
+
+    // 並び替え D&D
+    if (typeof Sortable !== "undefined") {
+      if (this._depotSortable) { try { this._depotSortable.destroy(); } catch {} this._depotSortable = null; }
+      this._depotSortable = Sortable.create(document.getElementById("depotSortable"), {
+        handle: ".depot-handle",
+        animation: 150,
+        onEnd: () => {
+          // 並び替え後、DOM 順序で depotMaster を再構築
+          const newOrder = [];
+          document.querySelectorAll("#depotSortable .depot-item").forEach(el => {
+            const idx = +el.dataset.depotIdx;
+            if (!isNaN(idx) && this.depotMaster[idx]) newOrder.push(this.depotMaster[idx]);
+          });
+          this.depotMaster = newOrder;
+          this.renderDepotMasterList();
+        },
+      });
+    }
 
     // イベントハンドラ
     wrap.querySelectorAll(".d-remove-depot").forEach(b => b.addEventListener("click", (e) => {
@@ -218,16 +254,19 @@ const LaundryPage = {
 
   addDepotRow() {
     if (!this.depotMaster) this.depotMaster = [];
-    this.depotMaster.push({ name: "", rates: [{ label: "", amount: 0 }] });
+    this.depotMaster.push({ id: this._genDepotId(), kind: "coin_laundry", name: "", rates: [{ label: "", amount: 0 }] });
     this.renderDepotMasterList();
   },
 
   async saveDepots() {
-    // UI から最新値を収集
+    // UI から最新値を収集 (並び替え後の順序に従う)
     const items = [];
-    document.querySelectorAll("#depotMasterList [data-depot-idx]").forEach(depEl => {
+    document.querySelectorAll("#depotSortable .depot-item").forEach(depEl => {
+      const idx = +depEl.dataset.depotIdx;
+      const existing = this.depotMaster[idx] || {};
       const name = depEl.querySelector(".d-name").value.trim();
       if (!name) return;
+      const kind = depEl.querySelector(".d-kind")?.value || "coin_laundry";
       const rates = [];
       depEl.querySelectorAll(".d-rate-row").forEach(rEl => {
         rates.push({
@@ -235,7 +274,12 @@ const LaundryPage = {
           amount: Number(rEl.querySelector(".r-amount").value) || 0,
         });
       });
-      items.push({ name, rates });
+      items.push({
+        id: existing.id || this._genDepotId(),
+        kind,
+        name,
+        rates,
+      });
     });
     const status = document.getElementById("depotMasterStatus");
     status.innerHTML = `<i class="bi bi-arrow-repeat text-muted"></i> 保存中...`;

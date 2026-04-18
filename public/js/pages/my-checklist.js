@@ -340,6 +340,18 @@ const MyChecklistPage = {
       return;
     }
 
+    // 物件の cleaningFlow と提出先マスターをキャッシュ (renderFooter で使用)
+    try {
+      const firstSnap = await db.collection("checklists").doc(this.checklistId).get();
+      const pid = firstSnap.exists ? firstSnap.data().propertyId : null;
+      if (pid) {
+        const p = await db.collection("properties").doc(pid).get();
+        this._propertyCleaningFlow = (p.exists && p.data().cleaningFlow) || {};
+      }
+      const d = await db.collection("settings").doc("laundryDepots").get();
+      this._depotMasterCache = (d.exists && Array.isArray(d.data().items)) ? d.data().items : [];
+    } catch (_) {}
+
     // リアルタイム購読 (差分更新で微振動回避)
     this.unsubscribe = db.collection("checklists").doc(this.checklistId)
       .onSnapshot(snap => {
@@ -612,17 +624,28 @@ const MyChecklistPage = {
         </button>`;
     };
 
-    const laundrySection = `
+    // 清掃フロー構成でランドリー提出先が空なら非表示
+    const cf = this.checklist?.propertyCleaningFlow || this._propertyCleaningFlow || {};
+    const laundryEnabledByFlow = Array.isArray(cf.laundryDepotIds) ? cf.laundryDepotIds.length > 0 : true;
+    // 選択された提出先がすべて linen_shop kind なら回収/収納ボタンを非表示
+    const allLinenShop = laundryEnabledByFlow && Array.isArray(cf.laundryDepotIds) && Array.isArray(this._depotMasterCache)
+      ? cf.laundryDepotIds.every(id => {
+          const d = this._depotMasterCache.find(x => (x.id || x.name) === id);
+          return d && d.kind === "linen_shop";
+        })
+      : false;
+    const laundrySection = !laundryEnabledByFlow ? "" : `
       <div class="card mb-3">
         <div class="card-body">
           <h6 class="card-title mb-1"><i class="bi bi-basket3"></i> ランドリー</h6>
           <div class="small text-muted mb-3">
             <i class="bi bi-info-circle"></i> チェックリストが途中でも、ランドリーは独立して記録できます。
+            ${allLinenShop ? '<br><span class="text-primary">リネン屋利用の物件: 「出した」を押すと完了扱いになります。</span>' : ''}
           </div>
           <div class="d-flex gap-2 flex-wrap">
             ${lBtn('putOut', '① 洗濯物を出した', 'bi-arrow-up-circle', putOutInfo)}
-            ${lBtn('collected', '② 洗濯物を回収した', 'bi-arrow-down-circle', collectedInfo)}
-            ${lBtn('stored', '③ 洗濯物を収納した', 'bi-check2-circle', storedInfo)}
+            ${allLinenShop ? '' : lBtn('collected', '② 洗濯物を回収した', 'bi-arrow-down-circle', collectedInfo)}
+            ${allLinenShop ? '' : lBtn('stored', '③ 洗濯物を収納した', 'bi-check2-circle', storedInfo)}
           </div>
         </div>
       </div>`;
@@ -729,10 +752,16 @@ const MyChecklistPage = {
         by,
         depot: info.depot || "",
         depotOther: info.depotOther || "",
+        depotKind: info.depotKind || "",
         paymentMethod: info.paymentMethod || "",
         amount: Number(info.amount) || 0,
         note: info.note || "",
       };
+      // リネン屋の場合は回収・収納も同時に完了扱い (業者が処理するため)
+      if (info.depotKind === "linen_shop") {
+        patch[`laundry.collected`] = { at: firebase.firestore.FieldValue.serverTimestamp(), by, auto: true, reason: "linen_shop" };
+        patch[`laundry.stored`] = { at: firebase.firestore.FieldValue.serverTimestamp(), by, auto: true, reason: "linen_shop" };
+      }
       // laundry コレクションにも記録 (請求書自動集計用)
       try {
         await firebase.firestore().collection("laundry").add({
@@ -760,7 +789,7 @@ const MyChecklistPage = {
 
   // ランドリー「出した」時の入力モーダル (Promise<{depot, paymentMethod, amount} | null>)
   async askLaundryPutOutInfo() {
-    // 提出先マスターを読み込み (settings/laundryDepots.items: [{name, rates:[{label,amount}]}])
+    // 提出先マスターを読み込み (settings/laundryDepots.items: [{id,kind,name,rates}])
     let depotMaster = [];
     try {
       const doc = await firebase.firestore().collection("settings").doc("laundryDepots").get();
@@ -768,9 +797,20 @@ const MyChecklistPage = {
     } catch (_) {}
     if (!depotMaster.length) {
       depotMaster = [
-        { name: "コインランドリー", rates: [{ label: "標準", amount: 1000 }] },
-        { name: "リネン屋", rates: [{ label: "1泊分", amount: 3000 }] },
+        { id: "default_coin", kind: "coin_laundry", name: "コインランドリー", rates: [{ label: "標準", amount: 1000 }] },
+        { id: "default_linen", kind: "linen_shop", name: "リネン屋", rates: [{ label: "1泊分", amount: 3000 }] },
       ];
+    }
+    // 該当物件の cleaningFlow.laundryDepotIds があれば絞り込み
+    const propertyId = this.checklist?.propertyId;
+    if (propertyId) {
+      try {
+        const p = await firebase.firestore().collection("properties").doc(propertyId).get();
+        const cf = (p.exists && p.data().cleaningFlow) || {};
+        if (Array.isArray(cf.laundryDepotIds) && cf.laundryDepotIds.length) {
+          depotMaster = depotMaster.filter(d => cf.laundryDepotIds.includes(d.id || d.name));
+        }
+      } catch (_) {}
     }
     return new Promise((resolve) => {
       const existing = document.getElementById("laundryPutOutModal");
@@ -874,9 +914,11 @@ const MyChecklistPage = {
           depotName = depotMaster[+depotIdx]?.name || "";
         }
         decided = true;
+        const depotKind = depotIdx === "__other__" ? "other" : (depotMaster[+depotIdx]?.kind || "other");
         const info = {
           depot: depotName,
           depotOther: depotIdx === "__other__" ? depotName : "",
+          depotKind,
           paymentMethod,
           amount: amountInput.value,
           note: modalEl.querySelector("#lpoNote").value.trim(),

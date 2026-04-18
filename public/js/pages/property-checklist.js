@@ -72,13 +72,16 @@ const PropertyChecklistPage = {
     const rect = mainEl ? mainEl.getBoundingClientRect() : { left: 0, width: window.innerWidth };
     header.style.left = rect.left + "px";
     header.style.width = rect.width + "px";
-    // fixed 化後の実レイアウトを待ってから spacer 計算 (offsetHeight より正確)
+    // app-topbar の下に配置 (重なり防止)
+    const topbar = document.querySelector(".app-topbar");
+    const topbarH = topbar ? topbar.getBoundingClientRect().height : 0;
+    header.style.top = topbarH + "px";
     requestAnimationFrame(() => {
       const headerH = header.getBoundingClientRect().height;
       const tabsWrap = document.querySelector(".pcl-tabs-wrap");
       const tabsH = tabsWrap ? tabsWrap.getBoundingClientRect().height : 0;
       const spacer = document.querySelector(".pcl-page-header-spacer");
-      if (spacer) spacer.style.height = (headerH + tabsH) + "px";
+      if (spacer) spacer.style.height = (topbarH + headerH + tabsH) + "px";
     });
   },
 
@@ -239,19 +242,20 @@ const PropertyChecklistPage = {
     const applyLayout = () => {
       const mainEl = document.querySelector(".app-main");
       const rect = mainEl ? mainEl.getBoundingClientRect() : { left: 0, width: window.innerWidth };
+      const topbar = document.querySelector(".app-topbar");
+      const topbarH = topbar ? topbar.getBoundingClientRect().height : 0;
       const header = document.querySelector(".pcl-page-header");
       const headerH = header ? header.getBoundingClientRect().height : 0;
       wrap.style.position = "fixed";
-      wrap.style.top = headerH + "px";
+      wrap.style.top = (topbarH + headerH) + "px";
       wrap.style.left = rect.left + "px";
       wrap.style.width = rect.width + "px";
       wrap.style.zIndex = "28";
       wrap.style.background = "#fff";
       wrap.style.boxShadow = "0 2px 6px rgba(0,0,0,0.06)";
-      // fixed 化後に rAF で実レイアウト高さを測って spacer 更新
       requestAnimationFrame(() => {
         const spacer = document.querySelector(".pcl-page-header-spacer");
-        if (spacer) spacer.style.height = (headerH + wrap.getBoundingClientRect().height) + "px";
+        if (spacer) spacer.style.height = (topbarH + headerH + wrap.getBoundingClientRect().height) + "px";
       });
     };
     // 旧 observer / handler クリーンアップ
