@@ -116,6 +116,21 @@
             <svg viewBox="0 0 24 24" width="20" height="20" style="vertical-align:middle;margin-right:6px;fill:#fff"><path d="M12 2C6.48 2 2 5.83 2 10.5c0 4.07 3.44 7.47 8.09 8.18.31.07.74.21.85.48.1.25.06.63.03.88l-.14.82c-.04.25-.2.98.86.54s5.71-3.36 7.79-5.76C21.42 13.42 22 11.87 22 10.5 22 5.83 17.52 2 12 2z"/></svg>
             LINEでログイン（スタッフ用）
           </button>
+          <button class="btn btn-outline-secondary w-100 mt-2" id="btnMagicLinkLogin">
+            <i class="bi bi-envelope-arrow-up"></i> メールでログイン（スタッフ用）
+          </button>
+          <!-- マジックリンク: メールアドレス入力エリア（初期非表示） -->
+          <div class="d-none mt-2 w-100" id="magicLinkForm">
+            <div class="input-group">
+              <input type="email" class="form-control" id="magicLinkEmail" placeholder="メールアドレスを入力">
+              <button class="btn btn-primary" id="btnSendMagicLink">
+                <span id="magicLinkBtnLabel"><i class="bi bi-send"></i> 送信</span>
+              </button>
+            </div>
+            <div class="alert alert-success d-none mt-2 py-2 small" id="magicLinkSent">
+              <i class="bi bi-check-circle"></i> メールを送信しました。メール内のリンクをクリックしてログインしてください。
+            </div>
+          </div>
           <a href="#" class="small text-muted mt-2" id="btnForgotPassword">パスワードを忘れた方はこちら</a>
         </div>
       </div>
@@ -292,6 +307,18 @@
             <div class="col-md-4">
               <label class="form-label">清掃費用（円/回）</label>
               <input type="number" class="form-control" id="propertyCleaningFee" value="0">
+            </div>
+            <div class="col-12"><hr><h6><i class="bi bi-clock-history"></i> タイミー基本作業時間</h6></div>
+            <div class="col-md-3">
+              <label class="form-label">開始時刻</label>
+              <input type="time" class="form-control" id="propertyBaseWorkTimeStart" value="10:30">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">終了時刻</label>
+              <input type="time" class="form-control" id="propertyBaseWorkTimeEnd" value="14:30">
+            </div>
+            <div class="col-md-6 d-flex align-items-end">
+              <div class="form-text">タイミースタッフの報酬計算に使用 (時給 × 勤務時間)。清掃開始時間とは別設定です。</div>
             </div>
             <div class="col-md-4">
               <label class="form-label">月額固定費（円）</label>
@@ -686,8 +713,11 @@
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-storage-compat.js"></script>
+  <!-- FCM (Firebase Cloud Messaging) — Web Push通知 -->
+  <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-messaging-compat.js"></script>
   <!-- App -->
   <script src="js/firebase-config.js?v=0415a"></script>
+  <script src="js/fcm-client.js?v=0419a"></script>
   <script src="js/auth.js?v=0415a"></script>
   <script src="js/api.js?v=0417b"></script>
   <script src="js/pages/dashboard.js?v=0416x"></script>

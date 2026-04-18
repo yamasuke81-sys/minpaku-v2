@@ -138,35 +138,58 @@ async function generateInvoicePdf_(db, invoiceId) {
     pdfDoc.moveDown(1);
 
     // ── 明細テーブル ──
-    // 行を構築: 清掃明細 + ランドリー明細 + 追加項目
+    // 行を構築: 清掃明細 + 特別加算 + ランドリー明細 + 追加項目
     const rows = [];
     const shifts = invoice.details?.shifts || [];
     shifts.forEach((s) => {
       const propName = propertyMap[s.propertyId] || s.propertyId || "";
-      const memo = s.memo || "";
+      let label = `清掃 ${propName}`;
+      if (s.workType === "pre_inspection") label = `直前点検 ${propName}`;
+      else if (s.workType === "other") label = `その他作業 ${propName}`;
+      let memo = s.memo || "";
+      if (s.isTimee && s.timeeDetail) {
+        const td = s.timeeDetail;
+        memo = `タイミー ${td.start}〜${td.end}(${td.durationH}h) × ¥${td.hourlyRate}/h`;
+      } else if (s.guestCount > 1) {
+        memo = `ゲスト${s.guestCount}名`;
+      }
       rows.push({
         date: s.date ? fmtDate(s.date) : "",
-        label: `清掃 ${propName}`,
+        label,
         amount: s.amount || 0,
         memo,
+        section: "shift",
+      });
+    });
+    const specialItems = invoice.details?.special || [];
+    specialItems.forEach((sp) => {
+      const propName = propertyMap[sp.propertyId] || sp.propertyId || "";
+      rows.push({
+        date: sp.date ? fmtDate(sp.date) : (sp.dateStr || ""),
+        label: `特別加算: ${sp.name || ""}${propName ? " (" + propName + ")" : ""}`,
+        amount: sp.amount || 0,
+        memo: "",
+        section: "special",
       });
     });
     const laundry = invoice.details?.laundry || [];
     laundry.forEach((l) => {
       rows.push({
         date: l.date ? fmtDate(l.date) : "",
-        label: l.label || "ランドリー",
+        label: l.label || "ランドリー立替",
         amount: l.amount || 0,
         memo: l.memo || l.note || "",
+        section: "laundry",
       });
     });
-    const manualItems = invoice.manualItems || invoice.details?.manualItems || [];
+    const manualItems = invoice.details?.manualItems || invoice.manualItems || [];
     manualItems.forEach((item) => {
       rows.push({
         date: item.date ? fmtDate(item.date) : "",
         label: item.label || "",
         amount: item.amount || 0,
         memo: item.memo || "",
+        section: "manual",
       });
     });
 
@@ -312,6 +335,239 @@ async function uploadInvoiceToDrive_(db, filePath, invoice, staff) {
   console.log(`Drive アップロード成功: ${fileName}`);
 }
 
+/**
+ * 特別加算期間判定 (rates.js の recurYearly対応ロジックをバックエンドに移植)
+ * dateStr: "YYYY-MM-DD"
+ * sr: { recurYearly, recurStart, recurEnd, start, end, addAmount }
+ */
+function isDateInSpecialRate(dateStr, sr) {
+  if (!dateStr) return false;
+  if (sr.recurYearly) {
+    const md = dateStr.slice(5); // "MM-DD"
+    const s = sr.recurStart || "01-01";
+    const e = sr.recurEnd || "12-31";
+    if (s <= e) {
+      return md >= s && md <= e;
+    } else {
+      // 年跨ぎ (例: 11-01〜02-28)
+      return md >= s || md <= e;
+    }
+  } else {
+    const start = sr.start || "";
+    const end = sr.end || "";
+    if (start && dateStr < start) return false;
+    if (end && dateStr > end) return false;
+    return !!(start || end);
+  }
+}
+
+/**
+ * 請求書の共通集計関数
+ * my-submit と generate の重複ロジックを統合
+ * 戻り値: { shifts, laundry, special, manual, shiftAmount, laundryAmount, specialAmount, transportationFee, total }
+ *
+ * @param {object} db - Firestore インスタンス
+ * @param {string} staffId - スタッフID
+ * @param {string} yearMonth - "YYYY-MM"
+ * @param {Array} manualItems - 手動追加項目 (オプション)
+ */
+async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = []) {
+  const [y, m] = yearMonth.split("-").map(Number);
+  const start = new Date(y, m - 1, 1);
+  const end = new Date(y, m, 0, 23, 59, 59);
+
+  // スタッフ情報
+  const staffDoc = await db.collection("staff").doc(staffId).get();
+  if (!staffDoc.exists) throw new Error("スタッフが見つかりません");
+  const staff = { id: staffDoc.id, ...staffDoc.data() };
+
+  // シフト取得
+  const shiftsSnap = await db.collection("shifts")
+    .where("staffId", "==", staffId)
+    .where("date", ">=", start)
+    .where("date", "<=", end)
+    .get();
+  const rawShifts = shiftsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  // ランドリー取得 (isReimbursable === true のみ計上)
+  const laundrySnap = await db.collection("laundry")
+    .where("staffId", "==", staffId)
+    .where("date", ">=", start)
+    .where("date", "<=", end)
+    .get();
+  const laundryAll = laundrySnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const reimbursableLaundry = laundryAll.filter(l => {
+    if (l.isReimbursable !== undefined) return l.isReimbursable === true;
+    // 旧データ互換: paymentMethod がある場合
+    return l.paymentMethod === "cash" || l.paymentMethod === "credit";
+  });
+
+  // propertyWorkItems のキャッシュ (propertyId → workItems)
+  const workItemsCache = {};
+  const getWorkItems = async (propertyId) => {
+    if (!propertyId) return null;
+    if (workItemsCache[propertyId] !== undefined) return workItemsCache[propertyId];
+    try {
+      const doc = await db.collection("propertyWorkItems").doc(propertyId).get();
+      workItemsCache[propertyId] = doc.exists ? (doc.data().items || []) : [];
+    } catch (_) {
+      workItemsCache[propertyId] = [];
+    }
+    return workItemsCache[propertyId];
+  };
+
+  // properties のキャッシュ
+  const propertyCache = {};
+  const getProperty = async (propertyId) => {
+    if (!propertyId) return null;
+    if (propertyCache[propertyId] !== undefined) return propertyCache[propertyId];
+    try {
+      const doc = await db.collection("properties").doc(propertyId).get();
+      propertyCache[propertyId] = doc.exists ? { id: doc.id, ...doc.data() } : null;
+    } catch (_) {
+      propertyCache[propertyId] = null;
+    }
+    return propertyCache[propertyId];
+  };
+
+  // bookings のキャッシュ
+  const bookingCache = {};
+  const getBooking = async (bookingId) => {
+    if (!bookingId) return null;
+    if (bookingCache[bookingId] !== undefined) return bookingCache[bookingId];
+    try {
+      const doc = await db.collection("bookings").doc(bookingId).get();
+      bookingCache[bookingId] = doc.exists ? { id: doc.id, ...doc.data() } : null;
+    } catch (_) {
+      bookingCache[bookingId] = null;
+    }
+    return bookingCache[bookingId];
+  };
+
+  // シフト単価計算
+  const shiftDetails = [];
+  const specialDetails = [];
+  let shiftAmount = 0;
+  let specialAmount = 0;
+
+  for (const shift of rawShifts) {
+    const propertyId = shift.propertyId || "";
+    const workType = shift.workType || "cleaning_by_count";
+    const dateStr = shift.date
+      ? (shift.date.toDate ? shift.date.toDate() : new Date(shift.date)).toISOString().slice(0, 10)
+      : "";
+
+    // booking から guestCount 取得
+    const booking = await getBooking(shift.bookingId);
+    const guestCount = Math.min(booking?.guestCount || 1, 3);
+
+    // propertyWorkItems から該当 type の作業項目を検索
+    const workItems = await getWorkItems(propertyId);
+    const workItem = (workItems || []).find(wi => (wi.type || "other") === workType);
+
+    let amount = 0;
+
+    if (workItem) {
+      if (staff.isTimee === true) {
+        // タイミースタッフ: property.baseWorkTime から duration × timeeHourlyRate
+        const property = await getProperty(propertyId);
+        const baseWorkTime = property?.baseWorkTime || {};
+        const startT = baseWorkTime.start || "10:30";
+        const endT = baseWorkTime.end || "14:30";
+        const [sh, sm] = startT.split(":").map(Number);
+        const [eh, em] = endT.split(":").map(Number);
+        const durationH = ((eh * 60 + em) - (sh * 60 + sm)) / 60;
+        amount = Math.round(durationH * (workItem.timeeHourlyRate || 0));
+      } else if (workItem.rateMode === "perStaff") {
+        const rates = workItem.staffRates?.[staffId] || {};
+        amount = typeof rates === "object" ? (rates[guestCount] || rates[3] || 0) : Number(rates || 0);
+      } else {
+        // common モード (デフォルト)
+        const rates = workItem.commonRates || {};
+        amount = typeof rates === "object" ? (rates[guestCount] || rates[3] || 0) : Number(workItem.commonRate || 0);
+      }
+    } else {
+      // workItem 未設定時は staff.ratePerJob フォールバック
+      amount = staff.ratePerJob || 0;
+    }
+
+    shiftAmount += amount;
+    shiftDetails.push({
+      date: shift.date,
+      propertyId,
+      propertyName: shift.propertyName || "",
+      workType,
+      guestCount: booking?.guestCount || 1,
+      amount,
+      isTimee: staff.isTimee || false,
+      timeeDetail: staff.isTimee ? (() => {
+        const property = propertyCache[propertyId];
+        const bwt = property?.baseWorkTime || {};
+        const s = bwt.start || "10:30"; const e = bwt.end || "14:30";
+        const [sh, sm2] = s.split(":").map(Number);
+        const [eh, em2] = e.split(":").map(Number);
+        const dh = ((eh * 60 + em2) - (sh * 60 + sm2)) / 60;
+        return { start: s, end: e, durationH: dh, hourlyRate: workItem?.timeeHourlyRate || 0 };
+      })() : null,
+    });
+
+    // 特別加算の判定
+    if (workItem && Array.isArray(workItem.specialRates)) {
+      for (const sr of workItem.specialRates) {
+        if (isDateInSpecialRate(dateStr, sr)) {
+          const addAmt = Number(sr.addAmount || 0);
+          if (addAmt > 0) {
+            specialAmount += addAmt;
+            specialDetails.push({
+              date: shift.date,
+              dateStr,
+              name: sr.name || "(特別加算)",
+              propertyId,
+              amount: addAmt,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // ランドリー集計
+  const laundryDetails = reimbursableLaundry.map(l => ({
+    date: l.date,
+    amount: l.amount || 0,
+    memo: l.memo || "",
+    label: "ランドリー立替",
+  }));
+  const laundryAmount = laundryDetails.reduce((s, l) => s + l.amount, 0);
+
+  // 交通費
+  const transportationFee = rawShifts.length * (staff.transportationFee || 0);
+
+  // 手動追加項目
+  const manual = (manualItems || []).map(i => ({
+    label: String(i.label || ""),
+    amount: Number(i.amount) || 0,
+    memo: String(i.memo || ""),
+  }));
+  const manualAmount = manual.reduce((s, i) => s + i.amount, 0);
+
+  const total = shiftAmount + laundryAmount + specialAmount + transportationFee + manualAmount;
+
+  return {
+    shifts: shiftDetails,
+    laundry: laundryDetails,
+    special: specialDetails,
+    manual,
+    shiftAmount,
+    laundryAmount,
+    specialAmount,
+    transportationFee,
+    manualAmount,
+    total,
+    shiftCount: rawShifts.length,
+  };
+}
+
 module.exports = function invoicesApi(db) {
   const router = Router();
   const collection = db.collection("invoices");
@@ -409,50 +665,31 @@ module.exports = function invoicesApi(db) {
         });
       }
 
-      const [y, m] = yearMonth.split("-").map(Number);
-      const start = new Date(y, m - 1, 1);
-      const end = new Date(y, m, 0, 23, 59, 59);
-
-      const shiftsSnap = await db.collection("shifts")
-        .where("staffId", "==", staffDoc.id)
-        .where("date", ">=", start)
-        .where("date", "<=", end)
-        .get();
-      const shifts = shiftsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-      const laundrySnap = await db.collection("laundry")
-        .where("staffId", "==", staffDoc.id)
-        .where("date", ">=", start)
-        .where("date", "<=", end)
-        .get();
-      // 全ランドリー記録を取得 (立替金フラグで分離)
-      const laundryAll = laundrySnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // 立替金のみを集計に含める: isReimbursable=true or 旧データは paymentMethod=cash/credit
-      const laundry = laundryAll.filter(l => {
-        if (l.isReimbursable !== undefined) return l.isReimbursable === true;
-        return l.paymentMethod === "cash" || l.paymentMethod === "credit" || !l.paymentMethod;
-      });
-
-      const basePayment = shifts.length * (staffDoc.ratePerJob || 0);
-      const laundryFee = laundry.reduce((s, l) => s + (l.amount || 0), 0);
-      const transportationFee = shifts.length * (staffDoc.transportationFee || 0);
-      const manualTotal = (manualItems || []).reduce((s, i) => s + (Number(i.amount) || 0), 0);
-      const total = basePayment + laundryFee + transportationFee + manualTotal;
+      // computeInvoiceDetails で統合集計
+      let computed;
+      try {
+        computed = await computeInvoiceDetails(db, staffDoc.id, yearMonth, manualItems);
+      } catch (compErr) {
+        return res.status(500).json({ error: "集計処理に失敗しました: " + compErr.message });
+      }
 
       const invoiceId = `INV-${yearMonth.replace("-", "")}-${staffDoc.id.substring(0, 6)}`;
+      const [, m] = yearMonth.split("-").map(Number);
       const invoiceData = {
         yearMonth,
         staffId: staffDoc.id,
         staffName: staffDoc.name,
-        basePayment, laundryFee, transportationFee,
-        specialAllowance: manualTotal, total,
+        basePayment: computed.shiftAmount,
+        laundryFee: computed.laundryAmount,
+        transportationFee: computed.transportationFee,
+        specialAllowance: computed.specialAmount,
+        total: computed.total,
         status: "submitted",
-        manualItems: (manualItems || []).map(i => ({
-          label: String(i.label || ""), amount: Number(i.amount) || 0, memo: String(i.memo || ""),
-        })),
         details: {
-          shifts: shifts.map(s => ({ date: s.date, propertyId: s.propertyId, amount: staffDoc.ratePerJob || 0 })),
-          laundry: laundry.map(l => ({ date: l.date, amount: l.amount || 0 })),
+          shifts: computed.shifts,
+          laundry: computed.laundry,
+          special: computed.special,
+          manualItems: computed.manual,
         },
         submittedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
@@ -482,18 +719,18 @@ module.exports = function invoicesApi(db) {
           month: String(m),
           staff: staffDoc.name || "",
           property: "",
-          total: `¥${Number(total).toLocaleString("ja-JP")}`,
+          total: `¥${Number(computed.total).toLocaleString("ja-JP")}`,
           url: confirmUrl,
         };
         const linkLine = pdfSignedUrl ? `\nPDF: ${pdfSignedUrl}` : "";
-        const ownerBody = `📨 請求書が提出されました\n\n${staffDoc.name} さんから ${m}月分の請求書が届きました。\n合計: ¥${Number(total).toLocaleString("ja-JP")}${linkLine}\n確認: ${confirmUrl}`;
+        const ownerBody = `📨 請求書が提出されました\n\n${staffDoc.name} さんから ${m}月分の請求書が届きました。\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}${linkLine}\n確認: ${confirmUrl}`;
         await notifyOwner(db, "invoice_submitted", `請求書提出: ${staffDoc.name} ${yearMonth}`, ownerBody, baseVars);
 
         // スタッフ本人にも PDF リンクをメール送付
         if (staffDoc.email && pdfSignedUrl) {
           try {
             const { sendNotificationEmail_ } = require("../utils/lineNotify");
-            const staffBody = `${staffDoc.name} 様\n\n${yearMonth} 分の請求書が作成されました。\n合計: ¥${Number(total).toLocaleString("ja-JP")}\n\nPDFダウンロード (7日間有効):\n${pdfSignedUrl}\n\n何か相違がございましたらご連絡ください。`;
+            const staffBody = `${staffDoc.name} 様\n\n${yearMonth} 分の請求書が作成されました。\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}\n\nPDFダウンロード (7日間有効):\n${pdfSignedUrl}\n\n何か相違がございましたらご連絡ください。`;
             await sendNotificationEmail_(staffDoc.email, `【請求書】${yearMonth} 分`, staffBody);
           } catch (mailErr) { console.error("スタッフへの請求書メール失敗:", mailErr.message); }
         }
@@ -528,58 +765,46 @@ module.exports = function invoicesApi(db) {
       const staffSnap = await db.collection("staff").where("active", "==", true).get();
       const staffList = staffSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 
-      // 対象月のシフト取得（completed のみ）
-      const shiftsSnap = await db.collection("shifts")
-        .where("date", ">=", startDate)
-        .where("date", "<=", endDate)
-        .where("status", "==", "completed")
-        .get();
-      const shifts = shiftsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-
-      // 対象月のランドリー記録取得
-      const laundrySnap = await db.collection("laundry")
-        .where("date", ">=", startDate)
-        .where("date", "<=", endDate)
-        .get();
-      const laundryRecords = laundrySnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-
       const generated = [];
+      const skipped = [];
 
       for (const staff of staffList) {
-        const staffShifts = shifts.filter((s) => s.staffId === staff.id);
-        const staffLaundry = laundryRecords.filter((l) => l.staffId === staff.id);
-
-        if (staffShifts.length === 0 && staffLaundry.length === 0) continue;
-
-        const basePayment = staffShifts.length * (staff.ratePerJob || 0);
-        const laundryFee = staffLaundry.reduce((sum, l) => sum + (l.amount || 0), 0);
-        const transportationFee = staffShifts.length * (staff.transportationFee || 0);
-        const total = basePayment + laundryFee + transportationFee;
-
+        // 既存請求書チェック (draft のみ上書き可、それ以外はスキップ)
         const invoiceId = `INV-${yearMonth.replace("-", "")}-${staff.id.substring(0, 6)}`;
+        const existing = await collection.doc(invoiceId).get();
+        if (existing.exists && existing.data().status !== "draft") {
+          skipped.push(invoiceId);
+          continue;
+        }
+
+        // computeInvoiceDetails で統合集計
+        let computed;
+        try {
+          computed = await computeInvoiceDetails(db, staff.id, yearMonth, []);
+        } catch (compErr) {
+          console.error(`${staff.id} 集計エラー:`, compErr.message);
+          continue;
+        }
+
+        if (computed.shiftCount === 0 && computed.laundryAmount === 0) continue;
 
         const invoiceData = {
           yearMonth,
           staffId: staff.id,
           staffName: staff.name,
-          basePayment,
-          laundryFee,
-          transportationFee,
-          specialAllowance: 0,
-          total,
+          basePayment: computed.shiftAmount,
+          laundryFee: computed.laundryAmount,
+          transportationFee: computed.transportationFee,
+          specialAllowance: computed.specialAmount,
+          total: computed.total,
           status: "draft",
           pdfUrl: null,
           confirmedAt: null,
           details: {
-            shifts: staffShifts.map((s) => ({
-              date: s.date,
-              propertyId: s.propertyId,
-              amount: staff.ratePerJob || 0,
-            })),
-            laundry: staffLaundry.map((l) => ({
-              date: l.date,
-              amount: l.amount || 0,
-            })),
+            shifts: computed.shifts,
+            laundry: computed.laundry,
+            special: computed.special,
+            manualItems: [],
           },
           createdAt: FieldValue.serverTimestamp(),
         };
@@ -590,6 +815,8 @@ module.exports = function invoicesApi(db) {
 
       res.status(201).json({
         message: `${generated.length}件の請求書を生成しました`,
+        created: generated.length,
+        skipped: skipped.length,
         invoices: generated,
       });
     } catch (e) {
@@ -713,6 +940,62 @@ module.exports = function invoicesApi(db) {
     }
   });
 
+  // 請求書再計算 (オーナー限定・draft/submitted のみ)
+  router.post("/:id/recalculate", async (req, res) => {
+    try {
+      if (req.user.role !== "owner") {
+        return res.status(403).json({ error: "オーナー権限が必要です" });
+      }
+      const docRef = collection.doc(req.params.id);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        return res.status(404).json({ error: "請求書が見つかりません" });
+      }
+      const invoice = doc.data();
+      if (!["draft", "submitted"].includes(invoice.status)) {
+        return res.status(400).json({ error: "draft または submitted 状態の請求書のみ再計算できます" });
+      }
+
+      // 既存の手動追加項目を引き継ぐ
+      const existingManual = invoice.details?.manualItems || [];
+
+      let computed;
+      try {
+        computed = await computeInvoiceDetails(db, invoice.staffId, invoice.yearMonth, existingManual);
+      } catch (compErr) {
+        return res.status(500).json({ error: "集計処理に失敗しました: " + compErr.message });
+      }
+
+      await docRef.update({
+        basePayment: computed.shiftAmount,
+        laundryFee: computed.laundryAmount,
+        transportationFee: computed.transportationFee,
+        specialAllowance: computed.specialAmount,
+        total: computed.total,
+        details: {
+          shifts: computed.shifts,
+          laundry: computed.laundry,
+          special: computed.special,
+          manualItems: computed.manual,
+        },
+        recalculatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      res.json({
+        message: "再計算しました",
+        total: computed.total,
+        shiftAmount: computed.shiftAmount,
+        laundryAmount: computed.laundryAmount,
+        specialAmount: computed.specialAmount,
+        transportationFee: computed.transportationFee,
+      });
+    } catch (e) {
+      console.error("再計算エラー:", e);
+      res.status(500).json({ error: "再計算に失敗しました: " + e.message });
+    }
+  });
+
   // 請求書PDF生成
   router.get("/:id/pdf", async (req, res) => {
     try {
@@ -792,39 +1075,60 @@ module.exports = function invoicesApi(db) {
         doc.moveDown(0.8);
 
         // ── 清掃明細 ──
-        const shifts = invoice.details?.shifts || [];
-        if (shifts.length > 0) {
+        const pdfShifts = invoice.details?.shifts || [];
+        if (pdfShifts.length > 0) {
           setFont(11);
           doc.text(cjkFont ? "【清掃明細】" : "--- Cleaning ---");
           setFont(10);
-          shifts.forEach((s, i) => {
+          pdfShifts.forEach((s, i) => {
             const propName = propertyMap[s.propertyId] || s.propertyId || "-";
             const dateStr = s.date ? fmtDate(s.date) : "-";
-            doc.text(`  ${i + 1}. ${dateStr}  ${propName}  ${fmtYen(s.amount)}${cjkFont ? "円" : "JPY"}`);
+            let memo = "";
+            if (s.isTimee && s.timeeDetail) {
+              const td = s.timeeDetail;
+              memo = ` (タイミー ${td.start}〜${td.end} ${td.durationH}h×¥${td.hourlyRate})`;
+            } else if (s.guestCount > 1) {
+              memo = ` (ゲスト${s.guestCount}名)`;
+            }
+            doc.text(`  ${i + 1}. ${dateStr}  ${propName}  ${fmtYen(s.amount)}${cjkFont ? "円" : "JPY"}${memo}`);
+          });
+          doc.moveDown(0.8);
+        }
+
+        // ── 特別加算明細 ──
+        const pdfSpecial = invoice.details?.special || [];
+        if (pdfSpecial.length > 0) {
+          setFont(11);
+          doc.text(cjkFont ? "【特別加算】" : "--- Special Allowance ---");
+          setFont(10);
+          pdfSpecial.forEach((sp, i) => {
+            const dateStr = sp.date ? fmtDate(sp.date) : (sp.dateStr || "-");
+            const propName = propertyMap[sp.propertyId] || sp.propertyId || "";
+            doc.text(`  ${i + 1}. ${dateStr}  ${sp.name || "特別加算"}${propName ? " (" + propName + ")" : ""}  ${fmtYen(sp.amount)}${cjkFont ? "円" : "JPY"}`);
           });
           doc.moveDown(0.8);
         }
 
         // ── ランドリー明細 ──
-        const laundry = invoice.details?.laundry || [];
-        if (laundry.length > 0) {
+        const pdfLaundry = invoice.details?.laundry || [];
+        if (pdfLaundry.length > 0) {
           setFont(11);
-          doc.text(cjkFont ? "【ランドリー明細】" : "--- Laundry ---");
+          doc.text(cjkFont ? "【ランドリー立替】" : "--- Laundry ---");
           setFont(10);
-          laundry.forEach((l, i) => {
+          pdfLaundry.forEach((l, i) => {
             const dateStr = l.date ? fmtDate(l.date) : "-";
-            doc.text(`  ${i + 1}. ${dateStr}  ${fmtYen(l.amount)}${cjkFont ? "円" : "JPY"}`);
+            doc.text(`  ${i + 1}. ${dateStr}  ${fmtYen(l.amount)}${cjkFont ? "円" : "JPY"}${l.memo ? "  (" + l.memo + ")" : ""}`);
           });
           doc.moveDown(0.8);
         }
 
         // ── 手動追加項目 ──
-        const manualItems = invoice.details?.manualItems || [];
-        if (manualItems.length > 0) {
+        const pdfManualItems = invoice.details?.manualItems || invoice.manualItems || [];
+        if (pdfManualItems.length > 0) {
           setFont(11);
           doc.text(cjkFont ? "【追加項目】" : "--- Additional ---");
           setFont(10);
-          manualItems.forEach((item, i) => {
+          pdfManualItems.forEach((item, i) => {
             doc.text(`  ${i + 1}. ${item.label}  ${fmtYen(item.amount)}${cjkFont ? "円" : "JPY"}${item.memo ? "  (" + item.memo + ")" : ""}`);
           });
           doc.moveDown(0.8);
@@ -834,15 +1138,15 @@ module.exports = function invoicesApi(db) {
         setFont(11);
         doc.text(cjkFont ? "【集計】" : "--- Summary ---");
         setFont(10);
-        const manualTotal = manualItems.reduce((s, item) => s + (item.amount || 0), 0);
-        doc.text(`  ${cjkFont ? "基本報酬（清掃回数×単価）" : "Base Pay"}: ${fmtYen(invoice.basePayment)}${cjkFont ? "円" : "JPY"}`);
-        doc.text(`  ${cjkFont ? "ランドリー費" : "Laundry"}: ${fmtYen(invoice.laundryFee)}${cjkFont ? "円" : "JPY"}`);
-        doc.text(`  ${cjkFont ? "交通費" : "Transportation"}: ${fmtYen(invoice.transportationFee)}${cjkFont ? "円" : "JPY"}`);
+        const pdfManualTotal = pdfManualItems.reduce((s, item) => s + (item.amount || 0), 0);
+        doc.text(`  ${cjkFont ? "基本報酬（清掃）" : "Base Pay"}: ${fmtYen(invoice.basePayment)}${cjkFont ? "円" : "JPY"}`);
         if (invoice.specialAllowance) {
-          doc.text(`  ${cjkFont ? "特別手当" : "Special Allowance"}: ${fmtYen(invoice.specialAllowance)}${cjkFont ? "円" : "JPY"}`);
+          doc.text(`  ${cjkFont ? "特別加算合計" : "Special Allowance"}: ${fmtYen(invoice.specialAllowance)}${cjkFont ? "円" : "JPY"}`);
         }
-        if (manualItems.length > 0) {
-          doc.text(`  ${cjkFont ? "追加項目合計" : "Additional Total"}: ${fmtYen(manualTotal)}${cjkFont ? "円" : "JPY"}`);
+        doc.text(`  ${cjkFont ? "ランドリー立替" : "Laundry"}: ${fmtYen(invoice.laundryFee)}${cjkFont ? "円" : "JPY"}`);
+        doc.text(`  ${cjkFont ? "交通費" : "Transportation"}: ${fmtYen(invoice.transportationFee)}${cjkFont ? "円" : "JPY"}`);
+        if (pdfManualItems.length > 0) {
+          doc.text(`  ${cjkFont ? "追加項目合計" : "Additional Total"}: ${fmtYen(pdfManualTotal)}${cjkFont ? "円" : "JPY"}`);
         }
         doc.moveDown(0.3);
         doc.lineCap("butt").moveTo(50, doc.y).lineTo(545, doc.y).stroke();

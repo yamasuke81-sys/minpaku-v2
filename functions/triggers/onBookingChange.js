@@ -191,6 +191,7 @@ module.exports = async function onBookingChange(event) {
         propertyId,
         propertyName,
         bookingId,
+        workType: "cleaning_by_count",
         staffId: null,
         staffName: null,
         startTime: propertyData.cleaningStartTime || "10:30",

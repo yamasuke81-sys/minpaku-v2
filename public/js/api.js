@@ -362,106 +362,36 @@ const API = {
     },
 
     /**
-     * 月次請求書を自動生成
-     * 募集データ（確定済み）+ ランドリー + スタッフ単価から集計
+     * 月次請求書を自動生成 (Cloud Functions の /invoices/generate を呼び出す)
+     * 報酬単価マスタ・特別加算・ランドリー立替から正確に集計する
      */
     async generate(yearMonth) {
-      const [ym0, ym1] = yearMonth.split("-").map(Number);
-      const monthStart = yearMonth + "-01";
-      const nextMonth = new Date(ym0, ym1, 1);
-      const monthEnd = nextMonth.getFullYear() + "-" + String(nextMonth.getMonth() + 1).padStart(2, "0") + "-" + String(nextMonth.getDate()).padStart(2, "0");
-
-      // 確定済み募集を取得（対象月）
-      const allRecruitments = await API.recruitments.list();
-      const monthRecruitments = allRecruitments.filter(r => {
-        const d = (r.checkoutDate || "").slice(0, 10);
-        return d >= monthStart && d < monthEnd && r.status === "スタッフ確定済み" && r.selectedStaff;
+      const CF_BASE = "https://api-5qrfx7ujcq-an.a.run.app";
+      const token = await firebase.auth().currentUser.getIdToken();
+      const res = await fetch(`${CF_BASE}/invoices/generate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ yearMonth }),
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "生成失敗");
+      return data;
+    },
 
-      // ランドリー記録を取得
-      const allLaundry = await API.laundry.list();
-      const monthLaundry = allLaundry.filter(l => {
-        const d = l.date && l.date.toDate ? l.date.toDate() : new Date(l.date || 0);
-        const ds = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
-        return ds === yearMonth;
+    /**
+     * 請求書を再計算 (Cloud Functions の /invoices/:id/recalculate を呼び出す)
+     * draft/submitted 状態のみ許可。手動追加項目は保持。
+     */
+    async recalculate(id) {
+      const CF_BASE = "https://api-5qrfx7ujcq-an.a.run.app";
+      const token = await firebase.auth().currentUser.getIdToken();
+      const res = await fetch(`${CF_BASE}/invoices/${id}/recalculate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       });
-
-      // スタッフ一覧
-      const staffList = await API.staff.list(false);
-      const staffMap = {};
-      staffList.forEach(s => { staffMap[s.name] = s; staffMap[s.id] = s; });
-
-      // スタッフ別に集計
-      const staffAgg = {};
-
-      // 募集→シフト集計
-      monthRecruitments.forEach(r => {
-        const names = (r.selectedStaff || "").split(/[,、\s]+/).map(s => s.trim()).filter(Boolean);
-        names.forEach(name => {
-          if (!staffAgg[name]) staffAgg[name] = { shifts: [], laundry: [], staffData: null };
-          const s = staffMap[name];
-          if (s) staffAgg[name].staffData = s;
-          staffAgg[name].shifts.push({
-            date: r.checkoutDate,
-            propertyName: r.propertyName || "",
-            amount: s ? (s.ratePerJob || 0) : 0,
-          });
-        });
-      });
-
-      // ランドリー集計
-      monthLaundry.forEach(l => {
-        const staff = staffMap[l.staffId];
-        const name = staff ? staff.name : l.staffId;
-        if (!staffAgg[name]) staffAgg[name] = { shifts: [], laundry: [], staffData: staff || null };
-        staffAgg[name].laundry.push({
-          date: l.date && l.date.toDate ? l.date.toDate().toISOString().slice(0, 10) : "",
-          amount: l.amount || 0,
-        });
-      });
-
-      // 既存の請求書を確認（重複防止）
-      const existing = await API.invoices.list({ yearMonth });
-      const existingStaffIds = new Set(existing.map(i => i.staffId));
-
-      const created = [];
-      for (const [name, agg] of Object.entries(staffAgg)) {
-        const s = agg.staffData;
-        const staffId = s ? s.id : name;
-
-        if (existingStaffIds.has(staffId)) continue; // 既存スキップ
-
-        const basePayment = agg.shifts.reduce((sum, sh) => sum + sh.amount, 0);
-        const laundryFee = agg.laundry.reduce((sum, l) => sum + l.amount, 0);
-        const transportationFee = s ? (s.transportationFee || 0) * agg.shifts.length : 0;
-        const total = basePayment + laundryFee + transportationFee;
-
-        if (total === 0 && agg.shifts.length === 0 && agg.laundry.length === 0) continue;
-
-        const invoice = await API.invoices.create({
-          yearMonth,
-          staffId,
-          staffName: name,
-          basePayment,
-          laundryFee,
-          transportationFee,
-          specialAllowance: 0,
-          total,
-          status: "draft",
-          pdfUrl: null,
-          confirmedAt: null,
-          details: {
-            shifts: agg.shifts,
-            laundry: agg.laundry,
-            shiftCount: agg.shifts.length,
-            ratePerJob: s ? (s.ratePerJob || 0) : 0,
-            transportPerShift: s ? (s.transportationFee || 0) : 0,
-          },
-        });
-        created.push(invoice);
-      }
-
-      return { created: created.length, skipped: existingStaffIds.size, invoices: created };
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "再計算失敗");
+      return data;
     },
   },
 

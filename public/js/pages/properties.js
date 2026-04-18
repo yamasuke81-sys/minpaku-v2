@@ -155,6 +155,8 @@ const PropertiesPage = {
     document.getElementById("propertyCleaningDuration").value = property?.cleaningDuration || 90;
     document.getElementById("propertyCleaningStartTime").value = property?.cleaningStartTime || "10:30";
     document.getElementById("propertyInspectionStartTime").value = property?.inspectionStartTime || "10:00";
+    document.getElementById("propertyBaseWorkTimeStart").value = property?.baseWorkTime?.start || "10:30";
+    document.getElementById("propertyBaseWorkTimeEnd").value = property?.baseWorkTime?.end || "14:30";
     document.getElementById("propertyCleaningFee").value = property?.cleaningFee || 0;
     document.getElementById("propertyMonthlyCost").value = property?.monthlyFixedCost || 0;
     document.getElementById("propertyPurchasePrice").value = property?.purchasePrice || 0;
@@ -217,6 +219,10 @@ const PropertiesPage = {
       cleaningDuration: Number(document.getElementById("propertyCleaningDuration").value) || 90,
       cleaningStartTime: document.getElementById("propertyCleaningStartTime").value || "10:30",
       inspectionStartTime: document.getElementById("propertyInspectionStartTime").value || "10:00",
+      baseWorkTime: {
+        start: document.getElementById("propertyBaseWorkTimeStart").value || "10:30",
+        end: document.getElementById("propertyBaseWorkTimeEnd").value || "14:30",
+      },
       cleaningFee: Number(document.getElementById("propertyCleaningFee").value) || 0,
       monthlyFixedCost: Number(document.getElementById("propertyMonthlyCost").value) || 0,
       purchasePrice: Number(document.getElementById("propertyPurchasePrice").value) || 0,
@@ -264,7 +270,8 @@ const PropertiesPage = {
   },
 
   async deleteProperty(property) {
-    if (!confirm(`${property.name} を無効化しますか？`)) return;
+    const ok = await showConfirm(`${property.name} を無効化しますか？`, "物件を無効化");
+    if (!ok) return;
 
     try {
       await API.properties.delete(property.id);

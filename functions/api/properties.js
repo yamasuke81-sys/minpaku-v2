@@ -68,6 +68,10 @@ module.exports = function propertiesApi(db) {
         purchaseDate: body.purchaseDate || null,
         notes: body.notes ? String(body.notes).trim() : "",
         active: body.active !== false,
+        // タイミー作業時間 (タイミー時給計算用)
+        baseWorkTime: (body.baseWorkTime && typeof body.baseWorkTime === "object")
+          ? { start: String(body.baseWorkTime.start || "10:30"), end: String(body.baseWorkTime.end || "14:30") }
+          : { start: "10:30", end: "14:30" },
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       };
@@ -110,6 +114,12 @@ module.exports = function propertiesApi(db) {
       if (body.checklistTemplateId !== undefined) data.checklistTemplateId = body.checklistTemplateId;
       if (body.notes !== undefined) data.notes = String(body.notes).trim();
       if (body.active !== undefined) data.active = Boolean(body.active);
+      if (body.baseWorkTime !== undefined && typeof body.baseWorkTime === "object") {
+        data.baseWorkTime = {
+          start: String(body.baseWorkTime.start || "10:30"),
+          end: String(body.baseWorkTime.end || "14:30"),
+        };
+      }
       data.updatedAt = FieldValue.serverTimestamp();
 
       await docRef.update(data);

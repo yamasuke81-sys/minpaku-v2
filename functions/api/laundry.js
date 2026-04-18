@@ -53,6 +53,8 @@ module.exports = function laundryApi(db) {
         amount: Number(body.amount) || 0,
         sheets: Number(body.sheets) || 0,
         memo: body.memo ? String(body.memo).trim() : "",
+        // 立替フラグ: true の場合のみ請求書に計上される (デフォルト false)
+        isReimbursable: body.isReimbursable === true || body.isReimbursable === "true" ? true : false,
         createdAt: FieldValue.serverTimestamp(),
       };
 

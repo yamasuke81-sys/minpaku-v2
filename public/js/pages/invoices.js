@@ -167,6 +167,10 @@ const InvoicesPage = {
       });
     });
 
+    container.querySelectorAll(".btn-invoice-recalculate").forEach(btn => {
+      btn.addEventListener("click", () => this.recalculateInvoice(btn.dataset.id));
+    });
+
     container.querySelectorAll(".btn-invoice-confirm").forEach(btn => {
       btn.addEventListener("click", () => this.confirmInvoice(btn.dataset.id));
     });
@@ -204,6 +208,11 @@ const InvoicesPage = {
             <button class="btn btn-outline-primary btn-invoice-detail" data-id="${inv.id}" title="詳細">
               <i class="bi bi-eye"></i>
             </button>
+            ${["draft", "submitted"].includes(inv.status) ? `
+              <button class="btn btn-outline-warning btn-invoice-recalculate" data-id="${inv.id}" title="再計算">
+                <i class="bi bi-arrow-clockwise"></i>
+              </button>
+            ` : ""}
             ${inv.status === "draft" ? `
               <button class="btn btn-outline-success btn-invoice-confirm" data-id="${inv.id}" title="確認済みにする">
                 <i class="bi bi-check-lg"></i>
@@ -248,10 +257,18 @@ const InvoicesPage = {
     const details = inv.details || {};
     const shifts = details.shifts || [];
     const laundry = details.laundry || [];
+    const special = details.special || [];
     const manualItems = details.manualItems || [];
+    const isOwner = Auth.currentUser?.role === "owner";
 
     document.getElementById("invoiceDetailTitle").textContent =
       `${inv.staffName || inv.staffId} — ${inv.yearMonth}`;
+
+    const fmtDate = (val) => {
+      if (!val) return "";
+      const d = val.toDate ? val.toDate() : (val.seconds ? new Date(val.seconds * 1000) : new Date(val));
+      return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
+    };
 
     document.getElementById("invoiceDetailBody").innerHTML = `
       <div class="row mb-3">
@@ -261,69 +278,110 @@ const InvoicesPage = {
           <strong>ステータス:</strong> ${this.getStatusBadge(inv.status)}
         </div>
         <div class="col-6 text-end">
-          <div class="fs-2 fw-bold text-primary" id="invoiceDetailTotal">${formatCurrency(inv.total || 0)}</div>
+          <div class="fs-2 fw-bold text-primary">${formatCurrency(inv.total || 0)}</div>
+          ${isOwner && ["draft", "submitted"].includes(inv.status) ? `
+            <button class="btn btn-sm btn-outline-warning mt-1" id="btnRecalcModal" data-id="${inv.id}">
+              <i class="bi bi-arrow-clockwise"></i> 再計算
+            </button>
+          ` : ""}
         </div>
       </div>
 
+      <!-- 清掃明細 -->
       <h6><i class="bi bi-calendar-check"></i> 清掃明細（${shifts.length}回）</h6>
       ${shifts.length ? `
         <table class="table table-sm table-bordered mb-3">
           <thead class="table-light">
-            <tr><th>日付</th><th>物件</th><th class="text-end">報酬</th></tr>
+            <tr><th>日付</th><th>物件</th><th>種別</th><th class="text-end">報酬</th></tr>
           </thead>
           <tbody>
-            ${shifts.map(s => `
+            ${shifts.map(s => {
+              const typeLabel = { cleaning_by_count: "清掃", pre_inspection: "直前点検", other: "その他" }[s.workType] || s.workType || "清掃";
+              let detail = "";
+              if (s.isTimee && s.timeeDetail) {
+                const td = s.timeeDetail;
+                detail = `<br><small class="text-info">${td.start}〜${td.end}(${td.durationH}h) × ¥${(td.hourlyRate||0).toLocaleString()}/h</small>`;
+              } else if (s.guestCount > 1) {
+                detail = `<small class="text-muted"> (ゲスト${s.guestCount}名)</small>`;
+              }
+              return `
               <tr>
-                <td>${this.esc(s.date || "")}</td>
-                <td>${this.esc(s.propertyName || "-")}</td>
+                <td>${this.esc(fmtDate(s.date))}</td>
+                <td>${this.esc(s.propertyName || "-")}${detail}</td>
+                <td><span class="badge bg-secondary">${typeLabel}</span>${s.isTimee ? ' <span class="badge bg-info text-dark">タイミー</span>' : ""}</td>
                 <td class="text-end">${formatCurrency(s.amount || 0)}</td>
-              </tr>
-            `).join("")}
+              </tr>`;
+            }).join("")}
           </tbody>
           <tfoot class="table-light">
-            <tr><th colspan="2">小計</th><th class="text-end">${formatCurrency(inv.basePayment || 0)}</th></tr>
+            <tr><th colspan="3">小計</th><th class="text-end">${formatCurrency(inv.basePayment || 0)}</th></tr>
           </tfoot>
         </table>
       ` : '<p class="text-muted small">清掃なし</p>'}
 
-      ${laundry.length ? `
-        <h6><i class="bi bi-water"></i> ランドリー明細（${laundry.length}件）</h6>
+      <!-- 特別加算明細 -->
+      ${special.length ? `
+        <h6><i class="bi bi-star-fill text-warning"></i> 特別加算（${special.length}件）</h6>
         <table class="table table-sm table-bordered mb-3">
           <thead class="table-light">
-            <tr><th>日付</th><th class="text-end">金額</th></tr>
+            <tr><th>日付</th><th>名称</th><th class="text-end">加算額</th></tr>
+          </thead>
+          <tbody>
+            ${special.map(sp => `
+              <tr>
+                <td>${this.esc(fmtDate(sp.date) || sp.dateStr || "")}</td>
+                <td>${this.esc(sp.name || "(特別加算)")}</td>
+                <td class="text-end text-warning fw-bold">+${formatCurrency(sp.amount || 0)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+          <tfoot class="table-light">
+            <tr><th colspan="2">小計</th><th class="text-end">${formatCurrency(inv.specialAllowance || 0)}</th></tr>
+          </tfoot>
+        </table>
+      ` : ""}
+
+      <!-- ランドリー立替明細 -->
+      ${laundry.length ? `
+        <h6><i class="bi bi-water"></i> ランドリー立替（${laundry.length}件）</h6>
+        <table class="table table-sm table-bordered mb-3">
+          <thead class="table-light">
+            <tr><th>日付</th><th>メモ</th><th class="text-end">金額</th></tr>
           </thead>
           <tbody>
             ${laundry.map(l => `
               <tr>
-                <td>${this.esc(l.date || "")}</td>
+                <td>${this.esc(fmtDate(l.date))}</td>
+                <td>${this.esc(l.memo || "")}</td>
                 <td class="text-end">${formatCurrency(l.amount || 0)}</td>
               </tr>
             `).join("")}
           </tbody>
           <tfoot class="table-light">
-            <tr><th>小計</th><th class="text-end">${formatCurrency(inv.laundryFee || 0)}</th></tr>
+            <tr><th colspan="2">小計</th><th class="text-end">${formatCurrency(inv.laundryFee || 0)}</th></tr>
           </tfoot>
         </table>
       ` : ""}
 
+      <!-- 手動追加項目 -->
       <div class="d-flex justify-content-between align-items-center mb-2">
         <h6 class="mb-0"><i class="bi bi-plus-circle"></i> 手動追加項目</h6>
-        ${Auth.currentUser?.role === "owner" ? `
+        ${isOwner ? `
           <button class="btn btn-outline-secondary btn-sm" id="btnAddManualItem" data-inv-id="${inv.id}">
             <i class="bi bi-plus"></i> 項目を追加
           </button>
         ` : ""}
       </div>
-      <table class="table table-sm table-bordered mb-3" id="manualItemsTable">
+      <table class="table table-sm table-bordered mb-3">
         <thead class="table-light">
-          <tr><th>項目名</th><th class="text-end">金額</th>${Auth.currentUser?.role === "owner" ? "<th></th>" : ""}</tr>
+          <tr><th>項目名</th><th class="text-end">金額</th>${isOwner ? "<th></th>" : ""}</tr>
         </thead>
         <tbody id="manualItemsBody">
           ${manualItems.length ? manualItems.map((item, idx) => `
             <tr>
               <td>${this.esc(item.label)}${item.memo ? `<br><small class="text-muted">${this.esc(item.memo)}</small>` : ""}</td>
               <td class="text-end">${formatCurrency(item.amount || 0)}</td>
-              ${Auth.currentUser?.role === "owner" ? `
+              ${isOwner ? `
                 <td class="text-center">
                   <button class="btn btn-outline-danger btn-xs btn-delete-manual-item" data-inv-id="${inv.id}" data-index="${idx}" style="padding:1px 6px;font-size:0.75rem;">
                     <i class="bi bi-trash"></i>
@@ -331,30 +389,37 @@ const InvoicesPage = {
                 </td>
               ` : ""}
             </tr>
-          `).join("") : `<tr><td colspan="${Auth.currentUser?.role === "owner" ? 3 : 2}" class="text-muted text-center small">手動追加項目なし</td></tr>`}
+          `).join("") : `<tr><td colspan="${isOwner ? 3 : 2}" class="text-muted text-center small">手動追加項目なし</td></tr>`}
         </tbody>
         ${manualItems.length ? `
           <tfoot class="table-light">
             <tr>
               <th>小計</th>
               <th class="text-end">${formatCurrency(manualItems.reduce((s, i) => s + (i.amount || 0), 0))}</th>
-              ${Auth.currentUser?.role === "owner" ? "<th></th>" : ""}
+              ${isOwner ? "<th></th>" : ""}
             </tr>
           </tfoot>
         ` : ""}
       </table>
 
+      <!-- 合計 -->
       <table class="table table-bordered">
         <tbody>
-          <tr><td>基本報酬（${details.ratePerJob ? formatCurrency(details.ratePerJob) + " × " + shifts.length + "回" : ""}）</td><td class="text-end">${formatCurrency(inv.basePayment || 0)}</td></tr>
-          <tr><td>ランドリー</td><td class="text-end">${formatCurrency(inv.laundryFee || 0)}</td></tr>
-          <tr><td>交通費（${details.transportPerShift ? formatCurrency(details.transportPerShift) + " × " + shifts.length + "回" : ""}）</td><td class="text-end">${formatCurrency(inv.transportationFee || 0)}</td></tr>
-          <tr><td>特別手当</td><td class="text-end">${formatCurrency(inv.specialAllowance || 0)}</td></tr>
+          <tr><td>基本報酬（清掃）</td><td class="text-end">${formatCurrency(inv.basePayment || 0)}</td></tr>
+          ${special.length ? `<tr><td>特別加算合計</td><td class="text-end text-warning">${formatCurrency(inv.specialAllowance || 0)}</td></tr>` : ""}
+          <tr><td>ランドリー立替</td><td class="text-end">${formatCurrency(inv.laundryFee || 0)}</td></tr>
+          <tr><td>交通費</td><td class="text-end">${formatCurrency(inv.transportationFee || 0)}</td></tr>
           ${manualItems.length ? `<tr><td>手動追加項目</td><td class="text-end">${formatCurrency(manualItems.reduce((s, i) => s + (i.amount || 0), 0))}</td></tr>` : ""}
-          <tr class="table-primary fw-bold"><td>合計</td><td class="text-end" id="invoiceSummaryTotal">${formatCurrency(inv.total || 0)}</td></tr>
+          <tr class="table-primary fw-bold"><td>合計</td><td class="text-end">${formatCurrency(inv.total || 0)}</td></tr>
         </tbody>
       </table>
     `;
+
+    // 再計算ボタン
+    const btnRecalc = document.getElementById("btnRecalcModal");
+    if (btnRecalc) {
+      btnRecalc.addEventListener("click", () => this.recalculateInvoice(btnRecalc.dataset.id));
+    }
 
     // 項目追加ボタン
     const btnAdd = document.getElementById("btnAddManualItem");
@@ -389,7 +454,8 @@ const InvoicesPage = {
       showToast("エラー", "対象月を選択してください", "error");
       return;
     }
-    if (!confirm(`${this.selectedMonth} の請求書を生成しますか？\n確定済み募集とランドリー記録から自動集計します。`)) return;
+    const ok = await showConfirm(`${this.selectedMonth} の請求書を生成しますか？\n報酬単価マスタ・ランドリー立替・特別加算から自動集計します。`, "月次集計・生成");
+    if (!ok) return;
 
     try {
       const btn = document.getElementById("btnGenerateInvoices");
@@ -410,7 +476,8 @@ const InvoicesPage = {
 
   async confirmInvoice(id) {
     const inv = this.invoices.find(i => i.id === id);
-    if (!confirm(`${inv?.staffName || ""} の請求書を確認済みにしますか？`)) return;
+    const ok = await showConfirm(`${inv?.staffName || ""} の請求書を確認済みにしますか？`, "確認済みにする");
+    if (!ok) return;
     try {
       await API.invoices.confirm(id);
       showToast("完了", "確認済みにしました", "success");
@@ -422,7 +489,8 @@ const InvoicesPage = {
 
   async markPaid(id) {
     const inv = this.invoices.find(i => i.id === id);
-    if (!confirm(`${inv?.staffName || ""} の請求書を支払済みにしますか？`)) return;
+    const ok = await showConfirm(`${inv?.staffName || ""} の請求書を支払済みにしますか？`, "支払済みにする");
+    if (!ok) return;
     try {
       await API.invoices.markPaid(id);
       showToast("完了", "支払済みにしました", "success");
@@ -434,7 +502,8 @@ const InvoicesPage = {
 
   async deleteInvoice(id) {
     const inv = this.invoices.find(i => i.id === id);
-    if (!confirm(`${inv?.staffName || ""} の請求書を削除しますか？`)) return;
+    const ok = await showConfirm(`${inv?.staffName || ""} の請求書を削除しますか？`, "削除の確認");
+    if (!ok) return;
     try {
       await API.invoices.delete(id);
       showToast("完了", "削除しました", "success");
@@ -444,12 +513,29 @@ const InvoicesPage = {
     }
   },
 
+  async recalculateInvoice(id) {
+    const inv = this.invoices.find(i => i.id === id);
+    const ok = await showConfirm(`${inv?.staffName || ""} の請求書を最新の報酬単価マスタから再計算しますか？\n手動追加項目は保持されます。`, "再計算");
+    if (!ok) return;
+    try {
+      const result = await API.invoices.recalculate(id);
+      showToast("完了", `再計算完了 合計: ${formatCurrency(result.total)}`, "success");
+      const modalEl = document.getElementById("invoiceDetailModal");
+      bootstrap.Modal.getInstance(modalEl)?.hide();
+      await this.loadInvoices();
+    } catch (e) {
+      showToast("エラー", e.message, "error");
+    }
+  },
+
   async addManualItem(inv) {
-    const label = prompt("項目名を入力してください:");
+    const result = await showPrompt("項目名を入力してください:", "手動項目を追加");
+    if (result === null) return;
+    const label = result.trim();
     if (!label) return;
-    const amountStr = prompt("金額を入力してください（円）:");
-    if (amountStr === null) return;
-    const amount = parseInt(amountStr.replace(/,/g, ""), 10);
+    const amountResult = await showPrompt("金額を入力してください（円）:", "手動項目を追加");
+    if (amountResult === null) return;
+    const amount = parseInt(amountResult.replace(/,/g, ""), 10);
     if (isNaN(amount)) {
       showToast("エラー", "金額は数値で入力してください", "error");
       return;
@@ -457,7 +543,6 @@ const InvoicesPage = {
     try {
       await API.invoices.addItem(inv.id, { label, amount });
       showToast("完了", "項目を追加しました", "success");
-      // モーダルを閉じて一覧をリロード
       const modalEl = document.getElementById("invoiceDetailModal");
       bootstrap.Modal.getInstance(modalEl)?.hide();
       await this.loadInvoices();
@@ -467,7 +552,8 @@ const InvoicesPage = {
   },
 
   async deleteManualItem(invId, index, inv) {
-    if (!confirm(`「${inv.details?.manualItems?.[index]?.label || "この項目"}」を削除しますか？`)) return;
+    const ok = await showConfirm(`「${inv.details?.manualItems?.[index]?.label || "この項目"}」を削除しますか？`, "項目削除");
+    if (!ok) return;
     try {
       await API.invoices.deleteItem(invId, index);
       showToast("完了", "項目を削除しました", "success");
