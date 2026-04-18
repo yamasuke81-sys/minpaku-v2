@@ -67,6 +67,51 @@ const PrepaidCardsPage = {
       <div id="prepaidList" class="row g-3">
         <div class="col-12 text-muted">読込中...</div>
       </div>
+
+      <!-- プリカ追加モーダル -->
+      <div class="modal fade" id="prepaidAddModal" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="bi bi-plus-circle"></i> プリカ追加</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <label class="form-label">提出先 (コインランドリー) <span class="text-danger">*</span></label>
+                <select class="form-select" id="newPrepaidDepot">
+                  <option value="">-- 選択 --</option>
+                </select>
+              </div>
+              <div class="mb-3" id="newPrepaidPrefixWrap">
+                <label class="form-label">カード番号の頭文字 <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" id="newPrepaidPrefix" placeholder="例: 小柴">
+                <div class="form-text">この頭文字 + 3桁連番で自動採番されます (例: 小柴001, 小柴002)</div>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">採番されるカード番号</label>
+                <input type="text" class="form-control" id="newPrepaidNumber" readonly style="background:#f8f9fa;">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">残高 (円) <span class="text-danger">*</span></label>
+                <input type="number" class="form-control" id="newPrepaidBalance" min="0" value="2200">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">利用物件 (複数選択可)</label>
+                <div id="newPrepaidProperties" class="d-flex flex-wrap gap-2 border rounded p-2"></div>
+              </div>
+              <div class="mb-0">
+                <label class="form-label">メモ</label>
+                <input type="text" class="form-control" id="newPrepaidMemo" placeholder="例: 購入日、購入場所 etc.">
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+              <button type="button" class="btn btn-primary" id="btnCreatePrepaid"><i class="bi bi-check-lg"></i> 追加する</button>
+            </div>
+          </div>
+        </div>
+      </div>
     `;
     if (this.canEdit) {
       document.getElementById("btnAddPrepaid").addEventListener("click", () => this.addCard());
@@ -275,19 +320,83 @@ const PrepaidCardsPage = {
     });
   },
 
+  // プリカ追加モーダルを開く (必要情報入力 → [追加する] で新規作成)
   addCard() {
-    const defaultDepot = this.depots[0];
-    const depotId = defaultDepot ? (defaultDepot.id || defaultDepot.name) : "";
-    const cardNumber = this._nextCardNumber(depotId);
-    this.cards.push({
-      id: "prepaid_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      cardNumber,
-      balance: 2200,  // 標準: 2200円 (プリカのデフォルトチャージ額)
-      depotId,
-      propertyIds: [],
-      memo: "",
-    });
-    this.renderList();
+    const modalEl = document.getElementById("prepaidAddModal");
+    // 提出先プルダウン
+    const depotSel = document.getElementById("newPrepaidDepot");
+    depotSel.innerHTML = `<option value="">-- 選択 --</option>` +
+      this.depots.map(d => `<option value="${d.id || d.name}">${this._esc(d.name)}</option>`).join("");
+    // 物件チェックボックス
+    const propWrap = document.getElementById("newPrepaidProperties");
+    propWrap.innerHTML = this.properties.map(p =>
+      `<label class="form-check form-check-inline mb-0 small"><input type="checkbox" class="form-check-input new-prepaid-property" value="${p.id}"> ${this._esc(p.name)}</label>`
+    ).join("") || `<div class="text-muted small">利用可能な物件がありません</div>`;
+    // 初期値リセット
+    const prefixInput = document.getElementById("newPrepaidPrefix");
+    const numberInput = document.getElementById("newPrepaidNumber");
+    const balanceInput = document.getElementById("newPrepaidBalance");
+    const memoInput = document.getElementById("newPrepaidMemo");
+    prefixInput.value = "";
+    numberInput.value = "";
+    balanceInput.value = 2200;
+    memoInput.value = "";
+
+    const refreshNumber = () => {
+      const depotId = depotSel.value;
+      const prefix = prefixInput.value.trim();
+      if (!depotId || !prefix) { numberInput.value = ""; return; }
+      // 既存カードから同じ depotId + prefix のマッチ数+1
+      const pattern = new RegExp(`^${this._escRegex(prefix)}(\\d{3})$`);
+      let max = 0;
+      this.cards.forEach(c => {
+        if (c.depotId !== depotId) return;
+        const m = (c.cardNumber || "").match(pattern);
+        if (m) max = Math.max(max, parseInt(m[1], 10));
+      });
+      numberInput.value = `${prefix}${String(max + 1).padStart(3, "0")}`;
+    };
+
+    // 既に設定済みの頭文字があれば自動入力
+    depotSel.addEventListener("change", () => {
+      const depotId = depotSel.value;
+      if (depotId && this.depotPrefixes[depotId]) prefixInput.value = this.depotPrefixes[depotId];
+      refreshNumber();
+    }, { once: false });
+    prefixInput.addEventListener("input", refreshNumber);
+
+    // 追加ボタン
+    const btn = document.getElementById("btnCreatePrepaid");
+    const newHandler = () => {
+      const depotId = depotSel.value;
+      const prefix = prefixInput.value.trim();
+      const cardNumber = numberInput.value.trim();
+      const balance = Number(balanceInput.value) || 0;
+      if (!depotId) { showToast("入力エラー", "提出先を選択してください", "error"); return; }
+      if (!prefix) { showToast("入力エラー", "カード番号の頭文字を入力してください", "error"); return; }
+      if (!cardNumber) { showToast("入力エラー", "カード番号が採番できませんでした", "error"); return; }
+      const propertyIds = [...document.querySelectorAll(".new-prepaid-property:checked")].map(cb => cb.value);
+      const memo = memoInput.value.trim();
+      // 頭文字をマスタにキャッシュ
+      this.depotPrefixes[depotId] = prefix;
+      this.cards.push({
+        id: "prepaid_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        cardNumber, balance, depotId, propertyIds, memo,
+      });
+      // 即座に保存まで行う (ユーザーの操作1ステップで追加完了)
+      this.save().then(() => {
+        this.renderList();
+        bootstrap.Modal.getInstance(modalEl).hide();
+        showToast("追加しました", `${cardNumber} を追加しました (残高 ¥${balance.toLocaleString()})`, "success");
+      });
+      btn.removeEventListener("click", newHandler);
+    };
+    // 既存ハンドラを都度リセット
+    const clone = btn.cloneNode(true);
+    btn.replaceWith(clone);
+    document.getElementById("btnCreatePrepaid").addEventListener("click", newHandler);
+
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
   },
 
   async save() {
