@@ -780,25 +780,57 @@ const MyChecklistPage = {
         patch[`laundry.collected`] = { at: firebase.firestore.FieldValue.serverTimestamp(), by, auto: true, reason: "all_linen_shop" };
         patch[`laundry.stored`] = { at: firebase.firestore.FieldValue.serverTimestamp(), by, auto: true, reason: "all_linen_shop" };
       }
-      // プリカ残高を自動減算 (複数プリカ対応)
-      if (info.paymentMethod === "prepaid" && info.prepaidAllocations && info.prepaidAllocations.length) {
+      // プリカ残高を自動減算 (複数プリカ対応) + 購入処理
+      if (info.paymentMethod === "prepaid") {
         try {
           const doc = await firebase.firestore().collection("settings").doc("prepaidCards").get();
-          if (doc.exists) {
-            const allocMap = {};
-            info.prepaidAllocations.forEach(a => { allocMap[a.cardId] = a.amount; });
-            const items = (doc.data().items || []).map(c => {
-              if (allocMap[c.id]) {
-                return { ...c, balance: Math.max(0, (Number(c.balance) || 0) - Number(allocMap[c.id])) };
-              }
-              return c;
+          const existing = doc.exists ? (doc.data().items || []) : [];
+          const allocMap = {};
+          (info.prepaidAllocations || []).forEach(a => { allocMap[a.cardId] = a.amount; });
+          let items = existing.map(c => {
+            if (allocMap[c.id]) {
+              return { ...c, balance: Math.max(0, (Number(c.balance) || 0) - Number(allocMap[c.id])) };
+            }
+            return c;
+          });
+          // 購入フロー: 新規カード作成(購入額 - 使用額 = 残高)
+          if (info.prepaidPurchase) {
+            const pp = info.prepaidPurchase;
+            const newBalance = Math.max(0, (pp.purchaseAmount || 0) - (pp.useAmount || 0));
+            const newId = "prepaid_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+            items.push({
+              id: newId,
+              cardNumber: pp.cardNumber || `購入_${new Date().toISOString().slice(5,10)}`,
+              balance: newBalance,
+              depotId: pp.depotId || "",
+              propertyIds: this.checklist?.propertyId ? [this.checklist.propertyId] : [],
+              memo: `${(this.staffDoc?.name || "スタッフ")}が購入 (立替 ¥${pp.purchaseAmount.toLocaleString()})`,
+              purchasedBy: this.staffDoc?.id || "",
+              purchasedAt: new Date().toISOString(),
             });
-            await firebase.firestore().collection("settings").doc("prepaidCards").set({
-              items,
-              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-            }, { merge: true });
+            // 購入分は「立替金」として laundry にも記録 (isReimbursable=true)
+            try {
+              await firebase.firestore().collection("laundry").add({
+                date: new Date(),
+                staffId: this.staffDoc?.id || "",
+                propertyId: this.checklist?.propertyId || "",
+                amount: pp.purchaseAmount,
+                depot: info.depot || "",
+                paymentMethod: "cash",  // 立替扱い
+                isReimbursable: true,
+                memo: `プリカ購入 (立替) - ${pp.cardNumber || "新規"} / ¥${pp.purchaseAmount.toLocaleString()}`,
+                checklistId: this.checklistId,
+                prepaidPurchase: true,
+                prepaidCardId: newId,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+              });
+            } catch (e) { console.warn("プリカ購入の立替記録失敗:", e.message); }
           }
-        } catch (e) { console.warn("プリカ残高減算失敗:", e.message); }
+          await firebase.firestore().collection("settings").doc("prepaidCards").set({
+            items,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          }, { merge: true });
+        } catch (e) { console.warn("プリカ残高/購入処理失敗:", e.message); }
       }
       // laundry コレクションにも記録 (請求書自動集計用)
       // 立替金フラグ: cash/credit はスタッフ立替、prepaid/invoice はオーナー支払(請求書除外)
@@ -919,6 +951,29 @@ const MyChecklistPage = {
                     目標: <span id="lpoAllocatedTarget">¥0</span>
                   </div>
                 </div>
+
+                <!-- プリカ購入フロー (使用可能なカードが無い/不足時) -->
+                <div class="alert alert-info mt-3 p-2 small" id="lpoPrepaidPurchaseWrap" style="display:none;">
+                  <strong><i class="bi bi-cart-plus"></i> プリカを新規購入する</strong>
+                  <div class="mb-1 mt-1">使用可能なプリカが無い/残高不足の場合、新しく購入した金額を記録できます。購入金額は請求書の立替として自動計上されます。</div>
+                  <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="lpoPrepaidPurchaseChk">
+                    <label class="form-check-label small" for="lpoPrepaidPurchaseChk">プリカを購入する (立替)</label>
+                  </div>
+                  <div id="lpoPrepaidPurchaseFields" class="d-none">
+                    <div class="row g-2 align-items-end">
+                      <div class="col-6">
+                        <label class="form-label small mb-0">購入金額 (円)</label>
+                        <input type="number" class="form-control form-control-sm" id="lpoPrepaidPurchaseAmount" min="0" value="2000">
+                      </div>
+                      <div class="col-6">
+                        <label class="form-label small mb-0">カード番号 (任意)</label>
+                        <input type="text" class="form-control form-control-sm" id="lpoPrepaidPurchaseCardNumber" placeholder="自動採番">
+                      </div>
+                    </div>
+                    <div class="form-text small">チェックすると今回の使用分は新カードから充当され、残金があれば次回以降も使えます。立替金として請求書に自動追加されます。</div>
+                  </div>
+                </div>
               </div>
               <!-- ステップ3': 金額 (支払方法=cash/credit/invoice 時) -->
               <div class="mb-3 d-none" id="lpoRateWrap">
@@ -980,6 +1035,17 @@ const MyChecklistPage = {
           }
           filtered = filtered.filter(c => (Number(c.balance) || 0) > 0);
           modalEl._prepaidAvailable = filtered;
+          // 使用可能カードが無い or 不足時の購入フロー表示
+          const purchaseWrap = modalEl.querySelector("#lpoPrepaidPurchaseWrap");
+          if (purchaseWrap) {
+            purchaseWrap.style.display = "block";
+            const chk = modalEl.querySelector("#lpoPrepaidPurchaseChk");
+            const fields = modalEl.querySelector("#lpoPrepaidPurchaseFields");
+            if (!filtered.length) { chk.checked = true; fields.classList.remove("d-none"); }
+            chk.onchange = () => {
+              fields.classList.toggle("d-none", !chk.checked);
+            };
+          }
 
           // 金額プルダウン
           const depot = depotV === "__other__" ? null : depotMaster[+depotV];
@@ -1136,13 +1202,33 @@ const MyChecklistPage = {
             const use = Number(amtEl?.value) || 0;
             if (use > 0) allocs.push({ cardId: cid, amount: use });
           });
-          if (!allocs.length) { showToast("入力エラー", "使用するプリカを1枚以上選択してください", "error"); return; }
-          const sum = allocs.reduce((s, a) => s + a.amount, 0);
-          if (sum !== amount) {
-            showToast("金額不一致", `配分合計 ¥${sum.toLocaleString()} が支払総額 ¥${amount.toLocaleString()} と一致しません`, "error");
-            return;
+          // プリカ購入フロー (新規購入した金額で残金をカバー)
+          const purchaseChk = modalEl.querySelector("#lpoPrepaidPurchaseChk");
+          const usePurchase = purchaseChk?.checked;
+          let purchaseInfo = null;
+          const allocsSum = allocs.reduce((s, a) => s + a.amount, 0);
+          const shortfall = amount - allocsSum;
+          if (usePurchase) {
+            const purchaseAmt = Number(modalEl.querySelector("#lpoPrepaidPurchaseAmount")?.value) || 0;
+            if (purchaseAmt <= 0) { showToast("入力エラー", "購入金額を入力してください", "error"); return; }
+            if (purchaseAmt < shortfall) {
+              showToast("入力エラー", `購入金額 ¥${purchaseAmt.toLocaleString()} では不足額 ¥${shortfall.toLocaleString()} を賄えません`, "error");
+              return;
+            }
+            purchaseInfo = {
+              purchaseAmount: purchaseAmt,
+              useAmount: Math.max(0, shortfall),
+              cardNumber: modalEl.querySelector("#lpoPrepaidPurchaseCardNumber")?.value.trim() || "",
+              depotId: depotIdx === "__other__" ? "" : (depotMaster[+depotIdx]?.id || depotMaster[+depotIdx]?.name || ""),
+            };
+          } else {
+            if (!allocs.length) { showToast("入力エラー", "使用するプリカを1枚以上選択するか、プリカを購入してください", "error"); return; }
+            if (allocsSum !== amount) {
+              showToast("金額不一致", `配分合計 ¥${allocsSum.toLocaleString()} が支払総額 ¥${amount.toLocaleString()} と一致しません`, "error");
+              return;
+            }
           }
-          // 残高チェック
+          // 既存カードの残高チェック
           for (const a of allocs) {
             const card = (modalEl._prepaidAvailable || []).find(c => c.id === a.cardId);
             if (!card || (Number(card.balance) || 0) < a.amount) {
@@ -1150,14 +1236,15 @@ const MyChecklistPage = {
               return;
             }
           }
-          // 選択プリカIDと分散情報を保存
-          prepaidId = allocs.map(a => a.cardId).join(",");
-          prepaidLabel = allocs.map(a => {
+          prepaidId = allocs.map(a => a.cardId).join(",") + (usePurchase ? ",__purchased__" : "");
+          const labels = allocs.map(a => {
             const c = (modalEl._prepaidAvailable || []).find(x => x.id === a.cardId);
             return `${c?.cardNumber || a.cardId}(¥${a.amount.toLocaleString()})`;
-          }).join(" + ");
-          // 分散情報を info に埋め込むため、ここで modalEl に保持
+          });
+          if (usePurchase) labels.push(`新規購入(¥${purchaseInfo.purchaseAmount.toLocaleString()})`);
+          prepaidLabel = labels.join(" + ");
           modalEl._prepaidAllocations = allocs;
+          modalEl._prepaidPurchase = purchaseInfo;
         } else {
           const rv = rateSel.value;
           if (!rv) { showToast("入力エラー", "金額を選択してください", "error"); return; }
@@ -1182,6 +1269,7 @@ const MyChecklistPage = {
           prepaidId,
           prepaidLabel,
           prepaidAllocations: modalEl._prepaidAllocations || null,  // 複数プリカ分散情報
+          prepaidPurchase: modalEl._prepaidPurchase || null,        // 新規購入情報
           rateLabel,
           amount,
           note: modalEl.querySelector("#lpoNote").value.trim(),

@@ -505,7 +505,13 @@ const RatesPage = {
                     </tr>
                   </thead>
                   <tbody>
-                    ${this.staffList.filter(s => !s.isTimee).map(s => {
+                    ${this.staffList.filter(s => !s.isTimee).filter(s => {
+                      // 該当物件を担当するスタッフのみ表示 (assignedPropertyIds に currentPropertyId を含む)
+                      // オーナー (isOwner=true) は常に表示
+                      if (s.isOwner) return true;
+                      const assigned = Array.isArray(s.assignedPropertyIds) ? s.assignedPropertyIds : [];
+                      return assigned.includes(this.currentPropertyId);
+                    }).map(s => {
                       const r = (wi.staffRates || {})[s.id] || {};
                       return `
                         <tr>
@@ -717,16 +723,40 @@ const RatesPage = {
   markDirty() {
     this.dirty = true;
     this.updateSaveButton();
+    // 自動保存 (800ms debounce)
+    this._queueAutoSave();
+  },
+  _queueAutoSave() {
+    if (this._autoSaveTimer) clearTimeout(this._autoSaveTimer);
+    this._showAutoSaveStatus("saving");
+    this._autoSaveTimer = setTimeout(() => {
+      this.save({ silent: true }).then(() => this._showAutoSaveStatus("saved"))
+        .catch((e) => this._showAutoSaveStatus("error", e?.message));
+    }, 800);
+  },
+  _showAutoSaveStatus(kind, msg) {
+    let el = document.getElementById("ratesAutoSaveStatus");
+    if (!el) {
+      const header = document.querySelector(".page-header");
+      if (header) {
+        el = document.createElement("span");
+        el.id = "ratesAutoSaveStatus";
+        el.className = "small ms-2";
+        header.querySelector(".d-flex")?.prepend(el);
+      }
+    }
+    if (!el) return;
+    if (kind === "saving") el.innerHTML = `<i class="bi bi-arrow-repeat text-muted"></i> <span class="text-muted">保存中...</span>`;
+    else if (kind === "saved") {
+      el.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill"></i> 保存済み</span>`;
+      setTimeout(() => { if (el.innerHTML.includes("保存済み")) el.innerHTML = ""; }, 2000);
+    } else if (kind === "error") el.innerHTML = `<span class="text-danger">保存失敗: ${msg || ""}</span>`;
   },
   updateSaveButton() {
     const btn = document.getElementById("ratesBtnSave");
     if (!btn) return;
-    btn.disabled = !this.dirty;
-    btn.classList.toggle("btn-warning", this.dirty);
-    btn.classList.toggle("btn-success", !this.dirty);
-    btn.innerHTML = this.dirty
-      ? `<i class="bi bi-save"></i> 保存（未保存）`
-      : `<i class="bi bi-check2"></i> 保存`;
+    // 自動保存化したため、保存ボタンは非表示
+    btn.style.display = "none";
   },
 
   // === 他施設からインポート ===
@@ -820,18 +850,21 @@ const RatesPage = {
       "success");
   },
 
-  async save() {
+  async save(opts = {}) {
     const btn = document.getElementById("ratesBtnSave");
-    btn.disabled = true;
-    btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> 保存中...`;
+    if (btn && !opts.silent) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> 保存中...`;
+    }
     try {
       await API.properties.saveWorkItems(this.currentPropertyId, this.workItems);
       this.dirty = false;
       this.updateSaveButton();
-      showToast("保存完了", "報酬単価を保存しました", "success");
+      if (!opts.silent) showToast("保存完了", "報酬単価を保存しました", "success");
     } catch (e) {
-      showToast("エラー", "保存失敗: " + e.message, "error");
-      btn.disabled = false;
+      if (!opts.silent) showToast("エラー", "保存失敗: " + e.message, "error");
+      if (btn) btn.disabled = false;
+      throw e;
     }
   },
 

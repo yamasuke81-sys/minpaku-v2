@@ -23,7 +23,9 @@ const PrepaidCardsPage = {
 
   async render(container) {
     const role = (Auth.currentUser && Auth.currentUser.role) || "owner";
-    this.canEdit = role === "owner" || role === "sub_owner";
+    // スタッフも「追加」操作を許可 (ランドリー購入時の登録フロー)
+    this.canEdit = role === "owner" || role === "sub_owner" || role === "staff";
+    this.isOwnerLevel = role === "owner" || role === "sub_owner";
 
     // スタッフ/サブオーナー時は自身の担当物件を取得
     if (!this.canEdit || role === "sub_owner") {
