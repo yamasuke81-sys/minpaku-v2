@@ -266,8 +266,8 @@ module.exports = function authApi(db) {
 
       res.json({ success: true, inviteUrl, token, expiresAt: expiresAt.toISOString() });
     } catch (e) {
-      console.error("招待リンク発行エラー:", e);
-      res.status(500).json({ error: `サーバーエラー: ${e.message}` });
+      console.error("招待リンク発行エラー:", e.stack || e);
+      return res.status(500).json({ error: `招待リンク発行失敗: ${e.message || "不明"}` });
     }
   });
 

@@ -1077,7 +1077,19 @@ const API = {
       options.body = JSON.stringify(body);
     }
     const res = await fetch(`/api${path}`, options);
-    const data = await res.json();
+    const contentType = res.headers.get("content-type") || "";
+    const text = await res.text();
+    if (!contentType.includes("application/json")) {
+      // HTML fallback などの異常レスポンス
+      const snippet = text.slice(0, 120).replace(/\s+/g, " ");
+      throw new Error(`API応答不正 (status=${res.status}): ${snippet}`);
+    }
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      throw new Error(`API応答をJSON解析できません (status=${res.status})`);
+    }
     if (!res.ok) throw new Error(data.error || `APIエラー: ${res.status}`);
     return data;
   },

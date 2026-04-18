@@ -12,15 +12,15 @@ const firebaseConfig = {
   measurementId: "G-B1NWL65MDX",
 };
 
-// エミュレータ使用時の設定
+// エミュレータ使用時の設定（localhost / 127.0.0.1 どちらでも動作）
 const USE_EMULATOR = location.hostname === "localhost" || location.hostname === "127.0.0.1";
 
 firebase.initializeApp(firebaseConfig);
 
 if (USE_EMULATOR) {
-  firebase.auth().useEmulator("http://localhost:9099");
-  firebase.firestore().useEmulator("localhost", 8080);
-  console.log("🔧 Firebase Emulator に接続中");
+  firebase.auth().useEmulator("http://127.0.0.1:9099");
+  firebase.firestore().useEmulator("127.0.0.1", 8080);
+  console.log("[Emulator] Firebase Emulator に接続中 (auth:9099, firestore:8080)");
 }
 
 // LINE Login チャネルID（LINE Developers Console → LINE Login → Channel ID）

@@ -130,6 +130,18 @@ app.use("/sync", syncApi(db));
 
 // gmail-auth は authenticate の前に登録済み（認証不要）
 
+// ========== グローバルエラーハンドラ (HTMLレスポンス漏れ防止) ==========
+app.use((err, req, res, next) => {
+  console.error("Unhandled API error:", err && (err.stack || err.message || err));
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: `サーバーエラー: ${err && err.message ? err.message : "unknown"}` });
+});
+
+// ========== 404ハンドラ (JSON で返す) ==========
+app.use((req, res) => {
+  res.status(404).json({ error: `APIパスが見つかりません: ${req.method} ${req.path}` });
+});
+
 // API エクスポート
 // invoker: "public" → Cloud Runの「未認証の呼び出しを許可」を恒久設定（デプロイ時にリセットされない）
 exports.api = onRequest({ region: "asia-northeast1", invoker: "public" }, app);

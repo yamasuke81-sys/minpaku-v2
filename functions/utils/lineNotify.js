@@ -5,6 +5,9 @@
 const https = require("https");
 const crypto = require("crypto");
 
+// エミュレータ環境では実送信をスキップしてコンソールに出力する
+const IS_EMULATOR = process.env.FUNCTIONS_EMULATOR === "true";
+
 // ========== 低レベル送信 ==========
 
 /**
@@ -15,6 +18,10 @@ const crypto = require("crypto");
  * @returns {Promise<{success: boolean, error?: string}>}
  */
 function pushMessages_(channelToken, userId, messages) {
+  if (IS_EMULATOR) {
+    console.log("[EMULATOR] would send LINE push:", { to: userId, messages });
+    return Promise.resolve({ ok: true, stub: true });
+  }
   return new Promise((resolve) => {
     const body = JSON.stringify({ to: userId, messages });
     const options = {
@@ -555,6 +562,10 @@ async function notifyOwner(db, type, title, body, vars) {
  * @param {string} content テキスト (最大2000文字)
  */
 function sendDiscord_(webhookUrl, content) {
+  if (IS_EMULATOR) {
+    console.log("[EMULATOR] would send Discord webhook:", { webhookUrl, content });
+    return Promise.resolve({ ok: true, stub: true });
+  }
   return new Promise((resolve) => {
     try {
       const u = new URL(webhookUrl);
@@ -590,6 +601,10 @@ function sendDiscord_(webhookUrl, content) {
  * Gmail APIでメール通知送信（OAuth2リフレッシュトークン方式）
  */
 async function sendNotificationEmail_(to, subject, body) {
+  if (IS_EMULATOR) {
+    console.log("[EMULATOR] would send email:", { to, subject, body });
+    return { ok: true, stub: true };
+  }
   const { google } = require("googleapis");
   const admin = require("firebase-admin");
   const db = admin.firestore();
