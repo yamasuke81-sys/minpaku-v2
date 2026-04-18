@@ -107,6 +107,9 @@ const FCMClient = {
     const idToken = await user.getIdToken();
     const staffId = user.staffId || null;
 
+    const role = user.role || null;
+    const isOwner = role === "owner" || role === null; // null=既存オーナー互換
+
     if (staffId) {
       // スタッフ: /staff/:id/fcm-token エンドポイントに保存
       const res = await fetch(`/api/staff/${staffId}/fcm-token`, {
@@ -121,8 +124,8 @@ const FCMClient = {
         const err = await res.json().catch(() => ({}));
         console.error("[FCM] スタッフトークン保存失敗:", err);
       }
-    } else {
-      // オーナー: settings/fcmTokensドキュメントに保存
+    } else if (isOwner) {
+      // オーナーのみ: settings/fcmTokensドキュメントに直接書き込み (Rulesで許可)
       try {
         await firebase.firestore().collection("settings").doc("fcmTokens").set(
           { ownerTokens: firebase.firestore.FieldValue.arrayUnion(token) },
@@ -131,6 +134,10 @@ const FCMClient = {
       } catch (e) {
         console.error("[FCM] オーナートークン保存失敗:", e);
       }
+    } else {
+      // スタッフロールだが staffId 未解決 → 権限エラー回避のためスキップ
+      console.warn("[FCM] staffId 未解決のためトークン保存をスキップ");
+      return;
     }
     console.log("[FCM] トークン保存完了:", token.slice(0, 20) + "...");
   },
