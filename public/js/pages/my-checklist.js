@@ -798,9 +798,47 @@ const MyChecklistPage = {
             const pp = info.prepaidPurchase;
             const newBalance = Math.max(0, (pp.purchaseAmount || 0) - (pp.useAmount || 0));
             const newId = "prepaid_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+            // カード番号自動採番: 店舗頭文字 + 3桁連番 (prepaid-cards.js のルールと整合)
+            const depotPrefixes = (doc.exists && doc.data().depotPrefixes) || {};
+            // 1. 既存設定された頭文字があれば使用、なければ提出先名から推定
+            let prefix = depotPrefixes[pp.depotId] || "";
+            if (!prefix && pp.depotId) {
+              // depotMaster から提出先名を取得して頭文字を推定
+              try {
+                const depotSnap = await firebase.firestore().collection("settings").doc("laundryDepots").get();
+                if (depotSnap.exists) {
+                  const allDepots = depotSnap.data().items || [];
+                  const depot = allDepots.find(d => (d.id || d.name) === pp.depotId);
+                  if (depot && depot.name) {
+                    // 先頭の日本語文字 (漢字・ひらがな・カタカナ) or 英字
+                    prefix = (depot.name.match(/^[一-龯ぁ-んァ-ヴー]+|^[A-Za-z]+/)?.[0] || depot.name.split(/[\s　]/)[0] || depot.name.slice(0, 4)).trim();
+                  }
+                }
+              } catch (_) {}
+            }
+            if (!prefix) prefix = "CARD";
+            // 2. 同 depotId 配下の既存カードから最大連番を取得して +1
+            const pattern = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\d{3})$`);
+            let max = 0;
+            items.forEach(c => {
+              if (c.depotId !== pp.depotId) return;
+              const m = (c.cardNumber || "").match(pattern);
+              if (m) max = Math.max(max, parseInt(m[1], 10));
+            });
+            // 既存の cardNumber 手入力があればそれを優先、無ければ自動採番
+            const autoCardNumber = `${prefix}${String(max + 1).padStart(3, "0")}`;
+            const finalCardNumber = pp.cardNumber || autoCardNumber;
+
+            // 店舗頭文字を depotPrefixes にキャッシュ (次回以降も使える)
+            this._pendingDepotPrefixes = { ...depotPrefixes };
+            if (pp.depotId && !this._pendingDepotPrefixes[pp.depotId]) {
+              this._pendingDepotPrefixes[pp.depotId] = prefix;
+            }
+
             items.push({
               id: newId,
-              cardNumber: pp.cardNumber || `購入_${new Date().toISOString().slice(5,10)}`,
+              cardNumber: finalCardNumber,
               balance: newBalance,
               depotId: pp.depotId || "",
               propertyIds: this.checklist?.propertyId ? [this.checklist.propertyId] : [],
@@ -937,22 +975,8 @@ const MyChecklistPage = {
                 <div id="lpoPrepaidCardsList" class="border rounded p-2" style="max-height:260px;overflow-y:auto;">
                   <div class="text-muted small">プリカを読み込み中...</div>
                 </div>
-                <label class="form-label mt-3">④ 支払総額 <span class="text-danger">*</span></label>
-                <select class="form-select" id="lpoPrepaidAmount">
-                  <option value="">-- 金額を選択 --</option>
-                </select>
-                <input type="number" class="form-control mt-2 d-none" id="lpoPrepaidAmountOther" min="0" placeholder="金額を手入力(円)">
-                <div class="d-flex justify-content-between mt-2">
-                  <button type="button" class="btn btn-sm btn-outline-secondary" id="lpoAutoAllocate">
-                    <i class="bi bi-magic"></i> 自動配分 (残高の少ない順)
-                  </button>
-                  <div class="small">
-                    配分済: <strong id="lpoAllocatedSum">¥0</strong> /
-                    目標: <span id="lpoAllocatedTarget">¥0</span>
-                  </div>
-                </div>
 
-                <!-- プリカ購入フロー (使用可能なカードが無い/不足時) -->
+                <!-- プリカ購入フロー (使用可能なカードが無い/不足時) - ④支払総額の上に配置 -->
                 <div class="alert alert-info mt-3 p-2 small" id="lpoPrepaidPurchaseWrap" style="display:none;">
                   <strong><i class="bi bi-cart-plus"></i> プリカを新規購入する</strong>
                   <div class="mb-1 mt-1">使用可能なプリカが無い/残高不足の場合、新しく購入した金額を記録できます。購入金額は請求書の立替として自動計上されます。</div>
@@ -972,6 +996,21 @@ const MyChecklistPage = {
                       </div>
                     </div>
                     <div class="form-text small">チェックすると今回の使用分は新カードから充当され、残金があれば次回以降も使えます。立替金として請求書に自動追加されます。</div>
+                  </div>
+                </div>
+
+                <label class="form-label mt-3">④ 支払総額 <span class="text-danger">*</span></label>
+                <select class="form-select" id="lpoPrepaidAmount">
+                  <option value="">-- 金額を選択 --</option>
+                </select>
+                <input type="number" class="form-control mt-2 d-none" id="lpoPrepaidAmountOther" min="0" placeholder="金額を手入力(円)">
+                <div class="d-flex justify-content-between mt-2">
+                  <button type="button" class="btn btn-sm btn-outline-secondary" id="lpoAutoAllocate">
+                    <i class="bi bi-magic"></i> 自動配分 (残高の少ない順)
+                  </button>
+                  <div class="small">
+                    配分済: <strong id="lpoAllocatedSum">¥0</strong> /
+                    目標: <span id="lpoAllocatedTarget">¥0</span>
                   </div>
                 </div>
               </div>
@@ -1066,6 +1105,8 @@ const MyChecklistPage = {
 
           // プリカ一覧を描画
           const listEl = modalEl.querySelector("#lpoPrepaidCardsList");
+          // アロー関数内の this が undefined になる問題を回避するため escapeHtml をローカル定義
+          const _esc = (s) => { const d = document.createElement("div"); d.textContent = String(s || ""); return d.innerHTML; };
           const renderPrepaidCards = () => {
             if (!filtered.length) {
               listEl.innerHTML = `<div class="text-muted small">使用可能なプリカがありません</div>`;
@@ -1074,7 +1115,7 @@ const MyChecklistPage = {
             listEl.innerHTML = filtered.map(c => `
               <div class="d-flex align-items-center gap-2 mb-1 p-1 border rounded">
                 <input type="checkbox" class="form-check-input prepaid-use" data-card-id="${c.id}" data-balance="${c.balance}">
-                <span class="flex-grow-1 small">${this.escapeHtml(c.cardNumber || c.id)} <span class="text-muted">(残高 ¥${(c.balance||0).toLocaleString()})</span></span>
+                <span class="flex-grow-1 small">${_esc(c.cardNumber || c.id)} <span class="text-muted">(残高 ¥${(c.balance||0).toLocaleString()})</span></span>
                 <input type="number" class="form-control form-control-sm prepaid-use-amount" data-card-id="${c.id}" min="0" max="${c.balance}" placeholder="使用額" style="width:110px;" disabled>
               </div>
             `).join("");

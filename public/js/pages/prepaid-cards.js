@@ -51,6 +51,20 @@ const PrepaidCardsPage = {
         ? 'コインランドリー店舗ごとに頭文字を設定し、番号は自動で3桁連番が付与されます。残高は洗濯物を出した時に自動減算されます。'
         : '閲覧のみ。変更はオーナーにお問い合わせください。'}</p>
 
+      <!-- チャージ額 → 残高 ルール (プリカ購入時に適用) -->
+      ${this.isOwnerLevel ? `
+      <div class="card mb-3">
+        <div class="card-header py-2">
+          <strong><i class="bi bi-arrow-right-circle"></i> チャージ額 → 残高 ルール</strong>
+          <small class="text-muted ms-2">例: 2000円で買うと残高2200円 (ボーナス200円)</small>
+        </div>
+        <div class="card-body p-2">
+          <div id="chargeRulesList"></div>
+          <button class="btn btn-sm btn-outline-secondary mt-1" id="btnAddChargeRule"><i class="bi bi-plus"></i> ルール追加</button>
+          <button class="btn btn-sm btn-primary mt-1 ms-2" id="btnSaveChargeRules"><i class="bi bi-check"></i> 保存</button>
+        </div>
+      </div>` : ''}
+
       <div class="row g-2 align-items-end mb-3">
         <div class="col-md-4">
           <label class="form-label small mb-1">物件フィルタ</label>
@@ -94,9 +108,16 @@ const PrepaidCardsPage = {
                 <label class="form-label">採番されるカード番号</label>
                 <input type="text" class="form-control" id="newPrepaidNumber" readonly style="background:#f8f9fa;">
               </div>
-              <div class="mb-3">
-                <label class="form-label">残高 (円) <span class="text-danger">*</span></label>
-                <input type="number" class="form-control" id="newPrepaidBalance" min="0" value="2200">
+              <div class="row g-2 mb-3">
+                <div class="col-6">
+                  <label class="form-label">購入金額 (円)</label>
+                  <input type="number" class="form-control" id="newPrepaidCharge" min="0" value="2000">
+                  <div class="form-text small">チャージ額ルールが設定されていれば残高が自動計算されます</div>
+                </div>
+                <div class="col-6">
+                  <label class="form-label">残高 (円) <span class="text-danger">*</span></label>
+                  <input type="number" class="form-control" id="newPrepaidBalance" min="0" value="2200">
+                </div>
               </div>
               <div class="mb-3">
                 <label class="form-label">利用物件 (複数選択可)</label>
@@ -119,6 +140,10 @@ const PrepaidCardsPage = {
       document.getElementById("btnAddPrepaid").addEventListener("click", () => this.addCard());
       document.getElementById("btnSavePrepaid").addEventListener("click", () => this.save());
     }
+    if (this.isOwnerLevel) {
+      document.getElementById("btnAddChargeRule")?.addEventListener("click", () => this.addChargeRule());
+      document.getElementById("btnSaveChargeRules")?.addEventListener("click", () => this.saveChargeRules());
+    }
     document.getElementById("showUsedCards").addEventListener("change", () => this.renderList());
     document.getElementById("prepaidPropertyFilter").addEventListener("change", () => this.renderList());
     await this.load();
@@ -129,7 +154,8 @@ const PrepaidCardsPage = {
       const doc = await db.collection("settings").doc("prepaidCards").get();
       this.cards = (doc.exists && Array.isArray(doc.data().items)) ? doc.data().items : [];
       this.depotPrefixes = (doc.exists && doc.data().depotPrefixes) || {};
-    } catch (_) { this.cards = []; this.depotPrefixes = {}; }
+      this.chargeRules = (doc.exists && Array.isArray(doc.data().chargeRules)) ? doc.data().chargeRules : [{ chargeAmount: 2000, balance: 2200 }];
+    } catch (_) { this.cards = []; this.depotPrefixes = {}; this.chargeRules = [{ chargeAmount: 2000, balance: 2200 }]; }
     // コインランドリー種別の提出先のみ
     try {
       const doc = await db.collection("settings").doc("laundryDepots").get();
@@ -157,7 +183,64 @@ const PrepaidCardsPage = {
     sel.innerHTML = `<option value="">-- すべての物件 --</option>` +
       this.properties.map(p => `<option value="${p.id}">${this._esc(p.name)}</option>`).join("");
 
+    this.renderChargeRules();
     this.renderList();
+  },
+
+  renderChargeRules() {
+    const wrap = document.getElementById("chargeRulesList");
+    if (!wrap) return;
+    if (!this.chargeRules || !this.chargeRules.length) this.chargeRules = [{ chargeAmount: 2000, balance: 2200 }];
+    wrap.innerHTML = this.chargeRules.map((r, i) => `
+      <div class="d-flex align-items-center gap-2 mb-1 charge-rule-row" data-idx="${i}">
+        <span class="small text-muted">購入</span>
+        <input type="number" class="form-control form-control-sm cr-charge" value="${r.chargeAmount || 0}" min="0" style="width:110px;">
+        <span class="small text-muted">円 →</span>
+        <span class="small text-muted">残高</span>
+        <input type="number" class="form-control form-control-sm cr-balance" value="${r.balance || 0}" min="0" style="width:110px;">
+        <span class="small text-muted">円</span>
+        <button type="button" class="btn btn-sm btn-outline-danger cr-remove"><i class="bi bi-x"></i></button>
+      </div>
+    `).join("");
+    wrap.querySelectorAll(".cr-remove").forEach(b => b.addEventListener("click", (e) => {
+      const idx = +e.target.closest("[data-idx]").dataset.idx;
+      this.chargeRules.splice(idx, 1);
+      this.renderChargeRules();
+    }));
+  },
+
+  addChargeRule() {
+    if (!this.chargeRules) this.chargeRules = [];
+    this.chargeRules.push({ chargeAmount: 0, balance: 0 });
+    this.renderChargeRules();
+  },
+
+  async saveChargeRules() {
+    const rules = [];
+    document.querySelectorAll("#chargeRulesList .charge-rule-row").forEach(row => {
+      const charge = Number(row.querySelector(".cr-charge").value) || 0;
+      const balance = Number(row.querySelector(".cr-balance").value) || 0;
+      if (charge > 0) rules.push({ chargeAmount: charge, balance });
+    });
+    rules.sort((a, b) => a.chargeAmount - b.chargeAmount);
+    try {
+      await db.collection("settings").doc("prepaidCards").set({
+        chargeRules: rules,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      this.chargeRules = rules;
+      showToast("保存", "チャージ額ルールを保存しました", "success");
+      this.renderChargeRules();
+    } catch (e) {
+      showToast("エラー", e.message, "error");
+    }
+  },
+
+  // 購入金額に対応する残高を返す (ルールがなければ購入金額と同じ)
+  _resolveBalance(chargeAmount) {
+    const rule = (this.chargeRules || []).find(r => Number(r.chargeAmount) === Number(chargeAmount));
+    if (rule && rule.balance) return Number(rule.balance);
+    return Number(chargeAmount) || 0;
   },
 
   // 店舗(depotId)ごとに頭文字prefix+3桁連番
@@ -337,12 +420,20 @@ const PrepaidCardsPage = {
     // 初期値リセット
     const prefixInput = document.getElementById("newPrepaidPrefix");
     const numberInput = document.getElementById("newPrepaidNumber");
+    const chargeInput = document.getElementById("newPrepaidCharge");
     const balanceInput = document.getElementById("newPrepaidBalance");
     const memoInput = document.getElementById("newPrepaidMemo");
     prefixInput.value = "";
     numberInput.value = "";
-    balanceInput.value = 2200;
+    chargeInput.value = 2000;
+    balanceInput.value = this._resolveBalance(2000);
     memoInput.value = "";
+
+    // 購入金額変更時、チャージルールに基づき残高を自動計算
+    chargeInput.oninput = () => {
+      const charge = Number(chargeInput.value) || 0;
+      balanceInput.value = this._resolveBalance(charge);
+    };
 
     const refreshNumber = () => {
       const depotId = depotSel.value;
