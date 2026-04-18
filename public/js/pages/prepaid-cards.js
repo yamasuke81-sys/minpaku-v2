@@ -282,18 +282,11 @@ const PrepaidCardsPage = {
     this.cards.push({
       id: "prepaid_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       cardNumber,
-      balance: 0,
+      balance: 2200,  // 標準: 2200円 (プリカのデフォルトチャージ額)
       depotId,
       propertyIds: [],
       memo: "",
     });
-    // 残高0で追加されるので、使用済み非表示のままだと新規カードが見えなくなる。
-    // 自動で「使用済みも表示」を ON にし、ユーザーが残高入力できるようにする。
-    const showUsed = document.getElementById("showUsedCards");
-    if (showUsed && !showUsed.checked) {
-      showUsed.checked = true;
-      showToast("情報", "「使用済みも表示」を自動でONにしました。残高を入力してから保存してください。", "info");
-    }
     this.renderList();
   },
 
