@@ -72,22 +72,24 @@ const CleaningFlowPage = {
     this.renderList();
   },
 
-  // 物件別 + 作業項目 毎の報酬一覧を返す (重複削除、物件名つきラベル、共通金額)
+  // 物件別 + 作業項目 毎の報酬一覧を返す (人数別単価 commonRates 対応)
   async _fetchRatesForProperty(propertyId) {
     const result = [];
     try {
-      // まず該当物件の propertyWorkItems
       const doc = await db.collection("propertyWorkItems").doc(propertyId).get();
       if (doc.exists) {
         const items = (doc.data().items || []);
         items.forEach(it => {
           if (!it || !it.name) return;
           const id = `${propertyId}:${it.id || it.name}`;
-          result.push({
-            id,
-            label: it.name,
-            commonRate: Number(it.commonRate) || 0,
-          });
+          // 新形式 commonRates オブジェクト (人数別) 優先、なければ旧 commonRate(scalar) 互換
+          let commonRate = 0;
+          if (it.commonRates && typeof it.commonRates === "object") {
+            // 1名時の単価を代表値として採用 (なければ 2名→3名 の順で fallback)
+            commonRate = Number(it.commonRates[1]) || Number(it.commonRates[2]) || Number(it.commonRates[3]) || 0;
+          }
+          if (!commonRate) commonRate = Number(it.commonRate) || 0;
+          result.push({ id, label: it.name, commonRate });
         });
       }
     } catch (_) {}
@@ -145,16 +147,19 @@ const CleaningFlowPage = {
 
             <div class="cf-flow mb-2">
               <!-- ステップ1: チェックリスト -->
-              <div class="cf-step ${useChk ? 'active' : 'disabled'}" style="flex-basis:32%;">
+              <div class="cf-step ${useChk ? 'active' : 'disabled'}" data-step="checklist" data-pid="${p.id}" style="flex-basis:32%;">
                 <div class="cf-step-title"><i class="bi bi-clipboard-check"></i> ① チェックリスト</div>
                 <div class="form-check form-switch mb-1 mt-1">
                   <input class="form-check-input flow-toggle" type="checkbox" data-field="useChecklist" ${useChk ? "checked" : ""} id="cf-use-${p.id}">
                   <label class="form-check-label small" for="cf-use-${p.id}">${useChk ? '有効' : '無効'}</label>
                 </div>
+                <div class="cf-detail small mt-2" style="display:${useChk ? 'block' : 'none'};">
+                  <a href="#/property-checklist/${p.id}" class="text-decoration-none"><i class="bi bi-pencil-square"></i> テンプレ編集</a>
+                </div>
               </div>
               <div class="cf-arrow">→</div>
               <!-- ステップ2: 全景写真 -->
-              <div class="cf-step ${usePhoto ? 'active' : 'disabled'}" style="flex-basis:32%;">
+              <div class="cf-step ${usePhoto ? 'active' : 'disabled'}" data-step="photo" data-pid="${p.id}" style="flex-basis:32%;">
                 <div class="cf-step-title"><i class="bi bi-camera"></i> ② 全景写真</div>
                 <div class="form-check form-switch mb-1 mt-1">
                   <input class="form-check-input flow-toggle" type="checkbox" data-field="checkoutPhoto" ${usePhoto ? "checked" : ""} id="cf-photo-${p.id}">
@@ -162,16 +167,19 @@ const CleaningFlowPage = {
                 </div>
               </div>
               <div class="cf-arrow">→</div>
-              <!-- ステップ3: ランドリー (業者数サマリ) -->
-              <div class="cf-step ${hasLaundry ? 'active' : 'disabled'}" style="flex-basis:32%;">
+              <!-- ステップ3: ランドリー (有効/無効トグル + 詳細) -->
+              <div class="cf-step ${hasLaundry ? 'active' : 'disabled'}" data-step="laundry" data-pid="${p.id}" style="flex-basis:32%;">
                 <div class="cf-step-title"><i class="bi bi-basket3"></i> ③ ランドリー</div>
-                <div class="small mt-1">${hasLaundry ? `${selectedIds.length}業者` : '未使用'}</div>
+                <div class="form-check form-switch mb-1 mt-1">
+                  <input class="form-check-input flow-laundry-toggle" type="checkbox" ${hasLaundry ? "checked" : ""} id="cf-laundry-${p.id}">
+                  <label class="form-check-label small" for="cf-laundry-${p.id}">${hasLaundry ? `有効 (${selectedIds.length}業者)` : '無効'}</label>
+                </div>
               </div>
             </div>
 
-            <details class="mb-2">
-              <summary class="small text-muted">▸ ランドリー提出先・報酬の詳細</summary>
-              <div class="row g-2 mt-1">
+            <!-- ランドリー詳細 (有効時のみ表示) -->
+            <div class="cf-laundry-detail" data-pid="${p.id}" style="display:${hasLaundry ? 'block' : 'none'};">
+              <div class="row g-2 mt-1 p-2 border rounded" style="background:#f8f9fa;">
                 <div class="col-md-6">
                   <label class="form-label small mb-1 fw-bold"><i class="bi bi-basket3"></i> 提出先 (複数可)</label>
                   ${depotChecks}
@@ -193,9 +201,9 @@ const CleaningFlowPage = {
                   <div class="form-text small">押したスタッフに報酬が加算 (請求書集計時)。</div>
                 </div>
               </div>
-            </details>
+            </div>
 
-            <div class="mb-0">
+            <div class="mb-0 mt-2">
               <label class="form-label small">完了後の案内メモ</label>
               <textarea rows="2" class="form-control form-control-sm flow-input" data-field="postComplete" placeholder="次ゲストへの案内・鍵引き継ぎ等">${this._esc(f.postComplete || "")}</textarea>
             </div>
@@ -216,9 +224,63 @@ const CleaningFlowPage = {
     });
 
     wrap.querySelectorAll(".flow-toggle, .flow-input, .flow-depot, .flow-reward").forEach(el => {
-      const handler = () => this._queueSave(el.closest(".card").dataset.pid);
+      const handler = () => {
+        const card = el.closest(".card");
+        // 即時に背景色・ラベルを反映 (時差解消)
+        if (el.classList.contains("flow-toggle") && el.dataset.field === "useChecklist") {
+          const step = card.querySelector('.cf-step[data-step="checklist"]');
+          if (step) step.classList.toggle("active", el.checked);
+          if (step) step.classList.toggle("disabled", !el.checked);
+          const lbl = step?.querySelector("label.form-check-label");
+          if (lbl) lbl.textContent = el.checked ? "有効" : "無効";
+          const detail = step?.querySelector(".cf-detail");
+          if (detail) detail.style.display = el.checked ? "block" : "none";
+        }
+        if (el.classList.contains("flow-toggle") && el.dataset.field === "checkoutPhoto") {
+          const step = card.querySelector('.cf-step[data-step="photo"]');
+          if (step) step.classList.toggle("active", el.checked);
+          if (step) step.classList.toggle("disabled", !el.checked);
+          const lbl = step?.querySelector("label.form-check-label");
+          if (lbl) lbl.textContent = el.checked ? "必須" : "任意";
+        }
+        // ランドリー提出先の増減 → サマリ更新
+        if (el.classList.contains("flow-depot")) {
+          const checked = card.querySelectorAll(".flow-depot:checked").length;
+          const step = card.querySelector('.cf-step[data-step="laundry"]');
+          const toggle = step?.querySelector(".flow-laundry-toggle");
+          if (step) step.classList.toggle("active", checked > 0);
+          if (step) step.classList.toggle("disabled", checked === 0);
+          if (toggle) toggle.checked = checked > 0;
+          const lbl = step?.querySelector("label.form-check-label");
+          if (lbl) lbl.textContent = checked > 0 ? `有効 (${checked}業者)` : "無効";
+        }
+        this._queueSave(card.dataset.pid);
+      };
       el.addEventListener("input", handler);
       el.addEventListener("change", handler);
+    });
+
+    // ランドリー有効/無効トグル: チェック OFF で全提出先を外す、ON で全提出先を入れる
+    wrap.querySelectorAll(".flow-laundry-toggle").forEach(tg => {
+      tg.addEventListener("change", () => {
+        const card = tg.closest(".card");
+        const pid = card.dataset.pid;
+        const depotCbs = card.querySelectorAll(".flow-depot");
+        if (tg.checked) {
+          // 有効化: すべてチェック
+          depotCbs.forEach(cb => cb.checked = true);
+        } else {
+          depotCbs.forEach(cb => cb.checked = false);
+        }
+        const step = card.querySelector('.cf-step[data-step="laundry"]');
+        const detail = card.querySelector(`.cf-laundry-detail[data-pid="${pid}"]`);
+        if (detail) detail.style.display = tg.checked ? "block" : "none";
+        const lbl = step?.querySelector("label.form-check-label");
+        if (lbl) lbl.textContent = tg.checked ? `有効 (${depotCbs.length}業者)` : "無効";
+        if (step) step.classList.toggle("active", tg.checked);
+        if (step) step.classList.toggle("disabled", !tg.checked);
+        this._queueSave(pid);
+      });
     });
   },
 

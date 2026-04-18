@@ -724,7 +724,7 @@
       document.getElementById("lbl_noiseCancelRadio").textContent = t.noiseCancelRadio;
       document.getElementById("btnGoToGame").textContent = t.noiseNextBtn;
       document.getElementById("noiseCancelMsg").textContent = t.noiseCancelMsg;
-      ["sec_stay","sec_guests","sec_facility","sec_survey","sec_emergency","sec_agreement"].forEach(id => document.getElementById(id).textContent = t[id]);
+      ["sec_stay","sec_guests","sec_facility","sec_survey","sec_emergency","sec_agreement"].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = t[id]; });
       ["checkIn","checkOut","checkInTime","checkOutTime","guestCount","guestCountInfants","bookingSite","transport","carCount","bbq","bedChoice","purpose","previousStay","nextStay","emergencyName","emergencyPhone","houseRuleAgree"].forEach(k => {
         const el = document.getElementById("lbl_" + k); if (el) el.innerHTML = t[k];
       });

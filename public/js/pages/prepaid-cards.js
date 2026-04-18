@@ -21,12 +21,17 @@ const PrepaidCardsPage = {
         </div>
       </div>
       <p class="text-muted small">コインランドリー店舗ごとに複数のプリカを管理できます。カード番号は<strong>店舗ごとに自動採番</strong>されます (例: 小柴001, 小柴002)。残高は洗濯物を出した時に自動減算、残高不足時はエラーで使用不可となります。</p>
+      <div class="form-check form-switch mb-3">
+        <input class="form-check-input" type="checkbox" id="showUsedCards">
+        <label class="form-check-label small" for="showUsedCards">使用済み(残高0)のカードも表示</label>
+      </div>
       <div id="prepaidList" class="row g-3">
         <div class="col-12 text-muted">読込中...</div>
       </div>
     `;
     document.getElementById("btnAddPrepaid").addEventListener("click", () => this.addCard());
     document.getElementById("btnSavePrepaid").addEventListener("click", () => this.save());
+    document.getElementById("showUsedCards").addEventListener("change", () => this.renderList());
     await this.load();
   },
 
@@ -44,14 +49,18 @@ const PrepaidCardsPage = {
     this.renderList();
   },
 
-  // 店舗名から自動連番を生成。既存カードの同じ店舗名の最大番号+1
-  _nextCardNumber(depotName) {
-    if (!depotName) return "";
+  // 店舗ごと(depotIdベース)に自動連番を生成。prefix は店舗名の先頭キーワード。
+  _nextCardNumber(depot) {
+    if (!depot) return "";
+    const depotId = depot.id || depot.name;
+    const depotName = depot.name || "";
     // 店舗名の先頭キーワードを取り出す (例: "小柴 藤三広店" → "小柴")
-    const keyword = (depotName.match(/[一-龯ぁ-んァ-ヴー]+/)?.[0] || depotName.slice(0, 6)).trim();
+    const keyword = (depotName.match(/[一-龯ぁ-んァ-ヴー]+/)?.[0] || depotName.slice(0, 6)).trim() || "CARD";
     const pattern = new RegExp(`^${keyword}(\\d{3})$`);
     let max = 0;
+    // 同じ depotId に紐づくカードの中で最大値+1
     this.cards.forEach(c => {
+      if (c.depotId !== depotId) return;
       const m = (c.cardNumber || "").match(pattern);
       if (m) max = Math.max(max, parseInt(m[1], 10));
     });
@@ -85,7 +94,8 @@ const PrepaidCardsPage = {
     const depotOpts = `<option value="">-- 選択 --</option>` +
       this.depots.map(d => `<option value="${d.id || d.name}">${this._esc(d.name)}</option>`).join("");
 
-    const sorted = this._sortedCards();
+    const showUsed = document.getElementById("showUsedCards")?.checked || false;
+    const sorted = this._sortedCards().filter(({ c }) => showUsed || (Number(c.balance) || 0) > 0);
     // カードを紐付け提出先でグルーピング表示
     const grouped = {};
     sorted.forEach(({ c, _idx }) => {
@@ -93,6 +103,10 @@ const PrepaidCardsPage = {
       if (!grouped[key]) grouped[key] = [];
       grouped[key].push({ c, _idx });
     });
+    if (!sorted.length) {
+      wrap.innerHTML = `<div class="col-12 text-muted">${showUsed ? 'カードがありません' : '使用済み以外のカードがありません。上の「使用済みも表示」をONにすると表示されます。'}</div>`;
+      return;
+    }
 
     wrap.innerHTML = Object.entries(grouped).map(([depotId, list]) => {
       const depot = this.depots.find(d => (d.id || d.name) === depotId);
@@ -101,10 +115,13 @@ const PrepaidCardsPage = {
         <div class="col-12">
           <h6 class="mt-2"><i class="bi bi-shop"></i> ${this._esc(title)} <span class="badge bg-secondary">${list.length}枚</span></h6>
           <div class="row g-2">
-            ${list.map(({ c, _idx }) => `
+            ${list.map(({ c, _idx }) => {
+              const isUsed = (Number(c.balance) || 0) <= 0;
+              return `
               <div class="col-md-6 col-lg-4">
-                <div class="card" data-idx="${_idx}">
+                <div class="card ${isUsed ? 'border-secondary' : ''}" data-idx="${_idx}" style="${isUsed ? 'opacity:0.55;background:#f1f3f5;' : ''}">
                   <div class="card-body">
+                    ${isUsed ? '<span class="badge bg-secondary mb-2"><i class="bi bi-x-circle"></i> 使用済み (残高0)</span>' : ''}
                     <div class="row g-2">
                       <div class="col-12">
                         <label class="form-label small mb-1">紐付け提出先 (コインランドリー)</label>
@@ -128,8 +145,8 @@ const PrepaidCardsPage = {
                     </div>
                   </div>
                 </div>
-              </div>
-            `).join("")}
+              </div>`;
+            }).join("")}
           </div>
         </div>`;
     }).join("");
@@ -145,7 +162,7 @@ const PrepaidCardsPage = {
         const depot = this.depots.find(d => (d.id || d.name) === newDepotId);
         this.cards[i].depotId = newDepotId;
         if (depot) {
-          this.cards[i].cardNumber = this._nextCardNumber(depot.name);
+          this.cards[i].cardNumber = this._nextCardNumber(depot);
         }
         this.renderList();
       });
@@ -166,7 +183,7 @@ const PrepaidCardsPage = {
     // デフォルト: 最初のコインランドリー店舗 + 自動採番
     const defaultDepot = this.depots[0];
     const depotId = defaultDepot ? (defaultDepot.id || defaultDepot.name) : "";
-    const cardNumber = defaultDepot ? this._nextCardNumber(defaultDepot.name) : "";
+    const cardNumber = defaultDepot ? this._nextCardNumber(defaultDepot) : "";
     this.cards.push({
       id: "prepaid_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       cardNumber,

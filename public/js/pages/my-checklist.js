@@ -900,6 +900,11 @@ const MyChecklistPage = {
                   <option value="">-- プリカを選択 --</option>
                 </select>
                 <div class="form-text">残高表示付き。プリカ管理はオーナー側で登録してください。</div>
+                <label class="form-label mt-2">金額 <span class="text-danger">*</span></label>
+                <select class="form-select" id="lpoPrepaidAmount">
+                  <option value="">-- 金額を選択 --</option>
+                </select>
+                <input type="number" class="form-control mt-2 d-none" id="lpoPrepaidAmountOther" min="0" placeholder="金額を手入力(円)">
               </div>
               <!-- ステップ3': 金額 (支払方法=cash/credit/invoice 時) -->
               <div class="mb-3 d-none" id="lpoRateWrap">
@@ -932,6 +937,8 @@ const MyChecklistPage = {
       const paySel = modalEl.querySelector("#lpoPayment");
       const prepaidWrap = modalEl.querySelector("#lpoPrepaidWrap");
       const prepaidSel = modalEl.querySelector("#lpoPrepaid");
+      const prepaidAmountSel = modalEl.querySelector("#lpoPrepaidAmount");
+      const prepaidAmountOther = modalEl.querySelector("#lpoPrepaidAmountOther");
 
       depotSel.addEventListener("change", () => {
         const v = depotSel.value;
@@ -957,11 +964,23 @@ const MyChecklistPage = {
             const byDepot = prepaidCards.filter(c => c.depotId === depotId);
             if (byDepot.length) filtered = byDepot;
           }
+          // 残高0のカードは除外
+          filtered = filtered.filter(c => (Number(c.balance) || 0) > 0);
           prepaidSel.innerHTML = `<option value="">-- プリカを選択 --</option>` +
-            filtered.map(c => `<option value="${c.id}" data-balance="${c.balance || 0}" data-label="${(c.label||'').replace(/"/g,'&quot;')}">${(c.label||"").replace(/</g,"&lt;")}${c.cardNumber ? " #" + c.cardNumber : ""} (残高 ¥${(c.balance||0).toLocaleString()})</option>`).join("");
+            filtered.map(c => `<option value="${c.id}" data-balance="${c.balance || 0}" data-label="${(c.cardNumber || c.label || '').replace(/"/g,'&quot;')}">${(c.cardNumber || c.label || "").replace(/</g,"&lt;")} (残高 ¥${(c.balance||0).toLocaleString()})</option>`).join("");
           if (!filtered.length) {
-            prepaidSel.innerHTML = `<option value="">プリカが登録されていません</option>`;
+            prepaidSel.innerHTML = `<option value="">使用可能なプリカがありません</option>`;
           }
+          // 金額プルダウン: 提出先の料金プリセット + その他手入力 (現金立替と同じ選択肢)
+          const depot = depotV === "__other__" ? null : depotMaster[+depotV];
+          const rates = (depot && depot.rates) || [];
+          prepaidAmountSel.innerHTML = `<option value="">-- 金額を選択 --</option>` +
+            rates.map((r, ri) => `<option value="${ri}" data-amount="${r.amount||0}" data-label="${(r.label||'').replace(/"/g,'&quot;')}">${(r.label||"").replace(/</g,"&lt;")} ¥${(r.amount||0).toLocaleString()}</option>`).join("") +
+            `<option value="__other__">その他 (金額手入力)</option>`;
+          prepaidAmountSel.onchange = () => {
+            prepaidAmountOther.classList.toggle("d-none", prepaidAmountSel.value !== "__other__");
+            if (prepaidAmountSel.value === "__other__") prepaidAmountOther.focus();
+          };
         } else if (payV === "cash" || payV === "credit" || payV === "invoice") {
           prepaidWrap.classList.add("d-none");
           rateWrap.classList.remove("d-none");
@@ -1000,11 +1019,24 @@ const MyChecklistPage = {
           if (!prepaidId) { showToast("入力エラー", "プリカを選択してください", "error"); return; }
           const opt = prepaidSel.options[prepaidSel.selectedIndex];
           prepaidLabel = opt?.dataset?.label || "";
-          // プリペイドの場合、金額は「料金プリセット標準」を採用 (なければ0)
-          const depot = depotIdx === "__other__" ? null : depotMaster[+depotIdx];
-          const firstRate = depot?.rates?.[0];
-          amount = firstRate ? Number(firstRate.amount) || 0 : 0;
-          rateLabel = firstRate?.label || "";
+          const balance = Number(opt?.dataset?.balance) || 0;
+          // 金額: プルダウン or 手入力
+          const av = prepaidAmountSel.value;
+          if (!av) { showToast("入力エラー", "金額を選択してください", "error"); return; }
+          if (av === "__other__") {
+            amount = Number(prepaidAmountOther.value) || 0;
+            if (!amount) { showToast("入力エラー", "金額を入力してください", "error"); return; }
+            rateLabel = "その他";
+          } else {
+            const aopt = prepaidAmountSel.options[prepaidAmountSel.selectedIndex];
+            amount = Number(aopt?.dataset?.amount) || 0;
+            rateLabel = aopt?.dataset?.label || "";
+          }
+          // 残高不足チェック
+          if (amount > balance) {
+            showToast("残高不足", `プリカ「${prepaidLabel}」の残高 ¥${balance.toLocaleString()} では ¥${amount.toLocaleString()} の支払いができません。他のカードを選択してください。`, "error");
+            return;
+          }
         } else {
           const rv = rateSel.value;
           if (!rv) { showToast("入力エラー", "金額を選択してください", "error"); return; }

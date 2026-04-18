@@ -149,7 +149,11 @@ service cloud.firestore {
       allow read, write: if isOwner();
     }
 
-    // 設定 — オーナーのみ
+    // 設定 — オーナーのみ (例外: guestForm は匿名ゲストも読取可)
+    match /settings/guestForm {
+      allow read: if true;
+      allow write: if isOwner();
+    }
     match /settings/{document=**} {
       allow read, write: if isOwner();
     }
