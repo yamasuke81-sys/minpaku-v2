@@ -737,6 +737,14 @@ const MyChecklistPage = {
     };
     const patch = { updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
     if (current) {
+      // 解除権限: ボタンを押した本人 / オーナー / サブオーナーのみ可
+      const role = (Auth.currentUser && Auth.currentUser.role) || "staff";
+      const isPrivileged = role === "owner" || role === "sub_owner";
+      const isAuthor = current?.by?.uid && current.by.uid === user?.uid;
+      if (!isAuthor && !isPrivileged) {
+        showToast("解除不可", `この記録は「${current?.by?.name || "前のスタッフ"}」のものです。本人かオーナー/サブオーナーのみ解除できます。`, "error");
+        return;
+      }
       // 取消: この key 以降 (putOut → collected → stored の順) も連動クリア
       const order = ["putOut", "collected", "stored"];
       const idx = order.indexOf(key);
@@ -754,13 +762,41 @@ const MyChecklistPage = {
         depotOther: info.depotOther || "",
         depotKind: info.depotKind || "",
         paymentMethod: info.paymentMethod || "",
+        prepaidId: info.prepaidId || "",
+        prepaidLabel: info.prepaidLabel || "",
+        rateLabel: info.rateLabel || "",
         amount: Number(info.amount) || 0,
         note: info.note || "",
       };
-      // リネン屋の場合は回収・収納も同時に完了扱い (業者が処理するため)
-      if (info.depotKind === "linen_shop") {
-        patch[`laundry.collected`] = { at: firebase.firestore.FieldValue.serverTimestamp(), by, auto: true, reason: "linen_shop" };
-        patch[`laundry.stored`] = { at: firebase.firestore.FieldValue.serverTimestamp(), by, auto: true, reason: "linen_shop" };
+      // 物件の提出先がすべてリネン屋の場合のみ自動完了 (混在運用での誤動作を防ぐ)
+      const cf = this._propertyCleaningFlow || {};
+      const allLinen = Array.isArray(cf.laundryDepotIds) && Array.isArray(this._depotMasterCache)
+        && cf.laundryDepotIds.length > 0
+        && cf.laundryDepotIds.every(id => {
+          const d = this._depotMasterCache.find(x => (x.id || x.name) === id);
+          return d && d.kind === "linen_shop";
+        });
+      if (allLinen) {
+        patch[`laundry.collected`] = { at: firebase.firestore.FieldValue.serverTimestamp(), by, auto: true, reason: "all_linen_shop" };
+        patch[`laundry.stored`] = { at: firebase.firestore.FieldValue.serverTimestamp(), by, auto: true, reason: "all_linen_shop" };
+      }
+      // プリカ残高を自動減算
+      if (info.paymentMethod === "prepaid" && info.prepaidId && info.amount) {
+        try {
+          const doc = await firebase.firestore().collection("settings").doc("prepaidCards").get();
+          if (doc.exists) {
+            const items = (doc.data().items || []).map(c => {
+              if (c.id === info.prepaidId) {
+                return { ...c, balance: Math.max(0, (Number(c.balance) || 0) - Number(info.amount)) };
+              }
+              return c;
+            });
+            await firebase.firestore().collection("settings").doc("prepaidCards").set({
+              items,
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            }, { merge: true });
+          }
+        } catch (e) { console.warn("プリカ残高減算失敗:", e.message); }
       }
       // laundry コレクションにも記録 (請求書自動集計用)
       try {
@@ -812,6 +848,12 @@ const MyChecklistPage = {
         }
       } catch (_) {}
     }
+    // プリカ管理 (settings/prepaidCards.items) を読込
+    let prepaidCards = [];
+    try {
+      const doc = await firebase.firestore().collection("settings").doc("prepaidCards").get();
+      if (doc.exists && Array.isArray(doc.data().items)) prepaidCards = doc.data().items;
+    } catch (_) {}
     return new Promise((resolve) => {
       const existing = document.getElementById("laundryPutOutModal");
       if (existing) existing.remove();
@@ -830,8 +872,9 @@ const MyChecklistPage = {
               <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
+              <!-- ステップ1: 提出先 -->
               <div class="mb-3">
-                <label class="form-label">提出先 <span class="text-danger">*</span></label>
+                <label class="form-label">① 提出先 <span class="text-danger">*</span></label>
                 <select class="form-select" id="lpoDepot">
                   <option value="">-- 選択 --</option>
                   ${depotOptions}
@@ -839,28 +882,34 @@ const MyChecklistPage = {
                 </select>
                 <input type="text" class="form-control mt-2 d-none" id="lpoDepotOther" placeholder="提出先名を入力">
               </div>
-              <div class="mb-3 d-none" id="lpoRateWrap">
-                <label class="form-label">料金プリセット</label>
-                <select class="form-select" id="lpoRate"></select>
-                <div class="form-text">選択すると金額が自動入力されます。違う金額ならそのまま上書きしてください。</div>
-              </div>
+              <!-- ステップ2: 支払方法 -->
               <div class="mb-3">
-                <label class="form-label">支払方法 <span class="text-danger">*</span></label>
+                <label class="form-label">② 支払方法 <span class="text-danger">*</span></label>
                 <select class="form-select" id="lpoPayment">
                   <option value="">-- 選択 --</option>
                   <option value="cash">現金(立替)</option>
                   <option value="credit">クレジットカード(立替)</option>
-                  <option value="prepaid">プリペイド</option>
+                  <option value="prepaid">プリペイド(プリカ)</option>
                   <option value="invoice">店舗請求(後払い)</option>
                 </select>
               </div>
-              <div class="mb-3">
-                <label class="form-label">金額 (円)</label>
-                <input type="number" class="form-control" id="lpoAmount" min="0" value="0">
-                <div class="form-text">立替の場合は実費を入力してください</div>
+              <!-- ステップ3: プリカ選択 (支払方法=prepaid 時のみ) -->
+              <div class="mb-3 d-none" id="lpoPrepaidWrap">
+                <label class="form-label">③ プリカ選択 <span class="text-danger">*</span></label>
+                <select class="form-select" id="lpoPrepaid">
+                  <option value="">-- プリカを選択 --</option>
+                </select>
+                <div class="form-text">残高表示付き。プリカ管理はオーナー側で登録してください。</div>
               </div>
+              <!-- ステップ3': 料金プリセット (支払方法=cash/credit/invoice 時) -->
+              <div class="mb-3 d-none" id="lpoRateWrap">
+                <label class="form-label">③ 料金プリセット <span class="text-danger">*</span></label>
+                <select class="form-select" id="lpoRate"></select>
+                <input type="number" class="form-control mt-2 d-none" id="lpoRateOther" min="0" placeholder="金額を手入力(円)">
+              </div>
+              <!-- ステップ4: メモ -->
               <div class="mb-3">
-                <label class="form-label">メモ</label>
+                <label class="form-label">④ メモ</label>
                 <input type="text" class="form-control" id="lpoNote">
               </div>
             </div>
@@ -879,33 +928,64 @@ const MyChecklistPage = {
       const otherInput = modalEl.querySelector("#lpoDepotOther");
       const rateWrap = modalEl.querySelector("#lpoRateWrap");
       const rateSel = modalEl.querySelector("#lpoRate");
-      const amountInput = modalEl.querySelector("#lpoAmount");
+      const rateOther = modalEl.querySelector("#lpoRateOther");
+      const paySel = modalEl.querySelector("#lpoPayment");
+      const prepaidWrap = modalEl.querySelector("#lpoPrepaidWrap");
+      const prepaidSel = modalEl.querySelector("#lpoPrepaid");
 
       depotSel.addEventListener("change", () => {
         const v = depotSel.value;
         otherInput.classList.toggle("d-none", v !== "__other__");
-        if (v === "__other__") { otherInput.focus(); rateWrap.classList.add("d-none"); return; }
-        if (v === "" ) { rateWrap.classList.add("d-none"); return; }
-        const depot = depotMaster[+v];
-        const rates = (depot && depot.rates) || [];
-        if (rates.length) {
+        if (v === "__other__") { otherInput.focus(); }
+        updateStep3();
+      });
+
+      paySel.addEventListener("change", () => updateStep3());
+
+      function updateStep3() {
+        const depotV = depotSel.value;
+        const payV = paySel.value;
+        // ステップ3の表示: 支払方法で分岐
+        if (payV === "prepaid") {
+          rateWrap.classList.add("d-none");
+          prepaidWrap.classList.remove("d-none");
+          // プリカをフィルタ (該当 depot に紐づくカードが優先、全体も表示)
+          let filtered = prepaidCards;
+          if (depotV !== "" && depotV !== "__other__") {
+            const depotObj = depotMaster[+depotV];
+            const depotId = depotObj?.id || depotObj?.name;
+            const byDepot = prepaidCards.filter(c => c.depotId === depotId);
+            if (byDepot.length) filtered = byDepot;
+          }
+          prepaidSel.innerHTML = `<option value="">-- プリカを選択 --</option>` +
+            filtered.map(c => `<option value="${c.id}" data-balance="${c.balance || 0}" data-label="${(c.label||'').replace(/"/g,'&quot;')}">${(c.label||"").replace(/</g,"&lt;")}${c.cardNumber ? " #" + c.cardNumber : ""} (残高 ¥${(c.balance||0).toLocaleString()})</option>`).join("");
+          if (!filtered.length) {
+            prepaidSel.innerHTML = `<option value="">プリカが登録されていません</option>`;
+          }
+        } else if (payV === "cash" || payV === "credit" || payV === "invoice") {
+          prepaidWrap.classList.add("d-none");
           rateWrap.classList.remove("d-none");
-          rateSel.innerHTML = `<option value="">-- 金額プリセットを選択 --</option>` +
-            rates.map((r, ri) => `<option value="${ri}" data-amount="${r.amount||0}">${(r.label||"").replace(/"/g,"&quot;")} ¥${(r.amount||0).toLocaleString()}</option>`).join("");
-          rateSel.addEventListener("change", () => {
-            const opt = rateSel.options[rateSel.selectedIndex];
-            if (opt && opt.dataset.amount) amountInput.value = opt.dataset.amount;
-          }, { once: false });
+          const depot = depotV === "__other__" ? null : depotMaster[+depotV];
+          const rates = (depot && depot.rates) || [];
+          rateSel.innerHTML = `<option value="">-- 料金プリセットを選択 --</option>` +
+            rates.map((r, ri) => `<option value="${ri}" data-amount="${r.amount||0}" data-label="${(r.label||'').replace(/"/g,'&quot;')}">${(r.label||"").replace(/</g,"&lt;")} ¥${(r.amount||0).toLocaleString()}</option>`).join("") +
+            `<option value="__other__">その他 (金額手入力)</option>`;
+          rateSel.onchange = () => {
+            rateOther.classList.toggle("d-none", rateSel.value !== "__other__");
+            if (rateSel.value === "__other__") rateOther.focus();
+          };
         } else {
           rateWrap.classList.add("d-none");
+          prepaidWrap.classList.add("d-none");
         }
-      });
+      }
 
       modalEl.querySelector("#lpoSubmit").addEventListener("click", () => {
         const depotIdx = depotSel.value;
-        const paymentMethod = modalEl.querySelector("#lpoPayment").value;
+        const paymentMethod = paySel.value;
         if (!depotIdx) { showToast("入力エラー", "提出先を選択してください", "error"); return; }
         if (!paymentMethod) { showToast("入力エラー", "支払方法を選択してください", "error"); return; }
+
         let depotName = "";
         if (depotIdx === "__other__") {
           depotName = otherInput.value.trim();
@@ -913,6 +993,32 @@ const MyChecklistPage = {
         } else {
           depotName = depotMaster[+depotIdx]?.name || "";
         }
+
+        let amount = 0, rateLabel = "", prepaidId = "", prepaidLabel = "";
+        if (paymentMethod === "prepaid") {
+          prepaidId = prepaidSel.value;
+          if (!prepaidId) { showToast("入力エラー", "プリカを選択してください", "error"); return; }
+          const opt = prepaidSel.options[prepaidSel.selectedIndex];
+          prepaidLabel = opt?.dataset?.label || "";
+          // プリペイドの場合、金額は「料金プリセット標準」を採用 (なければ0)
+          const depot = depotIdx === "__other__" ? null : depotMaster[+depotIdx];
+          const firstRate = depot?.rates?.[0];
+          amount = firstRate ? Number(firstRate.amount) || 0 : 0;
+          rateLabel = firstRate?.label || "";
+        } else {
+          const rv = rateSel.value;
+          if (!rv) { showToast("入力エラー", "料金プリセットを選択してください", "error"); return; }
+          if (rv === "__other__") {
+            amount = Number(rateOther.value) || 0;
+            if (!amount) { showToast("入力エラー", "金額を入力してください", "error"); return; }
+            rateLabel = "その他";
+          } else {
+            const opt = rateSel.options[rateSel.selectedIndex];
+            amount = Number(opt?.dataset?.amount) || 0;
+            rateLabel = opt?.dataset?.label || "";
+          }
+        }
+
         decided = true;
         const depotKind = depotIdx === "__other__" ? "other" : (depotMaster[+depotIdx]?.kind || "other");
         const info = {
@@ -920,7 +1026,10 @@ const MyChecklistPage = {
           depotOther: depotIdx === "__other__" ? depotName : "",
           depotKind,
           paymentMethod,
-          amount: amountInput.value,
+          prepaidId,
+          prepaidLabel,
+          rateLabel,
+          amount,
           note: modalEl.querySelector("#lpoNote").value.trim(),
         };
         modal.hide();

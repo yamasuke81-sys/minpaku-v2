@@ -20,6 +20,7 @@ const App = {
     laundry: LaundryPage,
     checklist: ChecklistPage,
     "cleaning-flow": CleaningFlowPage,
+    "prepaid-cards": PrepaidCardsPage,
     reports: ReportsPage,
     command: CommandCenterPage,
     projects: ProjectsPage,

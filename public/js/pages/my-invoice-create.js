@@ -55,6 +55,33 @@ const MyInvoiceCreatePage = {
           <button class="btn btn-sm btn-outline-primary" id="btnRecalc"><i class="bi bi-arrow-clockwise"></i> 再集計</button>
         </div>
       </div>
+      <!-- スタッフ情報 (請求書必須項目) -->
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6 class="mb-2 d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-person-vcard"></i> 請求書記載情報</span>
+            <span id="staffInfoSaveStatus" class="small"></span>
+          </h6>
+          <div class="small text-muted mb-2">この情報は<strong>スタッフマスタと同期</strong>しています。編集すると自動でスタッフタブにも反映されます。</div>
+          <div class="row g-2" id="staffInfoFields">
+            <div class="col-md-6"><label class="form-label small mb-1">氏名 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="name"></div>
+            <div class="col-md-6"><label class="form-label small mb-1">電話</label><input type="tel" class="form-control form-control-sm s-field" data-field="phone"></div>
+            <div class="col-md-12"><label class="form-label small mb-1">住所 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="address"></div>
+            <div class="col-md-6"><label class="form-label small mb-1">メールアドレス <span class="text-danger">*</span></label><input type="email" class="form-control form-control-sm s-field" data-field="email"></div>
+            <div class="col-md-6"></div>
+            <div class="col-md-6"><label class="form-label small mb-1">金融機関名 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="bankName"></div>
+            <div class="col-md-6"><label class="form-label small mb-1">支店名 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="branchName"></div>
+            <div class="col-md-4"><label class="form-label small mb-1">口座種類</label>
+              <select class="form-select form-select-sm s-field" data-field="accountType">
+                <option value="普通">普通</option><option value="当座">当座</option>
+              </select>
+            </div>
+            <div class="col-md-4"><label class="form-label small mb-1">口座番号 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="accountNumber"></div>
+            <div class="col-md-4"><label class="form-label small mb-1">口座名義 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="accountHolder"></div>
+          </div>
+        </div>
+      </div>
+
       <div class="card mb-3">
         <div class="card-body">
           <h6 class="mb-2">自動集計</h6>
@@ -120,6 +147,52 @@ const MyInvoiceCreatePage = {
       const d = await db.collection("staff").doc(this.staffId).get();
       this.staffDoc = d.exists ? { id: d.id, ...d.data() } : {};
     } catch (_) { this.staffDoc = {}; }
+    this._renderStaffInfoFields();
+  },
+
+  // スタッフ情報パネルの値を流し込み + 自動保存をセット
+  _renderStaffInfoFields() {
+    const fields = ["name", "phone", "address", "email", "bankName", "branchName", "accountType", "accountNumber", "accountHolder"];
+    fields.forEach(f => {
+      const el = document.querySelector(`.s-field[data-field="${f}"]`);
+      if (!el) return;
+      let v = this.staffDoc[f];
+      // 住所の互換: memo に入っているケース
+      if (f === "address" && !v) v = this.staffDoc.memo || "";
+      el.value = v || (f === "accountType" ? "普通" : "");
+      // 自動保存 (debounced)
+      if (!el._saveBound) {
+        el._saveBound = true;
+        el.addEventListener("input", () => this._queueStaffSave());
+        el.addEventListener("change", () => this._queueStaffSave());
+      }
+    });
+  },
+
+  _queueStaffSave() {
+    if (this._staffSaveTimer) clearTimeout(this._staffSaveTimer);
+    const status = document.getElementById("staffInfoSaveStatus");
+    if (status) status.innerHTML = `<i class="bi bi-arrow-repeat text-muted"></i> 保存中...`;
+    this._staffSaveTimer = setTimeout(() => this._saveStaffInfo(), 800);
+  },
+
+  async _saveStaffInfo() {
+    if (!this.staffId) return;
+    const patch = { updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+    document.querySelectorAll(".s-field").forEach(el => {
+      patch[el.dataset.field] = el.value || "";
+    });
+    const status = document.getElementById("staffInfoSaveStatus");
+    try {
+      await db.collection("staff").doc(this.staffId).set(patch, { merge: true });
+      Object.assign(this.staffDoc, patch);
+      if (status) {
+        status.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill"></i> 保存済み</span>`;
+        setTimeout(() => { if (status.innerHTML.includes("保存済み")) status.innerHTML = ""; }, 2000);
+      }
+    } catch (e) {
+      if (status) status.innerHTML = `<span class="text-danger">保存失敗: ${e.message}</span>`;
+    }
   },
 
   // 報酬単価マスタから、このスタッフに適用されるレートを収集

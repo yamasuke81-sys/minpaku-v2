@@ -148,8 +148,28 @@ const NotificationsPage = {
               </div>
               <div class="form-text">メール通知の送信先。送信時 invalid_grant エラーが出たら「Gmail再接続」を押してください。</div>
             </div>
+            <div class="col-md-6">
+              <label class="form-label">Discord (オーナー) Webhook URL</label>
+              <input type="url" class="form-control" id="discordOwnerWebhookUrl" placeholder="https://discord.com/api/webhooks/...">
+              <div class="form-text">Discord サーバー → チャンネル設定 → 連携サービス → Webhook で作成</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Discord (サブオーナー) Webhook URL</label>
+              <input type="url" class="form-control" id="discordSubOwnerWebhookUrl" placeholder="https://discord.com/api/webhooks/...">
+              <div class="form-text">サブオーナー共有チャンネルの Webhook URL</div>
+            </div>
           </div>
         </div>
+      </div>
+
+      <!-- LINE 利用状況 -->
+      <div class="alert alert-info small mb-3">
+        <i class="bi bi-info-circle"></i>
+        <strong>LINE 月間送信上限</strong>:
+        無料プラン = <strong>200通/月</strong>、
+        ライトプラン(5,500円/月) = <strong>5,000通</strong>、
+        スタンダードプラン(17,600円/月) = <strong>30,000通</strong>。
+        送信上限に達すると 429 エラー。Discord/メール併用を推奨します。
       </div>
 
       <!-- 通知チャンネル設定 -->
@@ -161,6 +181,8 @@ const NotificationsPage = {
         <span><i class="bi bi-people-fill text-primary"></i> グループLINE</span>
         <span><i class="bi bi-person-lines-fill text-info"></i> スタッフ個別LINE</span>
         <span><i class="bi bi-envelope text-warning"></i> オーナーメール</span>
+        <span><i class="bi bi-discord" style="color:#5865F2"></i> Discord(オーナー)</span>
+        <span><i class="bi bi-discord" style="color:#8da0f8"></i> Discord(サブオーナー)</span>
       </div>
 
       <h6 class="text-muted mb-2"><i class="bi bi-megaphone"></i> 募集関連</h6>
@@ -203,6 +225,10 @@ const NotificationsPage = {
     document.getElementById("lineGroupId").value = this.settings.lineGroupId || "";
     document.getElementById("lineOwnerUserId").value = this.settings.lineOwnerUserId || this.settings.lineOwnerId || "";
     document.getElementById("ownerEmail").value = this.settings.ownerEmail || "";
+    const d1 = document.getElementById("discordOwnerWebhookUrl");
+    const d2 = document.getElementById("discordSubOwnerWebhookUrl");
+    if (d1) d1.value = this.settings.discordOwnerWebhookUrl || "";
+    if (d2) d2.value = this.settings.discordSubOwnerWebhookUrl || "";
   },
 
   renderNotifications() {
@@ -223,6 +249,8 @@ const NotificationsPage = {
         const groupLine = !!ch.groupLine;
         const staffLine = !!ch.staffLine;
         const ownerEmail = !!ch.ownerEmail;
+        const discordOwner = !!ch.discordOwner;
+        const discordSubOwner = !!ch.discordSubOwner;
         const customMessage = ch.customMessage || "";
         const msgValue = customMessage || n.defaultMsg || n.desc;
         const vars = this.systemVariables[n.varGroup] || [];
@@ -279,6 +307,14 @@ const NotificationsPage = {
                   <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="ownerEmail" ${ownerEmail ? "checked" : ""}>
                     <span class="form-check-label small"><i class="bi bi-envelope text-warning"></i> オーナーメール</span>
+                  </label>
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
+                    <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="discordOwner" ${discordOwner ? "checked" : ""}>
+                    <span class="form-check-label small"><i class="bi bi-discord" style="color:#5865F2"></i> Discord(オーナー)</span>
+                  </label>
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
+                    <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="discordSubOwner" ${discordSubOwner ? "checked" : ""}>
+                    <span class="form-check-label small"><i class="bi bi-discord" style="color:#8da0f8"></i> Discord(サブオーナー)</span>
                   </label>
                 </div>
 
@@ -646,6 +682,8 @@ const NotificationsPage = {
         lineGroupId: document.getElementById("lineGroupId").value.trim(),
         lineOwnerUserId: document.getElementById("lineOwnerUserId").value.trim(),
         ownerEmail: document.getElementById("ownerEmail").value.trim(),
+        discordOwnerWebhookUrl: (document.getElementById("discordOwnerWebhookUrl")?.value || "").trim(),
+        discordSubOwnerWebhookUrl: (document.getElementById("discordSubOwnerWebhookUrl")?.value || "").trim(),
         enableLine: true,
         channels,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),

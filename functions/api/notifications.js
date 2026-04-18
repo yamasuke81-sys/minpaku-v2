@@ -13,6 +13,7 @@ const {
   pushMessages_,
   getNotificationSettings_,
   sendNotificationEmail_,
+  sendDiscord_,
 } = require("../utils/lineNotify");
 
 module.exports = function notificationsApi(db) {
@@ -45,14 +46,17 @@ module.exports = function notificationsApi(db) {
     let sentCount = 0;
     let failCount = 0;
 
-    // LINE設定をまとめて取得
+    // LINE / Discord / メール設定をまとめて取得
     let channelToken = null, ownerUserId = null, groupId = null, ownerEmail = null;
+    let discordOwnerUrl = null, discordSubOwnerUrl = null;
     try {
       const s = await getNotificationSettings_(db);
       channelToken = s.channelToken;
       ownerUserId = s.ownerUserId;
       groupId = s.groupId;
       ownerEmail = s.settings && s.settings.ownerEmail;
+      discordOwnerUrl = s.settings && s.settings.discordOwnerWebhookUrl;
+      discordSubOwnerUrl = s.settings && s.settings.discordSubOwnerWebhookUrl;
     } catch (e) {
       return res.status(500).json({
         error: "通知設定の取得に失敗しました: " + e.message,
@@ -114,6 +118,30 @@ module.exports = function notificationsApi(db) {
           results.push({ target: "staffLine", success: false, error: e.message });
           failCount++;
         }
+      }
+    }
+
+    // Discord (オーナー)
+    if (targets.discordOwner) {
+      if (!discordOwnerUrl) {
+        results.push({ target: "discordOwner", success: false, error: "Discord(オーナー)Webhook URL 未設定" });
+        failCount++;
+      } else {
+        const r = await sendDiscord_(discordOwnerUrl, body);
+        if (r.success) sentCount++; else failCount++;
+        results.push({ target: "discordOwner", ...r });
+      }
+    }
+
+    // Discord (サブオーナー)
+    if (targets.discordSubOwner) {
+      if (!discordSubOwnerUrl) {
+        results.push({ target: "discordSubOwner", success: false, error: "Discord(サブオーナー)Webhook URL 未設定" });
+        failCount++;
+      } else {
+        const r = await sendDiscord_(discordSubOwnerUrl, body);
+        if (r.success) sentCount++; else failCount++;
+        results.push({ target: "discordSubOwner", ...r });
       }
     }
 

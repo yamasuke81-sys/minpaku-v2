@@ -237,26 +237,30 @@ async function getNotificationSettings_(db) {
  * @returns {{ enabled: boolean, ownerLine: boolean, groupLine: boolean, staffLine: boolean, ownerEmail: boolean, sendToGroup: boolean, sendToIndividual: boolean }}
  */
 function resolveNotifyTargets(settings, notifyType) {
-  const defaults = { enabled: true, ownerLine: true, groupLine: false, staffLine: false, ownerEmail: false, sendToGroup: false, sendToIndividual: true };
+  const defaults = { enabled: true, ownerLine: true, groupLine: false, staffLine: false, ownerEmail: false, discordOwner: false, discordSubOwner: false, sendToGroup: false, sendToIndividual: true };
   if (!settings || !settings.channels) return defaults;
   const ch = settings.channels[notifyType];
   if (!ch) return defaults;
   if (ch.enabled === false) {
-    return { enabled: false, ownerLine: false, groupLine: false, staffLine: false, ownerEmail: false, sendToGroup: false, sendToIndividual: false };
+    return { enabled: false, ownerLine: false, groupLine: false, staffLine: false, ownerEmail: false, discordOwner: false, discordSubOwner: false, sendToGroup: false, sendToIndividual: false };
   }
 
-  // 新形式: ownerLine / groupLine / staffLine / ownerEmail（チェックボックス複数選択）
-  if (ch.ownerLine !== undefined || ch.groupLine !== undefined || ch.staffLine !== undefined || ch.ownerEmail !== undefined) {
+  // 新形式: ownerLine / groupLine / staffLine / ownerEmail / discordOwner / discordSubOwner
+  if (ch.ownerLine !== undefined || ch.groupLine !== undefined || ch.staffLine !== undefined || ch.ownerEmail !== undefined || ch.discordOwner !== undefined || ch.discordSubOwner !== undefined) {
     const ownerLine = ch.ownerLine !== false;
     const groupLine = !!ch.groupLine;
     const staffLine = !!ch.staffLine;
     const ownerEmail = !!ch.ownerEmail;
+    const discordOwner = !!ch.discordOwner;
+    const discordSubOwner = !!ch.discordSubOwner;
     return {
       enabled: true,
       ownerLine,
       groupLine,
       staffLine,
       ownerEmail,
+      discordOwner,
+      discordSubOwner,
       // 後方互換
       sendToGroup: groupLine,
       sendToIndividual: staffLine,
@@ -546,6 +550,43 @@ async function notifyOwner(db, type, title, body, vars) {
 }
 
 /**
+ * Discord Webhook に通知を送信
+ * @param {string} webhookUrl Discord Webhook URL
+ * @param {string} content テキスト (最大2000文字)
+ */
+function sendDiscord_(webhookUrl, content) {
+  return new Promise((resolve) => {
+    try {
+      const u = new URL(webhookUrl);
+      const body = JSON.stringify({ content: String(content || "").slice(0, 1900) });
+      const options = {
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+          "User-Agent": "minpaku-v2-bot",
+        },
+      };
+      const req = https.request(options, (res) => {
+        let data = "";
+        res.on("data", (c) => data += c);
+        res.on("end", () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) resolve({ success: true });
+          else resolve({ success: false, error: `HTTP ${res.statusCode}: ${data.slice(0, 200)}` });
+        });
+      });
+      req.on("error", (e) => resolve({ success: false, error: e.message }));
+      req.write(body);
+      req.end();
+    } catch (e) {
+      resolve({ success: false, error: "不正なDiscord Webhook URL: " + e.message });
+    }
+  });
+}
+
+/**
  * Gmail APIでメール通知送信（OAuth2リフレッシュトークン方式）
  */
 async function sendNotificationEmail_(to, subject, body) {
@@ -602,4 +643,5 @@ module.exports = {
   resolveNotifyTargets,
   getNotificationSettings_,
   sendNotificationEmail_,
+  sendDiscord_,
 };
