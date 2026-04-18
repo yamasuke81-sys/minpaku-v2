@@ -26,3 +26,7 @@ if (USE_EMULATOR) {
 // LINE Login チャネルID（LINE Developers Console → LINE Login → Channel ID）
 // スタッフのLINEログインに使用。未設定の場合はLINEログインボタンが無効になる
 window.LINE_LOGIN_CHANNEL_ID = "2009790221";
+
+// FCM VAPID 公開キー (Firebase Console → プロジェクト設定 → Cloud Messaging → ウェブプッシュ証明書)
+// Web Push 通知のトークン取得に使用
+window.FCM_VAPID_KEY = "BNQ2p2-IZDYu4Ru5PvMzKtZWbuZ5pq07ln8SJL-gat-Ky85EjIYNVuDYHZWbhPo9NJ-X8rzVpaRiTgW5Cp0Evu8";
