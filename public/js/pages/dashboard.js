@@ -8,7 +8,9 @@ const DashboardPage = {
   bookings: [],
   recruitments: [],
   staffList: [],
-  guestMap: {},  // CI日→名簿データのマップ
+  guestMap: {},       // CI日→名簿データのマップ
+  properties: [],     // 物件一覧（active=true）
+  propertyFilter: {}, // 物件表示フラグ {propertyId: boolean}
 
   async render(container) {
     container.innerHTML = `
@@ -55,6 +57,9 @@ const DashboardPage = {
       <!-- 今日のアクション -->
       <div id="todayActions" class="mb-3"></div>
 
+      <!-- 物件フィルタ -->
+      <div id="dashPropertyFilter" class="d-flex flex-wrap align-items-center gap-2 mb-2 small"></div>
+
       <!-- 凡例 -->
       <div class="d-flex flex-wrap gap-3 mb-2 small text-muted">
         <span><span class="cal-legend" style="background:#FF5A5F"></span>Airbnb</span>
@@ -81,16 +86,18 @@ const DashboardPage = {
     await this.loadAllData();
     this.renderStats();
     this.renderTodayActions();
+    this.renderPropertyFilter();
     this.initCalendar();
   },
 
   async loadAllData() {
     try {
-      const [recruitSnap, staff, bookingSnap, guestSnap] = await Promise.all([
+      const [recruitSnap, staff, bookingSnap, guestSnap, propSnap] = await Promise.all([
         db.collection("recruitments").get(),
         API.staff.list(true),
         db.collection("bookings").get(),
         db.collection("guestRegistrations").get(),
+        db.collection("properties").where("active", "==", true).get(),
       ]);
 
       // === 募集データの正規化（checkOutDate/checkoutDate両対応 + volunteers統合） ===
@@ -258,6 +265,18 @@ const DashboardPage = {
       guests.forEach(g => {
         const ci = this.toDateStr(g.checkIn);
         if (ci) this.guestMap[ci] = g;
+      });
+
+      // 物件一覧を displayOrder 昇順でセット
+      this.properties = propSnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (a.displayOrder ?? 99) - (b.displayOrder ?? 99));
+
+      // 物件フィルタ初期化（localStorage から復元、未登録は ON）
+      const savedFilter = this._loadPropertyFilter();
+      this.propertyFilter = {};
+      this.properties.forEach(p => {
+        this.propertyFilter[p.id] = savedFilter[p.id] !== false;
       });
 
       this.bookings = bookings;
@@ -490,6 +509,8 @@ const DashboardPage = {
       const ci = this.toDateStr(b.checkIn);
       const co = this.toDateStr(b.checkOut);
       if (!ci) return;
+      // 物件フィルタ: propertyId が設定されていてフィルタ OFF の場合はスキップ
+      if (b.propertyId && this.propertyFilter[b.propertyId] === false) return;
 
       const platformClass = this.getPlatformClass(b);
       const rosterOk = this.hasGuestRegistration(b);
@@ -523,6 +544,8 @@ const DashboardPage = {
     Object.values(recruitByCoDate).forEach(r => {
       const coStr = this.toDateStr(r.checkoutDate);
       if (!coStr) return;
+      // 物件フィルタ: propertyId が設定されていてフィルタ OFF の場合はスキップ
+      if (r.propertyId && this.propertyFilter[r.propertyId] === false) return;
       const responses = r.responses || [];
       const maru = responses.filter(v => v.response === "◎").length;
       const sankaku = responses.filter(v => v.response === "△").length;
@@ -569,18 +592,51 @@ const DashboardPage = {
     return events;
   },
 
-  // === 日付クリック → 募集作成 ===
+  // === 日付クリック → 物件選択 → 募集作成 ===
   async onDateClick(info) {
     const dateStr = info.dateStr;
-    // 既にその日の募集があるか
+    // 既にその日の募集があるか（複数物件対応: 同日複数募集があれば最初の1件を開く）
     const existing = this.recruitments.find(r => this.toDateStr(r.checkoutDate) === dateStr);
     if (existing) {
       this.openRecruitmentModal(existing);
       return;
     }
-    if (!confirm(`${dateStr} の清掃募集を作成しますか？`)) return;
+
+    // 物件選択
+    const activeProps = this.properties.filter(p => p.active !== false);
+    let propertyId, propertyName;
+
+    if (activeProps.length === 0) {
+      await showAlert("有効な物件がありません。物件管理画面で物件を追加してください。");
+      return;
+    } else if (activeProps.length === 1) {
+      // 1件のみなら自動選択
+      propertyId = activeProps[0].id;
+      propertyName = activeProps[0].name;
+    } else {
+      // 複数ある場合はラジオボタンで選択
+      const radioHtml = activeProps.map((p, i) => `
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="propSelect" id="propOpt${i}" value="${p.id}" ${i === 0 ? "checked" : ""}>
+          <label class="form-check-label" for="propOpt${i}">${this.esc(p.name)}</label>
+        </div>
+      `).join("");
+
+      // Bootstrap モーダルで物件選択
+      const ok = await this._showPropertySelectModal(dateStr, radioHtml);
+      if (!ok) return; // キャンセル
+      const checkedInput = document.querySelector('input[name="propSelect"]:checked');
+      if (!checkedInput) return;
+      propertyId = checkedInput.value;
+      const selected = activeProps.find(p => p.id === propertyId);
+      propertyName = selected ? selected.name : "";
+    }
+
+    const confirmed = await showConfirm(`${dateStr} (${propertyName}) の清掃募集を作成しますか？`, { title: "募集作成", okLabel: "作成" });
+    if (!confirmed) return;
+
     try {
-      const created = await API.recruitments.create({ checkoutDate: dateStr });
+      const created = await API.recruitments.create({ checkoutDate: dateStr, propertyId, propertyName });
       showToast("完了", `${dateStr} の募集を作成しました`, "success");
       // リロード
       this.recruitments = await API.recruitments.list();
@@ -593,6 +649,49 @@ const DashboardPage = {
     } catch (e) {
       showToast("エラー", e.message, "error");
     }
+  },
+
+  // 物件選択用モーダル（Promise<boolean>）
+  _showPropertySelectModal(dateStr, radioHtml) {
+    return new Promise((resolve) => {
+      const modalId = "dashPropSelectModal";
+      let el = document.getElementById(modalId);
+      if (!el) {
+        const div = document.createElement("div");
+        div.innerHTML = `
+          <div class="modal fade" id="${modalId}" tabindex="-1">
+            <div class="modal-dialog modal-dialog-centered">
+              <div class="modal-content">
+                <div class="modal-header py-2">
+                  <h6 class="modal-title" id="${modalId}Title">物件を選択</h6>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="${modalId}Body"></div>
+                <div class="modal-footer py-2">
+                  <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">キャンセル</button>
+                  <button type="button" class="btn btn-primary btn-sm" id="${modalId}Ok">選択</button>
+                </div>
+              </div>
+            </div>
+          </div>`;
+        document.body.appendChild(div.firstElementChild);
+        el = document.getElementById(modalId);
+      }
+
+      document.getElementById(`${modalId}Title`).textContent = `物件を選択（${dateStr}）`;
+      document.getElementById(`${modalId}Body`).innerHTML = radioHtml;
+
+      const modal = bootstrap.Modal.getOrCreateInstance(el);
+      let resolved = false;
+
+      const okBtn = document.getElementById(`${modalId}Ok`);
+      const onOk = () => { resolved = true; modal.hide(); resolve(true); };
+      okBtn.replaceWith(okBtn.cloneNode(true)); // 旧イベント除去
+      document.getElementById(`${modalId}Ok`).addEventListener("click", onOk, { once: true });
+
+      el.addEventListener("hidden.bs.modal", () => { if (!resolved) resolve(false); }, { once: true });
+      modal.show();
+    });
   },
 
   onEventClick(info) {
@@ -748,7 +847,8 @@ const DashboardPage = {
         const selected = [];
         modalEl.querySelectorAll(".staff-sel-cb:checked").forEach(cb => selected.push(cb.value));
         if (!selected.length) {
-          if (!confirm("スタッフを全員外して募集中に戻しますか？")) return;
+          const ok = await showConfirm("スタッフを全員外して募集中に戻しますか？");
+          if (!ok) return;
         }
         try {
           await API.recruitments.selectStaff(r.id, selected.join(","));
@@ -769,7 +869,7 @@ const DashboardPage = {
     const confBtn = modalEl.querySelector("#calBtnConfirm");
     if (confBtn) {
       confBtn.addEventListener("click", async () => {
-        if (!confirm(`${r.selectedStaff} を確定しますか？`)) return;
+        if (!await showConfirm(`${r.selectedStaff} を確定しますか？`, { title: "確定", okLabel: "確定する" })) return;
         try {
           await API.recruitments.confirm(r.id);
           showToast("完了", "スタッフ確定しました", "success");
@@ -786,7 +886,7 @@ const DashboardPage = {
     const reopenBtnEl = modalEl.querySelector("#calBtnReopen");
     if (reopenBtnEl) {
       reopenBtnEl.addEventListener("click", async () => {
-        if (!confirm("募集を再開しますか？")) return;
+        if (!await showConfirm("募集を再開しますか？", { title: "募集再開", okLabel: "再開" })) return;
         try {
           await API.recruitments.reopen(r.id);
           showToast("完了", "募集を再開しました", "success");
@@ -804,7 +904,7 @@ const DashboardPage = {
     if (deleteBtn) {
       deleteBtn.addEventListener("click", async () => {
         const coDate = this.toDateStr(r.checkoutDate);
-        if (!confirm(`${coDate} の募集を削除しますか？\nこの操作は取り消せません。`)) return;
+        if (!await showConfirm(`${coDate} の募集を削除しますか？この操作は取り消せません。`, { title: "削除確認", okLabel: "削除" })) return;
         try {
           await db.collection("recruitments").doc(r.id).delete();
           showToast("完了", `${coDate} の募集を削除しました`, "success");
@@ -945,6 +1045,54 @@ const DashboardPage = {
     if (!this.calendar) return;
     this.calendar.removeAllEvents();
     this.calendar.addEventSource(this.buildCalendarEvents());
+  },
+
+  // === 物件フィルタ UI ===
+  renderPropertyFilter() {
+    const container = document.getElementById("dashPropertyFilter");
+    if (!container || this.properties.length === 0) return;
+
+    const items = this.properties.map(p => {
+      const checked = this.propertyFilter[p.id] !== false;
+      const color = p.color || "#6c757d";
+      return `
+        <div class="form-check form-check-inline mb-0">
+          <input class="form-check-input dash-prop-filter" type="checkbox"
+            id="dpf_${p.id}" value="${p.id}" ${checked ? "checked" : ""}
+            style="border-color:${this.esc(color)}; background-color:${checked ? this.esc(color) : "#fff"};">
+          <label class="form-check-label text-muted" for="dpf_${p.id}" style="font-size:12px;">
+            ${this.esc(p.name)}
+          </label>
+        </div>
+      `;
+    }).join("");
+
+    container.innerHTML = `<span class="text-muted me-1" style="font-size:12px;">物件:</span>${items}`;
+
+    container.querySelectorAll(".dash-prop-filter").forEach(cb => {
+      cb.addEventListener("change", () => {
+        const pid = cb.value;
+        this.propertyFilter[pid] = cb.checked;
+        // チェックボックスの背景色を更新
+        const p = this.properties.find(x => x.id === pid);
+        cb.style.backgroundColor = cb.checked ? (p?.color || "#6c757d") : "#fff";
+        this._savePropertyFilter();
+        this.refreshCalendar();
+      });
+    });
+  },
+
+  _loadPropertyFilter() {
+    try {
+      const raw = localStorage.getItem("dashboardPropertyFilter");
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) { return {}; }
+  },
+
+  _savePropertyFilter() {
+    try {
+      localStorage.setItem("dashboardPropertyFilter", JSON.stringify(this.propertyFilter));
+    } catch (e) { /* ignore */ }
   },
 
   toDateStr(val) {

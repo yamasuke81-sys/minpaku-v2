@@ -385,6 +385,9 @@ function validateRecruitmentData(body, isUpdate = false) {
   if (!isUpdate && !body.checkoutDate) {
     return { error: "チェックアウト日は必須です" };
   }
+  if (!isUpdate && !body.propertyId) {
+    return { error: "propertyIdは必須です" };
+  }
   if (body.checkoutDate !== undefined) data.checkoutDate = String(body.checkoutDate).trim();
   if (body.propertyId !== undefined) data.propertyId = String(body.propertyId).trim();
   if (body.propertyName !== undefined) data.propertyName = String(body.propertyName).trim();
