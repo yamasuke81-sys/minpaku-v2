@@ -3,9 +3,37 @@
  */
 const SettingsPage = {
   async render(container) {
+    const currentUser = firebase.auth().currentUser;
+    const currentEmail = currentUser?.email || "";
     container.innerHTML = `
       <div class="page-header">
         <h2><i class="bi bi-gear"></i> 設定</h2>
+      </div>
+
+      <!-- アカウント設定 -->
+      <div class="card mb-4">
+        <div class="card-header"><h5 class="mb-0"><i class="bi bi-person-circle"></i> アカウント設定</h5></div>
+        <div class="card-body">
+          <div class="row g-3 align-items-end">
+            <div class="col-md-6">
+              <label class="form-label">現在のログインメールアドレス</label>
+              <input type="email" class="form-control" id="accountCurrentEmail" value="${currentEmail}" readonly style="background:#f8f9fa;">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">新しいメールアドレス</label>
+              <input type="email" class="form-control" id="accountNewEmail" placeholder="new@example.com">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">現在のパスワード <small class="text-muted">(メール変更時に必要)</small></label>
+              <input type="password" class="form-control" id="accountCurrentPw">
+            </div>
+            <div class="col-md-6">
+              <button class="btn btn-primary" id="btnChangeEmail"><i class="bi bi-envelope"></i> メールアドレスを変更</button>
+              <button class="btn btn-outline-warning" id="btnSendPwReset"><i class="bi bi-key"></i> パスワードリセットメールを送信</button>
+            </div>
+            <div id="accountResult" class="col-12"></div>
+          </div>
+        </div>
       </div>
 
       <!-- データ移行セクション -->
@@ -322,6 +350,46 @@ const SettingsPage = {
   ],
 
   bindEvents() {
+    // アカウント設定: メール変更
+    document.getElementById("btnChangeEmail")?.addEventListener("click", async () => {
+      const newEmail = document.getElementById("accountNewEmail").value.trim();
+      const currentPw = document.getElementById("accountCurrentPw").value;
+      const result = document.getElementById("accountResult");
+      if (!newEmail) { result.innerHTML = `<div class="alert alert-danger">新しいメールアドレスを入力してください</div>`; return; }
+      if (!currentPw) { result.innerHTML = `<div class="alert alert-danger">現在のパスワードを入力してください</div>`; return; }
+      const ok = await showConfirm(`ログインメールを ${newEmail} に変更します。変更後は新しいメールで再ログインしてください。続行しますか？`, "メール変更確認");
+      if (!ok) return;
+      try {
+        const user = firebase.auth().currentUser;
+        const cred = firebase.auth.EmailAuthProvider.credential(user.email, currentPw);
+        await user.reauthenticateWithCredential(cred);
+        await user.updateEmail(newEmail);
+        // 念のためメール確認送信
+        try { await user.sendEmailVerification(); } catch (_) {}
+        result.innerHTML = `<div class="alert alert-success">メールアドレスを変更しました。確認メールを ${newEmail} に送信しました。一度ログアウトして新しいメールでログインしてください。</div>`;
+      } catch (e) {
+        const m = {
+          "auth/wrong-password": "現在のパスワードが違います",
+          "auth/email-already-in-use": "このメールアドレスは既に使われています",
+          "auth/requires-recent-login": "再ログインが必要です。一度ログアウトして再度ログインしてからお試しください",
+          "auth/invalid-email": "メールアドレスの形式が正しくありません",
+        };
+        result.innerHTML = `<div class="alert alert-danger">変更失敗: ${m[e.code] || e.message}</div>`;
+      }
+    });
+    // アカウント設定: パスワードリセットメール送信
+    document.getElementById("btnSendPwReset")?.addEventListener("click", async () => {
+      const email = firebase.auth().currentUser?.email;
+      const result = document.getElementById("accountResult");
+      if (!email) { result.innerHTML = `<div class="alert alert-danger">ログイン中のメールアドレスが取得できません</div>`; return; }
+      try {
+        await firebase.auth().sendPasswordResetEmail(email);
+        result.innerHTML = `<div class="alert alert-success">${email} にパスワードリセットメールを送信しました。メールのリンクから新しいパスワードを設定してください。</div>`;
+      } catch (e) {
+        result.innerHTML = `<div class="alert alert-danger">送信失敗: ${e.message}</div>`;
+      }
+    });
+
     // 自動取込ボタン
     document.getElementById("btnAutoImport").addEventListener("click", () => this.autoImportAll());
 

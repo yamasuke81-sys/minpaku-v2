@@ -357,10 +357,21 @@ const PrepaidCardsPage = {
       numberInput.value = `${prefix}${String(max + 1).padStart(3, "0")}`;
     };
 
-    // 既に設定済みの頭文字があれば自動入力
+    // 提出先変更時: 頭文字を自動推定 (既存設定 > 提出先名の先頭漢字/かな > 提出先名全体)
     depotSel.addEventListener("change", () => {
       const depotId = depotSel.value;
-      if (depotId && this.depotPrefixes[depotId]) prefixInput.value = this.depotPrefixes[depotId];
+      if (!depotId) { prefixInput.value = ""; refreshNumber(); return; }
+      // 1. 既に設定済みの頭文字があればそれを使う
+      if (this.depotPrefixes[depotId]) {
+        prefixInput.value = this.depotPrefixes[depotId];
+      } else {
+        // 2. 提出先名から自動推定: 先頭の日本語単語 (漢字+かな) を頭文字に採用
+        const depot = this.depots.find(d => (d.id || d.name) === depotId);
+        const depotName = depot?.name || "";
+        // 先頭の連続する日本語文字 (漢字・ひらがな・カタカナ) または英字
+        const auto = (depotName.match(/^[一-龯ぁ-んァ-ヴー]+|^[A-Za-z]+/)?.[0] || depotName.split(/[\s　]/)[0] || depotName.slice(0, 4)).trim();
+        prefixInput.value = auto;
+      }
       refreshNumber();
     }, { once: false });
     prefixInput.addEventListener("input", refreshNumber);

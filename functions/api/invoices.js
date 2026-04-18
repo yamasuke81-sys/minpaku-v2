@@ -425,7 +425,13 @@ module.exports = function invoicesApi(db) {
         .where("date", ">=", start)
         .where("date", "<=", end)
         .get();
-      const laundry = laundrySnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // 全ランドリー記録を取得 (立替金フラグで分離)
+      const laundryAll = laundrySnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // 立替金のみを集計に含める: isReimbursable=true or 旧データは paymentMethod=cash/credit
+      const laundry = laundryAll.filter(l => {
+        if (l.isReimbursable !== undefined) return l.isReimbursable === true;
+        return l.paymentMethod === "cash" || l.paymentMethod === "credit" || !l.paymentMethod;
+      });
 
       const basePayment = shifts.length * (staffDoc.ratePerJob || 0);
       const laundryFee = laundry.reduce((s, l) => s + (l.amount || 0), 0);
