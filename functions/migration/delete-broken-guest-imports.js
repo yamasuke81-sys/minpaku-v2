@@ -44,12 +44,22 @@ function initAdmin() {
     });
     console.log("認証: GOOGLE_APPLICATION_CREDENTIALS 環境変数を使用");
   } else {
-    console.error(
-      "エラー: 認証情報が見つかりません。\n" +
-      "  1. serviceAccountKey.json を functions/migration/ に置く\n" +
-      "  2. または GOOGLE_APPLICATION_CREDENTIALS 環境変数を設定する"
-    );
-    process.exit(1);
+    // gcloud auth application-default login で設定された ADC をフォールバックとして試す
+    try {
+      admin.initializeApp({
+        credential: admin.credential.applicationDefault(),
+        projectId: PROJECT_ID,
+      });
+      console.log("認証: Application Default Credentials (gcloud) を使用");
+    } catch (e) {
+      console.error(
+        "エラー: 認証情報が見つかりません。\n" +
+        "  1. serviceAccountKey.json を functions/migration/ に置く\n" +
+        "  2. GOOGLE_APPLICATION_CREDENTIALS 環境変数を設定する\n" +
+        "  3. または gcloud auth application-default login で ADC を設定する"
+      );
+      process.exit(1);
+    }
   }
 }
 
@@ -67,12 +77,19 @@ async function main() {
   console.log(`  - createdAt >= 2026-04-18 00:00:00 JST`);
   console.log("");
 
-  // 対象ドキュメントを検索
-  const snap = await db.collection("guestRegistrations")
+  // 対象ドキュメントを検索 (source で絞り、createdAt はJS側でフィルタ - インデックス不要)
+  const rawSnap = await db.collection("guestRegistrations")
     .where("source", "==", "gas_form_sync")
-    .where("createdAt", ">=", CUTOFF_DATE)
     .get();
+  console.log(`source=gas_form_sync 全体: ${rawSnap.size} 件`);
 
+  const filteredDocs = rawSnap.docs.filter((doc) => {
+    const d = doc.data();
+    const raw = d.createdAt;
+    const t = raw?.toDate?.() || (raw instanceof Date ? raw : (typeof raw === "string" ? new Date(raw) : null));
+    return t && t >= CUTOFF_DATE;
+  });
+  const snap = { size: filteredDocs.length, docs: filteredDocs };
   const total = snap.size;
   console.log(`対象ドキュメント数: ${total} 件`);
 
