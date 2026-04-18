@@ -1,39 +1,47 @@
 /**
  * Googleフォーム回答 → 民泊管理v2 宿泊者名簿 自動転記スクリプト
  *
- * 【実際の列インデックス（debugColumnsで確認済み）】
+ * 【正しい列インデックス（2026-04-19 CSVで再確認、フォームに列追加が入っていたため全体+1シフト）】
  *  0: タイムスタンプ
- *  3: チェックイン（日時）  例: "Mon Mar 30 2026 15:00:00"
- *  4: チェックアウト（日時）例: "Tue Mar 31 2026 10:00:00"
- *  7: 備考
- *  8: 氏名（代表者）
- *  9: 電話番号1
- * 10: メールアドレス
- * 11: 住所
- * 12: 年齢
- * 13: 国籍
- * 14: 旅券番号
- * 15: パスポート写真
- * 16: 宿泊人数
- * 17: 乳幼児人数
- * 42〜: 同行者（6列ずつ: 氏名,住所,年齢,国籍,旅券番号,パスポート写真）
- *        ゲスト2=42, ゲスト3=48, ゲスト4=54, ゲスト5=60, ゲスト6=66
- * 72: 軽自動車・小型車台数
- * 73: ミニバン以下台数
- * 74: 全長5m級台数
- * 75: 公共交通機関
- * 76: タクシー
- * 78: BBQ利用
- * 79: どこで知ったか
- * 80: 予約サイト
- * 82: 電話番号2
- * 84: 旅の目的
- * 86: ベッド数選択（存在する場合）
- * 89: 有料駐車場
- * 90: 前泊地（存在する場合）
- * 91: 後泊地（存在する場合）
- * 93: メールアドレス（確認用）
- * 100: 連絡事項
+ *  1: (空)
+ *  2: 事前に同意セクション
+ *  3: 宿泊者情報入力説明
+ *  4: チェックイン / Check-in
+ *  5: チェックアウト / Check-out
+ *  6: 直前担当
+ *  7: 清掃担当
+ *  8: 備考
+ *  9: 氏名 / Full Name（代表者）
+ * 10: 電話番号 / Phone Number
+ * 11: メールアドレス / Email Address
+ * 12: 住所 / Address
+ * 13: 年齢 / Age
+ * 14: 国籍 / Nationality
+ * 15: 旅券番号
+ * 16: パスポート写真
+ * 17: 宿泊人数
+ * 18: 3才以下乳幼児人数
+ * 19-24: 同行者1（氏名,住所,年齢,国籍,旅券番号,パスポート写真）
+ * 25-30: 同行者2
+ * 31-36: 同行者3
+ * 37-42: 同行者4
+ * 43-48: 同行者5
+ * 49-54: 同行者6
+ * 55-60: 同行者7
+ * 61-66: 同行者8
+ * 67: 軽自動車・小型車台数
+ * 68: ミニバン以下台数
+ * 69: 全長5m級台数
+ * 70: 公共交通機関
+ * 71: タクシー
+ * 72: 駐車しやすい有料駐車場
+ * 73: BBQ利用
+ * 74: どこで知ったか
+ * 75: どこで予約したか
+ * 76: その他詳細
+ * 77: 電話番号2（確認用）
+ * 78: 運転上の注意説明
+ * 79: 旅の目的
  */
 
 // ===== 設定 =====
@@ -48,38 +56,36 @@ function onFormSubmit(e) {
     var row = e.values;
     if (!row || row.length < 5) return;
 
-    // 日付+時刻を取得
-    var ciRaw = row[3] || "";
-    var coRaw = row[4] || "";
+    // 日付+時刻を取得 (CSV確認: チェックイン=4, チェックアウト=5)
+    var ciRaw = row[4] || "";
+    var coRaw = row[5] || "";
     var checkIn = fmtDate(ciRaw);
     var checkOut = fmtDate(coRaw);
     var checkInTime = fmtTime(ciRaw);
     var checkOutTime = fmtTime(coRaw);
 
-    var guestName = (row[8] || "").trim();
+    // 代表者氏名 = row[9]
+    var guestName = (row[9] || "").trim();
 
     if (!checkIn || !guestName) {
       Logger.log("スキップ: CI=" + checkIn + " 名前=" + guestName);
       return;
     }
 
-    // 代表者情報
-    var phone       = (row[9] || "").trim();
-    var email       = (row[10] || "").trim();
-    var address     = (row[11] || "").trim();
-    var age         = (row[12] || "").trim();
-    var nationality = (row[13] || "").trim();
-    var passport    = (row[14] || "").trim();
-    var passportPhoto = (row[15] || "").trim();
-    var guestCount     = parseInt(row[16]) || 1;
-    var guestCountInfants = parseInt(row[17]) || 0;
-    var phone2      = (row[82] || "").trim();
-    var emailConfirm = (row[93] || "").trim();
+    // 代表者情報 (row[10]〜row[18])
+    var phone       = (row[10] || "").trim();
+    var email       = (row[11] || "").trim();
+    var address     = (row[12] || "").trim();
+    var age         = (row[13] || "").trim();
+    var nationality = (row[14] || "").trim();
+    var passport    = (row[15] || "").trim();
+    var passportPhoto = (row[16] || "").trim();
+    var guestCount     = parseInt(row[17]) || 1;
+    var guestCountInfants = parseInt(row[18]) || 0;
+    // 電話番号2(確認用)
+    var phone2      = (row[77] || "").trim();
 
-    // メールが空なら確認用メールを使用
-    if (!email && emailConfirm) email = emailConfirm;
-
-    // 同行者（ゲスト2〜6: index 42から6列ずつ）
+    // 同行者（1〜8: index 19から6列ずつ）
     var guests = [];
     // 代表者
     guests.push({
@@ -88,8 +94,8 @@ function onFormSubmit(e) {
       passportPhotoUrl: passportPhoto, phone: phone, email: email,
     });
 
-    // 同行者: 42, 48, 54, 60, 66（最大5名追加）
-    var companionStarts = [42, 48, 54, 60, 66];
+    // 同行者: 19, 25, 31, 37, 43, 49, 55, 61（最大8名追加）
+    var companionStarts = [19, 25, 31, 37, 43, 49, 55, 61];
     for (var i = 0; i < companionStarts.length; i++) {
       var base = companionStarts[i];
       var name = (row[base] || "").trim();
@@ -104,12 +110,13 @@ function onFormSubmit(e) {
       });
     }
 
-    // 車両情報（72〜76）
-    var carKei  = parseCar(row[72]);
-    var carMini = parseCar(row[73]);
-    var car5m   = parseCar(row[74]);
-    var publicTransport = (row[75] || "").trim();
-    var taxiUse = (row[76] || "").trim();
+    // 車両情報（67〜72）
+    var carKei  = parseCar(row[67]);
+    var carMini = parseCar(row[68]);
+    var car5m   = parseCar(row[69]);
+    var publicTransport = (row[70] || "").trim();
+    var taxiUse = (row[71] || "").trim();
+    var paidParking = (row[72] || "").trim();
 
     var carCount = carKei + carMini + car5m;
     var vehicleTypes = [];
@@ -122,18 +129,16 @@ function onFormSubmit(e) {
     else if (publicTransport) transport = "公共交通機関";
     else if (taxiUse) transport = "タクシー";
 
-    // その他フィールド
-    var bbq         = (row[78] || "").trim();
-    var bookingSite = (row[80] || "").trim();
-    var purpose     = (row[84] || "").trim();
-    var bedChoice   = (row[86] || "").trim();
-    var paidParking = (row[89] || "").trim();
-    var prevStay    = (row[90] || "").trim();
-    var nextStay    = (row[91] || "").trim();
-    var memo        = (row[7] || "").trim();
-    var contactNote = (row[100] || "").trim();
-    if (contactNote && memo) memo += "\n" + contactNote;
-    else if (contactNote) memo = contactNote;
+    // その他フィールド (73〜79)
+    var bbq         = (row[73] || "").trim();
+    var whereLearn  = (row[74] || "").trim();
+    var bookingSite = (row[75] || "").trim();
+    var otherDetail = (row[76] || "").trim();
+    var purpose     = (row[79] || "").trim();
+    var memo        = (row[8] || "").trim();
+    // その他詳細は memo に結合
+    if (otherDetail && memo) memo += "\n" + otherDetail;
+    else if (otherDetail) memo = otherDetail;
 
     // API送信データ
     var data = {
@@ -155,10 +160,8 @@ function onFormSubmit(e) {
       allGuests: guests,
       bookingSite: bookingSite,
       bbq: bbq,
-      bedChoice: bedChoice,
       purpose: purpose,
-      previousStay: prevStay,
-      nextStay: nextStay,
+      whereLearn: whereLearn,
       transport: transport,
       carCount: carCount,
       vehicleTypes: vehicleTypes,
@@ -249,7 +252,7 @@ function syncByCheckInDateRange(fromDate, toDate) {
   var count = 0, skipped = 0, errors = 0;
   for (var i = 0; i < values.length; i++) {
     var row = values[i];
-    var ci = fmtDate(row[3]);
+    var ci = fmtDate(row[4]);
     if (!ci) { skipped++; continue; }
     if (fromDate && ci < fromDate) { skipped++; continue; }
     if (toDate && ci > toDate) { skipped++; continue; }
