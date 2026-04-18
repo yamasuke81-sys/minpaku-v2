@@ -793,27 +793,41 @@ const MyChecklistPage = {
             }
             return c;
           });
-          // 購入フロー: 新規カード作成(購入額 - 使用額 = 残高)
+          // 購入フロー: 新規カード作成(チャージ残高 - 使用額 = 残高)
           if (info.prepaidPurchase) {
             const pp = info.prepaidPurchase;
-            const newBalance = Math.max(0, (pp.purchaseAmount || 0) - (pp.useAmount || 0));
+            // チャージ額ルール (depotId+chargeAmount で店舗別) から実残高を計算
+            const chargeRules = doc.exists ? (doc.data().chargeRules || []) : [];
+            const resolveChargeBalance = (amount, depotId) => {
+              // 1. depotId + chargeAmount 一致
+              let r = chargeRules.find(x => Number(x.chargeAmount) === Number(amount) && (x.depotId || "") === (depotId || ""));
+              if (r && r.balance) return Number(r.balance);
+              // 2. 全店共通
+              if (depotId) {
+                r = chargeRules.find(x => Number(x.chargeAmount) === Number(amount) && !x.depotId);
+                if (r && r.balance) return Number(r.balance);
+              }
+              // 3. 旧データ互換 (depotId フィールド無し)
+              r = chargeRules.find(x => x.depotId === undefined && Number(x.chargeAmount) === Number(amount));
+              if (r && r.balance) return Number(r.balance);
+              return Number(amount) || 0;
+            };
+            const chargeBalance = resolveChargeBalance(pp.purchaseAmount, pp.depotId);
+            const newBalance = Math.max(0, chargeBalance - (pp.useAmount || 0));
             const newId = "prepaid_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
             // カード番号自動採番: 店舗頭文字 + 3桁連番 (prepaid-cards.js のルールと整合)
+            // 頭文字は「提出先名そのまま」を使用
             const depotPrefixes = (doc.exists && doc.data().depotPrefixes) || {};
-            // 1. 既存設定された頭文字があれば使用、なければ提出先名から推定
             let prefix = depotPrefixes[pp.depotId] || "";
             if (!prefix && pp.depotId) {
-              // depotMaster から提出先名を取得して頭文字を推定
+              // depotMaster から提出先名そのままを頭文字として使用
               try {
                 const depotSnap = await firebase.firestore().collection("settings").doc("laundryDepots").get();
                 if (depotSnap.exists) {
                   const allDepots = depotSnap.data().items || [];
                   const depot = allDepots.find(d => (d.id || d.name) === pp.depotId);
-                  if (depot && depot.name) {
-                    // 先頭の日本語文字 (漢字・ひらがな・カタカナ) or 英字
-                    prefix = (depot.name.match(/^[一-龯ぁ-んァ-ヴー]+|^[A-Za-z]+/)?.[0] || depot.name.split(/[\s　]/)[0] || depot.name.slice(0, 4)).trim();
-                  }
+                  if (depot && depot.name) prefix = depot.name.trim();
                 }
               } catch (_) {}
             }

@@ -51,12 +51,12 @@ const PrepaidCardsPage = {
         ? 'コインランドリー店舗ごとに頭文字を設定し、番号は自動で3桁連番が付与されます。残高は洗濯物を出した時に自動減算されます。'
         : '閲覧のみ。変更はオーナーにお問い合わせください。'}</p>
 
-      <!-- チャージ額 → 残高 ルール (プリカ購入時に適用) -->
+      <!-- チャージ額 → 残高 ルール (店舗別、プリカ購入時に適用) -->
       ${this.isOwnerLevel ? `
       <div class="card mb-3">
         <div class="card-header py-2">
-          <strong><i class="bi bi-arrow-right-circle"></i> チャージ額 → 残高 ルール</strong>
-          <small class="text-muted ms-2">例: 2000円で買うと残高2200円 (ボーナス200円)</small>
+          <strong><i class="bi bi-arrow-right-circle"></i> チャージ額 → 残高 ルール (店舗別)</strong>
+          <small class="text-muted ms-2">例: 小柴で2000円→残高2200円 (ボーナス200円)</small>
         </div>
         <div class="card-body p-2">
           <div id="chargeRulesList"></div>
@@ -190,9 +190,14 @@ const PrepaidCardsPage = {
   renderChargeRules() {
     const wrap = document.getElementById("chargeRulesList");
     if (!wrap) return;
-    if (!this.chargeRules || !this.chargeRules.length) this.chargeRules = [{ chargeAmount: 2000, balance: 2200 }];
+    if (!this.chargeRules || !this.chargeRules.length) {
+      this.chargeRules = [{ depotId: "", chargeAmount: 2000, balance: 2200 }];
+    }
+    const depotOpts = `<option value="">-- 全店舗共通 --</option>` +
+      this.depots.map(d => `<option value="${d.id || d.name}">${this._esc(d.name)}</option>`).join("");
     wrap.innerHTML = this.chargeRules.map((r, i) => `
-      <div class="d-flex align-items-center gap-2 mb-1 charge-rule-row" data-idx="${i}">
+      <div class="d-flex align-items-center gap-2 mb-1 charge-rule-row flex-wrap" data-idx="${i}">
+        <select class="form-select form-select-sm cr-depot" style="width:auto;min-width:180px;">${depotOpts}</select>
         <span class="small text-muted">購入</span>
         <input type="number" class="form-control form-control-sm cr-charge" value="${r.chargeAmount || 0}" min="0" style="width:110px;">
         <span class="small text-muted">円 →</span>
@@ -202,6 +207,12 @@ const PrepaidCardsPage = {
         <button type="button" class="btn btn-sm btn-outline-danger cr-remove"><i class="bi bi-x"></i></button>
       </div>
     `).join("");
+    // 店舗 select の値を反映
+    wrap.querySelectorAll(".charge-rule-row").forEach(row => {
+      const idx = +row.dataset.idx;
+      const sel = row.querySelector(".cr-depot");
+      if (sel) sel.value = this.chargeRules[idx].depotId || "";
+    });
     wrap.querySelectorAll(".cr-remove").forEach(b => b.addEventListener("click", (e) => {
       const idx = +e.target.closest("[data-idx]").dataset.idx;
       this.chargeRules.splice(idx, 1);
@@ -211,18 +222,20 @@ const PrepaidCardsPage = {
 
   addChargeRule() {
     if (!this.chargeRules) this.chargeRules = [];
-    this.chargeRules.push({ chargeAmount: 0, balance: 0 });
+    this.chargeRules.push({ depotId: "", chargeAmount: 0, balance: 0 });
     this.renderChargeRules();
   },
 
   async saveChargeRules() {
     const rules = [];
     document.querySelectorAll("#chargeRulesList .charge-rule-row").forEach(row => {
+      const depotId = row.querySelector(".cr-depot")?.value || "";
       const charge = Number(row.querySelector(".cr-charge").value) || 0;
       const balance = Number(row.querySelector(".cr-balance").value) || 0;
-      if (charge > 0) rules.push({ chargeAmount: charge, balance });
+      if (charge > 0) rules.push({ depotId, chargeAmount: charge, balance });
     });
-    rules.sort((a, b) => a.chargeAmount - b.chargeAmount);
+    // 店舗ID → 購入額 の順で昇順
+    rules.sort((a, b) => (a.depotId || "").localeCompare(b.depotId || "") || a.chargeAmount - b.chargeAmount);
     try {
       await db.collection("settings").doc("prepaidCards").set({
         chargeRules: rules,
@@ -236,11 +249,23 @@ const PrepaidCardsPage = {
     }
   },
 
-  // 購入金額に対応する残高を返す (ルールがなければ購入金額と同じ)
-  _resolveBalance(chargeAmount) {
-    const rule = (this.chargeRules || []).find(r => Number(r.chargeAmount) === Number(chargeAmount));
+  // 購入金額+店舗IDに対応する残高を返す
+  // 優先順: (depotId一致 + chargeAmount一致) > (depotId空=全店共通 + chargeAmount一致) > chargeAmount(互換)
+  _resolveBalance(chargeAmount, depotId) {
+    const rules = this.chargeRules || [];
+    const amt = Number(chargeAmount);
+    // 1. 店舗IDもchargeAmountも一致
+    let rule = rules.find(r => Number(r.chargeAmount) === amt && (r.depotId || "") === (depotId || ""));
     if (rule && rule.balance) return Number(rule.balance);
-    return Number(chargeAmount) || 0;
+    // 2. 全店共通 (depotId 空) で chargeAmount 一致
+    if (depotId) {
+      rule = rules.find(r => Number(r.chargeAmount) === amt && !r.depotId);
+      if (rule && rule.balance) return Number(rule.balance);
+    }
+    // 3. 旧データ互換: depotIdフィールド無しで chargeAmount 一致
+    rule = rules.find(r => r.depotId === undefined && Number(r.chargeAmount) === amt);
+    if (rule && rule.balance) return Number(rule.balance);
+    return amt || 0;
   },
 
   // 店舗(depotId)ごとに頭文字prefix+3桁連番
@@ -426,14 +451,17 @@ const PrepaidCardsPage = {
     prefixInput.value = "";
     numberInput.value = "";
     chargeInput.value = 2000;
-    balanceInput.value = this._resolveBalance(2000);
+    balanceInput.value = this._resolveBalance(2000, depotSel.value);
     memoInput.value = "";
 
-    // 購入金額変更時、チャージルールに基づき残高を自動計算
-    chargeInput.oninput = () => {
+    // 購入金額 / 提出先変更時、チャージルールに基づき残高を自動計算
+    const recalcBalance = () => {
       const charge = Number(chargeInput.value) || 0;
-      balanceInput.value = this._resolveBalance(charge);
+      balanceInput.value = this._resolveBalance(charge, depotSel.value);
     };
+    chargeInput.oninput = recalcBalance;
+    // depotSel は既に change リスナーがあるが、recalcBalance も呼ぶために追加
+    depotSel.addEventListener("change", recalcBalance);
 
     const refreshNumber = () => {
       const depotId = depotSel.value;
@@ -450,20 +478,17 @@ const PrepaidCardsPage = {
       numberInput.value = `${prefix}${String(max + 1).padStart(3, "0")}`;
     };
 
-    // 提出先変更時: 頭文字を自動推定 (既存設定 > 提出先名の先頭漢字/かな > 提出先名全体)
+    // 提出先変更時: 頭文字は「提出先名そのまま」を自動設定 (編集可能)
     depotSel.addEventListener("change", () => {
       const depotId = depotSel.value;
       if (!depotId) { prefixInput.value = ""; refreshNumber(); return; }
-      // 1. 既に設定済みの頭文字があればそれを使う
+      // 1. 既に設定済みの頭文字があればそれを使う (ユーザーが変更済みの可能性)
       if (this.depotPrefixes[depotId]) {
         prefixInput.value = this.depotPrefixes[depotId];
       } else {
-        // 2. 提出先名から自動推定: 先頭の日本語単語 (漢字+かな) を頭文字に採用
+        // 2. 提出先名そのものを頭文字に採用
         const depot = this.depots.find(d => (d.id || d.name) === depotId);
-        const depotName = depot?.name || "";
-        // 先頭の連続する日本語文字 (漢字・ひらがな・カタカナ) または英字
-        const auto = (depotName.match(/^[一-龯ぁ-んァ-ヴー]+|^[A-Za-z]+/)?.[0] || depotName.split(/[\s　]/)[0] || depotName.slice(0, 4)).trim();
-        prefixInput.value = auto;
+        prefixInput.value = (depot?.name || "").trim();
       }
       refreshNumber();
     }, { once: false });
