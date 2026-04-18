@@ -17,6 +17,17 @@ const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json());
 
+// Firebase Hosting rewrite 経由で来る URL は /api/** が保持されるので、
+// Express ルーティング前に /api プレフィックスを剥がす (Gen2 Functions 対応)
+app.use((req, res, next) => {
+  if (req.url.startsWith("/api/")) {
+    req.url = req.url.slice(4);
+  } else if (req.url === "/api") {
+    req.url = "/";
+  }
+  next();
+});
+
 // 認証ミドルウェア（テストモード対応）
 async function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
