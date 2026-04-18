@@ -302,8 +302,17 @@ const API = {
     },
 
     async update(id, data) {
-      data.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
-      await db.collection("invoices").doc(id).update(data);
+      // Cloud Functions 経由で更新（オーナー認証 + allowed fields 検証）
+      const CF_BASE = "https://api-5qrfx7ujcq-an.a.run.app";
+      const token = await firebase.auth().currentUser.getIdToken();
+      const res = await fetch(`${CF_BASE}/invoices/${id}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "更新失敗");
+      return result;
     },
 
     async confirm(id) {

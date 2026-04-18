@@ -413,12 +413,44 @@ const InvoicesPage = {
           <tr class="table-primary fw-bold"><td>合計</td><td class="text-end">${formatCurrency(inv.total || 0)}</td></tr>
         </tbody>
       </table>
+
+      ${isOwner && ["draft", "submitted"].includes(inv.status) ? `
+        <!-- 記録情報（オーナーのみ編集可） -->
+        <hr>
+        <h6><i class="bi bi-pencil-square"></i> 記録情報</h6>
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <label class="form-label small mb-1">交通費（円）</label>
+            <input type="number" class="form-control form-control-sm" id="editTransportationFee"
+              value="${inv.transportationFee || 0}" min="0" step="100">
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small mb-1">備考 (remarks)</label>
+          <input type="text" class="form-control form-control-sm" id="editRemarks"
+            value="${this.esc(inv.remarks || "")}" placeholder="社内メモなど">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small mb-1">メモ (memo)</label>
+          <textarea class="form-control form-control-sm" id="editMemo" rows="2"
+            placeholder="スタッフへの連絡事項など">${this.esc(inv.memo || "")}</textarea>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btnSaveRecordInfo" data-inv-id="${inv.id}">
+          <i class="bi bi-floppy"></i> 記録情報を保存
+        </button>
+      ` : ""}
     `;
 
     // 再計算ボタン
     const btnRecalc = document.getElementById("btnRecalcModal");
     if (btnRecalc) {
       btnRecalc.addEventListener("click", () => this.recalculateInvoice(btnRecalc.dataset.id));
+    }
+
+    // 記録情報保存ボタン
+    const btnSave = document.getElementById("btnSaveRecordInfo");
+    if (btnSave) {
+      btnSave.addEventListener("click", () => this.saveRecordInfo(inv));
     }
 
     // 項目追加ボタン
@@ -562,6 +594,27 @@ const InvoicesPage = {
       await this.loadInvoices();
     } catch (e) {
       showToast("エラー", e.message, "error");
+    }
+  },
+
+  async saveRecordInfo(inv) {
+    const transportationFee = parseInt(document.getElementById("editTransportationFee")?.value || "0", 10);
+    const remarks = document.getElementById("editRemarks")?.value ?? "";
+    const memo = document.getElementById("editMemo")?.value ?? "";
+
+    const btn = document.getElementById("btnSaveRecordInfo");
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 保存中...'; }
+
+    try {
+      await API.invoices.update(inv.id, { transportationFee, remarks, memo });
+      showToast("完了", "記録情報を保存しました", "success");
+      // モーダルを閉じて一覧を再読み込み
+      const modalEl = document.getElementById("invoiceDetailModal");
+      bootstrap.Modal.getInstance(modalEl)?.hide();
+      await this.loadInvoices();
+    } catch (e) {
+      showToast("エラー", `保存失敗: ${e.message}`, "error");
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-floppy"></i> 記録情報を保存'; }
     }
   },
 

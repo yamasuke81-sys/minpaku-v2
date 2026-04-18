@@ -5,13 +5,16 @@
 const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
 const { getStorage } = require("firebase-admin/storage");
-const { notifyOwner, getNotificationSettings_ } = require("../utils/lineNotify");
+const { notifyOwner, getNotificationSettings_, sendLineMessage, sendNotificationEmail_ } = require("../utils/lineNotify");
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-// CJKフォントのパス候補（Cloud Functions 環境）
+// バンドルフォント（第一候補）
+const BUNDLED_CJK_FONT = path.join(__dirname, "../fonts/NotoSansJP-Regular.ttf");
+
+// CJKフォントのパス候補（Cloud Functions 環境フォールバック）
 const CJK_FONT_CANDIDATES = [
   "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
   "/usr/share/fonts/noto-cjk/NotoSansCJKjp-Regular.otf",
@@ -20,6 +23,9 @@ const CJK_FONT_CANDIDATES = [
 ];
 
 function findCjkFont() {
+  // バンドルフォントを最優先で使う
+  if (fs.existsSync(BUNDLED_CJK_FONT)) return BUNDLED_CJK_FONT;
+  // フォールバック: OS インストールフォント
   for (const p of CJK_FONT_CANDIDATES) {
     if (fs.existsSync(p)) return p;
   }
@@ -710,29 +716,31 @@ module.exports = function invoicesApi(db) {
         console.error("PDF生成エラー:", e);
       }
 
-      // invoice_submitted 通知 + スタッフとオーナー両方にメールで PDF リンク送付
+      // invoice_submitted 通知: LINE はオーナー本人のみ、メールは ownerEmail 1件 + スタッフ本人
       try {
-        const { settings } = await getNotificationSettings_(db);
+        const { settings, channelToken, ownerUserId } = await getNotificationSettings_(db);
         const appUrl = (settings && settings.appUrl) || "https://minpaku-v2.web.app";
         const confirmUrl = `${appUrl}/#/invoices`;
-        const baseVars = {
-          month: String(m),
-          staff: staffDoc.name || "",
-          property: "",
-          total: `¥${Number(computed.total).toLocaleString("ja-JP")}`,
-          url: confirmUrl,
-        };
         const linkLine = pdfSignedUrl ? `\nPDF: ${pdfSignedUrl}` : "";
         const ownerBody = `📨 請求書が提出されました\n\n${staffDoc.name} さんから ${m}月分の請求書が届きました。\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}${linkLine}\n確認: ${confirmUrl}`;
-        await notifyOwner(db, "invoice_submitted", `請求書提出: ${staffDoc.name} ${yearMonth}`, ownerBody, baseVars);
+
+        // LINE: オーナー LINE UserID にのみ送信（グループ・全員一斉は不要）
+        if (channelToken && ownerUserId) {
+          sendLineMessage(channelToken, ownerUserId, ownerBody).catch((e) => console.error("LINE送信失敗:", e.message));
+        }
+
+        // メール: settings.ownerEmail (1件) のみ
+        const ownerEmail = settings && (settings.ownerEmail || (settings.notifyEmails && settings.notifyEmails[0]));
+        if (ownerEmail) {
+          sendNotificationEmail_(ownerEmail, `【請求書提出】${staffDoc.name} ${yearMonth}`, ownerBody)
+            .catch((e) => console.error("オーナーへの請求書通知メール失敗:", e.message));
+        }
 
         // スタッフ本人にも PDF リンクをメール送付
         if (staffDoc.email && pdfSignedUrl) {
-          try {
-            const { sendNotificationEmail_ } = require("../utils/lineNotify");
-            const staffBody = `${staffDoc.name} 様\n\n${yearMonth} 分の請求書が作成されました。\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}\n\nPDFダウンロード (7日間有効):\n${pdfSignedUrl}\n\n何か相違がございましたらご連絡ください。`;
-            await sendNotificationEmail_(staffDoc.email, `【請求書】${yearMonth} 分`, staffBody);
-          } catch (mailErr) { console.error("スタッフへの請求書メール失敗:", mailErr.message); }
+          const staffBody = `${staffDoc.name} 様\n\n${yearMonth} 分の請求書が作成されました。\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}\n\nPDFダウンロード (7日間有効):\n${pdfSignedUrl}\n\n何か相違がございましたらご連絡ください。`;
+          sendNotificationEmail_(staffDoc.email, `【請求書】${yearMonth} 分`, staffBody)
+            .catch((e) => console.error("スタッフへの請求書メール失敗:", e.message));
         }
       } catch (notifyErr) {
         console.error("invoice_submitted 通知エラー:", notifyErr);
@@ -892,6 +900,59 @@ module.exports = function invoicesApi(db) {
     } catch (e) {
       console.error("手動項目削除エラー:", e);
       res.status(500).json({ error: "手動項目の削除に失敗しました" });
+    }
+  });
+
+  // 記録情報更新（オーナーのみ・draft/submitted のみ）
+  // PUT /invoices/:id  body: { remarks?, memo?, transportationFee?, manualItems? }
+  router.put("/:id", async (req, res) => {
+    try {
+      if (req.user.role !== "owner") {
+        return res.status(403).json({ error: "オーナー権限が必要です" });
+      }
+      const docRef = collection.doc(req.params.id);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        return res.status(404).json({ error: "請求書が見つかりません" });
+      }
+      const current = doc.data();
+      if (!["draft", "submitted"].includes(current.status)) {
+        return res.status(400).json({ error: "draft または submitted 状態の請求書のみ編集できます" });
+      }
+
+      // 許可フィールドのみ更新
+      const ALLOWED = ["remarks", "memo", "transportationFee", "manualItems"];
+      const updates = { updatedAt: FieldValue.serverTimestamp() };
+      for (const key of ALLOWED) {
+        if (req.body[key] !== undefined) {
+          updates[key] = req.body[key];
+        }
+      }
+
+      // transportationFee が更新された場合は合計を再計算
+      if (updates.transportationFee !== undefined) {
+        const manualItems = updates.manualItems ?? current.details?.manualItems ?? [];
+        const manualTotal = manualItems.reduce((s, item) => s + (item.amount || 0), 0);
+        updates.total = (current.basePayment || 0) + (current.laundryFee || 0) +
+          Number(updates.transportationFee) + (current.specialAllowance || 0) + manualTotal;
+      }
+
+      // manualItems が更新された場合も合計再計算（transportationFee 未更新時）
+      if (updates.manualItems !== undefined && updates.transportationFee === undefined) {
+        const manualTotal = updates.manualItems.reduce((s, item) => s + (item.amount || 0), 0);
+        updates.total = (current.basePayment || 0) + (current.laundryFee || 0) +
+          (current.transportationFee || 0) + (current.specialAllowance || 0) + manualTotal;
+        // details.manualItems も同期
+        updates["details.manualItems"] = updates.manualItems;
+        delete updates.manualItems;
+      }
+
+      await docRef.update(updates);
+      const updated = await docRef.get();
+      res.json({ id: req.params.id, ...updated.data() });
+    } catch (e) {
+      console.error("請求書更新エラー:", e);
+      res.status(500).json({ error: "請求書の更新に失敗しました" });
     }
   });
 
@@ -1222,31 +1283,29 @@ module.exports = function invoicesApi(db) {
         confirmedAt: FieldValue.serverTimestamp(),
       });
 
-      // オーナー通知
+      // オーナー通知: LINE はオーナー本人のみ、メールは ownerEmail 1件
       try {
-        const [y, m] = String(data.yearMonth || "").split("-");
+        const [, m] = String(data.yearMonth || "").split("-");
         const total = Number(data.total || 0);
-        // appUrl を settings から取得 (ハードコード回避)
-        let appUrl = "https://minpaku-v2.web.app";
-        try {
-          const { settings } = await getNotificationSettings_(db);
-          appUrl = settings?.appUrl || appUrl;
-        } catch (_) { /* デフォルト */ }
+        const { settings, channelToken, ownerUserId } = await getNotificationSettings_(db);
+        const appUrl = (settings && settings.appUrl) || "https://minpaku-v2.web.app";
         const invoiceUrl = `${appUrl.replace(/\/$/, "")}/#/invoices`;
-        const body = `📨 請求書が提出されました\n\n` +
-          `${data.staffName || "スタッフ"} さんから ${m || data.yearMonth}月分の請求書が届きました。\n` +
+        const body = `📨 請求書が確定されました\n\n` +
+          `${data.staffName || "スタッフ"} さんの ${m || data.yearMonth}月分の請求書が確定しました。\n` +
           `合計: ¥${total.toLocaleString()}\n` +
           `確認: ${invoiceUrl}`;
-        await notifyOwner(db, "invoice_submitted",
-          `請求書提出: ${data.staffName || ""} (${data.yearMonth})`,
-          body,
-          {
-            month: m || data.yearMonth,
-            staff: data.staffName || "",
-            property: "",
-            total: `¥${total.toLocaleString()}`,
-            url: invoiceUrl,
-          });
+
+        // LINE: オーナー UserID にのみ送信
+        if (channelToken && ownerUserId) {
+          sendLineMessage(channelToken, ownerUserId, body).catch((e) => console.error("LINE送信失敗:", e.message));
+        }
+
+        // メール: ownerEmail 1件のみ
+        const ownerEmail = settings && (settings.ownerEmail || (settings.notifyEmails && settings.notifyEmails[0]));
+        if (ownerEmail) {
+          sendNotificationEmail_(ownerEmail, `【請求書確定】${data.staffName || ""} ${data.yearMonth}`, body)
+            .catch((e) => console.error("オーナーへの確定通知メール失敗:", e.message));
+        }
       } catch (notifyErr) {
         console.error("請求書提出通知エラー（無視）:", notifyErr);
       }
