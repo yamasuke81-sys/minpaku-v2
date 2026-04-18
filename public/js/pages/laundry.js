@@ -18,7 +18,32 @@ const LaundryPage = {
     container.innerHTML = `
       <div class="page-header">
         <h2><i class="bi bi-basket3"></i> ランドリー月次ダッシュボード</h2>
-        <button class="btn btn-primary" id="btnNewLaundry"><i class="bi bi-plus-lg"></i> 記録追加</button>
+        <div class="d-flex gap-2">
+          <button class="btn btn-outline-secondary" id="btnDepotSettings"><i class="bi bi-gear"></i> 提出先マスター</button>
+          <button class="btn btn-primary" id="btnNewLaundry"><i class="bi bi-plus-lg"></i> 記録追加</button>
+        </div>
+      </div>
+
+      <!-- 提出先マスター設定モーダル -->
+      <div class="modal fade" id="depotMasterModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="bi bi-shop"></i> 提出先マスター</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <p class="small text-muted">スタッフが「洗濯物を出した」を押した時のプルダウンに表示される提出先を管理します。各提出先に料金プリセットを複数設定できます。</p>
+              <div id="depotMasterList"></div>
+              <button class="btn btn-sm btn-outline-primary mt-2" id="btnAddDepot"><i class="bi bi-plus"></i> 提出先を追加</button>
+              <div id="depotMasterStatus" class="small mt-2"></div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button>
+              <button type="button" class="btn btn-primary" id="btnSaveDepots"><i class="bi bi-check-lg"></i> 保存</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="d-flex align-items-center gap-2 mb-3">
@@ -121,6 +146,110 @@ const LaundryPage = {
     });
     document.getElementById("laundryPrevMonth").addEventListener("click", () => this.changeMonth(-1));
     document.getElementById("laundryNextMonth").addEventListener("click", () => this.changeMonth(1));
+    document.getElementById("btnDepotSettings").addEventListener("click", () => this.openDepotSettings());
+    document.getElementById("btnAddDepot").addEventListener("click", () => this.addDepotRow());
+    document.getElementById("btnSaveDepots").addEventListener("click", () => this.saveDepots());
+  },
+
+  async openDepotSettings() {
+    try {
+      const doc = await db.collection("settings").doc("laundryDepots").get();
+      this.depotMaster = (doc.exists && Array.isArray(doc.data().items)) ? doc.data().items : this._defaultDepots();
+    } catch (_) {
+      this.depotMaster = this._defaultDepots();
+    }
+    this.renderDepotMasterList();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("depotMasterModal")).show();
+  },
+
+  _defaultDepots() {
+    return [
+      { name: "コインランドリー", rates: [{ label: "標準", amount: 1000 }] },
+      { name: "リネン屋", rates: [{ label: "1泊分", amount: 3000 }] },
+    ];
+  },
+
+  renderDepotMasterList() {
+    const wrap = document.getElementById("depotMasterList");
+    if (!this.depotMaster.length) {
+      wrap.innerHTML = `<div class="text-muted">提出先がありません。追加してください。</div>`;
+      return;
+    }
+    wrap.innerHTML = this.depotMaster.map((d, i) => `
+      <div class="card mb-2" data-depot-idx="${i}">
+        <div class="card-body p-2">
+          <div class="d-flex gap-2 align-items-center mb-2">
+            <input type="text" class="form-control form-control-sm d-name" value="${(d.name||'').replace(/"/g,'&quot;')}" placeholder="提出先名">
+            <button class="btn btn-sm btn-outline-danger d-remove-depot" title="削除"><i class="bi bi-trash"></i></button>
+          </div>
+          <div class="d-rates">
+            ${(d.rates || []).map((r, ri) => `
+              <div class="d-flex gap-2 mb-1 d-rate-row" data-rate-idx="${ri}">
+                <input type="text" class="form-control form-control-sm r-label" value="${(r.label||'').replace(/"/g,'&quot;')}" placeholder="料金名 (標準/1泊分 など)">
+                <input type="number" class="form-control form-control-sm r-amount" value="${r.amount||0}" min="0" style="width:120px;">
+                <button class="btn btn-sm btn-outline-danger d-remove-rate" title="削除"><i class="bi bi-x"></i></button>
+              </div>
+            `).join("")}
+          </div>
+          <button class="btn btn-sm btn-outline-secondary d-add-rate"><i class="bi bi-plus"></i> 料金プリセット追加</button>
+        </div>
+      </div>
+    `).join("");
+
+    // イベントハンドラ
+    wrap.querySelectorAll(".d-remove-depot").forEach(b => b.addEventListener("click", (e) => {
+      const idx = +e.target.closest("[data-depot-idx]").dataset.depotIdx;
+      this.depotMaster.splice(idx, 1);
+      this.renderDepotMasterList();
+    }));
+    wrap.querySelectorAll(".d-add-rate").forEach(b => b.addEventListener("click", (e) => {
+      const idx = +e.target.closest("[data-depot-idx]").dataset.depotIdx;
+      if (!this.depotMaster[idx].rates) this.depotMaster[idx].rates = [];
+      this.depotMaster[idx].rates.push({ label: "", amount: 0 });
+      this.renderDepotMasterList();
+    }));
+    wrap.querySelectorAll(".d-remove-rate").forEach(b => b.addEventListener("click", (e) => {
+      const dep = +e.target.closest("[data-depot-idx]").dataset.depotIdx;
+      const rat = +e.target.closest("[data-rate-idx]").dataset.rateIdx;
+      this.depotMaster[dep].rates.splice(rat, 1);
+      this.renderDepotMasterList();
+    }));
+  },
+
+  addDepotRow() {
+    if (!this.depotMaster) this.depotMaster = [];
+    this.depotMaster.push({ name: "", rates: [{ label: "", amount: 0 }] });
+    this.renderDepotMasterList();
+  },
+
+  async saveDepots() {
+    // UI から最新値を収集
+    const items = [];
+    document.querySelectorAll("#depotMasterList [data-depot-idx]").forEach(depEl => {
+      const name = depEl.querySelector(".d-name").value.trim();
+      if (!name) return;
+      const rates = [];
+      depEl.querySelectorAll(".d-rate-row").forEach(rEl => {
+        rates.push({
+          label: rEl.querySelector(".r-label").value.trim(),
+          amount: Number(rEl.querySelector(".r-amount").value) || 0,
+        });
+      });
+      items.push({ name, rates });
+    });
+    const status = document.getElementById("depotMasterStatus");
+    status.innerHTML = `<i class="bi bi-arrow-repeat text-muted"></i> 保存中...`;
+    try {
+      await db.collection("settings").doc("laundryDepots").set({
+        items,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      this.depotMaster = items;
+      status.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill"></i> 保存しました</span>`;
+      setTimeout(() => { status.innerHTML = ""; }, 2000);
+    } catch (e) {
+      status.innerHTML = `<span class="text-danger">保存失敗: ${e.message}</span>`;
+    }
   },
 
   changeMonth(delta) {

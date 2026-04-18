@@ -1339,7 +1339,22 @@
           document.getElementById("noiseNextBtn").classList.add("d-none");
           cancelMsgEl.classList.remove("d-none");
         });
-        document.getElementById("btnGoToGame").addEventListener("click", () => {
+        document.getElementById("btnGoToGame").addEventListener("click", async () => {
+          // ミニゲーム ON/OFF 設定を取得 (settings/guestForm.miniGameEnabled)
+          let miniGameEnabled = true; // デフォルト: 有効
+          try {
+            const doc = await db.collection("settings").doc("guestForm").get();
+            if (doc.exists && doc.data().miniGameEnabled === false) miniGameEnabled = false;
+          } catch (_) {}
+
+          if (!miniGameEnabled) {
+            // ゲーム無効: 直接フォーム本体へ
+            noiseSection.classList.add("d-none");
+            cancelMsgEl.classList.add("d-none");
+            formBody.classList.remove("d-none");
+            document.getElementById("f_noiseAgree").value = "true";
+            return;
+          }
           // 元のパラメータをnoise-gameに引き継ぐ
           const rp = new URLSearchParams();
           for (const [k, v] of Object.entries(params)) {

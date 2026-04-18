@@ -30,16 +30,19 @@ const CleaningFlowPage = {
   },
 
   async load() {
+    // API.properties.listMinpakuNumbered() で民泊物件のみ取得 (rates/shifts 等と同じ定義)
     try {
-      const snap = await db.collection("properties")
-        .where("type", "==", "minpaku")
-        .orderBy("propertyNumber", "asc")
-        .get();
-      this.properties = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.active !== false);
-    } catch (_) {
-      // type/active が無い場合もあるため fallback
-      const snap = await db.collection("properties").get();
-      this.properties = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.active !== false);
+      if (API.properties && typeof API.properties.listMinpakuNumbered === "function") {
+        this.properties = await API.properties.listMinpakuNumbered();
+      } else {
+        const snap = await db.collection("properties").get();
+        this.properties = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .filter(p => p.active !== false)
+          .filter(p => (p.type || "minpaku") === "minpaku");
+      }
+    } catch (e) {
+      console.warn("properties 取得失敗:", e.message);
+      this.properties = [];
     }
     this.renderList();
   },

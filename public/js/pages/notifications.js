@@ -140,8 +140,13 @@ const NotificationsPage = {
             </div>
             <div class="col-md-6">
               <label class="form-label">オーナーメールアドレス</label>
-              <input type="email" class="form-control" id="ownerEmail" placeholder="owner@example.com">
-              <div class="form-text">メール通知の送信先</div>
+              <div class="input-group">
+                <input type="email" class="form-control" id="ownerEmail" placeholder="owner@example.com">
+                <button class="btn btn-outline-warning" type="button" id="btnGmailReauth" title="Gmail OAuth 再接続">
+                  <i class="bi bi-shield-check"></i> Gmail再接続
+                </button>
+              </div>
+              <div class="form-text">メール通知の送信先。送信時 invalid_grant エラーが出たら「Gmail再接続」を押してください。</div>
             </div>
           </div>
         </div>
@@ -174,6 +179,17 @@ const NotificationsPage = {
     this.renderNotifications();
     // 自動保存をセットアップ (各入力の change/input で debounced 保存)
     this._setupAutoSave();
+    // Gmail 再認証ボタン
+    document.getElementById("btnGmailReauth").addEventListener("click", () => {
+      const email = (document.getElementById("ownerEmail").value || "").trim();
+      if (!email) {
+        showToast("エラー", "先にオーナーメールアドレスを入力してください", "error");
+        return;
+      }
+      const url = `https://api-5qrfx7ujcq-an.a.run.app/gmail-auth/start?email=${encodeURIComponent(email)}`;
+      window.open(url, "_blank");
+      showToast("再認証", "Google認証ページを新しいタブで開きました。承認後この画面に戻ってテスト送信してください。", "info");
+    });
   },
 
   async loadSettings() {
@@ -539,7 +555,17 @@ const NotificationsPage = {
         if (sent > 0) {
           showToast("送信完了", `${sent}件送信しました${errs.length ? "（一部失敗あり）" : ""}`, "success");
         } else {
-          showToast("送信失敗", errs[0] || "送信できませんでした（設定を確認してください）", "error");
+          // よくあるエラーパターンを親切に翻訳
+          const firstErr = errs[0] || "送信できませんでした";
+          let friendly = firstErr;
+          if (/429/.test(firstErr)) {
+            friendly = "LINE月間送信上限に到達しました。来月まで待つか LINE Developers で有料プランに切替。オーナーメールへの切替も検討してください。";
+          } else if (/invalid_grant/.test(firstErr)) {
+            friendly = "Gmail認証が失効しています。画面上の「Gmail再接続」ボタンを押して再認証してください。";
+          } else if (/未設定|未登録|トークン|User ID/.test(firstErr)) {
+            friendly = firstErr; // 元メッセージのまま
+          }
+          showToast("送信失敗", friendly, "error");
         }
         if (errs.length) console.warn("テスト送信エラー詳細:", errs);
       } else {

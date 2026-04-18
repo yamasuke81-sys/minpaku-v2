@@ -93,24 +93,29 @@ module.exports = function invoicesApi(db) {
   });
 
   // スタッフが自分の請求書を作成 or 更新（月次集計）
-  // POST /invoices/my-submit  body: { yearMonth: "YYYY-MM", manualItems?: [...] }
+  // POST /invoices/my-submit  body: { yearMonth: "YYYY-MM", manualItems?: [...], asStaffId?: string (オーナー専用代理) }
   router.post("/my-submit", async (req, res) => {
     try {
-      const { yearMonth, manualItems = [] } = req.body || {};
+      const { yearMonth, manualItems = [], asStaffId } = req.body || {};
       if (!yearMonth || !/^\d{4}-\d{2}$/.test(yearMonth)) {
         return res.status(400).json({ error: "yearMonth(YYYY-MM)は必須です" });
       }
       const uid = req.user.uid;
-      const staffId = req.user.staffId;
-      // staff ドキュメントを特定 (staffId or authUid ベース)
+      const reqStaffId = req.user.staffId;
+      // オーナーが asStaffId を指定した場合: そのスタッフの請求書を代理作成 (テスト用)
       let staffDoc = null;
-      if (staffId) {
-        const d = await db.collection("staff").doc(staffId).get();
+      if (asStaffId && req.user.role === "owner") {
+        const d = await db.collection("staff").doc(asStaffId).get();
         if (d.exists) staffDoc = { id: d.id, ...d.data() };
-      }
-      if (!staffDoc) {
-        const snap = await db.collection("staff").where("authUid", "==", uid).limit(1).get();
-        if (!snap.empty) staffDoc = { id: snap.docs[0].id, ...snap.docs[0].data() };
+      } else {
+        if (reqStaffId) {
+          const d = await db.collection("staff").doc(reqStaffId).get();
+          if (d.exists) staffDoc = { id: d.id, ...d.data() };
+        }
+        if (!staffDoc) {
+          const snap = await db.collection("staff").where("authUid", "==", uid).limit(1).get();
+          if (!snap.empty) staffDoc = { id: snap.docs[0].id, ...snap.docs[0].data() };
+        }
       }
       if (!staffDoc) return res.status(404).json({ error: "スタッフ情報が見つかりません" });
 

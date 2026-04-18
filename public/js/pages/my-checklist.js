@@ -55,13 +55,17 @@ const MyChecklistPage = {
     const rect = mainEl ? mainEl.getBoundingClientRect() : { left: 0, width: window.innerWidth };
     header.style.left = rect.left + "px";
     header.style.width = rect.width + "px";
+    // app-topbar の高さを計算し、その下に配置(topbar と重ならないようにする)
+    const topbar = document.querySelector(".app-topbar");
+    const topbarH = topbar ? topbar.getBoundingClientRect().height : 0;
+    header.style.top = topbarH + "px";
     // fixed 化後の実レイアウト高さで spacer 計算
     requestAnimationFrame(() => {
       const headerH = header.getBoundingClientRect().height;
       const tabsWrap = document.querySelector(".mcl-tabs-wrap");
       const tabsH = tabsWrap ? tabsWrap.getBoundingClientRect().height : 0;
       const spacer = document.querySelector(".mcl-page-header-spacer");
-      if (spacer) spacer.style.height = (headerH + tabsH) + "px";
+      if (spacer) spacer.style.height = (topbarH + headerH + tabsH) + "px";
     });
   },
 
@@ -525,10 +529,12 @@ const MyChecklistPage = {
     const applyLayout = () => {
       const mainEl = document.querySelector(".app-main");
       const rect = mainEl ? mainEl.getBoundingClientRect() : { left: 0, width: window.innerWidth };
+      const topbar = document.querySelector(".app-topbar");
+      const topbarH = topbar ? topbar.getBoundingClientRect().height : 0;
       const header = document.querySelector(".mcl-page-header");
       const headerH = header ? header.getBoundingClientRect().height : 0;
       wrap.style.position = "fixed";
-      wrap.style.top = headerH + "px";
+      wrap.style.top = (topbarH + headerH) + "px";
       wrap.style.left = rect.left + "px";
       wrap.style.width = rect.width + "px";
       wrap.style.zIndex = "28";
@@ -537,7 +543,7 @@ const MyChecklistPage = {
       // fixed 化後に rAF で実レイアウト高さを測って spacer 更新
       requestAnimationFrame(() => {
         const spacer = document.querySelector(".mcl-page-header-spacer");
-        if (spacer) spacer.style.height = (headerH + wrap.getBoundingClientRect().height) + "px";
+        if (spacer) spacer.style.height = (topbarH + headerH + wrap.getBoundingClientRect().height) + "px";
       });
     };
     // 旧 handler 解除
@@ -754,14 +760,28 @@ const MyChecklistPage = {
 
   // ランドリー「出した」時の入力モーダル (Promise<{depot, paymentMethod, amount} | null>)
   async askLaundryPutOutInfo() {
+    // 提出先マスターを読み込み (settings/laundryDepots.items: [{name, rates:[{label,amount}]}])
+    let depotMaster = [];
+    try {
+      const doc = await firebase.firestore().collection("settings").doc("laundryDepots").get();
+      if (doc.exists && Array.isArray(doc.data().items)) depotMaster = doc.data().items;
+    } catch (_) {}
+    if (!depotMaster.length) {
+      depotMaster = [
+        { name: "コインランドリー", rates: [{ label: "標準", amount: 1000 }] },
+        { name: "リネン屋", rates: [{ label: "1泊分", amount: 3000 }] },
+      ];
+    }
     return new Promise((resolve) => {
-      // 既存のモーダルがあれば削除
       const existing = document.getElementById("laundryPutOutModal");
       if (existing) existing.remove();
       const modalEl = document.createElement("div");
       modalEl.className = "modal fade";
       modalEl.id = "laundryPutOutModal";
       modalEl.tabIndex = -1;
+      const depotOptions = depotMaster.map((d, i) =>
+        `<option value="${i}">${(d.name || "").replace(/"/g, "&quot;")}</option>`
+      ).join("");
       modalEl.innerHTML = `
         <div class="modal-dialog">
           <div class="modal-content">
@@ -774,11 +794,15 @@ const MyChecklistPage = {
                 <label class="form-label">提出先 <span class="text-danger">*</span></label>
                 <select class="form-select" id="lpoDepot">
                   <option value="">-- 選択 --</option>
-                  <option value="coin_laundry">コインランドリー</option>
-                  <option value="linen_shop">リネン屋</option>
-                  <option value="other">その他</option>
+                  ${depotOptions}
+                  <option value="__other__">その他 (手入力)</option>
                 </select>
-                <input type="text" class="form-control mt-2 d-none" id="lpoDepotOther" placeholder="提出先名">
+                <input type="text" class="form-control mt-2 d-none" id="lpoDepotOther" placeholder="提出先名を入力">
+              </div>
+              <div class="mb-3 d-none" id="lpoRateWrap">
+                <label class="form-label">料金プリセット</label>
+                <select class="form-select" id="lpoRate"></select>
+                <div class="form-text">選択すると金額が自動入力されます。違う金額ならそのまま上書きしてください。</div>
               </div>
               <div class="mb-3">
                 <label class="form-label">支払方法 <span class="text-danger">*</span></label>
@@ -810,23 +834,51 @@ const MyChecklistPage = {
       document.body.appendChild(modalEl);
       const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
       let decided = false;
-      modalEl.querySelector("#lpoDepot").addEventListener("change", (e) => {
-        const show = e.target.value === "other";
-        const other = modalEl.querySelector("#lpoDepotOther");
-        other.classList.toggle("d-none", !show);
-        if (show) other.focus();
+
+      const depotSel = modalEl.querySelector("#lpoDepot");
+      const otherInput = modalEl.querySelector("#lpoDepotOther");
+      const rateWrap = modalEl.querySelector("#lpoRateWrap");
+      const rateSel = modalEl.querySelector("#lpoRate");
+      const amountInput = modalEl.querySelector("#lpoAmount");
+
+      depotSel.addEventListener("change", () => {
+        const v = depotSel.value;
+        otherInput.classList.toggle("d-none", v !== "__other__");
+        if (v === "__other__") { otherInput.focus(); rateWrap.classList.add("d-none"); return; }
+        if (v === "" ) { rateWrap.classList.add("d-none"); return; }
+        const depot = depotMaster[+v];
+        const rates = (depot && depot.rates) || [];
+        if (rates.length) {
+          rateWrap.classList.remove("d-none");
+          rateSel.innerHTML = `<option value="">-- 金額プリセットを選択 --</option>` +
+            rates.map((r, ri) => `<option value="${ri}" data-amount="${r.amount||0}">${(r.label||"").replace(/"/g,"&quot;")} ¥${(r.amount||0).toLocaleString()}</option>`).join("");
+          rateSel.addEventListener("change", () => {
+            const opt = rateSel.options[rateSel.selectedIndex];
+            if (opt && opt.dataset.amount) amountInput.value = opt.dataset.amount;
+          }, { once: false });
+        } else {
+          rateWrap.classList.add("d-none");
+        }
       });
+
       modalEl.querySelector("#lpoSubmit").addEventListener("click", () => {
-        const depot = modalEl.querySelector("#lpoDepot").value;
+        const depotIdx = depotSel.value;
         const paymentMethod = modalEl.querySelector("#lpoPayment").value;
-        if (!depot) { showToast("入力エラー", "提出先を選択してください", "error"); return; }
+        if (!depotIdx) { showToast("入力エラー", "提出先を選択してください", "error"); return; }
         if (!paymentMethod) { showToast("入力エラー", "支払方法を選択してください", "error"); return; }
+        let depotName = "";
+        if (depotIdx === "__other__") {
+          depotName = otherInput.value.trim();
+          if (!depotName) { showToast("入力エラー", "提出先名を入力してください", "error"); return; }
+        } else {
+          depotName = depotMaster[+depotIdx]?.name || "";
+        }
         decided = true;
         const info = {
-          depot,
-          depotOther: modalEl.querySelector("#lpoDepotOther").value.trim(),
+          depot: depotName,
+          depotOther: depotIdx === "__other__" ? depotName : "",
           paymentMethod,
-          amount: modalEl.querySelector("#lpoAmount").value,
+          amount: amountInput.value,
           note: modalEl.querySelector("#lpoNote").value.trim(),
         };
         modal.hide();

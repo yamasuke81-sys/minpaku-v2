@@ -315,8 +315,14 @@ const GuestsPage = {
   },
 
   // === フォームURL生成ダイアログ ===
-  showFormUrlDialog() {
+  async showFormUrlDialog() {
     const baseUrl = location.origin + "/form/";
+    // ミニゲーム設定を取得 (デフォルト ON)
+    let miniGameEnabled = true;
+    try {
+      const doc = await db.collection("settings").doc("guestForm").get();
+      if (doc.exists && doc.data().miniGameEnabled === false) miniGameEnabled = false;
+    } catch (_) {}
     const html = `
       <div class="alert alert-success mb-3">
         <strong><i class="bi bi-check-circle"></i> 共通URL（推奨）</strong>
@@ -326,6 +332,21 @@ const GuestsPage = {
           <button class="btn btn-primary" onclick="navigator.clipboard.writeText(document.getElementById('formUrlBasic').value);this.innerHTML='<i class=\\'bi bi-check\\'></i>'">
             <i class="bi bi-clipboard"></i> コピー
           </button>
+        </div>
+      </div>
+      <div class="card mb-3">
+        <div class="card-body py-2">
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" id="miniGameToggle" ${miniGameEnabled ? "checked" : ""}>
+            <label class="form-check-label" for="miniGameToggle">
+              <strong>ミニゲーム (騒音確認ゲーム) を有効にする</strong>
+            </label>
+          </div>
+          <div class="small text-muted mt-1">
+            OFF の場合: 宿泊者名簿のトップ → 次へ → 直接入力ページへ進みます<br>
+            ON の場合: 宿泊者名簿のトップ → 次へ → ミニゲーム → 入力ページの流れ (現行)
+          </div>
+          <span id="miniGameSaveStatus" class="small"></span>
         </div>
       </div>
       <details class="mb-2">
@@ -368,8 +389,25 @@ const GuestsPage = {
     document.querySelector("#guestDetailModal .modal-title").innerHTML =
       '<i class="bi bi-link-45deg"></i> 宿泊者名簿フォームURL';
 
-    // URL生成ボタン
+    // URL生成ボタン + ミニゲームトグル
     setTimeout(() => {
+      const mgToggle = document.getElementById("miniGameToggle");
+      if (mgToggle) {
+        mgToggle.addEventListener("change", async () => {
+          const status = document.getElementById("miniGameSaveStatus");
+          status.innerHTML = `<i class="bi bi-arrow-repeat text-muted"></i> 保存中...`;
+          try {
+            await db.collection("settings").doc("guestForm").set({
+              miniGameEnabled: mgToggle.checked,
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            }, { merge: true });
+            status.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill"></i> 保存済み</span>`;
+            setTimeout(() => { status.innerHTML = ""; }, 2000);
+          } catch (e) {
+            status.innerHTML = `<span class="text-danger">保存失敗: ${e.message}</span>`;
+          }
+        });
+      }
       document.getElementById("btnGenerateUrl").addEventListener("click", () => {
         const params = new URLSearchParams();
         const ci = document.getElementById("urlCheckIn").value;
