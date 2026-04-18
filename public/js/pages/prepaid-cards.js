@@ -496,7 +496,7 @@ const PrepaidCardsPage = {
 
     // 追加ボタン
     const btn = document.getElementById("btnCreatePrepaid");
-    const newHandler = () => {
+    const newHandler = async () => {
       const depotId = depotSel.value;
       const prefix = prefixInput.value.trim();
       const cardNumber = numberInput.value.trim();
@@ -508,19 +508,27 @@ const PrepaidCardsPage = {
       const memo = memoInput.value.trim();
       // 頭文字をマスタにキャッシュ
       this.depotPrefixes[depotId] = prefix;
-      this.cards.push({
+      const newCard = {
         id: "prepaid_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
         cardNumber, balance, depotId, propertyIds, memo,
-      });
-      // 即座に保存まで行う (ユーザーの操作1ステップで追加完了)
-      this.save().then(() => {
+      };
+      this.cards.push(newCard);
+      // this.cards を直接 Firestore へ保存 (save() は DOM から読む仕様で新規カードが含まれないため)
+      try {
+        await db.collection("settings").doc("prepaidCards").set({
+          items: this.cards,
+          depotPrefixes: this.depotPrefixes,
+          chargeRules: this.chargeRules || [],
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
         this.renderList();
         bootstrap.Modal.getInstance(modalEl).hide();
         showToast("追加しました", `${cardNumber} を追加しました (残高 ¥${balance.toLocaleString()})`, "success");
-      });
-      btn.removeEventListener("click", newHandler);
+      } catch (e) {
+        showToast("保存失敗", e.message, "error");
+      }
     };
-    // 既存ハンドラを都度リセット
+    // 既存ハンドラを都度リセット (clone で replace)
     const clone = btn.cloneNode(true);
     btn.replaceWith(clone);
     document.getElementById("btnCreatePrepaid").addEventListener("click", newHandler);
