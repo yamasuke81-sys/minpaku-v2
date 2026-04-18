@@ -28,8 +28,8 @@ const FCMClient = {
     }
 
     try {
-      // Service Worker 登録
-      await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+      // Service Worker 登録 (scope明示 + 登録オブジェクトを保持)
+      this.swRegistration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
 
       this.messaging = firebase.messaging();
 
@@ -69,8 +69,10 @@ const FCMClient = {
         return { success: false, error: `通知が拒否されました (${permission})` };
       }
 
-      // FCMトークン取得
-      const token = await this.messaging.getToken({ vapidKey: this.VAPID_KEY });
+      // FCMトークン取得 (SW登録を明示的に渡して scope 不一致を回避)
+      const getTokenOpts = { vapidKey: this.VAPID_KEY };
+      if (this.swRegistration) getTokenOpts.serviceWorkerRegistration = this.swRegistration;
+      const token = await this.messaging.getToken(getTokenOpts);
       if (!token) {
         return { success: false, error: "トークン取得失敗" };
       }
