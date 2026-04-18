@@ -90,6 +90,64 @@
     (async function() {
       const auth = firebase.auth();
       const params = new URLSearchParams(location.search);
+
+      // ===== LINE OAuth コールバック処理 =====
+      // LINE から invite.html?code=xxx&state=yyy で戻ってきた場合
+      if (params.has("code") && params.has("state")) {
+        const code = params.get("code");
+        const stateRaw = params.get("state");
+
+        // URL パラメータを削除してURLをクリーンに
+        history.replaceState(null, "", location.pathname);
+
+        let inviteToken, savedNonce;
+        try {
+          const stateObj = JSON.parse(atob(stateRaw.replace(/-/g, "+").replace(/_/g, "/")));
+          inviteToken = stateObj.inviteToken;
+          savedNonce = stateObj.nonce;
+        } catch (_) {
+          showInvalid("不正なstateパラメータです");
+          return;
+        }
+
+        // nonce 検証（CSRF対策）
+        const storedNonce = sessionStorage.getItem("inviteLineNonce");
+        sessionStorage.removeItem("inviteLineNonce");
+        if (!storedNonce || storedNonce !== savedNonce) {
+          showInvalid("セキュリティ検証に失敗しました。招待リンクから再度お試しください。");
+          return;
+        }
+
+        // ローディング表示
+        document.getElementById("loadingState").querySelector("p").textContent = "LINE認証を処理中...";
+
+        try {
+          const redirectUri = `${location.origin}/invite.html`;
+          const res = await fetch("/api/auth/accept-invite-line", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code, redirectUri, inviteToken }),
+          });
+          const data = await res.json();
+
+          if (data.success && data.customToken) {
+            await firebase.auth().signInWithCustomToken(data.customToken);
+            // 成功表示
+            document.getElementById("loadingState").classList.add("d-none");
+            document.getElementById("successState").classList.remove("d-none");
+            setTimeout(() => {
+              location.href = "/index.html#/my-dashboard";
+            }, 1500);
+          } else {
+            showInvalid(data.error || "LINE認証に失敗しました");
+          }
+        } catch (e) {
+          showInvalid(`通信エラー: ${e.message}`);
+        }
+        return;
+      }
+
+      // ===== 通常の招待ページ表示処理 =====
       const token = params.get("token");
 
       if (!token) {
@@ -166,47 +224,36 @@
           }
         });
 
-        // LINEで参加ボタン（既存）
-        document.getElementById("btnAccept").addEventListener("click", async () => {
-          const btn = document.getElementById("btnAccept");
-          const errorEl = document.getElementById("acceptError");
-          btn.disabled = true;
-          btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 処理中...';
-          errorEl.classList.add("d-none");
-
-          try {
-            const res = await fetch("/api/auth/accept-invite", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ token }),
-            });
-            const data = await res.json();
-
-            if (data.success && data.customToken) {
-              // Firebase Authにログイン
-              await firebase.auth().signInWithCustomToken(data.customToken);
-
-              // 成功表示
-              document.getElementById("validState").classList.add("d-none");
-              document.getElementById("successState").classList.remove("d-none");
-
-              // アプリにリダイレクト
-              setTimeout(() => {
-                location.href = "/index.html#/my-dashboard";
-              }, 1500);
-            } else {
-              errorEl.textContent = data.error || "登録に失敗しました";
-              errorEl.classList.remove("d-none");
-              btn.disabled = false;
-              btn.innerHTML = '<i class="bi bi-check-circle"></i> 参加する';
-            }
-          } catch (e) {
-            errorEl.textContent = `エラー: ${e.message}`;
+        // LINEで参加ボタン: LINE OAuth2 フローを開始
+        document.getElementById("btnAccept").addEventListener("click", () => {
+          const channelId = window.LINE_LOGIN_CHANNEL_ID;
+          if (!channelId) {
+            const errorEl = document.getElementById("acceptError");
+            errorEl.textContent = "LINE Login設定が未完了です。オーナーに確認してください。";
             errorEl.classList.remove("d-none");
-            btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-check-circle"></i> 参加する';
+            return;
           }
+
+          // CSRF対策用 nonce を生成して sessionStorage に保存
+          const nonce = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
+          sessionStorage.setItem("inviteLineNonce", nonce);
+
+          // state に inviteToken を含める（URLセーフ Base64 エンコード）
+          const stateObj = JSON.stringify({ nonce, inviteToken: token });
+          const stateB64 = btoa(stateObj).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+
+          const redirectUri = `${location.origin}/invite.html`;
+          const lineParams = new URLSearchParams({
+            response_type: "code",
+            client_id: channelId,
+            redirect_uri: redirectUri,
+            state: stateB64,
+            scope: "profile openid",
+          });
+
+          location.href = `https://access.line.me/oauth2/v2.1/authorize?${lineParams}`;
         });
+
       } catch (e) {
         showInvalid(`通信エラー: ${e.message}`);
       }

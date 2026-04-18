@@ -108,9 +108,119 @@ module.exports = function authApi(db) {
   });
 
   /**
+   * POST /auth/accept-invite-line
+   * 招待トークン + LINE OAuthコード → lineUserId を staff に保存 → カスタムトークン発行
+   * リクエスト: { code: string, redirectUri: string, inviteToken: string }
+   */
+  router.post("/accept-invite-line", async (req, res) => {
+    try {
+      const { code, redirectUri, inviteToken } = req.body;
+      if (!code || !inviteToken) {
+        return res.status(400).json({ error: "code と inviteToken が必要です" });
+      }
+
+      // 招待トークン検証
+      const inviteDoc = await db.collection("staffInvites").doc(inviteToken).get();
+      if (!inviteDoc.exists) {
+        return res.status(404).json({ error: "無効な招待リンクです" });
+      }
+      const invite = inviteDoc.data();
+      if (invite.used) {
+        return res.status(400).json({ error: "この招待リンクは使用済みです" });
+      }
+      if (invite.expiresAt && invite.expiresAt.toDate() < new Date()) {
+        return res.status(400).json({ error: "招待リンクの有効期限が切れています" });
+      }
+
+      // スタッフドキュメント取得
+      const staffDoc = await db.collection("staff").doc(invite.staffId).get();
+      if (!staffDoc.exists || !staffDoc.data().active) {
+        return res.status(404).json({ error: "対象スタッフが見つかりません" });
+      }
+
+      // LINE Login設定取得
+      const settingsDoc = await db.collection("settings").doc("lineLogin").get();
+      if (!settingsDoc.exists) {
+        return res.status(500).json({ error: "LINE Login設定が未登録です" });
+      }
+      const { channelId, channelSecret } = settingsDoc.data();
+      if (!channelId || !channelSecret) {
+        return res.status(500).json({ error: "LINE Login設定が不完全です" });
+      }
+
+      // 認可コード → アクセストークン取得
+      const tokenResult = await lineTokenExchange_(channelId, channelSecret, code, redirectUri);
+      if (!tokenResult.success) {
+        return res.status(401).json({ error: `LINEトークン取得失敗: ${tokenResult.error}` });
+      }
+
+      // LINE プロフィール取得
+      const profile = await lineGetProfile_(tokenResult.accessToken);
+      if (!profile.success) {
+        return res.status(401).json({ error: `LINEプロフィール取得失敗: ${profile.error}` });
+      }
+
+      const lineUserId = profile.userId;
+      const staffData = staffDoc.data();
+      const staffId = invite.staffId;
+
+      // Firebase Authユーザー作成 or 取得
+      let uid;
+      if (staffData.authUid) {
+        uid = staffData.authUid;
+      } else {
+        const email = `staff_${staffId}@minpaku-v2.internal`;
+        try {
+          const userRecord = await admin.auth().createUser({
+            email,
+            displayName: staffData.name || profile.displayName,
+            disabled: false,
+          });
+          uid = userRecord.uid;
+        } catch (e) {
+          if (e.code === "auth/email-already-exists") {
+            const existingUser = await admin.auth().getUserByEmail(email);
+            uid = existingUser.uid;
+          } else {
+            throw e;
+          }
+        }
+      }
+
+      // staff doc に lineUserId と authUid を保存（旧フローでは lineUserId が未保存だった問題を解消）
+      await staffDoc.ref.update({
+        lineUserId,
+        authUid: uid,
+        updatedAt: new Date(),
+      });
+
+      // カスタムクレーム設定
+      await admin.auth().setCustomUserClaims(uid, { role: "staff", staffId });
+
+      // 招待トークンを使用済みに
+      await inviteDoc.ref.update({
+        used: true,
+        usedAt: new Date(),
+        usedByUid: uid,
+        authMethod: "line_oauth",
+        lineUserId,
+      });
+
+      // カスタムトークン発行
+      const customToken = await admin.auth().createCustomToken(uid);
+
+      res.json({ success: true, customToken, staffName: staffData.name });
+    } catch (e) {
+      console.error("招待LINE OAuth受諾エラー:", e);
+      res.status(500).json({ error: `サーバーエラー: ${e.message}` });
+    }
+  });
+
+  /**
    * POST /auth/accept-invite
    * 招待トークン検証 → Firebase Authユーザー作成 → カスタムトークン発行
    * リクエスト: { token: string }
+   * @deprecated LINE OAuth経由の /auth/accept-invite-line を推奨。lineUserId が保存されない問題あり
    */
   router.post("/accept-invite", async (req, res) => {
     try {
