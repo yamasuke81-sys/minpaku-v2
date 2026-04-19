@@ -294,8 +294,10 @@ module.exports = function recruitmentApi(db) {
         return res.status(404).json({ error: "募集が見つかりません" });
       }
       const data = doc.data();
-      if (!data.selectedStaff) {
-        return res.status(400).json({ error: "スタッフが選定されていません" });
+      // selectedStaffIds が空配列または未定義なら確定不可
+      const ids = data.selectedStaffIds;
+      if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: "スタッフが選択されていません" });
       }
       await docRef.update({
         status: "スタッフ確定済み",
