@@ -224,11 +224,16 @@ function pad2(n) {
 
 /**
  * 車台数パース: "1台" → 1, "2台" → 2, "" → 0
+ * 念のため上限 20 台で打ち止め (列ずれで日付を誤取得した時の暴発防止)
  */
 function parseCar(val) {
   if (!val) return 0;
   var m = String(val).match(/(\d+)/);
-  return m ? parseInt(m[1]) : 0;
+  if (!m) return 0;
+  var n = parseInt(m[1]);
+  if (isNaN(n) || n < 0) return 0;
+  if (n > 20) return 0; // 20台超は異常値として 0 扱い
+  return n;
 }
 
 /**
