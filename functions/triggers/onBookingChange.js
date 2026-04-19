@@ -12,13 +12,19 @@ const {
 } = require("../utils/lineNotify");
 const { addRecruitmentToActiveStaff } = require("../utils/inactiveStaff");
 
+// キャンセル済みステータス判定（module スコープで共有）
+function isCancelled(s) {
+  const x = String(s || "").toLowerCase();
+  return x.includes("cancel") || s === "キャンセル" || s === "キャンセル済み";
+}
+
 // before/after のどちらかがキャンセル状態なら日程変更処理は行わない
-function wasCancelledShortcut(before, after, isCancelled) {
+function wasCancelledShortcut(before, after) {
   return isCancelled(before.status) || isCancelled(after.status);
 }
 
 // 指定物件+日付の清掃 shift/recruitment/checklist を削除(同日の他active予約があればスキップ)
-async function cancelCleaningForDate_(db, propertyId, dateStr, excludeBookingId, isCancelled) {
+async function cancelCleaningForDate_(db, propertyId, dateStr, excludeBookingId) {
   if (!propertyId || !dateStr) return;
   const others = await db.collection("bookings")
     .where("propertyId", "==", propertyId)
@@ -56,11 +62,6 @@ module.exports = async function onBookingChange(event) {
   const before = event.data.before?.data();
   const after = event.data.after?.data();
 
-  const isCancelled = (s) => {
-    const x = String(s || "").toLowerCase();
-    return x.includes("cancel") || s === "キャンセル" || s === "キャンセル済み";
-  };
-
   // ========== D: 予約日程変更時の自動処理 ==========
   // before/after どちらも存在し、両方アクティブの場合に限って判定
   // ルール:
@@ -68,14 +69,14 @@ module.exports = async function onBookingChange(event) {
   //  - CIのみ変更       : そのまま続行
   //  - COのみ変更       : 旧COの shift/recruitment をキャンセル→新CO日で再募集
   // (キャンセル自体は下部で after 非active扱いとしてフロー継続で処理)
-  if (before && after && !wasCancelledShortcut(before, after, isCancelled)) {
+  if (before && after && !wasCancelledShortcut(before, after)) {
     try {
       const ciChanged = before.checkIn && after.checkIn && before.checkIn !== after.checkIn;
       const coChanged = before.checkOut && after.checkOut && before.checkOut !== after.checkOut;
       const pid = after.propertyId || before.propertyId;
       if (pid && (coChanged || (ciChanged && coChanged))) {
         // 旧COの shift/recruitment を削除(同日他active無ければ)
-        await cancelCleaningForDate_(db, pid, before.checkOut, event.params.bookingId, isCancelled);
+        await cancelCleaningForDate_(db, pid, before.checkOut, event.params.bookingId);
         console.log(`[onBookingChange] 日程変更: ${event.params.bookingId} 旧CO=${before.checkOut} → 新CO=${after.checkOut} の清掃キャンセル完了`);
       } else if (ciChanged && !coChanged) {
         console.log(`[onBookingChange] CIのみ変更: ${event.params.bookingId} 続行 (清掃維持)`);
@@ -180,10 +181,54 @@ module.exports = async function onBookingChange(event) {
   const existingShifts = await db.collection("shifts")
     .where("date", "==", checkOutDate)
     .where("propertyId", "==", propertyId)
-    .limit(1)
     .get();
 
-  if (existingShifts.empty) {
+  // キャンセル済み予約に紐付く残留シフトを削除してから再生成する
+  let shouldCreateShift = existingShifts.empty;
+  if (!existingShifts.empty) {
+    let allStale = true;
+    for (const shiftDoc of existingShifts.docs) {
+      const shiftData = shiftDoc.data();
+      const linkedBookingId = shiftData.bookingId;
+      if (!linkedBookingId) {
+        // bookingId 未設定のシフトは古い残留物として削除対象
+        console.log(`予約 ${bookingId}: シフト ${shiftDoc.id} に bookingId 未設定 → 削除対象`);
+        continue;
+      }
+      try {
+        const linkedBookingDoc = await db.collection("bookings").doc(linkedBookingId).get();
+        if (!linkedBookingDoc.exists || isCancelled(linkedBookingDoc.data().status)) {
+          // 紐付き予約が存在しないかキャンセル済み → 残留シフトとして削除
+          console.log(`予約 ${bookingId}: シフト ${shiftDoc.id} はキャンセル済み予約(${linkedBookingId})由来 → 削除して再生成`);
+        } else {
+          // 有効な予約が紐付いている → スキップ
+          allStale = false;
+        }
+      } catch (e) {
+        console.error(`シフト ${shiftDoc.id} の紐付き予約確認エラー:`, e);
+        allStale = false;
+      }
+    }
+
+    if (allStale) {
+      // 全シフトが残留物 → 削除して再生成
+      for (const shiftDoc of existingShifts.docs) {
+        try {
+          const cls = await db.collection("checklists").where("shiftId", "==", shiftDoc.id).get();
+          for (const c of cls.docs) await c.ref.delete();
+          await shiftDoc.ref.delete();
+          console.log(`予約 ${bookingId}: 残留シフト ${shiftDoc.id} を削除`);
+        } catch (e) {
+          console.error(`残留シフト ${shiftDoc.id} 削除エラー:`, e);
+        }
+      }
+      shouldCreateShift = true;
+    } else {
+      console.log(`予約 ${bookingId}: 同日同物件のシフトが既に存在(有効な予約あり)のためスキップ`);
+    }
+  }
+
+  if (shouldCreateShift) {
     // シフト自動生成
     try {
       await db.collection("shifts").add({
@@ -204,21 +249,58 @@ module.exports = async function onBookingChange(event) {
     } catch (e) {
       console.error("シフト生成エラー:", e);
     }
-  } else {
-    console.log(`予約 ${bookingId}: 同日同物件のシフトが既に存在するためスキップ`);
   }
 
   // ========== 募集重複チェック ==========
   const existingRecruitments = await db.collection("recruitments")
     .where("checkoutDate", "==", checkOut)
     .where("propertyId", "==", propertyId)
-    .limit(1)
     .get();
 
+  // キャンセル済み予約に紐付く残留募集を削除してから再生成する
+  let shouldCreateRecruitment = existingRecruitments.empty;
   if (!existingRecruitments.empty) {
-    console.log(`予約 ${bookingId}: 同日同物件の募集が既に存在するためスキップ`);
-    return;
+    let allStaleRec = true;
+    for (const recDoc of existingRecruitments.docs) {
+      const recData = recDoc.data();
+      const linkedBookingId = recData.bookingId;
+      if (!linkedBookingId) {
+        // bookingId 未設定の募集は残留物として削除対象
+        console.log(`予約 ${bookingId}: 募集 ${recDoc.id} に bookingId 未設定 → 削除対象`);
+        continue;
+      }
+      try {
+        const linkedBookingDoc = await db.collection("bookings").doc(linkedBookingId).get();
+        if (!linkedBookingDoc.exists || isCancelled(linkedBookingDoc.data().status)) {
+          // 紐付き予約が存在しないかキャンセル済み → 残留募集として削除
+          console.log(`予約 ${bookingId}: 募集 ${recDoc.id} はキャンセル済み予約(${linkedBookingId})由来 → 削除して再生成`);
+        } else {
+          // 有効な予約が紐付いている → スキップ
+          allStaleRec = false;
+        }
+      } catch (e) {
+        console.error(`募集 ${recDoc.id} の紐付き予約確認エラー:`, e);
+        allStaleRec = false;
+      }
+    }
+
+    if (allStaleRec) {
+      // 全募集が残留物 → 削除して再生成
+      for (const recDoc of existingRecruitments.docs) {
+        try {
+          await recDoc.ref.delete();
+          console.log(`予約 ${bookingId}: 残留募集 ${recDoc.id} を削除`);
+        } catch (e) {
+          console.error(`残留募集 ${recDoc.id} 削除エラー:`, e);
+        }
+      }
+      shouldCreateRecruitment = true;
+    } else {
+      console.log(`予約 ${bookingId}: 同日同物件の募集が既に存在(有効な予約あり)のためスキップ`);
+    }
   }
+
+  if (!shouldCreateRecruitment) return;
 
   // 募集自動生成
   const memo = `ゲスト: ${guestName || "不明"} (${source || "不明"})`;
