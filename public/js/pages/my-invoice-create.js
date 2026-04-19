@@ -276,55 +276,73 @@ const MyInvoiceCreatePage = {
   async loadSummary() {
     const ym = document.getElementById("invMonth").value;
     if (!ym) return;
-    const [y, m] = ym.split("-").map(Number);
-    const start = new Date(y, m - 1, 1);
-    const end = new Date(y, m, 0, 23, 59, 59);
 
     const sumEl = document.getElementById("invSummary");
     sumEl.innerHTML = `<div class="text-muted"><span class="spinner-border spinner-border-sm"></span> 集計中...</div>`;
 
-    let shifts = [], laundry = [];
     try {
-      const [shSnap, lnSnap] = await Promise.all([
-        db.collection("shifts").where("staffId", "==", this.staffId)
-          .where("date", ">=", start).where("date", "<=", end).get(),
-        db.collection("laundry").where("staffId", "==", this.staffId)
-          .where("date", ">=", start).where("date", "<=", end).get(),
-      ]);
-      shifts = shSnap.docs.map(d => d.data());
-      laundry = lnSnap.docs.map(d => d.data());
+      // バックエンドの compute-preview API を呼び出す（階段制・タイミー時給・特別加算対応）
+      const token = await firebase.auth().currentUser.getIdToken();
+      const body = { yearMonth: ym };
+      // オーナーが代理プレビューする場合は staffId を添付
+      if (this.isOwner && this.staffId) body.staffId = this.staffId;
+
+      const res = await fetch(`${this.CF_BASE}/invoices/compute-preview`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const preview = await res.json();
+
+      // API 結果をキャッシュ（updateTotal で manualItems 合算に使う）
+      this._previewShiftAmount = preview.shiftAmount || 0;
+      this._previewLaundryAmount = preview.laundryAmount || 0;
+      this._previewSpecialAmount = preview.specialAmount || 0;
+      this._previewTransportFee = preview.transportationFee || 0;
+      this._previewShiftCount = preview.shiftCount || 0;
+
+      // 特別加算の内訳テキスト生成
+      const specialBreakdown = (preview.special || []).length > 0
+        ? `<div class="col-md-3"><div class="small text-muted">特別加算</div><div class="fw-bold text-warning">¥${(preview.specialAmount || 0).toLocaleString()}</div></div>`
+        : "";
+
+      sumEl.innerHTML = `
+        <div class="row g-2">
+          <div class="col-md-3"><div class="small text-muted">シフト件数</div><div class="fw-bold">${preview.shiftCount} 件</div></div>
+          <div class="col-md-3"><div class="small text-muted">基本報酬</div><div class="fw-bold">¥${(preview.shiftAmount || 0).toLocaleString()}</div></div>
+          <div class="col-md-3"><div class="small text-muted">交通費</div><div class="fw-bold">¥${(preview.transportationFee || 0).toLocaleString()}</div></div>
+          <div class="col-md-3"><div class="small text-muted">ランドリー立替</div><div class="fw-bold">¥${(preview.laundryAmount || 0).toLocaleString()}</div></div>
+          ${specialBreakdown}
+        </div>
+        <div class="text-muted small mt-2">※ 階段制単価・workType別・タイミー時給・特別加算を含む正確な計算です</div>
+      `;
     } catch (e) {
-      sumEl.innerHTML = `<div class="alert alert-danger mb-0"><i class="bi bi-exclamation-triangle"></i> 集計に失敗しました: ${(e && e.message) || e}<br><small class="text-muted">Firestore 権限/インデックスエラーの可能性があります。コンソールを確認してください。</small></div>`;
+      sumEl.innerHTML = `<div class="alert alert-danger mb-0"><i class="bi bi-exclamation-triangle"></i> 集計に失敗しました: ${(e && e.message) || e}</div>`;
       console.error("loadSummary エラー:", e);
+      // API失敗時はキャッシュをリセット
+      this._previewShiftAmount = 0;
+      this._previewLaundryAmount = 0;
+      this._previewSpecialAmount = 0;
+      this._previewTransportFee = 0;
+      this._previewShiftCount = 0;
       return;
     }
-
-    this._shiftCount = shifts.length;
-    this._laundryTotal = laundry.reduce((s, l) => s + (l.amount || 0), 0);
-    this._ratePerJob = this.staffDoc.ratePerJob || 0;
-    this._transportFee = this.staffDoc.transportationFee || 0;
-
-    const basePayment = shifts.length * this._ratePerJob;
-    const transportationFee = shifts.length * this._transportFee;
-
-    document.getElementById("invSummary").innerHTML = `
-      <div class="row g-2">
-        <div class="col-md-3"><div class="small text-muted">シフト件数</div><div class="fw-bold">${shifts.length} 件</div></div>
-        <div class="col-md-3"><div class="small text-muted">基本報酬</div><div class="fw-bold">¥${basePayment.toLocaleString()}</div></div>
-        <div class="col-md-3"><div class="small text-muted">交通費</div><div class="fw-bold">¥${transportationFee.toLocaleString()}</div></div>
-        <div class="col-md-3"><div class="small text-muted">ランドリー立替</div><div class="fw-bold">¥${this._laundryTotal.toLocaleString()}</div></div>
-      </div>
-      <div class="text-muted small mt-2">※ シフト単価 ¥${this._ratePerJob.toLocaleString()} × ${shifts.length}件 + 交通費 ¥${this._transportFee.toLocaleString()} × ${shifts.length}件 + ランドリー実費</div>
-    `;
     this.updateTotal();
   },
 
   updateTotal() {
-    const basePayment = (this._shiftCount || 0) * (this._ratePerJob || 0);
-    const transportationFee = (this._shiftCount || 0) * (this._transportFee || 0);
+    // バックエンド計算済みの金額 + フロントの追加明細行のみ加算
+    const apiBase = (this._previewShiftAmount || 0)
+      + (this._previewLaundryAmount || 0)
+      + (this._previewSpecialAmount || 0)
+      + (this._previewTransportFee || 0);
     const manualTotal = [...document.querySelectorAll("#manualRows .m-amount")]
       .reduce((s, i) => s + (Number(i.value) || 0), 0);
-    const total = basePayment + (this._laundryTotal || 0) + transportationFee + manualTotal;
+    const total = apiBase + manualTotal;
     document.getElementById("invTotal").textContent = "¥" + total.toLocaleString();
   },
 
