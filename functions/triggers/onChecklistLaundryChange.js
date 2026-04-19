@@ -69,10 +69,17 @@ async function syncPutOutToLaundry(db, checklistId, after, putOut) {
   // cash/credit は立替あり、prepaid/invoice は立替なし
   const isReimbursable = ["cash", "credit"].includes(paymentMethod);
 
+  // putOut.by は { uid, staffId, name } のオブジェクト形式 (my-checklist.js)。
+  // 古い by が文字列で入っている互換性も維持。staffId を優先し、なければ uid を fallback
+  const byObj = putOut.by;
+  const staffIdStr = (byObj && typeof byObj === "object")
+    ? (byObj.staffId || byObj.uid || "")
+    : (typeof byObj === "string" ? byObj : "");
+
   const laundryData = {
     date: after.checkoutDate || after.date || null,
     propertyId: after.propertyId || "",
-    staffId: putOut.by?.id || putOut.by || "",
+    staffId: staffIdStr,
     depot: putOut.depot || "",
     depotOther: putOut.depotOther || "",
     depotKind: putOut.depotKind || "",

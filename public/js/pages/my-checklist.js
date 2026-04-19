@@ -757,6 +757,7 @@ const MyChecklistPage = {
     const user = firebase.auth().currentUser;
     const by = {
       uid: user?.uid || "",
+      staffId: this.staffDoc?.id || "",
       name: this.staffDoc?.name || user?.displayName || "",
     };
     const patch = { updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
