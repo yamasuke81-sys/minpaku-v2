@@ -203,6 +203,7 @@ const PropertiesPage = {
     this.toggleInspectionPeriodBlocks(recur);
     recurCb.onchange = () => this.toggleInspectionPeriodBlocks(recurCb.checked);
 
+    document.getElementById("propertyKeyboxNumber").value = property?.keyboxNumber || "";
     document.getElementById("propertyNotes").value = property?.notes || "";
 
     // LINE 連携フィールド
@@ -338,6 +339,7 @@ const PropertiesPage = {
           periodEnd: recur ? null : (document.getElementById("propertyInspectionPeriodEnd").value || null),
         };
       })(),
+      keyboxNumber: document.getElementById("propertyKeyboxNumber").value.trim() || null,
       notes: document.getElementById("propertyNotes").value.trim(),
       // LINE 連携フィールド
       lineEnabled: document.getElementById("propertyLineEnabled").checked,
@@ -422,6 +424,7 @@ const PropertiesPage = {
           periodEnd: recur ? null : (document.getElementById("propertyInspectionPeriodEnd").value || null),
         };
       })(),
+      keyboxNumber: document.getElementById("propertyKeyboxNumber").value.trim() || null,
       notes: document.getElementById("propertyNotes").value.trim(),
       lineEnabled: document.getElementById("propertyLineEnabled").checked,
       lineChannelStrategy: document.getElementById("propertyLineChannelStrategy").value || "fallback",
