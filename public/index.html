@@ -953,6 +953,34 @@
             </div>
             <!-- タブ2: フォーム項目管理 -->
             <div class="tab-pane fade" id="tabPaneFormFields" role="tabpanel">
+              <!-- 編集対象セレクタ -->
+              <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+                <label class="form-label mb-0 fw-semibold small">編集対象:</label>
+                <select class="form-select form-select-sm" id="formTargetSelector" style="max-width:280px;">
+                  <option value="__common__">全物件共通 (デフォルト)</option>
+                  <!-- 物件別オプションはJSで動的描画 -->
+                </select>
+                <!-- 物件別選択時のみ表示するアクション群 -->
+                <div id="formTargetActions" class="d-none d-flex gap-1 flex-wrap">
+                  <button class="btn btn-sm btn-outline-primary" id="btnEnableCustomForm">
+                    <i class="bi bi-toggle-on"></i> この物件で独自設定を使う
+                  </button>
+                  <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                      <i class="bi bi-arrow-down-square"></i> コピー
+                    </button>
+                    <ul class="dropdown-menu small" id="formCopyMenu">
+                      <li><button class="dropdown-item" type="button" data-copy-source="__common__">共通設定をコピー</button></li>
+                      <!-- 他物件からのコピー項目はJSで追加 -->
+                    </ul>
+                  </div>
+                  <button class="btn btn-sm btn-outline-danger" id="btnClearCustomForm">
+                    <i class="bi bi-x-circle"></i> 独自設定を削除 (共通に戻す)
+                  </button>
+                </div>
+              </div>
+              <!-- 編集対象ステータス表示 -->
+              <div id="formTargetStatus" class="alert py-2 px-3 small mb-3 d-none"></div>
               <p class="text-muted small">
                 ゲスト向け宿泊者名簿フォームの項目を管理します。<br>
                 カードをクリックして展開→全プロパティを編集。ドラッグで並び替え可能です。

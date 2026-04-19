@@ -360,6 +360,8 @@ const GuestsPage = {
       .sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));
 
     this._propertiesCache = properties;
+    // 物件一覧が取得できたらセレクタを更新
+    this._refreshFormTargetSelector();
 
     if (properties.length === 0) {
       container.innerHTML = '<div class="text-muted small">アクティブな民泊物件がありません</div>';
@@ -868,15 +870,19 @@ const GuestsPage = {
 
   async deleteGuest(id) {
     const guest = this.guestList.find(g => g.id === id);
-    if (!confirm(`${guest?.guestName || ""} の宿泊者情報を削除しますか？`)) return;
-
-    try {
-      await API.guests.delete(id);
-      showToast("完了", "宿泊者情報を削除しました", "success");
-      await this.loadGuests();
-    } catch (e) {
-      showToast("エラー", `削除失敗: ${e.message}`, "error");
-    }
+    await showConfirm(
+      "宿泊者情報削除",
+      `${guest?.guestName || ""} の宿泊者情報を削除しますか？`,
+      async () => {
+        try {
+          await API.guests.delete(id);
+          showToast("完了", "宿泊者情報を削除しました", "success");
+          await this.loadGuests();
+        } catch (e) {
+          showToast("エラー", `削除失敗: ${e.message}`, "error");
+        }
+      }
+    );
   },
 
   escapeHtml(str) {
@@ -888,6 +894,51 @@ const GuestsPage = {
   // escapeHtml の別名 (フォーム管理ロジックで使用)
   esc(str) {
     return this.escapeHtml(str);
+  },
+
+  // 編集対象セレクタのオプションを物件一覧から再構築する
+  _refreshFormTargetSelector() {
+    const sel = document.getElementById("formTargetSelector");
+    if (!sel) return;
+    const props = this._propertiesCache || [];
+
+    // 現在の選択値を保持
+    const currentVal = sel.value || "__common__";
+
+    // オプションを再構築
+    sel.innerHTML = `<option value="__common__">全物件共通 (デフォルト)</option>`;
+    props.forEach(p => {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = (p.propertyNumber ? `#${p.propertyNumber} ` : "") + (p.name || p.id);
+      sel.appendChild(opt);
+    });
+
+    // 選択値を復元
+    sel.value = currentVal;
+    if (!sel.value) sel.value = "__common__";
+
+    // コピーメニューに他物件オプションを追加
+    this._refreshFormCopyMenu();
+  },
+
+  // コピーメニューに他物件エントリを追加する
+  _refreshFormCopyMenu() {
+    const menu = document.getElementById("formCopyMenu");
+    if (!menu) return;
+    const props = this._propertiesCache || [];
+    const target = this._currentFormTarget;
+
+    // 「共通設定をコピー」以外の既存エントリを削除
+    menu.querySelectorAll("[data-copy-source]:not([data-copy-source='__common__'])").forEach(li => li.closest("li")?.remove());
+
+    // 現在の対象以外の物件を追加
+    props.forEach(p => {
+      if (p.id === target) return;
+      const li = document.createElement("li");
+      li.innerHTML = `<button class="dropdown-item" type="button" data-copy-source="${p.id}">${this.esc((p.propertyNumber ? `#${p.propertyNumber} ` : "") + p.name)} の設定をコピー</button>`;
+      menu.appendChild(li);
+    });
   },
 
   // ===== 宿泊者名簿設定モーダル =====
@@ -936,10 +987,10 @@ const GuestsPage = {
     // カスタムURL生成 (details 内)
     this._renderCustomUrlArea();
 
-    // フォーム項目管理の初期化 (タブ2)
+    // フォーム項目管理の初期化 (タブ2: 編集対象が変わった場合も再ロード)
     if (!this._formConfigLoaded) {
-      this.loadFormConfig();
       this._formConfigLoaded = true;
+      this.loadFormConfig();
     }
 
     // フォーム管理ボタンのバインド (1回のみ)
@@ -949,8 +1000,117 @@ const GuestsPage = {
       document.getElementById("btnSaveFormConfig")?.addEventListener("click", () => this.saveFormConfig());
       document.getElementById("btnPreviewForm")?.addEventListener("click", () => this.showFormPreview());
       document.getElementById("btnTranslateAll")?.addEventListener("click", () => this.translateAllWithGemini());
+
+      // 編集対象セレクタ変更時
+      document.getElementById("formTargetSelector")?.addEventListener("change", async (e) => {
+        this._currentFormTarget = e.target.value;
+        this._formConfigLoaded = false;
+        this.expandedCards.clear();
+        await this.loadFormConfig();
+      });
+
+      // 「この物件で独自設定を使う」ボタン
+      document.getElementById("btnEnableCustomForm")?.addEventListener("click", async () => {
+        const target = this._currentFormTarget;
+        if (target === "__common__") return;
+        // 共通設定をコピーして物件に保存
+        let baseFields = JSON.parse(JSON.stringify(this.DEFAULT_FORM_FIELDS));
+        try {
+          const gDoc = await db.collection("settings").doc("guestForm").get();
+          if (gDoc.exists && gDoc.data().fields?.length > 0) baseFields = gDoc.data().fields;
+        } catch (_) {}
+        try {
+          await db.collection("properties").doc(target).update({
+            customFormEnabled: true,
+            customFormFields: baseFields,
+            customFormSections: this.DEFAULT_SECTIONS,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+          this.formFields = baseFields;
+          this.renderFormFields();
+          this._updateFormTargetStatus(true);
+          showToast("完了", "独自設定を有効にしました（共通設定からコピー済み）", "success");
+        } catch (e) {
+          showToast("エラー", `有効化失敗: ${e.message}`, "error");
+        }
+      });
+
+      // 「独自設定を削除（共通に戻す）」ボタン
+      document.getElementById("btnClearCustomForm")?.addEventListener("click", async () => {
+        const target = this._currentFormTarget;
+        if (target === "__common__") return;
+        await showConfirm(
+          "独自設定を削除",
+          "この物件の独自フォーム設定を削除し、共通設定に戻します。よろしいですか？",
+          async () => {
+            try {
+              await db.collection("properties").doc(target).update({
+                customFormEnabled: false,
+                customFormFields: firebase.firestore.FieldValue.delete(),
+                customFormSections: firebase.firestore.FieldValue.delete(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+              });
+              // 共通設定を読み直して表示
+              this._formConfigLoaded = false;
+              this.expandedCards.clear();
+              await this.loadFormConfig();
+              showToast("完了", "独自設定を削除しました。共通設定に戻りました。", "success");
+            } catch (e) {
+              showToast("エラー", `削除失敗: ${e.message}`, "error");
+            }
+          }
+        );
+      });
+
+      // コピーメニュー: イベント委譲でソース指定コピーを処理
+      document.getElementById("formCopyMenu")?.addEventListener("click", async (e) => {
+        const btn = e.target.closest("[data-copy-source]");
+        if (!btn) return;
+        const src = btn.dataset.copySource;
+        const dst = this._currentFormTarget;
+        if (!dst || dst === "__common__") return;
+
+        let srcFields = null;
+        try {
+          if (src === "__common__") {
+            const gDoc = await db.collection("settings").doc("guestForm").get();
+            if (gDoc.exists && gDoc.data().fields?.length > 0) srcFields = gDoc.data().fields;
+          } else {
+            const pDoc = await db.collection("properties").doc(src).get();
+            if (pDoc.exists && pDoc.data().customFormEnabled === true) {
+              srcFields = pDoc.data().customFormFields;
+            }
+          }
+        } catch (_) {}
+
+        if (!srcFields?.length) {
+          showToast("エラー", "コピー元にフォーム設定がありません", "error");
+          return;
+        }
+
+        // 独自設定が有効でなければ有効化してからコピー
+        try {
+          await db.collection("properties").doc(dst).update({
+            customFormEnabled: true,
+            customFormFields: srcFields,
+            customFormSections: this.DEFAULT_SECTIONS,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+          this.formFields = srcFields;
+          this.renderFormFields();
+          this._updateFormTargetStatus(true);
+          const srcName = src === "__common__" ? "共通設定" : ((this._propertiesCache || []).find(p => p.id === src)?.name || src);
+          showToast("完了", `${srcName} からコピーしました`, "success");
+        } catch (e) {
+          showToast("エラー", `コピー失敗: ${e.message}`, "error");
+        }
+      });
+
       this._formBtnsBound = true;
     }
+
+    // 物件セレクタのオプションを更新（物件一覧は _propertiesCache に入っている可能性あり）
+    this._refreshFormTargetSelector();
 
     modal.show();
   },
@@ -1010,30 +1170,99 @@ const GuestsPage = {
   formFields: [],
   expandedCards: new Set(),
   dragSourceIdx: null,
+  // 現在編集中の対象: "__common__" または propertyId
+  _currentFormTarget: "__common__",
 
   async loadFormConfig() {
     // デフォルトで即座に表示（スピナー解消）
     this.formFields = JSON.parse(JSON.stringify(this.DEFAULT_FORM_FIELDS));
     this.renderFormFields();
 
-    // Firestoreに保存済み設定があれば上書き
-    try {
-      const doc = await db.collection("settings").doc("guestForm").get();
-      if (doc.exists && doc.data().fields?.length > 0) {
-        this.formFields = doc.data().fields;
-        this.renderFormFields();
+    const target = this._currentFormTarget;
+
+    if (target === "__common__") {
+      // 共通設定を読む
+      try {
+        const doc = await db.collection("settings").doc("guestForm").get();
+        if (doc.exists && doc.data().fields?.length > 0) {
+          this.formFields = doc.data().fields;
+          this.renderFormFields();
+        }
+      } catch (e) {
+        console.warn("フォーム設定読み込みエラー（デフォルトを使用）:", e);
       }
-    } catch (e) {
-      console.warn("フォーム設定読み込みエラー（デフォルトを使用）:", e);
+      this._updateFormTargetStatus(null);
+    } else {
+      // 物件別設定を読む
+      try {
+        const pDoc = await db.collection("properties").doc(target).get();
+        if (pDoc.exists) {
+          const pd = pDoc.data();
+          if (pd.customFormEnabled === true && pd.customFormFields?.length > 0) {
+            // 独自設定が有効: 物件のフィールドを使用
+            this.formFields = pd.customFormFields;
+            this.renderFormFields();
+            this._updateFormTargetStatus(true);
+          } else {
+            // 独自設定なし: 共通設定を読み取り専用として表示
+            const gDoc = await db.collection("settings").doc("guestForm").get();
+            if (gDoc.exists && gDoc.data().fields?.length > 0) {
+              this.formFields = gDoc.data().fields;
+            }
+            this.renderFormFields();
+            this._updateFormTargetStatus(false);
+          }
+        }
+      } catch (e) {
+        console.warn("物件フォーム設定読み込みエラー:", e);
+        this._updateFormTargetStatus(false);
+      }
+    }
+  },
+
+  // 編集対象のステータスバナーを更新する
+  // customEnabled: true=独自設定で動作中, false=共通設定を使用中, null=共通設定編集中
+  _updateFormTargetStatus(customEnabled) {
+    const el = document.getElementById("formTargetStatus");
+    const actionsEl = document.getElementById("formTargetActions");
+    const enableBtn = document.getElementById("btnEnableCustomForm");
+    const clearBtn = document.getElementById("btnClearCustomForm");
+    if (!el) return;
+
+    if (customEnabled === null) {
+      // 共通設定を編集中
+      el.className = "alert alert-secondary py-2 px-3 small mb-3";
+      el.innerHTML = '<i class="bi bi-globe"></i> <strong>全物件共通の設定</strong>を編集中です。物件別に独自設定するには、セレクタで物件を選択してください。';
+      el.classList.remove("d-none");
+      if (actionsEl) actionsEl.classList.add("d-none");
+    } else if (customEnabled === true) {
+      // 独自設定で動作中
+      const prop = (this._propertiesCache || []).find(p => p.id === this._currentFormTarget);
+      el.className = "alert alert-success py-2 px-3 small mb-3";
+      el.innerHTML = `<i class="bi bi-check-circle-fill"></i> <strong>${this.esc(prop?.name || "この物件")}</strong> は独自フォーム設定で動作中です。以下で自由に編集できます。`;
+      el.classList.remove("d-none");
+      if (actionsEl) actionsEl.classList.remove("d-none");
+      if (enableBtn) enableBtn.classList.add("d-none");
+      if (clearBtn) clearBtn.classList.remove("d-none");
+    } else {
+      // 共通設定を使用中（物件選択時）
+      const prop = (this._propertiesCache || []).find(p => p.id === this._currentFormTarget);
+      el.className = "alert alert-info py-2 px-3 small mb-3";
+      el.innerHTML = `<i class="bi bi-info-circle"></i> <strong>${this.esc(prop?.name || "この物件")}</strong> は現在<strong>共通設定</strong>を使用中です。「この物件で独自設定を使う」を押すと独立したフォーム項目を設定できます。`;
+      el.classList.remove("d-none");
+      if (actionsEl) actionsEl.classList.remove("d-none");
+      if (enableBtn) enableBtn.classList.remove("d-none");
+      if (clearBtn) clearBtn.classList.add("d-none");
     }
   },
 
   loadFormDefaults() {
-    if (!confirm("デフォルト項目を読み込みます。現在の設定は上書きされます。よろしいですか？")) return;
-    this.formFields = JSON.parse(JSON.stringify(this.DEFAULT_FORM_FIELDS));
-    this.expandedCards.clear();
-    this.renderFormFields();
-    showToast("完了", "デフォルト項目を読み込みました。「保存」を押して反映してください。", "success");
+    showConfirm("デフォルト読み込み", "デフォルト項目を読み込みます。現在の設定は上書きされます。よろしいですか？", () => {
+      this.formFields = JSON.parse(JSON.stringify(this.DEFAULT_FORM_FIELDS));
+      this.expandedCards.clear();
+      this.renderFormFields();
+      showToast("完了", "デフォルト項目を読み込みました。「保存」を押して反映してください。", "success");
+    });
   },
 
   getSectionLabel(secId) {
@@ -1325,10 +1554,11 @@ const GuestsPage = {
     container.querySelectorAll(".ff-action-del").forEach(btn => {
       btn.addEventListener("click", () => {
         const idx = Number(btn.dataset.idx);
-        if (!confirm(`「${this.formFields[idx].label || ""}」を削除しますか？`)) return;
-        this.formFields.splice(idx, 1);
-        this.expandedCards.clear();
-        this.renderFormFields();
+        showConfirm("項目削除", `「${this.formFields[idx].label || ""}」を削除しますか？`, () => {
+          this.formFields.splice(idx, 1);
+          this.expandedCards.clear();
+          this.renderFormFields();
+        });
       });
     });
 
@@ -1406,11 +1636,28 @@ const GuestsPage = {
     alertEl.innerHTML = '<div class="spinner-border spinner-border-sm me-2"></div>保存中...';
 
     try {
-      await db.collection("settings").doc("guestForm").set({
-        fields,
-        sections: this.DEFAULT_SECTIONS,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      });
+      const target = this._currentFormTarget;
+      if (target === "__common__") {
+        // 共通設定として保存
+        await db.collection("settings").doc("guestForm").set({
+          fields,
+          sections: this.DEFAULT_SECTIONS,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+      } else {
+        // 物件別設定として保存 (customFormEnabled=trueのときのみ保存可)
+        const pDoc = await db.collection("properties").doc(target).get();
+        if (!pDoc.exists || pDoc.data().customFormEnabled !== true) {
+          alertEl.className = "alert alert-warning py-2";
+          alertEl.textContent = "先に「この物件で独自設定を使う」を有効にしてください。";
+          return;
+        }
+        await db.collection("properties").doc(target).update({
+          customFormFields: fields,
+          customFormSections: this.DEFAULT_SECTIONS,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+      }
       this.formFields = fields;
       alertEl.className = "alert alert-success py-2";
       alertEl.textContent = `${fields.length}件のフォーム項目を保存しました。ゲストフォームに即時反映されます。`;

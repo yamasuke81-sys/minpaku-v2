@@ -1313,6 +1313,32 @@
       document.querySelectorAll(".lang-switch .btn").forEach(btn => btn.addEventListener("click", () => { currentLang = btn.dataset.lang; applyLang(); }));
       applyLang();
 
+      // === 物件別フォーム設定の読み込み ===
+      // 参照優先順位:
+      //   1. URL に propertyId があり、その物件の customFormEnabled===true → customFormFields を使用
+      //   2. なければ settings/guestForm (共通) を使用
+      //   3. それもなければ静的 HTML のデフォルトを使用
+      // NOTE: 現バージョンはフォームが静的 HTML のため customFormFields の動的描画は未実装。
+      //       将来の動的フォーム実装時はここで取得した formFields を使って renderDynamicForm() を呼ぶ予定。
+      let _resolvedFormFields = null;
+      try {
+        const propertyId = params.propertyId || "";
+        if (propertyId) {
+          const pDoc = await db.collection("properties").doc(propertyId).get();
+          if (pDoc.exists && pDoc.data().customFormEnabled === true) {
+            _resolvedFormFields = pDoc.data().customFormFields || null;
+          }
+        }
+        if (!_resolvedFormFields) {
+          const gDoc = await db.collection("settings").doc("guestForm").get();
+          if (gDoc.exists && gDoc.data().fields?.length > 0) {
+            _resolvedFormFields = gDoc.data().fields;
+          }
+        }
+      } catch (_) {}
+      // _resolvedFormFields が取得できた場合、将来の動的フォーム描画でここを使う
+      // 現在は静的 HTML フォームを使用するため参照のみ（削除しないこと）
+
       // === 騒音ルール同意フロー制御 ===
       const noiseSection = document.getElementById("noiseRuleSection");
       const formBody = document.getElementById("formBody");
