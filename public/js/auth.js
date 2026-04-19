@@ -36,10 +36,25 @@ const Auth = {
     // URLパラメータチェック（LINE OAuthコールバック / 招待受諾後のリダイレクト）
     this.handleAuthCallback();
 
+    // 他タブでログイン成功した場合、このタブも自動リロードする
+    // (Android Chrome で LINE 認証後、新タブで開かれた時に古いタブも同期させる)
+    window.addEventListener("storage", (e) => {
+      if (e.key === "lineLoginSuccess" && e.newValue) {
+        console.log("[Auth] 他タブでログイン成功を検知、リロードします");
+        location.reload();
+      }
+    });
+
     firebase.auth().onAuthStateChanged((user) => {
       if (user) {
         this.currentUser = user;
         this.loginModal.hide();
+        // 他タブに「ログイン成功」シグナルを送る (古いタブを自動更新させる)
+        try {
+          localStorage.setItem("lineLoginSuccess", String(Date.now()));
+          // 1秒後に消す (次回のログイン時のシグナル干渉を防ぐ)
+          setTimeout(() => localStorage.removeItem("lineLoginSuccess"), 1000);
+        } catch (_) { /* ignore */ }
         // ユーザー名表示
         const nameEl = document.getElementById("userName");
         if (nameEl) nameEl.textContent = user.displayName || user.email;
@@ -177,7 +192,9 @@ const Auth = {
 
         if (data.success && data.customToken) {
           await firebase.auth().signInWithCustomToken(data.customToken);
-          // onAuthStateChangedが発火するのでここでは何もしない
+          // onAuthStateChangedが発火 → localStorage経由で他タブにも通知される
+          // Android Chrome で新タブが開いていた場合、元タブも自動リロードで同期する
+          // このタブを自動でフォーカスしたまま使い続けられるよう、何もしない
         } else {
           const errorEl = document.getElementById("loginError");
           errorEl.textContent = data.error || "LINEログインに失敗しました";
