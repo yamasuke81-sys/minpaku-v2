@@ -114,14 +114,20 @@ async function detectDoubleBooking(db, bookingId, after) {
     }, { merge: true });
   }
 
-  // オーナーに LINE 緊急通知
+  // 通知設定を参照して送信先を判定
   try {
-    await notifyOwner(
-      db,
-      "double_booking",
-      `ダブルブッキング検出: ${after.checkIn}〜${after.checkOut}`,
-      `【⚠️ ダブルブッキング警告】\n物件: ${after.propertyName || after.propertyId}\n日程: ${after.checkIn} 〜 ${after.checkOut}\n衝突件数: ${conflicts.length}件\n\n確認: https://minpaku-v2.web.app/#/dashboard`
-    );
+    const { settings } = await getNotificationSettings_(db);
+    const targets = resolveNotifyTargets(settings, "double_booking");
+    if (targets.enabled) {
+      const title = `ダブルブッキング検出: ${after.checkIn}〜${after.checkOut}`;
+      const body = `【⚠️ ダブルブッキング警告】\n物件: ${after.propertyName || after.propertyId}\n日程: ${after.checkIn} 〜 ${after.checkOut}\n衝突件数: ${conflicts.length}件\n\n確認: https://minpaku-v2.web.app/#/dashboard`;
+      if (targets.ownerLine) {
+        await notifyOwner(db, "double_booking", title, body);
+      }
+      if (targets.groupLine) {
+        await notifyGroup(db, "double_booking", title, body);
+      }
+    }
   } catch (e) {
     console.error("[onBookingChange] ダブルブッキング通知エラー:", e);
   }
