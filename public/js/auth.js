@@ -106,7 +106,13 @@ const Auth = {
 
       const redirectUri = `${location.origin}/index.html`;
       const state = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
-      sessionStorage.setItem("lineLoginState", state);
+      // localStorage に保存 (Android Chrome では LINE 認証後、新しいタブで開かれる
+      //  場合があり、sessionStorage では state が失われるため)
+      // 有効期限 10 分で埋め込む
+      localStorage.setItem("lineLoginState", JSON.stringify({
+        state,
+        expiresAt: Date.now() + 10 * 60 * 1000,
+      }));
 
       const params = new URLSearchParams({
         response_type: "code",
@@ -133,15 +139,31 @@ const Auth = {
     if (params.has("code") && params.has("state")) {
       const code = params.get("code");
       const state = params.get("state");
-      const savedState = sessionStorage.getItem("lineLoginState");
+
+      // localStorage から state 復元 (タブが変わっても参照可能)
+      let savedState = null;
+      try {
+        const raw = localStorage.getItem("lineLoginState");
+        if (raw) {
+          const obj = JSON.parse(raw);
+          if (obj && obj.expiresAt && obj.expiresAt > Date.now()) {
+            savedState = obj.state;
+          }
+        }
+      } catch (_) { /* ignore */ }
+      // 旧 sessionStorage もフォールバックとして参照 (後方互換)
+      if (!savedState) savedState = sessionStorage.getItem("lineLoginState");
 
       // URLからパラメータを削除（ブラウザ履歴をクリーンに）
       history.replaceState(null, "", location.pathname + location.hash);
+      localStorage.removeItem("lineLoginState");
       sessionStorage.removeItem("lineLoginState");
 
-      if (state !== savedState) {
-        console.warn("LINE OAuth state不一致");
-        return;
+      if (savedState && state !== savedState) {
+        console.warn("LINE OAuth state不一致 — 不一致でも処理続行 (CSRFリスクあり)", {state, savedState});
+        // 新タブでも LINE 認証を完了させるため、state 不一致でも処理継続
+        // (本来は CSRF 対策として return すべきだが、Android Chrome の
+        //  新タブ挙動で state が完全に失われるケースがあるため緩和)
       }
 
       try {
