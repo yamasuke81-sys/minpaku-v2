@@ -1450,8 +1450,26 @@
       // --- sortOrder によるセクション内並び替え ---
       applyFieldSortOrder(overrides);
 
-      // カスタムフィールドがあれば末尾に追加描画
-      _customFormFields = customFormFields.filter(f => !f.hidden);
+      // カスタムフィールドに overrides をマージしてから描画
+      // overrides[f.id] が存在する場合: hidden/labelOverride/requiredOverride 等を適用
+      const mergedCustomFields = customFormFields.map(f => {
+        const ov = overrides[f.id];
+        if (!ov) return f;
+        // overrides の各プロパティをマージ（元フィールドは変更しない）
+        const merged = Object.assign({}, f);
+        if (ov.hidden === true)                      merged.hidden = true;
+        if (typeof ov.labelOverride === "string")    merged.label = ov.labelOverride;
+        if (typeof ov.labelEnOverride === "string")  merged.labelEn = ov.labelEnOverride;
+        if (ov.requiredOverride !== undefined)        merged.required = ov.requiredOverride;
+        if (typeof ov.placeholderOverride === "string")   merged.placeholder = ov.placeholderOverride;
+        if (typeof ov.placeholderEnOverride === "string") merged.placeholderEn = ov.placeholderEnOverride;
+        return merged;
+      });
+
+      _customFormFields = mergedCustomFields.filter(f => !f.hidden);
+      // hidden になったフィールドを _hiddenFieldIds に追加（送信時除外のため）
+      mergedCustomFields.filter(f => f.hidden).forEach(f => _hiddenFieldIds.add(f.id));
+
       if (_customFormFields.length > 0) {
         renderCustomFields(_customFormFields);
       }
