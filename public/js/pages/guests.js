@@ -1154,47 +1154,52 @@ const GuestsPage = {
 
   // ===== 宿泊者名簿フォーム管理（Googleフォーム風カードエディタ） =====
 
-  // デフォルトフォーム定義（guest-form.html の DEFAULT_FIELDS と完全同期）
+  // デフォルトフォーム定義（guest-form.html の実画面と同期済み、2026-04-19更新）
+  // 代表者情報は「同行者リスト先頭 (guest-block)」として入力: g-name/g-nationality/g-address/g-age/g-passport/g-passport-photo
   DEFAULT_FORM_FIELDS: [
-    // 宿泊情報
-    { id: "checkIn", label: "チェックイン日", labelEn: "Check-in Date", type: "date", required: true, section: "stay", mapping: "checkIn" },
-    { id: "checkOut", label: "チェックアウト日", labelEn: "Check-out Date", type: "date", required: true, section: "stay", mapping: "checkOut" },
-    { id: "guestCount", label: "宿泊人数（大人）", labelEn: "Number of Guests (Adults)", type: "number", required: true, section: "stay", mapping: "guestCount", defaultValue: "1" },
-    { id: "guestCountInfants", label: "3才以下の乳幼児", labelEn: "Infants (under 3)", type: "number", required: false, section: "stay", mapping: "guestCountInfants", defaultValue: "0" },
-    { id: "bookingSite", label: "どこでこのホテルを予約しましたか？", labelEn: "Where did you book this accommodation?", type: "select", required: true, section: "stay", mapping: "bookingSite", options: ["Airbnb", "Booking.com", "じゃらん", "楽天トラベル", "直接予約", "その他"], optionsEn: ["Airbnb", "Booking.com", "Jalan", "Rakuten Travel", "Direct booking", "Other"] },
-    // 代表者情報
-    { id: "guestName", label: "代表者 氏名（フルネーム）", labelEn: "Primary Guest Full Name", type: "text", required: true, section: "representative", mapping: "guestName", placeholder: "山田 太郎 / Yamada Taro" },
-    { id: "nationality", label: "国籍", labelEn: "Nationality", type: "text", required: true, section: "representative", mapping: "nationality", defaultValue: "日本" },
-    { id: "address", label: "住所（現住所）", labelEn: "Address", type: "text", required: true, section: "representative", mapping: "address", placeholder: "〒000-0000 ○○県○○市..." },
-    { id: "phone", label: "電話番号", labelEn: "Phone Number", type: "tel", required: true, section: "representative", mapping: "phone" },
-    { id: "phone2", label: "電話番号（第2）", labelEn: "Phone (2nd)", type: "tel", required: true, section: "representative", mapping: "phone2" },
-    { id: "email", label: "メールアドレス", labelEn: "Email Address", type: "email", required: false, section: "representative", mapping: "email" },
-    { id: "email2", label: "メールアドレス（第2・任意）", labelEn: "Email (2nd, optional)", type: "email", required: false, section: "representative", mapping: "email2" },
-    { id: "passportNumber", label: "旅券番号（外国籍の方のみ）", labelEn: "Passport No. (Foreign nationals only)", type: "text", required: false, section: "representative", mapping: "passportNumber" },
-    { id: "passportPhoto", label: "パスポート写真（外国籍の方のみ）", labelEn: "Passport Photo URL (Foreign nationals only)", type: "text", required: false, section: "representative", mapping: "passportPhoto", placeholder: "URLまたはファイル名 / URL or filename" },
-    { id: "purpose", label: "旅の目的", labelEn: "Purpose of Visit", type: "select", required: false, section: "representative", mapping: "purpose", options: ["観光", "仕事", "帰省", "イベント", "その他"], optionsEn: ["Tourism", "Business", "Homecoming", "Event", "Other"] },
-    // 施設利用情報
-    { id: "arrivalTime", label: "到着予定時刻", labelEn: "Estimated Arrival Time", type: "select", required: false, section: "facility", mapping: "arrivalTime", options: ["", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:00", "20:00以降"], optionsEn: ["", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:00", "After 20:00"] },
-    { id: "departureTime", label: "出発予定時刻", labelEn: "Estimated Departure Time", type: "select", required: false, section: "facility", mapping: "departureTime", options: ["", "7:00", "7:30", "8:00", "8:30", "9:00", "9:30", "10:00", "10:00以降"], optionsEn: ["", "7:00", "7:30", "8:00", "8:30", "9:00", "9:30", "10:00", "After 10:00"] },
-    { id: "cars", label: "お車は何台でお越しになりますか？\n※施設には駐車場がございません。徒歩15分の場所に有料駐車場があります。", labelEn: "How many cars will you bring?\n*No parking at facility. Paid parking available (15 min walk).", type: "select", required: false, section: "facility", mapping: "cars", options: ["0台（車なし）", "1台", "2台", "3台以上"], optionsEn: ["0 (No car)", "1 car", "2 cars", "3+ cars"] },
-    { id: "bbq", label: "バーベキューセットをご利用されますか？", labelEn: "Would you like to use the BBQ set?", type: "select", required: false, section: "facility", mapping: "bbq", options: ["利用しない", "利用する（1セット）", "利用する（2セット）"], optionsEn: ["No", "Yes (1 set)", "Yes (2 sets)"] },
-    { id: "bedChoice", label: "宿泊人数2名のお客様のみお答えください（ベッドの希望）", labelEn: "For 2 guests only: Bed preference", type: "select", required: false, section: "facility", mapping: "bedChoice", options: ["", "シングルベッド×2", "ダブルベッド×1", "布団"], optionsEn: ["", "2 Single Beds", "1 Double Bed", "Futon"] },
-    { id: "bedCount", label: "ベッド数（希望）", labelEn: "Number of Beds (preferred)", type: "number", required: false, section: "facility", mapping: "bedCount" },
-    // その他連絡事項
-    { id: "memo", label: "ご要望・備考", labelEn: "Notes / Special Requests", type: "textarea", required: false, section: "other", mapping: "memo" },
-    { id: "allergy", label: "アレルギー・特記事項", labelEn: "Allergies / Special Notes", type: "textarea", required: false, section: "other", mapping: "allergy", placeholder: "食物アレルギー、持病、車椅子利用等 / Food allergies, medical conditions, wheelchair use, etc." },
-    { id: "emergencyContact", label: "緊急連絡先（代表者以外）", labelEn: "Emergency Contact (other than primary guest)", type: "text", required: false, section: "other", mapping: "emergencyContact", placeholder: "氏名・電話番号 / Name & Phone" },
-    // ハウスルール同意
-    { id: "houseRuleAgree", label: "利用規約・ハウスルールに同意します", labelEn: "I agree to the Terms of Use and House Rules", type: "checkbox-single", required: true, section: "agreement", mapping: "houseRuleAgree" },
+    // === セクション1: 宿泊情報 ===
+    { id: "checkIn",           label: "チェックイン日",         labelEn: "Check-in Date",        type: "date",   required: true,  section: "stay",      mapping: "checkIn" },
+    { id: "checkInTime",       label: "チェックイン時刻",        labelEn: "Check-in Time",        type: "select", required: true,  section: "stay",      mapping: "checkInTime",  options: ["15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00","19:30","20:00","20:00以降"], optionsEn: ["15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00","19:30","20:00","After 20:00"] },
+    { id: "checkOut",          label: "チェックアウト日",        labelEn: "Check-out Date",       type: "date",   required: true,  section: "stay",      mapping: "checkOut" },
+    { id: "checkOutTime",      label: "チェックアウト時刻",      labelEn: "Check-out Time",       type: "select", required: true,  section: "stay",      mapping: "checkOutTime", options: ["7:00","7:30","8:00","8:30","9:00","9:30","10:00"], optionsEn: ["7:00","7:30","8:00","8:30","9:00","9:30","10:00"] },
+    { id: "guestCount",        label: "宿泊人数（大人）",        labelEn: "Adults",               type: "number", required: true,  section: "stay",      mapping: "guestCount",   defaultValue: "1" },
+    { id: "guestCountInfants", label: "3才以下の乳幼児",         labelEn: "Infants (under 3)",    type: "number", required: false, section: "stay",      mapping: "guestCountInfants", defaultValue: "0" },
+    { id: "bookingSite",       label: "予約サイト",              labelEn: "Booking Site",         type: "select", required: true,  section: "stay",      mapping: "bookingSite",  options: ["Airbnb","Booking.com","楽天トラベル","じゃらん","Agoda","VRBO","Trip.com","自社公式ウェブサイト","直接予約","その他"], optionsEn: ["Airbnb","Booking.com","Rakuten Travel","Jalan","Agoda","VRBO","Trip.com","Official Website","Direct booking","Other"] },
+    // === セクション2: 宿泊者情報（同行者リスト、先頭が代表者）===
+    // 実画面では guest-block (g-name, g-nationality, g-address, g-age, g-passport, g-passport-photo) で入力
+    // 管理画面エディタ上は companions セクションに含まれる
+    // === セクション3: 施設利用情報 ===
+    { id: "transport",         label: "交通手段",                labelEn: "Transportation",       type: "select", required: false, section: "facility",  mapping: "transport",    options: ["車","公共交通機関","タクシー","徒歩","その他"], optionsEn: ["Car","Public transport","Taxi","Walking","Other"] },
+    { id: "taxiAgree",         label: "タクシー注意事項への同意", labelEn: "Taxi warning agreement", type: "checkbox-single", required: false, section: "facility", mapping: "taxiAgree" },
+    { id: "carCount",          label: "車の台数",                labelEn: "Number of cars",       type: "select", required: false, section: "facility",  mapping: "carCount",     options: ["1台","2台","3台","4台","5台","6台","7台以上"], optionsEn: ["1 car","2 cars","3 cars","4 cars","5 cars","6 cars","7+ cars"] },
+    { id: "neighborAgree",     label: "近隣駐車場注意事項への同意", labelEn: "Parking notes agreement", type: "checkbox-single", required: false, section: "facility", mapping: "neighborAgree" },
+    { id: "paidParking",       label: "有料駐車場の利用",        labelEn: "Paid parking",         type: "select", required: false, section: "facility",  mapping: "paidParking",  options: ["利用しない","1台利用","2台利用"], optionsEn: ["No","1 car","2 cars"] },
+    { id: "bbq",               label: "BBQ利用",                 labelEn: "BBQ use",              type: "select", required: true,  section: "facility",  mapping: "bbq",          options: ["利用しない","利用する"], optionsEn: ["No","Yes"] },
+    { id: "bbqRule1",          label: "BBQルール同意①",          labelEn: "BBQ rule 1",           type: "checkbox-single", required: false, section: "facility", mapping: "bbqRule1" },
+    { id: "bbqRule2",          label: "BBQルール同意②",          labelEn: "BBQ rule 2",           type: "checkbox-single", required: false, section: "facility", mapping: "bbqRule2" },
+    { id: "bbqRule3",          label: "BBQルール同意③",          labelEn: "BBQ rule 3",           type: "checkbox-single", required: false, section: "facility", mapping: "bbqRule3" },
+    { id: "bbqRule4",          label: "BBQルール同意④",          labelEn: "BBQ rule 4",           type: "checkbox-single", required: false, section: "facility", mapping: "bbqRule4" },
+    { id: "bbqRule5",          label: "BBQルール同意⑤",          labelEn: "BBQ rule 5",           type: "checkbox-single", required: false, section: "facility", mapping: "bbqRule5" },
+    { id: "bedChoice",         label: "ベッドの希望（2名の場合）", labelEn: "Bed preference (2 guests)", type: "select", required: false, section: "facility", mapping: "bedChoice", options: ["2人で1台のベッドを利用（2階リビング）","1人1台ずつベッドを利用（1階和室）"], optionsEn: ["1 double bed (2F living)","2 single beds (1F tatami)"] },
+    // === セクション4: アンケート ===
+    { id: "purpose",           label: "旅の目的",                labelEn: "Purpose of visit",     type: "select", required: false, section: "survey",    mapping: "purpose",      options: ["出張","宮島","原爆ドーム","広島市内観光","呉観光","大和ミュージアム","中国地方観光","中四国観光","その他"], optionsEn: ["Business","Miyajima","A-bomb Dome","Hiroshima sightseeing","Kure sightseeing","Yamato Museum","Chugoku region","Shikoku region","Other"] },
+    { id: "previousStay",      label: "前泊地",                  labelEn: "Previous stay",        type: "text",   required: false, section: "survey",    mapping: "previousStay" },
+    { id: "nextStay",          label: "後泊地",                  labelEn: "Next stay",            type: "text",   required: false, section: "survey",    mapping: "nextStay" },
+    // === セクション5: 緊急連絡先 ===
+    { id: "emergencyName",     label: "緊急連絡先 氏名",          labelEn: "Emergency contact name",  type: "text",   required: true,  section: "emergency", mapping: "emergencyName" },
+    { id: "emergencyPhone",    label: "緊急連絡先 電話番号",      labelEn: "Emergency contact phone", type: "tel",    required: true,  section: "emergency", mapping: "emergencyPhone" },
+    // === 隠しフィールド（システム用）===
+    { id: "noiseAgree",        label: "騒音ルール同意（隠し）",   labelEn: "Noise rule agreement (hidden)", type: "checkbox-single", required: true, section: "agreement", mapping: "noiseAgree" },
+    { id: "houseRuleAgree",    label: "ハウスルール同意（隠し）", labelEn: "House rule agreement (hidden)", type: "checkbox-single", required: true, section: "agreement", mapping: "houseRuleAgree" },
   ],
 
   DEFAULT_SECTIONS: [
-    { id: "stay", label: "宿泊情報", labelEn: "Stay Details", order: 1 },
-    { id: "representative", label: "代表者情報（旅館業法に基づく記入事項）", labelEn: "Primary Guest (Required by Japanese Law)", order: 2 },
-    { id: "facility", label: "施設利用情報", labelEn: "Facility Usage", order: 3 },
-    { id: "other", label: "その他連絡事項", labelEn: "Other / Notes", order: 4 },
-    { id: "agreement", label: "同意事項", labelEn: "Agreement", order: 5 },
-    { id: "companions", label: "同行者情報", labelEn: "Companions", order: 6, isCompanion: true },
+    { id: "stay",        label: "宿泊情報",              labelEn: "Stay Details",                              order: 1 },
+    { id: "facility",    label: "施設利用情報",           labelEn: "Facility Usage",                            order: 2 },
+    { id: "survey",      label: "アンケート",             labelEn: "Survey",                                    order: 3 },
+    { id: "emergency",   label: "緊急連絡先",             labelEn: "Emergency Contact",                         order: 4 },
+    { id: "agreement",   label: "同意事項（システム用）", labelEn: "Agreement (system)",                        order: 5 },
+    { id: "companions",  label: "宿泊者情報（旅館業法）", labelEn: "Guests (Required by Japanese Law)",         order: 6, isCompanion: true },
   ],
 
   TYPE_LABELS: {
