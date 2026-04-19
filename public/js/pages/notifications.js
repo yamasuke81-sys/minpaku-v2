@@ -323,11 +323,12 @@ const NotificationsPage = {
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="discordSubOwner" ${discordSubOwner ? "checked" : ""}>
                     <span class="form-check-label small"><i class="bi bi-discord" style="color:#8da0f8"></i> Discord(サブオーナー)</span>
                   </label>
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
+                  <!-- FCM (Web Push) は将来再検討。現時点で iOS 制約により導入保留のため非表示。 -->
+                  <label class="form-check form-check-inline mb-0 d-none" style="cursor:pointer;">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="fcmStaff" ${fcmStaff ? "checked" : ""}>
                     <span class="form-check-label small"><i class="bi bi-bell-fill text-primary"></i> Web Push(スタッフ)</span>
                   </label>
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
+                  <label class="form-check form-check-inline mb-0 d-none" style="cursor:pointer;">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="fcmOwner" ${fcmOwner ? "checked" : ""}>
                     <span class="form-check-label small"><i class="bi bi-bell text-success"></i> Web Push(オーナー)</span>
                   </label>

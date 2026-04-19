@@ -72,6 +72,12 @@ module.exports = function propertiesApi(db) {
         baseWorkTime: (body.baseWorkTime && typeof body.baseWorkTime === "object")
           ? { start: String(body.baseWorkTime.start || "10:30"), end: String(body.baseWorkTime.end || "14:30") }
           : { start: "10:30", end: "14:30" },
+        // 物件別 LINE 連携設定 (1物件1LINEアカウント運用用)
+        lineEnabled: body.lineEnabled === true,
+        lineChannelToken: body.lineChannelToken ? String(body.lineChannelToken).trim() : "",
+        lineChannelSecret: body.lineChannelSecret ? String(body.lineChannelSecret).trim() : "",
+        lineGroupId: body.lineGroupId ? String(body.lineGroupId).trim() : "",
+        lineChannelName: body.lineChannelName ? String(body.lineChannelName).trim() : "",
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       };
@@ -120,6 +126,12 @@ module.exports = function propertiesApi(db) {
           end: String(body.baseWorkTime.end || "14:30"),
         };
       }
+      // 物件別 LINE 連携設定
+      if (body.lineEnabled !== undefined) data.lineEnabled = Boolean(body.lineEnabled);
+      if (body.lineChannelToken !== undefined) data.lineChannelToken = String(body.lineChannelToken).trim();
+      if (body.lineChannelSecret !== undefined) data.lineChannelSecret = String(body.lineChannelSecret).trim();
+      if (body.lineGroupId !== undefined) data.lineGroupId = String(body.lineGroupId).trim();
+      if (body.lineChannelName !== undefined) data.lineChannelName = String(body.lineChannelName).trim();
       data.updatedAt = FieldValue.serverTimestamp();
 
       await docRef.update(data);

@@ -194,6 +194,16 @@ const PropertiesPage = {
 
     document.getElementById("propertyNotes").value = property?.notes || "";
 
+    // LINE 連携フィールド
+    document.getElementById("propertyLineEnabled").checked = !!property?.lineEnabled;
+    // パスワードフィールドのため既存トークンは placeholder でのみ示す
+    document.getElementById("propertyLineChannelToken").value = "";
+    document.getElementById("propertyLineChannelToken").placeholder = property?.lineChannelToken
+      ? "（設定済み — 変更する場合のみ入力）"
+      : "長いトークン文字列を貼り付け";
+    document.getElementById("propertyLineGroupId").value = property?.lineGroupId || "";
+    document.getElementById("propertyLineChannelName").value = property?.lineChannelName || "";
+
     this.modal.show();
   },
 
@@ -252,7 +262,14 @@ const PropertiesPage = {
         };
       })(),
       notes: document.getElementById("propertyNotes").value.trim(),
+      // LINE 連携フィールド
+      lineEnabled: document.getElementById("propertyLineEnabled").checked,
+      lineGroupId: document.getElementById("propertyLineGroupId").value.trim(),
+      lineChannelName: document.getElementById("propertyLineChannelName").value.trim(),
     };
+    // トークンは入力されている場合のみ送信 (空欄=変更なし)
+    const tokenInput = document.getElementById("propertyLineChannelToken").value.trim();
+    if (tokenInput) data.lineChannelToken = tokenInput;
 
     try {
       if (id) {

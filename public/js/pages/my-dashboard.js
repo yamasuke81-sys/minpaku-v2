@@ -125,56 +125,11 @@ const MyDashboardPage = {
 
   /**
    * FCM初期化 + 通知許可バナー表示
-   * 許可済みなら何もしない、未許可なら控えめなバナーを表示
+   * FCM は現時点で導入保留 (iOS PWA制約で導入負担大)。将来再有効化可能なようコードは残す。
    */
   async _initFCMBanner() {
-    if (typeof FCMClient === "undefined") return;
-
-    await FCMClient.init();
-    const status = FCMClient.getPermissionStatus();
-
-    // すでに許可済みの場合はトークンを(再)保存して終了
-    if (status === "granted") {
-      FCMClient.requestAndSave().catch(() => {});
-      return;
-    }
-
-    // 拒否済みの場合はバナー表示不要
-    if (status === "denied") return;
-
-    // 未決定(default)→ 控えめなバナーを表示
-    const container = document.getElementById("myDashContent");
-    if (!container) return;
-
-    const bannerId = "fcmPermissionBanner";
-    if (document.getElementById(bannerId)) return; // 重複防止
-
-    const banner = document.createElement("div");
-    banner.id = bannerId;
-    banner.className = "alert alert-info d-flex align-items-center gap-2 mb-3 py-2";
-    banner.innerHTML = `
-      <i class="bi bi-bell fs-5 flex-shrink-0"></i>
-      <div class="flex-grow-1 small">清掃スケジュールなどをプッシュ通知で受け取れます</div>
-      <button class="btn btn-sm btn-primary" id="btnEnableFCM">通知をオンにする</button>
-      <button class="btn btn-sm btn-outline-secondary" id="btnDismissFCM">後で</button>
-    `;
-    container.insertAdjacentElement("afterbegin", banner);
-
-    document.getElementById("btnEnableFCM").addEventListener("click", async () => {
-      banner.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>許可リクエスト中...';
-      const result = await FCMClient.requestAndSave();
-      if (result.success) {
-        banner.className = "alert alert-success d-flex align-items-center gap-2 mb-3 py-2";
-        banner.innerHTML = '<i class="bi bi-check-circle-fill"></i> プッシュ通知を有効にしました';
-        setTimeout(() => banner.remove(), 3000);
-      } else {
-        banner.className = "alert alert-warning d-flex align-items-center gap-2 mb-3 py-2";
-        banner.innerHTML = `<i class="bi bi-exclamation-triangle"></i> 通知の許可に失敗しました: ${result.error || ""}`;
-        setTimeout(() => banner.remove(), 4000);
-      }
-    });
-
-    document.getElementById("btnDismissFCM").addEventListener("click", () => banner.remove());
+    // FCM バナーは現時点で非表示
+    return;
   },
 
   renderShiftCard(shift, isToday) {

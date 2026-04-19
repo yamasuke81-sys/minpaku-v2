@@ -10,6 +10,14 @@
   <!-- FullCalendar（ダッシュボード用） -->
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet">
   <link href="css/style.css?v=0416i" rel="stylesheet">
+  <!-- PWA -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0d6efd">
+  <!-- iOS Safari PWA対応 -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="民泊管理">
+  <link rel="apple-touch-icon" href="/img/icon-192.png">
 </head>
 <body>
   <!-- モバイル用トップバー -->
@@ -427,6 +435,61 @@
             <div class="col-12">
               <label class="form-label">メモ</label>
               <textarea class="form-control" id="propertyNotes" rows="2"></textarea>
+            </div>
+
+            <!-- ━━━━ LINE 連携 (物件単位) ━━━━ -->
+            <div class="col-12"><hr></div>
+            <div class="col-12">
+              <h6 class="mb-1"><i class="bi bi-chat-dots-fill text-success"></i> LINE 連携 (物件単位)</h6>
+              <p class="text-muted small mb-2">
+                この物件専用の LINE 公式アカウントを紐付けます。<br>
+                1物件1アカウントで運用すると、各 200通/月の無料枠を個別に使えます。
+              </p>
+              <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" id="propertyLineEnabled">
+                <label class="form-check-label" for="propertyLineEnabled">この物件の LINE 連携を有効にする</label>
+              </div>
+              <div id="propertyLineFields">
+                <div class="row g-2">
+                  <div class="col-12">
+                    <label class="form-label small">チャネルアクセストークン</label>
+                    <input type="password" class="form-control form-control-sm" id="propertyLineChannelToken" placeholder="長いトークン文字列を貼り付け">
+                    <div class="form-text">LINE Developers Console → Messaging API設定 → チャネルアクセストークンで発行</div>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label small">グループ ID / User ID</label>
+                    <input type="text" class="form-control form-control-sm" id="propertyLineGroupId" placeholder="C... または U...">
+                    <div class="form-text">グループIDがわからない場合は個人User IDで試して後で差し替え可</div>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label small">アカウント表示名（管理用）</label>
+                    <input type="text" class="form-control form-control-sm" id="propertyLineChannelName" placeholder="例: ○○物件 通知Bot">
+                  </div>
+                </div>
+              </div>
+              <!-- 設定手順アコーディオン -->
+              <div class="mt-2">
+                <button class="btn btn-link btn-sm p-0 text-muted" type="button" data-bs-toggle="collapse" data-bs-target="#lineSetupGuide">
+                  <i class="bi bi-question-circle"></i> 設定手順を見る ▼
+                </button>
+                <div class="collapse mt-2" id="lineSetupGuide">
+                  <div class="card card-body py-2 px-3 small bg-light">
+                    <ol class="mb-0 ps-3">
+                      <li><a href="https://developers.line.biz/console/" target="_blank" rel="noopener">https://developers.line.biz/console/</a> を開く</li>
+                      <li>「長浜清掃G通知」(or 新規) プロバイダー → 「新規チャネル作成」</li>
+                      <li>「Messaging API」を選択</li>
+                      <li>チャネル名: 例「○○物件の通知」と入力して作成</li>
+                      <li>「Messaging API設定」タブ → 「チャネルアクセストークン」で発行</li>
+                      <li>トークンをコピーして上のフォームに貼り付け</li>
+                      <li>LINE グループを作成 → 作成した Bot を招待</li>
+                      <li>グループ内で Bot にメンション → サーバーログで Group ID を確認<br>
+                          <span class="text-muted">（Webhook を一時設定して取得も可。グループIDがわからない場合は個人 User ID で試して後で差し替え）</span>
+                      </li>
+                      <li>Group ID を上のフォームに貼り付け、「この物件のLINE連携を有効にする」ON → 保存</li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -94,52 +94,11 @@ const DashboardPage = {
 
   /**
    * FCM初期化 + オーナー向け通知許可バナー表示
+   * FCM は現時点で導入保留 (iOS PWA制約で導入負担大)。将来再有効化可能なようコードは残す。
    */
   async _initFCMBanner() {
-    if (typeof FCMClient === "undefined") return;
-
-    await FCMClient.init();
-    const status = FCMClient.getPermissionStatus();
-
-    if (status === "granted") {
-      FCMClient.requestAndSave().catch(() => {});
-      return;
-    }
-    if (status === "denied") return;
-
-    // 今日のアクションエリアの前にバナーを挿入
-    const anchor = document.getElementById("todayActions");
-    if (!anchor) return;
-
-    const bannerId = "fcmPermissionBannerOwner";
-    if (document.getElementById(bannerId)) return;
-
-    const banner = document.createElement("div");
-    banner.id = bannerId;
-    banner.className = "alert alert-info d-flex align-items-center gap-2 mb-3 py-2";
-    banner.innerHTML = `
-      <i class="bi bi-bell fs-5 flex-shrink-0"></i>
-      <div class="flex-grow-1 small">スタッフ確定・チェックリスト完了などをプッシュ通知で受け取れます</div>
-      <button class="btn btn-sm btn-primary" id="btnEnableFCMOwner">通知をオンにする</button>
-      <button class="btn btn-sm btn-outline-secondary" id="btnDismissFCMOwner">後で</button>
-    `;
-    anchor.insertAdjacentElement("beforebegin", banner);
-
-    document.getElementById("btnEnableFCMOwner").addEventListener("click", async () => {
-      banner.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>許可リクエスト中...';
-      const result = await FCMClient.requestAndSave();
-      if (result.success) {
-        banner.className = "alert alert-success d-flex align-items-center gap-2 mb-3 py-2";
-        banner.innerHTML = '<i class="bi bi-check-circle-fill"></i> プッシュ通知を有効にしました';
-        setTimeout(() => banner.remove(), 3000);
-      } else {
-        banner.className = "alert alert-warning d-flex align-items-center gap-2 mb-3 py-2";
-        banner.innerHTML = `<i class="bi bi-exclamation-triangle"></i> 通知の許可に失敗しました: ${result.error || ""}`;
-        setTimeout(() => banner.remove(), 4000);
-      }
-    });
-
-    document.getElementById("btnDismissFCMOwner").addEventListener("click", () => banner.remove());
+    // FCM バナーは現時点で非表示
+    return;
   },
 
   async loadAllData() {
