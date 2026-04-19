@@ -1058,9 +1058,9 @@ const MyChecklistPage = {
                 <select class="form-select" id="lpoRate"></select>
                 <input type="number" class="form-control mt-2 d-none" id="lpoRateOther" min="0" placeholder="金額を手入力(円)">
               </div>
-              <!-- ステップ5: メモ (プリペイド時) / ステップ4: メモ (その他支払方法時) -->
+              <!-- ステップ5: メモ (プリペイド時) / ステップ4: メモ (cash/credit/invoice時) / ステップ3: メモ (未選択時) -->
               <div class="mb-3">
-                <label class="form-label" id="lpoNoteLabel">④ メモ</label>
+                <label class="form-label" id="lpoNoteLabel">③ メモ</label>
                 <input type="text" class="form-control" id="lpoNote">
               </div>
             </div>
@@ -1100,7 +1100,14 @@ const MyChecklistPage = {
         const payV = paySel.value;
         // メモラベルを支払方法で切替 (prepaid → ⑤、それ以外 → ④)
         const noteLbl = modalEl.querySelector("#lpoNoteLabel");
-        if (noteLbl) noteLbl.textContent = (payV === "prepaid") ? "⑤ メモ" : "④ メモ";
+        // prepaid: ③プリカ→④支払総額→⑤メモ
+        // cash/credit/invoice: ③金額→④メモ
+        // 未選択: ③メモ
+        if (noteLbl) {
+          if (payV === "prepaid") noteLbl.textContent = "⑤ メモ";
+          else if (payV) noteLbl.textContent = "④ メモ";
+          else noteLbl.textContent = "③ メモ";
+        }
         // ステップ3の表示: 支払方法で分岐
         if (payV === "prepaid") {
           rateWrap.classList.add("d-none");
