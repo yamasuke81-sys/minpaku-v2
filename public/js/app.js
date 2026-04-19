@@ -35,6 +35,7 @@ const App = {
     "my-dashboard": MyDashboardPage,
     "my-recruitment": MyRecruitmentPage,
     "my-checklist": MyChecklistPage,
+    "my-invoice": MyInvoicePage,
     "my-invoice-create": MyInvoiceCreatePage,
     "prepaid-cards": PrepaidCardsPage,
   },
@@ -121,6 +122,13 @@ const App = {
 
   route() {
     if (!Auth.currentUser) return;
+
+    // #/my-laundry → my-checklist へのエイリアス (ランドリーセクションへスクロール)
+    if (location.hash === "#/my-laundry") {
+      sessionStorage.setItem("pclScrollToLaundry", "1");
+      location.hash = "#/my-checklist";
+      return; // hashchange イベントが再発火して route() が再呼び出しされる
+    }
 
     const role = Auth.currentUser.role || "owner";
     const hash = location.hash.replace("#", "") || "/";

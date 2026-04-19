@@ -645,7 +645,7 @@ const MyChecklistPage = {
         })
       : false;
     const laundrySection = !laundryEnabledByFlow ? "" : `
-      <div class="card mb-3">
+      <div class="card mb-3" id="laundrySection">
         <div class="card-body">
           <h6 class="card-title mb-1"><i class="bi bi-basket3"></i> ランドリー</h6>
           <div class="small text-muted mb-3">
@@ -699,6 +699,20 @@ const MyChecklistPage = {
         </div>`;
 
     el.innerHTML = laundrySection + completeSection;
+
+    // #/my-laundry エイリアス経由のスクロール復元
+    if (sessionStorage.getItem("pclScrollToLaundry") === "1") {
+      sessionStorage.removeItem("pclScrollToLaundry");
+      requestAnimationFrame(() => {
+        const sec = document.getElementById("laundrySection");
+        if (!sec) return;
+        sec.scrollIntoView({ behavior: "smooth", block: "start" });
+        // 一瞬ハイライト
+        sec.style.transition = "box-shadow 0.3s";
+        sec.style.boxShadow = "0 0 0 3px #0d6efd88";
+        setTimeout(() => { sec.style.boxShadow = ""; }, 1500);
+      });
+    }
 
     el.querySelectorAll('.mcl-laundry').forEach(b => {
       b.addEventListener('click', () => this.toggleLaundry(b.dataset.key));
