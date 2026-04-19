@@ -321,7 +321,7 @@ const CleaningFlowPage = {
     return d.innerHTML;
   },
 
-  // 有効状態を返す (propertyField > globalChannel > cleaningFlow)
+  // 有効状態を返す (propertyField > 物件別オーバーライド enabled > globalChannel > cleaningFlow)
   _isEnabled(property, step) {
     if (step.propertyField) {
       // ドット記法対応 (例: "inspection.enabled")
@@ -331,6 +331,9 @@ const CleaningFlowPage = {
       return typeof v === "boolean" ? v : true;
     }
     if (step.globalChannel) {
+      // 物件別オーバーライドに enabled があればそちらを優先
+      const ov = property.channelOverrides?.[step.globalChannel];
+      if (ov && ov.enabled !== undefined) return ov.enabled;
       const c = this.notifChannels[step.globalChannel];
       return c ? c.enabled !== false : true;
     }
@@ -601,6 +604,12 @@ const CleaningFlowPage = {
     const ch = this.notifChannels[step.globalChannel] || {};
     const nd = this._notifDefaults[step.globalChannel] || {};
 
+    // 物件別オーバーライドを取得
+    const propOverrides = (property.channelOverrides && step.globalChannel)
+      ? (property.channelOverrides[step.globalChannel] || {})
+      : {};
+    const hasOverride = step.globalChannel && Object.keys(propOverrides).some(k => propOverrides[k] !== undefined);
+
     // バッジ類
     const statusBadge = step.status === "未実装"
       ? `<span class="badge bg-warning text-dark ms-1" style="font-size:10px;"><i class="bi bi-hammer"></i> 未実装</span>`
@@ -609,17 +618,31 @@ const CleaningFlowPage = {
     if (step.propertyField) {
       syncBadge = `<span class="badge bg-success-subtle text-success border border-success-subtle ms-1 rf-sync-badge" style="font-size:9px;" title="properties.${step.propertyField} に保存 (物件ごと)"><i class="bi bi-arrow-left-right"></i> 同期</span>`;
     } else if (step.globalChannel) {
-      syncBadge = `<span class="badge bg-warning-subtle text-warning border border-warning-subtle ms-1 rf-sync-badge" style="font-size:9px;" title="settings/notifications.channels.${step.globalChannel} (全物件共通・予約フロー画面と同期)"><i class="bi bi-globe"></i> 全共通</span>`;
+      if (hasOverride) {
+        syncBadge = `<span class="badge bg-danger-subtle text-danger border border-danger-subtle ms-1 rf-sync-badge rf-override-badge" data-step="${step.key}" data-pid="${property.id}" style="font-size:9px;" title="この物件は個別設定で上書き中"><i class="bi bi-shuffle"></i> 物件別</span>`;
+      } else {
+        syncBadge = `<span class="badge bg-warning-subtle text-warning border border-warning-subtle ms-1 rf-sync-badge rf-override-badge" data-step="${step.key}" data-pid="${property.id}" style="font-size:9px;" title="settings/notifications.channels.${step.globalChannel} (全物件共通・予約フロー画面と同期)"><i class="bi bi-globe"></i> 全共通</span>`;
+      }
     }
     const arrowBadge = step.arrowTo
       ? `<span class="badge bg-light text-dark border ms-1" style="font-size:9px;"><i class="bi bi-arrow-right"></i> ${step.arrowTo === "guest" ? "👤" : step.arrowTo === "owner" ? "🏠" : "🧹"}</span>`
       : (step.arrowFrom ? `<span class="badge bg-light text-dark border ms-1" style="font-size:9px;"><i class="bi bi-arrow-left"></i> ${step.arrowFrom === "guest" ? "👤" : step.arrowFrom === "owner" ? "🏠" : "🧹"}</span>` : "");
 
-    const foldId = `cfc-${step.key}`;
-    const toggleChecked = enabled ? "checked" : "";
-    const toggleId = `cf-tog-${step.key}`;
+    const foldId = `cfc-${step.key}-${property.id}`;
+
+    // トグル: globalChannel + 物件別 enabled があればそちらを反映
+    let toggleChecked = enabled ? "checked" : "";
+    if (step.globalChannel && propOverrides.enabled !== undefined) {
+      toggleChecked = propOverrides.enabled ? "checked" : "";
+    }
+    const toggleId = `cf-tog-${step.key}-${property.id}`;
 
     const notifEditorHtml = step.globalChannel ? this._renderNotifEditor(step, ch, nd) : "";
+
+    // 物件別オーバーライドパネル
+    const overridePanelHtml = step.globalChannel
+      ? this._renderOverridePanel(step, property, ch, propOverrides)
+      : "";
 
     const guestBtn = (typeof step.guestUrlFn === "function")
       ? `<a href="${this._esc(step.guestUrlFn(property.id))}" target="_blank" rel="noopener" class="btn btn-outline-info btn-sm py-0 px-2 me-1" style="font-size:0.72rem;" title="新規タブでゲスト画面を開く"><i class="bi bi-box-arrow-up-right"></i> ゲスト画面</a>`
@@ -642,7 +665,7 @@ const CleaningFlowPage = {
             <div class="form-check form-switch mb-0">
               <input class="form-check-input rf-toggle" type="checkbox" id="${toggleId}"
                 data-step="${step.key}" data-pid="${property.id}" ${toggleChecked}
-                title="${step.globalChannel ? "全物件共通のON/OFF" : step.propertyField ? "この物件のON/OFF" : "このフローのON/OFF"}">
+                title="${step.globalChannel ? "この物件の通知 ON/OFF (物件別設定)" : step.propertyField ? "この物件のON/OFF" : "このフローのON/OFF"}">
             </div>
             <i class="bi bi-chevron-down rf-chevron" data-fold="${foldId}" style="font-size:0.75rem;transition:transform 0.2s;"></i>
           </div>
@@ -651,6 +674,7 @@ const CleaningFlowPage = {
         <div class="rf-card-body" id="${foldId}" style="display:none;">
           ${hintHtml}
           ${notifEditorHtml}
+          ${overridePanelHtml}
           <!-- リンクボタン -->
           ${(guestBtn || linkBtn) ? `<div class="mt-2 d-flex flex-wrap gap-1">${guestBtn}${linkBtn}</div>` : ""}
           <!-- 物件固有メモ -->
@@ -661,6 +685,62 @@ const CleaningFlowPage = {
               placeholder="物件固有のメモ（任意）"
               value="${this._esc(memo)}">
           </div>
+        </div>
+      </div>
+    `;
+  },
+
+  // 物件別オーバーライドパネルのHTML (reservation-flow.js と同一ロジック)
+  _renderOverridePanel(step, property, globalCh, ov) {
+    const key = step.globalChannel;
+    const pid = property.id;
+    const panelId = `cf-ovpanel-${key}-${pid}`;
+    const hasAny = Object.keys(ov).some(k => ov[k] !== undefined);
+
+    const fields = [
+      { field: "enabled",    label: "有効/無効",        icon: "bi-power",             globalVal: globalCh.enabled !== false },
+      { field: "ownerLine",  label: "オーナーLINE",     icon: "bi-person-circle",     globalVal: globalCh.ownerLine !== false },
+      { field: "groupLine",  label: "グループLINE",     icon: "bi-people-fill",       globalVal: !!globalCh.groupLine },
+      { field: "staffLine",  label: "スタッフLINE",     icon: "bi-person-lines-fill", globalVal: !!globalCh.staffLine },
+      { field: "ownerEmail", label: "オーナーメール",   icon: "bi-envelope",          globalVal: !!globalCh.ownerEmail },
+    ];
+
+    const rows = fields.map(({ field, label, icon, globalVal }) => {
+      const isOverriding = ov[field] !== undefined;
+      const ovVal = isOverriding ? ov[field] : globalVal;
+      return `
+        <div class="d-flex align-items-center gap-2 py-1 border-bottom" style="font-size:0.8rem;">
+          <div class="form-check mb-0" style="min-width:130px;">
+            <input class="form-check-input rf-ov-check" type="checkbox" id="cf-ovc-${key}-${pid}-${field}"
+              data-notif-key="${key}" data-pid="${pid}" data-field="${field}"
+              ${isOverriding ? "checked" : ""}>
+            <label class="form-check-label small" for="cf-ovc-${key}-${pid}-${field}">
+              <i class="bi ${icon}"></i> ${label}
+            </label>
+          </div>
+          <div class="rf-ov-val-wrap ${isOverriding ? "" : "opacity-50 pe-none"}" id="cf-ovwrap-${key}-${pid}-${field}">
+            <div class="form-check form-switch mb-0">
+              <input class="form-check-input rf-ov-val" type="checkbox" id="cf-ovv-${key}-${pid}-${field}"
+                data-notif-key="${key}" data-pid="${pid}" data-field="${field}"
+                ${ovVal ? "checked" : ""}
+                title="上書き値 (チェック=ON)">
+            </div>
+          </div>
+          <span class="text-muted ms-1" style="font-size:0.72rem;">${isOverriding ? `上書き: <b>${ovVal ? "ON" : "OFF"}</b>` : `全共通: ${globalVal ? "ON" : "OFF"}`}</span>
+        </div>`;
+    }).join("");
+
+    return `
+      <div class="rf-override-panel mt-2 border rounded p-2" data-notif-key="${key}" data-pid="${pid}" style="background:#fff8e1;">
+        <div class="d-flex align-items-center mb-2">
+          <span class="small fw-semibold me-auto"><i class="bi bi-shuffle"></i> ${this._esc(property.name)} — 物件別設定上書き</span>
+          ${hasAny ? `<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 rf-ov-clear" data-notif-key="${key}" data-pid="${pid}" style="font-size:0.72rem;" title="全フィールドの上書きを解除"><i class="bi bi-x-circle"></i> 全解除</button>` : ""}
+        </div>
+        <div id="${panelId}">
+          ${rows}
+        </div>
+        <div class="small text-muted mt-1" style="font-size:0.7rem;">
+          <i class="bi bi-info-circle"></i> チェックした項目のみ上書き。未チェックは「全共通」の値を継承。
         </div>
       </div>
     `;
@@ -870,22 +950,52 @@ const CleaningFlowPage = {
 
     // change イベント
     wrap.addEventListener("change", (e) => {
-      // rf-toggle: ON/OFF
+      // rf-toggle: ON/OFF (globalChannel では物件別 enabled オーバーライドとして保存)
       if (e.target.classList.contains("rf-toggle")) {
         const stepKey = e.target.dataset.step;
         const pid = e.target.dataset.pid;
-        const card = wrap.querySelector(`.rf-card[data-step="${stepKey}"]`);
+        const card = wrap.querySelector(`.rf-card[data-step="${stepKey}"][data-pid="${pid}"]`);
         if (card) {
           card.classList.toggle("rf-card-enabled", e.target.checked);
           card.classList.toggle("rf-card-disabled", !e.target.checked);
         }
-        // globalChannel ステップは notifChannel にも enabled を保存する
         const step = this.STEPS.find(s => s.key === stepKey);
-        if (step?.globalChannel) {
-          this._queueSaveNotif(step.globalChannel);
+        if (step && step.globalChannel) {
+          // rf-ov-check[enabled] を自動的に ON にする
+          const ovCheck = wrap.querySelector(`.rf-ov-check[data-notif-key="${step.globalChannel}"][data-pid="${pid}"][data-field="enabled"]`);
+          const ovVal = wrap.querySelector(`.rf-ov-val[data-notif-key="${step.globalChannel}"][data-pid="${pid}"][data-field="enabled"]`);
+          if (ovCheck && !ovCheck.checked) {
+            ovCheck.checked = true;
+            const w = document.getElementById(`cf-ovwrap-${step.globalChannel}-${pid}-enabled`);
+            if (w) { w.classList.remove("opacity-50", "pe-none"); }
+          }
+          if (ovVal) ovVal.checked = e.target.checked;
+          this._queueSaveOverride(step.globalChannel, pid);
         } else {
           this._queueSave(pid, stepKey);
         }
+        return;
+      }
+
+      // 物件別オーバーライド チェックボックス (上書きするか)
+      if (e.target.classList.contains("rf-ov-check")) {
+        const notifKey = e.target.dataset.notifKey;
+        const pid = e.target.dataset.pid;
+        const field = e.target.dataset.field;
+        const w = document.getElementById(`cf-ovwrap-${notifKey}-${pid}-${field}`);
+        if (w) {
+          w.classList.toggle("opacity-50", !e.target.checked);
+          w.classList.toggle("pe-none", !e.target.checked);
+        }
+        this._queueSaveOverride(notifKey, pid);
+        return;
+      }
+
+      // 物件別オーバーライド 値トグル
+      if (e.target.classList.contains("rf-ov-val")) {
+        const notifKey = e.target.dataset.notifKey;
+        const pid = e.target.dataset.pid;
+        this._queueSaveOverride(notifKey, pid);
         return;
       }
 
@@ -918,9 +1028,27 @@ const CleaningFlowPage = {
         this._queueSaveNotif(notifKey);
       }
 
-      // 送信先チェックボックス
+      // 送信先チェックボックス (全共通)
       if (e.target.classList.contains("rf-notif-field")) {
         this._queueSaveNotif(e.target.dataset.notifKey);
+      }
+    });
+
+    // 物件別オーバーライド 全解除ボタン
+    wrap.addEventListener("click", (e) => {
+      const clearBtn = e.target.closest(".rf-ov-clear");
+      if (clearBtn) {
+        const notifKey = clearBtn.dataset.notifKey;
+        const pid = clearBtn.dataset.pid;
+        wrap.querySelectorAll(`.rf-ov-check[data-notif-key="${notifKey}"][data-pid="${pid}"]`).forEach(cb => {
+          if (cb.checked) {
+            cb.checked = false;
+            const field = cb.dataset.field;
+            const w = document.getElementById(`cf-ovwrap-${notifKey}-${pid}-${field}`);
+            if (w) { w.classList.add("opacity-50", "pe-none"); }
+          }
+        });
+        this._queueSaveOverride(notifKey, pid);
       }
     });
 
@@ -969,6 +1097,79 @@ const CleaningFlowPage = {
     if (this._saveTimers[timerKey]) clearTimeout(this._saveTimers[timerKey]);
     this._showStatus("saving");
     this._saveTimers[timerKey] = setTimeout(() => this._saveNotifChannel(notifKey), 800);
+  },
+
+  _queueSaveOverride(notifKey, pid) {
+    if (!this._saveTimers) this._saveTimers = {};
+    const timerKey = `override-${notifKey}-${pid}`;
+    if (this._saveTimers[timerKey]) clearTimeout(this._saveTimers[timerKey]);
+    this._showStatus("saving");
+    this._saveTimers[timerKey] = setTimeout(() => this._saveOverride(notifKey, pid), 800);
+  },
+
+  // ========== 保存: 物件別オーバーライド (properties/{pid}.channelOverrides.{notifKey}) ==========
+  async _saveOverride(notifKey, pid) {
+    const wrap = document.getElementById("cfSwimLane");
+    if (!wrap) return;
+
+    const ovFields = ["enabled", "ownerLine", "groupLine", "staffLine", "ownerEmail"];
+    const overrideEntry = {};
+
+    for (const field of ovFields) {
+      const checkEl = wrap.querySelector(`.rf-ov-check[data-notif-key="${notifKey}"][data-pid="${pid}"][data-field="${field}"]`);
+      const valEl   = wrap.querySelector(`.rf-ov-val[data-notif-key="${notifKey}"][data-pid="${pid}"][data-field="${field}"]`);
+      if (checkEl && checkEl.checked && valEl) {
+        overrideEntry[field] = !!valEl.checked;
+      }
+    }
+
+    try {
+      const hasAny = Object.keys(overrideEntry).length > 0;
+      const updateData = hasAny
+        ? { [`channelOverrides.${notifKey}`]: overrideEntry }
+        : { [`channelOverrides.${notifKey}`]: firebase.firestore.FieldValue.delete() };
+
+      await db.collection("properties").doc(pid).update({
+        ...updateData,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // ローカルキャッシュ更新
+      const prop = this.properties.find(p => p.id === pid);
+      if (prop) {
+        if (!prop.channelOverrides) prop.channelOverrides = {};
+        if (hasAny) {
+          prop.channelOverrides[notifKey] = overrideEntry;
+        } else {
+          delete prop.channelOverrides[notifKey];
+        }
+      }
+
+      // バッジ更新
+      const badge = wrap.querySelector(`.rf-override-badge[data-step="${this.STEPS.find(s => s.globalChannel === notifKey)?.key}"][data-pid="${pid}"]`);
+      if (badge) {
+        if (hasAny) {
+          badge.className = "badge bg-danger-subtle text-danger border border-danger-subtle ms-1 rf-sync-badge rf-override-badge";
+          badge.innerHTML = `<i class="bi bi-shuffle"></i> 物件別`;
+          badge.title = "この物件は個別設定で上書き中";
+        } else {
+          badge.className = "badge bg-warning-subtle text-warning border border-warning-subtle ms-1 rf-sync-badge rf-override-badge";
+          badge.innerHTML = `<i class="bi bi-globe"></i> 全共通`;
+          badge.title = `settings/notifications.channels.${notifKey} (全物件共通・予約フロー画面と同期)`;
+        }
+      }
+
+      // 全解除ボタンの表示/非表示
+      const clearBtn = wrap.querySelector(`.rf-ov-clear[data-notif-key="${notifKey}"][data-pid="${pid}"]`);
+      if (clearBtn) {
+        clearBtn.style.display = hasAny ? "" : "none";
+      }
+
+      this._showStatus("saved");
+    } catch (e) {
+      this._showStatus("error", e.message);
+      console.error("[cf saveOverride] エラー:", e);
+    }
   },
 
   // ========== 保存: 物件ドキュメント ==========
@@ -1141,12 +1342,15 @@ const CleaningFlowPage = {
     return `
     <style>
     /* ===== スイムレーン全体 ===== */
-    /* overflow-x: auto をここに置くと sticky が効かなくなるため分離 */
+    /* overflow-x:auto を親に置くと sticky が壊れるため使用しない。
+       min-width で狭い画面でも崩れないようにし、
+       ページ全体の横スクロールに委ねる */
     .rf-swimlane-root {
       width: 100%;
+      min-width: 600px;
     }
     .rf-swimlane-scroll {
-      overflow-x: auto;
+      /* overflow は設定しない (sticky を維持するため) */
     }
 
     /* 3列グリッド */
