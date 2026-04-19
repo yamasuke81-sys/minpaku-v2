@@ -1,7 +1,7 @@
 /**
  * Googleフォーム回答 → 民泊管理v2 宿泊者名簿 自動転記スクリプト
  *
- * 【GAS row[] インデックス (CSV エクスポートより1つ少ない = 空列が詰められる)】
+ * 【GAS row[] インデックス (2026-04-19 CSVを直接取得して再確認、全105列)】
  *  0: タイムスタンプ
  *  1: 事前に同意セクション
  *  2: 宿泊者情報入力説明
@@ -28,19 +28,25 @@
  * 48-53: 同行者6
  * 54-59: 同行者7
  * 60-65: 同行者8
- * 66: 軽自動車・小型車台数
- * 67: ミニバン以下台数
- * 68: 全長5m級台数
- * 69: 公共交通機関
- * 70: タクシー
- * 71: 駐車しやすい有料駐車場
- * 72: BBQ利用
- * 73: どこで知ったか
- * 74: どこで予約したか
- * 75: その他詳細
- * 76: 電話番号2（確認用）
- * 77: 運転上の注意説明
- * 78: 旅の目的
+ * 66-71: 同行者9 (代表者含めて最大10名)
+ * 72: 軽自動車・小型車台数
+ * 73: ミニバン以下台数
+ * 74: 全長5m級台数
+ * 75: 公共交通機関
+ * 76: タクシー
+ * 77: 駐車しやすい有料駐車場
+ * 78: BBQ利用
+ * 79: どこで知ったか
+ * 80: どこで予約したか (予約サイト)
+ * 81: その他詳細
+ * 82: 電話番号2（確認用）
+ * 83: 大型車の注意説明
+ * 84: 旅の目的
+ * 85-90: 駐車場利用に関する注記・追加項目
+ * 91: 前泊地
+ * 92: 後泊地
+ * 93: メールアドレス(確認用)
+ * 100: 連絡事項
  */
 
 // ===== 設定 =====
@@ -85,9 +91,9 @@ function onFormSubmit(e) {
     var guestCount     = parseInt(row[16]) || 1;
     var guestCountInfants = parseInt(row[17]) || 0;
     // 電話番号2(確認用)
-    var phone2      = (row[76] || "").trim();
+    var phone2      = (row[82] || "").trim();
 
-    // 同行者（1〜8: index 18から6列ずつ）
+    // 同行者（1〜9人: index 18から6列ずつ、代表者含めて最大10名対応）
     var guests = [];
     // 代表者
     guests.push({
@@ -96,8 +102,8 @@ function onFormSubmit(e) {
       passportPhotoUrl: passportPhoto, phone: phone, email: email,
     });
 
-    // 同行者: 18, 24, 30, 36, 42, 48, 54, 60（最大8名追加）
-    var companionStarts = [18, 24, 30, 36, 42, 48, 54, 60];
+    // 同行者: [18, 24, 30, 36, 42, 48, 54, 60, 66] 最大9人
+    var companionStarts = [18, 24, 30, 36, 42, 48, 54, 60, 66];
     for (var i = 0; i < companionStarts.length; i++) {
       var base = companionStarts[i];
       var name = (row[base] || "").trim();
@@ -112,13 +118,13 @@ function onFormSubmit(e) {
       });
     }
 
-    // 車両情報（66〜71）
-    var carKei  = parseCar(row[66]);
-    var carMini = parseCar(row[67]);
-    var car5m   = parseCar(row[68]);
-    var publicTransport = (row[69] || "").trim();
-    var taxiUse = (row[70] || "").trim();
-    var paidParking = (row[71] || "").trim();
+    // 車両情報（72〜77）
+    var carKei  = parseCar(row[72]);
+    var carMini = parseCar(row[73]);
+    var car5m   = parseCar(row[74]);
+    var publicTransport = (row[75] || "").trim();
+    var taxiUse = (row[76] || "").trim();
+    var paidParking = (row[77] || "").trim();
 
     var carCount = carKei + carMini + car5m;
     var vehicleTypes = [];
@@ -131,16 +137,22 @@ function onFormSubmit(e) {
     else if (publicTransport) transport = "公共交通機関";
     else if (taxiUse) transport = "タクシー";
 
-    // その他フィールド (72〜78)
-    var bbq         = (row[72] || "").trim();
-    var whereLearn  = (row[73] || "").trim();
-    var bookingSite = (row[74] || "").trim();
-    var otherDetail = (row[75] || "").trim();
-    var purpose     = (row[78] || "").trim();
+    // その他フィールド
+    var bbq         = (row[78] || "").trim();
+    var whereLearn  = (row[79] || "").trim();
+    var bookingSite = (row[80] || "").trim();
+    var otherDetail = (row[81] || "").trim();
+    var purpose     = (row[84] || "").trim();
+    var prevStay    = (row[91] || "").trim();
+    var nextStay    = (row[92] || "").trim();
+    var emailConfirm = (row[93] || "").trim();
+    var contactNote = (row[100] || "").trim();
     var memo        = (row[7] || "").trim();
-    // その他詳細は memo に結合
-    if (otherDetail && memo) memo += "\n" + otherDetail;
-    else if (otherDetail) memo = otherDetail;
+    // メール空なら確認用メールで補完
+    if (!email && emailConfirm) email = emailConfirm;
+    // その他詳細・連絡事項は memo に結合
+    if (otherDetail) memo = memo ? memo + "\n" + otherDetail : otherDetail;
+    if (contactNote) memo = memo ? memo + "\n" + contactNote : contactNote;
 
     // API送信データ
     var data = {
@@ -168,6 +180,8 @@ function onFormSubmit(e) {
       carCount: carCount,
       vehicleTypes: vehicleTypes,
       paidParking: paidParking,
+      previousStay: prevStay,
+      nextStay: nextStay,
       source: "gas_form_sync",
       memo: memo,
     };
