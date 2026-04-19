@@ -1,11 +1,14 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // パスポート写真 — ゲストフォームから認証なしでアップロード可
-    match /passport-photos/{fileName} {
-      allow read: if request.auth != null;
-      allow write: if request.resource.size < 10 * 1024 * 1024
+    // パスポート写真 — ゲスト(非認証)からのアップロードを許可、読み取りはオーナーのみ
+    match /passport-photos/{guestId}/{fileName} {
+      // 非認証アップロード: 5MB以下の画像ファイルのみ
+      allow write: if request.resource.size < 5 * 1024 * 1024
                    && request.resource.contentType.matches('image/.*');
+      // 読み取り: オーナー(role=owner)のみ
+      allow read: if request.auth != null
+                  && request.auth.token.role == "owner";
     }
 
     // チェックリスト写真 — 認証済みユーザーのみ

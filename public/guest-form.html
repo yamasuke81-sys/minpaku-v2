@@ -1192,11 +1192,16 @@
 
     async function uploadPassportPhotos() {
       const inputs = document.querySelectorAll(".g-passport-photo"), urls = [];
+      // ゲストIDはフォーム送信時に一時生成（Firestore保存後に実IDへのコピーは不要）
+      const tempGuestId = `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      let photoIndex = 0;
       for (const inp of inputs) {
         if (inp.files && inp.files[0]) {
           try {
-            const f = inp.files[0], ref = storage.ref(`passport-photos/${Date.now()}_${f.name}`);
-            await ref.put(f); urls.push(await ref.getDownloadURL());
+            const f = inp.files[0];
+            const safeName = `photo${photoIndex}_${Date.now()}.${f.name.split(".").pop() || "jpg"}`;
+            const ref = storage.ref(`passport-photos/${tempGuestId}/${safeName}`);
+            await ref.put(f); urls.push(await ref.getDownloadURL()); photoIndex++;
           } catch (e) {
             console.warn("写真アップロード失敗（スキップ）:", e.message);
             urls.push(""); // アップロード失敗時は空文字で続行
