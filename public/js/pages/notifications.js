@@ -118,27 +118,35 @@ const NotificationsPage = {
         </div>
       </div>
 
-      <!-- LINE接続設定 -->
+      <!-- LINE 通知は物件ごとに設定する方針に変更 (2026-04-19) -->
+      <div class="alert alert-primary mb-3">
+        <div class="d-flex align-items-start gap-2">
+          <i class="bi bi-info-circle-fill fs-5 flex-shrink-0"></i>
+          <div class="flex-grow-1">
+            <strong>LINE 通知の設定は「物件ごと」に変わりました</strong>
+            <p class="small mb-2 mt-1">
+              LINE 公式アカウント (Bot) は <strong>各物件の編集画面</strong>で紐付けます。
+              1物件あたり最大2つの Bot を登録可能。無料枠 <code>200通/月 × Bot数</code> 分が使えます (例: 4物件×2Bot = 1,600通/月 無料)。
+            </p>
+            <a href="#/properties" class="btn btn-sm btn-primary">
+              <i class="bi bi-arrow-right-circle"></i> 物件管理ページで LINE 設定する
+            </a>
+            <small class="text-muted ms-2">物件一覧 → 「編集」 → 「LINE 連携(物件単位)」セクション</small>
+          </div>
+        </div>
+      </div>
+
+      <!-- オーナー個別通知先 -->
       <div class="card mb-4">
         <div class="card-header">
-          <h6 class="mb-0"><i class="bi bi-line"></i> LINE接続設定</h6>
+          <h6 class="mb-0"><i class="bi bi-person-gear"></i> オーナー個別通知先</h6>
         </div>
         <div class="card-body">
           <div class="row g-3">
             <div class="col-md-6">
-              <label class="form-label">LINEチャネルアクセストークン</label>
-              <input type="password" class="form-control" id="lineChannelToken" placeholder="チャネルアクセストークンを入力">
-              <div class="form-text">LINE Developers → Messaging API → Channel access token</div>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">LINEグループID</label>
-              <input type="text" class="form-control" id="lineGroupId" placeholder="Cxxxxxx...">
-              <div class="form-text">スタッフ全員が参加するLINEグループのID</div>
-            </div>
-            <div class="col-md-6">
               <label class="form-label">オーナーLINE User ID</label>
               <input type="text" class="form-control" id="lineOwnerUserId" placeholder="Uxxxxxx...">
-              <div class="form-text">オーナー宛の個別通知に使用（Bot友達追加時に自動取得）</div>
+              <div class="form-text">オーナー宛の個別通知に使用 (物件LINEの Bot を友達追加すると自動取得)</div>
             </div>
             <div class="col-md-6">
               <label class="form-label">オーナーメールアドレス</label>
@@ -161,17 +169,10 @@ const NotificationsPage = {
               <div class="form-text">サブオーナー共有チャンネルの Webhook URL</div>
             </div>
           </div>
+          <!-- 旧データ後方互換用 (画面には表示しないが値を保持・保存) -->
+          <input type="hidden" id="lineChannelToken">
+          <input type="hidden" id="lineGroupId">
         </div>
-      </div>
-
-      <!-- LINE 利用状況 -->
-      <div class="alert alert-info small mb-3">
-        <i class="bi bi-info-circle"></i>
-        <strong>LINE 月間送信上限</strong>:
-        無料プラン = <strong>200通/月</strong>、
-        ライトプラン(5,500円/月) = <strong>5,000通</strong>、
-        スタンダードプラン(17,600円/月) = <strong>30,000通</strong>。
-        送信上限に達すると 429 エラー。Discord/メール併用を推奨します。
       </div>
 
       <!-- 通知チャンネル設定 -->
