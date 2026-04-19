@@ -1,6 +1,9 @@
 /**
  * スタッフ用 清掃スケジュールページ
  * 横スクロールカレンダー（予約バー + 募集ステータス + スタッフ回答）
+ *
+ * onSnapshot でリアルタイム更新。複数リスナーは _unsubs[] に積み、
+ * detach() で確実に全解除する。
  */
 const MyRecruitmentPage = {
   staffId: null,
@@ -9,6 +12,13 @@ const MyRecruitmentPage = {
   recruitments: [],
   bookings: [],
   guestMap: {},
+
+  // onSnapshot の unsubscribe 関数を蓄積する配列
+  _unsubs: [],
+  // データ到着フラグ（全件揃ったら初回描画）
+  _loadedFlags: { recruitments: false, bookings: false, guests: false, staff: false },
+  // 初回描画完了フラグ
+  _initialRenderDone: false,
 
   async render(container) {
     const isOwner = Auth.isOwner();
@@ -29,6 +39,9 @@ const MyRecruitmentPage = {
       container.innerHTML = '<div class="alert alert-warning m-3">スタッフ情報が取得できません。</div>';
       return;
     }
+
+    // 前回のリスナーを解除
+    this.detach();
 
     container.innerHTML = `
       <div class="page-header">
@@ -156,7 +169,8 @@ const MyRecruitmentPage = {
         container.insertBefore(banner, container.querySelector("#myCalContainer"));
       }
 
-      await this.loadData();
+      // onSnapshot でリアルタイム監視を開始（初回データ到着で描画）
+      await this.subscribeData(isOwner);
 
       const now = new Date();
       this._calMonth = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
@@ -219,7 +233,8 @@ const MyRecruitmentPage = {
         this.submitCurrentResponse("△", reason);
       });
 
-      this.renderCalendar();
+      // renderCalendar() は subscribeData() 内の onSnapshot コールバックが呼ぶ。
+      // ここでの直接呼び出しは不要（データ未着状態で描画してしまうのを防ぐ）。
     } catch (e) {
       console.error("読み込みエラー:", e);
       document.getElementById("myCalContainer").innerHTML = `<div class="alert alert-danger">${e.message}</div>`;
@@ -235,29 +250,24 @@ const MyRecruitmentPage = {
     return String(raw).slice(0, 10);
   },
 
-  async loadData() {
-    const [recruitSnap, bookingSnap, staffSnap, guestSnap, minpakuProps] = await Promise.all([
-      db.collection("recruitments").get(),
-      db.collection("bookings").get(),
-      db.collection("staff").where("active", "==", true).get(),
-      db.collection("guestRegistrations").get(),
+  /**
+   * 旧 loadData() の代替: onSnapshot 3本 + 物件/スタッフ一覧を並行取得。
+   * データ更新のたびに _tryRenderCalendar() を呼び出す。
+   * 物件/スタッフ一覧は変動が少ないため get() のまま維持。
+   *
+   * assignedPropertyIds による絞り込み:
+   *   - isOwner=true または assignedPropertyIds 未設定 → 全件取得
+   *   - assignedPropertyIds が 1〜10 件 → in 句で絞り込み
+   *   - 11件以上 → 全件取得フォールバック (in 演算子の上限)
+   */
+  async subscribeData(isOwner) {
+    // 物件リストとスタッフリストは get() で初回取得（頻繁に変わらない）
+    const [minpakuProps, staffSnap] = await Promise.all([
       API.properties.listMinpakuNumbered(),
+      db.collection("staff").where("active", "==", true).get(),
     ]);
 
-    // recruitments: checkOutDate/checkoutDate 両対応
-    this.recruitments = recruitSnap.docs.map(d => {
-      const raw = d.data();
-      const coDate = this._normalizeDate(raw.checkoutDate || raw.checkOutDate || raw.checkOutdate);
-      return { id: d.id, ...raw, checkoutDate: coDate };
-    }).filter(r => r.checkoutDate);
-
-    // キャンセル予約は全て除外（"cancelled" / "canceled" / 日本語）
-    this.bookings = bookingSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(b => {
-      const s = String(b.status || "").toLowerCase();
-      return !s.includes("cancel") && b.status !== "キャンセル" && b.status !== "キャンセル済み";
-    });
-
-    // 物件リスト (番号+色付き)
+    // 物件リスト初期化
     this.minpakuProperties = minpakuProps;
     this.propertyMap = {};
     minpakuProps.forEach(p => { this.propertyMap[p.id] = p; });
@@ -271,29 +281,146 @@ const MyRecruitmentPage = {
       if (this._propertyVisibility[p.id] === undefined) this._propertyVisibility[p.id] = true;
     });
 
-    // スタッフ並び: displayOrder 昇順だが、オーナー(isOwner=true)は最下部に移動
+    // スタッフ並び: displayOrder 昇順、オーナー(isOwner=true)は最下部に移動
     const allStaff = staffSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     const nonOwner = allStaff.filter(s => !s.isOwner).sort((a,b) => (a.displayOrder||0) - (b.displayOrder||0));
     const owner = allStaff.filter(s => s.isOwner).sort((a,b) => (a.displayOrder||0) - (b.displayOrder||0));
     this.staffList = [...nonOwner, ...owner];
+    this._loadedFlags.staff = true;
 
-    // 名簿マッピング（個人情報除外）
-    this.guestMap = {};
-    guestSnap.docs.forEach(d => {
-      const g = d.data();
-      const ci = g.checkIn;
-      if (ci) this.guestMap[ci] = {
-        guestCount: g.guestCount || 0,
-        guestCountInfants: g.guestCountInfants || 0,
-        checkIn: g.checkIn, checkOut: g.checkOut,
-        checkInTime: g.checkInTime || "", checkOutTime: g.checkOutTime || "",
-        bbq: g.bbq || "", carCount: g.carCount || 0,
-        paidParking: g.paidParking || "",
-        bedChoice: g.bedChoice || "", nationality: g.nationality || "",
-        parking: g.parking || "", transport: g.transport || "",
-        vehicleTypes: g.vehicleTypes || [],
-      };
+    // assignedPropertyIds の取得（スタッフドキュメントから読み取る）
+    const assignedIds = Array.isArray(this.staffDoc?.assignedPropertyIds)
+      ? this.staffDoc.assignedPropertyIds
+      : (Auth.currentUser?.assignedPropertyIds || []);
+    const canFilter = !isOwner && Array.isArray(assignedIds) && assignedIds.length > 0 && assignedIds.length <= 10;
+
+    // --- recruitments onSnapshot ---
+    let recruitQuery = db.collection("recruitments");
+    if (canFilter) {
+      recruitQuery = recruitQuery.where("propertyId", "in", assignedIds);
+    }
+    const unsubRecruit = recruitQuery.onSnapshot(snap => {
+      // checkoutDate 正規化・フィルタ
+      this.recruitments = snap.docs.map(d => {
+        const raw = d.data();
+        const coDate = this._normalizeDate(raw.checkoutDate || raw.checkOutDate || raw.checkOutdate);
+        return { id: d.id, ...raw, checkoutDate: coDate };
+      }).filter(r => r.checkoutDate);
+
+      this._loadedFlags.recruitments = true;
+      this._tryRenderCalendar();
+    }, err => {
+      console.error("recruitments onSnapshot エラー:", err);
+      this._loadedFlags.recruitments = true;
+      this._tryRenderCalendar();
     });
+    this._unsubs.push(unsubRecruit);
+
+    // --- bookings onSnapshot ---
+    let bookingQuery = db.collection("bookings");
+    if (canFilter) {
+      bookingQuery = bookingQuery.where("propertyId", "in", assignedIds);
+    }
+    const unsubBooking = bookingQuery.onSnapshot(snap => {
+      // キャンセル予約は全て除外（"cancelled" / "canceled" / 日本語）
+      this.bookings = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(b => {
+        const s = String(b.status || "").toLowerCase();
+        return !s.includes("cancel") && b.status !== "キャンセル" && b.status !== "キャンセル済み";
+      });
+
+      this._loadedFlags.bookings = true;
+      this._tryRenderCalendar();
+    }, err => {
+      console.error("bookings onSnapshot エラー:", err);
+      this._loadedFlags.bookings = true;
+      this._tryRenderCalendar();
+    });
+    this._unsubs.push(unsubBooking);
+
+    // --- guestRegistrations onSnapshot ---
+    // NOTE: Firestore web SDK はフィールド単位の select() が非対応のため全フィールド受信。
+    // PII（guestName/address/phone/passportNumber 等）はクライアント受信直後に除外して
+    // guestMap には最小限フィールドのみ保持することでメモリ内の漏洩範囲を最小化する。
+    // 将来的には /api/guest-summary?propertyIds=... を経由して Functions 側で絞り込む方式が理想。
+    let guestQuery = db.collection("guestRegistrations");
+    if (canFilter) {
+      guestQuery = guestQuery.where("propertyId", "in", assignedIds);
+    }
+    const unsubGuest = guestQuery.onSnapshot(snap => {
+      // 名簿マッピング（PII フィールドを除外して最小限フィールドのみ保持）
+      this.guestMap = {};
+      snap.docs.forEach(d => {
+        const g = d.data();
+        const ci = g.checkIn;
+        if (!ci) return;
+        // guestName / address / phone / email / passportNumber 等の PII は保持しない
+        this.guestMap[ci] = {
+          guestCount: g.guestCount || 0,
+          guestCountInfants: g.guestCountInfants || 0,
+          checkIn: g.checkIn, checkOut: g.checkOut,
+          checkInTime: g.checkInTime || "", checkOutTime: g.checkOutTime || "",
+          bbq: g.bbq || "", carCount: g.carCount || 0,
+          paidParking: g.paidParking || "",
+          bedChoice: g.bedChoice || "", nationality: g.nationality || "",
+          parking: g.parking || "", transport: g.transport || "",
+          vehicleTypes: g.vehicleTypes || [],
+        };
+        // 受信したドキュメントから PII を明示的に参照解除（GC 補助）
+        // d.data() の raw オブジェクトはここでスコープ外になり解放される
+      });
+
+      this._loadedFlags.guests = true;
+      this._tryRenderCalendar();
+    }, err => {
+      console.error("guestRegistrations onSnapshot エラー:", err);
+      this._loadedFlags.guests = true;
+      this._tryRenderCalendar();
+    });
+    this._unsubs.push(unsubGuest);
+  },
+
+  /**
+   * 全データが揃ったタイミング、またはデータ更新時に呼ばれる。
+   * Bootstrap モーダルが開いている場合は内部データのみ更新し、モーダルは閉じない。
+   */
+  _tryRenderCalendar() {
+    const allLoaded = this._loadedFlags.recruitments
+      && this._loadedFlags.bookings
+      && this._loadedFlags.guests
+      && this._loadedFlags.staff;
+
+    if (!allLoaded) return; // まだ全部揃っていない
+
+    const container = document.getElementById("myCalContainer");
+    if (!container) return; // ページ離脱済み
+
+    // Bootstrap モーダルが開いている場合は再描画をスキップ（モーダルを閉じない）
+    const openModal = document.querySelector(".modal.show");
+    if (openModal) {
+      // モーダル閉後に再描画するため、閉じたイベントを一度だけ監視
+      if (!this._modalRerenderQueued) {
+        this._modalRerenderQueued = true;
+        openModal.addEventListener("hidden.bs.modal", () => {
+          this._modalRerenderQueued = false;
+          this.renderCalendar();
+        }, { once: true });
+      }
+      return;
+    }
+
+    this.renderCalendar();
+  },
+
+  /** ページ離脱時に全 onSnapshot リスナーを解除 */
+  detach() {
+    for (const unsub of this._unsubs) {
+      try { unsub(); } catch (e) { /* ignore */ }
+    }
+    this._unsubs = [];
+    // フラグリセット（次回 render() 時に初回扱いに戻す）
+    this._loadedFlags = { recruitments: false, bookings: false, guests: false, staff: false };
+    this._initialRenderDone = false;
+    this._modalRerenderQueued = false;
   },
 
   renderCalendar() {
