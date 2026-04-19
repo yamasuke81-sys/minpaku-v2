@@ -53,6 +53,9 @@ const MyRecruitmentPage = {
             <span><span style="background:#dc3545;display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;"></span> 名簿未提出</span>
             <span><span style="display:inline-block;width:12px;height:12px;background:#a7c7ff;border-radius:2px;vertical-align:middle;"></span> 確定済</span>
             <span>👤 あなた</span>
+            <span>|</span>
+            <span>募集ピル: <span style="background:#198754;color:#fff;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">清</span> 清掃</span>
+            <span><span style="background:#7c3aed;color:#fff;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">直</span> 直前点検</span>
           </div>
         </div>
       </div>
@@ -944,14 +947,26 @@ const MyRecruitmentPage = {
   },
 
   // 募集ピル (物件行内で使用) — ステータスは色で表現、中は「清」or「直」1文字のみ
+  // 直前点検は紫系、清掃は緑/黄/オレンジ系で色が異なり一目で区別可能
   // 高さ20px、文字を上下左右完全に中央
   _recruitPill(r) {
     if (!r) return "";
-    let bg = "#adb5bd", color = "#fff";
-    if (r.status === "スタッフ確定済み") { bg = "#198754"; color = "#fff"; }
-    else if (r.status === "選定済") { bg = "#ffc107"; color = "#333"; }
-    else if (r.status === "募集中") { bg = "#fd7e14"; color = "#fff"; }
-    const wtChar = r.workType === "pre_inspection" ? "直" : "清";
+    const isPre = r.workType === "pre_inspection";
+    let bg, color;
+    if (isPre) {
+      // 直前点検: 紫系
+      if (r.status === "スタッフ確定済み") { bg = "#7c3aed"; color = "#fff"; }
+      else if (r.status === "選定済") { bg = "#c4b5fd"; color = "#1e0a3c"; }
+      else if (r.status === "募集中") { bg = "#a78bfa"; color = "#1e0a3c"; }
+      else { bg = "#8b5cf6"; color = "#fff"; }
+    } else {
+      // 清掃: 緑/黄/オレンジ系
+      bg = "#adb5bd"; color = "#fff";
+      if (r.status === "スタッフ確定済み") { bg = "#198754"; color = "#fff"; }
+      else if (r.status === "選定済") { bg = "#ffc107"; color = "#333"; }
+      else if (r.status === "募集中") { bg = "#fd7e14"; color = "#fff"; }
+    }
+    const wtChar = isPre ? "直" : "清";
     return `<span style="display:inline-flex;align-items:center;justify-content:center;height:20px;min-width:30px;padding:0 10px;background:${bg};color:${color};border-radius:999px;font-weight:700;font-size:13px;line-height:1;text-align:center;position:relative;z-index:2;box-sizing:border-box;">${wtChar}</span>`;
   },
 

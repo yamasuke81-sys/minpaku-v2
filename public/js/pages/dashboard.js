@@ -71,6 +71,9 @@ const DashboardPage = {
         <span><span class="cal-legend" style="background:#ffc107"></span>🧹募集中</span>
         <span><span class="cal-legend" style="background:#dc3545"></span>🧹回答なし</span>
         <span>|</span>
+        <span><span class="cal-legend" style="background:#7c3aed"></span>🔍直前点検（確定）</span>
+        <span><span class="cal-legend" style="background:#a78bfa"></span>🔍直前点検（募集中）</span>
+        <span>|</span>
         <span><span class="event-status-dot dot-roster-ok" style="display:inline-block"></span>名簿済</span>
         <span><span class="event-status-dot dot-roster-ng" style="display:inline-block"></span>名簿未</span>
         <span class="ms-auto"><i class="bi bi-plus-circle"></i> 日付クリック=募集作成</span>
@@ -518,17 +521,21 @@ const DashboardPage = {
   buildCalendarEvents() {
     const events = [];
 
-    // 同じCO日に複数のrecruitmentがある場合、優先度の高い1件だけ使う
+    // 同じCO日・workType に複数のrecruitmentがある場合、優先度の高い1件だけ使う
+    // キー: "{日付}_{workType}" — 清掃と直前点検は別枠で管理して重複排除
     // 優先度: スタッフ確定済み > 選定済 > 募集中 > それ以外
     const STATUS_PRIORITY = { "スタッフ確定済み": 4, "選定済": 3, "募集中": 2 };
     const recruitByCoDate = {};
     this.recruitments.forEach(r => {
       const coStr = this.toDateStr(r.checkoutDate);
       if (!coStr) return;
-      const existing = recruitByCoDate[coStr];
+      // workType が pre_inspection の場合は別キーで管理
+      const wt = r.workType === "pre_inspection" ? "pre" : "clean";
+      const key = coStr + "_" + wt;
+      const existing = recruitByCoDate[key];
       const newPri = STATUS_PRIORITY[r.status] || 1;
       const existPri = existing ? (STATUS_PRIORITY[existing.status] || 1) : 0;
-      if (!existing || newPri > existPri) recruitByCoDate[coStr] = r;
+      if (!existing || newPri > existPri) recruitByCoDate[key] = r;
     });
 
     // === 宿泊イベント（プラットフォーム別色分け + 名簿ステータスドット） ===
@@ -578,23 +585,26 @@ const DashboardPage = {
       const sankaku = responses.filter(v => v.response === "△").length;
       const totalResp = responses.length;
 
-      const wtPrefix = r.workType === "pre_inspection" ? "[直] " : "[清] ";
-      const wtIcon = r.workType === "pre_inspection" ? "🔍 " : "🧹 ";
+      const isPre = r.workType === "pre_inspection";
+      const wtPrefix = isPre ? "[直] " : "[清] ";
+      const wtIcon = isPre ? "🔍 " : "🧹 ";
+      // 直前点検は紫系クラス、清掃は既存の緑/黄/赤系クラスを使用
+      const cssBase = isPre ? "fc-event-pre-inspection" : "fc-event-cleaning";
       let cssClass, title;
       if (r.status === "スタッフ確定済み") {
-        cssClass = "fc-event-cleaning-decided";
+        cssClass = cssBase + "-decided";
         title = wtPrefix + wtIcon + (r.selectedStaff || "確定");
       } else if (r.status === "選定済") {
-        cssClass = "fc-event-cleaning-selected";
+        cssClass = cssBase + "-selected";
         title = wtPrefix + wtIcon + (r.selectedStaff || "") + "(選定済)";
       } else if (maru > 0) {
-        cssClass = "fc-event-cleaning";
+        cssClass = cssBase;
         title = wtPrefix + wtIcon + "募集中 ◎" + maru + (sankaku ? " △" + sankaku : "");
       } else if (totalResp > 0) {
-        cssClass = "fc-event-cleaning";
+        cssClass = cssBase;
         title = wtPrefix + wtIcon + "募集中 (△" + sankaku + " ×" + (totalResp - sankaku) + ")";
       } else {
-        cssClass = "fc-event-cleaning-noresponse";
+        cssClass = cssBase + "-noresponse";
         title = wtPrefix + wtIcon + "募集中（回答なし）";
       }
 

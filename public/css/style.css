@@ -205,6 +205,12 @@ body.sidebar-hidden .app-main { margin-left: 0; }
 .fc-event-cleaning-selected { background-color: #0dcaf0 !important; border-color: #0dcaf0 !important; color: #000 !important; }
 .fc-event-cleaning-noresponse { background-color: #dc3545 !important; border-color: #dc3545 !important; color: #fff !important; }
 
+/* 直前点検イベント — 紫系で清掃と明確に区別 */
+.fc-event-pre-inspection { background-color: #a78bfa !important; border-color: #7c3aed !important; color: #1e0a3c !important; }
+.fc-event-pre-inspection-decided { background-color: #7c3aed !important; border-color: #5b21b6 !important; color: #fff !important; }
+.fc-event-pre-inspection-selected { background-color: #c4b5fd !important; border-color: #7c3aed !important; color: #1e0a3c !important; }
+.fc-event-pre-inspection-noresponse { background-color: #8b5cf6 !important; border-color: #6d28d9 !important; color: #fff !important; }
+
 /* ステータスドット（イベントタイトル先頭に表示） */
 .event-status-dot {
   display: inline-block;
