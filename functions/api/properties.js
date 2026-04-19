@@ -98,6 +98,8 @@ module.exports = function propertiesApi(db) {
         lineChannels: _sanitizeLineChannels(body.lineChannels),
         lineChannelStrategy: ["fallback", "roundrobin"].includes(body.lineChannelStrategy)
           ? body.lineChannelStrategy : "fallback",
+        // 物件ごとの注意事項テキスト（フォーム冒頭に表示）
+        formNotice: body.formNotice ? String(body.formNotice) : "",
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       };
@@ -158,6 +160,8 @@ module.exports = function propertiesApi(db) {
         data.lineChannelStrategy = ["fallback", "roundrobin"].includes(body.lineChannelStrategy)
           ? body.lineChannelStrategy : "fallback";
       }
+      // 物件ごとの注意事項テキスト（フォーム冒頭に表示）
+      if (body.formNotice !== undefined) data.formNotice = String(body.formNotice);
       data.updatedAt = FieldValue.serverTimestamp();
 
       await docRef.update(data);

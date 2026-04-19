@@ -953,63 +953,104 @@
             </div>
             <!-- タブ2: フォーム項目管理 -->
             <div class="tab-pane fade" id="tabPaneFormFields" role="tabpanel">
-              <!-- 編集対象セレクタ -->
+              <!-- 物件セレクタ（全物件共通は廃止、物件のみ） -->
               <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-                <label class="form-label mb-0 fw-semibold small">編集対象:</label>
-                <select class="form-select form-select-sm" id="formTargetSelector" style="max-width:280px;">
-                  <option value="__common__">全物件共通 (デフォルト)</option>
-                  <!-- 物件別オプションはJSで動的描画 -->
+                <label class="form-label mb-0 fw-semibold small">物件を選択:</label>
+                <select class="form-select form-select-sm" id="formTargetSelector" style="max-width:300px;">
+                  <!-- 物件オプションはJSで動的描画 -->
                 </select>
-                <!-- 物件別選択時のみ表示するアクション群 -->
-                <div id="formTargetActions" class="d-none d-flex gap-1 flex-wrap">
-                  <button class="btn btn-sm btn-outline-primary" id="btnEnableCustomForm">
-                    <i class="bi bi-toggle-on"></i> この物件で独自設定を使う
-                  </button>
-                  <div class="dropdown">
-                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
-                      <i class="bi bi-arrow-down-square"></i> コピー
-                    </button>
-                    <ul class="dropdown-menu small" id="formCopyMenu">
-                      <li><button class="dropdown-item" type="button" data-copy-source="__common__">共通設定をコピー</button></li>
-                      <!-- 他物件からのコピー項目はJSで追加 -->
-                    </ul>
+              </div>
+
+              <!-- 未初期化時: 初期化UI -->
+              <div id="formInitArea" class="d-none">
+                <div class="card border-dashed mb-3" style="border:2px dashed #ccc;">
+                  <div class="card-body text-center py-4">
+                    <i class="bi bi-clipboard-x fs-2 text-muted mb-2 d-block"></i>
+                    <p class="mb-3 text-muted">この物件にはまだフォーム設定がありません</p>
+                    <div class="d-flex gap-2 justify-content-center flex-wrap">
+                      <button class="btn btn-outline-primary" id="btnUseDefault">
+                        <i class="bi bi-clipboard-check"></i> デフォルトを流用して作成
+                      </button>
+                      <div class="dropdown">
+                        <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="btnCopyFromOther" data-bs-toggle="dropdown">
+                          <i class="bi bi-box-seam"></i> 他物件から流用
+                        </button>
+                        <ul class="dropdown-menu small" id="copyFromOtherMenu">
+                          <!-- 他物件リストはJSで追加 -->
+                        </ul>
+                      </div>
+                    </div>
                   </div>
-                  <button class="btn btn-sm btn-outline-danger" id="btnClearCustomForm">
-                    <i class="bi bi-x-circle"></i> 独自設定を削除 (共通に戻す)
-                  </button>
                 </div>
               </div>
-              <!-- 編集対象ステータス表示 -->
-              <div id="formTargetStatus" class="alert py-2 px-3 small mb-3 d-none"></div>
-              <p class="text-muted small">
-                ゲスト向け宿泊者名簿フォームの項目を管理します。<br>
-                カードをクリックして展開→全プロパティを編集。ドラッグで並び替え可能です。
-              </p>
-              <div class="d-flex flex-wrap gap-2 mb-3">
-                <button class="btn btn-primary btn-sm" id="btnLoadFormDefaults">
-                  <i class="bi bi-arrow-clockwise"></i> デフォルト読み込み
-                </button>
-                <button class="btn btn-outline-success btn-sm" id="btnAddFormField">
-                  <i class="bi bi-plus-lg"></i> 項目追加
-                </button>
-                <button class="btn btn-outline-info btn-sm" id="btnPreviewForm">
-                  <i class="bi bi-eye"></i> プレビュー
-                </button>
-                <button class="btn btn-outline-warning btn-sm" id="btnTranslateAll">
-                  <i class="bi bi-translate"></i> 全項目を英語翻訳（Gemini）
-                </button>
-                <button class="btn btn-success btn-sm" id="btnSaveFormConfig">
-                  <i class="bi bi-check-lg"></i> 保存
-                </button>
-              </div>
-              <div class="small text-muted mb-2">
-                フォームURL: <a href="/guest-form.html" target="_blank" id="formFieldCountLink">/guest-form.html</a>
-              </div>
-              <div id="formFieldList">
-                <div class="text-center py-3 text-muted"><div class="spinner-border spinner-border-sm"></div> 読み込み中...</div>
-              </div>
-              <div class="d-none mt-3" id="formSaveResult">
-                <div class="alert py-2" id="formSaveAlert"></div>
+
+              <!-- 独自設定あり: 編集UI -->
+              <div id="formEditArea" class="d-none">
+
+                <!-- ① 注意事項 -->
+                <div class="border-top border-2 pt-3 mb-4">
+                  <h6 class="fw-bold mb-1"><span class="badge bg-secondary me-1">①</span> 注意事項 <small class="fw-normal text-muted">(ハウスルール / 注意点)</small></h6>
+                  <textarea class="form-control form-control-sm mb-1" id="formNoticeTextarea" rows="4"
+                    placeholder="ここに注意事項を入力すると、フォーム冒頭にゲストへ表示されます..."></textarea>
+                  <div class="d-flex gap-2 align-items-center">
+                    <button class="btn btn-sm btn-outline-primary" id="btnSaveFormNotice">
+                      <i class="bi bi-floppy"></i> 注意事項を保存
+                    </button>
+                    <span id="formNoticeSaveStatus" class="small"></span>
+                  </div>
+                  <div class="form-text text-muted">注意事項はフォーム冒頭にゲストに表示されます</div>
+                </div>
+
+                <!-- ② ミニゲーム -->
+                <div class="border-top border-2 pt-3 mb-4">
+                  <h6 class="fw-bold mb-2"><span class="badge bg-secondary me-1">②</span> ミニゲーム <small class="fw-normal text-muted">(騒音確認ゲーム)</small></h6>
+                  <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="formMiniGameToggle">
+                    <label class="form-check-label" for="formMiniGameToggle">有効にする</label>
+                  </div>
+                  <span id="formMiniGameSaveStatus" class="small d-block mt-1"></span>
+                </div>
+
+                <!-- ③ フォーム項目 -->
+                <div class="border-top border-2 pt-3 mb-3">
+                  <h6 class="fw-bold mb-3"><span class="badge bg-secondary me-1">③</span> フォーム項目</h6>
+                  <div class="d-flex flex-wrap gap-2 mb-3">
+                    <button class="btn btn-primary btn-sm" id="btnLoadFormDefaults">
+                      <i class="bi bi-arrow-clockwise"></i> デフォルト読込
+                    </button>
+                    <button class="btn btn-outline-success btn-sm" id="btnAddFormField">
+                      <i class="bi bi-plus-lg"></i> 項目追加
+                    </button>
+                    <button class="btn btn-outline-info btn-sm" id="btnPreviewForm">
+                      <i class="bi bi-eye"></i> プレビュー
+                    </button>
+                    <button class="btn btn-outline-warning btn-sm" id="btnTranslateAll">
+                      <i class="bi bi-translate"></i> 英語翻訳（Gemini）
+                    </button>
+                    <button class="btn btn-success btn-sm" id="btnSaveFormConfig">
+                      <i class="bi bi-check-lg"></i> 保存
+                    </button>
+                  </div>
+                  <div class="small text-muted mb-2">
+                    カードをクリックして展開・編集。ドラッグで並び替え可能。<br>
+                    フォームURL: <a href="/guest-form.html" target="_blank">/guest-form.html</a>
+                  </div>
+                  <div id="formFieldList">
+                    <div class="text-center py-3 text-muted"><div class="spinner-border spinner-border-sm"></div> 読み込み中...</div>
+                  </div>
+                  <div class="d-none mt-3" id="formSaveResult">
+                    <div class="alert py-2" id="formSaveAlert"></div>
+                  </div>
+
+                  <!-- 危険ゾーン: 独自設定削除 -->
+                  <hr class="mt-4">
+                  <div class="d-flex justify-content-end">
+                    <button class="btn btn-sm btn-outline-danger" id="btnClearCustomForm">
+                      <i class="bi bi-trash"></i> この物件の独自設定を削除
+                    </button>
+                  </div>
+                </div>
+
               </div>
             </div>
           </div>
