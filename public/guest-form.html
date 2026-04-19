@@ -52,10 +52,7 @@
       </div>
       <form id="guestForm" novalidate>
 
-        <!-- === -1. 物件別注意事項（formNotice） === -->
-        <div id="propertyNoticeArea" class="d-none"></div>
-
-        <!-- === 0. 騒音ルール同意（黄色カード） === -->
+        <!-- === 0. 騒音ルール同意（黄色カード、物件別 showNoiseAgreement で表示制御） === -->
         <div class="alert alert-warning mb-3" id="noiseRuleSection">
           <h6 class="fw-bold mb-2" id="lbl_noiseTitle"></h6>
           <p class="small mb-2" id="lbl_noiseIntro"></p>
@@ -1514,31 +1511,20 @@
       //   2. なければ settings/guestForm (共通) を使用
       //   3. それもなければ静的 HTML のデフォルトをそのまま使用（何も変更しない）
       let _resolvedFormFields = null;
+      // 騒音ルールセクションの表示可否 (物件別 showNoiseAgreement、default: true)
+      let _showNoiseAgreement = true;
       try {
         const propertyId = params.propertyId || "";
         if (propertyId) {
           const pDoc = await db.collection("properties").doc(propertyId).get();
-          if (pDoc.exists && pDoc.data().customFormEnabled === true) {
-            _resolvedFormFields = pDoc.data().customFormFields || null;
-
-            // 物件別注意事項を表示（formNotice が設定されている場合のみ）
-            const formNotice = pDoc.data().formNotice || "";
-            if (formNotice.trim()) {
-              const noticeArea = document.getElementById("propertyNoticeArea");
-              if (noticeArea) {
-                // 改行を <br> に変換してエスケープしつつ表示
-                const escaped = formNotice
-                  .replace(/&/g, "&amp;")
-                  .replace(/</g, "&lt;")
-                  .replace(/>/g, "&gt;")
-                  .replace(/\n/g, "<br>");
-                noticeArea.innerHTML = `
-                  <div class="alert alert-info mb-3" style="border-left:4px solid #0dcaf0;">
-                    <h6 class="fw-bold mb-2"><i class="bi bi-info-circle-fill me-1"></i>ご注意事項</h6>
-                    <div class="small">${escaped}</div>
-                  </div>`;
-                noticeArea.classList.remove("d-none");
-              }
+          if (pDoc.exists) {
+            const pData = pDoc.data();
+            if (pData.customFormEnabled === true) {
+              _resolvedFormFields = pData.customFormFields || null;
+            }
+            // 騒音ルール表示フラグ (未設定または true → 表示、false のみ非表示)
+            if (pData.showNoiseAgreement === false) {
+              _showNoiseAgreement = false;
             }
           }
         }
@@ -1559,7 +1545,13 @@
       const formBody = document.getElementById("formBody");
       const cancelMsgEl = document.getElementById("noiseCancelMsg");
 
-      if (params.agreed === "true") {
+      // 物件設定で騒音ルール非表示なら初めからフォームを出す
+      if (!_showNoiseAgreement) {
+        noiseSection.classList.add("d-none");
+        cancelMsgEl.classList.add("d-none");
+        formBody.classList.remove("d-none");
+        document.getElementById("f_noiseAgree").value = "true";
+      } else if (params.agreed === "true") {
         // ゲーム完了後の復帰 → 黄色カードスキップ、フォーム表示
         noiseSection.classList.add("d-none");
         cancelMsgEl.classList.add("d-none");

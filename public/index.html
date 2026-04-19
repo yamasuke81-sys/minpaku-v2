@@ -1005,18 +1005,19 @@
               <!-- 独自設定あり: 編集UI -->
               <div id="formEditArea" class="d-none">
 
-                <!-- ① 注意事項 -->
+                <!-- ① 宴会・騒音規約 (ゲスト画面冒頭の黄色カードを表示するか) -->
                 <div class="border-top border-2 pt-3 mb-4">
-                  <h6 class="fw-bold mb-1"><span class="badge bg-secondary me-1">①</span> 注意事項 <small class="fw-normal text-muted">(ハウスルール / 注意点)</small></h6>
-                  <textarea class="form-control form-control-sm mb-1" id="formNoticeTextarea" rows="4"
-                    placeholder="ここに注意事項を入力すると、フォーム冒頭にゲストへ表示されます..."></textarea>
-                  <div class="d-flex gap-2 align-items-center">
-                    <button class="btn btn-sm btn-outline-primary" id="btnSaveFormNotice">
-                      <i class="bi bi-floppy"></i> 注意事項を保存
-                    </button>
-                    <span id="formNoticeSaveStatus" class="small"></span>
+                  <h6 class="fw-bold mb-1"><span class="badge bg-secondary me-1">①</span> 宴会・騒音規約 <small class="fw-normal text-muted">(黄色カードのONOFF)</small></h6>
+                  <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="formNoiseToggle" checked>
+                    <label class="form-check-label" for="formNoiseToggle">
+                      ゲスト画面の冒頭に「宴会について/騒音ルール」黄色カードを表示する
+                    </label>
                   </div>
-                  <div class="form-text text-muted">注意事項はフォーム冒頭にゲストに表示されます</div>
+                  <span id="formNoiseSaveStatus" class="small d-block mt-1"></span>
+                  <div class="form-text text-muted">
+                    OFF にすると、ゲストは同意チェックなしで直接フォームに進みます (騒音が問題になりにくい物件向け)
+                  </div>
                 </div>
 
                 <!-- ② ミニゲーム -->

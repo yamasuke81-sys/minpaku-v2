@@ -1015,7 +1015,7 @@ const GuestsPage = {
             customFormEnabled: true,
             customFormFields: baseFields,
             customFormSections: this.DEFAULT_SECTIONS,
-            formNotice: "",
+            showNoiseAgreement: true,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
           });
           // _propertiesCache を更新してから再ロード
@@ -1048,7 +1048,7 @@ const GuestsPage = {
             customFormEnabled: true,
             customFormFields: sd.customFormFields || [],
             customFormSections: sd.customFormSections || this.DEFAULT_SECTIONS,
-            formNotice: sd.formNotice || "",
+            showNoiseAgreement: sd.showNoiseAgreement !== false,
             miniGameEnabled: typeof sd.miniGameEnabled === "boolean" ? sd.miniGameEnabled : true,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
           });
@@ -1063,21 +1063,21 @@ const GuestsPage = {
         }
       });
 
-      // 注意事項 保存ボタン
-      document.getElementById("btnSaveFormNotice")?.addEventListener("click", async () => {
+      // 騒音ルール表示ON/OFF トグル → 即保存
+      document.getElementById("formNoiseToggle")?.addEventListener("change", async () => {
         const pid = this._currentFormTarget;
         if (!pid) return;
-        const noticeEl = document.getElementById("formNoticeTextarea");
-        const statusEl = document.getElementById("formNoticeSaveStatus");
-        if (!noticeEl) return;
+        const el = document.getElementById("formNoiseToggle");
+        const statusEl = document.getElementById("formNoiseSaveStatus");
+        if (!el) return;
         statusEl.innerHTML = `<span class="text-muted"><span class="spinner-border spinner-border-sm"></span> 保存中...</span>`;
         try {
           await db.collection("properties").doc(pid).update({
-            formNotice: noticeEl.value,
+            showNoiseAgreement: el.checked,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
           });
-          this._formNoticeCurrent = noticeEl.value;
-          statusEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill"></i> 保存済み</span>`;
+          this._showNoiseAgreementCurrent = el.checked;
+          statusEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill"></i> 保存済み (${el.checked ? "表示" : "非表示"})</span>`;
           setTimeout(() => { statusEl.innerHTML = ""; }, 2000);
         } catch (e) {
           statusEl.innerHTML = `<span class="text-danger">保存失敗: ${e.message}</span>`;
@@ -1128,7 +1128,7 @@ const GuestsPage = {
                 customFormEnabled: false,
                 customFormFields: firebase.firestore.FieldValue.delete(),
                 customFormSections: firebase.firestore.FieldValue.delete(),
-                formNotice: firebase.firestore.FieldValue.delete(),
+                showNoiseAgreement: firebase.firestore.FieldValue.delete(),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
               });
               const idx = (this._propertiesCache || []).findIndex(p => p.id === pid);
@@ -1234,7 +1234,7 @@ const GuestsPage = {
         // 独自設定あり → 編集UIを表示
         this.formFields = pd.customFormFields;
         this.formSections = pd.customFormSections || this.DEFAULT_SECTIONS;
-        this._formNoticeCurrent = pd.formNotice || "";
+        this._showNoiseAgreementCurrent = pd.showNoiseAgreement !== false;
         this._miniGameCurrent = pd.miniGameEnabled !== false;
         this._showEditUI();
       } else {
@@ -1264,9 +1264,9 @@ const GuestsPage = {
     if (initArea) initArea.classList.add("d-none");
     if (editArea) editArea.classList.remove("d-none");
 
-    // 注意事項テキストエリアをセット
-    const noticeEl = document.getElementById("formNoticeTextarea");
-    if (noticeEl) noticeEl.value = this._formNoticeCurrent || "";
+    // 騒音ルール表示ON/OFF トグルをセット
+    const noiseEl = document.getElementById("formNoiseToggle");
+    if (noiseEl) noiseEl.checked = this._showNoiseAgreementCurrent !== false;
 
     // ミニゲームトグルをセット
     const mgEl = document.getElementById("formMiniGameToggle");

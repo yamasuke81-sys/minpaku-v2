@@ -98,8 +98,8 @@ module.exports = function propertiesApi(db) {
         lineChannels: _sanitizeLineChannels(body.lineChannels),
         lineChannelStrategy: ["fallback", "roundrobin"].includes(body.lineChannelStrategy)
           ? body.lineChannelStrategy : "fallback",
-        // 物件ごとの注意事項テキスト（フォーム冒頭に表示）
-        formNotice: body.formNotice ? String(body.formNotice) : "",
+        // 物件ごとの騒音ルール黄色カードの表示ON/OFF (default: true)
+        showNoiseAgreement: body.showNoiseAgreement !== false,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       };
@@ -160,8 +160,8 @@ module.exports = function propertiesApi(db) {
         data.lineChannelStrategy = ["fallback", "roundrobin"].includes(body.lineChannelStrategy)
           ? body.lineChannelStrategy : "fallback";
       }
-      // 物件ごとの注意事項テキスト（フォーム冒頭に表示）
-      if (body.formNotice !== undefined) data.formNotice = String(body.formNotice);
+      // 物件ごとの騒音ルール黄色カードの表示ON/OFF
+      if (body.showNoiseAgreement !== undefined) data.showNoiseAgreement = Boolean(body.showNoiseAgreement);
       data.updatedAt = FieldValue.serverTimestamp();
 
       await docRef.update(data);
