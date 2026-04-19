@@ -109,6 +109,10 @@ const NotificationsPage = {
       defaultMsg: "🧺 ランドリー 回収した\n\n{date} {property}\n{staff}さんが{time}に洗濯物を回収しました。\n詳細: {url}" },
     { key: "laundry_stored", label: "ランドリー 収納した", desc: "スタッフが「洗濯物を収納した」ボタンを押した時にオーナー等へ通知", icon: "bi-check2-circle", group: "cleaning", varGroup: "laundry", defaultTiming: "immediate",
       defaultMsg: "🧺 ランドリー 収納した\n\n{date} {property}\n{staff}さんが{time}に洗濯物を収納しました。\n詳細: {url}" },
+    // D-3: ダブルブッキング検知通知（デフォルト: オーナーLINE+グループLINE有効、スタッフ無効）
+    { key: "double_booking", label: "ダブルブッキング検知", desc: "同物件・同日程に複数予約が重複した際にオーナーへ緊急通知", icon: "bi-exclamation-triangle-fill", group: "booking", varGroup: "booking", defaultTiming: "immediate",
+      defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: true, defaultStaffLine: false, defaultEmail: false,
+      defaultMsg: "【⚠️ ダブルブッキング警告】\n物件: {property}\n日程: {checkin} 〜 {date}\n\n衝突予約が検出されました。至急確認してください。\n確認: {url}" },
   ],
 
   async render(container) {
@@ -342,11 +346,12 @@ const NotificationsPage = {
 
       container.innerHTML = items.map(n => {
         const ch = (this.settings.channels || {})[n.key] || {};
-        const enabled = ch.enabled !== false;
-        const ownerLine = ch.ownerLine !== false;
-        const groupLine = !!ch.groupLine;
-        const staffLine = !!ch.staffLine;
-        const ownerEmail = !!ch.ownerEmail;
+        // Firestore 未設定の場合は通知定義の defaultXxx を使用
+        const enabled = ch.enabled !== undefined ? ch.enabled !== false : (n.defaultEnabled !== false);
+        const ownerLine = ch.ownerLine !== undefined ? ch.ownerLine !== false : (n.defaultOwnerLine !== false);
+        const groupLine = ch.groupLine !== undefined ? !!ch.groupLine : (!!n.defaultGroupLine);
+        const staffLine = ch.staffLine !== undefined ? !!ch.staffLine : (!!n.defaultStaffLine);
+        const ownerEmail = ch.ownerEmail !== undefined ? !!ch.ownerEmail : (!!n.defaultEmail);
         const discordOwner = !!ch.discordOwner;
         const discordSubOwner = !!ch.discordSubOwner;
         // FCM (Web Push) チャネル
