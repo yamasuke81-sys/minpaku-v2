@@ -46,12 +46,21 @@ module.exports = async function onRecruitmentChange(event) {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      const shiftSnap = await db.collection("shifts")
-        .where("propertyId", "==", propertyId)
-        .where("date", "==", new Date(checkoutDate))
-        .limit(1).get();
-      if (!shiftSnap.empty) {
-        await shiftSnap.docs[0].ref.update({
+      // bookingId で絞り込んでから JS 側で日付文字列比較 (Timestamp 精度問題を回避)
+      const bookingId = after.bookingId || "";
+      console.log(`[firstCome] checkoutDate=${checkoutDate} propertyId=${propertyId} bookingId=${bookingId} staffId=${staffId}`);
+      let shiftQuery = db.collection("shifts").where("propertyId", "==", propertyId);
+      if (bookingId) shiftQuery = shiftQuery.where("bookingId", "==", bookingId);
+      const shiftSnap = await shiftQuery.limit(5).get();
+      console.log(`[firstCome] shift候補数=${shiftSnap.size}`);
+      const targetShift = shiftSnap.docs.find((d) => {
+        const sd = d.data();
+        const dstr = sd.date?.toDate ? sd.date.toDate().toISOString().slice(0, 10) : String(sd.date).slice(0, 10);
+        console.log(`[firstCome] shift=${d.id} date=${dstr}`);
+        return dstr === checkoutDate;
+      });
+      if (targetShift) {
+        await targetShift.ref.update({
           staffId: staffId || null,
           staffName,
           staffIds: staffId ? [staffId] : [],
@@ -59,6 +68,9 @@ module.exports = async function onRecruitmentChange(event) {
           assignMethod: "firstCome",
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+        console.log(`[firstCome] shift更新完了: ${targetShift.id}`);
+      } else {
+        console.warn(`[firstCome] 対象shiftが見つからず: checkoutDate=${checkoutDate} propertyId=${propertyId} bookingId=${bookingId}`);
       }
 
       await notifyOwner(
