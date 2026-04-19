@@ -510,6 +510,14 @@
 
                     <!-- STEP 1: チャネル作成 -->
                     <h6 class="mb-2 text-primary"><i class="bi bi-1-circle-fill"></i> チャネル (Bot) を作成する</h6>
+                    <div class="alert alert-warning py-2 px-3 mb-2 small">
+                      <strong><i class="bi bi-exclamation-triangle"></i> 注意: 2つの管理画面の違い</strong><br>
+                      LINE には似て非なる 2 つの画面があります。<strong>必ず下の「開発者コンソール」から作成</strong>してください:
+                      <ul class="mb-0 ps-3 mt-1">
+                        <li><strong>開発者コンソール</strong> (今回使う): <a href="https://developers.line.biz/console/" target="_blank" rel="noopener">developers.line.biz/console/</a> — Messaging API 用チャネルを作る画面</li>
+                        <li>公式アカウントマネージャー: <a href="https://manager.line.biz/" target="_blank" rel="noopener">manager.line.biz</a> — ここで作ったアカウントは別途「Messaging API有効化」の手順が必要 (STEP 1-B 参照)</li>
+                      </ul>
+                    </div>
                     <ol class="ps-3 mb-3">
                       <li>
                         <a href="https://developers.line.biz/console/" target="_blank" rel="noopener">
@@ -531,6 +539,27 @@
                       </li>
                       <li>利用規約に同意 → <strong>「作成」</strong> ボタン</li>
                       <li>作成完了画面が出れば OK</li>
+                    </ol>
+
+                    <!-- STEP 1-B: Manager 側で先に作ってしまった場合の救済 -->
+                    <h6 class="mb-2 text-warning"><i class="bi bi-arrow-repeat"></i> STEP 1-B: 公式アカウントマネージャーで先に作ってしまった場合</h6>
+                    <div class="alert alert-info py-2 px-3 mb-2 small">
+                      <strong>症状</strong>: <code>manager.line.biz</code> で公式アカウントは作ったのに、開発者コンソールに表示されない。<br>
+                      <strong>解決策</strong>: Manager 側で Messaging API を有効化して、既存プロバイダーに紐付ける
+                    </div>
+                    <ol class="ps-3 mb-3">
+                      <li><a href="https://manager.line.biz/" target="_blank" rel="noopener">https://manager.line.biz/</a> を開き、該当アカウント (例: 「長浜清掃G通知#2」) を選択</li>
+                      <li>右上の <strong>「設定」(⚙歯車)</strong> をクリック</li>
+                      <li>左メニューから <strong>「Messaging API」</strong> を選択</li>
+                      <li><strong>「Messaging APIを利用する」</strong> ボタンをクリック</li>
+                      <li>
+                        プロバイダー選択画面で <strong>「長浜清掃G通知」</strong> を選択<br>
+                        <span class="text-danger small">※ 「新しいプロバイダーを作成」ではなく、<strong>既存プロバイダーを選ぶ</strong>こと！</span>
+                      </li>
+                      <li>プライバシーポリシー/サービス利用規約は任意 (空欄でOK) → 「次へ」</li>
+                      <li>確認画面 → <strong>「OK」</strong></li>
+                      <li>開発者コンソール (<a href="https://developers.line.biz/console/" target="_blank" rel="noopener">developers.line.biz/console</a>) を再読み込み → 「長浜清掃G通知」プロバイダー配下に新しいチャネルが表示される</li>
+                      <li>このチャネルをクリックして STEP 2 に進む</li>
                     </ol>
 
                     <!-- STEP 2: トークン取得 -->
