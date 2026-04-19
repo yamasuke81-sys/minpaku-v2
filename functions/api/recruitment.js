@@ -346,6 +346,60 @@ module.exports = function recruitmentApi(db) {
         console.error("確定通知エラー（無視）:", notifyErr);
       }
 
+      // shift upsert: propertyId + checkoutDate で検索し、なければ作成・あれば更新
+      try {
+        const shiftSnap = await db.collection("shifts")
+          .where("propertyId", "==", data.propertyId)
+          .where("date", "==", new Date(data.checkoutDate))
+          .limit(1)
+          .get();
+
+        // property から cleaningStartTime を取得
+        let cleaningStartTime = "10:30";
+        if (data.propertyId) {
+          try {
+            const propDoc = await db.collection("properties").doc(data.propertyId).get();
+            if (propDoc.exists) cleaningStartTime = propDoc.data().cleaningStartTime || "10:30";
+          } catch (_) { /* デフォルトで続行 */ }
+        }
+
+        const firstStaffId = (data.selectedStaffIds || [])[0] || null;
+        const firstStaffName = (data.selectedStaff || "").split(",")[0]?.trim() || null;
+
+        if (shiftSnap.empty) {
+          // 新規作成 → onShiftCreated トリガーが発火して checklist 自動生成
+          await db.collection("shifts").add({
+            date: new Date(data.checkoutDate),
+            propertyId: data.propertyId,
+            propertyName: data.propertyName || "",
+            bookingId: data.bookingId || null,
+            workType: data.workType === "pre_inspection" ? "pre_inspection" : "cleaning_by_count",
+            staffId: firstStaffId,
+            staffName: firstStaffName,
+            staffIds: data.selectedStaffIds || [],
+            startTime: cleaningStartTime,
+            status: "assigned",
+            assignMethod: "manual_confirm",
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+          console.log(`shift 新規作成: propertyId=${data.propertyId}, date=${data.checkoutDate}`);
+        } else {
+          // 既存を更新
+          await shiftSnap.docs[0].ref.update({
+            staffId: firstStaffId,
+            staffName: firstStaffName,
+            staffIds: data.selectedStaffIds || [],
+            status: "assigned",
+            assignMethod: "manual_confirm",
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+          console.log(`shift 更新: ${shiftSnap.docs[0].id}`);
+        }
+      } catch (shiftErr) {
+        console.error("shift upsert エラー（確定は継続）:", shiftErr);
+      }
+
       res.json({ message: "スタッフを確定しました" });
     } catch (e) {
       console.error("募集確定エラー:", e);

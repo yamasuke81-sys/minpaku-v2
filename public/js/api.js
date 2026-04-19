@@ -582,22 +582,59 @@ const API = {
       data.nationality = data.nationality || "日本";
       data.guests = data.guests || [];
 
+      // 手動登録かつ物件+CI+CO が揃っている場合は bookings も作成
+      const needBooking = data.source === "manual"
+        && data.propertyId && data.checkIn && data.checkOut;
+
       // 同一CIの既存エントリを検索
       if (data.checkIn) {
         const existing = await this._findByCheckIn(data.checkIn);
         if (existing) {
           // マージして更新
           const merged = this._mergeGuestData(existing, data);
+          // bookingId 未設定の場合は booking を作成して紐付け
+          if (needBooking && !merged.bookingId) {
+            const bookingId = await this._createBookingForManual(data);
+            if (bookingId) merged.bookingId = bookingId;
+          }
           merged.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
           await db.collection("guestRegistrations").doc(existing.id).update(merged);
           return { id: existing.id, ...merged };
         }
       }
 
+      // 新規 booking 作成
+      if (needBooking) {
+        const bookingId = await this._createBookingForManual(data);
+        if (bookingId) data.bookingId = bookingId;
+      }
+
       data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
       data.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
       const ref = await db.collection("guestRegistrations").add(data);
       return { id: ref.id, ...data };
+    },
+
+    // 手動登録用 booking を bookings コレクションに作成し id を返す
+    async _createBookingForManual(data) {
+      try {
+        const ref = await db.collection("bookings").add({
+          propertyId: data.propertyId,
+          propertyName: data.propertyName || "",
+          checkIn: data.checkIn,
+          checkOut: data.checkOut,
+          guestName: data.guestName || "(手動登録)",
+          guestCount: Number(data.guestCount) || 1,
+          source: "manual_registration",
+          status: "confirmed",
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+        return ref.id;
+      } catch (e) {
+        console.error("booking 作成エラー（名簿は保存継続）:", e);
+        return null;
+      }
     },
 
     async update(id, data) {

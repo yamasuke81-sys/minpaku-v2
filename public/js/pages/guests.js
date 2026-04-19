@@ -537,6 +537,19 @@ const GuestsPage = {
     document.getElementById("guestModalTitle").textContent = isEdit ? "宿泊者情報編集" : "宿泊者情報登録";
     document.getElementById("guestEditId").value = isEdit ? guest.id : "";
 
+    // 物件セレクトを初期化
+    const propSel = document.getElementById("guestPropertyId");
+    if (propSel) {
+      propSel.innerHTML = '<option value="">-- 物件を選択 --</option>';
+      (this.properties || []).forEach(p => {
+        const opt = document.createElement("option");
+        opt.value = p.id;
+        opt.textContent = (p.propertyNumber ? `#${p.propertyNumber} ` : "") + (p.name || p.id);
+        propSel.appendChild(opt);
+      });
+      propSel.value = guest?.propertyId || "";
+    }
+
     document.getElementById("guestNameInput").value = guest?.guestName || "";
     document.getElementById("guestNationality").value = guest?.nationality || "日本";
     document.getElementById("guestAddress").value = guest?.address || "";
@@ -599,6 +612,10 @@ const GuestsPage = {
       }
     });
 
+    // 物件 ID → Name を解決
+    const propertyId = document.getElementById("guestPropertyId")?.value || "";
+    const propertyName = (this.properties || []).find(p => p.id === propertyId)?.name || "";
+
     const data = {
       guestName,
       nationality: document.getElementById("guestNationality").value.trim() || "日本",
@@ -616,6 +633,7 @@ const GuestsPage = {
       parking: document.getElementById("guestParking").value.trim(),
       memo: document.getElementById("guestMemoInput").value.trim(),
       guests,
+      ...(propertyId ? { propertyId, propertyName } : {}),
     };
 
     try {
