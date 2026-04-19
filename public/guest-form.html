@@ -1206,6 +1206,171 @@
       return urls;
     }
 
+    // ===== 物件別フォーム設定の適用 =====
+
+    // 既存 HTML に要素が存在するコアフィールド ID の一覧
+    // これらは表示/非表示の切り替えのみ行い、動的生成はしない
+    const CORE_FIELD_IDS = new Set([
+      "checkIn", "checkOut", "checkInTime", "checkOutTime",
+      "guestCount", "guestCountInfants", "bookingSite",
+      "guestName", "nationality", "address", "phone", "email",
+      "passportNumber", "passportPhoto",
+      "transport", "cars", "carCount", "bbq", "bedChoice",
+      "purpose", "previousStay", "nextStay",
+      "emergencyName", "emergencyPhone", "emergencyContact",
+      "houseRuleAgree", "noiseAgree",
+      "arrivalTime", "departureTime",
+    ]);
+
+    // コアフィールドIDから実際のHTML要素の親ラッパーを探すマップ
+    // 各フィールドに対応する「行単位の隠す対象」を返す
+    function getCoreFieldWrapper(fieldId) {
+      const wrapperMap = {
+        checkIn:          () => document.getElementById("f_checkIn")?.closest(".col-6"),
+        checkOut:         () => document.getElementById("f_checkOut")?.closest(".col-6"),
+        checkInTime:      () => document.getElementById("f_checkInTime")?.closest(".col-6"),
+        checkOutTime:     () => document.getElementById("f_checkOutTime")?.closest(".col-6"),
+        guestCount:       () => document.getElementById("f_guestCount")?.closest(".col-6"),
+        guestCountInfants:() => document.getElementById("f_guestCountInfants")?.closest(".col-6"),
+        bookingSite:      () => document.getElementById("f_bookingSite")?.closest(".mb-3"),
+        transport:        () => document.getElementById("f_transport")?.closest(".mb-3"),
+        bbq:              () => document.getElementById("f_bbq")?.closest(".mb-3"),
+        bedChoice:        () => document.getElementById("bedChoiceSection"),
+        purpose:          () => document.getElementById("f_purpose")?.closest(".mb-3"),
+        previousStay:     () => document.getElementById("f_previousStay")?.closest(".col-6"),
+        nextStay:         () => document.getElementById("f_nextStay")?.closest(".col-6"),
+        emergencyName:    () => document.getElementById("f_emergencyName")?.closest(".col-md-6"),
+        emergencyPhone:   () => document.getElementById("f_emergencyPhone")?.closest(".col-md-6"),
+      };
+      return wrapperMap[fieldId] ? wrapperMap[fieldId]() : null;
+    }
+
+    // 動的に追加されたカスタムフィールドを格納するコンテナ ID
+    const CUSTOM_FIELDS_CONTAINER_ID = "customFieldsContainer";
+
+    // カスタムフィールド（動的生成）のデータを保持
+    let _customFormFields = [];
+
+    function applyFormConfig(fields) {
+      _customFormFields = [];
+
+      fields.forEach(f => {
+        if (CORE_FIELD_IDS.has(f.id)) {
+          // コアフィールド: hidden フラグに従って表示/非表示を切り替え
+          if (f.hidden === true) {
+            const wrapper = getCoreFieldWrapper(f.id);
+            if (wrapper) wrapper.style.display = "none";
+            // required も外す（非表示項目はバリデーション対象外）
+            const input = document.getElementById("f_" + f.id);
+            if (input) input.required = false;
+          }
+        } else {
+          // カスタムフィールド: 動的生成対象として登録
+          _customFormFields.push(f);
+        }
+      });
+
+      // カスタムフィールドがあれば挿入
+      if (_customFormFields.length > 0) {
+        renderCustomFields(_customFormFields);
+      }
+    }
+
+    // カスタムフィールドを動的生成してアンケートセクションの後ろに挿入
+    function renderCustomFields(fields) {
+      // 既存コンテナがあれば削除（再描画対応）
+      const existing = document.getElementById(CUSTOM_FIELDS_CONTAINER_ID);
+      if (existing) existing.remove();
+
+      const container = document.createElement("div");
+      container.id = CUSTOM_FIELDS_CONTAINER_ID;
+
+      const t = i18n[currentLang];
+
+      fields.forEach(f => {
+        if (f.hidden === true) return; // hidden フィールドはスキップ
+
+        const label = (currentLang === "en" && f.labelEn) ? f.labelEn : (f.label || "");
+        const placeholder = (currentLang === "en" && f.placeholderEn) ? f.placeholderEn : (f.placeholder || "");
+        const reqMark = f.required ? '<span class="required-mark">*</span>' : "";
+
+        const wrap = document.createElement("div");
+        wrap.className = "mb-3";
+        wrap.dataset.customFieldId = f.id;
+
+        let inputHtml = "";
+        const inputId = "cf_" + f.id;
+
+        switch (f.type) {
+          case "text":
+          case "tel":
+          case "email":
+          case "number":
+          case "date":
+            inputHtml = `<input type="${f.type}" class="form-control" id="${inputId}"
+              ${f.required ? "required" : ""}
+              ${placeholder ? `placeholder="${esc(placeholder)}"` : ""}
+              ${f.defaultValue ? `value="${esc(f.defaultValue)}"` : ""}
+              ${f.type === "number" ? 'min="0"' : ""}>`;
+            break;
+
+          case "textarea":
+            inputHtml = `<textarea class="form-control" id="${inputId}" rows="3"
+              ${f.required ? "required" : ""}
+              ${placeholder ? `placeholder="${esc(placeholder)}"` : ""}>${f.defaultValue ? esc(f.defaultValue) : ""}</textarea>`;
+            break;
+
+          case "select": {
+            const opts = (currentLang === "en" && f.optionsEn?.length) ? f.optionsEn : (f.options || []);
+            const optHtml = opts.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join("");
+            inputHtml = `<select class="form-select" id="${inputId}" ${f.required ? "required" : ""}>
+              <option value="">--</option>${optHtml}</select>`;
+            break;
+          }
+
+          case "radio": {
+            const opts = (currentLang === "en" && f.optionsEn?.length) ? f.optionsEn : (f.options || []);
+            inputHtml = opts.map((o, i) => `
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="${inputId}" id="${inputId}_${i}" value="${esc(o)}" ${f.required && i === 0 ? "required" : ""}>
+                <label class="form-check-label" for="${inputId}_${i}">${esc(o)}</label>
+              </div>`).join("");
+            break;
+          }
+
+          case "checkbox-single":
+            inputHtml = `<div class="form-check">
+              <input class="form-check-input" type="checkbox" id="${inputId}" ${f.required ? "required" : ""}>
+              <label class="form-check-label" for="${inputId}">${label} ${reqMark}</label>
+            </div>`;
+            // checkbox-single はラベルをチェックボックスに内包するため外側のlabelは不要
+            wrap.innerHTML = inputHtml;
+            container.appendChild(wrap);
+            return;
+
+          default:
+            inputHtml = `<input type="text" class="form-control" id="${inputId}"
+              ${f.required ? "required" : ""}
+              ${placeholder ? `placeholder="${esc(placeholder)}"` : ""}>`;
+        }
+
+        wrap.innerHTML = `<label class="form-label" for="${inputId}">${label} ${reqMark}</label>${inputHtml}`;
+        container.appendChild(wrap);
+      });
+
+      // アンケートセクション（sec_survey の h6）の後ろに挿入
+      const surveySection = document.getElementById("sec_survey");
+      if (surveySection) {
+        // アンケートセクションの兄弟要素の末尾（緊急連絡先セクションの前）を探す
+        const emergencySection = document.getElementById("sec_emergency");
+        if (emergencySection) {
+          emergencySection.parentNode.insertBefore(container, emergencySection);
+        } else {
+          surveySection.parentNode.appendChild(container);
+        }
+      }
+    }
+
     // ===== 送信 =====
     async function submitForm(e) {
       e.preventDefault();
@@ -1297,6 +1462,33 @@
         };
         const params = getParams();
         data.bookingId = params.bookingId||""; data.propertyId = params.propertyId||"";
+
+        // カスタムフィールドの値を収集して customFields に格納
+        if (_customFormFields.length > 0) {
+          const customFields = {};
+          _customFormFields.forEach(f => {
+            if (f.hidden === true) return;
+            const inputId = "cf_" + f.id;
+            let val = "";
+            if (f.type === "radio") {
+              const checked = document.querySelector(`input[name="${inputId}"]:checked`);
+              val = checked ? checked.value : "";
+            } else if (f.type === "checkbox-single") {
+              const el = document.getElementById(inputId);
+              val = el ? el.checked : false;
+            } else {
+              const el = document.getElementById(inputId);
+              val = el ? el.value.trim() : "";
+            }
+            // mapping が指定されていればトップレベルにも格納
+            if (f.mapping && !data[f.mapping]) {
+              data[f.mapping] = val;
+            }
+            customFields[f.id] = val;
+          });
+          data.customFields = customFields;
+        }
+
         await db.collection("guestRegistrations").add(data);
         document.getElementById("formView").classList.add("d-none");
         document.getElementById("successView").classList.remove("d-none");
@@ -1314,12 +1506,10 @@
       applyLang();
 
       // === 物件別フォーム設定の読み込み ===
-      // 参照優先順位:
+      // 優先順位:
       //   1. URL に propertyId があり、その物件の customFormEnabled===true → customFormFields を使用
       //   2. なければ settings/guestForm (共通) を使用
-      //   3. それもなければ静的 HTML のデフォルトを使用
-      // NOTE: 現バージョンはフォームが静的 HTML のため customFormFields の動的描画は未実装。
-      //       将来の動的フォーム実装時はここで取得した formFields を使って renderDynamicForm() を呼ぶ予定。
+      //   3. それもなければ静的 HTML のデフォルトをそのまま使用（何も変更しない）
       let _resolvedFormFields = null;
       try {
         const propertyId = params.propertyId || "";
@@ -1336,8 +1526,10 @@
           }
         }
       } catch (_) {}
-      // _resolvedFormFields が取得できた場合、将来の動的フォーム描画でここを使う
-      // 現在は静的 HTML フォームを使用するため参照のみ（削除しないこと）
+      // 物件別フォーム設定を適用
+      if (_resolvedFormFields && _resolvedFormFields.length > 0) {
+        applyFormConfig(_resolvedFormFields);
+      }
 
       // === 騒音ルール同意フロー制御 ===
       const noiseSection = document.getElementById("noiseRuleSection");
