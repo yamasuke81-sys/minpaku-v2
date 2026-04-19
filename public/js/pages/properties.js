@@ -190,14 +190,16 @@ const PropertiesPage = {
     const recurCb = document.getElementById("propertyInspectionRecurYearly");
     recurCb.checked = recur;
     this.populateMonthDaySelects();
-    const recurStart = inspection.recurStart || "";  // "MM-DD"
+    const recurStart = inspection.recurStart || "";  // "MM-DD" (padding 付き保存)
     const recurEnd = inspection.recurEnd || "";
     const [rsm, rsd] = recurStart.split("-");
     const [rem, red] = recurEnd.split("-");
-    document.getElementById("propertyInspectionRecurStartMonth").value = rsm || "5";
-    document.getElementById("propertyInspectionRecurStartDay").value = rsd || "1";
-    document.getElementById("propertyInspectionRecurEndMonth").value = rem || "10";
-    document.getElementById("propertyInspectionRecurEndDay").value = red || "31";
+    // select の option value は padding なし ("1"〜"12") で生成されているため、
+    // 保存値 "05" を Number 化してから set する (1〜9月の表示バグ対策)
+    document.getElementById("propertyInspectionRecurStartMonth").value = rsm ? String(Number(rsm)) : "5";
+    document.getElementById("propertyInspectionRecurStartDay").value = rsd ? String(Number(rsd)) : "1";
+    document.getElementById("propertyInspectionRecurEndMonth").value = rem ? String(Number(rem)) : "10";
+    document.getElementById("propertyInspectionRecurEndDay").value = red ? String(Number(red)) : "31";
     this.toggleInspectionPeriodBlocks(recur);
     recurCb.onchange = () => this.toggleInspectionPeriodBlocks(recurCb.checked);
 
