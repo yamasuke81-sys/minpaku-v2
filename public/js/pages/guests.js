@@ -1296,8 +1296,9 @@ const GuestsPage = {
       const typeBadge = this.TYPE_LABELS[f.type] || f.type;
       const shortLabel = (f.label || "").split("\n")[0].substring(0, 40);
 
+      const isHidden = f.hidden === true;
       html += `
-        <div class="ff-card${isExpanded ? " expanded" : ""}" data-idx="${i}" draggable="true">
+        <div class="ff-card${isExpanded ? " expanded" : ""}${isHidden ? " ff-hidden" : ""}" data-idx="${i}" draggable="true" style="${isHidden ? "opacity:0.55;" : ""}">
           <div class="ff-card-header" data-action="toggle" data-idx="${i}">
             <span class="ff-drag-handle" title="ドラッグで並び替え"><i class="bi bi-grip-vertical"></i></span>
             <span class="ff-card-num">${i + 1}</span>
@@ -1307,7 +1308,11 @@ const GuestsPage = {
             </div>
             <span class="badge bg-secondary ff-badge-type">${typeBadge}</span>
             ${f.required ? '<span class="badge bg-danger ff-badge-req">必須</span>' : ""}
+            ${isHidden ? '<span class="badge bg-warning text-dark ff-badge-hidden"><i class="bi bi-eye-slash"></i> 非表示</span>' : ""}
             <span class="badge bg-light text-dark ff-badge-sec">${this.esc(this.getSectionLabel(f.section))}</span>
+            <button type="button" class="btn btn-sm ${isHidden ? 'btn-outline-success' : 'btn-outline-secondary'} ff-visibility-btn" data-action="toggleHidden" data-idx="${i}" title="${isHidden ? '表示する' : '非表示にする'}" style="padding:2px 6px;" onclick="event.stopPropagation();">
+              <i class="bi bi-${isHidden ? 'eye' : 'eye-slash'}"></i>
+            </button>
             <i class="bi bi-chevron-${isExpanded ? "up" : "down"} ff-chevron"></i>
           </div>
           ${isExpanded ? this.renderFieldCardBody(f, i) : ""}
@@ -1440,10 +1445,26 @@ const GuestsPage = {
     container.querySelectorAll(".ff-card-header").forEach(hdr => {
       hdr.addEventListener("click", (e) => {
         if (e.target.closest(".ff-drag-handle")) return;
+        if (e.target.closest(".ff-visibility-btn")) return; // 非表示トグルボタンはカード展開させない
         const idx = Number(hdr.dataset.idx);
         if (this.expandedCards.has(idx)) this.expandedCards.delete(idx);
         else this.expandedCards.add(idx);
         this.renderFormFields();
+      });
+    });
+
+    // 非表示/表示 トグルボタン
+    container.querySelectorAll('[data-action="toggleHidden"]').forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const idx = Number(btn.dataset.idx);
+        if (!this.formFields[idx]) return;
+        // hidden プロパティを反転
+        this.formFields[idx].hidden = !this.formFields[idx].hidden;
+        this.renderFormFields();
+        if (typeof showToast === "function") {
+          showToast("", `${this.formFields[idx].label || "項目"}を${this.formFields[idx].hidden ? "非表示" : "表示"}に変更 (保存で確定)`, "info");
+        }
       });
     });
 
