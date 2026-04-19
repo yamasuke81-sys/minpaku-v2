@@ -709,6 +709,13 @@
               </select>
             </div>
             <div class="col-12">
+              <label class="form-label">作業種別</label>
+              <select class="form-select" id="newRecruitmentWorkType">
+                <option value="cleaning_by_count" selected>清掃</option>
+                <option value="pre_inspection">直前点検</option>
+              </select>
+            </div>
+            <div class="col-12">
               <label class="form-label">メモ</label>
               <textarea class="form-control" id="recruitMemo" rows="2"></textarea>
             </div>
@@ -746,7 +753,7 @@
             </div>
             <div class="col-md-4">
               <strong>ステータス</strong><br>
-              <span id="detailStatus"></span>
+              <span id="detailWorkTypeBadge" class="me-1"></span><span id="detailStatus"></span>
             </div>
           </div>
           <div class="row mb-3">
