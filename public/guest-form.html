@@ -1453,7 +1453,10 @@
           nextStay: document.getElementById("f_nextStay").value.trim(),
           emergencyName: document.getElementById("f_emergencyName").value.trim(),
           emergencyPhone: document.getElementById("f_emergencyPhone").value.trim(),
-          noiseAgree: document.getElementById("f_noiseAgree").value === "true",
+          // 騒音ルールを物件設定で非表示にしていた場合は同意取得していないので記録しない (法的証跡の観点)
+          noiseAgree: (typeof _showNoiseAgreement !== "undefined" && _showNoiseAgreement === false)
+            ? null
+            : (document.getElementById("f_noiseAgree").value === "true"),
           houseRuleAgree: true,
           allGuests: guests, source: "guest_form",
           submittedAt: firebase.firestore.FieldValue.serverTimestamp(),
