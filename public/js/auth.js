@@ -6,8 +6,14 @@ const Auth = {
   currentUser: null,
   loginModal: null,
 
-  init() {
+  async init() {
     this.loginModal = new bootstrap.Modal(document.getElementById("loginModal"));
+
+    // LIFF 初期化（LINE内蔵ブラウザでの自動ログイン）
+    // Firebase signInWithCustomToken を呼ぶため、onAuthStateChanged より先に完了させる
+    if (window.LiffClient) {
+      await LiffClient.init();
+    }
 
     document.getElementById("btnLogin").addEventListener("click", () => this.login());
     document.getElementById("loginPassword").addEventListener("keydown", (e) => {

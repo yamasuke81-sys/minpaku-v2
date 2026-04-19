@@ -396,6 +396,72 @@ module.exports = function authApi(db) {
     }
   });
 
+  /**
+   * POST /auth/liff-login
+   * LIFF (LINE内蔵ブラウザ) からの自動ログイン
+   * liff.getProfile() の結果を受け取り、staff コレクションで lineUserId 照合 → カスタムトークン発行
+   * リクエスト: { userId: string, displayName: string }
+   * レスポンス: { success: true, customToken, staffId, name } or { error: string }
+   */
+  router.post("/liff-login", async (req, res) => {
+    try {
+      const { userId, displayName } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: "userIdが必要です" });
+      }
+
+      // lineUserId で staff コレクション検索（activeなスタッフのみ）
+      const staffSnap = await db.collection("staff")
+        .where("lineUserId", "==", userId)
+        .where("active", "==", true)
+        .limit(1)
+        .get();
+
+      if (staffSnap.empty) {
+        return res.status(404).json({
+          error: "このLINEアカウントに紐づくスタッフが見つかりません。オーナーから招待リンクを受け取ってください。",
+        });
+      }
+
+      const staffDoc = staffSnap.docs[0];
+      const staffId = staffDoc.id;
+      const staffData = staffDoc.data();
+
+      // Firebase Auth ユーザー取得 or 作成（lineUserId をベースにした固定 uid を使用）
+      const uid = `line_${userId}`;
+      try {
+        await admin.auth().getUser(uid);
+      } catch (e) {
+        if (e.code === "auth/user-not-found") {
+          // 未作成なら新規作成
+          await admin.auth().createUser({
+            uid,
+            displayName: staffData.name || displayName,
+            disabled: false,
+          });
+        } else {
+          throw e;
+        }
+      }
+
+      // カスタムクレーム設定（role: staff + staffId）
+      await admin.auth().setCustomUserClaims(uid, { role: "staff", staffId });
+
+      // staff ドキュメントに authUid を記録（まだ保存されていない場合）
+      if (!staffData.authUid) {
+        await staffDoc.ref.update({ authUid: uid, updatedAt: new Date() });
+      }
+
+      // カスタムトークン発行
+      const customToken = await admin.auth().createCustomToken(uid);
+
+      res.json({ success: true, customToken, staffId, name: staffData.name });
+    } catch (e) {
+      console.error("LIFFログインエラー:", e.stack || e);
+      res.status(500).json({ error: `LIFFログイン失敗: ${e.message}` });
+    }
+  });
+
   // ========== 認証必要エンドポイント（内部で認証チェック） ==========
 
   /**

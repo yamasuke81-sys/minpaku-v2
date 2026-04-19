@@ -30,3 +30,8 @@ window.LINE_LOGIN_CHANNEL_ID = "2009790221";
 // FCM VAPID 公開キー (Firebase Console → プロジェクト設定 → Cloud Messaging → ウェブプッシュ証明書)
 // Web Push 通知のトークン取得に使用
 window.FCM_VAPID_KEY = "BNQ2p2-IZDYu4Ru5PvMzKtZWbuZ5pq07ln8SJL-gat-Ky85EjIYNVuDYHZWbhPo9NJ-X8rzVpaRiTgW5Cp0Evu8";
+
+// LIFF ID (LINE Developers Console → LIFFタブ → LIFF URL の末尾ID "XXXXX-YYYYY")
+// スタッフが LINE アプリから直接開いたとき自動ログインに使用
+// 空文字のままでは LIFF 初期化をスキップ（設定するまで従来フローが維持される）
+window.LIFF_ID = "";
