@@ -23,6 +23,10 @@ router.get("/guest-form-config/:propertyId", async (req, res) => {
 
     // 公開可能フィールドのみ whitelist 方式で抽出
     // 機密フィールド (lineChannelToken, monthlyFixedCost, purchasePrice 等) は含めない
+    const formFieldConfig = d.formFieldConfig && typeof d.formFieldConfig === "object"
+      ? { overrides: d.formFieldConfig.overrides || {} }
+      : { overrides: {} };
+
     res.json({
       propertyId: pid,
       name: d.name || "",
@@ -31,6 +35,7 @@ router.get("/guest-form-config/:propertyId", async (req, res) => {
       customFormEnabled: d.customFormEnabled === true,    // デフォルト false
       customFormFields: Array.isArray(d.customFormFields) ? d.customFormFields : [],
       customFormSections: Array.isArray(d.customFormSections) ? d.customFormSections : [],
+      formFieldConfig,  // Phase 1 追加: 標準項目のオーバーライド設定
     });
   } catch (e) {
     console.error("[public/guest-form-config] エラー:", e);
