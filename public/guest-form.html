@@ -375,6 +375,16 @@
       <i class="bi bi-check-circle-fill"></i>
       <h3 class="mt-3" id="lbl_successTitle">送信完了</h3>
       <p class="text-muted" id="lbl_successMsg">ご記入ありがとうございます。<br>ご宿泊を楽しみにお待ちしております。</p>
+      <div class="alert alert-info text-start mt-3" style="max-width:480px;margin:0 auto;" id="successInfoBox">
+        <ul class="mb-2 ps-3">
+          <li id="lbl_successConfirmEmail">確認メールをお送りしました。</li>
+          <li id="lbl_successKeyboxInfo">チェックイン前日〜当日に、キーボックス番号とチェックイン方法のメールが届きます。</li>
+          <li id="lbl_successEditInfo">修正が必要な場合は、メール内の修正リンクをご利用ください。</li>
+        </ul>
+        <a href="/guest-guide.html" class="btn btn-outline-primary btn-sm w-100" id="lbl_successGuideLink">
+          <i class="bi bi-book"></i> ゲストガイドを見る
+        </a>
+      </div>
     </div>
   </div>
 
@@ -565,6 +575,10 @@
         privacy: "ご記入いただいた情報は旅館業法に基づく宿泊者名簿として保管いたします。",
         successTitle: "送信完了",
         successMsg: "ご記入ありがとうございます。<br>ご宿泊を楽しみにお待ちしております。",
+        successConfirmEmail: "確認メールをお送りしました。",
+        successKeyboxInfo: "チェックイン前日〜当日に、キーボックス番号とチェックイン方法のメールが届きます。",
+        successEditInfo: "修正が必要な場合は、メール内の修正リンクをご利用ください。",
+        successGuideLink: "ゲストガイドを見る",
         submitting: "送信中...",
         validationError: "必須項目をすべて入力してください。",
         submitError: "送信に失敗しました。もう一度お試しください。",
@@ -681,6 +695,10 @@
         submit: "Submit",
         privacy: "Your information will be stored as required by the Japanese Hotel Business Act.",
         successTitle: "Submitted!", successMsg: "Thank you! We look forward to welcoming you.",
+        successConfirmEmail: "A confirmation email has been sent to you.",
+        successKeyboxInfo: "You will receive an email with the keybox number and check-in instructions the day before or on the day of check-in.",
+        successEditInfo: "If you need to make changes, please use the edit link in the email.",
+        successGuideLink: "View Guest Guide",
         submitting: "Submitting...",
         validationError: "Please fill in all required fields.",
         submitError: "Submission failed. Please try again.",
@@ -766,6 +784,10 @@
       document.getElementById("lbl_privacy").textContent = t.privacy;
       document.getElementById("lbl_successTitle").textContent = t.successTitle;
       document.getElementById("lbl_successMsg").innerHTML = t.successMsg;
+      if (t.successConfirmEmail) document.getElementById("lbl_successConfirmEmail").textContent = t.successConfirmEmail;
+      if (t.successKeyboxInfo)   document.getElementById("lbl_successKeyboxInfo").textContent   = t.successKeyboxInfo;
+      if (t.successEditInfo)     document.getElementById("lbl_successEditInfo").textContent     = t.successEditInfo;
+      if (t.successGuideLink)    document.getElementById("lbl_successGuideLink").innerHTML      = `<i class="bi bi-book"></i> ${t.successGuideLink}`;
       const optIds = ["opt_checkInAfter20","opt_rakuten","opt_jalan","opt_official","opt_direct","opt_bookingOther",
         "opt_tr_car","opt_tr_public","opt_tr_taxi","opt_tr_walk","opt_tr_other","opt_carOver",
         "opt_car1","opt_car2","opt_car3","opt_car4","opt_car5","opt_car6",
@@ -1176,6 +1198,100 @@
       return p;
     }
 
+    // ===== フォームエラー表示（alert の代替） =====
+    function showFormError(msg) {
+      let el = document.getElementById("formErrorBanner");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "formErrorBanner";
+        el.className = "alert alert-danger mb-3";
+        el.setAttribute("role", "alert");
+        // フォームの先頭（card-body 直下）に挿入
+        const body = document.querySelector("#formView .card-body");
+        if (body) body.prepend(el);
+      }
+      el.textContent = msg;
+      el.classList.remove("d-none");
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    function hideFormError() {
+      const el = document.getElementById("formErrorBanner");
+      if (el) el.classList.add("d-none");
+    }
+
+    // ===== editトークンによるプリフィル =====
+    // _editToken が設定されている場合、送信は PUT /api/guest-edit/:token になる
+    let _editToken = null;
+
+    async function prefillFromEditToken(token) {
+      try {
+        const resp = await fetch(`/api/guest-edit/${encodeURIComponent(token)}`);
+        if (!resp.ok) {
+          const body = await resp.json().catch(() => ({}));
+          const msg = body.error || `エラーが発生しました (${resp.status})`;
+          showFormError(msg);
+          return false;
+        }
+        const d = await resp.json();
+
+        // 宿泊情報のプリフィル
+        if (d.checkIn)  { const el = document.getElementById("f_checkIn");  if (el) el.value = d.checkIn; }
+        if (d.checkOut) { const el = document.getElementById("f_checkOut"); if (el) el.value = d.checkOut; }
+        if (d.checkInTime)  { const el = document.getElementById("f_checkInTime");  if (el) el.value = d.checkInTime; }
+        if (d.checkOutTime) { const el = document.getElementById("f_checkOutTime"); if (el) el.value = d.checkOutTime; }
+        if (d.guestCount) {
+          const el = document.getElementById("f_guestCount");
+          if (el) { el.value = d.guestCount; renderGuestInputs(); }
+        }
+        if (d.bookingSite) { const el = document.getElementById("f_bookingSite"); if (el) el.value = d.bookingSite; }
+        if (d.transport)   { const el = document.getElementById("f_transport");   if (el) { el.value = d.transport; updateTransportUI(); } }
+        if (d.carCount)    { const el = document.getElementById("f_carCount");    if (el) el.value = d.carCount; }
+        if (d.bbq)         { const el = document.getElementById("f_bbq");         if (el) el.value = d.bbq; }
+        if (d.bedChoice)   { const el = document.getElementById("f_bedChoice");   if (el) el.value = d.bedChoice; }
+        if (d.purpose)     { const el = document.getElementById("f_purpose");     if (el) el.value = d.purpose; }
+        if (d.previousStay) { const el = document.getElementById("f_previousStay"); if (el) el.value = d.previousStay; }
+        if (d.nextStay)     { const el = document.getElementById("f_nextStay");     if (el) el.value = d.nextStay; }
+        if (d.emergencyName)  { const el = document.getElementById("f_emergencyName");  if (el) el.value = d.emergencyName; }
+        if (d.emergencyPhone) { const el = document.getElementById("f_emergencyPhone"); if (el) el.value = d.emergencyPhone; }
+
+        // 代表者情報（renderGuestInputs 後に設定）
+        setTimeout(() => {
+          const firstBlock = document.querySelector(".guest-block");
+          if (firstBlock && d.guestName) {
+            const ne = firstBlock.querySelector(".g-name"); if (ne) ne.value = d.guestName;
+          }
+          if (firstBlock && d.nationality) {
+            const nat = firstBlock.querySelector(".g-nationality"); if (nat) { nat.value = d.nationality; nat.dispatchEvent(new Event("input")); }
+          }
+          if (firstBlock && d.address) {
+            const addr = firstBlock.querySelector(".g-address"); if (addr) addr.value = d.address;
+          }
+          if (firstBlock && d.phone) {
+            const ph = firstBlock.querySelector(".g-phone"); if (ph) ph.value = d.phone;
+          }
+          if (firstBlock && d.email) {
+            const em = firstBlock.querySelector(".g-email"); if (em) em.value = d.email;
+          }
+        }, 150);
+
+        // 予約情報バナー
+        if (d.checkIn || d.checkOut) {
+          document.getElementById("bookingInfoText").textContent = `${d.checkIn || "?"} 〜 ${d.checkOut || "?"}（修正モード）`;
+          document.getElementById("bookingInfo").classList.remove("d-none");
+        }
+
+        // ヘッダーに修正モード表示
+        const subtitle = document.getElementById("formSubtitle");
+        if (subtitle) subtitle.textContent = "内容を修正して「送信」を押してください";
+
+        return true;
+      } catch (e) {
+        console.error("edit プリフィルエラー:", e);
+        showFormError("修正リンクの読み込みに失敗しました。もう一度お試しください。");
+        return false;
+      }
+    }
+
     async function prefillFromBooking(bid) {
       try {
         const doc = await db.collection("bookings").doc(bid).get(); if (!doc.exists) return;
@@ -1497,11 +1613,26 @@
           data.customFields = customFields;
         }
 
-        await db.collection("guestRegistrations").add(data);
+        if (_editToken) {
+          // === 修正モード: PUT /api/guest-edit/:token ===
+          const resp = await fetch(`/api/guest-edit/${encodeURIComponent(_editToken)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data),
+          });
+          if (!resp.ok) {
+            const body = await resp.json().catch(() => ({}));
+            throw new Error(body.error || `送信エラー (${resp.status})`);
+          }
+        } else {
+          // === 新規登録: Firestore 直書き ===
+          await db.collection("guestRegistrations").add(data);
+        }
         document.getElementById("formView").classList.add("d-none");
         document.getElementById("successView").classList.remove("d-none");
       } catch (err) {
-        console.error("送信エラー:", err); alert(t.submitError);
+        console.error("送信エラー:", err);
+        showFormError(err.message || t.submitError);
         btn.disabled = false; btn.innerHTML = '<i class="bi bi-send"></i> ' + t.submit;
       }
     }
@@ -1574,11 +1705,26 @@
         formBody.classList.remove("d-none");
         document.getElementById("f_noiseAgree").value = "true";
       } else if (params.agreed === "true") {
-        // ゲーム完了後の復帰 → 黄色カードスキップ、フォーム表示
-        noiseSection.classList.add("d-none");
-        cancelMsgEl.classList.add("d-none");
-        formBody.classList.remove("d-none");
-        document.getElementById("f_noiseAgree").value = "true";
+        // ゲーム完了後の復帰 → トークン検証してからフォーム表示
+        const storedToken = sessionStorage.getItem("miniGameToken");
+        const returnedToken = params.gameToken || "";
+        // トークンが一致しない場合はゲームに戻す（外部ドメイン側の echo 対応まではスキップ許容）
+        const tokenValid = !storedToken || !returnedToken || storedToken === returnedToken;
+        if (!tokenValid) {
+          console.warn("ミニゲームトークン不一致 — ゲーム画面に戻します");
+          const rp = new URLSearchParams();
+          for (const [k, v] of Object.entries(params)) {
+            if (k !== "agreed" && k !== "gameToken") rp.set(k, v);
+          }
+          const langParam = params.lang || currentLang;
+          window.location.href = "https://mini-games-minpaku-v2.web.app/noise-game.html?lang=" + langParam + "&returnParams=" + encodeURIComponent(rp.toString());
+        } else {
+          sessionStorage.removeItem("miniGameToken");
+          noiseSection.classList.add("d-none");
+          cancelMsgEl.classList.add("d-none");
+          formBody.classList.remove("d-none");
+          document.getElementById("f_noiseAgree").value = "true";
+        }
       } else {
         // 初回アクセス → 黄色カードのみ表示
         formBody.classList.add("d-none");
@@ -1603,11 +1749,16 @@
             document.getElementById("f_noiseAgree").value = "true";
             return;
           }
+          // 短寿命トークンを生成して sessionStorage に保存（問題4: バイパス対策）
+          const gameToken = `gt_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+          sessionStorage.setItem("miniGameToken", gameToken);
+
           // 元のパラメータをnoise-gameに引き継ぐ
           const rp = new URLSearchParams();
           for (const [k, v] of Object.entries(params)) {
             if (k !== "agreed") rp.set(k, v);
           }
+          rp.set("token", gameToken); // ミニゲーム側が echo する用（外部対応は別プロジェクト）
           const langParam = params.lang || currentLang;
           const gameUrl = "https://mini-games-minpaku-v2.web.app/noise-game.html?lang=" + langParam + "&returnParams=" + encodeURIComponent(rp.toString());
           window.location.href = gameUrl;
@@ -1634,7 +1785,18 @@
       document.getElementById("f_carCount").addEventListener("change", updateCarUI);
       document.getElementById("f_bbq").addEventListener("change", updateBbqUI);
       document.getElementById("f_emergencyPhone").addEventListener("input", checkEmergencyPhone);
-      if (params.bookingId) await prefillFromBooking(params.bookingId);
+      if (params.edit) {
+        // === 修正モード: ?edit=TOKEN ===
+        _editToken = params.edit;
+        // 騒音ルール・ゲームをスキップしてフォームを直接表示
+        noiseSection.classList.add("d-none");
+        cancelMsgEl.classList.add("d-none");
+        formBody.classList.remove("d-none");
+        document.getElementById("f_noiseAgree").value = "true";
+        await prefillFromEditToken(_editToken);
+      } else if (params.bookingId) {
+        await prefillFromBooking(params.bookingId);
+      }
       if (params.checkIn) { const el = document.getElementById("f_checkIn"); if (el) el.value = params.checkIn; }
       if (params.checkOut) { const el = document.getElementById("f_checkOut"); if (el) el.value = params.checkOut; }
       if (params.guests) { const el = document.getElementById("f_guestCount"); if (el) { el.value = params.guests; renderGuestInputs(); } }
