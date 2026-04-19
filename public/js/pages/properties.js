@@ -225,16 +225,7 @@ const PropertiesPage = {
     this._renderLineChannels();
     this._bindLineChannelEvents();
 
-    // LINE連携セクション: 設定済み(lineEnabled=true)は展開、未設定は折りたたみ
-    const lineSection = document.getElementById("lineSection");
-    const lineSectionToggle = document.getElementById("lineSectionToggle");
-    if (property?.lineEnabled) {
-      lineSection.classList.add("show");
-      lineSectionToggle.setAttribute("aria-expanded", "true");
-    } else {
-      lineSection.classList.remove("show");
-      lineSectionToggle.setAttribute("aria-expanded", "false");
-    }
+    // LINE連携セクションは常時展開 (折りたたみ機能なし)
 
     this.modal.show();
 
