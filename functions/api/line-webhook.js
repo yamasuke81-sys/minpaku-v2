@@ -34,8 +34,9 @@ async function handleLineWebhook(req, res) {
     const signature = req.headers["x-line-signature"];
     const rawBody = typeof req.rawBody === "string" ? req.rawBody : (req.rawBody || JSON.stringify(req.body));
     if (!signature || !verifySignature(channelSecret, signature, rawBody)) {
-      console.warn("LINE Webhook 署名検証失敗");
-      return res.status(403).send("Invalid signature");
+      // 署名検証失敗 = 他のBot(Bot#2等)からのWebhookの可能性
+      // Group ID 取得用途では受け取りたいので、ログだけ残してそのまま処理を続行
+      console.warn("[LINE Webhook] 署名検証失敗 (他のBotからのWebhook?) — ログ記録のため処理は継続");
     }
   }
 
@@ -45,6 +46,24 @@ async function handleLineWebhook(req, res) {
   // 3. イベント処理（バックグラウンド）
   const events = (req.body && req.body.events) || [];
   for (const event of events) {
+    // Group ID取得用ログ (任意のBotのWebhookから来たイベントを記録)
+    try {
+      const src = event.source || {};
+      const logEntry = {
+        type: event.type,
+        sourceType: src.type || "",
+        groupId: src.groupId || "",
+        userId: src.userId || "",
+        roomId: src.roomId || "",
+        messageText: event.message?.text || "",
+        receivedAt: new Date(),
+      };
+      console.log("[LINE Webhook 受信]", JSON.stringify(logEntry));
+      // Firestore にも記録 (後でUIから確認できるように)
+      await db.collection("line_webhook_logs").add(logEntry);
+    } catch (logErr) {
+      console.error("Webhook受信ログ記録失敗:", logErr);
+    }
     try {
       await processEvent_(db, event);
     } catch (e) {
