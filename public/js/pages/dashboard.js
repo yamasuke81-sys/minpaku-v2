@@ -290,11 +290,15 @@ const DashboardPage = {
 
       const bookings = Array.from(bookingMap.values());
 
-      // guestMap構築（CI日→名簿データ）
+      // guestMap構築（"{propertyId}_{CI日}" → 名簿データ）
+      // 複数物件が同一CI日を持つ場合に混在しないよう複合キーを使用
       this.guestMap = {};
       guests.forEach(g => {
         const ci = this.toDateStr(g.checkIn);
-        if (ci) this.guestMap[ci] = g;
+        if (!ci) return;
+        // propertyId がある場合は複合キー、ない場合は CI日のみ (後方互換)
+        const key = g.propertyId ? `${g.propertyId}_${ci}` : ci;
+        this.guestMap[key] = g;
       });
 
       // 物件一覧を displayOrder 昇順でセット
@@ -494,7 +498,8 @@ const DashboardPage = {
     // sourceが不明な場合、guestMap（名簿）のbookingSiteで補完
     if (this.guestMap) {
       const ci = this.toDateStr(booking.checkIn);
-      const g = ci ? this.guestMap[ci] : null;
+      // 複合キー優先、フォールバックで CI日のみ
+      const g = ci ? (this.guestMap[`${booking.propertyId}_${ci}`] || this.guestMap[ci]) : null;
       if (g && g.bookingSite) {
         const bs = g.bookingSite.toLowerCase();
         if (bs.includes("airbnb")) return "fc-event-airbnb";
@@ -509,7 +514,8 @@ const DashboardPage = {
   hasGuestRegistration(booking) {
     if (!this.guestMap) return false;
     const ci = this.toDateStr(booking.checkIn);
-    const g = this.guestMap[ci];
+    // 複合キー優先、フォールバックで CI日のみ (propertyId 未設定レコード後方互換)
+    const g = ci ? (this.guestMap[`${booking.propertyId}_${ci}`] || this.guestMap[ci]) : null;
     if (!g) return false;
     // プレースホルダー名でないなら記入済み
     const name = (g.guestName || "").trim().toLowerCase();
