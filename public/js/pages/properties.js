@@ -208,6 +208,17 @@ const PropertiesPage = {
     document.getElementById("propertyLineGroupId").value = property?.lineGroupId || "";
     document.getElementById("propertyLineChannelName").value = property?.lineChannelName || "";
 
+    // LINE連携セクション: 設定済み(lineEnabled=true)は展開、未設定は折りたたみ
+    const lineSection = document.getElementById("lineSection");
+    const lineSectionToggle = document.getElementById("lineSectionToggle");
+    if (property?.lineEnabled) {
+      lineSection.classList.add("show");
+      lineSectionToggle.setAttribute("aria-expanded", "true");
+    } else {
+      lineSection.classList.remove("show");
+      lineSectionToggle.setAttribute("aria-expanded", "false");
+    }
+
     this.modal.show();
 
     // --- タイミー時給ページへのリンクボタン ---

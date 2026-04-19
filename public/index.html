@@ -276,6 +276,9 @@
         <div class="modal-body">
           <input type="hidden" id="propertyEditId">
           <div class="row g-3">
+
+            <!-- ① 基本情報 -->
+            <div class="col-12"><hr class="mt-0"><h6><i class="bi bi-info-circle"></i> 基本情報</h6></div>
             <div class="col-md-6">
               <label class="form-label">物件名 <span class="text-danger">*</span></label>
               <input type="text" class="form-control" id="propertyName" required>
@@ -287,6 +290,16 @@
                 <option value="rental">収益不動産</option>
                 <option value="other">その他</option>
               </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">物件番号</label>
+              <input type="number" class="form-control" id="propertyNumber" min="1" max="999">
+              <div class="form-text">全画面共通の識別番号</div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">表示色</label>
+              <input type="color" class="form-control form-control-color" id="propertyColor" value="#0d6efd">
+              <div class="form-text">横カレンダー等で使用</div>
             </div>
             <div class="col-md-3">
               <label class="form-label">定員/戸数</label>
@@ -304,25 +317,50 @@
               <label class="form-label">住所</label>
               <input type="text" class="form-control" id="propertyAddress">
             </div>
-            <div class="col-md-4">
+            <div class="col-12">
+              <label class="form-label">メモ</label>
+              <textarea class="form-control" id="propertyNotes" rows="2"></textarea>
+            </div>
+
+            <!-- ② 清掃運用 -->
+            <div class="col-12"><hr><h6><i class="bi bi-brush"></i> 清掃運用</h6></div>
+            <div class="col-md-3">
               <label class="form-label">清掃所要時間（分）</label>
               <input type="number" class="form-control" id="propertyCleaningDuration" value="90">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label">清掃開始時間</label>
               <input type="time" class="form-control" id="propertyCleaningStartTime" value="10:30">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label">清掃費用（円/回）</label>
               <input type="number" class="form-control" id="propertyCleaningFee" value="0">
             </div>
-            <div class="col-12"><hr><h6><i class="bi bi-clock-history"></i> タイミー基本作業時間</h6></div>
             <div class="col-md-3">
-              <label class="form-label">開始時刻</label>
+              <label class="form-label">清掃必要人数</label>
+              <input type="number" class="form-control" id="propertyCleaningRequiredCount" min="1" max="10" value="1">
+              <div class="form-text">早い者勝ち時のみ使用</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">必要スキル（カンマ区切り）</label>
+              <input type="text" class="form-control" id="propertySkills" placeholder="清掃,BBQ片付け">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">スタッフ選定方式</label>
+              <select class="form-select" id="propertySelectionMethod">
+                <option value="ownerConfirm">オーナーが確定（デフォルト）</option>
+                <option value="firstCome">早い者勝ち（◎回答順に自動確定）</option>
+              </select>
+            </div>
+
+            <!-- ③ タイミー設定 -->
+            <div class="col-12"><hr><h6><i class="bi bi-clock-history"></i> タイミー設定</h6></div>
+            <div class="col-md-3">
+              <label class="form-label">基本作業時間 開始</label>
               <input type="time" class="form-control" id="propertyBaseWorkTimeStart" value="10:30">
             </div>
             <div class="col-md-3">
-              <label class="form-label">終了時刻</label>
+              <label class="form-label">基本作業時間 終了</label>
               <input type="time" class="form-control" id="propertyBaseWorkTimeEnd" value="14:30">
             </div>
             <div class="col-md-6 d-flex align-items-end">
@@ -334,36 +372,8 @@
               </button>
               <span class="form-text ms-2">※ 物件ごとに時給 (円/時) を設定できます</span>
             </div>
-            <div class="col-12"><hr><h6>投資情報（統計用）</h6></div>
-            <div class="col-md-4">
-              <label class="form-label">月額固定費（円）</label>
-              <input type="number" class="form-control" id="propertyMonthlyCost" value="0">
-              <div class="form-text">管理費・ローン・水光熱など、毎月発生する固定費</div>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label">取得価格（円）</label>
-              <input type="number" class="form-control" id="propertyPurchasePrice" value="0">
-            </div>
-            <div class="col-md-4">
-              <label class="form-label">取得日</label>
-              <input type="date" class="form-control" id="propertyPurchaseDate">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">必要スキル（カンマ区切り）</label>
-              <input type="text" class="form-control" id="propertySkills" placeholder="清掃,BBQ片付け">
-            </div>
-            <div class="col-md-4">
-              <label class="form-label">スタッフ選定方式</label>
-              <select class="form-select" id="propertySelectionMethod">
-                <option value="ownerConfirm">オーナーが確定（デフォルト）</option>
-                <option value="firstCome">早い者勝ち（◎回答順に自動確定）</option>
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label">清掃必要人数</label>
-              <input type="number" class="form-control" id="propertyCleaningRequiredCount" min="1" max="10" value="1">
-              <div class="form-text">早い者勝ち時のみ使用</div>
-            </div>
+
+            <!-- ④ 直前点検設定 -->
             <div class="col-12">
               <hr><h6><i class="bi bi-clipboard-check"></i> 直前点検設定 (チェックイン日)</h6>
             </div>
@@ -428,26 +438,35 @@
             <div class="col-12">
               <small class="text-muted">チェックアウト当日に次のチェックインがある場合は直前点検を自動スキップ</small>
             </div>
-            <div class="col-12"><hr></div>
-            <div class="col-md-3">
-              <label class="form-label">物件番号</label>
-              <input type="number" class="form-control" id="propertyNumber" min="1" max="999">
-              <div class="form-text">全画面共通の識別番号</div>
+
+            <!-- ⑤ 投資情報（統計用） -->
+            <div class="col-12"><hr><h6><i class="bi bi-cash-stack"></i> 投資情報（統計用）</h6></div>
+            <div class="col-md-4">
+              <label class="form-label">月額固定費（円）</label>
+              <input type="number" class="form-control" id="propertyMonthlyCost" value="0">
+              <div class="form-text">管理費・ローン・水光熱など、毎月発生する固定費</div>
             </div>
-            <div class="col-md-3">
-              <label class="form-label">表示色</label>
-              <input type="color" class="form-control form-control-color" id="propertyColor" value="#0d6efd">
-              <div class="form-text">横カレンダー等で使用</div>
+            <div class="col-md-4">
+              <label class="form-label">取得価格（円）</label>
+              <input type="number" class="form-control" id="propertyPurchasePrice" value="0">
             </div>
-            <div class="col-12">
-              <label class="form-label">メモ</label>
-              <textarea class="form-control" id="propertyNotes" rows="2"></textarea>
+            <div class="col-md-4">
+              <label class="form-label">取得日</label>
+              <input type="date" class="form-control" id="propertyPurchaseDate">
             </div>
 
-            <!-- ━━━━ LINE 連携 (物件単位) ━━━━ -->
+            <!-- ⑥ LINE連携（物件単位） -->
             <div class="col-12"><hr></div>
+            <!-- LINE連携セクション: lineEnabled=true の物件は展開、未設定は折りたたみ -->
             <div class="col-12">
-              <h6 class="mb-1"><i class="bi bi-chat-dots-fill text-success"></i> LINE 連携 (物件単位)</h6>
+              <button class="btn btn-link p-0 text-decoration-none text-dark fw-semibold" type="button"
+                data-bs-toggle="collapse" data-bs-target="#lineSection" aria-expanded="false" aria-controls="lineSection"
+                id="lineSectionToggle">
+                <i class="bi bi-chat-dots-fill text-success"></i> LINE 連携（物件単位）
+                <i class="bi bi-chevron-down ms-1 small"></i>
+              </button>
+            </div>
+            <div class="col-12 collapse" id="lineSection">
               <p class="text-muted small mb-2">
                 この物件専用の LINE 公式アカウントを紐付けます。<br>
                 1物件1アカウントで運用すると、各 200通/月の無料枠を個別に使えます。
@@ -498,6 +517,7 @@
                 </div>
               </div>
             </div>
+
           </div>
         </div>
         <div class="modal-footer">
