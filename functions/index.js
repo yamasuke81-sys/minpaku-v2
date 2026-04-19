@@ -71,6 +71,10 @@ function requireOwner(req, res, next) {
   next();
 }
 
+// ========== 公開API（認証不要 — ゲストフォーム用設定取得） ==========
+const publicApi = require("./api/public");
+app.use("/public", publicApi);
+
 // ========== Gmail OAuth2認証（認証不要 — ブラウザから直接アクセス） ==========
 const gmailAuthApi = require("./api/gmail-auth");
 app.use("/gmail-auth", gmailAuthApi(db));
