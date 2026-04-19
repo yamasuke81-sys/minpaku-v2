@@ -2,6 +2,7 @@
  * 予約変更トリガー
  * 予約が作成/更新された時に、チェックアウト日の清掃シフトと募集を自動生成する
  */
+const admin_module = require("firebase-admin");
 const {
   notifyOwner,
   notifyGroup,
@@ -53,6 +54,120 @@ async function cancelCleaningForDate_(db, propertyId, dateStr, excludeBookingId)
     .where("checkoutDate", "==", dateStr)
     .get();
   for (const r of recSnap.docs) await r.ref.delete();
+}
+
+// ========== D-1: ダブルブッキング検知 ==========
+
+/**
+ * 同物件・日程重複の予約を検出してオーナーに通知する
+ * 重複条件: new.checkIn < existing.checkOut && existing.checkIn < new.checkOut
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} bookingId
+ * @param {object} after - 変更後の予約データ
+ */
+async function detectDoubleBooking(db, bookingId, after) {
+  if (!after.propertyId || !after.checkIn || !after.checkOut) return;
+  if (isCancelled(after.status)) return;
+
+  const snap = await db.collection("bookings")
+    .where("propertyId", "==", after.propertyId)
+    .get();
+
+  const conflicts = snap.docs.filter(d => {
+    if (d.id === bookingId) return false;
+    const x = d.data();
+    if (isCancelled(x.status)) return false;
+    // 日程重複判定（YYYY-MM-DD文字列比較）
+    return after.checkIn < x.checkOut && x.checkIn < after.checkOut;
+  });
+
+  if (conflicts.length === 0) return;
+
+  const conflictIds = conflicts.map(d => d.id);
+
+  // 当該予約に conflictWithIds をセット
+  await db.collection("bookings").doc(bookingId).update({
+    conflictWithIds: conflictIds,
+    conflictDetectedAt: admin_module.firestore.FieldValue.serverTimestamp(),
+  });
+
+  // 衝突相手の予約にも当該IDを追加
+  for (const c of conflicts) {
+    const existingConflicts = c.data().conflictWithIds || [];
+    const merged = Array.from(new Set([...existingConflicts, bookingId]));
+    await c.ref.update({
+      conflictWithIds: merged,
+      conflictDetectedAt: admin_module.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
+  // bookingConflicts コレクションに記録
+  for (const c of conflicts) {
+    const confId = [bookingId, c.id].sort().join("__");
+    await db.collection("bookingConflicts").doc(confId).set({
+      bookingIds: [bookingId, c.id].sort(),
+      propertyId: after.propertyId,
+      propertyName: after.propertyName || "",
+      detectedAt: admin_module.firestore.FieldValue.serverTimestamp(),
+      detectedBy: "realtime",
+      resolved: false,
+    }, { merge: true });
+  }
+
+  // オーナーに LINE 緊急通知
+  try {
+    await notifyOwner(
+      db,
+      "double_booking",
+      `ダブルブッキング検出: ${after.checkIn}〜${after.checkOut}`,
+      `【⚠️ ダブルブッキング警告】\n物件: ${after.propertyName || after.propertyId}\n日程: ${after.checkIn} 〜 ${after.checkOut}\n衝突件数: ${conflicts.length}件\n\n確認: https://minpaku-v2.web.app/#/dashboard`
+    );
+  } catch (e) {
+    console.error("[onBookingChange] ダブルブッキング通知エラー:", e);
+  }
+
+  console.log(`[onBookingChange] ダブルブッキング検出: ${bookingId} と ${conflictIds.join(", ")}`);
+}
+
+// ========== D-2: cancelled化時の conflict 解決 ==========
+
+/**
+ * 予約がキャンセルになった際、関連する conflict を解決済みにする
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} bookingId
+ * @param {object} data - キャンセルされた予約データ
+ */
+async function resolveConflictsOnCancel(db, bookingId, data) {
+  const conflictWithIds = data.conflictWithIds;
+  if (!Array.isArray(conflictWithIds) || conflictWithIds.length === 0) return;
+
+  for (const otherId of conflictWithIds) {
+    // 合成ID（sorted join）で bookingConflicts ドキュメントを解決済みに更新
+    const confId = [bookingId, otherId].sort().join("__");
+    try {
+      await db.collection("bookingConflicts").doc(confId).update({
+        resolved: true,
+        resolvedAt: admin_module.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      // ドキュメントが存在しない場合はスキップ
+      console.warn(`[onBookingChange] bookingConflicts/${confId} 更新スキップ:`, e.message);
+    }
+
+    // 相手予約の conflictWithIds から自分を除去
+    try {
+      const otherDoc = await db.collection("bookings").doc(otherId).get();
+      if (otherDoc.exists) {
+        const otherData = otherDoc.data();
+        const updatedIds = (otherData.conflictWithIds || []).filter(id => id !== bookingId);
+        await otherDoc.ref.update({ conflictWithIds: updatedIds });
+      }
+    } catch (e) {
+      console.warn(`[onBookingChange] 相手予約 ${otherId} のconflictWithIds除去エラー:`, e.message);
+    }
+  }
+
+  console.log(`[onBookingChange] conflict解決完了: ${bookingId} → ${conflictWithIds.join(", ")}`);
 }
 
 module.exports = async function onBookingChange(event) {
@@ -129,6 +244,14 @@ module.exports = async function onBookingChange(event) {
         }
       } catch (e) {
         console.error("キャンセル連動削除エラー:", e);
+      }
+    }
+    // D-2: キャンセル化時に conflictWithIds の相手 booking / bookingConflicts を解決済みに更新
+    if (nowCancelled && after) {
+      try {
+        await resolveConflictsOnCancel(db, event.params.bookingId, after);
+      } catch (e) {
+        console.error("conflict解決エラー:", e);
       }
     }
     // 削除 or キャンセル化はここで終了
@@ -513,5 +636,13 @@ module.exports = async function onBookingChange(event) {
     }
   } catch (e) {
     console.error("直前点検 処理エラー:", e);
+  }
+
+  // ========== D-1: ダブルブッキング検知 ==========
+  // 新規作成 or 日程変更時に、同物件の active 予約と重複チェック
+  try {
+    await detectDoubleBooking(db, bookingId, after);
+  } catch (e) {
+    console.error("ダブルブッキング検知エラー:", e);
   }
 };
