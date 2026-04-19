@@ -105,6 +105,7 @@ const LaundryPage = {
             <div class="modal-body">
               <div class="row g-3">
                 <div class="col-12"><label class="form-label">日付 <span class="text-danger">*</span></label><input type="date" class="form-control" id="laundryDate" value="${now.toISOString().split("T")[0]}"></div>
+                <div class="col-12"><label class="form-label">物件</label><select class="form-select" id="laundryPropertyId"><option value="">-- 選択 --</option></select></div>
                 <div class="col-12"><label class="form-label">スタッフ</label><select class="form-select" id="laundryStaffId"><option value="">-- 選択 --</option></select></div>
                 <div class="col-md-6"><label class="form-label">提出先</label>
                   <select class="form-select" id="laundryDepot">
@@ -126,6 +127,12 @@ const LaundryPage = {
                 <div class="col-md-6"><label class="form-label">枚数</label><input type="number" class="form-control" id="laundrySheets" min="0" value="0"></div>
                 <div class="col-md-6"><label class="form-label">金額（円）<span class="text-danger">*</span></label><input type="number" class="form-control" id="laundryAmount" min="0" value="0"></div>
                 <div class="col-12"><label class="form-label">メモ</label><input type="text" class="form-control" id="laundryMemo"></div>
+                <div class="col-12">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="laundryIsReimbursable" checked>
+                    <label class="form-check-label" for="laundryIsReimbursable">立替あり（請求書に計上する）</label>
+                  </div>
+                </div>
               </div>
             </div>
             <div class="modal-footer">
@@ -431,18 +438,26 @@ const LaundryPage = {
   },
 
   openModal() {
+    // 物件選択肢を最新リストで初期化
+    const propSel = document.getElementById("laundryPropertyId");
+    if (propSel) {
+      propSel.innerHTML = `<option value="">-- 選択 --</option>` +
+        (this.propertyList || []).map(p => `<option value="${p.id}">${p.name}</option>`).join("");
+    }
     bootstrap.Modal.getOrCreateInstance(document.getElementById("laundryModal")).show();
   },
 
   async saveLaundry() {
     const data = {
       date: document.getElementById("laundryDate").value,
+      propertyId: document.getElementById("laundryPropertyId").value || "",
       staffId: document.getElementById("laundryStaffId").value || null,
       depot: document.getElementById("laundryDepot").value || "",
       paymentMethod: document.getElementById("laundryPayment").value || "",
       sheets: parseInt(document.getElementById("laundrySheets").value) || 0,
       amount: parseInt(document.getElementById("laundryAmount").value) || 0,
       memo: document.getElementById("laundryMemo").value,
+      isReimbursable: document.getElementById("laundryIsReimbursable").checked,
     };
     if (!data.date) { showToast("エラー", "日付を入力してください", "error"); return; }
 
