@@ -580,6 +580,71 @@ module.exports = function invoicesApi(db) {
   const router = Router();
   const collection = db.collection("invoices");
 
+  // ドライラン: Firestoreに書き込まずプレビュー金額を返す
+  // POST /invoices/compute-preview  body: { staffId?, yearMonth }
+  // スタッフは自分のみ可、オーナーは任意スタッフ可
+  router.post("/compute-preview", async (req, res) => {
+    try {
+      const { yearMonth, staffId: reqStaffId } = req.body || {};
+      if (!yearMonth || !/^\d{4}-\d{2}$/.test(yearMonth)) {
+        return res.status(400).json({ error: "yearMonth(YYYY-MM)は必須です" });
+      }
+
+      // 対象 staffId の決定
+      let targetStaffId = null;
+      if (req.user.role === "owner") {
+        // オーナーは任意スタッフを指定可
+        targetStaffId = reqStaffId || req.user.staffId;
+        if (!targetStaffId) {
+          // オーナー自身の staffId をフォールバック検索
+          const snap = await db.collection("staff").where("authUid", "==", req.user.uid).limit(1).get();
+          if (!snap.empty) targetStaffId = snap.docs[0].id;
+        }
+      } else {
+        // スタッフは自分のみ
+        targetStaffId = req.user.staffId;
+        if (!targetStaffId) {
+          const snap = await db.collection("staff").where("authUid", "==", req.user.uid).limit(1).get();
+          if (!snap.empty) targetStaffId = snap.docs[0].id;
+        }
+        // 他人の preview は不可
+        if (reqStaffId && reqStaffId !== targetStaffId) {
+          return res.status(403).json({ error: "他のスタッフのプレビューは参照できません" });
+        }
+      }
+
+      if (!targetStaffId) {
+        return res.status(404).json({ error: "スタッフ情報が見つかりません" });
+      }
+
+      // computeInvoiceDetails で計算 (Firestoreへの書き込みなし)
+      let computed;
+      try {
+        computed = await computeInvoiceDetails(db, targetStaffId, yearMonth, []);
+      } catch (compErr) {
+        return res.status(500).json({ error: "集計処理に失敗しました: " + compErr.message });
+      }
+
+      res.json({
+        staffId: targetStaffId,
+        yearMonth,
+        shiftCount: computed.shiftCount,
+        shiftAmount: computed.shiftAmount,
+        laundryAmount: computed.laundryAmount,
+        specialAmount: computed.specialAmount,
+        transportationFee: computed.transportationFee,
+        manualAmount: 0,
+        total: computed.total,
+        shifts: computed.shifts,
+        laundry: computed.laundry,
+        special: computed.special,
+      });
+    } catch (e) {
+      console.error("compute-preview エラー:", e);
+      res.status(500).json({ error: "プレビュー計算に失敗しました: " + e.message });
+    }
+  });
+
   // 請求書一覧
   router.get("/", async (req, res) => {
     try {
