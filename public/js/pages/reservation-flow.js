@@ -16,16 +16,21 @@ const ReservationFlowPage = {
   selectedPropertyIds: [],
 
   // フローステップ定義（追加・並び替えはここだけ編集）
+  // group: owner(オーナー側作業) / guest(宿泊者側画面) / external(外部アプリ連携)
+  // status: undefined=実装済 / "未実装"=要開発
   STEPS: [
-    { key: "ical_sync",          label: "予約受付 (iCal同期)",          icon: "bi-calendar-check",   linkHash: "#/settings",       linkLabel: "iCal 設定" },
-    { key: "booking_notify",     label: "予約確認メール（宿泊者）",      icon: "bi-envelope",          linkHash: "#/notifications",  linkLabel: "通知設定" },
-    { key: "form_url_send",      label: "宿泊者名簿フォームURL送信",     icon: "bi-link-45deg",        linkHash: "#/guests",         linkLabel: "宿泊者名簿→設定" },
-    { key: "form_notice",        label: "注意事項・ハウスルール",        icon: "bi-exclamation-circle", linkHash: "#/guests",         linkLabel: "宿泊者名簿→設定" },
-    { key: "mini_game",          label: "ミニゲーム（騒音確認）",        icon: "bi-controller",        linkHash: "#/guests",         linkLabel: "宿泊者名簿→設定" },
-    { key: "form_input",         label: "宿泊者情報フォーム入力",        icon: "bi-pencil-square",     linkHash: "#/guests",         linkLabel: "宿泊者名簿→設定" },
-    { key: "pre_checkin_remind", label: "直前リマインド（名簿未提出）",  icon: "bi-alarm",             linkHash: "#/notifications",  linkLabel: "通知設定" },
-    { key: "keybox_email",       label: "キーボックス情報送信",          icon: "bi-key",               linkHash: "#/settings",       linkLabel: "キーボックス設定" },
-    { key: "checkin",            label: "チェックイン",                  icon: "bi-door-open",         linkHash: "",                 linkLabel: "" },
+    { key: "ical_sync",            label: "予約受付 (iCal同期)",                         icon: "bi-calendar-check",     linkHash: "#/properties",     linkLabel: "物件編集→iCal設定",        group: "owner" },
+    { key: "booking_confirm_mail", label: "予約確認メール送信(宿泊者宛)",                icon: "bi-envelope",           linkHash: "#/notifications",  linkLabel: "通知設定",                 group: "owner", status: "未実装",
+      hint: "注意事項ページURLを本文に記載し、同意後に宿泊者名簿フォームへ誘導" },
+    { key: "noise_rules",          label: "[ゲスト] 宴会・騒音規約 (黄色カード)",         icon: "bi-exclamation-triangle", linkHash: "#/guests",        linkLabel: "宿泊者名簿→設定",          group: "guest" },
+    { key: "mini_game",            label: "[ゲスト] ミニゲーム操作",                      icon: "bi-controller",         linkHash: "#/guests",         linkLabel: "宿泊者名簿→設定",          group: "guest" },
+    { key: "form_input",           label: "[ゲスト] 宿泊者名簿入力",                      icon: "bi-pencil-square",      linkHash: "#/guests",         linkLabel: "宿泊者名簿→設定",          group: "guest" },
+    { key: "form_complete_mail",   label: "名簿入力完了メール (宿泊者・オーナー)",        icon: "bi-envelope-check",     linkHash: "#/notifications",  linkLabel: "通知設定",                 group: "owner" },
+    { key: "roster_remind",        label: "名簿未入力催促リマインド",                     icon: "bi-alarm",              linkHash: "#/notifications",  linkLabel: "通知設定→roster_remind",   group: "owner" },
+    { key: "urgent_remind",        label: "直前予約リマインド",                            icon: "bi-lightning",          linkHash: "#/notifications",  linkLabel: "通知設定→urgent_remind",   group: "owner" },
+    { key: "keybox_send",          label: "キーボックス情報送信",                          icon: "bi-key",                linkHash: "#/settings",       linkLabel: "キーボックス設定",         group: "owner", status: "未実装" },
+    { key: "checkin_app",          label: "チェックインApp連携",                            icon: "bi-door-open-fill",     linkHash: "",                 linkLabel: "(別アプリ)",                group: "external", status: "未実装",
+      hint: "チェックインappは別で開発済み。連携部分は未実装" },
   ],
 
   async render(container) {
@@ -131,12 +136,28 @@ const ReservationFlowPage = {
             ? `<a href="${this._esc(step.linkHash)}" class="btn btn-outline-secondary btn-sm py-0 px-2 ms-1" style="font-size:0.75rem;">${this._esc(step.linkLabel)} <i class="bi bi-arrow-right"></i></a>`
             : "";
 
+          // group バッジ (宿泊者側 / オーナー側 / 外部)
+          const groupBadge = step.group === "guest"
+            ? '<span class="badge bg-info text-dark" style="font-size:10px;">ゲスト画面</span>'
+            : step.group === "external"
+              ? '<span class="badge bg-dark" style="font-size:10px;">外部連携</span>'
+              : '<span class="badge bg-secondary" style="font-size:10px;">オーナー</span>';
+          // 未実装バッジ
+          const statusBadge = step.status === "未実装"
+            ? '<span class="badge bg-warning text-dark ms-1" style="font-size:10px;"><i class="bi bi-hammer"></i> 未実装</span>'
+            : "";
+          // ヒント (hint フィールドがあれば補助説明を表示)
+          const hintHtml = step.hint
+            ? `<div class="small text-muted mb-1" style="font-size:11px;"><i class="bi bi-info-circle"></i> ${this._esc(step.hint)}</div>`
+            : "";
+
           return `
             <div class="rf-step ${enabled ? "active" : "disabled"}" data-step="${step.key}" data-pid="${p.id}">
               <div class="rf-step-header">
                 <span class="rf-step-num">${idx + 1}</span>
                 <i class="bi ${step.icon} text-primary"></i>
                 <span class="rf-step-label">${this._esc(step.label)}</span>
+                ${groupBadge}${statusBadge}
                 <div class="form-check form-switch mb-0 ms-auto">
                   <input class="form-check-input rf-toggle" type="checkbox" data-step="${step.key}"
                     id="rf-${p.id}-${step.key}" ${enabled ? "checked" : ""}>
@@ -144,6 +165,7 @@ const ReservationFlowPage = {
                 </div>
               </div>
               <div class="rf-step-body">
+                ${hintHtml}
                 ${linkBtn}
                 <div class="mt-1">
                   <input type="text" class="form-control form-control-sm rf-memo"
