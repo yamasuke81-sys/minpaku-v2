@@ -85,33 +85,68 @@ async function detectDoubleBooking(db, bookingId, after) {
 
   const conflictIds = conflicts.map(d => d.id);
 
-  // 当該予約に conflictWithIds をセット
-  await db.collection("bookings").doc(bookingId).update({
-    conflictWithIds: conflictIds,
-    conflictDetectedAt: admin_module.firestore.FieldValue.serverTimestamp(),
-  });
+  // conflictWithIds の Set 比較用ユーティリティ
+  function sameIds(a, b) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    const sa = new Set(a), sb = new Set(b);
+    for (const x of sa) if (!sb.has(x)) return false;
+    return true;
+  }
 
-  // 衝突相手の予約にも当該IDを追加
-  for (const c of conflicts) {
-    const existingConflicts = c.data().conflictWithIds || [];
-    const merged = Array.from(new Set([...existingConflicts, bookingId]));
-    await c.ref.update({
-      conflictWithIds: merged,
+  // 当該予約に conflictWithIds をセット（変化がある場合のみ更新してカスケードを抑制）
+  const currentDoc = await db.collection("bookings").doc(bookingId).get();
+  const currentIds = currentDoc.exists ? (currentDoc.data().conflictWithIds || []) : [];
+  if (!sameIds(currentIds, conflictIds)) {
+    await db.collection("bookings").doc(bookingId).update({
+      conflictWithIds: conflictIds,
       conflictDetectedAt: admin_module.firestore.FieldValue.serverTimestamp(),
     });
   }
 
+  // 衝突相手の予約にも当該IDを追加（変化がある場合のみ更新してカスケードを抑制）
+  for (const c of conflicts) {
+    const existingConflicts = c.data().conflictWithIds || [];
+    const merged = Array.from(new Set([...existingConflicts, bookingId]));
+    if (!sameIds(existingConflicts, merged)) {
+      await c.ref.update({
+        conflictWithIds: merged,
+        conflictDetectedAt: admin_module.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
   // bookingConflicts コレクションに記録
+  // 既に resolved: true の場合は resolved フィールドを上書きしない
   for (const c of conflicts) {
     const confId = [bookingId, c.id].sort().join("__");
-    await db.collection("bookingConflicts").doc(confId).set({
-      bookingIds: [bookingId, c.id].sort(),
-      propertyId: after.propertyId,
-      propertyName: after.propertyName || "",
-      detectedAt: admin_module.firestore.FieldValue.serverTimestamp(),
-      detectedBy: "realtime",
-      resolved: false,
-    }, { merge: true });
+    const confRef = db.collection("bookingConflicts").doc(confId);
+    await db.runTransaction(async (tx) => {
+      const confDoc = await tx.get(confRef);
+      if (!confDoc.exists) {
+        // 新規作成
+        tx.set(confRef, {
+          bookingIds: [bookingId, c.id].sort(),
+          propertyId: after.propertyId,
+          propertyName: after.propertyName || "",
+          detectedAt: admin_module.firestore.FieldValue.serverTimestamp(),
+          detectedBy: "realtime",
+          resolved: false,
+        });
+      } else if (confDoc.data().resolved === true) {
+        // 既に解決済み → resolved は触らず detectedAt も更新しない
+        // （カスケード再発火による resolved: true 上書きを防止）
+      } else {
+        // 未解決 → detectedAt 等を更新（resolved は false のまま）
+        tx.update(confRef, {
+          bookingIds: [bookingId, c.id].sort(),
+          propertyId: after.propertyId,
+          propertyName: after.propertyName || "",
+          detectedAt: admin_module.firestore.FieldValue.serverTimestamp(),
+          detectedBy: "realtime",
+        });
+      }
+    });
   }
 
   // 通知設定を参照して送信先を判定
