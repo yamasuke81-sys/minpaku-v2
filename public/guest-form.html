@@ -87,11 +87,11 @@
         <!-- === 1. 宿泊情報 === -->
         <h6 class="section-title" id="sec_stay"></h6>
         <div class="row g-2 mb-2">
-          <div class="col-6">
+          <div class="col-6" data-field-id="checkIn">
             <label class="form-label" for="f_checkIn" id="lbl_checkIn"></label>
             <input type="date" class="form-control" id="f_checkIn" required>
           </div>
-          <div class="col-6">
+          <div class="col-6" data-field-id="checkInTime">
             <label class="form-label" for="f_checkInTime" id="lbl_checkInTime"></label>
             <select class="form-select" id="f_checkInTime" required>
               <option value="">--</option>
@@ -104,11 +104,11 @@
           </div>
         </div>
         <div class="row g-2 mb-2">
-          <div class="col-6">
+          <div class="col-6" data-field-id="checkOut">
             <label class="form-label" for="f_checkOut" id="lbl_checkOut"></label>
             <input type="date" class="form-control" id="f_checkOut" required>
           </div>
-          <div class="col-6">
+          <div class="col-6" data-field-id="checkOutTime">
             <label class="form-label" for="f_checkOutTime" id="lbl_checkOutTime"></label>
             <select class="form-select" id="f_checkOutTime" required>
               <option value="">--</option>
@@ -126,16 +126,16 @@
         </div>
         <!-- アーリーチェックイン・レイトチェックアウトの選択肢は廃止。罰金注記はチェックアウト時間の下に表示 -->
         <div class="row g-2 mb-3">
-          <div class="col-6">
+          <div class="col-6" data-field-id="guestCount">
             <label class="form-label" for="f_guestCount" id="lbl_guestCount"></label>
             <input type="number" class="form-control" id="f_guestCount" min="1" max="20" value="1" required>
           </div>
-          <div class="col-6">
+          <div class="col-6" data-field-id="guestCountInfants">
             <label class="form-label" for="f_guestCountInfants" id="lbl_guestCountInfants"></label>
             <input type="number" class="form-control" id="f_guestCountInfants" min="0" value="0">
           </div>
         </div>
-        <div class="mb-3">
+        <div class="mb-3" data-field-id="bookingSite">
           <label class="form-label" for="f_bookingSite" id="lbl_bookingSite"></label>
           <select class="form-select" id="f_bookingSite" required>
             <option value="">--</option>
@@ -159,7 +159,7 @@
         <h6 class="section-title" id="sec_facility"></h6>
 
         <!-- 交通手段 -->
-        <div class="mb-3">
+        <div class="mb-3" data-field-id="transport">
           <label class="form-label fw-bold" id="lbl_transport"></label>
           <select class="form-select" id="f_transport">
             <option value="">--</option>
@@ -185,7 +185,7 @@
         <!-- 車の場合 -->
         <div class="d-none" id="carSection">
           <!-- 1. 台数 -->
-          <div class="mb-3">
+          <div class="mb-3" data-field-id="carCount">
             <label class="form-label" id="lbl_carCount"></label>
             <select class="form-select" id="f_carCount" required>
               <option value="">--</option>
@@ -201,7 +201,7 @@
           </div>
 
           <!-- 2. 車種（全台分） -->
-          <div id="vehicleTypeList" class="mb-3"></div>
+          <div id="vehicleTypeList" class="mb-3" data-field-id="vehicleTypes"></div>
 
           <!-- 3. 割り当て結果（有料が必要なら自動で含む） -->
           <div id="parkingAllocation" class="mb-3 d-none"></div>
@@ -218,7 +218,7 @@
           </div>
 
           <!-- 5. 有料駐車場（1枚のカード） -->
-          <div class="d-none mb-3" id="paidParkingGuide">
+          <div class="d-none mb-3" id="paidParkingGuide" data-field-id="paidParking">
             <div class="card border-primary">
               <div class="card-header bg-primary bg-opacity-10 py-2">
                 <span class="fw-bold"><i class="bi bi-p-circle me-1"></i><span id="lbl_ppTitle"></span></span>
@@ -270,7 +270,7 @@
         </div>
 
         <!-- BBQ -->
-        <div class="mb-3">
+        <div class="mb-3" data-field-id="bbq">
           <label class="form-label" for="f_bbq" id="lbl_bbq"></label>
           <select class="form-select" id="f_bbq" required>
             <option value="">--</option>
@@ -303,7 +303,7 @@
         </div>
 
         <!-- ベッドの希望（2名のみ） -->
-        <div class="mb-3 d-none" id="bedChoiceSection">
+        <div class="mb-3 d-none" id="bedChoiceSection" data-field-id="bedChoice">
           <label class="form-label" for="f_bedChoice" id="lbl_bedChoice"></label>
           <select class="form-select" id="f_bedChoice">
             <option value="">--</option>
@@ -314,7 +314,7 @@
 
         <!-- === 4. アンケート === -->
         <h6 class="section-title" id="sec_survey"></h6>
-        <div class="mb-3">
+        <div class="mb-3" data-field-id="purpose">
           <label class="form-label" for="f_purpose" id="lbl_purpose"></label>
           <select class="form-select" id="f_purpose">
             <option value="">--</option>
@@ -331,11 +331,11 @@
           <input type="text" class="form-control other-input" id="f_purposeOther" placeholder="">
         </div>
         <div class="row g-2 mb-3">
-          <div class="col-6">
+          <div class="col-6" data-field-id="previousStay">
             <label class="form-label" for="f_previousStay" id="lbl_previousStay"></label>
             <input type="text" class="form-control" id="f_previousStay">
           </div>
-          <div class="col-6">
+          <div class="col-6" data-field-id="nextStay">
             <label class="form-label" for="f_nextStay" id="lbl_nextStay"></label>
             <input type="text" class="form-control" id="f_nextStay">
           </div>
@@ -345,11 +345,11 @@
         <h6 class="section-title" id="sec_emergency"></h6>
         <p class="text-muted small" id="lbl_emergencyNote"></p>
         <div class="row g-2 mb-3">
-          <div class="col-md-6">
+          <div class="col-md-6" data-field-id="emergencyName">
             <label class="form-label" for="f_emergencyName" id="lbl_emergencyName"></label>
             <input type="text" class="form-control" id="f_emergencyName" required>
           </div>
-          <div class="col-md-6">
+          <div class="col-md-6" data-field-id="emergencyPhone">
             <label class="form-label" for="f_emergencyPhone" id="lbl_emergencyPhone"></label>
             <input type="tel" class="form-control" id="f_emergencyPhone" required>
           </div>
