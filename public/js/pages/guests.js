@@ -16,49 +16,15 @@ const GuestsPage = {
       <div class="page-header">
         <h2><i class="bi bi-person-vcard"></i> 宿泊者名簿</h2>
         <div>
+          <button class="btn btn-outline-secondary me-2" id="btnGuestSettings" title="フォームURL・フォーム項目管理">
+            <i class="bi bi-gear"></i> 設定
+          </button>
           <button class="btn btn-outline-info me-2" id="btnImportGas" title="GAS版スプレッドシートから指定期間をインポート">
             <i class="bi bi-cloud-download"></i> GASインポート
           </button>
           <button class="btn btn-primary" id="btnAddGuest">
             <i class="bi bi-plus-lg"></i> 手動登録
           </button>
-        </div>
-      </div>
-
-      <!-- 宿泊者名簿 フォームURL + 物件別設定 (このタブで完結) -->
-      <div class="card mb-3 border-success">
-        <div class="card-body py-2 px-3">
-          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
-            <strong class="text-success"><i class="bi bi-link-45deg"></i> 宿泊者名簿 フォームURL</strong>
-            <span class="text-muted small">Airbnb/Booking.com の自動メッセージに貼り付けて利用</span>
-          </div>
-          <!-- 共通URL -->
-          <div class="input-group input-group-sm mb-2" style="max-width:780px;">
-            <span class="input-group-text" style="min-width:130px;font-weight:600;background:#e7f5ee;">共通URL</span>
-            <input type="text" class="form-control" id="guestFormCommonUrl" readonly>
-            <button class="btn btn-outline-primary" type="button" data-copy-target="guestFormCommonUrl" title="URLをコピー">
-              <i class="bi bi-clipboard"></i> コピー
-            </button>
-            <button class="btn btn-outline-secondary" type="button" data-open-target="guestFormCommonUrl" title="新しいタブで開く">
-              <i class="bi bi-box-arrow-up-right"></i> 新しいタブ
-            </button>
-          </div>
-          <div class="small text-muted mb-2" style="font-size:11px;">
-            共通URL: 物件が未確定でも使える汎用URL (宿泊客がチェックイン日を入力すれば自動で日別フォーム表示)
-          </div>
-
-          <!-- 物件別URL + ミニゲーム設定 -->
-          <div class="mt-3">
-            <strong class="small"><i class="bi bi-buildings"></i> 物件別URL + ミニゲーム設定</strong>
-            <div class="small text-muted" style="font-size:11px;">物件が確定している場合に使うと、フォーム画面で物件が自動選択されます。ミニゲームは物件別に ON/OFF 可能</div>
-          </div>
-          <div id="guestFormPropertyList" class="mt-2"></div>
-
-          <!-- 詳細オプション: カスタムURL生成 (特定CI日指定) -->
-          <details class="mt-2">
-            <summary class="small text-muted" style="cursor:pointer;">▸ 特定のチェックイン日を指定したカスタムURL</summary>
-            <div id="guestFormCustomArea" class="mt-2 small"></div>
-          </details>
         </div>
       </div>
 
@@ -134,40 +100,10 @@ const GuestsPage = {
       this.openModal();
     });
 
-    // 共通フォームURL + 物件別URL + ミニゲーム設定を画面直描画
-    const baseUrl = location.origin + "/form/";
-    const commonInput = document.getElementById("guestFormCommonUrl");
-    if (commonInput) commonInput.value = baseUrl;
-
-    // コピー/新タブ ボタン共通ハンドラ (data-copy-target / data-open-target)
-    document.querySelectorAll("[data-copy-target]").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        const target = document.getElementById(btn.dataset.copyTarget);
-        if (!target) return;
-        const url = target.value;
-        try {
-          await navigator.clipboard.writeText(url);
-          showToast("コピー完了", url.slice(0, 60) + (url.length > 60 ? "..." : ""), "success");
-        } catch (_) {
-          target.select();
-          document.execCommand("copy");
-          showToast("コピー完了", "", "success");
-        }
-      });
+    // 「設定」ボタン → 宿泊者名簿設定モーダルを開く
+    document.getElementById("btnGuestSettings").addEventListener("click", () => {
+      this.openSettingsModal();
     });
-    document.querySelectorAll("[data-open-target]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const target = document.getElementById(btn.dataset.openTarget);
-        if (!target) return;
-        window.open(target.value, "_blank", "noopener");
-      });
-    });
-
-    // 物件別URL + ミニゲーム設定を描画
-    await this._renderPropertyFormSection();
-
-    // カスタムURL生成 (details 内)
-    this._renderCustomUrlArea();
 
     document.getElementById("btnImportGas").addEventListener("click", () => {
       this.showGasImportDialog();
@@ -947,5 +883,772 @@ const GuestsPage = {
     const div = document.createElement("div");
     div.textContent = str || "";
     return div.innerHTML;
+  },
+
+  // escapeHtml の別名 (フォーム管理ロジックで使用)
+  esc(str) {
+    return this.escapeHtml(str);
+  },
+
+  // ===== 宿泊者名簿設定モーダル =====
+
+  // 設定モーダルを開き、各タブの初期化を行う
+  openSettingsModal() {
+    const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById("guestSettingsModal"));
+
+    // 共通URLをセット
+    const baseUrl = location.origin + "/form/";
+    const commonInput = document.getElementById("guestFormCommonUrl");
+    if (commonInput) commonInput.value = baseUrl;
+
+    // コピー/新タブ ボタンのハンドラをモーダル内に限定してバインド
+    const modalEl = document.getElementById("guestSettingsModal");
+    modalEl.querySelectorAll("[data-copy-target]").forEach(btn => {
+      // 重複バインドを防ぐためクローンで置換
+      const clone = btn.cloneNode(true);
+      btn.replaceWith(clone);
+      clone.addEventListener("click", async () => {
+        const target = document.getElementById(clone.dataset.copyTarget);
+        if (!target) return;
+        const url = target.value;
+        try {
+          await navigator.clipboard.writeText(url);
+          showToast("コピー完了", url.slice(0, 60) + (url.length > 60 ? "..." : ""), "success");
+        } catch (_) {
+          target.select();
+          document.execCommand("copy");
+          showToast("コピー完了", "", "success");
+        }
+      });
+    });
+    modalEl.querySelectorAll("[data-open-target]").forEach(btn => {
+      const clone = btn.cloneNode(true);
+      btn.replaceWith(clone);
+      clone.addEventListener("click", () => {
+        const target = document.getElementById(clone.dataset.openTarget);
+        if (target) window.open(target.value, "_blank", "noopener");
+      });
+    });
+
+    // 物件別URL + ミニゲーム設定を描画 (タブ1)
+    this._renderPropertyFormSection();
+
+    // カスタムURL生成 (details 内)
+    this._renderCustomUrlArea();
+
+    // フォーム項目管理の初期化 (タブ2)
+    if (!this._formConfigLoaded) {
+      this.loadFormConfig();
+      this._formConfigLoaded = true;
+    }
+
+    // フォーム管理ボタンのバインド (1回のみ)
+    if (!this._formBtnsBound) {
+      document.getElementById("btnLoadFormDefaults")?.addEventListener("click", () => this.loadFormDefaults());
+      document.getElementById("btnAddFormField")?.addEventListener("click", () => this.addFormFieldRow());
+      document.getElementById("btnSaveFormConfig")?.addEventListener("click", () => this.saveFormConfig());
+      document.getElementById("btnPreviewForm")?.addEventListener("click", () => this.showFormPreview());
+      document.getElementById("btnTranslateAll")?.addEventListener("click", () => this.translateAllWithGemini());
+      this._formBtnsBound = true;
+    }
+
+    modal.show();
+  },
+
+  // ===== 宿泊者名簿フォーム管理（Googleフォーム風カードエディタ） =====
+
+  // デフォルトフォーム定義（guest-form.html の DEFAULT_FIELDS と完全同期）
+  DEFAULT_FORM_FIELDS: [
+    // 宿泊情報
+    { id: "checkIn", label: "チェックイン日", labelEn: "Check-in Date", type: "date", required: true, section: "stay", mapping: "checkIn" },
+    { id: "checkOut", label: "チェックアウト日", labelEn: "Check-out Date", type: "date", required: true, section: "stay", mapping: "checkOut" },
+    { id: "guestCount", label: "宿泊人数（大人）", labelEn: "Number of Guests (Adults)", type: "number", required: true, section: "stay", mapping: "guestCount", defaultValue: "1" },
+    { id: "guestCountInfants", label: "3才以下の乳幼児", labelEn: "Infants (under 3)", type: "number", required: false, section: "stay", mapping: "guestCountInfants", defaultValue: "0" },
+    { id: "bookingSite", label: "どこでこのホテルを予約しましたか？", labelEn: "Where did you book this accommodation?", type: "select", required: true, section: "stay", mapping: "bookingSite", options: ["Airbnb", "Booking.com", "じゃらん", "楽天トラベル", "直接予約", "その他"], optionsEn: ["Airbnb", "Booking.com", "Jalan", "Rakuten Travel", "Direct booking", "Other"] },
+    // 代表者情報
+    { id: "guestName", label: "代表者 氏名（フルネーム）", labelEn: "Primary Guest Full Name", type: "text", required: true, section: "representative", mapping: "guestName", placeholder: "山田 太郎 / Yamada Taro" },
+    { id: "nationality", label: "国籍", labelEn: "Nationality", type: "text", required: true, section: "representative", mapping: "nationality", defaultValue: "日本" },
+    { id: "address", label: "住所（現住所）", labelEn: "Address", type: "text", required: true, section: "representative", mapping: "address", placeholder: "〒000-0000 ○○県○○市..." },
+    { id: "phone", label: "電話番号", labelEn: "Phone Number", type: "tel", required: true, section: "representative", mapping: "phone" },
+    { id: "phone2", label: "電話番号（第2）", labelEn: "Phone (2nd)", type: "tel", required: true, section: "representative", mapping: "phone2" },
+    { id: "email", label: "メールアドレス", labelEn: "Email Address", type: "email", required: false, section: "representative", mapping: "email" },
+    { id: "email2", label: "メールアドレス（第2・任意）", labelEn: "Email (2nd, optional)", type: "email", required: false, section: "representative", mapping: "email2" },
+    { id: "passportNumber", label: "旅券番号（外国籍の方のみ）", labelEn: "Passport No. (Foreign nationals only)", type: "text", required: false, section: "representative", mapping: "passportNumber" },
+    { id: "passportPhoto", label: "パスポート写真（外国籍の方のみ）", labelEn: "Passport Photo URL (Foreign nationals only)", type: "text", required: false, section: "representative", mapping: "passportPhoto", placeholder: "URLまたはファイル名 / URL or filename" },
+    { id: "purpose", label: "旅の目的", labelEn: "Purpose of Visit", type: "select", required: false, section: "representative", mapping: "purpose", options: ["観光", "仕事", "帰省", "イベント", "その他"], optionsEn: ["Tourism", "Business", "Homecoming", "Event", "Other"] },
+    // 施設利用情報
+    { id: "arrivalTime", label: "到着予定時刻", labelEn: "Estimated Arrival Time", type: "select", required: false, section: "facility", mapping: "arrivalTime", options: ["", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:00", "20:00以降"], optionsEn: ["", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:00", "After 20:00"] },
+    { id: "departureTime", label: "出発予定時刻", labelEn: "Estimated Departure Time", type: "select", required: false, section: "facility", mapping: "departureTime", options: ["", "7:00", "7:30", "8:00", "8:30", "9:00", "9:30", "10:00", "10:00以降"], optionsEn: ["", "7:00", "7:30", "8:00", "8:30", "9:00", "9:30", "10:00", "After 10:00"] },
+    { id: "cars", label: "お車は何台でお越しになりますか？\n※施設には駐車場がございません。徒歩15分の場所に有料駐車場があります。", labelEn: "How many cars will you bring?\n*No parking at facility. Paid parking available (15 min walk).", type: "select", required: false, section: "facility", mapping: "cars", options: ["0台（車なし）", "1台", "2台", "3台以上"], optionsEn: ["0 (No car)", "1 car", "2 cars", "3+ cars"] },
+    { id: "bbq", label: "バーベキューセットをご利用されますか？", labelEn: "Would you like to use the BBQ set?", type: "select", required: false, section: "facility", mapping: "bbq", options: ["利用しない", "利用する（1セット）", "利用する（2セット）"], optionsEn: ["No", "Yes (1 set)", "Yes (2 sets)"] },
+    { id: "bedChoice", label: "宿泊人数2名のお客様のみお答えください（ベッドの希望）", labelEn: "For 2 guests only: Bed preference", type: "select", required: false, section: "facility", mapping: "bedChoice", options: ["", "シングルベッド×2", "ダブルベッド×1", "布団"], optionsEn: ["", "2 Single Beds", "1 Double Bed", "Futon"] },
+    { id: "bedCount", label: "ベッド数（希望）", labelEn: "Number of Beds (preferred)", type: "number", required: false, section: "facility", mapping: "bedCount" },
+    // その他連絡事項
+    { id: "memo", label: "ご要望・備考", labelEn: "Notes / Special Requests", type: "textarea", required: false, section: "other", mapping: "memo" },
+    { id: "allergy", label: "アレルギー・特記事項", labelEn: "Allergies / Special Notes", type: "textarea", required: false, section: "other", mapping: "allergy", placeholder: "食物アレルギー、持病、車椅子利用等 / Food allergies, medical conditions, wheelchair use, etc." },
+    { id: "emergencyContact", label: "緊急連絡先（代表者以外）", labelEn: "Emergency Contact (other than primary guest)", type: "text", required: false, section: "other", mapping: "emergencyContact", placeholder: "氏名・電話番号 / Name & Phone" },
+    // ハウスルール同意
+    { id: "houseRuleAgree", label: "利用規約・ハウスルールに同意します", labelEn: "I agree to the Terms of Use and House Rules", type: "checkbox-single", required: true, section: "agreement", mapping: "houseRuleAgree" },
+  ],
+
+  DEFAULT_SECTIONS: [
+    { id: "stay", label: "宿泊情報", labelEn: "Stay Details", order: 1 },
+    { id: "representative", label: "代表者情報（旅館業法に基づく記入事項）", labelEn: "Primary Guest (Required by Japanese Law)", order: 2 },
+    { id: "facility", label: "施設利用情報", labelEn: "Facility Usage", order: 3 },
+    { id: "other", label: "その他連絡事項", labelEn: "Other / Notes", order: 4 },
+    { id: "agreement", label: "同意事項", labelEn: "Agreement", order: 5 },
+    { id: "companions", label: "同行者情報", labelEn: "Companions", order: 6, isCompanion: true },
+  ],
+
+  TYPE_LABELS: {
+    text: "テキスト", textarea: "テキスト(複数行)", date: "日付", number: "数値",
+    tel: "電話番号", email: "メール", select: "プルダウン", radio: "ラジオボタン",
+    checkbox: "チェックボックス(複数)", "checkbox-single": "チェックボックス(単一)",
+    image: "画像",
+  },
+
+  formFields: [],
+  expandedCards: new Set(),
+  dragSourceIdx: null,
+
+  async loadFormConfig() {
+    // デフォルトで即座に表示（スピナー解消）
+    this.formFields = JSON.parse(JSON.stringify(this.DEFAULT_FORM_FIELDS));
+    this.renderFormFields();
+
+    // Firestoreに保存済み設定があれば上書き
+    try {
+      const doc = await db.collection("settings").doc("guestForm").get();
+      if (doc.exists && doc.data().fields?.length > 0) {
+        this.formFields = doc.data().fields;
+        this.renderFormFields();
+      }
+    } catch (e) {
+      console.warn("フォーム設定読み込みエラー（デフォルトを使用）:", e);
+    }
+  },
+
+  loadFormDefaults() {
+    if (!confirm("デフォルト項目を読み込みます。現在の設定は上書きされます。よろしいですか？")) return;
+    this.formFields = JSON.parse(JSON.stringify(this.DEFAULT_FORM_FIELDS));
+    this.expandedCards.clear();
+    this.renderFormFields();
+    showToast("完了", "デフォルト項目を読み込みました。「保存」を押して反映してください。", "success");
+  },
+
+  getSectionLabel(secId) {
+    const s = this.DEFAULT_SECTIONS.find(s => s.id === secId);
+    return s ? s.label : secId;
+  },
+
+  hasOptions(type) {
+    return ["select", "radio", "checkbox"].includes(type);
+  },
+
+  renderFormFields() {
+    const container = document.getElementById("formFieldList");
+    if (!container) return;
+    if (!this.formFields.length) {
+      container.innerHTML = '<div class="text-center text-muted py-3">項目がありません。「デフォルト読み込み」または「項目追加」で開始してください。</div>';
+      return;
+    }
+
+    let html = '';
+    let lastSection = '';
+
+    this.formFields.forEach((f, i) => {
+      // セクション区切り
+      if (f.section !== lastSection) {
+        lastSection = f.section;
+        html += `<div class="ff-section-sep"><i class="bi bi-folder2-open"></i> ${this.esc(this.getSectionLabel(f.section))}</div>`;
+      }
+
+      const isExpanded = this.expandedCards.has(i);
+      const typeBadge = this.TYPE_LABELS[f.type] || f.type;
+      const shortLabel = (f.label || "").split("\n")[0].substring(0, 40);
+
+      html += `
+        <div class="ff-card${isExpanded ? " expanded" : ""}" data-idx="${i}" draggable="true">
+          <div class="ff-card-header" data-action="toggle" data-idx="${i}">
+            <span class="ff-drag-handle" title="ドラッグで並び替え"><i class="bi bi-grip-vertical"></i></span>
+            <span class="ff-card-num">${i + 1}</span>
+            <div class="ff-card-title">
+              <div class="ff-card-label">${this.esc(shortLabel) || '<span class="text-muted">(未入力)</span>'}</div>
+              ${f.labelEn ? `<div class="ff-card-label-en">${this.esc(f.labelEn)}</div>` : ""}
+            </div>
+            <span class="badge bg-secondary ff-badge-type">${typeBadge}</span>
+            ${f.required ? '<span class="badge bg-danger ff-badge-req">必須</span>' : ""}
+            <span class="badge bg-light text-dark ff-badge-sec">${this.esc(this.getSectionLabel(f.section))}</span>
+            <i class="bi bi-chevron-${isExpanded ? "up" : "down"} ff-chevron"></i>
+          </div>
+          ${isExpanded ? this.renderFieldCardBody(f, i) : ""}
+        </div>`;
+    });
+
+    container.innerHTML = html;
+    this.bindCardEvents(container);
+  },
+
+  renderFieldCardBody(f, idx) {
+    const secOpts = this.DEFAULT_SECTIONS.filter(s => !s.isCompanion).map(s =>
+      `<option value="${s.id}" ${f.section === s.id ? "selected" : ""}>${this.esc(s.label)}</option>`
+    ).join("");
+
+    const typeOpts = Object.entries(this.TYPE_LABELS).map(([v, l]) =>
+      `<option value="${v}" ${f.type === v ? "selected" : ""}>${l}</option>`
+    ).join("");
+
+    let optionsHtml = "";
+    if (this.hasOptions(f.type)) {
+      const opts = f.options || [];
+      const optsEn = f.optionsEn || [];
+      optionsHtml = `
+        <div class="ff-options-section mt-3">
+          <label class="form-label fw-semibold small"><i class="bi bi-list-ul"></i> 選択肢</label>
+          <div class="ff-options-list" data-idx="${idx}">
+            ${opts.map((o, oi) => `
+              <div class="ff-opt-row" data-oi="${oi}">
+                <span class="ff-opt-num">${oi + 1}.</span>
+                <input type="text" class="form-control form-control-sm ff-opt-jp" value="${this.esc(o)}" placeholder="日本語">
+                <input type="text" class="form-control form-control-sm ff-opt-en" value="${this.esc(optsEn[oi] || "")}" placeholder="English">
+                <button class="btn btn-sm btn-outline-secondary ff-opt-up" data-idx="${idx}" data-oi="${oi}" title="上へ"><i class="bi bi-arrow-up"></i></button>
+                <button class="btn btn-sm btn-outline-secondary ff-opt-down" data-idx="${idx}" data-oi="${oi}" title="下へ"><i class="bi bi-arrow-down"></i></button>
+                <button class="btn btn-sm btn-outline-danger ff-opt-del" data-idx="${idx}" data-oi="${oi}" title="削除"><i class="bi bi-x"></i></button>
+              </div>
+            `).join("")}
+          </div>
+          <button class="btn btn-sm btn-outline-primary mt-1 ff-opt-add" data-idx="${idx}">
+            <i class="bi bi-plus"></i> 選択肢を追加
+          </button>
+        </div>`;
+    }
+
+    // 画像タイプ用フィールド
+    let imageHtml = "";
+    if (f.type === "image") {
+      imageHtml = `
+        <div class="row g-2 mb-2">
+          <div class="col-md-6">
+            <label class="form-label small">画像URL</label>
+            <input type="url" class="form-control form-control-sm ff-edit" data-idx="${idx}" data-key="imageUrl" value="${this.esc(f.imageUrl || "")}" placeholder="https://...">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small">幅（%）</label>
+            <input type="number" class="form-control form-control-sm ff-edit" data-idx="${idx}" data-key="imageWidth" value="${f.imageWidth || 100}" min="10" max="100">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small">アップロード</label>
+            <div class="position-relative">
+              <input type="file" class="form-control form-control-sm ff-image-upload" data-idx="${idx}" accept="image/*" style="font-size:0.75rem;">
+            </div>
+          </div>
+        </div>
+        <div class="ff-upload-progress d-none mb-2" data-idx="${idx}">
+          <div class="progress" style="height:6px;">
+            <div class="progress-bar progress-bar-striped progress-bar-animated" style="width:0%"></div>
+          </div>
+          <small class="text-muted">アップロード中...</small>
+        </div>
+        ${f.imageUrl ? `<div class="mb-2"><img src="${this.esc(f.imageUrl)}" style="max-width:300px;max-height:200px;border-radius:4px;border:1px solid #ddd;"></div>` : ""}`;
+    }
+
+    return `
+      <div class="ff-card-body">
+        <div class="row g-2 mb-2">
+          <div class="col-md-5">
+            <label class="form-label small">ラベル（日本語）</label>
+            <textarea class="form-control form-control-sm ff-edit" data-idx="${idx}" data-key="label" rows="2">${this.esc(f.label || "")}</textarea>
+          </div>
+          <div class="col-md-5">
+            <label class="form-label small">ラベル（英語）</label>
+            <textarea class="form-control form-control-sm ff-edit" data-idx="${idx}" data-key="labelEn" rows="2">${this.esc(f.labelEn || "")}</textarea>
+          </div>
+          <div class="col-md-2 d-flex align-items-end">
+            <button class="btn btn-sm btn-outline-warning w-100 ff-translate-one" data-idx="${idx}" title="この項目をGeminiで翻訳"><i class="bi bi-translate"></i></button>
+          </div>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-md-3">
+            <label class="form-label small">種類</label>
+            <select class="form-select form-select-sm ff-edit" data-idx="${idx}" data-key="type">${typeOpts}</select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small">セクション</label>
+            <select class="form-select form-select-sm ff-edit" data-idx="${idx}" data-key="section">${secOpts}</select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small">マッピングID</label>
+            <input type="text" class="form-control form-control-sm ff-edit" data-idx="${idx}" data-key="mapping" value="${this.esc(f.mapping || "")}">
+          </div>
+          <div class="col-md-3 d-flex align-items-end">
+            <div class="form-check">
+              <input type="checkbox" class="form-check-input ff-edit" data-idx="${idx}" data-key="required" id="ff_req_${idx}" ${f.required ? "checked" : ""}>
+              <label class="form-check-label small" for="ff_req_${idx}">必須</label>
+            </div>
+          </div>
+        </div>
+        ${imageHtml}
+        ${f.type !== "image" ? `<div class="row g-2 mb-2">
+          <div class="col-md-6">
+            <label class="form-label small">デフォルト値</label>
+            <input type="text" class="form-control form-control-sm ff-edit" data-idx="${idx}" data-key="defaultValue" value="${this.esc(f.defaultValue || "")}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">プレースホルダ</label>
+            <input type="text" class="form-control form-control-sm ff-edit" data-idx="${idx}" data-key="placeholder" value="${this.esc(f.placeholder || "")}">
+          </div>
+        </div>` : ""}
+        ${optionsHtml}
+        <div class="d-flex gap-2 mt-3 pt-2 border-top">
+          <button class="btn btn-sm btn-outline-primary ff-action-dup" data-idx="${idx}"><i class="bi bi-copy"></i> 複製</button>
+          <button class="btn btn-sm btn-outline-danger ff-action-del" data-idx="${idx}"><i class="bi bi-trash"></i> 削除</button>
+        </div>
+      </div>`;
+  },
+
+  bindCardEvents(container) {
+    // カードヘッダー展開/折り畳みトグル
+    container.querySelectorAll(".ff-card-header").forEach(hdr => {
+      hdr.addEventListener("click", (e) => {
+        if (e.target.closest(".ff-drag-handle")) return;
+        const idx = Number(hdr.dataset.idx);
+        if (this.expandedCards.has(idx)) this.expandedCards.delete(idx);
+        else this.expandedCards.add(idx);
+        this.renderFormFields();
+      });
+    });
+
+    // フィールド値の編集（リアルタイム更新）
+    container.querySelectorAll(".ff-edit").forEach(el => {
+      const handler = () => {
+        const idx = Number(el.dataset.idx);
+        const key = el.dataset.key;
+        if (key === "required") {
+          this.formFields[idx][key] = el.checked;
+        } else {
+          this.formFields[idx][key] = el.value;
+        }
+        // type変更時は選択肢セクションの表示/非表示を切り替え
+        if (key === "type") this.renderFormFields();
+        // セクション変更時は再描画（区切り線の更新）
+        if (key === "section") this.renderFormFields();
+      };
+      el.addEventListener("change", handler);
+      if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
+        el.addEventListener("input", handler);
+      }
+    });
+
+    // 選択肢の編集
+    container.querySelectorAll(".ff-opt-jp, .ff-opt-en").forEach(el => {
+      el.addEventListener("input", () => {
+        const row = el.closest(".ff-opt-row");
+        const list = el.closest(".ff-options-list");
+        const idx = Number(list.dataset.idx);
+        const oi = Number(row.dataset.oi);
+        if (el.classList.contains("ff-opt-jp")) {
+          if (!this.formFields[idx].options) this.formFields[idx].options = [];
+          this.formFields[idx].options[oi] = el.value;
+        } else {
+          if (!this.formFields[idx].optionsEn) this.formFields[idx].optionsEn = [];
+          this.formFields[idx].optionsEn[oi] = el.value;
+        }
+      });
+    });
+
+    // 選択肢追加
+    container.querySelectorAll(".ff-opt-add").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.idx);
+        if (!this.formFields[idx].options) this.formFields[idx].options = [];
+        if (!this.formFields[idx].optionsEn) this.formFields[idx].optionsEn = [];
+        this.formFields[idx].options.push("");
+        this.formFields[idx].optionsEn.push("");
+        this.renderFormFields();
+      });
+    });
+
+    // 選択肢削除
+    container.querySelectorAll(".ff-opt-del").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.idx);
+        const oi = Number(btn.dataset.oi);
+        this.formFields[idx].options.splice(oi, 1);
+        (this.formFields[idx].optionsEn || []).splice(oi, 1);
+        this.renderFormFields();
+      });
+    });
+
+    // 選択肢上下移動
+    container.querySelectorAll(".ff-opt-up, .ff-opt-down").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.idx);
+        const oi = Number(btn.dataset.oi);
+        const dir = btn.classList.contains("ff-opt-up") ? -1 : 1;
+        const opts = this.formFields[idx].options || [];
+        const optsEn = this.formFields[idx].optionsEn || [];
+        const newOi = oi + dir;
+        if (newOi < 0 || newOi >= opts.length) return;
+        [opts[oi], opts[newOi]] = [opts[newOi], opts[oi]];
+        if (optsEn.length > Math.max(oi, newOi)) {
+          [optsEn[oi], optsEn[newOi]] = [optsEn[newOi], optsEn[oi]];
+        }
+        this.renderFormFields();
+      });
+    });
+
+    // 画像アップロード
+    container.querySelectorAll(".ff-image-upload").forEach(input => {
+      input.addEventListener("change", (e) => this.uploadFormImage(Number(input.dataset.idx), e.target.files[0]));
+    });
+
+    // 個別翻訳ボタン
+    container.querySelectorAll(".ff-translate-one").forEach(btn => {
+      btn.addEventListener("click", () => this.translateOneWithGemini(Number(btn.dataset.idx)));
+    });
+
+    // フィールド複製
+    container.querySelectorAll(".ff-action-dup").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.idx);
+        const clone = JSON.parse(JSON.stringify(this.formFields[idx]));
+        clone.id = "field_" + Date.now();
+        clone.label = (clone.label || "") + "（コピー）";
+        this.formFields.splice(idx + 1, 0, clone);
+        this.expandedCards.clear();
+        this.expandedCards.add(idx + 1);
+        this.renderFormFields();
+      });
+    });
+
+    // フィールド削除
+    container.querySelectorAll(".ff-action-del").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.idx);
+        if (!confirm(`「${this.formFields[idx].label || ""}」を削除しますか？`)) return;
+        this.formFields.splice(idx, 1);
+        this.expandedCards.clear();
+        this.renderFormFields();
+      });
+    });
+
+    // ドラッグ&ドロップ
+    this.initDragDrop(container);
+  },
+
+  initDragDrop(container) {
+    const cards = container.querySelectorAll(".ff-card");
+    cards.forEach(card => {
+      card.addEventListener("dragstart", (e) => {
+        this.dragSourceIdx = Number(card.dataset.idx);
+        card.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", this.dragSourceIdx);
+      });
+      card.addEventListener("dragend", () => {
+        card.classList.remove("dragging");
+        container.querySelectorAll(".ff-card").forEach(c => c.classList.remove("drag-over"));
+        this.dragSourceIdx = null;
+      });
+      card.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        container.querySelectorAll(".ff-card").forEach(c => c.classList.remove("drag-over"));
+        card.classList.add("drag-over");
+      });
+      card.addEventListener("dragleave", () => {
+        card.classList.remove("drag-over");
+      });
+      card.addEventListener("drop", (e) => {
+        e.preventDefault();
+        card.classList.remove("drag-over");
+        const fromIdx = this.dragSourceIdx;
+        const toIdx = Number(card.dataset.idx);
+        if (fromIdx === null || fromIdx === toIdx) return;
+        const [moved] = this.formFields.splice(fromIdx, 1);
+        this.formFields.splice(toIdx, 0, moved);
+        this.expandedCards.clear();
+        this.renderFormFields();
+      });
+    });
+  },
+
+  addFormFieldRow() {
+    const newField = {
+      id: "field_" + Date.now(),
+      label: "",
+      labelEn: "",
+      type: "text",
+      required: false,
+      section: "other",
+      mapping: "",
+      options: [],
+      optionsEn: [],
+      defaultValue: "",
+      placeholder: "",
+    };
+    this.formFields.push(newField);
+    this.expandedCards.clear();
+    this.expandedCards.add(this.formFields.length - 1);
+    this.renderFormFields();
+    // 最後のカードにスクロール
+    const lastCard = document.querySelector("#formFieldList .ff-card:last-child");
+    if (lastCard) lastCard.scrollIntoView({ behavior: "smooth", block: "center" });
+  },
+
+  async saveFormConfig() {
+    const fields = this.formFields.map((f, i) => ({ ...f, order: i + 1 }));
+
+    const resultEl = document.getElementById("formSaveResult");
+    const alertEl = document.getElementById("formSaveAlert");
+    resultEl.classList.remove("d-none");
+    alertEl.className = "alert alert-info py-2";
+    alertEl.innerHTML = '<div class="spinner-border spinner-border-sm me-2"></div>保存中...';
+
+    try {
+      await db.collection("settings").doc("guestForm").set({
+        fields,
+        sections: this.DEFAULT_SECTIONS,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      this.formFields = fields;
+      alertEl.className = "alert alert-success py-2";
+      alertEl.textContent = `${fields.length}件のフォーム項目を保存しました。ゲストフォームに即時反映されます。`;
+      showToast("完了", "フォーム設定を保存しました", "success");
+    } catch (e) {
+      alertEl.className = "alert alert-danger py-2";
+      alertEl.textContent = `保存失敗: ${e.message}`;
+    }
+  },
+
+  showFormPreview() {
+    const body = document.getElementById("formPreviewBody");
+    if (!body) return;
+
+    const sectionLabels = {};
+    this.DEFAULT_SECTIONS.forEach(s => { sectionLabels[s.id] = s.label; });
+
+    let html = '<form class="preview-form">';
+    let lastSec = "";
+
+    this.formFields.forEach(f => {
+      if (f.section !== lastSec) {
+        lastSec = f.section;
+        html += `<h6 class="mt-3 mb-2 fw-bold text-primary border-bottom pb-1">${this.esc(sectionLabels[f.section] || f.section)}</h6>`;
+      }
+
+      const reqMark = f.required ? ' <span class="text-danger">*</span>' : "";
+      const label = (f.label || "").replace(/\n/g, "<br>");
+      html += `<div class="mb-3"><label class="form-label">${label}${reqMark}</label>`;
+
+      switch (f.type) {
+        case "image":
+          html += f.imageUrl ? `<div class="text-center"><img src="${this.esc(f.imageUrl)}" style="width:${f.imageWidth || 100}%;max-width:100%;border-radius:8px;"></div>` : '<span class="text-muted">（画像URL未設定）</span>';
+          break;
+        case "textarea":
+          html += `<textarea class="form-control" rows="2" placeholder="${this.esc(f.placeholder || "")}" disabled></textarea>`;
+          break;
+        case "select":
+          html += `<select class="form-select" disabled><option>--</option>${(f.options || []).map(o => `<option>${this.esc(o)}</option>`).join("")}</select>`;
+          break;
+        case "radio":
+          (f.options || []).forEach(o => {
+            html += `<div class="form-check"><input class="form-check-input" type="radio" disabled><label class="form-check-label">${this.esc(o)}</label></div>`;
+          });
+          break;
+        case "checkbox":
+          (f.options || []).forEach(o => {
+            html += `<div class="form-check"><input class="form-check-input" type="checkbox" disabled><label class="form-check-label">${this.esc(o)}</label></div>`;
+          });
+          break;
+        case "checkbox-single":
+          html += `<div class="form-check"><input class="form-check-input" type="checkbox" disabled><label class="form-check-label">${this.esc(f.label)}</label></div>`;
+          break;
+        case "date":
+          html += `<input type="date" class="form-control" disabled>`;
+          break;
+        case "number":
+          html += `<input type="number" class="form-control" value="${this.esc(f.defaultValue || "")}" disabled>`;
+          break;
+        default:
+          html += `<input type="${f.type || "text"}" class="form-control" placeholder="${this.esc(f.placeholder || "")}" value="${this.esc(f.defaultValue || "")}" disabled>`;
+      }
+      html += "</div>";
+    });
+    html += "</form>";
+    body.innerHTML = html;
+
+    const modal = new bootstrap.Modal(document.getElementById("formPreviewModal"));
+    modal.show();
+  },
+
+  // --- 画像アップロード ---
+
+  async uploadFormImage(idx, file) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      showToast("エラー", "画像ファイルを選択してください", "error");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showToast("エラー", "5MB以下の画像を選択してください", "error");
+      return;
+    }
+
+    const progressEl = document.querySelector(`.ff-upload-progress[data-idx="${idx}"]`);
+    const progressBar = progressEl?.querySelector(".progress-bar");
+    if (progressEl) progressEl.classList.remove("d-none");
+
+    try {
+      const storage = firebase.storage();
+      const ext = file.name.split(".").pop() || "jpg";
+      const path = `form-images/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const ref = storage.ref(path);
+      const task = ref.put(file);
+
+      task.on("state_changed",
+        (snap) => {
+          const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
+          if (progressBar) progressBar.style.width = pct + "%";
+        },
+        (err) => {
+          if (progressEl) progressEl.classList.add("d-none");
+          showToast("エラー", `アップロード失敗: ${err.message}`, "error");
+        },
+        async () => {
+          const url = await ref.getDownloadURL();
+          this.formFields[idx].imageUrl = url;
+          if (progressEl) progressEl.classList.add("d-none");
+          this.renderFormFields();
+          showToast("完了", "画像をアップロードしました", "success");
+        }
+      );
+    } catch (e) {
+      if (progressEl) progressEl.classList.add("d-none");
+      showToast("エラー", `アップロード失敗: ${e.message}`, "error");
+    }
+  },
+
+  // --- Gemini翻訳 ---
+
+  async getGeminiConfig() {
+    try {
+      const doc = await db.collection("settings").doc("gemini").get();
+      if (doc.exists) {
+        const d = doc.data();
+        if (d.apiKey && d.model) return { apiKey: d.apiKey, model: d.model };
+      }
+    } catch (e) { /* ignore */ }
+    showToast("エラー", "Gemini APIキーが未設定です。設定タブの「Gemini API」セクションで設定してください。", "error");
+    return null;
+  },
+
+  async callGeminiTranslate(apiKey, model, prompt) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 4096, temperature: 0.1 },
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error?.message || res.statusText);
+    }
+    const data = await res.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  },
+
+  async translateOneWithGemini(idx) {
+    const f = this.formFields[idx];
+    if (!f.label) { showToast("エラー", "日本語ラベルが空です", "error"); return; }
+
+    const cfg = await this.getGeminiConfig();
+    if (!cfg) return;
+
+    const btn = document.querySelector(`.ff-translate-one[data-idx="${idx}"]`);
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    btn.disabled = true;
+
+    try {
+      let prompt = `以下の日本語を自然な英語に翻訳してください。JSONで返してください。\n\n`;
+      const reqObj = { label: f.label };
+      if (f.options?.length) reqObj.options = f.options;
+      if (f.placeholder) reqObj.placeholder = f.placeholder;
+      prompt += JSON.stringify(reqObj, null, 2);
+      prompt += `\n\n返答はJSON形式のみ（コードブロックなし）。キー名はそのまま: {"label":"...","options":["..."],"placeholder":"..."}`;
+
+      const raw = await this.callGeminiTranslate(cfg.apiKey, cfg.model, prompt);
+      const json = JSON.parse(raw.replace(/```json?\n?/g, "").replace(/```/g, "").trim());
+
+      if (json.label) f.labelEn = json.label;
+      if (json.options?.length) f.optionsEn = json.options;
+      if (json.placeholder) f.placeholderEn = json.placeholder;
+
+      this.renderFormFields();
+      showToast("完了", `「${f.label.split("\n")[0].substring(0, 20)}」を翻訳しました`, "success");
+    } catch (e) {
+      showToast("エラー", `翻訳失敗: ${e.message}`, "error");
+    }
+  },
+
+  async translateAllWithGemini() {
+    const cfg = await this.getGeminiConfig();
+    if (!cfg) return;
+
+    // 英語ラベルが空の項目のみ翻訳対象
+    const targets = this.formFields
+      .map((f, i) => ({ f, i }))
+      .filter(({ f }) => f.label && !f.labelEn);
+
+    if (!targets.length) {
+      showToast("情報", "全項目に英語ラベルが設定済みです。空の項目のみ翻訳対象です。", "info");
+      return;
+    }
+
+    const btn = document.getElementById("btnTranslateAll");
+    const origHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> 翻訳中...';
+    btn.disabled = true;
+
+    try {
+      const reqArray = targets.map(({ f, i }) => {
+        const obj = { idx: i, label: f.label };
+        if (f.options?.length) obj.options = f.options;
+        if (f.placeholder) obj.placeholder = f.placeholder;
+        return obj;
+      });
+
+      const prompt = `以下のフォーム項目を自然な英語に翻訳してください。宿泊者名簿（Guest Registration Form）の文脈です。
+JSON配列で返してください。コードブロックは不要です。
+
+入力:
+${JSON.stringify(reqArray, null, 2)}
+
+出力形式: [{"idx":0,"label":"...","options":["..."],"placeholder":"..."}, ...]
+idxはそのまま返してください。optionsとplaceholderは入力にある場合のみ返してください。`;
+
+      const raw = await this.callGeminiTranslate(cfg.apiKey, cfg.model, prompt);
+      const results = JSON.parse(raw.replace(/```json?\n?/g, "").replace(/```/g, "").trim());
+
+      let count = 0;
+      for (const r of results) {
+        const f = this.formFields[r.idx];
+        if (!f) continue;
+        if (r.label) { f.labelEn = r.label; count++; }
+        if (r.options?.length) f.optionsEn = r.options;
+        if (r.placeholder) f.placeholderEn = r.placeholder;
+      }
+
+      this.renderFormFields();
+      showToast("完了", `${count}件の項目を英語翻訳しました。「保存」を押して反映してください。`, "success");
+    } catch (e) {
+      showToast("エラー", `一括翻訳失敗: ${e.message}`, "error");
+    } finally {
+      btn.innerHTML = origHtml;
+      btn.disabled = false;
+    }
   },
 };

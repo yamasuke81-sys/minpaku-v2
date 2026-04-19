@@ -275,70 +275,16 @@ const SettingsPage = {
         </div>
       </div>
 
-      <!-- 宿泊者名簿フォーム管理（Googleフォーム風エディタ） -->
-      <div class="card mb-4">
-        <div class="card-header">
-          <h5 class="mb-0"><i class="bi bi-ui-checks"></i> 宿泊者名簿フォーム設定</h5>
-        </div>
-        <div class="card-body">
-          <p class="text-muted small">
-            ゲスト向け宿泊者名簿フォームの項目を管理します。<br>
-            カードをクリックして展開→全プロパティを編集。ドラッグで並び替え可能です。
-          </p>
-
-          <div class="d-flex flex-wrap gap-2 mb-3">
-            <button class="btn btn-primary btn-sm" id="btnLoadFormDefaults">
-              <i class="bi bi-arrow-clockwise"></i> デフォルト読み込み
-            </button>
-            <button class="btn btn-outline-success btn-sm" id="btnAddFormField">
-              <i class="bi bi-plus-lg"></i> 項目追加
-            </button>
-            <button class="btn btn-outline-info btn-sm" id="btnPreviewForm">
-              <i class="bi bi-eye"></i> プレビュー
-            </button>
-            <button class="btn btn-outline-warning btn-sm" id="btnTranslateAll">
-              <i class="bi bi-translate"></i> 全項目を英語翻訳（Gemini）
-            </button>
-            <button class="btn btn-success btn-sm" id="btnSaveFormConfig">
-              <i class="bi bi-check-lg"></i> 保存
-            </button>
-          </div>
-
-          <div class="small text-muted mb-2">
-            フォームURL: <a href="/guest-form.html" target="_blank">${location.origin}/guest-form.html</a>
-            <span class="ms-2 text-muted">(${this.formFields.length || '...'} 項目)</span>
-          </div>
-
-          <div id="formFieldList">
-            <div class="text-center py-3 text-muted"><div class="spinner-border spinner-border-sm"></div> 読み込み中...</div>
-          </div>
-
-          <div class="d-none mt-3" id="formSaveResult">
-            <div class="alert py-2" id="formSaveAlert"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- フォームプレビューモーダル -->
-      <div class="modal fade" id="formPreviewModal" tabindex="-1">
-        <div class="modal-dialog modal-lg">
-          <div class="modal-content">
-            <div class="modal-header">
-              <h5 class="modal-title"><i class="bi bi-eye"></i> フォームプレビュー</h5>
-              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body" id="formPreviewBody"></div>
-            <div class="modal-footer">
-              <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">閉じる</button>
-            </div>
-          </div>
-        </div>
+      <!-- 宿泊者名簿フォーム設定は #/guests タブの「設定」ボタンに移動しました -->
+      <div class="alert alert-light border small mb-4">
+        <i class="bi bi-info-circle text-muted"></i>
+        宿泊者名簿のフォーム項目管理・フォームURL設定は
+        <a href="#/guests" class="fw-semibold">宿泊者名簿タブ</a> の「設定」ボタンから操作できます。
       </div>
     `;
 
     this.bindEvents();
     this.loadGeminiSettings();
-    this.loadFormConfig();
   },
 
   SHEETS_API_KEY: firebaseConfig.apiKey, // Firebase APIキーでSheets APIも使える
@@ -523,12 +469,7 @@ const SettingsPage = {
     document.getElementById("btnSaveIcalInterval").addEventListener("click", () => this.saveIcalInterval());
     this.loadIcalSettings();
 
-    // フォーム項目管理
-    document.getElementById("btnLoadFormDefaults").addEventListener("click", () => this.loadFormDefaults());
-    document.getElementById("btnAddFormField").addEventListener("click", () => this.addFormFieldRow());
-    document.getElementById("btnSaveFormConfig").addEventListener("click", () => this.saveFormConfig());
-    document.getElementById("btnPreviewForm").addEventListener("click", () => this.showFormPreview());
-    document.getElementById("btnTranslateAll").addEventListener("click", () => this.translateAllWithGemini());
+    // フォーム項目管理は #/guests タブに移動済み。settings 側の要素は存在しないのでバインドしない
   },
 
   async loadGeminiSettings() {
