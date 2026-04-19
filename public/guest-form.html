@@ -1798,7 +1798,12 @@
             _propertyConfig = await resp.json();
             // Phase 2: formFieldConfig (overrides + customFormFields) を優先使用
             if (_propertyConfig.formFieldConfig) {
-              _resolvedFormFields = _propertyConfig.formFieldConfig;
+              // formFieldConfig.customFormFields が未設定の場合、トップレベルの
+              // customFormFields をマージして applyFormConfig に渡す
+              _resolvedFormFields = Object.assign({}, _propertyConfig.formFieldConfig);
+              if (!_resolvedFormFields.customFormFields && _propertyConfig.customFormFields) {
+                _resolvedFormFields.customFormFields = _propertyConfig.customFormFields;
+              }
             } else if (_propertyConfig.customFormEnabled === true) {
               // 旧形式フォールバック: customFormFields 配列
               _resolvedFormFields = _propertyConfig.customFormFields || null;
