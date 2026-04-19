@@ -702,9 +702,20 @@ module.exports = function invoicesApi(db) {
         submittedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       };
-      // 初回作成時のみ createdAt
+      // 既存ドキュメントの status 確認
       const existing = await collection.doc(invoiceId).get();
-      if (!existing.exists) invoiceData.createdAt = FieldValue.serverTimestamp();
+      if (existing.exists) {
+        const existingStatus = existing.data().status;
+        // submitted / paid は再送信不可 (409 Conflict)
+        if (existingStatus === "submitted" || existingStatus === "paid") {
+          return res.status(409).json({
+            error: "この月の請求書は既に送信済みです。修正はオーナーに連絡してください",
+          });
+        }
+      } else {
+        // 初回作成時のみ createdAt をセット
+        invoiceData.createdAt = FieldValue.serverTimestamp();
+      }
 
       await collection.doc(invoiceId).set(invoiceData, { merge: true });
 
