@@ -5,7 +5,7 @@
 const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
 const { getStorage } = require("firebase-admin/storage");
-const { notifyOwner, getNotificationSettings_, sendLineMessage, sendNotificationEmail_ } = require("../utils/lineNotify");
+const { notifyOwner, notifyGroup, getNotificationSettings_, sendLineMessage, sendNotificationEmail_, resolveNotifyTargets } = require("../utils/lineNotify");
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
@@ -233,7 +233,9 @@ async function generateInvoicePdf_(db, invoiceId) {
       }
       y += rowH;
     });
-    pdfDoc.y = y + 16;
+    // pdfkit では .y 直接代入は非推奨のため text("") で位置を更新してから moveDown で余白確保
+    pdfDoc.text("", pdfDoc.page.margins.left, y);
+    pdfDoc.moveDown(0.8);
 
     // ── 支払期限 ──
     setFont(10);
@@ -594,9 +596,9 @@ module.exports = function invoicesApi(db) {
         invoices = invoices.filter((inv) => inv.staffId === staffId);
       }
 
-      // スタッフは自分の請求書のみ
+      // スタッフは自分の請求書のみ (staffId と req.user.staffId で照合)
       if (req.user.role === "staff") {
-        invoices = invoices.filter((inv) => inv.staffId === req.user.uid);
+        invoices = invoices.filter((inv) => inv.staffId === req.user.staffId);
       }
 
       res.json(invoices);
@@ -616,8 +618,8 @@ module.exports = function invoicesApi(db) {
 
       const data = { id: doc.id, ...doc.data() };
 
-      // スタッフは自分の請求書のみ
-      if (req.user.role === "staff" && data.staffId !== req.user.uid) {
+      // スタッフは自分の請求書のみ (staffId と req.user.staffId で照合)
+      if (req.user.role === "staff" && data.staffId !== req.user.staffId) {
         return res.status(403).json({ error: "アクセス権限がありません" });
       }
 
@@ -716,27 +718,36 @@ module.exports = function invoicesApi(db) {
         console.error("PDF生成エラー:", e);
       }
 
-      // invoice_submitted 通知: LINE はオーナー本人のみ、メールは ownerEmail 1件 + スタッフ本人
+      // invoice_submitted 通知: resolveNotifyTargets で送信先を判定
       try {
         const { settings, channelToken, ownerUserId } = await getNotificationSettings_(db);
-        const appUrl = (settings && settings.appUrl) || "https://minpaku-v2.web.app";
-        const confirmUrl = `${appUrl}/#/invoices`;
-        const linkLine = pdfSignedUrl ? `\nPDF: ${pdfSignedUrl}` : "";
-        const ownerBody = `📨 請求書が提出されました\n\n${staffDoc.name} さんから ${m}月分の請求書が届きました。\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}${linkLine}\n確認: ${confirmUrl}`;
+        const targets = resolveNotifyTargets(settings, "invoice_submitted");
+        if (targets.enabled) {
+          const appUrl = (settings && settings.appUrl) || "https://minpaku-v2.web.app";
+          const confirmUrl = `${appUrl}/#/invoices`;
+          const linkLine = pdfSignedUrl ? `\nPDF: ${pdfSignedUrl}` : "";
+          const title = `請求書提出: ${staffDoc.name} ${yearMonth}`;
+          const ownerBody = `📨 請求書が提出されました\n\n${staffDoc.name} さんから ${m}月分の請求書が届きました。\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}${linkLine}\n確認: ${confirmUrl}`;
 
-        // LINE: オーナー LINE UserID にのみ送信（グループ・全員一斉は不要）
-        if (channelToken && ownerUserId) {
-          sendLineMessage(channelToken, ownerUserId, ownerBody).catch((e) => console.error("LINE送信失敗:", e.message));
+          // オーナーLINE
+          if (targets.ownerLine) {
+            await notifyOwner(db, "invoice_submitted", title, ownerBody).catch((e) => console.error("オーナーLINE送信失敗:", e.message));
+          }
+          // グループLINE
+          if (targets.groupLine) {
+            await notifyGroup(db, "invoice_submitted", title, ownerBody).catch((e) => console.error("グループLINE送信失敗:", e.message));
+          }
+          // オーナーメール
+          if (targets.ownerEmail) {
+            const ownerEmail = settings && (settings.ownerEmail || (settings.notifyEmails && settings.notifyEmails[0]));
+            if (ownerEmail) {
+              sendNotificationEmail_(ownerEmail, `【請求書提出】${staffDoc.name} ${yearMonth}`, ownerBody)
+                .catch((e) => console.error("オーナーへの請求書通知メール失敗:", e.message));
+            }
+          }
         }
 
-        // メール: settings.ownerEmail (1件) のみ
-        const ownerEmail = settings && (settings.ownerEmail || (settings.notifyEmails && settings.notifyEmails[0]));
-        if (ownerEmail) {
-          sendNotificationEmail_(ownerEmail, `【請求書提出】${staffDoc.name} ${yearMonth}`, ownerBody)
-            .catch((e) => console.error("オーナーへの請求書通知メール失敗:", e.message));
-        }
-
-        // スタッフ本人にも PDF リンクをメール送付
+        // スタッフ本人にも PDF リンクをメール送付（通知設定に依存しない固定送信）
         if (staffDoc.email && pdfSignedUrl) {
           const staffBody = `${staffDoc.name} 様\n\n${yearMonth} 分の請求書が作成されました。\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}\n\nPDFダウンロード (7日間有効):\n${pdfSignedUrl}\n\n何か相違がございましたらご連絡ください。`;
           sendNotificationEmail_(staffDoc.email, `【請求書】${yearMonth} 分`, staffBody)
@@ -1057,205 +1068,28 @@ module.exports = function invoicesApi(db) {
     }
   });
 
-  // 請求書PDF生成
+  // 請求書PDF生成 — generateInvoicePdf_ を共通関数として呼び出す（コード重複排除）
   router.get("/:id/pdf", async (req, res) => {
     try {
-      // アクセス制御
+      // アクセス制御: スタッフは自分の請求書のみ
       const docRef = collection.doc(req.params.id);
       const doc = await docRef.get();
       if (!doc.exists) {
         return res.status(404).json({ error: "請求書が見つかりません" });
       }
       const invoice = { id: doc.id, ...doc.data() };
-      if (req.user.role === "staff" && invoice.staffId !== req.user.uid) {
+      if (req.user.role === "staff" && invoice.staffId !== req.user.staffId) {
         return res.status(403).json({ error: "アクセス権限がありません" });
       }
 
-      // スタッフの銀行情報取得
-      const staffDoc = await db.collection("staff").doc(invoice.staffId).get();
-      const staff = staffDoc.exists ? staffDoc.data() : {};
-
-      // 物件名マップを作成（シフト明細で使用）
-      const propertyIds = [...new Set(
-        (invoice.details?.shifts || []).map((s) => s.propertyId).filter(Boolean)
-      )];
-      const propertyMap = {};
-      if (propertyIds.length > 0) {
-        await Promise.all(
-          propertyIds.map(async (pid) => {
-            const pdoc = await db.collection("properties").doc(pid).get();
-            propertyMap[pid] = pdoc.exists ? pdoc.data().name : pid;
-          })
-        );
-      }
-
-      // PDF生成
-      const cjkFont = findCjkFont();
-      const tmpPath = path.join(os.tmpdir(), `${invoice.id}.pdf`);
-
-      await new Promise((resolve, reject) => {
-        const pdfOpts = { margin: 50, size: "A4" };
-        if (cjkFont) pdfOpts.font = cjkFont;
-        const doc = new PDFDocument(pdfOpts);
-        const stream = fs.createWriteStream(tmpPath);
-        doc.pipe(stream);
-
-        const setFont = (size = 12) => {
-          if (cjkFont) {
-            doc.font(cjkFont).fontSize(size);
-          } else {
-            doc.font("Helvetica").fontSize(size);
-          }
-        };
-
-        const today = new Date();
-        const issuedDate = `${today.getFullYear()}/${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}`;
-
-        // ── ヘッダー ──
-        setFont(22);
-        doc.text(cjkFont ? "請求書" : "Invoice", { align: "center" });
-        doc.moveDown(0.5);
-
-        setFont(10);
-        doc.text(`${cjkFont ? "発行日" : "Issued"}: ${issuedDate}`, { align: "right" });
-        doc.text(`${cjkFont ? "請求書番号" : "Invoice No"}: ${invoice.id}`, { align: "right" });
-        doc.moveDown(1);
-
-        // ── スタッフ情報 ──
-        setFont(11);
-        doc.text(cjkFont ? "【スタッフ情報】" : "--- Staff ---");
-        setFont(10);
-        doc.text(`${cjkFont ? "氏名" : "Name"}: ${invoice.staffName || staff.name || "-"}`);
-        doc.moveDown(0.8);
-
-        // ── 対象期間 ──
-        setFont(11);
-        doc.text(cjkFont ? "【対象期間】" : "--- Period ---");
-        setFont(10);
-        doc.text(`${cjkFont ? "対象月" : "Period"}: ${invoice.yearMonth}`);
-        doc.moveDown(0.8);
-
-        // ── 清掃明細 ──
-        const pdfShifts = invoice.details?.shifts || [];
-        if (pdfShifts.length > 0) {
-          setFont(11);
-          doc.text(cjkFont ? "【清掃明細】" : "--- Cleaning ---");
-          setFont(10);
-          pdfShifts.forEach((s, i) => {
-            const propName = propertyMap[s.propertyId] || s.propertyId || "-";
-            const dateStr = s.date ? fmtDate(s.date) : "-";
-            let memo = "";
-            if (s.isTimee && s.timeeDetail) {
-              const td = s.timeeDetail;
-              memo = ` (タイミー ${td.start}〜${td.end} ${td.durationH}h×¥${td.hourlyRate})`;
-            } else if (s.guestCount > 1) {
-              memo = ` (ゲスト${s.guestCount}名)`;
-            }
-            doc.text(`  ${i + 1}. ${dateStr}  ${propName}  ${fmtYen(s.amount)}${cjkFont ? "円" : "JPY"}${memo}`);
-          });
-          doc.moveDown(0.8);
-        }
-
-        // ── 特別加算明細 ──
-        const pdfSpecial = invoice.details?.special || [];
-        if (pdfSpecial.length > 0) {
-          setFont(11);
-          doc.text(cjkFont ? "【特別加算】" : "--- Special Allowance ---");
-          setFont(10);
-          pdfSpecial.forEach((sp, i) => {
-            const dateStr = sp.date ? fmtDate(sp.date) : (sp.dateStr || "-");
-            const propName = propertyMap[sp.propertyId] || sp.propertyId || "";
-            doc.text(`  ${i + 1}. ${dateStr}  ${sp.name || "特別加算"}${propName ? " (" + propName + ")" : ""}  ${fmtYen(sp.amount)}${cjkFont ? "円" : "JPY"}`);
-          });
-          doc.moveDown(0.8);
-        }
-
-        // ── ランドリー明細 ──
-        const pdfLaundry = invoice.details?.laundry || [];
-        if (pdfLaundry.length > 0) {
-          setFont(11);
-          doc.text(cjkFont ? "【ランドリー立替】" : "--- Laundry ---");
-          setFont(10);
-          pdfLaundry.forEach((l, i) => {
-            const dateStr = l.date ? fmtDate(l.date) : "-";
-            doc.text(`  ${i + 1}. ${dateStr}  ${fmtYen(l.amount)}${cjkFont ? "円" : "JPY"}${l.memo ? "  (" + l.memo + ")" : ""}`);
-          });
-          doc.moveDown(0.8);
-        }
-
-        // ── 手動追加項目 ──
-        const pdfManualItems = invoice.details?.manualItems || invoice.manualItems || [];
-        if (pdfManualItems.length > 0) {
-          setFont(11);
-          doc.text(cjkFont ? "【追加項目】" : "--- Additional ---");
-          setFont(10);
-          pdfManualItems.forEach((item, i) => {
-            doc.text(`  ${i + 1}. ${item.label}  ${fmtYen(item.amount)}${cjkFont ? "円" : "JPY"}${item.memo ? "  (" + item.memo + ")" : ""}`);
-          });
-          doc.moveDown(0.8);
-        }
-
-        // ── 集計 ──
-        setFont(11);
-        doc.text(cjkFont ? "【集計】" : "--- Summary ---");
-        setFont(10);
-        const pdfManualTotal = pdfManualItems.reduce((s, item) => s + (item.amount || 0), 0);
-        doc.text(`  ${cjkFont ? "基本報酬（清掃）" : "Base Pay"}: ${fmtYen(invoice.basePayment)}${cjkFont ? "円" : "JPY"}`);
-        if (invoice.specialAllowance) {
-          doc.text(`  ${cjkFont ? "特別加算合計" : "Special Allowance"}: ${fmtYen(invoice.specialAllowance)}${cjkFont ? "円" : "JPY"}`);
-        }
-        doc.text(`  ${cjkFont ? "ランドリー立替" : "Laundry"}: ${fmtYen(invoice.laundryFee)}${cjkFont ? "円" : "JPY"}`);
-        doc.text(`  ${cjkFont ? "交通費" : "Transportation"}: ${fmtYen(invoice.transportationFee)}${cjkFont ? "円" : "JPY"}`);
-        if (pdfManualItems.length > 0) {
-          doc.text(`  ${cjkFont ? "追加項目合計" : "Additional Total"}: ${fmtYen(pdfManualTotal)}${cjkFont ? "円" : "JPY"}`);
-        }
-        doc.moveDown(0.3);
-        doc.lineCap("butt").moveTo(50, doc.y).lineTo(545, doc.y).stroke();
-        doc.moveDown(0.3);
-        setFont(13);
-        doc.text(`  ${cjkFont ? "合計金額" : "Total"}: ${fmtYen(invoice.total)}${cjkFont ? "円" : "JPY"}`);
-        doc.moveDown(1.2);
-
-        // ── 振込先 ──
-        const hasBankInfo = staff.bankName || staff.accountNumber;
-        if (hasBankInfo) {
-          setFont(11);
-          doc.text(cjkFont ? "【振込先】" : "--- Bank Info ---");
-          setFont(10);
-          if (staff.bankName) doc.text(`  ${cjkFont ? "銀行名" : "Bank"}: ${staff.bankName}`);
-          if (staff.branchName) doc.text(`  ${cjkFont ? "支店名" : "Branch"}: ${staff.branchName}`);
-          if (staff.accountType) doc.text(`  ${cjkFont ? "口座種別" : "Type"}: ${staff.accountType}`);
-          if (staff.accountNumber) doc.text(`  ${cjkFont ? "口座番号" : "Account"}: ${staff.accountNumber}`);
-          if (staff.accountHolder) doc.text(`  ${cjkFont ? "口座名義" : "Holder"}: ${staff.accountHolder}`);
-        }
-
-        doc.end();
-        stream.on("finish", resolve);
-        stream.on("error", reject);
-      });
-
-      // Cloud Storage にアップロード
-      const bucket = getStorage().bucket("minpaku-v2.firebasestorage.app");
-      const destPath = `invoices/${invoice.id}.pdf`;
-      await bucket.upload(tmpPath, {
-        destination: destPath,
-        metadata: { contentType: "application/pdf" },
-      });
-
-      // 署名付きダウンロードURL（7日間有効）
-      const [pdfUrl] = await bucket.file(destPath).getSignedUrl({
-        action: "read",
-        expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
-      });
+      // 共通PDF生成関数を使用（宛先+振込先+明細テーブルの正式レイアウト）
+      const pdfUrl = await generateInvoicePdf_(db, req.params.id);
 
       // Firestore の pdfUrl を更新
       await docRef.update({
         pdfUrl,
         updatedAt: FieldValue.serverTimestamp(),
       });
-
-      // 一時ファイル削除
-      fs.unlinkSync(tmpPath);
 
       res.json({ pdfUrl });
     } catch (e) {
@@ -1274,7 +1108,8 @@ module.exports = function invoicesApi(db) {
       }
 
       const data = doc.data();
-      if (req.user.role === "staff" && data.staffId !== req.user.uid) {
+      // スタッフは自分の請求書のみ確定可能 (staffId と req.user.staffId で照合)
+      if (req.user.role === "staff" && data.staffId !== req.user.staffId) {
         return res.status(403).json({ error: "アクセス権限がありません" });
       }
 
