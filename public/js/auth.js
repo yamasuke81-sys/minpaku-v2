@@ -38,23 +38,33 @@ const Auth = {
 
     // 他タブでログイン成功した場合、このタブも自動リロードする
     // (Android Chrome で LINE 認証後、新タブで開かれた時に古いタブも同期させる)
+    // ただし自分が既にログイン済みならリロードしない (無限ループ防止)
     window.addEventListener("storage", (e) => {
       if (e.key === "lineLoginSuccess" && e.newValue) {
+        if (this.currentUser) {
+          console.log("[Auth] 自分は既にログイン済み、リロードはスキップ");
+          return;
+        }
         console.log("[Auth] 他タブでログイン成功を検知、リロードします");
         location.reload();
       }
     });
 
+    // シグナル送信は初回ログイン時のみ (2回目以降のセッション復元では送らない)
+    let _signalSent = false;
     firebase.auth().onAuthStateChanged((user) => {
       if (user) {
+        const wasLoggedIn = this.currentUser !== null;
         this.currentUser = user;
         this.loginModal.hide();
-        // 他タブに「ログイン成功」シグナルを送る (古いタブを自動更新させる)
-        try {
-          localStorage.setItem("lineLoginSuccess", String(Date.now()));
-          // 1秒後に消す (次回のログイン時のシグナル干渉を防ぐ)
-          setTimeout(() => localStorage.removeItem("lineLoginSuccess"), 1000);
-        } catch (_) { /* ignore */ }
+        // 他タブに「ログイン成功」シグナルを送る (初回のログイン遷移時のみ)
+        if (!wasLoggedIn && !_signalSent) {
+          _signalSent = true;
+          try {
+            localStorage.setItem("lineLoginSuccess", String(Date.now()));
+            setTimeout(() => localStorage.removeItem("lineLoginSuccess"), 500);
+          } catch (_) { /* ignore */ }
+        }
         // ユーザー名表示
         const nameEl = document.getElementById("userName");
         if (nameEl) nameEl.textContent = user.displayName || user.email;
