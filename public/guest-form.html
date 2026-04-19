@@ -1336,11 +1336,26 @@
           cancelMsgEl.classList.remove("d-none");
         });
         document.getElementById("btnGoToGame").addEventListener("click", async () => {
-          // ミニゲーム ON/OFF 設定を取得 (settings/guestForm.miniGameEnabled)
-          let miniGameEnabled = true; // デフォルト: 有効
+          // ミニゲーム ON/OFF 設定を取得
+          // 優先順位: ①URLの propertyId に紐づく物件の miniGameEnabled
+          //          ②settings/guestForm.miniGameEnabled (グローバル default)
+          //          ③true (最終デフォルト)
+          let miniGameEnabled = true;
           try {
             const doc = await db.collection("settings").doc("guestForm").get();
             if (doc.exists && doc.data().miniGameEnabled === false) miniGameEnabled = false;
+          } catch (_) {}
+          // URLパラメータの propertyId があれば物件個別設定を優先
+          try {
+            const params2 = new URLSearchParams(location.search);
+            const pid = params2.get("propertyId") || (data && data.propertyId) || "";
+            if (pid) {
+              const pDoc = await db.collection("properties").doc(pid).get();
+              if (pDoc.exists) {
+                const v = pDoc.data().miniGameEnabled;
+                if (typeof v === "boolean") miniGameEnabled = v;
+              }
+            }
           } catch (_) {}
 
           if (!miniGameEnabled) {

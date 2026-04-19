@@ -25,27 +25,40 @@ const GuestsPage = {
         </div>
       </div>
 
-      <!-- 宿泊者名簿 共通フォームURL (画面直表示) -->
+      <!-- 宿泊者名簿 フォームURL + 物件別設定 (このタブで完結) -->
       <div class="card mb-3 border-success">
         <div class="card-body py-2 px-3">
-          <div class="d-flex align-items-center flex-wrap gap-2">
-            <div class="flex-shrink-0 small">
-              <strong class="text-success"><i class="bi bi-link-45deg"></i> 宿泊者名簿 共通フォームURL</strong>
-              <div class="text-muted" style="font-size:11px;">Airbnb/Booking.com の自動メッセージにこれを貼り付け。宿泊客がチェックイン日を入力すれば自動で日別フォーム表示</div>
-            </div>
-            <div class="input-group input-group-sm flex-grow-1" style="min-width:260px;max-width:640px;">
-              <input type="text" class="form-control" id="guestFormCommonUrl" readonly>
-              <button class="btn btn-outline-primary" type="button" id="btnCopyFormUrl" title="URLをコピー">
-                <i class="bi bi-clipboard"></i> コピー
-              </button>
-              <button class="btn btn-outline-secondary" type="button" id="btnOpenFormUrl" title="新しいタブで開く">
-                <i class="bi bi-box-arrow-up-right"></i> 新しいタブ
-              </button>
-              <button class="btn btn-outline-success" type="button" id="btnFormUrlAdvanced" title="物件別URL・ミニゲーム設定など詳細">
-                <i class="bi bi-gear"></i> 詳細
-              </button>
-            </div>
+          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+            <strong class="text-success"><i class="bi bi-link-45deg"></i> 宿泊者名簿 フォームURL</strong>
+            <span class="text-muted small">Airbnb/Booking.com の自動メッセージに貼り付けて利用</span>
           </div>
+          <!-- 共通URL -->
+          <div class="input-group input-group-sm mb-2" style="max-width:780px;">
+            <span class="input-group-text" style="min-width:130px;font-weight:600;background:#e7f5ee;">共通URL</span>
+            <input type="text" class="form-control" id="guestFormCommonUrl" readonly>
+            <button class="btn btn-outline-primary" type="button" data-copy-target="guestFormCommonUrl" title="URLをコピー">
+              <i class="bi bi-clipboard"></i> コピー
+            </button>
+            <button class="btn btn-outline-secondary" type="button" data-open-target="guestFormCommonUrl" title="新しいタブで開く">
+              <i class="bi bi-box-arrow-up-right"></i> 新しいタブ
+            </button>
+          </div>
+          <div class="small text-muted mb-2" style="font-size:11px;">
+            共通URL: 物件が未確定でも使える汎用URL (宿泊客がチェックイン日を入力すれば自動で日別フォーム表示)
+          </div>
+
+          <!-- 物件別URL + ミニゲーム設定 -->
+          <div class="mt-3">
+            <strong class="small"><i class="bi bi-buildings"></i> 物件別URL + ミニゲーム設定</strong>
+            <div class="small text-muted" style="font-size:11px;">物件が確定している場合に使うと、フォーム画面で物件が自動選択されます。ミニゲームは物件別に ON/OFF 可能</div>
+          </div>
+          <div id="guestFormPropertyList" class="mt-2"></div>
+
+          <!-- 詳細オプション: カスタムURL生成 (特定CI日指定) -->
+          <details class="mt-2">
+            <summary class="small text-muted" style="cursor:pointer;">▸ 特定のチェックイン日を指定したカスタムURL</summary>
+            <div id="guestFormCustomArea" class="mt-2 small"></div>
+          </details>
         </div>
       </div>
 
@@ -121,29 +134,40 @@ const GuestsPage = {
       this.openModal();
     });
 
-    // 共通フォームURLを画面直表示 + コピー/新タブ/詳細ボタン
+    // 共通フォームURL + 物件別URL + ミニゲーム設定を画面直描画
     const baseUrl = location.origin + "/form/";
-    const urlInput = document.getElementById("guestFormCommonUrl");
-    if (urlInput) urlInput.value = baseUrl;
+    const commonInput = document.getElementById("guestFormCommonUrl");
+    if (commonInput) commonInput.value = baseUrl;
 
-    document.getElementById("btnCopyFormUrl")?.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(baseUrl);
-        showToast("コピー完了", "共通フォームURLをクリップボードにコピーしました", "success");
-      } catch (_) {
-        urlInput.select();
-        document.execCommand("copy");
-        showToast("コピー完了", "コピーしました", "success");
-      }
+    // コピー/新タブ ボタン共通ハンドラ (data-copy-target / data-open-target)
+    document.querySelectorAll("[data-copy-target]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const target = document.getElementById(btn.dataset.copyTarget);
+        if (!target) return;
+        const url = target.value;
+        try {
+          await navigator.clipboard.writeText(url);
+          showToast("コピー完了", url.slice(0, 60) + (url.length > 60 ? "..." : ""), "success");
+        } catch (_) {
+          target.select();
+          document.execCommand("copy");
+          showToast("コピー完了", "", "success");
+        }
+      });
+    });
+    document.querySelectorAll("[data-open-target]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const target = document.getElementById(btn.dataset.openTarget);
+        if (!target) return;
+        window.open(target.value, "_blank", "noopener");
+      });
     });
 
-    document.getElementById("btnOpenFormUrl")?.addEventListener("click", () => {
-      window.open(baseUrl, "_blank", "noopener");
-    });
+    // 物件別URL + ミニゲーム設定を描画
+    await this._renderPropertyFormSection();
 
-    document.getElementById("btnFormUrlAdvanced")?.addEventListener("click", () => {
-      this.showFormUrlDialog();
-    });
+    // カスタムURL生成 (details 内)
+    this._renderCustomUrlArea();
 
     document.getElementById("btnImportGas").addEventListener("click", () => {
       this.showGasImportDialog();
@@ -382,7 +406,180 @@ const GuestsPage = {
     }, 100);
   },
 
-  // === フォームURL生成ダイアログ ===
+  // === 物件別 フォームURL + ミニゲーム設定セクション描画 ===
+  async _renderPropertyFormSection() {
+    const container = document.getElementById("guestFormPropertyList");
+    if (!container) return;
+    const baseUrl = location.origin + "/form/";
+
+    // 物件一覧 + グローバルミニゲームデフォルト取得
+    const [propsSnap, gfDoc] = await Promise.all([
+      db.collection("properties").where("active", "==", true).get(),
+      db.collection("settings").doc("guestForm").get(),
+    ]);
+    const globalMiniGame = gfDoc.exists ? (gfDoc.data().miniGameEnabled !== false) : true;
+    const properties = propsSnap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(p => p.type === "minpaku")
+      .sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));
+
+    this._propertiesCache = properties;
+
+    if (properties.length === 0) {
+      container.innerHTML = '<div class="text-muted small">アクティブな民泊物件がありません</div>';
+      return;
+    }
+
+    container.innerHTML = properties.map(p => {
+      const url = `${baseUrl}?propertyId=${p.id}`;
+      // 物件のミニゲーム設定: 物件個別の設定があればそれ、無ければグローバル値を継承
+      const mgSet = typeof p.miniGameEnabled === "boolean" ? p.miniGameEnabled : globalMiniGame;
+      const inherited = typeof p.miniGameEnabled !== "boolean";
+      const otherProps = properties.filter(o => o.id !== p.id);
+      return `
+        <div class="border rounded mb-2 p-2">
+          <div class="d-flex align-items-center justify-content-between flex-wrap gap-1 mb-1">
+            <div class="fw-semibold small">
+              ${this.esc(p.name)}
+              ${p.propertyNumber ? `<span class="badge" style="background:${p.color || '#6c757d'};font-size:10px;">#${p.propertyNumber}</span>` : ""}
+            </div>
+            <div class="d-flex gap-1 align-items-center flex-wrap">
+              <div class="form-check form-switch form-check-inline m-0" title="この物件のフォームでミニゲームを表示するか">
+                <input class="form-check-input" type="checkbox" id="mg-${p.id}" ${mgSet ? "checked" : ""} data-prop-id="${p.id}">
+                <label class="form-check-label small" for="mg-${p.id}">ミニゲーム ${inherited ? '<span class="text-muted" style="font-size:10px;">(共通設定を継承)</span>' : ""}</label>
+              </div>
+              ${otherProps.length > 0 ? `
+                <div class="dropdown">
+                  <button class="btn btn-sm btn-outline-secondary dropdown-toggle py-0 px-2" style="font-size:11px;" type="button" data-bs-toggle="dropdown" title="他物件から設定をコピー">
+                    <i class="bi bi-arrow-down-square"></i> 他物件からインポート
+                  </button>
+                  <ul class="dropdown-menu dropdown-menu-end small">
+                    ${otherProps.map(o => `<li><button class="dropdown-item small" type="button" data-import-from="${o.id}" data-import-to="${p.id}">${this.esc(o.name)} の設定をコピー</button></li>`).join("")}
+                  </ul>
+                </div>
+              ` : ""}
+            </div>
+          </div>
+          <div class="input-group input-group-sm" style="max-width:720px;">
+            <input type="text" class="form-control" id="url-${p.id}" value="${url}" readonly>
+            <button class="btn btn-outline-primary" type="button" data-copy-target="url-${p.id}"><i class="bi bi-clipboard"></i></button>
+            <button class="btn btn-outline-secondary" type="button" data-open-target="url-${p.id}"><i class="bi bi-box-arrow-up-right"></i></button>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    // イベントバインド (コピー/新タブは全体で再バインド)
+    container.querySelectorAll("[data-copy-target]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const target = document.getElementById(btn.dataset.copyTarget);
+        if (!target) return;
+        const url = target.value;
+        try { await navigator.clipboard.writeText(url); showToast("コピー完了", url.slice(0, 60), "success"); }
+        catch (_) { target.select(); document.execCommand("copy"); showToast("コピー完了", "", "success"); }
+      });
+    });
+    container.querySelectorAll("[data-open-target]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const target = document.getElementById(btn.dataset.openTarget);
+        if (target) window.open(target.value, "_blank", "noopener");
+      });
+    });
+
+    // ミニゲームトグル → properties/{id}.miniGameEnabled を更新
+    container.querySelectorAll("input[data-prop-id]").forEach(cb => {
+      cb.addEventListener("change", async () => {
+        const propId = cb.dataset.propId;
+        try {
+          await db.collection("properties").doc(propId).update({ miniGameEnabled: cb.checked });
+          showToast("保存しました", `${cb.checked ? "ON" : "OFF"} に変更`, "success");
+          // 継承ラベル削除 (実際の設定が入ったので)
+          const label = cb.closest(".form-check").querySelector("label .text-muted");
+          if (label) label.remove();
+        } catch (e) {
+          showToast("保存失敗", e.message, "error");
+          cb.checked = !cb.checked;
+        }
+      });
+    });
+
+    // 「他物件からインポート」 → src.miniGameEnabled を dst にコピー
+    container.querySelectorAll("[data-import-from]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const srcId = btn.dataset.importFrom;
+        const dstId = btn.dataset.importTo;
+        const src = this._propertiesCache.find(p => p.id === srcId);
+        if (!src) return;
+        const mg = typeof src.miniGameEnabled === "boolean" ? src.miniGameEnabled : globalMiniGame;
+        try {
+          await db.collection("properties").doc(dstId).update({ miniGameEnabled: mg });
+          showToast("インポート完了", `${src.name} の設定 (ミニゲーム ${mg ? "ON" : "OFF"}) をコピー`, "success");
+          // 再描画
+          await this._renderPropertyFormSection();
+        } catch (e) {
+          showToast("インポート失敗", e.message, "error");
+        }
+      });
+    });
+  },
+
+  // === カスタムURL生成エリア描画 ===
+  _renderCustomUrlArea() {
+    const area = document.getElementById("guestFormCustomArea");
+    if (!area) return;
+    const baseUrl = location.origin + "/form/";
+    area.innerHTML = `
+      <div class="row g-2">
+        <div class="col-md-3"><label class="form-label mb-0">物件</label>
+          <select class="form-select form-select-sm" id="customUrlProp">
+            <option value="">(指定なし)</option>
+            ${(this._propertiesCache || []).map(p => `<option value="${p.id}">${this.esc(p.name)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="col-md-3"><label class="form-label mb-0">チェックイン</label>
+          <input type="date" class="form-control form-control-sm" id="customUrlCI">
+        </div>
+        <div class="col-md-3"><label class="form-label mb-0">チェックアウト</label>
+          <input type="date" class="form-control form-control-sm" id="customUrlCO">
+        </div>
+        <div class="col-md-3"><label class="form-label mb-0">人数</label>
+          <input type="number" class="form-control form-control-sm" id="customUrlGuests" min="1">
+        </div>
+      </div>
+      <div class="input-group input-group-sm mt-2" style="max-width:780px;">
+        <input type="text" class="form-control" id="customUrlResult" readonly placeholder="上の項目を埋めると自動生成">
+        <button class="btn btn-outline-primary" type="button" data-copy-target="customUrlResult"><i class="bi bi-clipboard"></i></button>
+      </div>
+    `;
+    const update = () => {
+      const prop = document.getElementById("customUrlProp").value;
+      const ci = document.getElementById("customUrlCI").value;
+      const co = document.getElementById("customUrlCO").value;
+      const g = document.getElementById("customUrlGuests").value;
+      const params = new URLSearchParams();
+      if (prop) params.set("propertyId", prop);
+      if (ci) params.set("checkIn", ci);
+      if (co) params.set("checkOut", co);
+      if (g) params.set("guests", g);
+      const qs = params.toString();
+      document.getElementById("customUrlResult").value = qs ? `${baseUrl}?${qs}` : "";
+    };
+    ["customUrlProp", "customUrlCI", "customUrlCO", "customUrlGuests"].forEach(id => {
+      document.getElementById(id)?.addEventListener("change", update);
+      document.getElementById(id)?.addEventListener("input", update);
+    });
+    // カスタムURL のコピーボタンも bind
+    area.querySelectorAll("[data-copy-target]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const target = document.getElementById(btn.dataset.copyTarget);
+        if (!target || !target.value) return;
+        try { await navigator.clipboard.writeText(target.value); showToast("コピー完了", "", "success"); }
+        catch (_) { target.select(); document.execCommand("copy"); showToast("コピー完了", "", "success"); }
+      });
+    });
+  },
+
+  // === フォームURL生成ダイアログ (旧実装、現在は未使用・残置のみ) ===
   async showFormUrlDialog() {
     const baseUrl = location.origin + "/form/";
     // ミニゲーム設定を取得 (デフォルト ON)
