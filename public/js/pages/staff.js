@@ -848,7 +848,8 @@ const StaffPage = {
   },
 
   async deleteStaff(staff) {
-    if (!confirm(`${staff.name} を無効化しますか？`)) return;
+    const ok = await showConfirm("無効化確認", `${staff.name} を無効化しますか？`);
+    if (!ok) return;
 
     try {
       await API.staff.delete(staff.id);

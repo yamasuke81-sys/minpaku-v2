@@ -317,6 +317,7 @@ const RecruitmentPage = {
     const propSelect = document.getElementById("recruitPropertyId");
     const propertyId = propSelect.value;
     const propertyName = propSelect.selectedOptions[0]?.dataset?.name || "";
+    const workType = document.getElementById("newRecruitmentWorkType")?.value || "cleaning_by_count";
     const memo = document.getElementById("recruitMemo").value.trim();
 
     try {
@@ -324,6 +325,7 @@ const RecruitmentPage = {
         checkoutDate,
         propertyId,
         propertyName,
+        workType,
         memo,
       });
       this.modal.hide();
@@ -343,6 +345,9 @@ const RecruitmentPage = {
     document.getElementById("detailRecruitId").value = r.id;
     document.getElementById("detailCheckoutDate").textContent = r.checkoutDate || "-";
     document.getElementById("detailProperty").textContent = r.propertyName || "-";
+    // workType バッジを detailStatus の前に表示
+    const workTypeBadgeEl = document.getElementById("detailWorkTypeBadge");
+    if (workTypeBadgeEl) workTypeBadgeEl.innerHTML = this.getWorkTypeBadge(r.workType);
     document.getElementById("detailStatus").innerHTML = this.getStatusBadge(r.status);
     document.getElementById("detailMemo").textContent = r.memo || "-";
 
@@ -501,7 +506,8 @@ const RecruitmentPage = {
           showToast("情報", "スタッフを1名以上チェックしてください", "info");
           return;
         }
-        if (!confirm("スタッフを全員外して募集中に戻しますか？")) return;
+        const ok = await showConfirm("選定解除", "スタッフを全員外して募集中に戻しますか？");
+        if (!ok) return;
       }
       const recruitmentId = document.getElementById("detailRecruitId").value;
       try {
@@ -535,8 +541,10 @@ const RecruitmentPage = {
     if (!recruitmentId) return;
 
     const recruitment = this.recruitments.find(r => r.id === recruitmentId);
-    if (!recruitment?.selectedStaff) {
-      showToast("エラー", "先にスタッフを選定してください", "error");
+    // selectedStaffIds が空または未定義の場合は確定不可
+    const ids = recruitment?.selectedStaffIds;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      showToast("エラー", "先にスタッフを1名以上選定してください", "error");
       return;
     }
 
