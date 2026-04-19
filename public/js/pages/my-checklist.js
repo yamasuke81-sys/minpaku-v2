@@ -1541,16 +1541,18 @@ const MyChecklistPage = {
     const done = this.countItemsDone(cat, st);
     const tot = this.countItems([cat]);
     const allDone = tot > 0 && done === tot;
+    // デフォルトは展開状態: チェック入力・再描画・タブ切替のたびに閉じられないよう
+    // accordion-button から "collapsed" を外し、collapse に "show" を付ける
     return `
       <div class="mcl-cat accordion mb-2" data-cat-id="${cat.id}">
         <div class="accordion-item">
           <h2 class="accordion-header">
-            <button class="accordion-button ${allDone ? 'bg-success bg-opacity-10' : ''} collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}">
+            <button class="accordion-button ${allDone ? 'bg-success bg-opacity-10' : ''}" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}">
               ${this.escapeHtml(cat.name)}
               <span class="badge ${allDone ? 'bg-success' : 'bg-secondary'} ms-2">${done}/${tot}</span>
             </button>
           </h2>
-          <div id="${collapseId}" class="accordion-collapse collapse">
+          <div id="${collapseId}" class="accordion-collapse collapse show">
             <div class="accordion-body p-2">
               ${this.renderChildren(cat)}
             </div>
