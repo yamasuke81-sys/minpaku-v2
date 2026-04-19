@@ -8,9 +8,10 @@ const DashboardPage = {
   bookings: [],
   recruitments: [],
   staffList: [],
-  guestMap: {},       // CI日→名簿データのマップ
-  properties: [],     // 物件一覧（active=true）
-  propertyFilter: {}, // 物件表示フラグ {propertyId: boolean}
+  guestMap: {},             // CI日→名簿データのマップ
+  properties: [],           // 物件一覧（active=true）
+  propertyFilter: {},       // 後方互換のために残す {propertyId: boolean}
+  selectedPropertyIds: [],  // 共通コンポーネントとの橋渡し
 
   async render(container) {
     container.innerHTML = `
@@ -57,8 +58,8 @@ const DashboardPage = {
       <!-- 今日のアクション -->
       <div id="todayActions" class="mb-3"></div>
 
-      <!-- 物件フィルタ -->
-      <div id="dashPropertyFilter" class="d-flex flex-wrap align-items-center gap-2 mb-2 small"></div>
+      <!-- 物件フィルタ (共通コンポーネント) -->
+      <div id="propertyFilterHost-dashboard"></div>
 
       <!-- 凡例 -->
       <div class="d-flex flex-wrap gap-3 mb-2 small text-muted">
@@ -86,7 +87,22 @@ const DashboardPage = {
     await this.loadAllData();
     this.renderStats();
     this.renderTodayActions();
-    this.renderPropertyFilter();
+
+    // 共通物件フィルタコンポーネントを描画
+    PropertyFilter.render({
+      containerId: "propertyFilterHost-dashboard",
+      tabKey: "dashboard",
+      properties: this.properties,
+      onChange: (ids) => {
+        this.selectedPropertyIds = ids;
+        // propertyFilter マップも同期
+        this.properties.forEach(p => {
+          this.propertyFilter[p.id] = ids.includes(p.id);
+        });
+        this.refreshCalendar();
+      },
+    });
+
     this.initCalendar();
     // FCM初期化 + 通知許可バナー（バックグラウンド実行）
     this._initFCMBanner();
@@ -283,11 +299,11 @@ const DashboardPage = {
         .map(d => ({ id: d.id, ...d.data() }))
         .sort((a, b) => (a.displayOrder ?? 99) - (b.displayOrder ?? 99));
 
-      // 物件フィルタ初期化（localStorage から復元、未登録は ON）
-      const savedFilter = this._loadPropertyFilter();
+      // 共通コンポーネントから選択状態を取得して propertyFilter マップに変換
+      this.selectedPropertyIds = PropertyFilter.getSelectedIds("dashboard", this.properties);
       this.propertyFilter = {};
       this.properties.forEach(p => {
-        this.propertyFilter[p.id] = savedFilter[p.id] !== false;
+        this.propertyFilter[p.id] = this.selectedPropertyIds.includes(p.id);
       });
 
       this.bookings = bookings;
@@ -1056,54 +1072,6 @@ const DashboardPage = {
     if (!this.calendar) return;
     this.calendar.removeAllEvents();
     this.calendar.addEventSource(this.buildCalendarEvents());
-  },
-
-  // === 物件フィルタ UI ===
-  renderPropertyFilter() {
-    const container = document.getElementById("dashPropertyFilter");
-    if (!container || this.properties.length === 0) return;
-
-    const items = this.properties.map(p => {
-      const checked = this.propertyFilter[p.id] !== false;
-      const color = p.color || "#6c757d";
-      return `
-        <div class="form-check form-check-inline mb-0">
-          <input class="form-check-input dash-prop-filter" type="checkbox"
-            id="dpf_${p.id}" value="${p.id}" ${checked ? "checked" : ""}
-            style="border-color:${this.esc(color)}; background-color:${checked ? this.esc(color) : "#fff"};">
-          <label class="form-check-label text-muted" for="dpf_${p.id}" style="font-size:12px;">
-            ${this.esc(p.name)}
-          </label>
-        </div>
-      `;
-    }).join("");
-
-    container.innerHTML = `<span class="text-muted me-1" style="font-size:12px;">物件:</span>${items}`;
-
-    container.querySelectorAll(".dash-prop-filter").forEach(cb => {
-      cb.addEventListener("change", () => {
-        const pid = cb.value;
-        this.propertyFilter[pid] = cb.checked;
-        // チェックボックスの背景色を更新
-        const p = this.properties.find(x => x.id === pid);
-        cb.style.backgroundColor = cb.checked ? (p?.color || "#6c757d") : "#fff";
-        this._savePropertyFilter();
-        this.refreshCalendar();
-      });
-    });
-  },
-
-  _loadPropertyFilter() {
-    try {
-      const raw = localStorage.getItem("dashboardPropertyFilter");
-      return raw ? JSON.parse(raw) : {};
-    } catch (e) { return {}; }
-  },
-
-  _savePropertyFilter() {
-    try {
-      localStorage.setItem("dashboardPropertyFilter", JSON.stringify(this.propertyFilter));
-    } catch (e) { /* ignore */ }
   },
 
   toDateStr(val) {

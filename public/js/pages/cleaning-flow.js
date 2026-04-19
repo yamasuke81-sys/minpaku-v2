@@ -22,7 +22,8 @@
  */
 const CleaningFlowPage = {
   properties: [],
-  depotMaster: [],  // settings/laundryDepots.items
+  depotMaster: [],          // settings/laundryDepots.items
+  selectedPropertyIds: [],  // 物件フィルタ選択中の物件ID
 
   async render(container) {
     container.innerHTML = `
@@ -46,6 +47,9 @@ const CleaningFlowPage = {
         .cf-laundry-card .card-header { background:#ddeeff; border-radius:8px 8px 0 0; font-weight:600; font-size:0.88rem; padding:8px 14px; }
         .cf-laundry-card .card-body { padding:12px 14px; }
       </style>
+      <!-- 物件フィルタ -->
+      <div id="propertyFilterHost-cleaning-flow"></div>
+
       <div id="flowList" class="row g-3">
         <div class="col-12 text-muted">読込中...</div>
       </div>
@@ -75,6 +79,19 @@ const CleaningFlowPage = {
     } catch (_) {
       this.depotMaster = [];
     }
+    this.selectedPropertyIds = PropertyFilter.getSelectedIds("cleaning-flow", this.properties);
+
+    // 物件フィルタ描画
+    PropertyFilter.render({
+      containerId: "propertyFilterHost-cleaning-flow",
+      tabKey: "cleaning-flow",
+      properties: this.properties,
+      onChange: (ids) => {
+        this.selectedPropertyIds = ids;
+        this.renderList();
+      },
+    });
+
     this.renderList();
   },
 
@@ -108,9 +125,21 @@ const CleaningFlowPage = {
       wrap.innerHTML = `<div class="col-12 text-muted">民泊物件がありません</div>`;
       return;
     }
+
+    // 物件フィルタ適用
+    const visibleProps = this.properties.filter(p =>
+      !this.selectedPropertyIds || this.selectedPropertyIds.length === 0 ||
+      this.selectedPropertyIds.includes(p.id)
+    );
+
+    if (!visibleProps.length) {
+      wrap.innerHTML = `<div class="col-12 text-muted">表示する物件がありません（物件フィルタで全OFFになっています）</div>`;
+      return;
+    }
+
     // 物件ごとに非同期で報酬項目を取得してマップ化
     const ratesPerProp = {};
-    for (const p of this.properties) {
+    for (const p of visibleProps) {
       ratesPerProp[p.id] = await this._fetchRatesForProperty(p.id);
     }
 
@@ -120,7 +149,7 @@ const CleaningFlowPage = {
     // アコーディオン全体を1つのdivにまとめる
     const accordionId = "cleaningFlowAccordion";
     wrap.innerHTML = `<div class="col-12"><div class="accordion" id="${accordionId}">${
-      this.properties.map((p, idx) => {
+      visibleProps.map((p, idx) => {
         const f = p.cleaningFlow || {};
         const selectedIds = Array.isArray(f.laundryDepotIds) ? f.laundryDepotIds : [];
         const useChk = chk(f.useChecklist, true);

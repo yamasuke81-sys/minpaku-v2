@@ -5,6 +5,8 @@
 const InvoicesPage = {
   invoices: [],
   staffList: [],
+  properties: [],           // 物件一覧
+  selectedPropertyIds: [],  // 物件フィルタ選択中の物件ID
   selectedMonth: "",
   detailModal: null,
 
@@ -22,6 +24,9 @@ const InvoicesPage = {
           </button>
         </div>
       </div>
+
+      <!-- 物件フィルタ -->
+      <div id="propertyFilterHost-invoices"></div>
 
       <!-- サマリーカード -->
       <div class="row g-3 mb-3" id="invoiceSummary"></div>
@@ -50,7 +55,26 @@ const InvoicesPage = {
 
   async loadData() {
     try {
-      this.staffList = await API.staff.list(false);
+      const [staffList, properties] = await Promise.all([
+        API.staff.list(false),
+        API.properties.listMinpakuNumbered(),
+      ]);
+      this.staffList = staffList;
+      this.properties = properties;
+      this.selectedPropertyIds = PropertyFilter.getSelectedIds("invoices", properties);
+
+      // 物件フィルタ描画
+      PropertyFilter.render({
+        containerId: "propertyFilterHost-invoices",
+        tabKey: "invoices",
+        properties: properties,
+        onChange: (ids) => {
+          this.selectedPropertyIds = ids;
+          this.renderSummary();
+          this.renderList();
+        },
+      });
+
       await this.loadInvoices();
     } catch (e) {
       showToast("エラー", `データ読み込み失敗: ${e.message}`, "error");
@@ -113,7 +137,18 @@ const InvoicesPage = {
   renderList() {
     const container = document.getElementById("invoiceList");
 
-    if (!this.invoices.length) {
+    // 物件フィルタ: スタッフの assignedPropertyIds で絞り込む
+    const filteredInvoices = this.selectedPropertyIds && this.selectedPropertyIds.length > 0
+      ? this.invoices.filter(inv => {
+          const staff = this.staffList.find(s => s.id === inv.staffId);
+          if (!staff) return true;
+          const assigned = Array.isArray(staff.assignedPropertyIds) ? staff.assignedPropertyIds : [];
+          if (assigned.length === 0) return true; // 担当未設定は常に表示
+          return assigned.some(pid => this.selectedPropertyIds.includes(pid));
+        })
+      : [];
+
+    if (!filteredInvoices.length) {
       container.innerHTML = `
         <div class="empty-state">
           <i class="bi bi-receipt"></i>
@@ -140,16 +175,16 @@ const InvoicesPage = {
             </tr>
           </thead>
           <tbody>
-            ${this.invoices.map(inv => this.renderRow(inv)).join("")}
+            ${filteredInvoices.map(inv => this.renderRow(inv)).join("")}
           </tbody>
           <tfoot class="table-light">
             <tr>
               <th>合計</th>
-              <th class="text-end">${this.invoices.reduce((s, i) => s + (i.details?.shiftCount || 0), 0)}回</th>
-              <th class="text-end">${formatCurrency(this.invoices.reduce((s, i) => s + (i.basePayment || 0), 0))}</th>
-              <th class="text-end">${formatCurrency(this.invoices.reduce((s, i) => s + (i.laundryFee || 0), 0))}</th>
-              <th class="text-end">${formatCurrency(this.invoices.reduce((s, i) => s + (i.transportationFee || 0), 0))}</th>
-              <th class="text-end fw-bold">${formatCurrency(this.invoices.reduce((s, i) => s + (i.total || 0), 0))}</th>
+              <th class="text-end">${filteredInvoices.reduce((s, i) => s + (i.details?.shiftCount || 0), 0)}回</th>
+              <th class="text-end">${formatCurrency(filteredInvoices.reduce((s, i) => s + (i.basePayment || 0), 0))}</th>
+              <th class="text-end">${formatCurrency(filteredInvoices.reduce((s, i) => s + (i.laundryFee || 0), 0))}</th>
+              <th class="text-end">${formatCurrency(filteredInvoices.reduce((s, i) => s + (i.transportationFee || 0), 0))}</th>
+              <th class="text-end fw-bold">${formatCurrency(filteredInvoices.reduce((s, i) => s + (i.total || 0), 0))}</th>
               <th></th>
               <th></th>
             </tr>

@@ -4,6 +4,8 @@
  */
 const StaffPage = {
   staffList: [],
+  properties: [],           // 物件一覧
+  selectedPropertyIds: [],  // フィルタ選択中の物件ID
   modal: null,
   sortKey: "displayOrder",
   sortAsc: true,
@@ -27,6 +29,9 @@ const StaffPage = {
           </button>
         </div>
       </div>
+
+      <!-- 物件フィルタ -->
+      <div id="propertyFilterHost-staff"></div>
 
       <div class="table-responsive">
         <table class="table table-hover align-middle mb-0" id="staffTable">
@@ -71,8 +76,22 @@ const StaffPage = {
       ]);
       this.staffList = staff;
       this._recruitments = recruitments;
+      this.properties = minpaku;
       this._propMap = {};
       minpaku.forEach(p => { this._propMap[p.id] = p; });
+      this.selectedPropertyIds = PropertyFilter.getSelectedIds("staff", minpaku);
+
+      // 物件フィルタ描画
+      PropertyFilter.render({
+        containerId: "propertyFilterHost-staff",
+        tabKey: "staff",
+        properties: minpaku,
+        onChange: (ids) => {
+          this.selectedPropertyIds = ids;
+          this.renderTable();
+        },
+      });
+
       this.renderHeader();
       this.renderTable();
       // this.renderCalendar();  // 横カレンダーは清掃スケジュールタブに統合
@@ -199,7 +218,14 @@ const StaffPage = {
 
   renderTable() {
     const tbody = document.getElementById("staffTableBody");
-    const sorted = this.getSortedList();
+    // assignedPropertyIds にフィルタ対象物件が含まれるスタッフのみ表示
+    // (担当物件未設定のスタッフは全物件担当として常に表示)
+    const sorted = this.getSortedList().filter(s => {
+      if (!this.selectedPropertyIds || this.selectedPropertyIds.length === 0) return false;
+      const assigned = Array.isArray(s.assignedPropertyIds) ? s.assignedPropertyIds : [];
+      if (assigned.length === 0) return true; // 担当物件未設定 = 常に表示
+      return assigned.some(pid => this.selectedPropertyIds.includes(pid));
+    });
 
     if (!sorted.length) {
       tbody.innerHTML = `

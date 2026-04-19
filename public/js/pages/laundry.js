@@ -9,6 +9,7 @@ const LaundryPage = {
   records: [],
   staffList: [],
   propertyList: [],
+  selectedPropertyIds: [],  // 物件フィルタ選択中の物件ID
   currentYearMonth: null,
 
   async render(container) {
@@ -45,6 +46,9 @@ const LaundryPage = {
           </div>
         </div>
       </div>
+
+      <!-- 物件フィルタ -->
+      <div id="propertyFilterHost-laundry"></div>
 
       <div class="d-flex align-items-center gap-2 mb-3">
         <button class="btn btn-sm btn-outline-secondary" id="laundryPrevMonth"><i class="bi bi-chevron-left"></i></button>
@@ -135,6 +139,19 @@ const LaundryPage = {
 
     this.bindEvents();
     await this.loadData();
+
+    // 物件フィルタ初期化 (loadData後に propertyList が揃っているので後ろで初期化)
+    PropertyFilter.render({
+      containerId: "propertyFilterHost-laundry",
+      tabKey: "laundry",
+      properties: this.propertyList,
+      onChange: (ids) => {
+        this.selectedPropertyIds = ids;
+        this.renderSummary();
+        this.renderBreakdowns();
+        this.renderTable();
+      },
+    });
   },
 
   bindEvents() {
@@ -314,6 +331,10 @@ const LaundryPage = {
       this.records = records;
       this.staffList = staffList;
       this.propertyList = propertyList;
+      // フィルタ未設定の場合は全物件ONで初期化
+      if (!this.selectedPropertyIds || this.selectedPropertyIds.length === 0) {
+        this.selectedPropertyIds = PropertyFilter.getSelectedIds("laundry", propertyList);
+      }
       this.renderSummary();
       this.renderBreakdowns();
       this.renderTable();
@@ -323,13 +344,21 @@ const LaundryPage = {
     }
   },
 
+  _filteredRecords() {
+    return this.records.filter(r =>
+      !r.propertyId || !this.selectedPropertyIds || this.selectedPropertyIds.length === 0 ||
+      this.selectedPropertyIds.includes(r.propertyId)
+    );
+  },
+
   renderSummary() {
-    const totalAmount = this.records.reduce((s, r) => s + (r.amount || 0), 0);
-    const totalSheets = this.records.reduce((s, r) => s + (r.sheets || 0), 0);
+    const recs = this._filteredRecords();
+    const totalAmount = recs.reduce((s, r) => s + (r.amount || 0), 0);
+    const totalSheets = recs.reduce((s, r) => s + (r.sheets || 0), 0);
     const el = document.getElementById("laundrySummaryCards");
     el.innerHTML = `
       <div class="col-6 col-md-3"><div class="card bg-light"><div class="card-body text-center p-3">
-        <div class="fs-5 fw-bold">${this.records.length}</div><div class="small text-muted">利用回数</div>
+        <div class="fs-5 fw-bold">${recs.length}</div><div class="small text-muted">利用回数</div>
       </div></div></div>
       <div class="col-6 col-md-3"><div class="card bg-light"><div class="card-body text-center p-3">
         <div class="fs-5 fw-bold">${totalSheets}</div><div class="small text-muted">合計枚数</div>
@@ -354,7 +383,7 @@ const LaundryPage = {
   renderBreakdowns() {
     const depot = {}, payment = {}, staff = {};
     const staffMap = Object.fromEntries(this.staffList.map(s => [s.id, s.name]));
-    for (const r of this.records) {
+    for (const r of this._filteredRecords()) {
       const dk = r.depot || "未指定";
       const pk = r.paymentMethod || "未指定";
       const sk = r.staffId || "未指定";
@@ -373,13 +402,15 @@ const LaundryPage = {
 
   renderTable() {
     const tbody = document.getElementById("laundryTableBody");
-    if (!this.records.length) {
+    // 物件フィルタ適用 (_filteredRecords() を使用)
+    const filtered = this._filteredRecords();
+    if (!filtered.length) {
       tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-muted"><i class="bi bi-basket3 fs-3 d-block mb-2"></i>この月の記録はありません</td></tr>`;
       return;
     }
     const staffMap = Object.fromEntries(this.staffList.map(s => [s.id, s.name]));
     const propMap = Object.fromEntries(this.propertyList.map(p => [p.id, p.name]));
-    tbody.innerHTML = this.records.map(r => {
+    tbody.innerHTML = filtered.map(r => {
       const d = r.date && r.date.toDate ? r.date.toDate() : new Date(r.date);
       return `<tr>
         <td>${d.getMonth()+1}/${d.getDate()}</td>

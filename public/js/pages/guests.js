@@ -5,6 +5,8 @@
  */
 const GuestsPage = {
   guestList: [],
+  properties: [],          // 物件一覧
+  selectedPropertyIds: [], // フィルタ選択中の物件ID
   modal: null,
   detailModal: null,
   searchTimer: null,
@@ -25,6 +27,9 @@ const GuestsPage = {
           </button>
         </div>
       </div>
+
+      <!-- 物件フィルタ -->
+      <div id="propertyFilterHost-guests"></div>
 
       <!-- 検索・フィルタ -->
       <div class="row g-2 mb-3">
@@ -73,6 +78,20 @@ const GuestsPage = {
     this.modal = new bootstrap.Modal(document.getElementById("guestModal"));
     this.detailModal = new bootstrap.Modal(document.getElementById("guestDetailModal"));
     this.bindEvents();
+
+    // 物件フィルタ初期化
+    this.properties = await API.properties.listMinpakuNumbered();
+    this.selectedPropertyIds = PropertyFilter.getSelectedIds("guests", this.properties);
+    PropertyFilter.render({
+      containerId: "propertyFilterHost-guests",
+      tabKey: "guests",
+      properties: this.properties,
+      onChange: (ids) => {
+        this.selectedPropertyIds = ids;
+        this.loadGuests();
+      },
+    });
+
     await this.loadGuests();
   },
 
@@ -143,7 +162,7 @@ const GuestsPage = {
 
     try {
       this.guestList = await API.guests.list(params);
-      document.getElementById("guestCount").textContent = `${this.guestList.length}件`;
+      // カウント表示は renderTable() 内でフィルタ後の件数を設定する
       this.renderTable();
     } catch (e) {
       showToast("エラー", `読み込み失敗: ${e.message}`, "error");
@@ -152,7 +171,15 @@ const GuestsPage = {
 
   renderTable() {
     const tbody = document.getElementById("guestTableBody");
-    if (!this.guestList.length) {
+    // 物件フィルタを適用 (propertyId がないレコードは常に表示)
+    const filtered = this.guestList.filter(g =>
+      !g.propertyId || this.selectedPropertyIds.length === 0 || this.selectedPropertyIds.includes(g.propertyId)
+    );
+    // カウント表示も絞り込み後の件数に更新
+    const countEl = document.getElementById("guestCount");
+    if (countEl) countEl.textContent = `${filtered.length}件`;
+
+    if (!filtered.length) {
       tbody.innerHTML = `
         <tr><td colspan="7">
           <div class="empty-state">
@@ -164,7 +191,7 @@ const GuestsPage = {
       return;
     }
 
-    tbody.innerHTML = this.guestList.map(g => {
+    tbody.innerHTML = filtered.map(g => {
       const totalGuests = g.guestCount || 0;
       const companionCount = (g.guests || []).length;
       const sourceIcon = this.getSourceIcon(g.source);

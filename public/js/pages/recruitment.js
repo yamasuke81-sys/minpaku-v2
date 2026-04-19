@@ -5,6 +5,8 @@
 const RecruitmentPage = {
   recruitments: [],
   staffList: [],
+  properties: [],           // 物件一覧
+  selectedPropertyIds: [],  // フィルタ選択中の物件ID
   currentFilter: "all",
   currentSort: "smart",
   modal: null,
@@ -18,6 +20,9 @@ const RecruitmentPage = {
           <i class="bi bi-plus-lg"></i> 新規募集
         </button>
       </div>
+
+      <!-- 物件フィルタ -->
+      <div id="propertyFilterHost-recruitment"></div>
 
       <!-- ステータスフィルター + 日付ソート -->
       <div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
@@ -53,6 +58,17 @@ const RecruitmentPage = {
     this.detailModal = new bootstrap.Modal(document.getElementById("recruitmentDetailModal"));
     this.bindEvents();
     await this.loadData();
+
+    // 物件フィルタ初期化 (loadData後に物件一覧が揃っているので後ろで初期化)
+    PropertyFilter.render({
+      containerId: "propertyFilterHost-recruitment",
+      tabKey: "recruitment",
+      properties: this.properties,
+      onChange: (ids) => {
+        this.selectedPropertyIds = ids;
+        this.renderList();
+      },
+    });
   },
 
   bindEvents() {
@@ -119,12 +135,15 @@ const RecruitmentPage = {
 
   async loadData() {
     try {
-      const [recruitments, staff] = await Promise.all([
+      const [recruitments, staff, properties] = await Promise.all([
         API.recruitments.list(),
         API.staff.list(true),
+        API.properties.listMinpakuNumbered(),
       ]);
       this.recruitments = recruitments;
       this.staffList = staff;
+      this.properties = properties;
+      this.selectedPropertyIds = PropertyFilter.getSelectedIds("recruitment", properties);
       this.renderList();
     } catch (e) {
       showToast("エラー", `データ読み込み失敗: ${e.message}`, "error");
@@ -136,6 +155,12 @@ const RecruitmentPage = {
     let filtered = [...this.recruitments];
     if (this.currentFilter !== "all") {
       filtered = filtered.filter(r => r.status === this.currentFilter);
+    }
+    // 物件フィルタ適用
+    if (this.selectedPropertyIds && this.selectedPropertyIds.length > 0) {
+      filtered = filtered.filter(r => !r.propertyId || this.selectedPropertyIds.includes(r.propertyId));
+    } else if (this.selectedPropertyIds && this.selectedPropertyIds.length === 0) {
+      filtered = [];
     }
 
     // 日付ソート
