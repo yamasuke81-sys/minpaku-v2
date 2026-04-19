@@ -1110,6 +1110,10 @@ const GuestsPage = {
   dragSourceIdx: null,
   // 現在編集中の対象: propertyId（__common__ は廃止）
   _currentFormTarget: null,
+  // Phase 1: 標準項目の物件別オーバーライド { [fieldId]: { hidden, labelOverride, ... } }
+  _formFieldOverrides: {},
+  // Phase 1: 統一リスト用の展開状態（標準項目はフィールドid、カスタムはインデックス文字列）
+  _unifiedExpandedCards: new Set(),
 
   async loadFormConfig() {
     const pid = this._currentFormTarget;
@@ -1125,6 +1129,9 @@ const GuestsPage = {
       const pDoc = await db.collection("properties").doc(pid).get();
       if (!pDoc.exists) return;
       const pd = pDoc.data();
+
+      // formFieldConfig.overrides を取得 (Phase 1 新規フィールド)
+      this._formFieldOverrides = (pd.formFieldConfig && pd.formFieldConfig.overrides) ? pd.formFieldConfig.overrides : {};
 
       if (pd.customFormEnabled === true && pd.customFormFields?.length > 0) {
         // 独自設定あり → 編集UIを表示
@@ -1168,15 +1175,16 @@ const GuestsPage = {
     const mgEl = document.getElementById("formMiniGameToggle");
     if (mgEl) mgEl.checked = this._miniGameCurrent !== false;
 
-    // フォーム項目を描画
-    this.renderFormFields();
+    // フォーム項目を描画（Phase 1: 標準+カスタム統一リスト）
+    this.renderUnifiedFormFields();
   },
 
   loadFormDefaults() {
     showConfirm("デフォルト読み込み", "デフォルト項目を読み込みます。現在の設定は上書きされます。よろしいですか？", () => {
       this.formFields = JSON.parse(JSON.stringify(this.DEFAULT_FORM_FIELDS));
       this.expandedCards.clear();
-      this.renderFormFields();
+      this._unifiedExpandedCards.clear();
+      this.renderUnifiedFormFields();
       showToast("完了", "デフォルト項目を読み込みました。「保存」を押して反映してください。", "success");
     });
   },
@@ -1188,6 +1196,269 @@ const GuestsPage = {
 
   hasOptions(type) {
     return ["select", "radio", "checkbox"].includes(type);
+  },
+
+  // ================================================================
+  // Phase 1: 標準+カスタム統一フォーム項目リスト
+  // ================================================================
+
+  /**
+   * 標準項目とカスタム項目を1つのリストとして描画する。
+   * - 標準項目 (core:true): STANDARD_FORM_FIELDS から生成、鍵アイコン表示
+   * - カスタム項目: this.formFields から生成（既存）
+   * 並び順は標準→カスタムの順にセクション別で表示。
+   * sortOrder オーバーライドは Phase 2 で対応予定。
+   */
+  renderUnifiedFormFields() {
+    const container = document.getElementById("formFieldList");
+    if (!container) return;
+
+    // STANDARD_FORM_FIELDS が読み込まれていない場合は既存 renderFormFields にフォールバック
+    const stdFields = (typeof STANDARD_FORM_FIELDS !== "undefined") ? STANDARD_FORM_FIELDS : null;
+    if (!stdFields) {
+      this.renderFormFields();
+      return;
+    }
+
+    const overrides = this._formFieldOverrides || {};
+
+    // セクション別にまとめる（標準→カスタムの順）
+    const sectionOrder = this.DEFAULT_SECTIONS.map(s => s.id);
+    let html = "";
+    let lastSection = "";
+
+    // 全項目リストを構築: 標準項目を先に、その後カスタム項目
+    const allItems = [];
+
+    // 標準項目
+    stdFields.forEach(f => {
+      allItems.push({ kind: "standard", field: f });
+    });
+
+    // カスタム項目（this.formFields から、core:true でないもの）
+    this.formFields.forEach((f, i) => {
+      if (f.core) return; // 標準項目は除外
+      allItems.push({ kind: "custom", field: f, idx: i });
+    });
+
+    // セクション順でソート
+    allItems.sort((a, b) => {
+      const aOrder = sectionOrder.indexOf(a.field.section);
+      const bOrder = sectionOrder.indexOf(b.field.section);
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      // 同セクション内では standard → custom の順
+      if (a.kind !== b.kind) return a.kind === "standard" ? -1 : 1;
+      return 0;
+    });
+
+    if (allItems.length === 0) {
+      container.innerHTML = '<div class="text-center text-muted py-3">項目がありません。</div>';
+      return;
+    }
+
+    allItems.forEach((item) => {
+      const secId = item.field.section;
+      if (secId !== lastSection) {
+        lastSection = secId;
+        html += `<div class="ff-section-sep"><i class="bi bi-folder2-open"></i> ${this.esc(this.getSectionLabel(secId))}</div>`;
+      }
+
+      if (item.kind === "standard") {
+        html += this._renderStandardFieldCard(item.field);
+      } else {
+        html += this._renderCustomFieldCard(item.field, item.idx);
+      }
+    });
+
+    container.innerHTML = html;
+    this.bindUnifiedCardEvents(container);
+  },
+
+  /**
+   * 標準項目カードの HTML を生成する。
+   */
+  _renderStandardFieldCard(f) {
+    const overrides = this._formFieldOverrides || {};
+    const ov = overrides[f.id] || {};
+    const isHidden = ov.hidden === true;
+    const cardKey = "std_" + f.id;
+    const isExpanded = this._unifiedExpandedCards.has(cardKey);
+    const displayLabel = ov.labelOverride || f.label;
+    const displayLabelEn = ov.labelEnOverride || f.labelEn || "";
+    const typeBadge = this.TYPE_LABELS[f.type] || f.type;
+    const reqEffective = ov.requiredOverride !== undefined ? ov.requiredOverride : f.required;
+
+    let body = "";
+    if (isExpanded) {
+      body = `
+        <div class="ff-card-body">
+          <div class="ff-core-readonly-note text-muted small mb-2">
+            <i class="bi bi-lock-fill text-warning me-1"></i>
+            標準項目（type・mapping は変更不可）。ラベル・必須・プレースホルダーのみ上書き可能です。
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-md-5">
+              <label class="form-label small">ラベル（日本語）<span class="text-muted ms-1">デフォルト: ${this.esc(f.label)}</span></label>
+              <input type="text" class="form-control form-control-sm ufld-std-edit" data-fid="${this.esc(f.id)}" data-key="labelOverride" value="${this.esc(ov.labelOverride || "")}" placeholder="${this.esc(f.label)}">
+            </div>
+            <div class="col-md-5">
+              <label class="form-label small">ラベル（英語）<span class="text-muted ms-1">デフォルト: ${this.esc(f.labelEn || "")}</span></label>
+              <input type="text" class="form-control form-control-sm ufld-std-edit" data-fid="${this.esc(f.id)}" data-key="labelEnOverride" value="${this.esc(ov.labelEnOverride || "")}" placeholder="${this.esc(f.labelEn || "")}">
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+              <div class="form-check">
+                <input type="checkbox" class="form-check-input ufld-std-edit" data-fid="${this.esc(f.id)}" data-key="requiredOverride" id="ufld_req_std_${this.esc(f.id)}" ${reqEffective ? "checked" : ""}>
+                <label class="form-check-label small" for="ufld_req_std_${this.esc(f.id)}">必須</label>
+              </div>
+            </div>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-md-6">
+              <label class="form-label small">プレースホルダー（日本語）</label>
+              <input type="text" class="form-control form-control-sm ufld-std-edit" data-fid="${this.esc(f.id)}" data-key="placeholderOverride" value="${this.esc(ov.placeholderOverride || "")}" placeholder="${this.esc(f.placeholder || "")}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small">プレースホルダー（英語）</label>
+              <input type="text" class="form-control form-control-sm ufld-std-edit" data-fid="${this.esc(f.id)}" data-key="placeholderEnOverride" value="${this.esc(ov.placeholderEnOverride || "")}" placeholder="">
+            </div>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-md-3">
+              <label class="form-label small">種類（読み取り専用）</label>
+              <input type="text" class="form-control form-control-sm bg-light" value="${this.esc(typeBadge)}" readonly>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">マッピングID（読み取り専用）</label>
+              <input type="text" class="form-control form-control-sm bg-light" value="${this.esc(f.mapping || "")}" readonly>
+            </div>
+          </div>
+          <div class="d-flex gap-2 mt-3 pt-2 border-top">
+            <button class="btn btn-sm btn-outline-secondary ufld-std-reset" data-fid="${this.esc(f.id)}" title="この項目のオーバーライドをリセット">
+              <i class="bi bi-arrow-counterclockwise"></i> リセット
+            </button>
+          </div>
+        </div>`;
+    }
+
+    return `
+      <div class="ff-card ff-core-card${isExpanded ? " expanded" : ""}${isHidden ? " ff-hidden" : ""}" data-card-key="${cardKey}" draggable="false" style="${isHidden ? "opacity:0.55;" : ""}">
+        <div class="ff-card-header ufld-std-toggle" data-card-key="${cardKey}">
+          <span class="ff-drag-handle text-muted" title="標準項目はD&D非対応（Phase 2対応予定）" style="cursor:default;"><i class="bi bi-lock-fill" style="color:#ffc107;font-size:0.8rem;"></i></span>
+          <div class="ff-card-title">
+            <div class="ff-card-label">${this.esc(displayLabel) || '<span class="text-muted">(未入力)</span>'}</div>
+            ${displayLabelEn ? `<div class="ff-card-label-en">${this.esc(displayLabelEn)}</div>` : ""}
+          </div>
+          <span class="badge bg-info text-dark ff-badge-type" title="コア標準項目"><i class="bi bi-lock-fill me-1"></i>${typeBadge}</span>
+          ${reqEffective ? '<span class="badge bg-danger ff-badge-req">必須</span>' : ""}
+          ${isHidden ? '<span class="badge bg-warning text-dark ff-badge-hidden"><i class="bi bi-eye-slash"></i> 非表示</span>' : ""}
+          <span class="badge bg-light text-dark ff-badge-sec">${this.esc(this.getSectionLabel(f.section))}</span>
+          <button type="button" class="btn btn-sm ${isHidden ? "btn-outline-success" : "btn-outline-secondary"} ff-visibility-btn ufld-std-toggle-hidden"
+            data-fid="${this.esc(f.id)}" title="${isHidden ? "表示する" : "非表示にする"}" style="padding:2px 6px;" onclick="event.stopPropagation();">
+            <i class="bi bi-${isHidden ? "eye" : "eye-slash"}"></i>
+          </button>
+          <i class="bi bi-chevron-${isExpanded ? "up" : "down"} ff-chevron"></i>
+        </div>
+        ${body}
+      </div>`;
+  },
+
+  /**
+   * カスタム項目カードの HTML を生成する（既存 renderFormFields の1カード分を抽出）。
+   */
+  _renderCustomFieldCard(f, idx) {
+    const isExpanded = this.expandedCards.has(idx) || this._unifiedExpandedCards.has("custom_" + idx);
+    const typeBadge = this.TYPE_LABELS[f.type] || f.type;
+    const shortLabel = (f.label || "").split("\n")[0].substring(0, 40);
+    const isHidden = f.hidden === true;
+    return `
+      <div class="ff-card${isExpanded ? " expanded" : ""}${isHidden ? " ff-hidden" : ""}" data-idx="${idx}" draggable="true" style="${isHidden ? "opacity:0.55;" : ""}">
+        <div class="ff-card-header" data-action="toggle" data-idx="${idx}">
+          <span class="ff-drag-handle" title="ドラッグで並び替え"><i class="bi bi-grip-vertical"></i></span>
+          <span class="ff-card-num">${idx + 1}</span>
+          <div class="ff-card-title">
+            <div class="ff-card-label">${this.esc(shortLabel) || '<span class="text-muted">(未入力)</span>'}</div>
+            ${f.labelEn ? `<div class="ff-card-label-en">${this.esc(f.labelEn)}</div>` : ""}
+          </div>
+          <span class="badge bg-secondary ff-badge-type">${typeBadge}</span>
+          <span class="badge bg-success text-white" title="カスタム追加項目" style="font-size:0.7em;">カスタム</span>
+          ${f.required ? '<span class="badge bg-danger ff-badge-req">必須</span>' : ""}
+          ${isHidden ? '<span class="badge bg-warning text-dark ff-badge-hidden"><i class="bi bi-eye-slash"></i> 非表示</span>' : ""}
+          <span class="badge bg-light text-dark ff-badge-sec">${this.esc(this.getSectionLabel(f.section))}</span>
+          <button type="button" class="btn btn-sm ${isHidden ? "btn-outline-success" : "btn-outline-secondary"} ff-visibility-btn" data-action="toggleHidden" data-idx="${idx}" title="${isHidden ? "表示する" : "非表示にする"}" style="padding:2px 6px;" onclick="event.stopPropagation();">
+            <i class="bi bi-${isHidden ? "eye" : "eye-slash"}"></i>
+          </button>
+          <i class="bi bi-chevron-${isExpanded ? "up" : "down"} ff-chevron"></i>
+        </div>
+        ${isExpanded ? this.renderFieldCardBody(f, idx) : ""}
+      </div>`;
+  },
+
+  /**
+   * 統一リスト用イベントバインド
+   * 標準項目イベントを追加し、カスタム項目は既存 bindCardEvents を流用。
+   */
+  bindUnifiedCardEvents(container) {
+    // --- 標準項目: ヘッダークリックで展開/折り畳み ---
+    container.querySelectorAll(".ufld-std-toggle").forEach(el => {
+      el.addEventListener("click", (e) => {
+        if (e.target.closest(".ufld-std-toggle-hidden")) return;
+        const cardKey = el.dataset.cardKey;
+        if (!cardKey) return;
+        if (this._unifiedExpandedCards.has(cardKey)) this._unifiedExpandedCards.delete(cardKey);
+        else this._unifiedExpandedCards.add(cardKey);
+        this.renderUnifiedFormFields();
+      });
+    });
+
+    // --- 標準項目: 非表示/表示トグル ---
+    container.querySelectorAll(".ufld-std-toggle-hidden").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const fid = btn.dataset.fid;
+        if (!fid) return;
+        if (!this._formFieldOverrides[fid]) this._formFieldOverrides[fid] = {};
+        this._formFieldOverrides[fid].hidden = !this._formFieldOverrides[fid].hidden;
+        this.renderUnifiedFormFields();
+        const hiddenNow = this._formFieldOverrides[fid].hidden;
+        showToast("", `${fid} を${hiddenNow ? "非表示" : "表示"}に変更 (保存で確定)`, "info");
+      });
+    });
+
+    // --- 標準項目: 入力値の変更（リアルタイム更新） ---
+    container.querySelectorAll(".ufld-std-edit").forEach(el => {
+      const handler = () => {
+        const fid = el.dataset.fid;
+        const key = el.dataset.key;
+        if (!fid || !key) return;
+        if (!this._formFieldOverrides[fid]) this._formFieldOverrides[fid] = {};
+        if (el.type === "checkbox") {
+          this._formFieldOverrides[fid][key] = el.checked;
+        } else {
+          this._formFieldOverrides[fid][key] = el.value;
+        }
+      };
+      el.addEventListener("change", handler);
+      if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
+        el.addEventListener("input", handler);
+      }
+    });
+
+    // --- 標準項目: オーバーライドリセット ---
+    container.querySelectorAll(".ufld-std-reset").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const fid = btn.dataset.fid;
+        if (!fid) return;
+        showConfirm("リセット", `「${fid}」のオーバーライドをリセットしますか？デフォルト設定に戻ります。`, () => {
+          delete this._formFieldOverrides[fid];
+          this._unifiedExpandedCards.delete("std_" + fid);
+          this.renderUnifiedFormFields();
+          showToast("完了", "リセットしました（保存で確定）", "info");
+        });
+      });
+    });
+
+    // --- カスタム項目: 既存 bindCardEvents を流用 ---
+    this.bindCardEvents(container);
   },
 
   renderFormFields() {
@@ -1560,7 +1831,10 @@ const GuestsPage = {
     this.formFields.push(newField);
     this.expandedCards.clear();
     this.expandedCards.add(this.formFields.length - 1);
-    this.renderFormFields();
+    // 統一リストでは "custom_<idx>" キーを展開
+    this._unifiedExpandedCards.clear();
+    this._unifiedExpandedCards.add("custom_" + (this.formFields.length - 1));
+    this.renderUnifiedFormFields();
     // 最後のカードにスクロール
     const lastCard = document.querySelector("#formFieldList .ff-card:last-child");
     if (lastCard) lastCard.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1589,14 +1863,24 @@ const GuestsPage = {
         alertEl.textContent = "独自設定が有効ではありません。先に「デフォルトを流用して作成」または「他物件から流用」してください。";
         return;
       }
+
+      // 標準項目の overrides を sparse 保存（未変更項目は保存しない）
+      const overrides = {};
+      for (const [fid, ov] of Object.entries(this._formFieldOverrides)) {
+        // 空オーバーライドは除外
+        const hasValue = Object.values(ov).some(v => v !== undefined && v !== "" && v !== false);
+        if (hasValue) overrides[fid] = ov;
+      }
+
       await db.collection("properties").doc(pid).update({
         customFormFields: fields,
         customFormSections: this.DEFAULT_SECTIONS,
+        "formFieldConfig.overrides": overrides,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
       this.formFields = fields;
       alertEl.className = "alert alert-success py-2";
-      alertEl.textContent = `${fields.length}件のフォーム項目を保存しました。ゲストフォームに即時反映されます。`;
+      alertEl.textContent = `${fields.length}件のカスタム項目と標準項目設定を保存しました。`;
       showToast("完了", "フォーム設定を保存しました", "success");
     } catch (e) {
       alertEl.className = "alert alert-danger py-2";
