@@ -434,6 +434,15 @@ const GuestsPage = {
           // 継承ラベル削除 (実際の設定が入ったので)
           const label = cb.closest(".form-check").querySelector("label .text-muted");
           if (label) label.remove();
+          // タブ2「フォーム項目管理」のトグルも同期 (編集中物件が一致する場合)
+          if (this._currentFormTarget === propId) {
+            const tab2Toggle = document.getElementById("formMiniGameToggle");
+            if (tab2Toggle) tab2Toggle.checked = cb.checked;
+            this._miniGameCurrent = cb.checked;
+          }
+          // キャッシュも更新 (次回他タブを開いた時のため)
+          const cached = this._propertiesCache?.find(p => p.id === propId);
+          if (cached) cached.miniGameEnabled = cb.checked;
         } catch (e) {
           showToast("保存失敗", e.message, "error");
           cb.checked = !cb.checked;
