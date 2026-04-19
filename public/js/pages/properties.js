@@ -5,6 +5,8 @@
 const PropertiesPage = {
   propertyList: [],
   modal: null,
+  editingId: null,       // 現在編集中の物件ID (新規=null)
+  _autoSaveTimer: null,  // 自動保存デバウンスタイマー
 
   async render(container) {
     container.innerHTML = `
@@ -143,6 +145,8 @@ const PropertiesPage = {
 
   openModal(property = null) {
     const isEdit = !!property;
+    // 現在編集中の物件IDを記録（自動保存・ナビゲーション用）
+    this.editingId = isEdit ? property.id : null;
     document.getElementById("propertyModalTitle").textContent = isEdit ? "物件編集" : "物件登録";
     document.getElementById("propertyEditId").value = isEdit ? property.id : "";
 
@@ -205,6 +209,46 @@ const PropertiesPage = {
     document.getElementById("propertyLineChannelName").value = property?.lineChannelName || "";
 
     this.modal.show();
+
+    // --- タイミー時給ページへのリンクボタン ---
+    // モーダルを閉じてから #/rates?propertyId=xxx へ遷移する
+    const btnGoToRates = document.getElementById("btnGoToRates");
+    if (btnGoToRates) {
+      // 古いリスナを除去するためにクローン差し替え
+      const fresh = btnGoToRates.cloneNode(true);
+      btnGoToRates.parentNode.replaceChild(fresh, btnGoToRates);
+      fresh.addEventListener("click", () => {
+        const pid = document.getElementById("propertyEditId").value;
+        const hash = pid ? `#/rates?propertyId=${pid}` : "#/rates";
+        this.modal.hide();
+        // モーダルが完全に閉じてから遷移（背景が残らないように）
+        const modalEl = document.getElementById("propertyModal");
+        const onHidden = () => {
+          modalEl.removeEventListener("hidden.bs.modal", onHidden);
+          location.hash = hash;
+        };
+        modalEl.addEventListener("hidden.bs.modal", onHidden);
+      });
+    }
+
+    // --- 自動保存: 編集時のみ（新規作成は不可） ---
+    if (isEdit) {
+      const modalEl = document.getElementById("propertyModal");
+      const inputs = modalEl.querySelectorAll("input, select, textarea");
+      // モーダルを開くたびにタイマーをリセット
+      if (this._autoSaveTimer) clearTimeout(this._autoSaveTimer);
+      inputs.forEach(el => {
+        // 古いリスナを一掃するため、データ属性でフラグ管理
+        if (!el.dataset.autoSaveBound) {
+          el.dataset.autoSaveBound = "1";
+          el.addEventListener("change", () => {
+            if (!this.editingId) return;
+            clearTimeout(this._autoSaveTimer);
+            this._autoSaveTimer = setTimeout(() => this._autoSave(), 800);
+          });
+        }
+      });
+    }
   },
 
   async saveProperty() {
@@ -284,6 +328,97 @@ const PropertiesPage = {
     } catch (e) {
       showToast("エラー", `保存に失敗しました: ${e.message}`, "error");
     }
+  },
+
+  // 自動保存: editingId がある場合のみ、saveProperty のコアロジックを実行
+  async _autoSave() {
+    if (!this.editingId) return;
+    const id = document.getElementById("propertyEditId").value;
+    if (!id) return;
+    const name = document.getElementById("propertyName").value.trim();
+    // 物件名が空のままなら自動保存しない
+    if (!name) return;
+
+    const requiredSkills = document.getElementById("propertySkills").value
+      .split(",").map((s) => s.trim()).filter(Boolean);
+
+    const data = {
+      name,
+      type: document.getElementById("propertyType").value,
+      capacity: Number(document.getElementById("propertyCapacity").value) || 0,
+      beds24PropertyId: document.getElementById("propertyBeds24Id").value.trim(),
+      area: document.getElementById("propertyArea").value.trim(),
+      address: document.getElementById("propertyAddress").value.trim(),
+      cleaningDuration: Number(document.getElementById("propertyCleaningDuration").value) || 90,
+      cleaningStartTime: document.getElementById("propertyCleaningStartTime").value || "10:30",
+      inspectionStartTime: document.getElementById("propertyInspectionStartTime").value || "10:00",
+      baseWorkTime: {
+        start: document.getElementById("propertyBaseWorkTimeStart").value || "10:30",
+        end: document.getElementById("propertyBaseWorkTimeEnd").value || "14:30",
+      },
+      cleaningFee: Number(document.getElementById("propertyCleaningFee").value) || 0,
+      monthlyFixedCost: Number(document.getElementById("propertyMonthlyCost").value) || 0,
+      purchasePrice: Number(document.getElementById("propertyPurchasePrice").value) || 0,
+      purchaseDate: document.getElementById("propertyPurchaseDate").value || null,
+      requiredSkills,
+      selectionMethod: document.getElementById("propertySelectionMethod").value || "ownerConfirm",
+      cleaningRequiredCount: Number(document.getElementById("propertyCleaningRequiredCount").value) || 1,
+      propertyNumber: Number(document.getElementById("propertyNumber").value) || null,
+      color: document.getElementById("propertyColor").value || null,
+      inspection: (() => {
+        const recur = !!document.getElementById("propertyInspectionRecurYearly").checked;
+        const pad = (v) => String(v).padStart(2, "0");
+        const rsm = document.getElementById("propertyInspectionRecurStartMonth").value;
+        const rsd = document.getElementById("propertyInspectionRecurStartDay").value;
+        const rem = document.getElementById("propertyInspectionRecurEndMonth").value;
+        const red = document.getElementById("propertyInspectionRecurEndDay").value;
+        return {
+          enabled: !!document.getElementById("propertyInspectionEnabled").checked,
+          requiredCount: Number(document.getElementById("propertyInspectionRequiredCount").value) || 1,
+          recurYearly: recur,
+          recurStart: recur ? `${pad(rsm)}-${pad(rsd)}` : null,
+          recurEnd: recur ? `${pad(rem)}-${pad(red)}` : null,
+          periodStart: recur ? null : (document.getElementById("propertyInspectionPeriodStart").value || null),
+          periodEnd: recur ? null : (document.getElementById("propertyInspectionPeriodEnd").value || null),
+        };
+      })(),
+      notes: document.getElementById("propertyNotes").value.trim(),
+      lineEnabled: document.getElementById("propertyLineEnabled").checked,
+      lineGroupId: document.getElementById("propertyLineGroupId").value.trim(),
+      lineChannelName: document.getElementById("propertyLineChannelName").value.trim(),
+    };
+    const tokenInput = document.getElementById("propertyLineChannelToken").value.trim();
+    if (tokenInput) data.lineChannelToken = tokenInput;
+
+    try {
+      await API.properties.update(id, data);
+      this._showSavedToast();
+    } catch (e) {
+      console.warn("[物件自動保存] 失敗:", e.message);
+    }
+  },
+
+  // 右下に「保存しました」の小さいトースト表示（showAlert は使わない）
+  _showSavedToast() {
+    let el = document.getElementById("propertySavedToast");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "propertySavedToast";
+      el.style.cssText = [
+        "position:fixed", "bottom:1.5rem", "right:1.5rem",
+        "z-index:2000", "padding:.4rem .9rem",
+        "background:rgba(25,135,84,.9)", "color:#fff",
+        "border-radius:.5rem", "font-size:.85rem",
+        "box-shadow:0 2px 8px rgba(0,0,0,.2)",
+        "pointer-events:none", "opacity:0",
+        "transition:opacity .3s"
+      ].join(";");
+      el.textContent = "✓ 保存しました";
+      document.body.appendChild(el);
+    }
+    el.style.opacity = "1";
+    clearTimeout(this._savedToastTimer);
+    this._savedToastTimer = setTimeout(() => { el.style.opacity = "0"; }, 1800);
   },
 
   async deleteProperty(property) {

@@ -44,10 +44,18 @@ const RatesPage = {
       </div>
     `;
 
-    document.getElementById("ratesPropertySel").addEventListener("change", (e) => {
-      if (this.dirty && !confirm("未保存の変更があります。物件を切り替えますか？")) {
-        e.target.value = this.currentPropertyId;
-        return;
+    document.getElementById("ratesPropertySel").addEventListener("change", async (e) => {
+      if (this.dirty) {
+        const ok = await this.showConfirmDialog({
+          title: "未保存の変更",
+          message: "未保存の変更があります。物件を切り替えますか？",
+          confirmLabel: "切り替える",
+          danger: false,
+        });
+        if (!ok) {
+          e.target.value = this.currentPropertyId;
+          return;
+        }
       }
       this.currentPropertyId = e.target.value;
       this.loadWorkItems();
@@ -78,7 +86,13 @@ const RatesPage = {
       sel.innerHTML = this.properties.map(p =>
         `<option value="${p.id}">${p._num}. ${this.esc(p.name)}</option>`).join("");
 
-      this.currentPropertyId = this.properties[0].id;
+      // URL パラメータ ?propertyId=xxx があれば初期選択に使用
+      const hashParts = location.hash.split("?");
+      const params = new URLSearchParams(hashParts[1] || "");
+      const targetPropertyId = params.get("propertyId");
+      const matched = targetPropertyId && this.properties.find(p => p.id === targetPropertyId);
+
+      this.currentPropertyId = matched ? matched.id : this.properties[0].id;
       sel.value = this.currentPropertyId;
       await this.loadWorkItems();
     } catch (e) {
