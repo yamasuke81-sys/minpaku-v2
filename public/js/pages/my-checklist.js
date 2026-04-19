@@ -391,6 +391,16 @@ const MyChecklistPage = {
   detach() {
     if (this.unsubscribe) { this.unsubscribe(); this.unsubscribe = null; }
     if (this.presenceTimer) { clearInterval(this.presenceTimer); this.presenceTimer = null; }
+    // resize リスナーを確実に解除（メモリリーク防止）
+    if (this._headerResizeHandler) {
+      window.removeEventListener("resize", this._headerResizeHandler);
+      this._headerResizeHandler = null;
+    }
+    // hashchange リスナーを確実に解除（{ once: true } はタブ閉じ時に発火しないため）
+    if (this._hashHandler) {
+      window.removeEventListener("hashchange", this._hashHandler);
+      this._hashHandler = null;
+    }
     this.clearEditingMark();
     this.checklistId = null;
     this.checklist = null;
