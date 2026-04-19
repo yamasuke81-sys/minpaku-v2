@@ -15,6 +15,7 @@
  * 通知設定 settings/notifications.channels[type] の customMessage と宛先フラグに従う。
  */
 const admin = require("firebase-admin");
+const { FieldValue } = require("firebase-admin/firestore");
 const {
   notifyOwner,
   notifyGroup,
@@ -59,14 +60,107 @@ function fmtTime(ts) {
   } catch (e) { return ""; }
 }
 
+/**
+ * putOut データを laundry コレクションに同期する
+ * 二重作成防止: sourceChecklistId + sourceField で既存ドキュメントを検索し、あれば update
+ */
+async function syncPutOutToLaundry(db, checklistId, after, putOut) {
+  const paymentMethod = putOut.paymentMethod || "";
+  // cash/credit は立替あり、prepaid/invoice は立替なし
+  const isReimbursable = ["cash", "credit"].includes(paymentMethod);
+
+  const laundryData = {
+    date: after.checkoutDate || after.date || null,
+    propertyId: after.propertyId || "",
+    staffId: putOut.by?.id || putOut.by || "",
+    depot: putOut.depot || "",
+    depotOther: putOut.depotOther || "",
+    depotKind: putOut.depotKind || "",
+    paymentMethod,
+    sheets: 0,
+    amount: Number(putOut.amount) || 0,
+    memo: putOut.note || "",
+    isReimbursable,
+    sourceChecklistId: checklistId,
+    sourceField: "putOut",
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+
+  // 既存ドキュメントを検索
+  const existing = await db.collection("laundry")
+    .where("sourceChecklistId", "==", checklistId)
+    .where("sourceField", "==", "putOut")
+    .limit(1)
+    .get();
+
+  if (!existing.empty) {
+    // 既存あり: update
+    await existing.docs[0].ref.update(laundryData);
+    console.log(`[syncPutOutToLaundry] update docId=${existing.docs[0].id} checklistId=${checklistId}`);
+  } else {
+    // 新規作成
+    await db.collection("laundry").add({
+      ...laundryData,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    console.log(`[syncPutOutToLaundry] create checklistId=${checklistId}`);
+  }
+}
+
+/**
+ * putOut が削除された (null に戻された) 場合、対応する laundry ドキュメントも削除
+ */
+async function deleteLaundryByChecklist(db, checklistId) {
+  const snap = await db.collection("laundry")
+    .where("sourceChecklistId", "==", checklistId)
+    .where("sourceField", "==", "putOut")
+    .get();
+  const deletes = snap.docs.map(d => d.ref.delete());
+  await Promise.all(deletes);
+  if (deletes.length > 0) {
+    console.log(`[deleteLaundryByChecklist] deleted ${deletes.length} docs for checklistId=${checklistId}`);
+  }
+}
+
 module.exports = async (event) => {
   const db = admin.firestore();
   const before = event.data?.before?.data();
   const after = event.data?.after?.data();
   if (!before || !after) return;
 
+  const checklistId = event.params.checklistId;
   const beforeLaundry = before.laundry || {};
   const afterLaundry = after.laundry || {};
+
+  // --- putOut の同期処理 ---
+  const beforePutOut = beforeLaundry.putOut;
+  const afterPutOut = afterLaundry.putOut;
+  const wasSet = isLaundrySet(beforePutOut);
+  const nowSet = isLaundrySet(afterPutOut);
+
+  if (!wasSet && nowSet) {
+    // 新規セット → laundry コレクションに作成/更新
+    try {
+      await syncPutOutToLaundry(db, checklistId, after, afterPutOut);
+    } catch (e) {
+      console.error(`[onChecklistLaundryChange] syncPutOutToLaundry エラー:`, e);
+      try {
+        await db.collection("error_logs").add({
+          type: "onChecklistLaundryChange_syncPutOut",
+          message: e.message,
+          checklistId,
+          createdAt: new Date(),
+        });
+      } catch (_) { /* ignore */ }
+    }
+  } else if (wasSet && !nowSet) {
+    // putOut が削除された → laundry コレクションからも削除
+    try {
+      await deleteLaundryByChecklist(db, checklistId);
+    } catch (e) {
+      console.error(`[onChecklistLaundryChange] deleteLaundryByChecklist エラー:`, e);
+    }
+  }
 
   // 各アクションの null → 値 遷移を検知
   const actions = [
