@@ -652,7 +652,9 @@ const ReservationFlowPage = {
     };
 
     // デスクトップ: 3レーングリッド
-    let html = `<div class="rf-swimlane-root">`;
+    // rf-swimlane-root の外側に overflow-x: auto スクロールラッパーを置く
+    // (overflow-x: auto が親にあると position: sticky が効かなくなるため分離)
+    let html = `<div class="rf-swimlane-scroll"><div class="rf-swimlane-root">`;
 
     // --- ヘッダー行 ---
     html += `
@@ -728,7 +730,7 @@ const ReservationFlowPage = {
     `;
     html += this._renderStepRows(branchCSteps, property, null);
 
-    html += `</div>`;
+    html += `</div></div>`;
 
     wrap.innerHTML = html;
 
@@ -846,7 +848,7 @@ const ReservationFlowPage = {
         <!-- ヘッダー (常時表示) -->
         <div class="rf-card-header" data-fold="${foldId}" style="cursor:pointer;">
           <i class="bi ${step.icon} rf-card-icon"></i>
-          <span class="rf-card-title">${this._esc(step.label)}</span>
+          <span class="rf-card-title" title="${this._esc(step.label)}">${this._esc(step.label)}</span>
           ${statusBadge}${syncBadge}${arrowBadge}
           <div class="ms-auto d-flex align-items-center gap-1">
             <div class="form-check form-switch mb-0">
@@ -1338,8 +1340,11 @@ const ReservationFlowPage = {
     return `
     <style>
     /* ===== スイムレーン全体 ===== */
+    /* overflow-x: auto をここに置くと sticky が効かなくなるため、外側ラッパーに移動 */
     .rf-swimlane-root {
       width: 100%;
+    }
+    .rf-swimlane-scroll {
       overflow-x: auto;
     }
 
@@ -1355,6 +1360,7 @@ const ReservationFlowPage = {
       position: sticky;
       top: 56px; /* ナビバー高さ分 */
       z-index: 10;
+      background: #fff; /* sticky 下に内容が透けないよう */
     }
     .rf-lane-header {
       padding: 8px 12px;
@@ -1367,7 +1373,7 @@ const ReservationFlowPage = {
     .rf-lane-header.rf-lane-owner  { background: #dcfce7; color: #166534; border-color: #86efac; }
     .rf-lane-header.rf-lane-staff  { background: #ffedd5; color: #9a3412; border-color: #fdba74; }
 
-    /* Phase区切り */
+    /* Phase区切り: 3列横断 */
     .rf-phase-divider {
       grid-column: 1 / -1;
       background: #f1f5f9;
@@ -1448,12 +1454,24 @@ const ReservationFlowPage = {
     .rf-card-header {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
       padding: 8px 10px;
-      flex-wrap: wrap;
+      flex-wrap: nowrap; /* 折り返し禁止 */
+      min-width: 0;      /* flex child の縮小を許可 */
     }
     .rf-card-icon { font-size: 1rem; color: #3b82f6; flex-shrink: 0; }
-    .rf-card-title { font-weight: 600; font-size: 0.8rem; flex: 1; min-width: 0; }
+    .rf-card-title {
+      font-weight: 600;
+      font-size: 0.8rem;
+      flex: 1 1 auto;
+      min-width: 0;          /* overflow を有効にするため必須 */
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    /* バッジ群は縮小しない */
+    .rf-card-header .badge { flex-shrink: 0; }
+    .rf-card-header .ms-auto { flex-shrink: 0; }
 
     .rf-card-body {
       padding: 6px 10px 10px;
@@ -1484,6 +1502,13 @@ const ReservationFlowPage = {
 
       /* モバイルタブフィルタ */
       .rf-step-row[data-lane] { display: block; }
+
+      /* モバイルではタイトル折り返しOK */
+      .rf-card-title {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+      }
     }
 
     /* モバイルタブ */

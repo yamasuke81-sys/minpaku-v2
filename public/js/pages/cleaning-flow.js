@@ -494,7 +494,7 @@ const CleaningFlowPage = {
       4: "Phase 4: 月末請求",
     };
 
-    let html = `<div class="rf-swimlane-root">`;
+    let html = `<div class="rf-swimlane-scroll"><div class="rf-swimlane-root">`;
 
     // ヘッダー行
     html += `
@@ -533,7 +533,7 @@ const CleaningFlowPage = {
     `;
     html += this._renderStepRows(branchBSteps, property, null);
 
-    html += `</div>`;
+    html += `</div></div>`;
 
     wrap.innerHTML = html;
 
@@ -636,7 +636,7 @@ const CleaningFlowPage = {
         <!-- ヘッダー (常時表示) -->
         <div class="rf-card-header" data-fold="${foldId}" style="cursor:pointer;">
           <i class="bi ${step.icon} rf-card-icon"></i>
-          <span class="rf-card-title">${this._esc(step.label)}</span>
+          <span class="rf-card-title" title="${this._esc(step.label)}">${this._esc(step.label)}</span>
           ${statusBadge}${syncBadge}${arrowBadge}
           <div class="ms-auto d-flex align-items-center gap-1">
             <div class="form-check form-switch mb-0">
@@ -1141,8 +1141,11 @@ const CleaningFlowPage = {
     return `
     <style>
     /* ===== スイムレーン全体 ===== */
+    /* overflow-x: auto をここに置くと sticky が効かなくなるため分離 */
     .rf-swimlane-root {
       width: 100%;
+    }
+    .rf-swimlane-scroll {
       overflow-x: auto;
     }
 
@@ -1158,6 +1161,7 @@ const CleaningFlowPage = {
       position: sticky;
       top: 56px;
       z-index: 10;
+      background: #fff;
     }
     .rf-lane-header {
       padding: 8px 12px;
@@ -1251,12 +1255,24 @@ const CleaningFlowPage = {
     .rf-card-header {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
       padding: 8px 10px;
-      flex-wrap: wrap;
+      flex-wrap: nowrap; /* 折り返し禁止 */
+      min-width: 0;      /* flex child の縮小を許可 */
     }
     .rf-card-icon { font-size: 1rem; color: #3b82f6; flex-shrink: 0; }
-    .rf-card-title { font-weight: 600; font-size: 0.8rem; flex: 1; min-width: 0; }
+    .rf-card-title {
+      font-weight: 600;
+      font-size: 0.8rem;
+      flex: 1 1 auto;
+      min-width: 0;          /* overflow を有効にするため必須 */
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    /* バッジ群は縮小しない */
+    .rf-card-header .badge { flex-shrink: 0; }
+    .rf-card-header .ms-auto { flex-shrink: 0; }
 
     .rf-card-body {
       padding: 6px 10px 10px;
@@ -1287,6 +1303,13 @@ const CleaningFlowPage = {
 
       /* モバイルタブフィルタ */
       .rf-step-row[data-lane] { display: block; }
+
+      /* モバイルではタイトル折り返しOK */
+      .rf-card-title {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+      }
     }
 
     /* モバイルタブ */
