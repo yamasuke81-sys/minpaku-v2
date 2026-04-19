@@ -19,12 +19,33 @@ const GuestsPage = {
           <button class="btn btn-outline-info me-2" id="btnImportGas" title="GAS版スプレッドシートから指定期間をインポート">
             <i class="bi bi-cloud-download"></i> GASインポート
           </button>
-          <button class="btn btn-outline-success me-2" id="btnFormUrl">
-            <i class="bi bi-link-45deg"></i> フォームURL生成
-          </button>
           <button class="btn btn-primary" id="btnAddGuest">
             <i class="bi bi-plus-lg"></i> 手動登録
           </button>
+        </div>
+      </div>
+
+      <!-- 宿泊者名簿 共通フォームURL (画面直表示) -->
+      <div class="card mb-3 border-success">
+        <div class="card-body py-2 px-3">
+          <div class="d-flex align-items-center flex-wrap gap-2">
+            <div class="flex-shrink-0 small">
+              <strong class="text-success"><i class="bi bi-link-45deg"></i> 宿泊者名簿 共通フォームURL</strong>
+              <div class="text-muted" style="font-size:11px;">Airbnb/Booking.com の自動メッセージにこれを貼り付け。宿泊客がチェックイン日を入力すれば自動で日別フォーム表示</div>
+            </div>
+            <div class="input-group input-group-sm flex-grow-1" style="min-width:260px;max-width:640px;">
+              <input type="text" class="form-control" id="guestFormCommonUrl" readonly>
+              <button class="btn btn-outline-primary" type="button" id="btnCopyFormUrl" title="URLをコピー">
+                <i class="bi bi-clipboard"></i> コピー
+              </button>
+              <button class="btn btn-outline-secondary" type="button" id="btnOpenFormUrl" title="新しいタブで開く">
+                <i class="bi bi-box-arrow-up-right"></i> 新しいタブ
+              </button>
+              <button class="btn btn-outline-success" type="button" id="btnFormUrlAdvanced" title="物件別URL・ミニゲーム設定など詳細">
+                <i class="bi bi-gear"></i> 詳細
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -100,7 +121,27 @@ const GuestsPage = {
       this.openModal();
     });
 
-    document.getElementById("btnFormUrl").addEventListener("click", () => {
+    // 共通フォームURLを画面直表示 + コピー/新タブ/詳細ボタン
+    const baseUrl = location.origin + "/form/";
+    const urlInput = document.getElementById("guestFormCommonUrl");
+    if (urlInput) urlInput.value = baseUrl;
+
+    document.getElementById("btnCopyFormUrl")?.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(baseUrl);
+        showToast("コピー完了", "共通フォームURLをクリップボードにコピーしました", "success");
+      } catch (_) {
+        urlInput.select();
+        document.execCommand("copy");
+        showToast("コピー完了", "コピーしました", "success");
+      }
+    });
+
+    document.getElementById("btnOpenFormUrl")?.addEventListener("click", () => {
+      window.open(baseUrl, "_blank", "noopener");
+    });
+
+    document.getElementById("btnFormUrlAdvanced")?.addEventListener("click", () => {
       this.showFormUrlDialog();
     });
 
