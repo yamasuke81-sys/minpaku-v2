@@ -23,8 +23,11 @@ if (!admin.apps.length) {
     const serviceAccount = require(serviceAccountPath);
     admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
   } catch (_) {
-    // Application Default Credentials を使用
-    admin.initializeApp();
+    // Application Default Credentials を使用 (既存 inspect スクリプトと同パターン)
+    admin.initializeApp({
+      projectId: "minpaku-v2",
+      credential: admin.credential.applicationDefault(),
+    });
   }
 }
 
