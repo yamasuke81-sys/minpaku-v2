@@ -1507,24 +1507,34 @@
 
       // === 物件別フォーム設定の読み込み ===
       // 優先順位:
-      //   1. URL に propertyId があり、その物件の customFormEnabled===true → customFormFields を使用
+      //   1. URL に propertyId があり、公開APIで取得した物件の customFormEnabled===true → customFormFields を使用
       //   2. なければ settings/guestForm (共通) を使用
       //   3. それもなければ静的 HTML のデフォルトをそのまま使用（何も変更しない）
+      // ※ properties コレクションには機密フィールドがあるため Firestore 直読み禁止、公開API経由で取得
       let _resolvedFormFields = null;
       // 騒音ルールセクションの表示可否 (物件別 showNoiseAgreement、default: true)
       let _showNoiseAgreement = true;
+      // ミニゲームの有効/無効 (物件別 miniGameEnabled、default: true)
+      let _miniGameEnabled = true;
+      // 公開APIから取得した物件設定キャッシュ
+      let _propertyConfig = null;
       try {
         const propertyId = params.propertyId || "";
         if (propertyId) {
-          const pDoc = await db.collection("properties").doc(propertyId).get();
-          if (pDoc.exists) {
-            const pData = pDoc.data();
-            if (pData.customFormEnabled === true) {
-              _resolvedFormFields = pData.customFormFields || null;
+          // 公開API経由で物件設定を取得 (認証不要、機密フィールドなし)
+          const resp = await fetch(`/api/public/guest-form-config/${propertyId}`);
+          if (resp.ok) {
+            _propertyConfig = await resp.json();
+            if (_propertyConfig.customFormEnabled === true) {
+              _resolvedFormFields = _propertyConfig.customFormFields || null;
             }
             // 騒音ルール表示フラグ (未設定または true → 表示、false のみ非表示)
-            if (pData.showNoiseAgreement === false) {
+            if (_propertyConfig.showNoiseAgreement === false) {
               _showNoiseAgreement = false;
+            }
+            // ミニゲームフラグ
+            if (_propertyConfig.miniGameEnabled === false) {
+              _miniGameEnabled = false;
             }
           }
         }
@@ -1532,6 +1542,10 @@
           const gDoc = await db.collection("settings").doc("guestForm").get();
           if (gDoc.exists && gDoc.data().fields?.length > 0) {
             _resolvedFormFields = gDoc.data().fields;
+          }
+          // グローバル設定の miniGameEnabled もフォールバック
+          if (_propertyConfig === null && gDoc.exists && gDoc.data().miniGameEnabled === false) {
+            _miniGameEnabled = false;
           }
         }
       } catch (_) {}
@@ -1569,27 +1583,9 @@
           cancelMsgEl.classList.remove("d-none");
         });
         document.getElementById("btnGoToGame").addEventListener("click", async () => {
-          // ミニゲーム ON/OFF 設定を取得
-          // 優先順位: ①URLの propertyId に紐づく物件の miniGameEnabled
-          //          ②settings/guestForm.miniGameEnabled (グローバル default)
-          //          ③true (最終デフォルト)
-          let miniGameEnabled = true;
-          try {
-            const doc = await db.collection("settings").doc("guestForm").get();
-            if (doc.exists && doc.data().miniGameEnabled === false) miniGameEnabled = false;
-          } catch (_) {}
-          // URLパラメータの propertyId があれば物件個別設定を優先
-          try {
-            const params2 = new URLSearchParams(location.search);
-            const pid = params2.get("propertyId") || (data && data.propertyId) || "";
-            if (pid) {
-              const pDoc = await db.collection("properties").doc(pid).get();
-              if (pDoc.exists) {
-                const v = pDoc.data().miniGameEnabled;
-                if (typeof v === "boolean") miniGameEnabled = v;
-              }
-            }
-          } catch (_) {}
+          // ミニゲーム ON/OFF: 初期化時に _miniGameEnabled へ設定済みの値を使用
+          // (公開APIまたはグローバル設定から取得済み、Firestore直読み不要)
+          const miniGameEnabled = _miniGameEnabled;
 
           if (!miniGameEnabled) {
             // ゲーム無効: 直接フォーム本体へ
