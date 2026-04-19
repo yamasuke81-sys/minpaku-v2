@@ -23,9 +23,13 @@ service cloud.firestore {
       return request.auth.token.staffId;
     }
 
-    // スタッフマスタ — オーナーのみ書き込み、スタッフは自分のデータのみ読み取り
+    // スタッフマスタ — オーナーのみ書き込み
+    // スタッフは自分のデータ + アクティブスタッフ全員の名前/IDを読み取り可能
+    // (my-recruitment のカレンダーでスタッフ一覧を表示するために必要)
     match /staff/{staffId} {
-      allow read: if isOwner() || (isStaff() && myStaffId() == staffId);
+      allow read: if isOwner()
+        || (isStaff() && myStaffId() == staffId)
+        || (isStaff() && resource.data.active == true);
       allow write: if isOwner();
     }
 
@@ -63,13 +67,19 @@ service cloud.firestore {
          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'confirmedAt']));
     }
 
-    // チェックリスト — 読取は全スタッフ+オーナー可(履歴確認用)、更新は割当済みスタッフのみ
+    // チェックリスト — 読取は全スタッフ+オーナー可(履歴確認用)
+    // 更新: 割当済みスタッフ OR 担当物件に紐づくスタッフ (シフト未確定時でも操作可能)
     match /checklists/{checklistId} {
       allow read: if isOwner() || isStaff();
       allow create: if isAuthenticated();
       allow update: if isOwner()
-        || (isStaff() && (resource.data.staffId == myStaffId()
-                       || (resource.data.staffIds is list && myStaffId() in resource.data.staffIds)));
+        || (isStaff() && (
+            resource.data.staffId == myStaffId()
+            || (resource.data.staffIds is list && myStaffId() in resource.data.staffIds)
+            // 割り当て未確定でも、担当物件のスタッフなら操作可能
+            || (resource.data.propertyId != null
+                && resource.data.propertyId in get(/databases/$(database)/documents/staff/$(myStaffId())).data.assignedPropertyIds)
+          ));
       allow delete: if isOwner();
     }
 

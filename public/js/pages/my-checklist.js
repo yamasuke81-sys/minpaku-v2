@@ -1469,26 +1469,33 @@ const MyChecklistPage = {
     const othersEditing = editingBy && editingBy.uid && editingBy.uid !== this.myUid() &&
                           (Date.now() - (editingBy.at || 0) < 45000);
 
+    // カード全体がタップ可能: mcl-item-tap クラスで JS からチェックを切り替える
+    // 要補充チェック・アコーディオンボタンはバブリングを止めて誤作動を防ぐ
     return `
-      <div class="mcl-item card mb-2 ${checked ? 'bg-success bg-opacity-10' : ''}" data-item-id="${it.id}">
-        <div class="card-body p-2">
-          <div class="form-check">
-            <input class="form-check-input mcl-check" type="checkbox" id="chk-${it.id}" ${checked ? "checked" : ""}>
-            <label class="form-check-label" for="chk-${it.id}">
-              ${this.escapeHtml(it.name)}
-              ${it.memo ? `<div class="small text-muted">${this.escapeHtml(it.memo)}</div>` : ""}
-            </label>
+      <div class="mcl-item card mb-2 ${checked ? 'bg-success bg-opacity-10' : ''} mcl-item-tap" data-item-id="${it.id}"
+           style="cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;">
+        <div class="card-body" style="padding:12px 14px;">
+          <div class="d-flex align-items-start gap-3">
+            <!-- チェックボックス: ラベルは item-tap 側でハンドルするため pointer-events:none にして二重発火を防ぐ -->
+            <input class="form-check-input mcl-check flex-shrink-0" type="checkbox" id="chk-${it.id}"
+                   ${checked ? "checked" : ""}
+                   style="width:22px;height:22px;margin-top:2px;pointer-events:none;">
+            <div class="flex-grow-1 lh-base">
+              <span style="font-size:15px;">${this.escapeHtml(it.name)}</span>
+              ${it.memo ? `<div class="small text-muted mt-1">${this.escapeHtml(it.memo)}</div>` : ""}
+              ${othersEditing ? `<div class="small text-info mt-1"><i class="bi bi-person"></i> ${this.escapeHtml(editingBy.name||"他のスタッフ")}が編集中...</div>` : ""}
+              ${st.checkedBy ? `<div class="small text-muted mt-1">✓ ${this.escapeHtml(st.checkedBy.name||"")} ${this.fmtTime(st.checkedAt)}</div>` : ""}
+            </div>
           </div>
           ${it.supplyItem ? `
-            <div class="form-check ms-4 mt-1">
-              <input class="form-check-input mcl-restock" type="checkbox" id="sup-${it.id}" ${needsRestock ? "checked" : ""}>
-              <label class="form-check-label text-warning" for="sup-${it.id}">
+            <div class="form-check ms-0 mt-2 ps-1" onclick="event.stopPropagation()">
+              <input class="form-check-input mcl-restock" type="checkbox" id="sup-${it.id}"
+                     ${needsRestock ? "checked" : ""} style="width:20px;height:20px;">
+              <label class="form-check-label text-warning ms-2" for="sup-${it.id}">
                 <i class="bi bi-exclamation-triangle"></i> 要補充
               </label>
             </div>
           ` : ""}
-          ${othersEditing ? `<div class="small text-info mt-1"><i class="bi bi-person"></i> ${this.escapeHtml(editingBy.name||"他のスタッフ")}が編集中...</div>` : ""}
-          ${st.checkedBy ? `<div class="small text-muted mt-1">✓ ${this.escapeHtml(st.checkedBy.name||"")} ${this.fmtTime(st.checkedAt)}</div>` : ""}
         </div>
       </div>
     `;
@@ -1520,12 +1527,33 @@ const MyChecklistPage = {
   },
 
   wireChildren(el) {
-    el.querySelectorAll(".mcl-check").forEach(cb => {
-      cb.addEventListener("change", () => {
-        const itemId = cb.closest("[data-item-id]").dataset.itemId;
-        this.updateItemState(itemId, { checked: cb.checked });
+    // チェックボックスは pointer-events:none にしてあるため change イベントは発火しない
+    // カード全体タップ (mcl-item-tap) でチェック状態を切り替える
+    el.querySelectorAll(".mcl-item-tap").forEach(card => {
+      // タッチ操作で active 視覚フィードバック
+      card.addEventListener("touchstart", () => {
+        card.style.opacity = "0.75";
+      }, { passive: true });
+      card.addEventListener("touchend", () => {
+        card.style.opacity = "";
+      }, { passive: true });
+      card.addEventListener("touchcancel", () => {
+        card.style.opacity = "";
+      }, { passive: true });
+
+      card.addEventListener("click", (ev) => {
+        // 要補充チェックボックス (mcl-restock) と label のクリックはここに到達しない
+        // (stopPropagation 済み)
+        const itemId = card.dataset.itemId;
+        const cb = card.querySelector(".mcl-check");
+        if (!cb) return;
+        const newVal = !cb.checked;
+        cb.checked = newVal;
+        this.updateItemState(itemId, { checked: newVal });
       });
     });
+
+    // 要補充チェックボックス
     el.querySelectorAll(".mcl-restock").forEach(cb => {
       cb.addEventListener("change", () => {
         const itemId = cb.closest("[data-item-id]").dataset.itemId;
