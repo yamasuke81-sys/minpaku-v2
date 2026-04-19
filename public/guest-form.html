@@ -1658,27 +1658,34 @@
           parkingAllocation = alloc.result.map(r => ({ index: r.index, vehicleType: r.label, spot: r.spot }));
         }
 
+        // hidden フィールドは送信データに含めないヘルパー
+        // _hiddenFieldIds に登録されているフィールドは null を返す（除外判定用）
+        const fieldVal = (fieldId, value) => _hiddenFieldIds.has(fieldId) ? undefined : value;
+
         const data = {
-          checkIn: document.getElementById("f_checkIn").value,
-          checkOut: document.getElementById("f_checkOut").value,
-          checkInTime: document.getElementById("f_checkInTime").value,
-          checkOutTime: document.getElementById("f_checkOutTime").value,
-          guestCount: Number(document.getElementById("f_guestCount").value)||1,
-          guestCountInfants: Number(document.getElementById("f_guestCountInfants").value)||0,
-          bookingSite, guestName: rep.name, nationality: rep.nationality, address: rep.address,
+          checkIn:          fieldVal("checkIn",          document.getElementById("f_checkIn").value),
+          checkOut:         fieldVal("checkOut",         document.getElementById("f_checkOut").value),
+          checkInTime:      fieldVal("checkInTime",      document.getElementById("f_checkInTime").value),
+          checkOutTime:     fieldVal("checkOutTime",     document.getElementById("f_checkOutTime").value),
+          guestCount:       fieldVal("guestCount",       Number(document.getElementById("f_guestCount").value)||1),
+          guestCountInfants:fieldVal("guestCountInfants",Number(document.getElementById("f_guestCountInfants").value)||0),
+          bookingSite:      fieldVal("bookingSite",      bookingSite),
+          guestName: rep.name, nationality: rep.nationality, address: rep.address,
           phone: rep.phone||"", email: rep.email||"",
           passportNumber: rep.passportNumber||"", passportPhotoUrl: rep.passportPhotoUrl||"",
-          guests: companions, transport,
-          carCount: parseInt(document.getElementById("f_carCount").value)||0,
-          vehicleTypes, parkingAllocation,
-          paidParking: document.getElementById("f_paidParking").value || "",
-          bbq: document.getElementById("f_bbq").value,
-          bedChoice: document.getElementById("f_bedChoice").value,
-          purpose,
-          previousStay: document.getElementById("f_previousStay").value.trim(),
-          nextStay: document.getElementById("f_nextStay").value.trim(),
-          emergencyName: document.getElementById("f_emergencyName").value.trim(),
-          emergencyPhone: document.getElementById("f_emergencyPhone").value.trim(),
+          guests: companions,
+          transport:        fieldVal("transport",        transport),
+          carCount:         fieldVal("carCount",         parseInt(document.getElementById("f_carCount").value)||0),
+          vehicleTypes:     fieldVal("vehicleTypes",     vehicleTypes),
+          parkingAllocation:fieldVal("vehicleTypes",     parkingAllocation),
+          paidParking:      fieldVal("paidParking",      document.getElementById("f_paidParking").value || ""),
+          bbq:              fieldVal("bbq",              document.getElementById("f_bbq").value),
+          bedChoice:        fieldVal("bedChoice",        document.getElementById("f_bedChoice").value),
+          purpose:          fieldVal("purpose",          purpose),
+          previousStay:     fieldVal("previousStay",     document.getElementById("f_previousStay").value.trim()),
+          nextStay:         fieldVal("nextStay",         document.getElementById("f_nextStay").value.trim()),
+          emergencyName:    fieldVal("emergencyName",    document.getElementById("f_emergencyName").value.trim()),
+          emergencyPhone:   fieldVal("emergencyPhone",   document.getElementById("f_emergencyPhone").value.trim()),
           // 騒音ルールを物件設定で非表示にしていた場合は同意取得していないので記録しない (法的証跡の観点)
           noiseAgree: (typeof _showNoiseAgreement !== "undefined" && _showNoiseAgreement === false)
             ? null
@@ -1689,6 +1696,8 @@
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
           updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
         };
+        // undefined のキーを削除（Firestore は undefined を受け付けない）
+        Object.keys(data).forEach(k => { if (data[k] === undefined) delete data[k]; });
         const params = getParams();
         data.bookingId = params.bookingId||""; data.propertyId = params.propertyId||"";
 
