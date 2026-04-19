@@ -143,6 +143,11 @@ service cloud.firestore {
       allow read, write: if isOwner();
     }
 
+    // ダブルブッキング衝突記録 — オーナーのみ読み書き可（スタッフは read 不可）
+    match /bookingConflicts/{id} {
+      allow read, write: if isOwner();
+    }
+
     // タイミー募集 — オーナーのみ
     match /timeeRequests/{requestId} {
       allow read, write: if isOwner();
