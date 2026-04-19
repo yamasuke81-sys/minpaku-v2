@@ -493,25 +493,141 @@
                 <i class="bi bi-plus-lg"></i> Bot を追加（最大2）
               </button>
 
-              <!-- 設定手順アコーディオン -->
+              <!-- 設定手順アコーディオン (超詳細版) -->
               <div class="mt-3">
-                <button class="btn btn-link btn-sm p-0 text-muted" type="button" data-bs-toggle="collapse" data-bs-target="#lineSetupGuide">
-                  <i class="bi bi-question-circle"></i> 設定手順を見る ▼
+                <button class="btn btn-link btn-sm p-0 text-decoration-none" type="button" data-bs-toggle="collapse" data-bs-target="#lineSetupGuide">
+                  <i class="bi bi-book"></i> <strong>設定手順(超詳細)を見る ▼</strong>
                 </button>
                 <div class="collapse mt-2" id="lineSetupGuide">
-                  <div class="card card-body py-2 px-3 small bg-light">
-                    <ol class="mb-0 ps-3">
-                      <li><a href="https://developers.line.biz/console/" target="_blank" rel="noopener">https://developers.line.biz/console/</a> を開く</li>
-                      <li>「長浜清掃G通知」(or 新規) プロバイダー → 「新規チャネル作成」</li>
-                      <li>「Messaging API」を選択</li>
-                      <li>チャネル名: 例「○○物件 通知Bot #1」と入力して作成</li>
-                      <li>「Messaging API設定」タブ → 「チャネルアクセストークン」で発行</li>
-                      <li>トークンをコピーして Bot #1 のフォームに貼り付け</li>
-                      <li>LINE グループを作成 → 作成した Bot を招待</li>
-                      <li>グループ内で Bot にメンション → サーバーログで Group ID を確認</li>
-                      <li>Group ID を Bot #1 のフォームに貼り付け → 保存</li>
-                      <li>2つ目の Bot は同様の手順で Bot #2 として登録</li>
+                  <div class="card card-body py-3 px-3 small bg-light">
+
+                    <!-- はじめに -->
+                    <div class="alert alert-info py-2 px-3 mb-3 small">
+                      <strong><i class="bi bi-info-circle"></i> この手順でできること</strong><br>
+                      LINE 公式アカウント(Bot) をこの物件に紐付けて、新規予約/スタッフ確定/清掃完了などを自動で LINE に通知します。<br>
+                      <strong>1物件に最大2つの Bot を登録可能</strong>。それぞれ月 200通 無料枠があり、合計 400通/月 まで無料で使えます。
+                    </div>
+
+                    <!-- STEP 1: チャネル作成 -->
+                    <h6 class="mb-2 text-primary"><i class="bi bi-1-circle-fill"></i> チャネル (Bot) を作成する</h6>
+                    <ol class="ps-3 mb-3">
+                      <li>
+                        <a href="https://developers.line.biz/console/" target="_blank" rel="noopener">
+                          <strong>https://developers.line.biz/console/</strong> <i class="bi bi-box-arrow-up-right"></i>
+                        </a> を開いてログイン
+                      </li>
+                      <li>プロバイダー一覧から <strong>「長浜清掃G通知」</strong> をクリック (なければ「新規プロバイダー作成」)</li>
+                      <li>画面上部の <strong>「新規チャネル作成」</strong> ボタン (緑色) をクリック</li>
+                      <li>チャネルの種類 → <strong>「Messaging API」</strong> を選択</li>
+                      <li>
+                        以下の必須項目を入力:
+                        <ul class="small text-muted">
+                          <li><strong>会社・事業者の所在国/地域</strong>: 日本</li>
+                          <li><strong>チャネル名</strong>: 例「the Terrace 長浜 通知」や「○○物件 Bot #2」(分かりやすい名前)</li>
+                          <li><strong>チャネル説明</strong>: 例「スタッフへの清掃通知用」</li>
+                          <li><strong>大業種 / 小業種</strong>: 「個人」「個人 (その他)」でOK</li>
+                          <li><strong>メールアドレス</strong>: 自分のメール</li>
+                        </ul>
+                      </li>
+                      <li>利用規約に同意 → <strong>「作成」</strong> ボタン</li>
+                      <li>作成完了画面が出れば OK</li>
                     </ol>
+
+                    <!-- STEP 2: トークン取得 -->
+                    <h6 class="mb-2 text-primary"><i class="bi bi-2-circle-fill"></i> チャネルアクセストークンを取得</h6>
+                    <ol class="ps-3 mb-3">
+                      <li>作成したチャネル (Messaging API タグ) をクリックして入る</li>
+                      <li>上部タブの <strong>「Messaging API設定」</strong> をクリック</li>
+                      <li>ページを一番下までスクロール</li>
+                      <li>
+                        <strong>「チャネルアクセストークン (長期)」</strong> セクションで <strong>「発行」</strong> ボタン
+                        <div class="text-muted small">既に発行済みなら「再発行」でもOK</div>
+                      </li>
+                      <li>表示された長い文字列をコピー 📋 (この後フォームに貼る)</li>
+                      <li>同じページの <strong>「応答メッセージ」</strong> と <strong>「あいさつメッセージ」</strong> は <strong>「編集」→ オフ</strong> に (余計な通数消費を防ぐ)</li>
+                    </ol>
+
+                    <!-- STEP 3: Bot をグループに招待 -->
+                    <h6 class="mb-2 text-primary"><i class="bi bi-3-circle-fill"></i> Bot をスタッフLINEグループに招待</h6>
+                    <ol class="ps-3 mb-3">
+                      <li>同じ「Messaging API設定」ページの上の方に <strong>「ボットのベーシック ID」</strong> (例: <code>@431aujis</code>) がある → コピー</li>
+                      <li>
+                        同ページで <strong>「あなたのユーザーID」</strong> を確認して QR コードも表示される。
+                        スマホの LINE アプリで:
+                        <ul class="small">
+                          <li>友だちタブ → 右上の「追加」アイコン → 「QRコード」で QR スキャン</li>
+                          <li>または「検索」→ ID 検索で <code>@xxxxx</code> を入力</li>
+                        </ul>
+                      </li>
+                      <li>Bot を友だち追加したら、<strong>既存のスタッフLINEグループ</strong> を開く</li>
+                      <li>グループ右上のメニュー (三本線) → <strong>「招待」</strong> → Bot を選択して招待</li>
+                      <li>グループのメンバー一覧に Bot が表示されれば成功 ✓</li>
+                    </ol>
+
+                    <!-- STEP 4: Group ID を取得 -->
+                    <h6 class="mb-2 text-primary"><i class="bi bi-4-circle-fill"></i> グループ ID を取得</h6>
+                    <div class="alert alert-warning py-2 px-3 mb-2 small">
+                      <strong>ここが最難関</strong>。2つの方法があります。楽な方 (方法B) を推奨。
+                    </div>
+
+                    <p class="mb-1"><strong>方法A: Webhook 設定 (少し手間)</strong></p>
+                    <ol class="ps-3 mb-3 small">
+                      <li>「Messaging API設定」→ <strong>「Webhook URL」</strong> に一時的に <code>https://webhook.site/</code> で取得できる URL を設定</li>
+                      <li>「Webhookの利用」を ON</li>
+                      <li>グループで Bot にメンション (例: <code>@{Bot名} test</code>) を送信</li>
+                      <li>webhook.site に届いた JSON の中の <code>"source.groupId"</code> フィールドが Group ID (例: <code>C1234567890abcdef...</code>)</li>
+                      <li>コピーして Webhook 設定は OFF に戻す</li>
+                    </ol>
+
+                    <p class="mb-1"><strong>方法B: 自分の User ID で代用 (簡単)</strong></p>
+                    <ol class="ps-3 mb-3 small">
+                      <li>Group ID を取得せず、<strong>オーナー自身の LINE User ID</strong> を使う</li>
+                      <li>「Messaging API設定」の <strong>「あなたのユーザーID」</strong> (U で始まる文字列) をコピー</li>
+                      <li>これをフォームの「グループ ID」欄に貼る → オーナーだけに通知が来る (暫定)</li>
+                      <li>後日、方法A で本当の Group ID に差し替えるか、運用的にこれで OK ならそのまま</li>
+                    </ol>
+
+                    <!-- STEP 5: v2 に登録 -->
+                    <h6 class="mb-2 text-primary"><i class="bi bi-5-circle-fill"></i> この画面のフォームに登録</h6>
+                    <ol class="ps-3 mb-3">
+                      <li>上の <strong>「Bot を追加」</strong> ボタンをクリック</li>
+                      <li>Bot #1 の入力欄が表示される</li>
+                      <li>
+                        <strong>トークン</strong>: STEP 2 でコピーしたチャネルアクセストークンを貼り付け<br>
+                        <strong>グループID</strong>: STEP 4 でコピーした Group ID (または User ID) を貼り付け<br>
+                        <strong>表示名</strong>: 分かりやすい名前 (例: 「長浜 Bot #1」)
+                      </li>
+                      <li>「この物件の LINE 連携を有効にする」を ON</li>
+                      <li>入力すると自動保存されます (右下に「✓ 保存しました」が出る)</li>
+                    </ol>
+
+                    <!-- STEP 6: 2つ目を追加 -->
+                    <h6 class="mb-2 text-primary"><i class="bi bi-6-circle-fill"></i> 2つ目の Bot を追加 (無料枠拡張)</h6>
+                    <ol class="ps-3 mb-3">
+                      <li>STEP 1〜3 を繰り返し、同じプロバイダ内に <strong>別のチャネル</strong> を新規作成 (名前: 「○○物件 Bot #2」など)</li>
+                      <li>新しいトークンを取得 → 新 Bot も <strong>同じグループに招待</strong> (1つのグループに2つ Bot が入る形)</li>
+                      <li>この画面で再度「Bot を追加」→ Bot #2 の欄が表示される</li>
+                      <li>
+                        <strong>トークン</strong>: 新しいトークン<br>
+                        <strong>グループID</strong>: <strong>Bot #1 と同じ Group ID</strong> (同じグループに両方 Bot が居るため)<br>
+                        <strong>表示名</strong>: 「長浜 Bot #2」など
+                      </li>
+                      <li><strong>配信戦略</strong>: 通常は「残枠 fallback」で OK (Bot #1 が枯渇したら Bot #2 へ自動切替)</li>
+                    </ol>
+
+                    <!-- 参考リンク -->
+                    <h6 class="mb-2 text-primary"><i class="bi bi-link-45deg"></i> 参考リンク</h6>
+                    <ul class="ps-3 mb-0 small">
+                      <li><a href="https://developers.line.biz/console/" target="_blank" rel="noopener">LINE Developers Console (チャネル管理) <i class="bi bi-box-arrow-up-right"></i></a></li>
+                      <li><a href="https://manager.line.biz/" target="_blank" rel="noopener">LINE Official Account Manager (通数確認) <i class="bi bi-box-arrow-up-right"></i></a></li>
+                      <li><a href="https://webhook.site/" target="_blank" rel="noopener">webhook.site (Group ID 取得用) <i class="bi bi-box-arrow-up-right"></i></a></li>
+                      <li><a href="https://developers.line.biz/ja/docs/messaging-api/getting-started/" target="_blank" rel="noopener">Messaging API 公式ドキュメント <i class="bi bi-box-arrow-up-right"></i></a></li>
+                    </ul>
+
+                    <div class="alert alert-success py-2 px-3 mt-3 mb-0 small">
+                      <strong><i class="bi bi-lightbulb"></i> 困ったら</strong>: 設定で詰まったら、Claude (このアプリの設計AI) に「LINE連携で詰まった、{スクショ添付}」と言えば手順をサポートします。
+                    </div>
+
                   </div>
                 </div>
               </div>
