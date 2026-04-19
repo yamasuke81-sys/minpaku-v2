@@ -125,12 +125,14 @@ module.exports = async function onGuestFormSubmit(event) {
       return;
     }
 
-    // checkIn一致 + status == "confirmed" のbookingを検索
-    const bookingsSnap = await db.collection("bookings")
+    // A-4: checkIn一致 + status == "confirmed" + propertyId一致（複数物件の誤照合防止）
+    let bookingsQuery = db.collection("bookings")
       .where("checkIn", "==", rosterCheckIn)
-      .where("status", "==", "confirmed")
-      .limit(1)
-      .get();
+      .where("status", "==", "confirmed");
+    if (data.propertyId) {
+      bookingsQuery = bookingsQuery.where("propertyId", "==", data.propertyId);
+    }
+    const bookingsSnap = await bookingsQuery.limit(1).get();
 
     // 処理B-3: マッチなし
     if (bookingsSnap.empty) {

@@ -53,31 +53,24 @@ function extractGuestName(event, platform) {
 }
 
 /**
- * 日付をYYYY-MM-DD形式に変換（JSTで丸め）
+ * 日付をYYYY-MM-DD形式に変換（A-5: 3分岐→2分岐に整理）
+ * - dateOnly フラグあり、または UTC 00:00 → UTCの日付をそのまま使用
+ * - それ以外 → JST変換して日付を返す
  */
 function toDateStr(d) {
   if (!d) return "";
   const date = d instanceof Date ? d : new Date(d);
   if (isNaN(date.getTime())) return "";
-  // iCalのDTSTART/DTENDがDATE型の場合、UTCの00:00:00で来る
-  // JSTに変換すると翌日になる問題を回避するため、
-  // 時刻なし（DATE型）の場合はUTCのままの日付を使う
+  // YYYYMMDDフォーマット（8文字文字列）の場合
   if (typeof d === "string" && d.length === 8) {
-    // YYYYMMDDフォーマット
     return `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
   }
-  // DATE型（時刻なし）の場合
-  // node-icalはDATE型をローカルTZ 00:00で解釈するため、
-  // Cloud Functions(UTC)では正しいが、JST環境では15:00 UTCになる場合がある
-  if (d.dateOnly) {
-    // JSTで日付を取得（15:00 UTC = 翌日 00:00 JST のケースを正しく処理）
-    const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
-    return jst.toISOString().slice(0, 10);
-  }
-  if (date.getUTCHours() === 0 && date.getUTCMinutes() === 0) {
+  // dateOnly フラグあり、または UTC 00:00 → UTCの日付をそのまま使用
+  // （iCal DATE型はUTC 00:00で届くことが多く、JSTに変換すると翌日になる問題を回避）
+  if (d.dateOnly || (date.getUTCHours() === 0 && date.getUTCMinutes() === 0)) {
     return date.toISOString().slice(0, 10);
   }
-  // JSTで日付を取得
+  // 時刻付き（DATETIME型）→ JSTで日付を取得
   const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
   return jst.toISOString().slice(0, 10);
 }
@@ -126,6 +119,8 @@ async function syncIcal() {
   let totalSynced = 0;
   const syncedIcalUids = new Set(); // キャンセル検出用
   let totalSkipped = 0;
+  // A-2: フィードエラーが発生したプラットフォームを記録（キャンセル検知スキップ用）
+  const erroredPlatforms = new Set();
 
   for (const settingDoc of settingsSnap.docs) {
     const setting = settingDoc.data();
@@ -173,11 +168,17 @@ async function syncIcal() {
           skipped++;
           continue;
         }
-        // ゲスト名が"Reserved"のみ → 実予約ではなくブロック（実予約は「予約済み - ゲスト名」形式）
+        // A-3: ゲスト名が"Reserved"のみの場合、Airbnbは DESCRIPTION に Reservation URL があれば実予約として扱う
         if (guestName && /^reserved$/i.test(guestName.trim())) {
-          console.log(`[syncIcal] スキップ(Reserved): ${platform} ${checkIn}〜${checkOut}`);
-          skipped++;
-          continue;
+          // Airbnb の場合: DESCRIPTION に "Reservation URL:" があれば実予約
+          const isRealAirbnbReservation = platform === "Airbnb"
+            && /reservation url:/i.test(event.description || "");
+          if (!isRealAirbnbReservation) {
+            console.log(`[syncIcal] スキップ(Reserved): ${platform} ${checkIn}〜${checkOut}`);
+            skipped++;
+            continue;
+          }
+          console.log(`[syncIcal] Airbnb実予約(Reserved+URL): ${checkIn}〜${checkOut}`);
         }
 
         // クロスプラットフォーム重複検出: 同じCI+COに別ソースの確定済み予約が既にある場合スキップ
@@ -240,7 +241,7 @@ async function syncIcal() {
         bookingData._icalOriginalName = resolvedGuestName;
 
         await docRef.set(bookingData, { merge: true });
-        syncedIcalUids.add(icalUid); // キャンセル検出用に記録
+        syncedIcalUids.add(uid); // A-1: icalUid → uid バグ修正（キャンセル検出用に記録）
         synced++;
       }
 
@@ -255,6 +256,9 @@ async function syncIcal() {
       totalSkipped += skipped;
     } catch (e) {
       console.error(`[syncIcal] ${platform} エラー:`, e.message);
+      // A-2: フィード取得エラーが発生したプラットフォームを記録
+      // → キャンセル検知フェーズでこのプラットフォームの予約はスキップする
+      erroredPlatforms.add(platform);
       await settingDoc.ref.update({
         lastSync: admin.firestore.FieldValue.serverTimestamp(),
         lastSyncResult: `エラー: ${e.message}`,
@@ -277,6 +281,12 @@ async function syncIcal() {
       const data = doc.data();
       // 過去の予約はスキップ
       if (data.checkOut && data.checkOut < today) continue;
+      // A-2: フィードエラーが発生したプラットフォームの予約はキャンセル検知をスキップ
+      // （一時的なネットワーク障害で誤キャンセルされるのを防ぐ）
+      if (data.source && erroredPlatforms.has(data.source)) {
+        console.log(`[syncIcal] キャンセル検知スキップ(フィードエラー): ${data.source} ${data.checkIn}〜${data.checkOut}`);
+        continue;
+      }
       // icalUidが同期で見つかったものはスキップ
       if (syncedIcalUids.has(data.icalUid)) continue;
       // icalUidがないものはスキップ（手動作成の予約）
