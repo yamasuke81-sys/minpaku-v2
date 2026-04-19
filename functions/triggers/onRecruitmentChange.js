@@ -1,9 +1,9 @@
 /**
  * 募集変更トリガー
- * - 回答が追加された → オーナーにLINE通知
+ * - 回答が追加された → オーナーにLINE通知 (通知タイプ: recruit_response)
  * - 物件の selectionMethod が "firstCome" で新規◎回答 → 即自動確定
  */
-const { notifyOwner } = require("../utils/lineNotify");
+const { notifyOwner, resolveNotifyTargets, getNotificationSettings_ } = require("../utils/lineNotify");
 
 module.exports = async function onRecruitmentChange(event) {
   const admin = require("firebase-admin");
@@ -62,12 +62,12 @@ module.exports = async function onRecruitmentChange(event) {
       }
 
       await notifyOwner(
-        db, "response",
+        db, "recruit_response",
         `自動確定: ${checkoutDate}`,
         `⚡ 早い者勝ちルールにより自動確定\n\n` +
         `日付: ${checkoutDate}${propertyName ? ` (${propertyName})` : ""}\n` +
         `担当: ${staffName}\n`,
-        { checkoutDate, propertyName, staffName, response }
+        { date: checkoutDate, property: propertyName, staff: staffName, response, count: afterResponses.length }
       );
       return;
     } catch (e) {
@@ -75,15 +75,20 @@ module.exports = async function onRecruitmentChange(event) {
     }
   }
 
+  // recruit_response が無効化されていれば送信しない
+  const { settings } = await getNotificationSettings_(db);
+  const targets = resolveNotifyTargets(settings, "recruit_response");
+  if (!targets.enabled) return;
+
   // 通常通知
+  const available = afterResponses.filter((r) => r.response === "◎" || r.response === "△");
+  const declined = afterResponses.filter((r) => r.response === "×");
+
   let text = `📋 募集に回答がありました\n\n`;
   text += `日付: ${checkoutDate}`;
   if (propertyName) text += ` (${propertyName})`;
   text += `\n`;
   text += `${staffName}: ${response}\n`;
-
-  const available = afterResponses.filter((r) => r.response === "◎" || r.response === "△");
-  const declined = afterResponses.filter((r) => r.response === "×");
   text += `\n現在の回答状況: ◎△ ${available.length}名 / × ${declined.length}名\n`;
 
   if (available.length > 0) {
@@ -91,6 +96,6 @@ module.exports = async function onRecruitmentChange(event) {
     text += "→ スタッフを選定・確定してください";
   }
 
-  await notifyOwner(db, "response", `募集回答: ${checkoutDate}`, text,
-    { checkoutDate, propertyName, staffName, response });
+  await notifyOwner(db, "recruit_response", `募集回答: ${checkoutDate}`, text,
+    { date: checkoutDate, property: propertyName, staff: staffName, response, count: available.length });
 };

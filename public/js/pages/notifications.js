@@ -21,6 +21,7 @@ const NotificationsPage = {
       { name: "count",    label: "回答数",        sample: "3",           source: "recruitment.responses.length" },
       { name: "staff",    label: "確定スタッフ名", sample: "山田太郎",    source: "recruitment.selectedStaff" },
       { name: "memo",     label: "メモ",          sample: "BBQ後の片付けあり", source: "recruitment.memo" },
+      { name: "response", label: "回答内容",      sample: "◎",           source: "response.response (◎/△/×)" },
     ],
     // 予約系で使える変数
     booking: [
@@ -68,6 +69,8 @@ const NotificationsPage = {
 
   // 通知種別ごとに使えるグループを紐付け
   notifications: [
+    { key: "recruit_response", label: "スタッフ回答通知", desc: "スタッフが募集に回答(◎/△/×)した時にオーナーへ通知", icon: "bi-reply", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
+      defaultMsg: "📋 募集に回答がありました\n\n日付: {date} ({property})\n{staff}: {response}\n候補: {count}名" },
     { key: "recruit_start", label: "作業スタッフ募集", desc: "新しい清掃/直前点検に対してスタッフへ募集通知を送信", icon: "bi-megaphone", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
       defaultMsg: "🧹 {work}スタッフ募集\n\n{date} {property}\n{work}スタッフを募集しています。\n回答をお願いします（◎OK / △微妙 / ×NG）\n\n回答: {url}" },
     { key: "recruit_remind", label: "募集リマインド", desc: "回答が集まらない場合にリマインド送信", icon: "bi-alarm", group: "recruit", varGroup: "recruit", defaultTiming: "evening",
@@ -169,6 +172,25 @@ const NotificationsPage = {
               <div class="form-text">サブオーナー共有チャンネルの Webhook URL</div>
             </div>
           </div>
+          <!-- オーナーLINE通知 Bot リスト -->
+          <div class="col-12 mt-3">
+            <hr class="my-2">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <label class="form-label mb-0"><i class="bi bi-robot"></i> オーナーLINE通知 Bot リスト</label>
+              <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddOwnerLineChannel">
+                <i class="bi bi-plus-circle"></i> Bot を追加
+              </button>
+            </div>
+            <div class="form-text mb-2">オーナー宛通知専用の Bot を複数登録できます。fallback 戦略では無料枠切れ時に次の Bot へ自動切替します（最大3つ）。</div>
+            <div id="ownerLineChannelsList"></div>
+            <div class="mt-2">
+              <label class="form-label small text-muted mb-1"><i class="bi bi-shuffle"></i> 配信戦略</label>
+              <select class="form-select form-select-sm w-auto" id="ownerLineChannelStrategy">
+                <option value="fallback">fallback — 残枠あり Bot を順に試みる</option>
+                <option value="roundrobin">roundrobin — 日付ベースで交互使用</option>
+              </select>
+            </div>
+          </div>
           <!-- 旧データ後方互換用 (画面には表示しないが値を保持・保存) -->
           <input type="hidden" id="lineChannelToken">
           <input type="hidden" id="lineGroupId">
@@ -232,6 +254,79 @@ const NotificationsPage = {
     const d2 = document.getElementById("discordSubOwnerWebhookUrl");
     if (d1) d1.value = this.settings.discordOwnerWebhookUrl || "";
     if (d2) d2.value = this.settings.discordSubOwnerWebhookUrl || "";
+
+    // ownerLineChannels の読み込みと描画
+    this._renderOwnerLineChannels(this.settings.ownerLineChannels || []);
+    const stratEl = document.getElementById("ownerLineChannelStrategy");
+    if (stratEl) stratEl.value = this.settings.ownerLineChannelStrategy || "fallback";
+
+    // Bot追加ボタン
+    const addBtn = document.getElementById("btnAddOwnerLineChannel");
+    if (addBtn) {
+      addBtn.addEventListener("click", () => {
+        const list = document.getElementById("ownerLineChannelsList");
+        if (!list) return;
+        const count = list.querySelectorAll(".owner-line-channel-row").length;
+        if (count >= 3) {
+          showToast("上限", "Bot は最大3つまで登録できます", "warning");
+          return;
+        }
+        this._appendOwnerLineChannelRow({}, count);
+      });
+    }
+  },
+
+  // ownerLineChannels を描画（初期表示）
+  _renderOwnerLineChannels(channels) {
+    const list = document.getElementById("ownerLineChannelsList");
+    if (!list) return;
+    list.innerHTML = "";
+    channels.forEach((ch, idx) => this._appendOwnerLineChannelRow(ch, idx));
+  },
+
+  // ownerLineChannels の1行を追加
+  _appendOwnerLineChannelRow(ch, idx) {
+    const list = document.getElementById("ownerLineChannelsList");
+    if (!list) return;
+    const row = document.createElement("div");
+    row.className = "owner-line-channel-row border rounded p-2 mb-2";
+    row.innerHTML = `
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <span class="small text-muted">Bot #${idx + 1}</span>
+        <button type="button" class="btn btn-sm btn-link text-danger p-0 btn-remove-owner-line-channel" title="削除">
+          <i class="bi bi-trash"></i>
+        </button>
+      </div>
+      <div class="row g-2">
+        <div class="col-md-4">
+          <label class="form-label small mb-1">表示名</label>
+          <input type="text" class="form-control form-control-sm owner-line-ch-name" placeholder="例: Bot#1" value="${this._escapeAttr(ch.name || "")}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small mb-1">チャネルアクセストークン</label>
+          <input type="password" class="form-control form-control-sm owner-line-ch-token" placeholder="チャネルアクセストークン" value="${this._escapeAttr(ch.token || "")}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small mb-1">オーナー LINE User ID</label>
+          <input type="text" class="form-control form-control-sm owner-line-ch-userId" placeholder="Uxxxxxxxxxx" value="${this._escapeAttr(ch.userId || "")}">
+        </div>
+      </div>
+    `;
+    // 削除ボタン
+    row.querySelector(".btn-remove-owner-line-channel").addEventListener("click", () => {
+      row.remove();
+      // 番号を再採番
+      list.querySelectorAll(".owner-line-channel-row").forEach((r, i) => {
+        const label = r.querySelector(".text-muted");
+        if (label) label.textContent = `Bot #${i + 1}`;
+      });
+    });
+    list.appendChild(row);
+  },
+
+  // HTML属性用エスケープ
+  _escapeAttr(s) {
+    return String(s || "").replace(/"/g, "&quot;").replace(/</g, "&lt;");
   },
 
   renderNotifications() {
@@ -713,6 +808,17 @@ const NotificationsPage = {
         channels[n.key] = entry;
       });
 
+      // ownerLineChannels を収集
+      const ownerLineChannels = [];
+      document.querySelectorAll("#ownerLineChannelsList .owner-line-channel-row").forEach(row => {
+        const token = (row.querySelector(".owner-line-ch-token")?.value || "").trim();
+        const userId = (row.querySelector(".owner-line-ch-userId")?.value || "").trim();
+        const name = (row.querySelector(".owner-line-ch-name")?.value || "").trim();
+        if (token || userId) {
+          ownerLineChannels.push({ token, userId, name });
+        }
+      });
+
       const data = {
         lineChannelToken: document.getElementById("lineChannelToken").value.trim(),
         lineGroupId: document.getElementById("lineGroupId").value.trim(),
@@ -720,6 +826,8 @@ const NotificationsPage = {
         ownerEmail: document.getElementById("ownerEmail").value.trim(),
         discordOwnerWebhookUrl: (document.getElementById("discordOwnerWebhookUrl")?.value || "").trim(),
         discordSubOwnerWebhookUrl: (document.getElementById("discordSubOwnerWebhookUrl")?.value || "").trim(),
+        ownerLineChannels,
+        ownerLineChannelStrategy: document.getElementById("ownerLineChannelStrategy")?.value || "fallback",
         enableLine: true,
         channels,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),

@@ -237,6 +237,65 @@ async function getNotificationSettings_(db) {
 }
 
 /**
+ * オーナーLINE通知を送信する（ownerLineChannels 対応）
+ * ownerLineChannels[] があれば戦略に従い複数 Bot でフォールバック送信。
+ * なければ従来の単一チャネル（channelToken / ownerUserId）にフォールバック。
+ *
+ * @param {object} settings - settings/notifications ドキュメント
+ * @param {string|null} fallbackToken - 後方互換用トークン
+ * @param {string|null} fallbackUserId - 後方互換用 User ID
+ * @param {string} text - 送信テキスト
+ * @returns {Promise<{success: boolean, error?: string, usedChannel?: string}>}
+ */
+async function _sendOwnerLine_(settings, fallbackToken, fallbackUserId, text) {
+  const ownerChannels = Array.isArray(settings.ownerLineChannels)
+    ? settings.ownerLineChannels.filter(c => c.token && c.userId)
+    : [];
+
+  // ownerLineChannels が設定されている場合は複数 Bot 対応ロジックを使う
+  if (ownerChannels.length > 0) {
+    const strategy = settings.ownerLineChannelStrategy || "fallback";
+
+    if (strategy === "roundrobin" && ownerChannels.length > 1) {
+      // 日付 % チャネル数 でインデックス選択
+      const idx = new Date().getDate() % ownerChannels.length;
+      const primary = ownerChannels[idx];
+      const secondary = ownerChannels[(idx + 1) % ownerChannels.length];
+      let result = await sendLineMessage(primary.token, primary.userId, text);
+      if (!result.success) {
+        console.warn(`[LINE] ownerLine roundrobin 1番目(${primary.name || "Bot"})失敗、2番目を試みます:`, result.error);
+        result = await sendLineMessage(secondary.token, secondary.userId, text);
+        if (result.success) result.usedChannel = secondary.name || "Bot#2";
+      } else {
+        result.usedChannel = primary.name || "Bot#1";
+      }
+      return result;
+    } else {
+      // fallback: 残枠 > 0 のチャネルから順に試みる
+      for (const ch of ownerChannels) {
+        const quota = await getChannelQuota(ch.token);
+        if (quota.remaining > 0) {
+          const result = await sendLineMessage(ch.token, ch.userId, text);
+          if (result.success) {
+            return { ...result, usedChannel: ch.name || ch.userId };
+          }
+          console.warn(`[LINE] ownerLine fallback チャネル「${ch.name || ch.userId}」送信失敗:`, result.error);
+        } else {
+          console.warn(`[LINE] ownerLine チャネル「${ch.name || ch.userId}」無料枠枯渇 (used=${quota.used}/${quota.max})`);
+        }
+      }
+      return { success: false, error: "ownerLineChannels: 全チャネルで無料枠枯渇または送信失敗" };
+    }
+  }
+
+  // 後方互換: ownerLineChannels が空なら従来の単一チャネルを使う
+  if (fallbackToken && fallbackUserId) {
+    return sendLineMessage(fallbackToken, fallbackUserId, text);
+  }
+  return { success: false, error: "オーナーLINE User ID 未設定（lineOwnerUserId）" };
+}
+
+/**
  * 通知種別ごとの送信先を判定
  * settings.channels[notifyType] の ownerLine / groupLine / ownerEmail / fcmStaff / fcmOwner で制御
  * @param {object} settings - settings/notifications ドキュメント
@@ -519,14 +578,10 @@ async function notifyOwner(db, type, title, body, vars) {
 
   const results = [];
 
-  // LINE送信（フォールバック対応済みのchannelToken/ownerUserIdを使用）
+  // LINE送信
   if (enableLine) {
-    if (channelToken && ownerUserId) {
-      const lineResult = await sendLineMessage(channelToken, ownerUserId, body);
-      results.push({ channel: "line", ...lineResult });
-    } else {
-      results.push({ channel: "line", success: false, error: "LINE設定不完全" });
-    }
+    const lineResult = await _sendOwnerLine_(settings, channelToken, ownerUserId, body);
+    results.push({ channel: "line", ...lineResult });
   }
 
   // メール送信
