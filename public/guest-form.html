@@ -128,7 +128,7 @@
         <div class="row g-2 mb-3">
           <div class="col-6">
             <label class="form-label" for="f_guestCount" id="lbl_guestCount"></label>
-            <input type="number" class="form-control" id="f_guestCount" min="1" value="1" required>
+            <input type="number" class="form-control" id="f_guestCount" min="1" max="20" value="1" required>
           </div>
           <div class="col-6">
             <label class="form-label" for="f_guestCountInfants" id="lbl_guestCountInfants"></label>
@@ -803,6 +803,8 @@
 
     // ===== 宿泊者情報 =====
     let guestData = [];
+    // 物件設定キャッシュ（init後に上書きされる、renderGuestInputsで参照）
+    let _propertyConfig = null;
     function saveGuestData() {
       guestData = [];
       document.querySelectorAll(".guest-block").forEach((block, i) => {
@@ -823,7 +825,11 @@
       return ["日本","japan","japanese","jp",""].includes(v);
     }
     function renderGuestInputs() {
-      const count = Math.max(1, parseInt(document.getElementById("f_guestCount").value) || 1);
+      // capacity 上限（物件設定があればそれを使用、なければ20）
+      const maxGuests = (_propertyConfig && _propertyConfig.capacity) ? Math.min(_propertyConfig.capacity, 20) : 20;
+      const el = document.getElementById("f_guestCount");
+      el.max = maxGuests;
+      const count = Math.min(Math.max(1, parseInt(el.value) || 1), maxGuests);
       const container = document.getElementById("guestInputList");
       const t = i18n[currentLang];
       saveGuestData();
@@ -1655,8 +1661,8 @@
       let _showNoiseAgreement = true;
       // ミニゲームの有効/無効 (物件別 miniGameEnabled、default: true)
       let _miniGameEnabled = true;
-      // 公開APIから取得した物件設定キャッシュ
-      let _propertyConfig = null;
+      // 公開APIから取得した物件設定キャッシュ（外側スコープの変数に代入）
+      // _propertyConfig は renderGuestInputs でも参照するため外側で宣言済み
       try {
         const propertyId = params.propertyId || "";
         if (propertyId) {
