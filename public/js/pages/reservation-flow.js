@@ -18,20 +18,39 @@ const ReservationFlowPage = {
   // フローステップ定義（追加・並び替えはここだけ編集）
   // group: owner(オーナー側作業) / guest(宿泊者側画面) / external(外部アプリ連携)
   // status: undefined=実装済 / "未実装"=要開発
+  // propertyField: 存在すれば ON/OFF を properties.{field} に直接保存 (他タブと同期)
+  // guestUrlFn: 存在すれば「ゲスト画面を開く」ボタンを追加 (propertyId 受取)
   STEPS: [
     { key: "ical_sync",            label: "予約受付 (iCal同期)",                         icon: "bi-calendar-check",     linkHash: "#/properties",     linkLabel: "物件編集→iCal設定",        group: "owner" },
     { key: "booking_confirm_mail", label: "予約確認メール送信(宿泊者宛)",                icon: "bi-envelope",           linkHash: "#/notifications",  linkLabel: "通知設定",                 group: "owner", status: "未実装",
       hint: "注意事項ページURLを本文に記載し、同意後に宿泊者名簿フォームへ誘導" },
-    { key: "noise_rules",          label: "[ゲスト] 宴会・騒音規約 (黄色カード)",         icon: "bi-exclamation-triangle", linkHash: "#/guests",        linkLabel: "宿泊者名簿→設定",          group: "guest" },
-    { key: "mini_game",            label: "[ゲスト] ミニゲーム操作",                      icon: "bi-controller",         linkHash: "#/guests",         linkLabel: "宿泊者名簿→設定",          group: "guest" },
-    { key: "form_input",           label: "[ゲスト] 宿泊者名簿入力",                      icon: "bi-pencil-square",      linkHash: "#/guests",         linkLabel: "宿泊者名簿→設定",          group: "guest" },
+    { key: "noise_rules",          label: "[ゲスト] 宴会・騒音規約 (黄色カード)",         icon: "bi-exclamation-triangle", linkHash: "#/guests",        linkLabel: "宿泊者名簿→設定",          group: "guest",
+      propertyField: "showNoiseAgreement",
+      guestUrlFn: (pid) => `/form/?propertyId=${encodeURIComponent(pid)}` },
+    { key: "mini_game",            label: "[ゲスト] ミニゲーム操作",                      icon: "bi-controller",         linkHash: "#/guests",         linkLabel: "宿泊者名簿→設定",          group: "guest",
+      propertyField: "miniGameEnabled",
+      guestUrlFn: (pid) => `/form/?propertyId=${encodeURIComponent(pid)}` },
+    { key: "form_input",           label: "[ゲスト] 宿泊者名簿入力",                      icon: "bi-pencil-square",      linkHash: "#/guests",         linkLabel: "宿泊者名簿→設定",          group: "guest",
+      propertyField: "customFormEnabled",
+      guestUrlFn: (pid) => `/form/?propertyId=${encodeURIComponent(pid)}` },
     { key: "form_complete_mail",   label: "名簿入力完了メール (宿泊者・オーナー)",        icon: "bi-envelope-check",     linkHash: "#/notifications",  linkLabel: "通知設定",                 group: "owner" },
     { key: "roster_remind",        label: "名簿未入力催促リマインド",                     icon: "bi-alarm",              linkHash: "#/notifications",  linkLabel: "通知設定→roster_remind",   group: "owner" },
     { key: "urgent_remind",        label: "直前予約リマインド",                            icon: "bi-lightning",          linkHash: "#/notifications",  linkLabel: "通知設定→urgent_remind",   group: "owner" },
-    { key: "keybox_send",          label: "キーボックス情報送信",                          icon: "bi-key",                linkHash: "#/settings",       linkLabel: "キーボックス設定",         group: "owner", status: "未実装" },
+    { key: "keybox_send",          label: "キーボックス情報送信 + 施設案内",              icon: "bi-key",                linkHash: "#/settings",       linkLabel: "キーボックス設定",         group: "owner", status: "未実装",
+      guestUrlFn: (pid) => `/guide/?propertyId=${encodeURIComponent(pid)}` },
     { key: "checkin_app",          label: "チェックインApp連携",                            icon: "bi-door-open-fill",     linkHash: "",                 linkLabel: "(別アプリ)",                group: "external", status: "未実装",
       hint: "チェックインappは別で開発済み。連携部分は未実装" },
   ],
+
+  // 有効状態の取得: propertyField があれば properties から、無ければ reservationFlow から
+  _isEnabled(property, step) {
+    if (step.propertyField) {
+      const v = property[step.propertyField];
+      return typeof v === "boolean" ? v : true; // 未設定は true
+    }
+    const flow = property.reservationFlow || {};
+    return flow[step.key]?.enabled !== false;
+  },
 
   async render(container) {
     container.innerHTML = `
@@ -118,8 +137,8 @@ const ReservationFlowPage = {
     wrap.innerHTML = `<div class="col-12"><div class="accordion" id="${accordionId}">${
       visibleProps.map((p) => {
         const flow = p.reservationFlow || {};
-        // 有効ステップ数をサマリに表示
-        const enabledCount = this.STEPS.filter(s => flow[s.key]?.enabled !== false).length;
+        // 有効ステップ数をサマリに表示 (propertyField 優先)
+        const enabledCount = this.STEPS.filter(s => this._isEnabled(p, s)).length;
         const totalCount = this.STEPS.length;
 
         const collapseId = `rfCollapse-${p.id}`;
@@ -128,12 +147,20 @@ const ReservationFlowPage = {
         // フロー縦配置HTML生成
         const stepsHtml = this.STEPS.map((step, idx) => {
           const stepData = flow[step.key] || {};
-          const enabled = stepData.enabled !== false; // デフォルトtrue
+          const enabled = this._isEnabled(p, step);
           const memo = stepData.memo || "";
           const isLast = idx === this.STEPS.length - 1;
 
           const linkBtn = step.linkHash
             ? `<a href="${this._esc(step.linkHash)}" class="btn btn-outline-secondary btn-sm py-0 px-2 ms-1" style="font-size:0.75rem;">${this._esc(step.linkLabel)} <i class="bi bi-arrow-right"></i></a>`
+            : "";
+          // ゲスト画面プレビュー (新規タブ) — guestUrlFn があれば表示
+          const guestUrlBtn = (typeof step.guestUrlFn === "function")
+            ? `<a href="${this._esc(step.guestUrlFn(p.id))}" target="_blank" rel="noopener" class="btn btn-outline-info btn-sm py-0 px-2 ms-1" style="font-size:0.75rem;" title="新規タブでゲスト画面を開く"><i class="bi bi-box-arrow-up-right"></i> ゲスト画面</a>`
+            : "";
+          // propertyField がある場合「同期中」バッジで他タブとの同期を明示
+          const syncBadge = step.propertyField
+            ? `<span class="badge bg-success-subtle text-success border border-success-subtle ms-1" style="font-size:10px;" title="properties.${step.propertyField} に直接保存 (他タブと同期)"><i class="bi bi-arrow-left-right"></i> 同期</span>`
             : "";
 
           // group バッジ (宿泊者側 / オーナー側 / 外部)
@@ -157,7 +184,7 @@ const ReservationFlowPage = {
                 <span class="rf-step-num">${idx + 1}</span>
                 <i class="bi ${step.icon} text-primary"></i>
                 <span class="rf-step-label">${this._esc(step.label)}</span>
-                ${groupBadge}${statusBadge}
+                ${groupBadge}${statusBadge}${syncBadge}
                 <div class="form-check form-switch mb-0 ms-auto">
                   <input class="form-check-input rf-toggle" type="checkbox" data-step="${step.key}"
                     id="rf-${p.id}-${step.key}" ${enabled ? "checked" : ""}>
@@ -166,6 +193,7 @@ const ReservationFlowPage = {
               </div>
               <div class="rf-step-body">
                 ${hintHtml}
+                ${guestUrlBtn}
                 ${linkBtn}
                 <div class="mt-1">
                   <input type="text" class="form-control form-control-sm rf-memo"
@@ -243,26 +271,38 @@ const ReservationFlowPage = {
     const item = document.querySelector(`.accordion-item[data-pid="${propertyId}"]`);
     if (!item) return;
 
-    // ステップごとに enabled + memo を収集
+    // propertyField に対応するステップは直接 properties.{field} に保存 (他タブ同期)
+    // それ以外は reservationFlow サブオブジェクトに保存
     const reservationFlow = {};
+    const propertyFields = {}; // 直接 properties ルートに書くフィールド
     this.STEPS.forEach(step => {
       const toggleEl = item.querySelector(`.rf-toggle[data-step="${step.key}"]`);
       const memoEl   = item.querySelector(`.rf-memo[data-step="${step.key}"]`);
-      reservationFlow[step.key] = {
-        enabled: toggleEl ? !!toggleEl.checked : true,
-        memo:    memoEl   ? (memoEl.value || "") : "",
-      };
+      const enabled = toggleEl ? !!toggleEl.checked : true;
+      const memo    = memoEl   ? (memoEl.value || "") : "";
+
+      if (step.propertyField) {
+        propertyFields[step.propertyField] = enabled;
+        // memo は reservationFlow 側に残す (properties にメモ専用フィールドは無いため)
+        reservationFlow[step.key] = { memo };
+      } else {
+        reservationFlow[step.key] = { enabled, memo };
+      }
     });
 
     try {
       await db.collection("properties").doc(propertyId).set({
+        ...propertyFields,
         reservationFlow,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
 
       // ローカルキャッシュも更新
       const prop = this.properties.find(p => p.id === propertyId);
-      if (prop) prop.reservationFlow = reservationFlow;
+      if (prop) {
+        prop.reservationFlow = reservationFlow;
+        Object.assign(prop, propertyFields);
+      }
 
       this._showStatus("saved");
     } catch (e) {
