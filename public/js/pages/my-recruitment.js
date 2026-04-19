@@ -565,7 +565,12 @@ const MyRecruitmentPage = {
 
     // ===== スタッフ行 =====
     const isOwner = Auth?.isOwner?.() === true;
-    this.staffList.forEach(staff => {
+    // 自分の行を一番上に固定: 自分を先頭に、それ以外は元の並び順を維持
+    const orderedStaff = [
+      ...this.staffList.filter(s => s.id === this.staffId),
+      ...this.staffList.filter(s => s.id !== this.staffId),
+    ];
+    orderedStaff.forEach(staff => {
       const isMe = staff.id === this.staffId;
       // 「自分だけ」モード: 自分以外は描画しない
       if (this._showOnlyMe && !isMe) return;

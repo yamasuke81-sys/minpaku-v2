@@ -101,11 +101,16 @@ service cloud.firestore {
       allow write: if isOwner();
     }
 
-    // 募集管理 — オーナーは全操作、スタッフは読み取り+回答のみ
+    // 募集管理 — オーナーは全操作、スタッフは読み取り+自分の回答更新のみ
     match /recruitments/{recruitmentId} {
       allow read: if isAuthenticated();
       allow create, delete: if isOwner();
-      allow update: if isOwner();
+      // スタッフは responses 配列と updatedAt のみ更新可能 (担当物件のみ)
+      allow update: if isOwner()
+        || (isStaff()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['responses', 'updatedAt'])
+            && (resource.data.propertyId == null
+                || resource.data.propertyId in get(/databases/$(database)/documents/staff/$(myStaffId())).data.assignedPropertyIds));
 
       // 回答サブコレクション — スタッフは自分の回答を作成・更新、オーナーは全操作
       match /responses/{responseId} {
