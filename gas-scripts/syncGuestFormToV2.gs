@@ -48,6 +48,9 @@
 var API_URL = "https://api-5qrfx7ujcq-an.a.run.app/guests";
 var GAS_SECRET = "minpaku2026secret"; // ← Firestore settings/taxDocs.gasSecret の値
 
+// 宿泊者名簿スプレッドシート ID (新規 Apps Script プロジェクト用。紐付いていないスプシを明示的に指定)
+var SPREADSHEET_ID = "1Kk8VZrMQoJwmNk4OZKVQ9riufiCEcVPi_xmYHHnHgCs";
+
 /**
  * フォーム送信時トリガー
  */
@@ -233,7 +236,7 @@ function parseCar(val) {
  * テスト: 最新行を手動転記
  */
 function testSyncLatestRow() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheets()[0];
   var lastRow = sheet.getLastRow();
   var values = sheet.getRange(lastRow, 1, 1, sheet.getLastColumn()).getValues()[0];
   onFormSubmit({ values: values.map(String) });
@@ -245,7 +248,7 @@ function testSyncLatestRow() {
  * GASエディタから直接呼ぶ or doGet 経由で v2 フロントから呼ばれる
  */
 function syncByCheckInDateRange(fromDate, toDate) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheets()[0];
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return { count: 0, message: "データがありません" };
   var values = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
@@ -299,7 +302,7 @@ function doGet(e) {
  */
 function testSyncRow() {
   var rowNum = 2; // ← テストしたい行番号に変更
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheets()[0];
   var values = sheet.getRange(rowNum, 1, 1, sheet.getLastColumn()).getValues()[0];
   onFormSubmit({ values: values.map(String) });
 }
@@ -308,7 +311,7 @@ function testSyncRow() {
  * デバッグ: 指定ゲスト名の行の全列を出力
  */
 function debugColumns() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheets()[0];
   var data = sheet.getDataRange().getValues();
   var headers = data[0];
   var targetRow = null;
