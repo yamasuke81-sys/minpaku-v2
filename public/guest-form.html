@@ -1336,41 +1336,9 @@
 
     // ===== 物件別フォーム設定の適用 =====
 
-    // 既存 HTML に要素が存在するコアフィールド ID の一覧
-    // これらは表示/非表示の切り替えのみ行い、動的生成はしない
-    const CORE_FIELD_IDS = new Set([
-      "checkIn", "checkOut", "checkInTime", "checkOutTime",
-      "guestCount", "guestCountInfants", "bookingSite",
-      "guestName", "nationality", "address", "phone", "email",
-      "passportNumber", "passportPhoto",
-      "transport", "cars", "carCount", "bbq", "bedChoice",
-      "purpose", "previousStay", "nextStay",
-      "emergencyName", "emergencyPhone", "emergencyContact",
-      "houseRuleAgree", "noiseAgree",
-      "arrivalTime", "departureTime",
-    ]);
-
-    // コアフィールドIDから実際のHTML要素の親ラッパーを探すマップ
-    // 各フィールドに対応する「行単位の隠す対象」を返す
-    function getCoreFieldWrapper(fieldId) {
-      const wrapperMap = {
-        checkIn:          () => document.getElementById("f_checkIn")?.closest(".col-6"),
-        checkOut:         () => document.getElementById("f_checkOut")?.closest(".col-6"),
-        checkInTime:      () => document.getElementById("f_checkInTime")?.closest(".col-6"),
-        checkOutTime:     () => document.getElementById("f_checkOutTime")?.closest(".col-6"),
-        guestCount:       () => document.getElementById("f_guestCount")?.closest(".col-6"),
-        guestCountInfants:() => document.getElementById("f_guestCountInfants")?.closest(".col-6"),
-        bookingSite:      () => document.getElementById("f_bookingSite")?.closest(".mb-3"),
-        transport:        () => document.getElementById("f_transport")?.closest(".mb-3"),
-        bbq:              () => document.getElementById("f_bbq")?.closest(".mb-3"),
-        bedChoice:        () => document.getElementById("bedChoiceSection"),
-        purpose:          () => document.getElementById("f_purpose")?.closest(".mb-3"),
-        previousStay:     () => document.getElementById("f_previousStay")?.closest(".col-6"),
-        nextStay:         () => document.getElementById("f_nextStay")?.closest(".col-6"),
-        emergencyName:    () => document.getElementById("f_emergencyName")?.closest(".col-md-6"),
-        emergencyPhone:   () => document.getElementById("f_emergencyPhone")?.closest(".col-md-6"),
-      };
-      return wrapperMap[fieldId] ? wrapperMap[fieldId]() : null;
+    // data-field-id セレクタでラッパー要素を取得
+    function getFieldWrapper(fieldId) {
+      return document.querySelector(`[data-field-id="${fieldId}"]`) || null;
     }
 
     // 動的に追加されたカスタムフィールドを格納するコンテナ ID
@@ -1379,29 +1347,159 @@
     // カスタムフィールド（動的生成）のデータを保持
     let _customFormFields = [];
 
-    function applyFormConfig(fields) {
-      _customFormFields = [];
+    // hidden にしたコアフィールド ID を追跡（送信時に除外するため）
+    let _hiddenFieldIds = new Set();
 
-      fields.forEach(f => {
-        if (CORE_FIELD_IDS.has(f.id)) {
-          // コアフィールド: hidden フラグに従って表示/非表示を切り替え
-          if (f.hidden === true) {
-            const wrapper = getCoreFieldWrapper(f.id);
-            if (wrapper) wrapper.style.display = "none";
-            // required も外す（非表示項目はバリデーション対象外）
-            const input = document.getElementById("f_" + f.id);
-            if (input) input.required = false;
+    /**
+     * 物件別フォーム設定を適用する（Phase 2 刷新版）
+     *
+     * @param {object} formFieldConfig - 公開APIが返す formFieldConfig
+     *   { overrides: { [fieldId]: { hidden, labelOverride, labelEnOverride,
+     *                               requiredOverride, placeholderOverride,
+     *                               placeholderEnOverride, sortOrder } },
+     *     customFormFields: [...] }
+     *
+     * 後方互換: fields 配列（旧形式）を渡された場合も動作するよう対応
+     */
+    function applyFormConfig(formFieldConfig) {
+      _customFormFields = [];
+      _hiddenFieldIds = new Set();
+
+      // 旧形式（配列）との後方互換
+      let overrides = {};
+      let customFormFields = [];
+      if (Array.isArray(formFieldConfig)) {
+        // 旧形式: [{id, hidden, ...}] → overrides に変換
+        formFieldConfig.forEach(f => {
+          overrides[f.id] = f;
+          if (!f.id.startsWith("cf_") && window.STANDARD_FORM_FIELDS &&
+              !window.STANDARD_FORM_FIELDS.find(sf => sf.id === f.id)) {
+            customFormFields.push(f);
           }
-        } else {
-          // カスタムフィールド: 動的生成対象として登録
-          _customFormFields.push(f);
+        });
+      } else {
+        overrides = formFieldConfig.overrides || {};
+        customFormFields = formFieldConfig.customFormFields || [];
+      }
+
+      // STANDARD_FORM_FIELDS を全走査して overrides を適用
+      const fields = window.STANDARD_FORM_FIELDS || [];
+      fields.forEach(field => {
+        const ov = overrides[field.id];
+        if (!ov) return;
+
+        const wrapper = getFieldWrapper(field.id);
+
+        // --- hidden ---
+        if (ov.hidden === true) {
+          if (wrapper) wrapper.style.display = "none";
+          _hiddenFieldIds.add(field.id);
+          // 対応する input/select/textarea の required を解除
+          const input = document.getElementById("f_" + field.id);
+          if (input) input.required = false;
+          return; // hidden なら他の override は適用不要
+        }
+
+        // --- ラベル上書き ---
+        const labelEl = wrapper
+          ? wrapper.querySelector(`#lbl_${field.id}`)
+          : document.getElementById(`lbl_${field.id}`);
+        if (labelEl) {
+          const newLabel = (currentLang === "en" && ov.labelEnOverride)
+            ? ov.labelEnOverride
+            : (ov.labelOverride || null);
+          if (newLabel !== null) {
+            // required マーク（<span class="required-mark">*</span>）を保持しつつ書き換え
+            const reqSpan = labelEl.querySelector(".required-mark");
+            const reqHtml = reqSpan ? reqSpan.outerHTML : "";
+            labelEl.innerHTML = esc(newLabel) + (reqHtml ? " " + reqHtml : "");
+          }
+        }
+
+        // --- required 上書き ---
+        if (ov.requiredOverride !== undefined) {
+          const input = document.getElementById("f_" + field.id);
+          if (input) input.required = ov.requiredOverride;
+          // ラベルの * マーク表示切替
+          if (labelEl) {
+            let reqSpan = labelEl.querySelector(".required-mark");
+            if (ov.requiredOverride) {
+              if (!reqSpan) {
+                reqSpan = document.createElement("span");
+                reqSpan.className = "required-mark";
+                reqSpan.textContent = "*";
+                labelEl.appendChild(document.createTextNode(" "));
+                labelEl.appendChild(reqSpan);
+              }
+            } else {
+              if (reqSpan) reqSpan.remove();
+            }
+          }
+        }
+
+        // --- placeholder 上書き ---
+        const input = document.getElementById("f_" + field.id);
+        if (input && (input.tagName === "INPUT" || input.tagName === "TEXTAREA")) {
+          const newPh = (currentLang === "en" && ov.placeholderEnOverride)
+            ? ov.placeholderEnOverride
+            : (ov.placeholderOverride || null);
+          if (newPh !== null) input.placeholder = newPh;
         }
       });
 
-      // カスタムフィールドがあれば挿入
+      // --- sortOrder によるセクション内並び替え ---
+      applyFieldSortOrder(overrides);
+
+      // カスタムフィールドがあれば末尾に追加描画
+      _customFormFields = customFormFields.filter(f => !f.hidden);
       if (_customFormFields.length > 0) {
         renderCustomFields(_customFormFields);
       }
+    }
+
+    /**
+     * sortOrder overrides をセクション内で適用する。
+     * data-field-id を持つ要素を、同じ親コンテナ内で sortOrder 昇順に並び替える。
+     * companions セクション（guestInputList）は動的生成のため除外。
+     */
+    function applyFieldSortOrder(overrides) {
+      // sortOrder が指定されているフィールドを収集
+      const sortEntries = Object.entries(overrides)
+        .filter(([, ov]) => ov.sortOrder !== undefined && !ov.hidden)
+        .map(([id, ov]) => ({ id, sortOrder: ov.sortOrder }));
+
+      if (sortEntries.length === 0) return;
+
+      // 親コンテナ別にグループ化
+      const parentGroups = new Map();
+      sortEntries.forEach(({ id, sortOrder }) => {
+        const el = document.querySelector(`[data-field-id="${id}"]`);
+        if (!el) return;
+        const parent = el.parentElement;
+        if (!parent) return;
+        // companions セクション（guestInputList の親）はスキップ
+        if (parent.id === "guestInputList" || parent.closest("#guestInputList")) return;
+        if (!parentGroups.has(parent)) parentGroups.set(parent, []);
+        parentGroups.get(parent).push({ id, sortOrder, el });
+      });
+
+      // 各親コンテナ内で sortOrder 昇順にソートして DOM 並び替え
+      parentGroups.forEach((items, parent) => {
+        // 同一親内の全 data-field-id 要素を取得（sortOrder 未指定分も含む）
+        const allFieldEls = Array.from(parent.querySelectorAll(":scope > [data-field-id]"));
+        // sortOrder が指定された要素を並び替えマップに登録
+        const sortMap = new Map(items.map(({ id, sortOrder }) => [id, sortOrder]));
+
+        // 全要素に暫定 sortOrder を付与（未指定は現在のインデックス * 10 + 1000 で末尾扱い）
+        const withOrder = allFieldEls.map((el, idx) => {
+          const fid = el.dataset.fieldId;
+          return { el, order: sortMap.has(fid) ? sortMap.get(fid) : (1000 + idx * 10) };
+        });
+        withOrder.sort((a, b) => a.order - b.order);
+
+        // DOM に反映（appendChild で末尾移動しながら順序を確定）
+        withOrder.forEach(({ el }) => parent.appendChild(el));
+      });
     }
 
     // カスタムフィールドを動的生成してアンケートセクションの後ろに挿入
@@ -1671,7 +1769,11 @@
           const resp = await fetch(`/api/public/guest-form-config/${propertyId}`);
           if (resp.ok) {
             _propertyConfig = await resp.json();
-            if (_propertyConfig.customFormEnabled === true) {
+            // Phase 2: formFieldConfig (overrides + customFormFields) を優先使用
+            if (_propertyConfig.formFieldConfig) {
+              _resolvedFormFields = _propertyConfig.formFieldConfig;
+            } else if (_propertyConfig.customFormEnabled === true) {
+              // 旧形式フォールバック: customFormFields 配列
               _resolvedFormFields = _propertyConfig.customFormFields || null;
             }
             // 騒音ルール表示フラグ (未設定または true → 表示、false のみ非表示)
@@ -1696,8 +1798,12 @@
         }
       } catch (_) {}
       // 物件別フォーム設定を適用
-      if (_resolvedFormFields && _resolvedFormFields.length > 0) {
-        applyFormConfig(_resolvedFormFields);
+      // _resolvedFormFields は formFieldConfig オブジェクト または 旧形式配列
+      if (_resolvedFormFields) {
+        const isLegacyArray = Array.isArray(_resolvedFormFields);
+        if (isLegacyArray ? _resolvedFormFields.length > 0 : true) {
+          applyFormConfig(_resolvedFormFields);
+        }
       }
 
       // === 騒音ルール同意フロー制御 ===
