@@ -19,6 +19,7 @@ const App = {
     notifications: NotificationsPage,
     laundry: LaundryPage,
     checklist: ChecklistPage,
+    "reservation-flow": ReservationFlowPage,
     "cleaning-flow": CleaningFlowPage,
     "prepaid-cards": PrepaidCardsPage,
     reports: ReportsPage,
