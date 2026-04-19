@@ -108,6 +108,7 @@ module.exports = async function sendKeyboxEmail() {
     }
 
     const isEve = data.checkIn === tomorrow; // 前日送信かどうか
+    const APP_URL = "https://minpaku-v2.web.app";
     const vars = {
       guestName: data.guestName || "ゲスト",
       checkIn: data.checkIn || today,
@@ -115,6 +116,7 @@ module.exports = async function sendKeyboxEmail() {
       checkInTime: data.checkInTime || "",
       checkOutTime: data.checkOutTime || "",
       keyboxNumber,
+      guideUrl: `${APP_URL}/guest-guide.html`,
     };
 
     try {
