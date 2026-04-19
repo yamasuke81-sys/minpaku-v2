@@ -291,6 +291,15 @@ module.exports = async function onBookingChange(event) {
     return;
   }
 
+  // ========== D-1: ダブルブッキング検知 ==========
+  // 新規作成 or 日程変更時に、同物件の active 予約と重複チェック
+  // ※ 募集重複チェック等の早期 return より前に実行して確実に動かす
+  try {
+    await detectDoubleBooking(db, bookingId, after);
+  } catch (e) {
+    console.error("ダブルブッキング検知エラー:", e);
+  }
+
   // propertiesコレクションからpropertyName + 設定を取得
   let propertyName = "";
   let propertyData = {};
@@ -642,13 +651,5 @@ module.exports = async function onBookingChange(event) {
     }
   } catch (e) {
     console.error("直前点検 処理エラー:", e);
-  }
-
-  // ========== D-1: ダブルブッキング検知 ==========
-  // 新規作成 or 日程変更時に、同物件の active 予約と重複チェック
-  try {
-    await detectDoubleBooking(db, bookingId, after);
-  } catch (e) {
-    console.error("ダブルブッキング検知エラー:", e);
   }
 };
