@@ -307,6 +307,7 @@ const MyChecklistPage = {
     let n = 0;
     const walk = (node) => {
       (node.items || []).forEach(() => n++);
+      (node.directItems || []).forEach(() => n++);
       (node.taskTypes || []).forEach(walk);
       (node.subCategories || []).forEach(walk);
       (node.subSubCategories || []).forEach(walk);
@@ -319,6 +320,7 @@ const MyChecklistPage = {
     let n = 0;
     const walk = (node) => {
       (node.items || []).forEach(it => { if (states[it.id]?.checked) n++; });
+      (node.directItems || []).forEach(it => { if (states[it.id]?.checked) n++; });
       (node.taskTypes || []).forEach(walk);
       (node.subCategories || []).forEach(walk);
       (node.subSubCategories || []).forEach(walk);
