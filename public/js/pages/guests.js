@@ -196,11 +196,16 @@ const GuestsPage = {
       const totalGuests = g.guestCount || 0;
       const companionCount = (g.guests || []).length;
       const sourceIcon = this.getSourceIcon(g.source);
+      // 提出済み判定: guest_form 由来 = ゲスト自身がフォーム提出した名簿
+      const isSubmitted = g.source === "guest_form";
+      const submittedBadge = isSubmitted
+        ? `<span class="badge bg-success ms-1" title="ゲストがフォーム提出済み"><i class="bi bi-check-circle-fill"></i> 提出済</span>`
+        : `<span class="badge bg-secondary ms-1" title="ゲスト未提出 (手動/インポート)"><i class="bi bi-circle"></i> 未提出</span>`;
       return `
         <tr data-id="${g.id}" class="guest-row ${g._coMismatch ? "table-warning" : ""}">
           <td>${formatDate(g.checkIn)}${g.checkInTime ? `<br><small class="text-muted">${this.escapeHtml(g.checkInTime)}</small>` : ""}</td>
           <td>
-            <strong>${this.escapeHtml(g.guestName || "-")}</strong>
+            <strong>${this.escapeHtml(g.guestName || "-")}</strong>${submittedBadge}
             ${companionCount > 0 ? `<br><small class="text-muted">他${companionCount}名</small>` : ""}
           </td>
           <td class="d-none d-md-table-cell">
@@ -524,124 +529,6 @@ const GuestsPage = {
         catch (_) { target.select(); document.execCommand("copy"); showToast("コピー完了", "", "success"); }
       });
     });
-  },
-
-  // === フォームURL生成ダイアログ (旧実装、現在は未使用・残置のみ) ===
-  async showFormUrlDialog() {
-    const baseUrl = location.origin + "/form/";
-    // ミニゲーム設定を取得 (デフォルト ON)
-    let miniGameEnabled = true;
-    try {
-      const doc = await db.collection("settings").doc("guestForm").get();
-      if (doc.exists && doc.data().miniGameEnabled === false) miniGameEnabled = false;
-    } catch (_) {}
-    const html = `
-      <div class="alert alert-success mb-3">
-        <strong><i class="bi bi-check-circle"></i> 共通URL（推奨）</strong>
-        <p class="small mb-2 mt-1">Airbnb / Booking.com の自動メッセージにはこの共通URLのみを貼り付けてください。宿泊客自身がチェックイン日を入力すれば、その日のフォームが自動で表示されます。</p>
-        <div class="input-group">
-          <input type="text" class="form-control" value="${baseUrl}" readonly id="formUrlBasic">
-          <button class="btn btn-primary" onclick="navigator.clipboard.writeText(document.getElementById('formUrlBasic').value);this.innerHTML='<i class=\\'bi bi-check\\'></i>'">
-            <i class="bi bi-clipboard"></i> コピー
-          </button>
-        </div>
-      </div>
-      <div class="card mb-3">
-        <div class="card-body py-2">
-          <div class="form-check form-switch mb-0">
-            <input class="form-check-input" type="checkbox" id="miniGameToggle" ${miniGameEnabled ? "checked" : ""}>
-            <label class="form-check-label" for="miniGameToggle">
-              <strong>ミニゲーム (騒音確認ゲーム) を有効にする</strong>
-            </label>
-          </div>
-          <div class="small text-muted mt-1">
-            OFF の場合: 宿泊者名簿のトップ → 次へ → 直接入力ページへ進みます<br>
-            ON の場合: 宿泊者名簿のトップ → 次へ → ミニゲーム → 入力ページの流れ (現行)
-          </div>
-          <span id="miniGameSaveStatus" class="small"></span>
-        </div>
-      </div>
-      <details class="mb-2">
-        <summary class="text-muted small">▸ 特定のCI日を指定したカスタムURL（上級）</summary>
-      <label class="form-label fw-bold">カスタムURL生成</label>
-      <div class="row g-2 mb-2">
-        <div class="col-6">
-          <label class="form-label small">チェックイン</label>
-          <input type="date" class="form-control form-control-sm" id="urlCheckIn">
-        </div>
-        <div class="col-6">
-          <label class="form-label small">チェックアウト</label>
-          <input type="date" class="form-control form-control-sm" id="urlCheckOut">
-        </div>
-        <div class="col-6">
-          <label class="form-label small">宿泊人数</label>
-          <input type="number" class="form-control form-control-sm" id="urlGuests" min="1">
-        </div>
-        <div class="col-6">
-          <label class="form-label small">言語</label>
-          <select class="form-select form-select-sm" id="urlLang">
-            <option value="">日本語（デフォルト）</option>
-            <option value="en">English</option>
-          </select>
-        </div>
-      </div>
-      <button class="btn btn-primary btn-sm w-100 mb-2" id="btnGenerateUrl">URL生成</button>
-      <div class="input-group d-none" id="generatedUrlGroup">
-        <input type="text" class="form-control form-control-sm" id="generatedUrl" readonly>
-        <button class="btn btn-outline-primary btn-sm" id="btnCopyGenerated">
-          <i class="bi bi-clipboard"></i>
-        </button>
-      </div>
-      </details>
-    `;
-
-    // 既存の詳細モーダルを流用（bodyを差し替え）
-    const body = document.getElementById("guestDetailBody");
-    body.innerHTML = html;
-    document.querySelector("#guestDetailModal .modal-title").innerHTML =
-      '<i class="bi bi-link-45deg"></i> 宿泊者名簿フォームURL';
-
-    // URL生成ボタン + ミニゲームトグル
-    setTimeout(() => {
-      const mgToggle = document.getElementById("miniGameToggle");
-      if (mgToggle) {
-        mgToggle.addEventListener("change", async () => {
-          const status = document.getElementById("miniGameSaveStatus");
-          status.innerHTML = `<i class="bi bi-arrow-repeat text-muted"></i> 保存中...`;
-          try {
-            await db.collection("settings").doc("guestForm").set({
-              miniGameEnabled: mgToggle.checked,
-              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-            }, { merge: true });
-            status.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill"></i> 保存済み</span>`;
-            setTimeout(() => { status.innerHTML = ""; }, 2000);
-          } catch (e) {
-            status.innerHTML = `<span class="text-danger">保存失敗: ${e.message}</span>`;
-          }
-        });
-      }
-      document.getElementById("btnGenerateUrl").addEventListener("click", () => {
-        const params = new URLSearchParams();
-        const ci = document.getElementById("urlCheckIn").value;
-        const co = document.getElementById("urlCheckOut").value;
-        const g = document.getElementById("urlGuests").value;
-        const lang = document.getElementById("urlLang").value;
-        if (ci) params.set("checkIn", ci);
-        if (co) params.set("checkOut", co);
-        if (g) params.set("guests", g);
-        if (lang) params.set("lang", lang);
-        const url = baseUrl + (params.toString() ? "?" + params.toString() : "");
-        document.getElementById("generatedUrl").value = url;
-        document.getElementById("generatedUrlGroup").classList.remove("d-none");
-      });
-      document.getElementById("btnCopyGenerated").addEventListener("click", () => {
-        navigator.clipboard.writeText(document.getElementById("generatedUrl").value);
-        document.getElementById("btnCopyGenerated").innerHTML = '<i class="bi bi-check"></i>';
-        showToast("完了", "URLをコピーしました", "success");
-      });
-    }, 100);
-
-    this.detailModal.show();
   },
 
   // === 登録/編集モーダル ===
@@ -1654,13 +1541,16 @@ const GuestsPage = {
   },
 
   addFormFieldRow() {
+    // DEFAULT_SECTIONS に存在するIDを使用。新規追加はアンケートセクション (survey) を既定値とする
+    const hasSurvey = this.DEFAULT_SECTIONS.some(s => s.id === "survey");
+    const defaultSection = hasSurvey ? "survey" : (this.DEFAULT_SECTIONS[0]?.id || "survey");
     const newField = {
       id: "field_" + Date.now(),
       label: "",
       labelEn: "",
       type: "text",
       required: false,
-      section: "other",
+      section: defaultSection,
       mapping: "",
       options: [],
       optionsEn: [],
@@ -1725,6 +1615,8 @@ const GuestsPage = {
     let lastSec = "";
 
     this.formFields.forEach(f => {
+      // 非表示フィールドはプレビューに描画しない (実際のゲスト画面で出ない項目はプレビューにも出さない)
+      if (f.hidden) return;
       if (f.section !== lastSec) {
         lastSec = f.section;
         html += `<h6 class="mt-3 mb-2 fw-bold text-primary border-bottom pb-1">${this.esc(sectionLabels[f.section] || f.section)}</h6>`;
