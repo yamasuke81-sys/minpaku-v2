@@ -2,11 +2,16 @@
  * 物件管理ページ
  * 一覧・登録・編集・無効化（BEDS24物件IDフィールド付き）
  */
+// LINE チャネル配列の上限（将来拡張しやすいよう定数化）
+const LINE_CHANNELS_MAX = 2;
+
 const PropertiesPage = {
   propertyList: [],
   modal: null,
   editingId: null,       // 現在編集中の物件ID (新規=null)
   _autoSaveTimer: null,  // 自動保存デバウンスタイマー
+  // 現在モーダルに表示している LINE チャネル配列（保存済みトークンを保持するため）
+  _lineChannels: [],
 
   async render(container) {
     container.innerHTML = `
@@ -200,13 +205,25 @@ const PropertiesPage = {
 
     // LINE 連携フィールド
     document.getElementById("propertyLineEnabled").checked = !!property?.lineEnabled;
-    // パスワードフィールドのため既存トークンは placeholder でのみ示す
-    document.getElementById("propertyLineChannelToken").value = "";
-    document.getElementById("propertyLineChannelToken").placeholder = property?.lineChannelToken
-      ? "（設定済み — 変更する場合のみ入力）"
-      : "長いトークン文字列を貼り付け";
-    document.getElementById("propertyLineGroupId").value = property?.lineGroupId || "";
-    document.getElementById("propertyLineChannelName").value = property?.lineChannelName || "";
+    document.getElementById("propertyLineChannelStrategy").value =
+      property?.lineChannelStrategy || "fallback";
+
+    // lineChannels 配列の構築（旧単一フィールドとの後方互換）
+    let savedChannels = Array.isArray(property?.lineChannels) ? property.lineChannels : [];
+    if (savedChannels.length === 0 && (property?.lineChannelToken || property?.lineGroupId)) {
+      // 旧単一フィールドを lineChannels[0] として扱う
+      savedChannels = [{
+        token: property.lineChannelToken || "",
+        groupId: property.lineGroupId || "",
+        name: property.lineChannelName || "",
+        enabled: true,
+        _legacy: true,  // 旧フィールド由来であることを示す内部フラグ
+      }];
+    }
+    // 内部状態を保存（既存トークンを保持するため）
+    this._lineChannels = savedChannels.map(ch => ({ ...ch }));
+    this._renderLineChannels();
+    this._bindLineChannelEvents();
 
     // LINE連携セクション: 設定済み(lineEnabled=true)は展開、未設定は折りたたみ
     const lineSection = document.getElementById("lineSection");
@@ -319,12 +336,19 @@ const PropertiesPage = {
       notes: document.getElementById("propertyNotes").value.trim(),
       // LINE 連携フィールド
       lineEnabled: document.getElementById("propertyLineEnabled").checked,
-      lineGroupId: document.getElementById("propertyLineGroupId").value.trim(),
-      lineChannelName: document.getElementById("propertyLineChannelName").value.trim(),
+      lineChannelStrategy: document.getElementById("propertyLineChannelStrategy").value || "fallback",
+      lineChannels: this._collectLineChannels(),
     };
-    // トークンは入力されている場合のみ送信 (空欄=変更なし)
-    const tokenInput = document.getElementById("propertyLineChannelToken").value.trim();
-    if (tokenInput) data.lineChannelToken = tokenInput;
+    // 後方互換: lineChannels[0] があれば旧単一フィールドにも反映
+    const firstCh = data.lineChannels[0];
+    if (firstCh) {
+      if (firstCh.token) data.lineChannelToken = firstCh.token;
+      data.lineGroupId = firstCh.groupId || "";
+      data.lineChannelName = firstCh.name || "";
+    } else {
+      data.lineGroupId = "";
+      data.lineChannelName = "";
+    }
 
     try {
       if (id) {
@@ -395,11 +419,19 @@ const PropertiesPage = {
       })(),
       notes: document.getElementById("propertyNotes").value.trim(),
       lineEnabled: document.getElementById("propertyLineEnabled").checked,
-      lineGroupId: document.getElementById("propertyLineGroupId").value.trim(),
-      lineChannelName: document.getElementById("propertyLineChannelName").value.trim(),
+      lineChannelStrategy: document.getElementById("propertyLineChannelStrategy").value || "fallback",
+      lineChannels: this._collectLineChannels(),
     };
-    const tokenInput = document.getElementById("propertyLineChannelToken").value.trim();
-    if (tokenInput) data.lineChannelToken = tokenInput;
+    // 後方互換: lineChannels[0] があれば旧単一フィールドにも反映
+    const firstChA = data.lineChannels[0];
+    if (firstChA) {
+      if (firstChA.token) data.lineChannelToken = firstChA.token;
+      data.lineGroupId = firstChA.groupId || "";
+      data.lineChannelName = firstChA.name || "";
+    } else {
+      data.lineGroupId = "";
+      data.lineChannelName = "";
+    }
 
     try {
       await API.properties.update(id, data);
@@ -466,6 +498,159 @@ const PropertiesPage = {
     document.getElementById("inspectionPeriodFull")?.classList.toggle("d-none", recur);
     document.getElementById("inspectionPeriodRecur")?.classList.toggle("d-none", !recur);
   },
+
+  // ---- LINE 複数チャネル UI ----
+
+  /**
+   * lineChannelsList コンテナを this._lineChannels の内容で再描画する
+   */
+  _renderLineChannels() {
+    const container = document.getElementById("lineChannelsList");
+    if (!container) return;
+
+    if (this._lineChannels.length === 0) {
+      container.innerHTML = `<p class="text-muted small">Bot が登録されていません。下の「Bot を追加」ボタンで追加してください。</p>`;
+    } else {
+      container.innerHTML = this._lineChannels.map((ch, i) => `
+        <div class="card mb-2 border-secondary-subtle" data-ch-idx="${i}">
+          <div class="card-header d-flex justify-content-between align-items-center py-1 px-3 bg-light">
+            <span class="fw-semibold small">Bot #${i + 1}</span>
+            <div class="d-flex align-items-center gap-2">
+              <div class="form-check form-switch mb-0">
+                <input class="form-check-input ch-enabled" type="checkbox" id="chEnabled_${i}"
+                  ${ch.enabled !== false ? "checked" : ""}>
+                <label class="form-check-label small" for="chEnabled_${i}">有効</label>
+              </div>
+              <button type="button" class="btn btn-sm btn-outline-danger btn-ch-remove py-0 px-2" data-idx="${i}">
+                <i class="bi bi-x-lg"></i>
+              </button>
+            </div>
+          </div>
+          <div class="card-body py-2 px-3">
+            <div class="row g-2">
+              <div class="col-12">
+                <label class="form-label small mb-1">チャネルアクセストークン</label>
+                <input type="password" class="form-control form-control-sm ch-token" data-idx="${i}"
+                  placeholder="${ch.token ? "（設定済み — 変更する場合のみ入力）" : "長いトークン文字列を貼り付け"}"
+                  value="">
+                <div class="form-text">LINE Developers Console → Messaging API設定 → チャネルアクセストークン</div>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small mb-1">グループ ID / User ID</label>
+                <input type="text" class="form-control form-control-sm ch-groupid" data-idx="${i}"
+                  placeholder="C... または U..." value="${this.escapeHtml(ch.groupId || "")}">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small mb-1">表示名（管理用）</label>
+                <input type="text" class="form-control form-control-sm ch-name" data-idx="${i}"
+                  placeholder="例: ○○物件 Bot #${i + 1}" value="${this.escapeHtml(ch.name || "")}">
+              </div>
+            </div>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    // 「追加」ボタンの状態を上限に合わせて更新
+    const addBtn = document.getElementById("btnAddLineChannel");
+    if (addBtn) {
+      const reached = this._lineChannels.length >= LINE_CHANNELS_MAX;
+      addBtn.disabled = reached;
+      addBtn.title = reached ? `上限 ${LINE_CHANNELS_MAX} 件に達しています` : "";
+    }
+  },
+
+  /**
+   * LINE チャネルリストのイベントをバインドする（追加・削除・変更）
+   * openModal のたびに呼び出す
+   */
+  _bindLineChannelEvents() {
+    // 「Bot を追加」ボタン
+    const addBtn = document.getElementById("btnAddLineChannel");
+    if (addBtn && !addBtn.dataset.chBound) {
+      addBtn.dataset.chBound = "1";
+      addBtn.addEventListener("click", () => {
+        if (this._lineChannels.length >= LINE_CHANNELS_MAX) return;
+        this._lineChannels.push({ token: "", groupId: "", name: "", enabled: true });
+        this._renderLineChannels();
+        // 自動保存トリガー
+        if (this.editingId) {
+          clearTimeout(this._autoSaveTimer);
+          this._autoSaveTimer = setTimeout(() => this._autoSave(), 800);
+        }
+      });
+    }
+
+    // リストコンテナへの委譲（削除・入力変更）
+    const container = document.getElementById("lineChannelsList");
+    if (container && !container.dataset.chBound) {
+      container.dataset.chBound = "1";
+
+      // 削除ボタン
+      container.addEventListener("click", (e) => {
+        const btn = e.target.closest(".btn-ch-remove");
+        if (!btn) return;
+        const idx = parseInt(btn.dataset.idx, 10);
+        this._lineChannels.splice(idx, 1);
+        this._renderLineChannels();
+        if (this.editingId) {
+          clearTimeout(this._autoSaveTimer);
+          this._autoSaveTimer = setTimeout(() => this._autoSave(), 800);
+        }
+      });
+
+      // 入力変更 → 内部配列を更新 + 自動保存
+      container.addEventListener("change", (e) => {
+        const el = e.target;
+        const idx = parseInt(el.dataset.idx, 10);
+        if (isNaN(idx) || !this._lineChannels[idx]) return;
+
+        if (el.classList.contains("ch-token")) {
+          const v = el.value.trim();
+          if (v) this._lineChannels[idx].token = v;
+          // 空欄は「変更なし」なのでそのまま（既存トークンを上書きしない）
+        } else if (el.classList.contains("ch-groupid")) {
+          this._lineChannels[idx].groupId = el.value.trim();
+        } else if (el.classList.contains("ch-name")) {
+          this._lineChannels[idx].name = el.value.trim();
+        } else if (el.classList.contains("ch-enabled")) {
+          this._lineChannels[idx].enabled = el.checked;
+        }
+
+        if (this.editingId) {
+          clearTimeout(this._autoSaveTimer);
+          this._autoSaveTimer = setTimeout(() => this._autoSave(), 800);
+        }
+      });
+    }
+  },
+
+  /**
+   * 現在のフォーム内容から lineChannels 配列を収集して返す
+   * @returns {Array}
+   */
+  _collectLineChannels() {
+    // DOM から最新の値を内部配列に反映してから返す
+    const container = document.getElementById("lineChannelsList");
+    if (!container) return this._lineChannels.map(ch => ({ ...ch }));
+
+    this._lineChannels.forEach((ch, i) => {
+      const tokenEl = container.querySelector(`.ch-token[data-idx="${i}"]`);
+      const groupEl = container.querySelector(`.ch-groupid[data-idx="${i}"]`);
+      const nameEl = container.querySelector(`.ch-name[data-idx="${i}"]`);
+      const enabledEl = container.querySelector(`.ch-enabled[data-idx="${i}"]`);
+
+      if (tokenEl && tokenEl.value.trim()) ch.token = tokenEl.value.trim();
+      if (groupEl) ch.groupId = groupEl.value.trim();
+      if (nameEl) ch.name = nameEl.value.trim();
+      if (enabledEl) ch.enabled = enabledEl.checked;
+    });
+
+    // _legacy フラグは送信不要なので除去
+    return this._lineChannels.map(({ _legacy, ...rest }) => rest);
+  },
+
+  // ---- 共通ユーティリティ ----
 
   escapeHtml(str) {
     const div = document.createElement("div");

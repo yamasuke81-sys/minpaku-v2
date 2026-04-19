@@ -655,30 +655,145 @@ async function sendNotificationEmail_(to, subject, body) {
 // ========== 物件別 LINE 送信 ==========
 
 /**
- * 物件ごとの LINE チャネルでメッセージを送信する
- * 物件に lineEnabled && lineChannelToken && lineGroupId があればその設定を使用し、
- * なければ settings/notifications の共通設定へフォールバック。
+ * LINE Messaging API の残通数を取得する
+ * @param {string} token - チャネルアクセストークン
+ * @returns {Promise<{max: number, used: number, remaining: number}>}
+ */
+async function getChannelQuota(token) {
+  if (IS_EMULATOR) {
+    // エミュレータ環境では常に残枠ありとして扱う
+    return { max: 200, used: 0, remaining: 200 };
+  }
+  try {
+    const [quotaRes, consumRes] = await Promise.all([
+      _httpsGet_("https://api.line.me/v2/bot/message/quota", token),
+      _httpsGet_("https://api.line.me/v2/bot/message/quota/consumption", token),
+    ]);
+    // quota.value: "limited" プランは 200、"unlimited" は -1
+    const max = (quotaRes.type === "limited" ? quotaRes.value : 999999) || 200;
+    const used = consumRes.totalUsage || 0;
+    return { max, used, remaining: max - used };
+  } catch (e) {
+    console.error("[LINE] quota取得失敗:", e.message);
+    // エラー時は「残枠あり」として送信を試みる（保守的な対応）
+    return { max: 200, used: 0, remaining: 200 };
+  }
+}
+
+/**
+ * HTTPS GET を Promise でラップ（LINE API 用）
+ * @param {string} url
+ * @param {string} token
+ * @returns {Promise<object>}
+ */
+function _httpsGet_(url, token) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const options = {
+      hostname: u.hostname,
+      path: u.pathname + u.search,
+      method: "GET",
+      headers: { "Authorization": `Bearer ${token}` },
+    };
+    const req = https.request(options, (res) => {
+      let data = "";
+      res.on("data", chunk => data += chunk);
+      res.on("end", () => {
+        try { resolve(JSON.parse(data)); }
+        catch (e) { reject(new Error("JSONパースエラー: " + data.slice(0, 100))); }
+      });
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+/**
+ * 1チャネルで送信を試みる（内部ヘルパー）
+ * @param {{token: string, groupId: string}} ch
+ * @param {string} text
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+async function _trySendOne_(ch, text) {
+  return sendLineMessage(ch.token, ch.groupId, text);
+}
+
+/**
+ * 物件ごとの LINE チャネルでメッセージを送信する。
+ * 複数チャネル (lineChannels[]) があれば lineChannelStrategy に従い送信先を選択。
+ * なければ旧単一フィールド → settings/notifications の共通設定へフォールバック。
+ *
  * @param {FirebaseFirestore.Firestore} db
  * @param {string} propertyId
  * @param {string} text
  * @param {object} [logExtra] - notifications コレクションに追記するフィールド
- * @returns {Promise<{success: boolean, usedChannel: "property"|"global", error?: string}>}
+ * @returns {Promise<{success: boolean, usedChannel: "property_multi"|"property"|"global", channelName?: string, error?: string}>}
  */
 async function sendLineMessageForProperty(db, propertyId, text, logExtra = {}) {
-  let channelToken = null;
-  let targetId = null;
+  let result = null;
   let usedChannel = "global";
+  let usedChannelName = null;
 
-  // 物件ドキュメントから LINE 設定を取得
+  // ---- 物件ドキュメントから LINE 設定を取得 ----
   if (propertyId) {
     try {
       const propDoc = await db.collection("properties").doc(propertyId).get();
       if (propDoc.exists) {
         const pd = propDoc.data();
-        if (pd.lineEnabled && pd.lineChannelToken && pd.lineGroupId) {
-          channelToken = pd.lineChannelToken;
-          targetId = pd.lineGroupId;
-          usedChannel = "property";
+
+        // 複数チャネル設定がある場合
+        let channels = Array.isArray(pd.lineChannels) ? pd.lineChannels : [];
+
+        // 旧単一フィールドを lineChannels が空の場合の互換として追加
+        if (channels.length === 0 && pd.lineEnabled && pd.lineChannelToken && pd.lineGroupId) {
+          channels = [{
+            token: pd.lineChannelToken,
+            groupId: pd.lineGroupId,
+            name: pd.lineChannelName || "",
+            enabled: true,
+          }];
+        }
+
+        // enabled=true かつ token/groupId が揃っているチャネルのみ対象
+        const activeChannels = channels.filter(c => c.enabled && c.token && c.groupId);
+
+        if (activeChannels.length > 0) {
+          const strategy = pd.lineChannelStrategy || "fallback";
+
+          if (strategy === "roundrobin" && activeChannels.length > 1) {
+            // 日付 % チャネル数 でインデックス選択
+            const idx = new Date().getDate() % activeChannels.length;
+            const primary = activeChannels[idx];
+            const secondary = activeChannels[(idx + 1) % activeChannels.length];
+            result = await _trySendOne_(primary, text);
+            if (!result.success) {
+              console.warn("[LINE] roundrobin 1番目失敗、2番目を試みます:", result.error);
+              result = await _trySendOne_(secondary, text);
+              usedChannelName = result.success ? secondary.name : null;
+            } else {
+              usedChannelName = primary.name;
+            }
+          } else {
+            // fallback: 残枠が多い順に試みる
+            for (const ch of activeChannels) {
+              const quota = await getChannelQuota(ch.token);
+              if (quota.remaining > 0) {
+                result = await _trySendOne_(ch, text);
+                if (result.success) {
+                  usedChannelName = ch.name;
+                  break;
+                }
+              } else {
+                console.warn(`[LINE] チャネル「${ch.name || ch.groupId}」の無料枠が枯渇しています (used=${quota.used}/${quota.max})`);
+              }
+            }
+            // 全チャネル枯渇 or 失敗時
+            if (!result || !result.success) {
+              result = { success: false, error: "全チャネルで無料枠枯渇または送信失敗" };
+            }
+          }
+
+          usedChannel = activeChannels.length > 1 ? "property_multi" : "property";
         }
       }
     } catch (e) {
@@ -686,21 +801,18 @@ async function sendLineMessageForProperty(db, propertyId, text, logExtra = {}) {
     }
   }
 
-  // 物件設定がなければ共通設定へフォールバック
-  if (!channelToken || !targetId) {
+  // ---- 物件設定がなければ共通設定へフォールバック ----
+  if (!result) {
     const { channelToken: gt, groupId: gid } = await getNotificationSettings_(db);
-    channelToken = gt;
-    targetId = gid;
-    usedChannel = "global";
+    if (gt && gid) {
+      result = await sendLineMessage(gt, gid, text);
+      usedChannel = "global";
+    } else {
+      result = { success: false, error: "LINE送信先が設定されていません" };
+    }
   }
 
-  if (!channelToken || !targetId) {
-    return { success: false, usedChannel, error: "LINE送信先が設定されていません" };
-  }
-
-  const result = await sendLineMessage(channelToken, targetId, text);
-
-  // 通知ログ記録
+  // ---- 通知ログ記録 ----
   try {
     await db.collection("notifications").add({
       type: logExtra.type || "line_message",
@@ -710,6 +822,7 @@ async function sendLineMessageForProperty(db, propertyId, text, logExtra = {}) {
       sentAt: new Date(),
       channel: "line",
       usedChannel,
+      usedChannelName: usedChannelName || null,
       success: result.success,
       error: result.error || null,
       ...logExtra,
@@ -718,12 +831,13 @@ async function sendLineMessageForProperty(db, propertyId, text, logExtra = {}) {
     console.error("通知ログ記録エラー:", e);
   }
 
-  return { ...result, usedChannel };
+  return { ...result, usedChannel, channelName: usedChannelName };
 }
 
 module.exports = {
   sendLineMessage,
   sendLineMessageForProperty,
+  getChannelQuota,
   pushMessages_,
   buildApprovalFlex,
   sendApprovalRequest,

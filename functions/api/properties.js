@@ -5,6 +5,22 @@
 const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
 
+/**
+ * lineChannels 配列のバリデーションとサニタイズ
+ * 最大5件まで受け付け、各フィールドを文字列に正規化する
+ * @param {any} raw - リクエストボディの lineChannels 値
+ * @returns {Array}
+ */
+function _sanitizeLineChannels(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, 5).map(ch => ({
+    token: ch.token ? String(ch.token).trim() : "",
+    groupId: ch.groupId ? String(ch.groupId).trim() : "",
+    name: ch.name ? String(ch.name).trim() : "",
+    enabled: ch.enabled !== false,
+  }));
+}
+
 module.exports = function propertiesApi(db) {
   const router = Router();
   const collection = db.collection("properties");
@@ -72,12 +88,16 @@ module.exports = function propertiesApi(db) {
         baseWorkTime: (body.baseWorkTime && typeof body.baseWorkTime === "object")
           ? { start: String(body.baseWorkTime.start || "10:30"), end: String(body.baseWorkTime.end || "14:30") }
           : { start: "10:30", end: "14:30" },
-        // 物件別 LINE 連携設定 (1物件1LINEアカウント運用用)
+        // 物件別 LINE 連携設定（後方互換フィールド）
         lineEnabled: body.lineEnabled === true,
         lineChannelToken: body.lineChannelToken ? String(body.lineChannelToken).trim() : "",
         lineChannelSecret: body.lineChannelSecret ? String(body.lineChannelSecret).trim() : "",
         lineGroupId: body.lineGroupId ? String(body.lineGroupId).trim() : "",
         lineChannelName: body.lineChannelName ? String(body.lineChannelName).trim() : "",
+        // 複数チャネル設定 (lineChannels[])
+        lineChannels: _sanitizeLineChannels(body.lineChannels),
+        lineChannelStrategy: ["fallback", "roundrobin"].includes(body.lineChannelStrategy)
+          ? body.lineChannelStrategy : "fallback",
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       };
@@ -126,12 +146,18 @@ module.exports = function propertiesApi(db) {
           end: String(body.baseWorkTime.end || "14:30"),
         };
       }
-      // 物件別 LINE 連携設定
+      // 物件別 LINE 連携設定（後方互換フィールド）
       if (body.lineEnabled !== undefined) data.lineEnabled = Boolean(body.lineEnabled);
       if (body.lineChannelToken !== undefined) data.lineChannelToken = String(body.lineChannelToken).trim();
       if (body.lineChannelSecret !== undefined) data.lineChannelSecret = String(body.lineChannelSecret).trim();
       if (body.lineGroupId !== undefined) data.lineGroupId = String(body.lineGroupId).trim();
       if (body.lineChannelName !== undefined) data.lineChannelName = String(body.lineChannelName).trim();
+      // 複数チャネル設定
+      if (body.lineChannels !== undefined) data.lineChannels = _sanitizeLineChannels(body.lineChannels);
+      if (body.lineChannelStrategy !== undefined) {
+        data.lineChannelStrategy = ["fallback", "roundrobin"].includes(body.lineChannelStrategy)
+          ? body.lineChannelStrategy : "fallback";
+      }
       data.updatedAt = FieldValue.serverTimestamp();
 
       await docRef.update(data);

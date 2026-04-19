@@ -469,32 +469,32 @@
             <div class="col-12 collapse" id="lineSection">
               <p class="text-muted small mb-2">
                 この物件専用の LINE 公式アカウントを紐付けます。<br>
-                1物件1アカウントで運用すると、各 200通/月の無料枠を個別に使えます。
+                複数の Bot を登録すると、無料枠 (200通/月) を使い切った際に自動で切り替えられます。
               </p>
               <div class="form-check form-switch mb-2">
                 <input class="form-check-input" type="checkbox" id="propertyLineEnabled">
                 <label class="form-check-label" for="propertyLineEnabled">この物件の LINE 連携を有効にする</label>
               </div>
-              <div id="propertyLineFields">
-                <div class="row g-2">
-                  <div class="col-12">
-                    <label class="form-label small">チャネルアクセストークン</label>
-                    <input type="password" class="form-control form-control-sm" id="propertyLineChannelToken" placeholder="長いトークン文字列を貼り付け">
-                    <div class="form-text">LINE Developers Console → Messaging API設定 → チャネルアクセストークンで発行</div>
-                  </div>
-                  <div class="col-md-6">
-                    <label class="form-label small">グループ ID / User ID</label>
-                    <input type="text" class="form-control form-control-sm" id="propertyLineGroupId" placeholder="C... または U...">
-                    <div class="form-text">グループIDがわからない場合は個人User IDで試して後で差し替え可</div>
-                  </div>
-                  <div class="col-md-6">
-                    <label class="form-label small">アカウント表示名（管理用）</label>
-                    <input type="text" class="form-control form-control-sm" id="propertyLineChannelName" placeholder="例: ○○物件 通知Bot">
-                  </div>
-                </div>
+
+              <!-- 配信戦略セレクト -->
+              <div class="mb-3">
+                <label class="form-label small fw-semibold">配信戦略</label>
+                <select class="form-select form-select-sm" id="propertyLineChannelStrategy" style="max-width:260px">
+                  <option value="fallback">残枠 fallback（先頭 Bot を優先、枯渇したら次へ）</option>
+                  <option value="roundrobin">交互使用（日付でローテーション）</option>
+                </select>
               </div>
+
+              <!-- Bot リスト（動的生成） -->
+              <div id="lineChannelsList"></div>
+
+              <!-- Botを追加ボタン -->
+              <button type="button" class="btn btn-outline-success btn-sm mt-1" id="btnAddLineChannel">
+                <i class="bi bi-plus-lg"></i> Bot を追加（最大2）
+              </button>
+
               <!-- 設定手順アコーディオン -->
-              <div class="mt-2">
+              <div class="mt-3">
                 <button class="btn btn-link btn-sm p-0 text-muted" type="button" data-bs-toggle="collapse" data-bs-target="#lineSetupGuide">
                   <i class="bi bi-question-circle"></i> 設定手順を見る ▼
                 </button>
@@ -504,14 +504,13 @@
                       <li><a href="https://developers.line.biz/console/" target="_blank" rel="noopener">https://developers.line.biz/console/</a> を開く</li>
                       <li>「長浜清掃G通知」(or 新規) プロバイダー → 「新規チャネル作成」</li>
                       <li>「Messaging API」を選択</li>
-                      <li>チャネル名: 例「○○物件の通知」と入力して作成</li>
+                      <li>チャネル名: 例「○○物件 通知Bot #1」と入力して作成</li>
                       <li>「Messaging API設定」タブ → 「チャネルアクセストークン」で発行</li>
-                      <li>トークンをコピーして上のフォームに貼り付け</li>
+                      <li>トークンをコピーして Bot #1 のフォームに貼り付け</li>
                       <li>LINE グループを作成 → 作成した Bot を招待</li>
-                      <li>グループ内で Bot にメンション → サーバーログで Group ID を確認<br>
-                          <span class="text-muted">（Webhook を一時設定して取得も可。グループIDがわからない場合は個人 User ID で試して後で差し替え）</span>
-                      </li>
-                      <li>Group ID を上のフォームに貼り付け、「この物件のLINE連携を有効にする」ON → 保存</li>
+                      <li>グループ内で Bot にメンション → サーバーログで Group ID を確認</li>
+                      <li>Group ID を Bot #1 のフォームに貼り付け → 保存</li>
+                      <li>2つ目の Bot は同様の手順で Bot #2 として登録</li>
                     </ol>
                   </div>
                 </div>
