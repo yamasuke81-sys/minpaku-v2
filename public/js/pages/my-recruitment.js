@@ -40,13 +40,21 @@ const MyRecruitmentPage = {
           <button class="btn btn-sm btn-outline-primary ms-2" id="btnMyCalToday">今日</button>
         </div>
       </div>
-      <div class="d-flex flex-wrap gap-3 mb-3 text-muted" style="font-size:13px;">
-        <span><span style="background:#ff5a5f;display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:middle;"></span> Airbnb</span>
-        <span><span style="background:#003580;display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:middle;"></span> Booking.com</span>
-        <span><span style="background:#198754;display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;"></span> 名簿提出済み</span>
-        <span><span style="background:#dc3545;display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;"></span> 名簿未提出</span>
-        <span><span style="display:inline-block;width:12px;height:12px;background:#a7c7ff;border-radius:2px;vertical-align:middle;"></span> 確定済</span>
-        <span>👤 あなた</span>
+      <div class="mb-2">
+        <button class="btn btn-sm btn-link text-muted p-0 text-decoration-none" type="button"
+          data-bs-toggle="collapse" data-bs-target="#myCalLegend" aria-expanded="false">
+          <i class="bi bi-info-circle"></i> 凡例を表示 ▼
+        </button>
+        <div class="collapse" id="myCalLegend">
+          <div class="d-flex flex-wrap gap-3 mt-2 text-muted" style="font-size:13px;">
+            <span><span style="background:#ff5a5f;display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:middle;"></span> Airbnb</span>
+            <span><span style="background:#003580;display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:middle;"></span> Booking.com</span>
+            <span><span style="background:#198754;display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;"></span> 名簿提出済み</span>
+            <span><span style="background:#dc3545;display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;"></span> 名簿未提出</span>
+            <span><span style="display:inline-block;width:12px;height:12px;background:#a7c7ff;border-radius:2px;vertical-align:middle;"></span> 確定済</span>
+            <span>👤 あなた</span>
+          </div>
+        </div>
       </div>
       <style>
         #myCalContainer .col-resizer { opacity:0; transition:opacity 0.15s; }
@@ -73,7 +81,11 @@ const MyRecruitmentPage = {
         #myCalContainer tr.section-header > td { position:sticky; top:65px; left:0; z-index:8; }
         #myCalContainer tr.section-header > td > .section-content { position:sticky; left:10px; display:inline-block; padding-left:4px; }
       </style>
-      <div id="myCalContainer" style="position:relative;overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--radius,8px);border:1px solid var(--border,#e2e8f0);"></div>
+      <div style="position:relative;">
+        <!-- 現在スクロール位置の年月を固定表示するフローティングバッジ -->
+        <div id="myCalFloatingMonth" style="position:absolute;top:6px;right:6px;z-index:20;background:rgba(13,110,253,0.92);color:#fff;padding:3px 10px;border-radius:14px;font-size:12px;font-weight:600;pointer-events:none;box-shadow:0 1px 3px rgba(0,0,0,0.15);"></div>
+        <div id="myCalContainer" style="position:relative;overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--radius,8px);border:1px solid var(--border,#e2e8f0);"></div>
+      </div>
 
       <!-- 回答モーダル -->
       <div class="modal fade" id="responseModal" tabindex="-1">
@@ -641,6 +653,28 @@ const MyRecruitmentPage = {
 
     html += "</tbody></table>";
     container.innerHTML = html;
+
+    // フローティング月バッジ: スクロール位置の年月を動的に表示
+    const floatBadge = document.getElementById("myCalFloatingMonth");
+    if (floatBadge) {
+      const updateFloatBadge = () => {
+        const scrollLeft = container.scrollLeft;
+        const stickyOffset = this._stickyW || 140;
+        // 列幅 colW を数値で取り直し
+        const firstDateTh = container.querySelector('th[data-cal-date]');
+        const colWpx = firstDateTh ? firstDateTh.getBoundingClientRect().width : 40;
+        // 表示領域の左端から 30px 程度の位置にある日付を判定
+        const visibleX = scrollLeft + stickyOffset + 20;
+        const colIdx = Math.max(0, Math.floor((visibleX - stickyOffset) / Math.max(1, colWpx)));
+        const target = allDates[Math.min(colIdx, allDates.length - 1)];
+        if (target) {
+          floatBadge.textContent = `${target.year}年${target.month}月`;
+        }
+      };
+      container.addEventListener("scroll", updateFloatBadge, { passive: true });
+      // 初回描画時にも一度呼ぶ
+      setTimeout(updateFloatBadge, 0);
+    }
 
     // 列幅ドラッグハンドル (PC=マウス / スマホ=タッチ 両対応)
     const applyStickyW = (newW) => {
