@@ -879,7 +879,13 @@ const CleaningFlowPage = {
           card.classList.toggle("rf-card-enabled", e.target.checked);
           card.classList.toggle("rf-card-disabled", !e.target.checked);
         }
-        this._queueSave(pid, stepKey);
+        // globalChannel ステップは notifChannel にも enabled を保存する
+        const step = this.STEPS.find(s => s.key === stepKey);
+        if (step?.globalChannel) {
+          this._queueSaveNotif(step.globalChannel);
+        } else {
+          this._queueSave(pid, stepKey);
+        }
         return;
       }
 
