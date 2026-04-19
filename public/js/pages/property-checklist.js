@@ -94,6 +94,11 @@ const PropertyChecklistPage = {
       this.property = prop;
       this.template = tmpl;
 
+      // areas を sortOrder 順にソート (D&D で保存した順序を反映)
+      if (tmpl && Array.isArray(tmpl.areas)) {
+        tmpl.areas.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+      }
+
       document.getElementById("pclHeader").textContent =
         `チェックリスト編集: ${this.property?.name || this.propertyId}`;
 
@@ -148,13 +153,15 @@ const PropertyChecklistPage = {
     const areas = this.template.areas || [];
 
     // タブ見た目をスタッフ側(my-checklist) と統一: 非 active は灰色背景+枠線で区別
+    // li.nav-item に data-area-li-id を付与して D&D 並び替え時に順序を解決
     const tabs = areas.map((a) => {
       const isActive = a.id === this.activeAreaId;
       return `
-      <li class="nav-item">
+      <li class="nav-item" data-area-li-id="${a.id}">
         <a class="nav-link ${isActive ? "active" : ""}" href="#" data-area-id="${a.id}"
-           style="${isActive ? '' : 'background:#f1f3f5;border:1px solid #ced4da;color:#495057;'}font-weight:600;">
-          ${this.escapeHtml(a.name)}
+           style="${isActive ? '' : 'background:#f1f3f5;border:1px solid #ced4da;color:#495057;'}font-weight:600;cursor:grab;"
+           title="ドラッグで並び替え">
+          <i class="bi bi-grip-vertical text-muted me-1 pcl-tab-handle" style="cursor:grab;"></i>${this.escapeHtml(a.name)}
           <span class="badge ${isActive ? 'bg-light text-dark' : 'bg-secondary'} ms-1">${this.countLeaves(a)}</span>
         </a>
       </li>`;
@@ -199,7 +206,53 @@ const PropertyChecklistPage = {
       this.addArea();
     });
 
+    // タブ (大カテゴリ=エリア) の D&D 並び替え
+    this._setupTabSortable();
+
     this.renderAreaContent();
+  },
+
+  // === タブ (エリア) 並び替え Sortable ===
+  _setupTabSortable() {
+    if (typeof Sortable === "undefined") return;
+    const tabsUl = document.getElementById("areaTabs");
+    if (!tabsUl) return;
+    // 既存の Sortable インスタンスがあれば破棄 (renderTree 再描画で二重化を防ぐ)
+    if (this._tabSortable) {
+      try { this._tabSortable.destroy(); } catch {}
+      this._tabSortable = null;
+    }
+    this._tabSortable = Sortable.create(tabsUl, {
+      animation: 150,
+      // 「エリア追加」ボタンの li は data-area-li-id を持たないので自動的に除外される
+      draggable: "li.nav-item[data-area-li-id]",
+      // クリックとのコンフリクトを避けるため、少し長押しでドラッグ開始
+      delay: 150,
+      delayOnTouchOnly: true,
+      onEnd: () => this._onTabDragEnd(),
+    });
+  },
+
+  _onTabDragEnd() {
+    const tabsUl = document.getElementById("areaTabs");
+    if (!tabsUl) return;
+    const newOrderIds = [...tabsUl.querySelectorAll("li.nav-item[data-area-li-id]")]
+      .map(li => li.dataset.areaLiId);
+    const areaMap = new Map((this.template.areas || []).map(a => [a.id, a]));
+    const reordered = newOrderIds
+      .map((id, idx) => {
+        const a = areaMap.get(id);
+        if (a) a.sortOrder = idx + 1;
+        return a;
+      })
+      .filter(Boolean);
+    if (reordered.length !== this.template.areas.length) {
+      console.warn("[property-checklist] タブ並び替え: エリア数不一致、再描画で修復");
+      this.renderTree();
+      return;
+    }
+    this.template.areas = reordered;
+    this.markDirty();
   },
 
   renderAreaContent() {
