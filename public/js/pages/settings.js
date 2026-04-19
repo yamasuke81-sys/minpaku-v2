@@ -217,20 +217,22 @@ const SettingsPage = {
             <div class="card-body">
               <h6 class="card-title"><i class="bi bi-plus-circle"></i> 新しいiCal URLを追加</h6>
               <div class="row g-2 align-items-end">
-                <div class="col-md-5">
+                <div class="col-md-4">
                   <label class="form-label small">iCal URL</label>
                   <input type="url" class="form-control form-control-sm" id="newIcalUrl"
                     placeholder="https://www.airbnb.com/calendar/ical/xxxxx.ics">
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                   <label class="form-label small">プラットフォーム（自動検出）</label>
                   <input type="text" class="form-control form-control-sm" id="newIcalPlatform" readonly placeholder="自動検出">
                 </div>
-                <div class="col-md-2">
-                  <label class="form-label small">物件ID</label>
-                  <input type="text" class="form-control form-control-sm" id="newIcalPropertyId" placeholder="（任意）">
+                <div class="col-md-3">
+                  <label class="form-label small">対象物件 <span class="text-danger">*</span></label>
+                  <select class="form-select form-select-sm" id="newIcalPropertyId" required>
+                    <option value="">選択してください</option>
+                  </select>
                 </div>
-                <div class="col-md-2">
+                <div class="col-md-3">
                   <button class="btn btn-primary btn-sm w-100" id="btnAddIcalUrl">
                     <i class="bi bi-plus-lg"></i> 追加
                   </button>
@@ -2006,40 +2008,136 @@ idxはそのまま返してください。optionsとplaceholderは入力にあ�
       console.warn("syncConfig読み込みエラー:", e);
     }
     try {
-      const snap = await db.collection("syncSettings").get();
-      if (snap.empty) {
+      // 物件一覧（プルダウン用）と syncSettings を並行取得
+      const [propSnap, syncSnap] = await Promise.all([
+        db.collection("properties").where("active", "==", true).orderBy("displayOrder").get(),
+        db.collection("syncSettings").get(),
+      ]);
+
+      // 物件マップ構築
+      const propertyMap = {};  // { propertyId: { id, name } }
+      propSnap.forEach(doc => {
+        propertyMap[doc.id] = { id: doc.id, name: doc.data().name || doc.id };
+      });
+
+      // 物件プルダウンを更新
+      this._populateIcalPropertySelect(propertyMap);
+
+      if (syncSnap.empty) {
         listEl.innerHTML = '<p class="text-muted small">iCal URLが未登録です。下のフォームから追加してください。</p>';
         return;
       }
-      let html = '<div class="list-group">';
-      snap.forEach(doc => {
+
+      // propertyId でグループ化
+      const groups = {};   // { propertyId: [{ docId, data }] }
+      const unset = [];    // propertyId なしレコード
+      syncSnap.forEach(doc => {
         const d = doc.data();
-        const lastSync = d.lastSync ? new Date(d.lastSync.seconds * 1000).toLocaleString("ja-JP") : "未同期";
-        const statusBadge = d.active === false
-          ? '<span class="badge bg-secondary">無効</span>'
-          : '<span class="badge bg-success">有効</span>';
-        html += `
-          <div class="list-group-item">
-            <div class="d-flex justify-content-between align-items-start">
-              <div class="flex-grow-1">
-                <strong>${this.esc(d.platform || "unknown")}</strong> ${statusBadge}
-                <br><small class="text-muted font-monospace">${this.esc((d.icalUrl || "").slice(0, 80))}...</small>
-                <br><small class="text-muted">最終同期: ${lastSync}</small>
-                ${d.lastSyncResult ? `<br><small class="text-muted">結果: ${this.esc(d.lastSyncResult)}</small>` : ""}
-                ${d.propertyId ? `<br><small class="text-muted">物件ID: ${this.esc(d.propertyId)}</small>` : ""}
+        const pid = d.propertyId || "";
+        if (pid) {
+          if (!groups[pid]) groups[pid] = [];
+          groups[pid].push({ docId: doc.id, data: d });
+        } else {
+          unset.push({ docId: doc.id, data: d });
+        }
+      });
+
+      // 表示用 HTML を構築（物件ごとにアコーディオン）
+      let html = "";
+      const accordionId = "icalAccordion";
+      html += `<div class="accordion" id="${accordionId}">`;
+
+      // 物件ごとのグループを displayOrder 順で表示
+      const sortedPids = Object.keys(groups).sort((a, b) => {
+        const pa = propertyMap[a];
+        const pb = propertyMap[b];
+        if (pa && pb) return (pa.name || "").localeCompare(pb.name || "", "ja");
+        if (pa) return -1;
+        if (pb) return 1;
+        return 0;
+      });
+
+      const buildItemsHtml = (items) => {
+        let s = '<div class="list-group list-group-flush">';
+        items.forEach(({ docId, data: d }) => {
+          const lastSync = d.lastSync ? new Date(d.lastSync.seconds * 1000).toLocaleString("ja-JP") : "未同期";
+          const statusBadge = d.active === false
+            ? '<span class="badge bg-secondary ms-1">無効</span>'
+            : '<span class="badge bg-success ms-1">有効</span>';
+          s += `
+            <div class="list-group-item py-2">
+              <div class="d-flex justify-content-between align-items-start">
+                <div class="flex-grow-1 me-2">
+                  <strong>${this.esc(d.platform || "unknown")}</strong>${statusBadge}
+                  <br><small class="text-muted font-monospace">${this.esc((d.icalUrl || "").slice(0, 80))}${(d.icalUrl || "").length > 80 ? "…" : ""}</small>
+                  <br><small class="text-muted">最終同期: ${lastSync}</small>
+                  ${d.lastSyncResult ? `<br><small class="text-muted">結果: ${this.esc(d.lastSyncResult)}</small>` : ""}
+                </div>
+                <div class="btn-group btn-group-sm flex-shrink-0">
+                  <button class="btn btn-outline-${d.active === false ? "success" : "warning"} btnToggleIcal" data-id="${docId}" data-active="${d.active !== false}">
+                    <i class="bi bi-${d.active === false ? "play" : "pause"}"></i>
+                  </button>
+                  <button class="btn btn-outline-danger btnDeleteIcal" data-id="${docId}">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
               </div>
-              <div class="btn-group btn-group-sm">
-                <button class="btn btn-outline-${d.active === false ? 'success' : 'warning'} btnToggleIcal" data-id="${doc.id}" data-active="${d.active !== false}">
-                  <i class="bi bi-${d.active === false ? 'play' : 'pause'}"></i>
-                </button>
-                <button class="btn btn-outline-danger btnDeleteIcal" data-id="${doc.id}">
-                  <i class="bi bi-trash"></i>
+            </div>`;
+        });
+        s += "</div>";
+        return s;
+      };
+
+      // 物件ごとのアコーディオン項目
+      sortedPids.forEach((pid, idx) => {
+        const items = groups[pid];
+        const propName = propertyMap[pid] ? propertyMap[pid].name : `物件ID: ${pid}`;
+        const collapseId = `icalGroup_${pid}`;
+        html += `
+          <div class="accordion-item">
+            <h2 class="accordion-header">
+              <button class="accordion-button py-2 ${idx > 0 ? "collapsed" : ""}" type="button"
+                data-bs-toggle="collapse" data-bs-target="#${collapseId}">
+                <i class="bi bi-house me-2"></i>
+                <strong>${this.esc(propName)}</strong>
+                <span class="badge bg-primary ms-2">${items.length}件</span>
+              </button>
+            </h2>
+            <div id="${collapseId}" class="accordion-collapse collapse ${idx === 0 ? "show" : ""}">
+              <div class="accordion-body p-2">
+                ${buildItemsHtml(items)}
+                <button class="btn btn-outline-primary btn-sm mt-2 btnPresetIcalForm"
+                  data-pid="${pid}" data-pname="${this.esc(propName)}">
+                  <i class="bi bi-plus-circle"></i> この物件の iCal を追加
                 </button>
               </div>
             </div>
           </div>`;
       });
-      html += '</div>';
+
+      // 物件未設定グループ
+      if (unset.length > 0) {
+        const collapseId = "icalGroup_unset";
+        html += `
+          <div class="accordion-item border-warning">
+            <h2 class="accordion-header">
+              <button class="accordion-button py-2 collapsed text-warning" type="button"
+                data-bs-toggle="collapse" data-bs-target="#${collapseId}">
+                <i class="bi bi-exclamation-triangle me-2"></i>
+                <strong>（物件未設定）</strong>
+                <span class="badge bg-warning text-dark ms-2">${unset.length}件</span>
+                <small class="ms-2 text-muted">削除して再登録を推奨</small>
+              </button>
+            </h2>
+            <div id="${collapseId}" class="accordion-collapse collapse">
+              <div class="accordion-body p-2">
+                ${buildItemsHtml(unset)}
+              </div>
+            </div>
+          </div>`;
+      }
+
+      html += "</div>";
       listEl.innerHTML = html;
 
       // 有効/無効トグル
@@ -2056,15 +2154,44 @@ idxはそのまま返してください。optionsとplaceholderは入力にあ�
       // 削除
       listEl.querySelectorAll(".btnDeleteIcal").forEach(btn => {
         btn.addEventListener("click", async () => {
-          if (!confirm("このiCal URLを削除しますか？")) return;
+          const ok = await showConfirm("このiCal URLを削除しますか？", "iCal URL削除");
+          if (!ok) return;
           await db.collection("syncSettings").doc(btn.dataset.id).delete();
           showToast("削除", "iCal URLを削除しました", "info");
           this.loadIcalSettings();
         });
       });
+
+      // 「この物件の iCal を追加」ボタン → フォームに物件をプリセット
+      listEl.querySelectorAll(".btnPresetIcalForm").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const pid = btn.dataset.pid;
+          const sel = document.getElementById("newIcalPropertyId");
+          if (sel) sel.value = pid;
+          // フォームへスクロール
+          document.getElementById("icalAddForm")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+      });
+
     } catch (e) {
       listEl.innerHTML = `<div class="alert alert-danger py-1 small">読み込みエラー: ${this.esc(e.message)}</div>`;
     }
+  },
+
+  // iCal 物件プルダウンを更新する
+  _populateIcalPropertySelect(propertyMap) {
+    const sel = document.getElementById("newIcalPropertyId");
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = '<option value="">選択してください</option>';
+    Object.values(propertyMap).forEach(p => {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = p.name;
+      sel.appendChild(opt);
+    });
+    // 選択値を復元
+    if (current) sel.value = current;
   },
 
   async addIcalUrl() {
@@ -2080,12 +2207,17 @@ idxはそのまま返してください。optionsとplaceholderは入力にあ�
       showToast("エラー", "正しいURLを入力してください", "error");
       return;
     }
+    if (!propertyId) {
+      showToast("エラー", "対象物件を選択してください", "error");
+      document.getElementById("newIcalPropertyId").focus();
+      return;
+    }
 
     try {
       await db.collection("syncSettings").add({
         icalUrl: url,
         platform: platform || "other",
-        propertyId: propertyId || "",
+        propertyId,
         active: true,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       });

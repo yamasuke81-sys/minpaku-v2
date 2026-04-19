@@ -456,7 +456,24 @@
               <input type="date" class="form-control" id="propertyPurchaseDate">
             </div>
 
-            <!-- ⑥ LINE連携（物件単位） -->
+            <!-- ⑥ iCal同期（物件単位） -->
+            <div class="col-12"><hr></div>
+            <div class="col-12">
+              <h6 class="mb-2"><i class="bi bi-calendar2-event text-primary"></i> iCal 同期（Airbnb / Booking.com）</h6>
+              <p class="text-muted small mb-2">この物件に紐付く iCal フィードを管理します。</p>
+              <div id="propertyIcalList" class="mb-2">
+                <div class="text-center py-2 text-muted small"><div class="spinner-border spinner-border-sm"></div> 読み込み中...</div>
+              </div>
+              <div class="input-group input-group-sm" id="propertyIcalAddRow">
+                <input type="url" class="form-control" id="propertyNewIcalUrl" placeholder="https://www.airbnb.com/calendar/ical/xxxxx.ics">
+                <input type="text" class="form-control" id="propertyNewIcalPlatform" readonly placeholder="自動検出" style="max-width:120px">
+                <button type="button" class="btn btn-outline-primary" id="btnAddPropertyIcal">
+                  <i class="bi bi-plus-lg"></i> 追加
+                </button>
+              </div>
+            </div>
+
+            <!-- ⑦ LINE連携（物件単位） -->
             <div class="col-12"><hr></div>
             <!-- LINE連携セクション (常時展開) -->
             <div class="col-12">

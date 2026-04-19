@@ -229,6 +229,18 @@ const PropertiesPage = {
 
     this.modal.show();
 
+    // --- iCal セクション（編集時のみ読み込み）---
+    if (isEdit) {
+      this._loadPropertyIcal(property.id);
+      this._bindPropertyIcalEvents(property.id);
+    } else {
+      // 新規登録時は iCal セクションを非表示
+      const icalRow = document.getElementById("propertyIcalAddRow");
+      const icalList = document.getElementById("propertyIcalList");
+      if (icalList) icalList.innerHTML = '<p class="text-muted small">物件を保存してから iCal URLを登録してください。</p>';
+      if (icalRow) icalRow.classList.add("d-none");
+    }
+
     // --- タイミー時給ページへのリンクボタン ---
     // モーダルを閉じてから #/rates?propertyId=xxx へ遷移する
     const btnGoToRates = document.getElementById("btnGoToRates");
@@ -639,6 +651,141 @@ const PropertiesPage = {
 
     // _legacy フラグは送信不要なので除去
     return this._lineChannels.map(({ _legacy, ...rest }) => rest);
+  },
+
+  // ---- iCal 管理（物件モーダル内） ----
+
+  /**
+   * この物件に紐付く syncSettings を読み込んでリスト表示する
+   */
+  async _loadPropertyIcal(propertyId) {
+    const listEl = document.getElementById("propertyIcalList");
+    const addRow = document.getElementById("propertyIcalAddRow");
+    if (!listEl) return;
+    if (addRow) addRow.classList.remove("d-none");
+
+    try {
+      const snap = await db.collection("syncSettings")
+        .where("propertyId", "==", propertyId).get();
+
+      if (snap.empty) {
+        listEl.innerHTML = '<p class="text-muted small mb-1">iCal URLが未登録です。</p>';
+        return;
+      }
+
+      let html = '<div class="list-group list-group-flush border rounded mb-2">';
+      snap.forEach(doc => {
+        const d = doc.data();
+        const lastSync = d.lastSync
+          ? new Date(d.lastSync.seconds * 1000).toLocaleString("ja-JP")
+          : "未同期";
+        const statusBadge = d.active === false
+          ? '<span class="badge bg-secondary ms-1">無効</span>'
+          : '<span class="badge bg-success ms-1">有効</span>';
+        html += `
+          <div class="list-group-item py-2 px-3">
+            <div class="d-flex justify-content-between align-items-start">
+              <div class="flex-grow-1 me-2">
+                <strong>${this.escapeHtml(d.platform || "unknown")}</strong>${statusBadge}
+                <br><small class="text-muted font-monospace">${this.escapeHtml((d.icalUrl || "").slice(0, 70))}${(d.icalUrl || "").length > 70 ? "…" : ""}</small>
+                <br><small class="text-muted">最終同期: ${lastSync}</small>
+                ${d.lastSyncResult ? `<br><small class="text-muted">結果: ${this.escapeHtml(d.lastSyncResult)}</small>` : ""}
+              </div>
+              <div class="btn-group btn-group-sm flex-shrink-0">
+                <button class="btn btn-outline-${d.active === false ? "success" : "warning"} btnPropToggleIcal"
+                  data-id="${doc.id}" data-pid="${propertyId}" data-active="${d.active !== false}">
+                  <i class="bi bi-${d.active === false ? "play" : "pause"}"></i>
+                </button>
+                <button class="btn btn-outline-danger btnPropDeleteIcal" data-id="${doc.id}" data-pid="${propertyId}">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </div>
+            </div>
+          </div>`;
+      });
+      html += "</div>";
+      listEl.innerHTML = html;
+
+      // 有効/無効トグル
+      listEl.querySelectorAll(".btnPropToggleIcal").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const id = btn.dataset.id;
+          const isActive = btn.dataset.active === "true";
+          await db.collection("syncSettings").doc(id).update({ active: !isActive });
+          showToast("更新", isActive ? "iCal同期を無効化しました" : "iCal同期を有効化しました", "info");
+          this._loadPropertyIcal(btn.dataset.pid);
+        });
+      });
+
+      // 削除
+      listEl.querySelectorAll(".btnPropDeleteIcal").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const ok = await showConfirm("このiCal URLを削除しますか？", "iCal URL削除");
+          if (!ok) return;
+          await db.collection("syncSettings").doc(btn.dataset.id).delete();
+          showToast("削除", "iCal URLを削除しました", "info");
+          this._loadPropertyIcal(btn.dataset.pid);
+        });
+      });
+
+    } catch (e) {
+      listEl.innerHTML = `<div class="alert alert-danger py-1 small">読み込みエラー: ${this.escapeHtml(e.message)}</div>`;
+    }
+  },
+
+  /**
+   * iCal 追加フォームのイベントをバインドする
+   */
+  _bindPropertyIcalEvents(propertyId) {
+    // URL 入力でプラットフォーム自動検出
+    const urlInput = document.getElementById("propertyNewIcalUrl");
+    const platformInput = document.getElementById("propertyNewIcalPlatform");
+    const addBtn = document.getElementById("btnAddPropertyIcal");
+
+    if (urlInput && !urlInput.dataset.icalBound) {
+      urlInput.dataset.icalBound = "1";
+      urlInput.addEventListener("input", () => {
+        const url = urlInput.value.trim().toLowerCase();
+        let platform = "other";
+        if (url.includes("airbnb")) platform = "Airbnb";
+        else if (url.includes("booking.com")) platform = "Booking.com";
+        else if (url.includes("beds24")) platform = "Beds24";
+        else if (url.includes("vrbo") || url.includes("homeaway")) platform = "VRBO";
+        else if (url.includes("agoda")) platform = "Agoda";
+        else if (url.includes("expedia")) platform = "Expedia";
+        else if (!url) platform = "";
+        if (platformInput) platformInput.value = platform;
+      });
+    }
+
+    // モーダルを開くたびに addBtn をクローン差し替えして古いリスナを除去
+    if (addBtn) {
+      const freshBtn = addBtn.cloneNode(true);
+      addBtn.parentNode.replaceChild(freshBtn, addBtn);
+      freshBtn.addEventListener("click", async () => {
+        const url = urlInput?.value.trim() || "";
+        const platform = platformInput?.value.trim() || "other";
+        if (!url || !url.startsWith("http")) {
+          showToast("エラー", "正しいiCal URLを入力してください", "error");
+          return;
+        }
+        try {
+          await db.collection("syncSettings").add({
+            icalUrl: url,
+            platform: platform || "other",
+            propertyId,
+            active: true,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+          if (urlInput) urlInput.value = "";
+          if (platformInput) platformInput.value = "";
+          showToast("追加", `${platform || "iCal"} URLを登録しました`, "success");
+          this._loadPropertyIcal(propertyId);
+        } catch (e) {
+          showToast("エラー", `登録失敗: ${e.message}`, "error");
+        }
+      });
+    }
   },
 
   // ---- 共通ユーティリティ ----
