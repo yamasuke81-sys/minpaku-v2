@@ -14,6 +14,7 @@
 const ReservationFlowPage = {
   properties: [],
   selectedPropertyIds: [],
+  notifChannels: {}, // settings/notifications.channels のスナップショット (全物件共通)
 
   // フローステップ定義（追加・並び替えはここだけ編集）
   // group: owner(オーナー側作業) / guest(宿泊者側画面) / external(外部アプリ連携)
@@ -33,20 +34,27 @@ const ReservationFlowPage = {
     { key: "form_input",           label: "[ゲスト] 宿泊者名簿入力",                      icon: "bi-pencil-square",      linkHash: "#/guests",         linkLabel: "宿泊者名簿→設定",          group: "guest",
       propertyField: "customFormEnabled",
       guestUrlFn: (pid) => `/form/?propertyId=${encodeURIComponent(pid)}` },
-    { key: "form_complete_mail",   label: "名簿入力完了メール (宿泊者・オーナー)",        icon: "bi-envelope-check",     linkHash: "#/notifications",  linkLabel: "通知設定",                 group: "owner" },
-    { key: "roster_remind",        label: "名簿未入力催促リマインド",                     icon: "bi-alarm",              linkHash: "#/notifications",  linkLabel: "通知設定→roster_remind",   group: "owner" },
-    { key: "urgent_remind",        label: "直前予約リマインド",                            icon: "bi-lightning",          linkHash: "#/notifications",  linkLabel: "通知設定→urgent_remind",   group: "owner" },
+    { key: "form_complete_mail",   label: "名簿入力完了メール (宿泊者・オーナー)",        icon: "bi-envelope-check",     linkHash: "#/notifications",  linkLabel: "通知設定",                 group: "owner",
+      globalChannel: "roster_received" },
+    { key: "roster_remind",        label: "名簿未入力催促リマインド",                     icon: "bi-alarm",              linkHash: "#/notifications",  linkLabel: "通知設定→roster_remind",   group: "owner",
+      globalChannel: "roster_remind" },
+    { key: "urgent_remind",        label: "直前予約リマインド",                            icon: "bi-lightning",          linkHash: "#/notifications",  linkLabel: "通知設定→urgent_remind",   group: "owner",
+      globalChannel: "urgent_remind" },
     { key: "keybox_send",          label: "キーボックス情報送信 + 施設案内",              icon: "bi-key",                linkHash: "#/settings",       linkLabel: "キーボックス設定",         group: "owner", status: "未実装",
       guestUrlFn: (pid) => `/guide/?propertyId=${encodeURIComponent(pid)}` },
     { key: "checkin_app",          label: "チェックインApp連携",                            icon: "bi-door-open-fill",     linkHash: "",                 linkLabel: "(別アプリ)",                group: "external", status: "未実装",
       hint: "チェックインappは別で開発済み。連携部分は未実装" },
   ],
 
-  // 有効状態の取得: propertyField があれば properties から、無ければ reservationFlow から
+  // 有効状態の取得: 優先順 propertyField → globalChannel → reservationFlow
   _isEnabled(property, step) {
     if (step.propertyField) {
       const v = property[step.propertyField];
       return typeof v === "boolean" ? v : true; // 未設定は true
+    }
+    if (step.globalChannel) {
+      const c = this.notifChannels[step.globalChannel];
+      return c && c.enabled !== false;
     }
     const flow = property.reservationFlow || {};
     return flow[step.key]?.enabled !== false;
@@ -97,6 +105,15 @@ const ReservationFlowPage = {
     } catch (e) {
       console.warn("properties 取得失敗:", e.message);
       this.properties = [];
+    }
+
+    // 通知チャネル設定 (全物件共通) を取得
+    try {
+      const nDoc = await db.collection("settings").doc("notifications").get();
+      this.notifChannels = nDoc.exists ? (nDoc.data().channels || {}) : {};
+    } catch (e) {
+      console.warn("notifications 取得失敗:", e.message);
+      this.notifChannels = {};
     }
 
     this.selectedPropertyIds = PropertyFilter.getSelectedIds("reservation-flow", this.properties);
@@ -158,10 +175,13 @@ const ReservationFlowPage = {
           const guestUrlBtn = (typeof step.guestUrlFn === "function")
             ? `<a href="${this._esc(step.guestUrlFn(p.id))}" target="_blank" rel="noopener" class="btn btn-outline-info btn-sm py-0 px-2 ms-1" style="font-size:0.75rem;" title="新規タブでゲスト画面を開く"><i class="bi bi-box-arrow-up-right"></i> ゲスト画面</a>`
             : "";
-          // propertyField がある場合「同期中」バッジで他タブとの同期を明示
-          const syncBadge = step.propertyField
-            ? `<span class="badge bg-success-subtle text-success border border-success-subtle ms-1" style="font-size:10px;" title="properties.${step.propertyField} に直接保存 (他タブと同期)"><i class="bi bi-arrow-left-right"></i> 同期</span>`
-            : "";
+          // propertyField / globalChannel がある場合「同期」バッジで他タブとの同期を明示
+          let syncBadge = "";
+          if (step.propertyField) {
+            syncBadge = `<span class="badge bg-success-subtle text-success border border-success-subtle ms-1" style="font-size:10px;" title="properties.${step.propertyField} に直接保存 (物件ごと・他タブと同期)"><i class="bi bi-arrow-left-right"></i> 同期</span>`;
+          } else if (step.globalChannel) {
+            syncBadge = `<span class="badge bg-warning-subtle text-warning border border-warning-subtle ms-1" style="font-size:10px;" title="settings/notifications.channels.${step.globalChannel}.enabled (全物件共通・通知設定タブと同期)"><i class="bi bi-globe"></i> 全物件共通</span>`;
+          }
 
           // group バッジ (宿泊者側 / オーナー側 / 外部)
           const groupBadge = step.group === "guest"
@@ -271,10 +291,13 @@ const ReservationFlowPage = {
     const item = document.querySelector(`.accordion-item[data-pid="${propertyId}"]`);
     if (!item) return;
 
-    // propertyField に対応するステップは直接 properties.{field} に保存 (他タブ同期)
-    // それ以外は reservationFlow サブオブジェクトに保存
+    // 保存戦略:
+    //  - propertyField: properties.{field} に直接保存 (物件ごと・他タブ同期)
+    //  - globalChannel: settings/notifications.channels.{key}.enabled (全物件共通)
+    //  - それ以外: reservationFlow サブオブジェクト (物件ごと、従来通り)
     const reservationFlow = {};
-    const propertyFields = {}; // 直接 properties ルートに書くフィールド
+    const propertyFields = {};
+    const globalChannelUpdates = {}; // { channelKey: enabled }
     this.STEPS.forEach(step => {
       const toggleEl = item.querySelector(`.rf-toggle[data-step="${step.key}"]`);
       const memoEl   = item.querySelector(`.rf-memo[data-step="${step.key}"]`);
@@ -283,7 +306,11 @@ const ReservationFlowPage = {
 
       if (step.propertyField) {
         propertyFields[step.propertyField] = enabled;
-        // memo は reservationFlow 側に残す (properties にメモ専用フィールドは無いため)
+        reservationFlow[step.key] = { memo };
+      } else if (step.globalChannel) {
+        // 全物件共通: 現在値と差分があれば更新
+        const cur = this.notifChannels[step.globalChannel]?.enabled !== false;
+        if (cur !== enabled) globalChannelUpdates[step.globalChannel] = enabled;
         reservationFlow[step.key] = { memo };
       } else {
         reservationFlow[step.key] = { enabled, memo };
@@ -291,13 +318,45 @@ const ReservationFlowPage = {
     });
 
     try {
+      // 物件ドキュメント保存
       await db.collection("properties").doc(propertyId).set({
         ...propertyFields,
         reservationFlow,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
 
-      // ローカルキャッシュも更新
+      // グローバル通知チャネル更新 (該当があれば)
+      if (Object.keys(globalChannelUpdates).length > 0) {
+        const channelsUpdate = {};
+        for (const [chKey, enabled] of Object.entries(globalChannelUpdates)) {
+          channelsUpdate[chKey] = { ...(this.notifChannels[chKey] || {}), enabled };
+          // ローカルキャッシュ更新
+          this.notifChannels[chKey] = channelsUpdate[chKey];
+        }
+        await db.collection("settings").doc("notifications").set({
+          channels: channelsUpdate,
+        }, { merge: true });
+
+        // 他物件のアコーディオンに表示されている同チャネルトグルも更新
+        Object.keys(globalChannelUpdates).forEach(chKey => {
+          const step = this.STEPS.find(s => s.globalChannel === chKey);
+          if (!step) return;
+          document.querySelectorAll(`.rf-toggle[data-step="${step.key}"]`).forEach(el => {
+            if (el.checked !== globalChannelUpdates[chKey]) {
+              el.checked = globalChannelUpdates[chKey];
+              const stepEl = el.closest(".rf-step");
+              if (stepEl) {
+                stepEl.classList.toggle("active", el.checked);
+                stepEl.classList.toggle("disabled", !el.checked);
+              }
+              const lbl = el.nextElementSibling;
+              if (lbl) lbl.textContent = el.checked ? "有効" : "無効";
+            }
+          });
+        });
+      }
+
+      // ローカルキャッシュ (properties) も更新
       const prop = this.properties.find(p => p.id === propertyId);
       if (prop) {
         prop.reservationFlow = reservationFlow;
