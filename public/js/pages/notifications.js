@@ -682,11 +682,13 @@ const NotificationsPage = {
       groupLine: get("groupLine"),
       staffLine: get("staffLine"),
       ownerEmail: get("ownerEmail"),
+      discordOwner: get("discordOwner"),
+      discordSubOwner: get("discordSubOwner"),
       fcmStaff: get("fcmStaff"),
       fcmOwner: get("fcmOwner"),
     };
 
-    if (!targets.ownerLine && !targets.groupLine && !targets.staffLine && !targets.ownerEmail && !targets.fcmStaff && !targets.fcmOwner) {
+    if (!targets.ownerLine && !targets.groupLine && !targets.staffLine && !targets.ownerEmail && !targets.discordOwner && !targets.discordSubOwner && !targets.fcmStaff && !targets.fcmOwner) {
       showToast("エラー", "送信先を1つ以上チェックしてください", "error");
       return;
     }
@@ -707,7 +709,7 @@ const NotificationsPage = {
         // チャネル別に成功/失敗を集計
         const successes = [];  // ラベル(例: オーナーLINE)
         const errs = [];       // { label, reason }
-        const labelMap = { ownerLine: "オーナーLINE", groupLine: "グループLINE", staffLine: "スタッフ個別LINE", ownerEmail: "オーナーメール", fcmStaff: "Web Push(スタッフ)", fcmOwner: "Web Push(オーナー)" };
+        const labelMap = { ownerLine: "オーナーLINE", groupLine: "グループLINE", staffLine: "スタッフ個別LINE", ownerEmail: "オーナーメール", discordOwner: "Discord(オーナー)", discordSubOwner: "Discord(サブオーナー)", fcmStaff: "Web Push(スタッフ)", fcmOwner: "Web Push(オーナー)" };
         for (const r of (data.results || [])) {
           const label = labelMap[r.target] || r.target;
           if (Array.isArray(r.staffResults)) {
