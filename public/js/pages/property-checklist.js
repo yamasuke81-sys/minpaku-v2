@@ -403,6 +403,10 @@ const PropertyChecklistPage = {
 
   // === イベント紐付け（委譲方式） ===
   wireNodeHandlers(root) {
+    // 多重バインディング防止: 同じ root に click リスナーを二重登録しない
+    // (renderAreaContent は innerHTML 書き換えで子要素は再生成するが、root 自身のリスナーは残る)
+    if (root.dataset.pclWired === "1") return;
+    root.dataset.pclWired = "1";
     root.addEventListener("click", (ev) => {
       const btn = ev.target.closest("[data-act]");
       if (!btn) return;
