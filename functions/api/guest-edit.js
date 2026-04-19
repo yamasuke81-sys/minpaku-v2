@@ -24,12 +24,23 @@ module.exports = function guestEditApi(db) {
     return { id: doc.id, ref: doc.ref, data: doc.data() };
   }
 
+  // editToken 有効期限チェック (期限切れなら 410 Gone)
+  function isExpired(data) {
+    const exp = data.editTokenExpiresAt;
+    if (!exp) return false;  // 未設定は旧データ扱いで有効
+    const expDate = exp.toDate ? exp.toDate() : new Date(exp);
+    return expDate.getTime() < Date.now();
+  }
+
   // GET /guest-edit/:token — 登録データ取得
   router.get("/:token", async (req, res) => {
     try {
       const result = await findByToken(req.params.token);
       if (!result) {
         return res.status(404).json({ error: "登録が見つかりません。リンクが無効か、期限切れの可能性があります。" });
+      }
+      if (isExpired(result.data)) {
+        return res.status(410).json({ error: "修正リンクの有効期限(30日)が切れています。オーナーにお問い合わせください。" });
       }
       if (result.data.status === "confirmed") {
         return res.status(403).json({ error: "この名簿はオーナーにより確認済みのため、修正できません。" });
@@ -54,6 +65,9 @@ module.exports = function guestEditApi(db) {
       const result = await findByToken(req.params.token);
       if (!result) {
         return res.status(404).json({ error: "登録が見つかりません。" });
+      }
+      if (isExpired(result.data)) {
+        return res.status(410).json({ error: "修正リンクの有効期限(30日)が切れています。オーナーにお問い合わせください。" });
       }
       if (result.data.status === "confirmed") {
         return res.status(403).json({ error: "確認済みのため修正できません。" });

@@ -25,10 +25,14 @@ module.exports = async function onGuestFormSubmit(event) {
   const docRef = event.data.ref;
   const guestId = event.params?.guestId || docRef.id;
 
-  // === 1. editToken生成・ステータス設定 ===
+  // === 1. editToken生成・ステータス設定 (有効期限30日) ===
   const editToken = crypto.randomBytes(32).toString("hex");
+  const editTokenExpiresAt = admin.firestore.Timestamp.fromMillis(
+    Date.now() + 30 * 24 * 60 * 60 * 1000
+  );
   await docRef.update({
     editToken,
+    editTokenExpiresAt,
     status: "submitted",
   });
 
