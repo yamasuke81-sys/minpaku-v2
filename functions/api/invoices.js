@@ -70,8 +70,10 @@ async function renderInvoicePdfBuffer(invoice, staff, client, propertyMap) {
 
     const setFont = (size = 10) => { if (cjkFont) pdfDoc.font(cjkFont).fontSize(size); else pdfDoc.font("Helvetica").fontSize(size); };
 
-    const today = new Date();
-    const issuedDate = `${today.getFullYear()}年${String(today.getMonth() + 1).padStart(2, "0")}月${String(today.getDate()).padStart(2, "0")}日`;
+    // Cloud Functions は UTC で動作するため JST +9h シフトで今日の日付を取得
+    const nowUtc = new Date();
+    const jstNow = new Date(nowUtc.getTime() + 9 * 60 * 60 * 1000);
+    const issuedDate = `${jstNow.getUTCFullYear()}年${String(jstNow.getUTCMonth() + 1).padStart(2, "0")}月${String(jstNow.getUTCDate()).padStart(2, "0")}日`;
     const [yy, mm] = (invoice.yearMonth || "").split("-").map(Number);
     const firstDay = new Date(yy, mm - 1, 1);
     const lastDay = new Date(yy, mm, 0);
@@ -283,8 +285,10 @@ async function generateInvoicePdf_(db, invoiceId) {
     pdfDoc.pipe(stream);
     const setFont = (size = 10) => { if (cjkFont) pdfDoc.font(cjkFont).fontSize(size); else pdfDoc.font("Helvetica").fontSize(size); };
 
-    const today = new Date();
-    const issuedDate = `${today.getFullYear()}年${String(today.getMonth() + 1).padStart(2, "0")}月${String(today.getDate()).padStart(2, "0")}日`;
+    // Cloud Functions は UTC で動作するため JST +9h シフトで今日の日付を取得
+    const nowUtc = new Date();
+    const jstNow = new Date(nowUtc.getTime() + 9 * 60 * 60 * 1000);
+    const issuedDate = `${jstNow.getUTCFullYear()}年${String(jstNow.getUTCMonth() + 1).padStart(2, "0")}月${String(jstNow.getUTCDate()).padStart(2, "0")}日`;
     const [yy, mm] = (invoice.yearMonth || "").split("-").map(Number);
     const firstDay = new Date(yy, mm - 1, 1);
     const lastDay = new Date(yy, mm, 0);
