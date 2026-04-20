@@ -28,6 +28,14 @@
       "collectionGroup": "bookings",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "checkIn", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "bookings",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "source", "order": "ASCENDING" },
         { "fieldPath": "checkIn", "order": "ASCENDING" },
         { "fieldPath": "checkOut", "order": "ASCENDING" }

@@ -265,12 +265,8 @@ exports.photoCleanup = require("./scheduled/photoCleanup").photoCleanup;
 //   timeZone: "Asia/Tokyo",
 // }, require("./scheduled/autoAssignShifts"));
 
-// 請求書自動生成（毎月末）
-// exports.generateInvoices = onSchedule({
-//   schedule: "0 0 28-31 * *",
-//   region: "asia-northeast1",
-//   timeZone: "Asia/Tokyo",
-// }, require("./scheduled/generateInvoices"));
+// 請求書自動生成（毎月1日 2:00 JST に前月分生成）
+exports.generateInvoices = require("./scheduled/generateInvoices").generateInvoices;
 
 // ========== Firestoreトリガー ==========
 
@@ -356,4 +352,10 @@ exports.staffUndecidedRemind = onSchedule({
 exports.onBookingConfirmMail = onDocumentCreated(
   { document: "bookings/{bookingId}", region: "asia-northeast1" },
   require("./triggers/onBookingConfirmMail")
+);
+
+// 請求書ステータス変更→PDF 自動生成 (submitted 遷移時)
+exports.onInvoiceStatusChange = onDocumentUpdated(
+  { document: "invoices/{invoiceId}", region: "asia-northeast1" },
+  require("./triggers/onInvoiceStatusChange")
 );
