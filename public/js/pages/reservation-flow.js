@@ -131,6 +131,20 @@ const ReservationFlowPage = {
       hint: "注意事項ページURLを本文に記載し、同意後に宿泊者名簿フォームへ誘導",
       linkHash: "#/notifications",
       linkLabel: "通知設定",
+      // 詳細設定 (物件別保存: properties/{pid}.bookingConfirmMail.*)
+      detailFields: [
+        { field: "bookingConfirmMail.enabled", label: "メール送信", type: "switch", default: false },
+        { field: "bookingConfirmMail.subject", label: "メール件名", type: "text",
+          placeholder: "例: ご予約ありがとうございます（{{propertyName}}）", default: "" },
+        { field: "bookingConfirmMail.body",    label: "メール本文", type: "textarea", rows: 6,
+          placeholder: "例:\n{{guestName}} 様\n\nこの度はご予約ありがとうございます。\n{{propertyName}}（{{checkIn}} 〜 {{checkOut}}）にてお待ちしております。\n宿泊者名簿ご入力: {{formUrl}}",
+          default: "" },
+      ],
+      detailVarsHint: [
+        "{{guestName}}", "{{propertyName}}", "{{checkIn}}", "{{checkOut}}",
+        "{{guestCount}}", "{{formUrl}}",
+      ],
+      detailNote: "実際のメール送信は Gmail API 連携が必要です (実装中)",
     },
     {
       key: "recruit_start",
@@ -207,6 +221,20 @@ const ReservationFlowPage = {
       arrowTo: "guest",
       linkHash: "#/notifications",
       linkLabel: "通知設定",
+      // 詳細設定 (物件別保存: properties/{pid}.formCompleteMail.*)
+      detailFields: [
+        { field: "formCompleteMail.enabled", label: "メール送信", type: "switch", default: false },
+        { field: "formCompleteMail.subject", label: "メール件名", type: "text",
+          placeholder: "例: 宿泊者情報のご登録ありがとうございました", default: "" },
+        { field: "formCompleteMail.body",    label: "メール本文", type: "textarea", rows: 6,
+          placeholder: "例:\n{{guestName}} 様\n\n宿泊者名簿のご登録ありがとうございました。\nキーボックス暗証番号: {{keyboxCode}}\n住所: {{propertyAddress}}\nWi-Fi: {{wifiInfo}}",
+          default: "" },
+      ],
+      detailVarsHint: [
+        "{{guestName}}", "{{propertyName}}", "{{checkIn}}", "{{checkOut}}",
+        "{{keyboxCode}}", "{{propertyAddress}}", "{{wifiInfo}}",
+      ],
+      detailNote: "実際のメール送信は Gmail API 連携が必要です (実装中)",
     },
     {
       key: "roster_remind",
@@ -245,6 +273,25 @@ const ReservationFlowPage = {
       guestUrlFn: (pid) => `/guide/?propertyId=${encodeURIComponent(pid)}`,
       linkHash: "#/settings",
       linkLabel: "キーボックス設定",
+      // 詳細設定 (物件別保存: properties/{pid}.keyboxSend.* と properties/{pid}.keyboxCode)
+      detailFields: [
+        { field: "keyboxSend.enabled", label: "自動送信", type: "switch", default: false },
+        { field: "keyboxSend.timing",  label: "送信タイミング", type: "select",
+          options: [
+            { value: "on_day",           label: "チェックイン当日" },
+            { value: "day_before",       label: "前日" },
+            { value: "two_days_before",  label: "2日前" },
+          ],
+          default: "day_before" },
+        { field: "keyboxCode",         label: "キーボックス暗証番号", type: "text",
+          placeholder: "例: 1234", default: "",
+          hint: "物件管理画面の暗証番号と同期します" },
+        { field: "keyboxSend.message", label: "送信メッセージ", type: "textarea", rows: 4,
+          placeholder: "暗証番号: {{keyboxCode}}  入室は{{checkInTime}}以降です",
+          default: "暗証番号: {{keyboxCode}}  入室は{{checkInTime}}以降です" },
+      ],
+      detailVarsHint: ["{{guestName}}", "{{propertyName}}", "{{keyboxCode}}", "{{checkInTime}}"],
+      detailNote: "Gmail API 連携が必要です (実装中)",
     },
     {
       key: "checkin_app",
@@ -255,6 +302,16 @@ const ReservationFlowPage = {
       track: "guest",
       status: "未実装",
       hint: "チェックインappは別で開発済み。連携部分は未実装",
+      // 詳細設定 (物件別保存: properties/{pid}.checkinApp.*)
+      detailFields: [
+        { field: "checkinApp.enabled",      label: "アプリ連携", type: "switch", default: false },
+        { field: "checkinApp.url",          label: "連携先URL",  type: "text",
+          placeholder: "https://xxx.app/checkin?propertyId=xxx", default: "" },
+        { field: "checkinApp.guideMessage", label: "案内メッセージ", type: "textarea", rows: 3,
+          placeholder: "チェックインアプリで本人確認をお願いします: {{checkinAppUrl}}",
+          default: "" },
+      ],
+      detailNote: "ここの設定はプレースホルダーです。実際のアプリ連携は今後実装",
     },
 
     // ---- Phase 2: スタッフトラック ----
@@ -481,10 +538,103 @@ const ReservationFlowPage = {
     return d.innerHTML;
   },
 
+  // ドット記法でネストフィールドから値を取得
+  _getNested(obj, path) {
+    if (!obj || !path) return undefined;
+    const parts = path.split(".");
+    let v = obj;
+    for (const p of parts) { v = v?.[p]; if (v === undefined) return undefined; }
+    return v;
+  },
+
+  // detailFields (ネスト対応の型別入力UI) をレンダリング
+  _renderDetailFields(step, property) {
+    if (!Array.isArray(step.detailFields) || !step.detailFields.length) return "";
+    const pid = property.id;
+    const fieldsHtml = step.detailFields.map(fd => {
+      const cur = this._getNested(property, fd.field);
+      const val = (cur === undefined || cur === null) ? (fd.default ?? "") : cur;
+      const hintHtml = fd.hint
+        ? `<div class="form-text small" style="font-size:0.7rem;">${this._esc(fd.hint)}</div>`
+        : "";
+      const inputId = `rf-det-${step.key}-${pid}-${fd.field.replace(/\./g, "_")}`;
+      const commonAttrs =
+        `class="form-control form-control-sm rf-detail-input" ` +
+        `id="${inputId}" ` +
+        `data-step="${step.key}" data-pid="${pid}" data-field="${this._esc(fd.field)}" data-type="${fd.type}"`;
+
+      let inputHtml = "";
+      if (fd.type === "textarea") {
+        inputHtml = `<textarea ${commonAttrs} rows="${fd.rows || 4}" placeholder="${this._esc(fd.placeholder || "")}">${this._esc(val)}</textarea>`;
+      } else if (fd.type === "select") {
+        const opts = (fd.options || []).map(o =>
+          `<option value="${this._esc(o.value)}" ${String(val) === String(o.value) ? "selected" : ""}>${this._esc(o.label)}</option>`
+        ).join("");
+        inputHtml = `<select ${commonAttrs}>${opts}</select>`;
+      } else if (fd.type === "number") {
+        const minAttr = fd.min !== undefined ? `min="${fd.min}"` : "";
+        const maxAttr = fd.max !== undefined ? `max="${fd.max}"` : "";
+        inputHtml = `<input type="number" ${commonAttrs} ${minAttr} ${maxAttr} value="${this._esc(val === "" ? "" : val)}">`;
+      } else if (fd.type === "date") {
+        inputHtml = `<input type="date" ${commonAttrs} value="${this._esc(val || "")}">`;
+      } else if (fd.type === "time") {
+        inputHtml = `<input type="time" ${commonAttrs} value="${this._esc(val || "")}">`;
+      } else if (fd.type === "switch" || fd.type === "checkbox") {
+        const switchCls = fd.type === "switch" ? "form-switch" : "";
+        inputHtml = `
+          <div class="form-check ${switchCls} mb-0">
+            <input type="checkbox" class="form-check-input rf-detail-input"
+              id="${inputId}"
+              data-step="${step.key}" data-pid="${pid}" data-field="${this._esc(fd.field)}" data-type="${fd.type}"
+              ${val ? "checked" : ""}>
+            <label class="form-check-label small" for="${inputId}">${this._esc(fd.label)}</label>
+          </div>`;
+        // switch/checkbox はラベルを input 内に含めたので外側のラベルは不要
+        return `<div class="mb-2">${inputHtml}${hintHtml}</div>`;
+      } else {
+        // text
+        inputHtml = `<input type="text" ${commonAttrs} placeholder="${this._esc(fd.placeholder || "")}" value="${this._esc(val)}">`;
+      }
+      return `
+        <div class="mb-2">
+          <label class="form-label small mb-1" for="${inputId}">${this._esc(fd.label)}</label>
+          ${inputHtml}
+          ${hintHtml}
+        </div>`;
+    }).join("");
+
+    // 利用可能変数ヒント
+    const varsHint = (Array.isArray(step.detailVarsHint) && step.detailVarsHint.length)
+      ? `<div class="small text-muted mb-2" style="font-size:0.72rem;">
+           <i class="bi bi-braces"></i> 利用可変数: ${step.detailVarsHint.map(v => `<code>${this._esc(v)}</code>`).join(" ")}
+         </div>`
+      : "";
+    // 注意文
+    const noteHtml = step.detailNote
+      ? `<div class="alert alert-warning py-1 px-2 mb-2 small" style="font-size:0.72rem;">
+           <i class="bi bi-info-circle"></i> ${this._esc(step.detailNote)}
+         </div>`
+      : "";
+
+    return `
+      <div class="rf-detail-panel mt-2 p-2 border rounded" style="background:#f8fafc;">
+        <div class="small fw-semibold mb-2">
+          <i class="bi bi-sliders2"></i> 詳細設定（${this._esc(property.name)}）
+        </div>
+        ${varsHint}
+        ${noteHtml}
+        ${fieldsHtml}
+      </div>
+    `;
+  },
+
   // 有効状態を返す (propertyField > 物件別オーバーライド enabled > globalChannel > reservationFlow)
   _isEnabled(property, step) {
     if (step.propertyField) {
-      const v = property[step.propertyField];
+      // ドット記法対応 (例: "inspection.enabled")
+      const parts = step.propertyField.split(".");
+      let v = property;
+      for (const p of parts) { v = v?.[p]; }
       return typeof v === "boolean" ? v : true;
     }
     if (step.globalChannel) {
@@ -892,6 +1042,7 @@ const ReservationFlowPage = {
         <!-- 展開コンテンツ (デフォルト非表示) -->
         <div class="rf-card-body" id="${foldId}" style="display:none;" data-step-key="${step.key}" data-pid="${property.id}">
           ${hintHtml}
+          ${this._renderDetailFields(step, property)}
           ${notifEditorHtml}
           ${overridePanelHtml}
           ${icalPanelHtml}
@@ -1304,6 +1455,12 @@ const ReservationFlowPage = {
         return;
       }
 
+      // 詳細設定 (detailFields) change: select / checkbox / switch / date / time / number
+      if (e.target.classList.contains("rf-detail-input")) {
+        this._queueSave(e.target.dataset.pid, e.target.dataset.step);
+        return;
+      }
+
       // 物件別オーバーライド チェックボックス (上書きするか)
       if (e.target.classList.contains("rf-ov-check")) {
         const notifKey = e.target.dataset.notifKey;
@@ -1406,6 +1563,10 @@ const ReservationFlowPage = {
         this._queueSaveNotif(e.target.dataset.notifKey);
       }
       if (e.target.classList.contains("rf-memo")) {
+        this._queueSave(e.target.dataset.pid, e.target.dataset.step);
+      }
+      // 詳細設定 (detailFields) 入力変更
+      if (e.target.classList.contains("rf-detail-input")) {
         this._queueSave(e.target.dataset.pid, e.target.dataset.step);
       }
       // 物件別メッセージ上書きtextarea
@@ -1616,6 +1777,17 @@ const ReservationFlowPage = {
     const reservationFlow = {};
     const propertyFields = {};
 
+    // ドット記法で propertyFields にネスト値をセット
+    const setNested = (obj, path, value) => {
+      const parts = path.split(".");
+      let cur = obj;
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (!cur[parts[i]] || typeof cur[parts[i]] !== "object") cur[parts[i]] = {};
+        cur = cur[parts[i]];
+      }
+      cur[parts[parts.length - 1]] = value;
+    };
+
     this.STEPS.forEach(step => {
       const toggleEl = wrap.querySelector(`.rf-toggle[data-step="${step.key}"][data-pid="${pid}"]`);
       const memoEl   = wrap.querySelector(`.rf-memo[data-step="${step.key}"][data-pid="${pid}"]`);
@@ -1623,13 +1795,34 @@ const ReservationFlowPage = {
       const memo     = memoEl   ? (memoEl.value || "") : "";
 
       if (step.propertyField) {
-        propertyFields[step.propertyField] = enabled;
+        // ドット記法対応: "inspection.enabled" → inspection オブジェクトに merge
+        setNested(propertyFields, step.propertyField, enabled);
         reservationFlow[step.key] = { memo };
       } else if (step.globalChannel) {
         // ON/OFFは globalChannel 側で保存するため、ここではメモのみ
         reservationFlow[step.key] = { memo };
       } else {
         reservationFlow[step.key] = { enabled, memo };
+      }
+
+      // detailFields の値を収集
+      if (Array.isArray(step.detailFields)) {
+        step.detailFields.forEach(fd => {
+          const el = wrap.querySelector(
+            `.rf-detail-input[data-step="${step.key}"][data-pid="${pid}"][data-field="${fd.field}"]`
+          );
+          if (!el) return;
+          let val;
+          if (fd.type === "switch" || fd.type === "checkbox") {
+            val = !!el.checked;
+          } else if (fd.type === "number") {
+            const n = parseInt(el.value, 10);
+            val = Number.isFinite(n) ? n : (fd.default ?? null);
+          } else {
+            val = el.value || "";
+          }
+          setNested(propertyFields, fd.field, val);
+        });
       }
     });
 

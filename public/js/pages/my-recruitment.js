@@ -939,6 +939,35 @@ const MyRecruitmentPage = {
           cancelBtn.addEventListener("click", () => this.cancelMyResponse());
         }
         cancelBtn.parentElement.style.display = existing ? "" : "none";
+
+        // オーナー操作ボタン (オーナー権限がある場合のみ表示)
+        // 「スタッフ確定」「募集再開」「募集削除」等のオーナー操作へ切替
+        let ownerWrap = document.getElementById("ownerOpsFromResponseWrap");
+        if (!ownerWrap) {
+          const modalBody = document.querySelector("#responseModal .modal-body");
+          modalBody.insertAdjacentHTML("beforeend", `
+            <div class="text-center mt-3 border-top pt-3" id="ownerOpsFromResponseWrap">
+              <div class="small text-muted mb-2">オーナー操作</div>
+              <button type="button" id="btnOwnerOpsFromResponse" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-person-gear"></i> スタッフ確定・募集再開などへ
+              </button>
+            </div>
+          `);
+          document.getElementById("btnOwnerOpsFromResponse").addEventListener("click", async () => {
+            const recruitId = this._pendingRecruitId;
+            // 回答モーダルを閉じて詳細モーダルへ切替
+            bootstrap.Modal.getInstance(document.getElementById("responseModal"))?.hide();
+            const recruit = this.recruitments.find(r => r.id === recruitId);
+            if (!recruit) return;
+            if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
+              await RecruitmentPage.ensureLoaded();
+              RecruitmentPage.openDetailModal(recruit);
+            }
+          });
+          ownerWrap = document.getElementById("ownerOpsFromResponseWrap");
+        }
+        ownerWrap.style.display = isOwner ? "" : "none";
+
         new bootstrap.Modal(document.getElementById("responseModal")).show();
       });
     });

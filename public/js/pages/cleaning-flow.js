@@ -152,6 +152,14 @@ const CleaningFlowPage = {
       hint: "有効にすると、チェックアウト同日に直前点検シフトが自動生成されます (workType=pre_inspection)。点検設定は物件管理ページで詳細設定できます。",
       linkHash: "#/properties",
       linkLabel: "物件編集→点検設定",
+      // 詳細設定 (物件別保存: properties/{pid}.inspection.*)
+      detailFields: [
+        { field: "inspection.requiredCount", label: "必要人数", type: "number",
+          min: 1, max: 3, default: 1 },
+        { field: "inspection.periodStart",   label: "期間 開始", type: "date", default: "" },
+        { field: "inspection.periodEnd",     label: "期間 終了", type: "date", default: "" },
+        { field: "inspection.recurYearly",   label: "毎年繰り返す", type: "checkbox", default: false },
+      ],
     },
 
     // ---- Phase 3: 清掃実施 ----
@@ -164,6 +172,11 @@ const CleaningFlowPage = {
       hint: "スタッフがチェックリストを開いて清掃を開始します。ステータス表示のみ（通知なし）。",
       linkHash: "#/my-checklist",
       linkLabel: "チェックリスト",
+      // 詳細設定 (物件別保存: properties/{pid}.cleaningStartTime)
+      detailFields: [
+        { field: "cleaningStartTime", label: "清掃開始時刻", type: "time", default: "11:00",
+          hint: "物件管理画面の清掃開始時刻と同期します" },
+      ],
     },
     {
       key: "laundry_put_out",
@@ -210,6 +223,17 @@ const CleaningFlowPage = {
       hint: "スタッフがチェックリストに入力中のステータス。通知なし。",
       linkHash: "#/my-checklist",
       linkLabel: "チェックリスト",
+      // 詳細設定 (物件別保存: properties/{pid}.checklistProgress.*)
+      detailFields: [
+        { field: "checklistProgress.enabled",   label: "進捗通知", type: "switch", default: false },
+        { field: "checklistProgress.threshold", label: "通知閾値", type: "select",
+          options: [
+            { value: "50", label: "50% 完了時" },
+            { value: "75", label: "75% 完了時" },
+            { value: "90", label: "90% 完了時" },
+          ],
+          default: "75" },
+      ],
     },
     {
       key: "cleaning_done",
@@ -319,6 +343,92 @@ const CleaningFlowPage = {
     const d = document.createElement("div");
     d.textContent = String(s || "");
     return d.innerHTML;
+  },
+
+  // ドット記法でネストフィールドから値を取得
+  _getNested(obj, path) {
+    if (!obj || !path) return undefined;
+    const parts = path.split(".");
+    let v = obj;
+    for (const p of parts) { v = v?.[p]; if (v === undefined) return undefined; }
+    return v;
+  },
+
+  // detailFields (ネスト対応の型別入力UI) をレンダリング
+  _renderDetailFields(step, property) {
+    if (!Array.isArray(step.detailFields) || !step.detailFields.length) return "";
+    const pid = property.id;
+    const fieldsHtml = step.detailFields.map(fd => {
+      const cur = this._getNested(property, fd.field);
+      const val = (cur === undefined || cur === null) ? (fd.default ?? "") : cur;
+      const hintHtml = fd.hint
+        ? `<div class="form-text small" style="font-size:0.7rem;">${this._esc(fd.hint)}</div>`
+        : "";
+      const inputId = `cf-det-${step.key}-${pid}-${fd.field.replace(/\./g, "_")}`;
+      const commonAttrs =
+        `class="form-control form-control-sm rf-detail-input" ` +
+        `id="${inputId}" ` +
+        `data-step="${step.key}" data-pid="${pid}" data-field="${this._esc(fd.field)}" data-type="${fd.type}"`;
+
+      let inputHtml = "";
+      if (fd.type === "textarea") {
+        inputHtml = `<textarea ${commonAttrs} rows="${fd.rows || 4}" placeholder="${this._esc(fd.placeholder || "")}">${this._esc(val)}</textarea>`;
+      } else if (fd.type === "select") {
+        const opts = (fd.options || []).map(o =>
+          `<option value="${this._esc(o.value)}" ${String(val) === String(o.value) ? "selected" : ""}>${this._esc(o.label)}</option>`
+        ).join("");
+        inputHtml = `<select ${commonAttrs}>${opts}</select>`;
+      } else if (fd.type === "number") {
+        const minAttr = fd.min !== undefined ? `min="${fd.min}"` : "";
+        const maxAttr = fd.max !== undefined ? `max="${fd.max}"` : "";
+        inputHtml = `<input type="number" ${commonAttrs} ${minAttr} ${maxAttr} value="${this._esc(val === "" ? "" : val)}">`;
+      } else if (fd.type === "date") {
+        inputHtml = `<input type="date" ${commonAttrs} value="${this._esc(val || "")}">`;
+      } else if (fd.type === "time") {
+        inputHtml = `<input type="time" ${commonAttrs} value="${this._esc(val || "")}">`;
+      } else if (fd.type === "switch" || fd.type === "checkbox") {
+        const switchCls = fd.type === "switch" ? "form-switch" : "";
+        inputHtml = `
+          <div class="form-check ${switchCls} mb-0">
+            <input type="checkbox" class="form-check-input rf-detail-input"
+              id="${inputId}"
+              data-step="${step.key}" data-pid="${pid}" data-field="${this._esc(fd.field)}" data-type="${fd.type}"
+              ${val ? "checked" : ""}>
+            <label class="form-check-label small" for="${inputId}">${this._esc(fd.label)}</label>
+          </div>`;
+        return `<div class="mb-2">${inputHtml}${hintHtml}</div>`;
+      } else {
+        inputHtml = `<input type="text" ${commonAttrs} placeholder="${this._esc(fd.placeholder || "")}" value="${this._esc(val)}">`;
+      }
+      return `
+        <div class="mb-2">
+          <label class="form-label small mb-1" for="${inputId}">${this._esc(fd.label)}</label>
+          ${inputHtml}
+          ${hintHtml}
+        </div>`;
+    }).join("");
+
+    const varsHint = (Array.isArray(step.detailVarsHint) && step.detailVarsHint.length)
+      ? `<div class="small text-muted mb-2" style="font-size:0.72rem;">
+           <i class="bi bi-braces"></i> 利用可変数: ${step.detailVarsHint.map(v => `<code>${this._esc(v)}</code>`).join(" ")}
+         </div>`
+      : "";
+    const noteHtml = step.detailNote
+      ? `<div class="alert alert-warning py-1 px-2 mb-2 small" style="font-size:0.72rem;">
+           <i class="bi bi-info-circle"></i> ${this._esc(step.detailNote)}
+         </div>`
+      : "";
+
+    return `
+      <div class="rf-detail-panel mt-2 p-2 border rounded" style="background:#f8fafc;">
+        <div class="small fw-semibold mb-2">
+          <i class="bi bi-sliders2"></i> 詳細設定（${this._esc(property.name)}）
+        </div>
+        ${varsHint}
+        ${noteHtml}
+        ${fieldsHtml}
+      </div>
+    `;
   },
 
   // 有効状態を返す (propertyField > 物件別オーバーライド enabled > globalChannel > cleaningFlow)
@@ -667,6 +777,7 @@ const CleaningFlowPage = {
         <!-- 展開コンテンツ (デフォルト非表示) -->
         <div class="rf-card-body" id="${foldId}" style="display:none;">
           ${hintHtml}
+          ${this._renderDetailFields(step, property)}
           ${notifEditorHtml}
           ${overridePanelHtml}
           <!-- リンクボタン -->
@@ -1041,6 +1152,12 @@ const CleaningFlowPage = {
 
     // change イベント
     wrap.addEventListener("change", (e) => {
+      // 詳細設定 (detailFields) change: select / checkbox / switch / date / time / number
+      if (e.target.classList.contains("rf-detail-input")) {
+        this._queueSave(e.target.dataset.pid, e.target.dataset.step);
+        return;
+      }
+
       // rf-toggle: ON/OFF (globalChannel では物件別 enabled オーバーライドとして保存)
       if (e.target.classList.contains("rf-toggle")) {
         const stepKey = e.target.dataset.step;
@@ -1165,6 +1282,10 @@ const CleaningFlowPage = {
         this._queueSaveNotif(e.target.dataset.notifKey);
       }
       if (e.target.classList.contains("rf-memo")) {
+        this._queueSave(e.target.dataset.pid, e.target.dataset.step);
+      }
+      // 詳細設定 (detailFields) 入力変更
+      if (e.target.classList.contains("rf-detail-input")) {
         this._queueSave(e.target.dataset.pid, e.target.dataset.step);
       }
       // 物件別メッセージ上書きtextarea
@@ -1474,6 +1595,17 @@ const CleaningFlowPage = {
     const cleaningFlow = {};
     const propertyFields = {};
 
+    // ドット記法で propertyFields にネスト値をセット
+    const setNested = (obj, path, value) => {
+      const parts = path.split(".");
+      let cur = obj;
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (!cur[parts[i]] || typeof cur[parts[i]] !== "object") cur[parts[i]] = {};
+        cur = cur[parts[i]];
+      }
+      cur[parts[parts.length - 1]] = value;
+    };
+
     this.STEPS.forEach(step => {
       const toggleEl = wrap.querySelector(`.rf-toggle[data-step="${step.key}"][data-pid="${pid}"]`);
       const memoEl   = wrap.querySelector(`.rf-memo[data-step="${step.key}"][data-pid="${pid}"]`);
@@ -1481,20 +1613,34 @@ const CleaningFlowPage = {
       const memo     = memoEl   ? (memoEl.value || "") : "";
 
       if (step.propertyField) {
-        // ドット記法対応: "inspection.enabled" → inspection オブジェクトに merge
-        const parts = step.propertyField.split(".");
-        if (parts.length === 2) {
-          if (!propertyFields[parts[0]]) propertyFields[parts[0]] = {};
-          propertyFields[parts[0]][parts[1]] = enabled;
-        } else {
-          propertyFields[step.propertyField] = enabled;
-        }
+        // ドット記法対応
+        setNested(propertyFields, step.propertyField, enabled);
         cleaningFlow[step.key] = { memo };
       } else if (step.globalChannel) {
         // ON/OFFは globalChannel 側で保存するため、ここではメモのみ
         cleaningFlow[step.key] = { memo };
       } else {
         cleaningFlow[step.key] = { enabled, memo };
+      }
+
+      // detailFields の値を収集
+      if (Array.isArray(step.detailFields)) {
+        step.detailFields.forEach(fd => {
+          const el = wrap.querySelector(
+            `.rf-detail-input[data-step="${step.key}"][data-pid="${pid}"][data-field="${fd.field}"]`
+          );
+          if (!el) return;
+          let val;
+          if (fd.type === "switch" || fd.type === "checkbox") {
+            val = !!el.checked;
+          } else if (fd.type === "number") {
+            const n = parseInt(el.value, 10);
+            val = Number.isFinite(n) ? n : (fd.default ?? null);
+          } else {
+            val = el.value || "";
+          }
+          setNested(propertyFields, fd.field, val);
+        });
       }
     });
 
