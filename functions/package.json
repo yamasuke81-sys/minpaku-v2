@@ -14,7 +14,7 @@
     "emu:start": "firebase emulators:start --import=../.emulator-data --export-on-exit",
     "emu:seed": "node emulator/seed.js",
     "emu:reset": "rimraf ../.emulator-data",
-    "test": "node --test api/*.test.js scheduled/*.test.js utils/emailParser/*.test.js"
+    "test": "node --test api/*.test.js scheduled/*.test.js utils/*.test.js utils/emailParser/*.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

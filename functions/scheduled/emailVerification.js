@@ -1,15 +1,27 @@
 /**
- * メール照合機能: OTA 予約確認メールを巡回し、生データを emailVerifications/{messageId} に保存する
+ * メール照合機能: OTA 予約確認メールを巡回し、emailVerifications/{messageId} に保存 +
+ * bookings と突合して bookings を更新する。
  *
  * 実行方式 (3 経路で同じ core ロジックを呼ぶ):
  *   1. 定期実行:  onSchedule("every 10 minutes") → `scheduled`
  *   2. 予約作成即時: triggers/onBookingEmailCheck.js から呼出
  *   3. 手動トリガー: api/email-verification.js の POST /run から呼出
  *
- * 本ステップでは生データ保存までで止める。本文パース (Step 3) と iCal 突合 (Step 4) は別ステップ。
+ * Step 4 で以下を追加:
+ *   - parseEmail() で構造化情報を抽出し extractedInfo に保存
+ *   - emailMatcher.findBookingMatch() で対応 booking を特定
+ *   - decideBookingUpdate() で bookings の更新オブジェクトを決定 (emailVerifiedAt,
+ *     emailMessageId, guestName, guestCount, status=cancelled 等を保守的に)
+ *   - matchStatus (matched / unmatched / cancelled / changed 等) を emailVerifications に記録
  */
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { google } = require("googleapis");
+const { parseEmail } = require("../utils/emailParser");
+const {
+  findBookingMatch,
+  decideBookingUpdate,
+  decideVerificationStatus,
+} = require("../utils/emailMatcher");
 
 const PROCESSED_LABEL_NAME = "minpaku-v2-email-verified";
 const KNOWN_OTA_SENDERS = [
@@ -106,7 +118,13 @@ async function ensureProcessedLabel(gmail, labelName = PROCESSED_LABEL_NAME) {
 async function emailVerificationCore(db, opts = {}) {
   const { scopedBookingId = null, log = console, maxResultsPerAccount = 20 } = opts;
   const admin = require("firebase-admin");
-  const result = { processedCount: 0, newlySaved: 0, skipped: 0, errors: [] };
+  const result = {
+    processedCount: 0,
+    newlySaved: 0,
+    matchedCount: 0,
+    skipped: 0,
+    errors: [],
+  };
 
   // 1. アクティブ物件の verificationEmails[] を全部集める
   const propsSnap = await db.collection("properties").where("active", "==", true).get();
@@ -194,27 +212,80 @@ async function emailVerificationCore(db, opts = {}) {
           const bodyText = extractBody(detail.data.payload, true);
           const bodyHtml = extractBody(detail.data.payload, false);
           const matched = matchVerificationTarget(toHeader, verificationTargets);
+          const propertyId = matched ? matched.propertyId : null;
+          const platform = matched ? matched.platform : guessPlatform(fromHeader);
+          const receivedAt = detail.data.internalDate
+            ? admin.firestore.Timestamp.fromMillis(parseInt(detail.data.internalDate, 10))
+            : null;
+
+          // ===== Step 4: 本文パース + bookings 突合 =====
+          let extractedInfo = null;
+          let bookingMatch = null;
+          let bookingUpdates = null;
+          try {
+            extractedInfo = parseEmail({
+              subject,
+              body: bodyText || bodyHtml,
+              fromHeader,
+              platform,
+              receivedAt: receivedAt ? receivedAt.toDate() : new Date(),
+            });
+          } catch (pe) {
+            result.errors.push(`parse ${msg.id}: ${pe.message}`);
+          }
+
+          if (extractedInfo && extractedInfo.reservationCode) {
+            // 関連する bookings を取得 (propertyId でスコープできればそれで絞る)
+            try {
+              let bookingsQuery = db.collection("bookings");
+              if (propertyId) {
+                bookingsQuery = bookingsQuery.where("propertyId", "==", propertyId);
+              }
+              const bookingsSnap = await bookingsQuery.limit(500).get();
+              const bookingsArr = bookingsSnap.docs.map((d) => ({ id: d.id, data: d.data() }));
+              bookingMatch = findBookingMatch(bookingsArr, extractedInfo, propertyId);
+
+              if (bookingMatch) {
+                const decision = decideBookingUpdate(bookingMatch.data, extractedInfo, msg.id);
+                if (decision && decision.updates) {
+                  // placeholder を実 FieldValue に置換
+                  const bookingPatch = {};
+                  for (const k of Object.keys(decision.updates)) {
+                    const v = decision.updates[k];
+                    if (v && typeof v === "object" && v.__placeholder === "serverTimestamp") {
+                      bookingPatch[k] = admin.firestore.FieldValue.serverTimestamp();
+                    } else if (v !== undefined) {
+                      bookingPatch[k] = v;
+                    }
+                  }
+                  await db.collection("bookings").doc(bookingMatch.id).update(bookingPatch);
+                  bookingUpdates = Object.keys(bookingPatch);
+                }
+              }
+            } catch (me) {
+              result.errors.push(`match ${msg.id}: ${me.message}`);
+            }
+          }
+
+          const matchStatus = decideVerificationStatus(extractedInfo, bookingMatch);
 
           await evRef.set({
             messageId: msg.id,
             threadId: detail.data.threadId || null,
             gmailAccount: tokenData.email || null,
-            propertyId: matched ? matched.propertyId : null,
-            platform: matched ? matched.platform : guessPlatform(fromHeader),
+            propertyId,
+            platform,
             subject,
             fromHeader,
             toHeader,
             dateHeader,
-            receivedAt: detail.data.internalDate
-              ? admin.firestore.Timestamp.fromMillis(parseInt(detail.data.internalDate, 10))
-              : null,
+            receivedAt,
             rawBodyText: bodyText.slice(0, 50000),   // 50KB 上限
             rawBodyHtml: bodyHtml.slice(0, 100000),  // 100KB 上限
-            // Step 3 以降で埋める
-            extractedInfo: null,
-            matchStatus: "pending",    // pending | matched | unmatched | cancelled | changed
-            matchedBookingId: null,
-            // 起動元情報 (デバッグ用)
+            extractedInfo,
+            matchStatus,
+            matchedBookingId: bookingMatch ? bookingMatch.id : null,
+            bookingUpdates, // デバッグ用: 上書きしたフィールド名配列
             triggeredBy: scopedBookingId
               ? { kind: "booking", bookingId: scopedBookingId }
               : { kind: "schedule" },
@@ -230,6 +301,7 @@ async function emailVerificationCore(db, opts = {}) {
 
           result.newlySaved++;
           result.processedCount++;
+          if (bookingMatch) result.matchedCount = (result.matchedCount || 0) + 1;
         } catch (e) {
           result.errors.push(`message ${msg.id}: ${e.message}`);
         }
