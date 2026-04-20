@@ -11,14 +11,11 @@
 
 import { test, expect } from "@playwright/test";
 import { getDb, FV, E2E_TAG } from "../fixtures/firestore-admin";
+import { issueOwnerIdToken } from "../fixtures/auth";
 import { waitFor } from "../utils/helpers";
 
 const PID = "tsZybhDMcPrxqgcRy7wp"; // the Terrace 長浜
-
-// computeInvoiceDetails を直接 require (Functions と同じ admin 環境で動作)
-// テスト実行時は functions ディレクトリから相対パスで参照
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { computeInvoiceDetails } = require("../../functions/api/invoices");
+const API_BASE = "https://minpaku-v2.web.app/api";
 
 test.describe("ランドリー報酬自動生成", () => {
   const TAG = E2E_TAG("laundry-reward");
@@ -155,12 +152,22 @@ test.describe("ランドリー報酬自動生成", () => {
   // TC-L2: computeInvoiceDetails で合計が期待値
   // =========================================================
   test("TC-L2: computeInvoiceDetails で put_out + expense が集計される", async () => {
-    const db = getDb();
-
     // テスト用の yearMonth (testDate が 2026-06-15 なので 2026-06)
     const yearMonth = testDate.slice(0, 7); // "2026-06"
 
-    const details = await computeInvoiceDetails(db, staffId, yearMonth);
+    // compute-preview エンドポイント経由で集計 (functions の直接 require を避ける)
+    const auth = await issueOwnerIdToken();
+    if (!auth) throw new Error("ID トークン取得失敗");
+    const res = await fetch(`${API_BASE}/invoices/compute-preview`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.idToken}`,
+      },
+      body: JSON.stringify({ staffId, yearMonth }),
+    });
+    expect(res.status).toBe(200);
+    const details = await res.json();
 
     // laundry_put_out と laundry_expense のシフトが含まれているか
     const putOutDetail = details.shifts.find((s: any) => s.workType === "laundry_put_out");

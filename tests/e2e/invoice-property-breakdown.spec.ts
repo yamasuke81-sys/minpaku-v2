@@ -9,12 +9,29 @@
 
 import { test, expect } from "@playwright/test";
 import { getDb, FV, E2E_TAG } from "../fixtures/firestore-admin";
+import { issueOwnerIdToken } from "../fixtures/auth";
 
 const PID = "tsZybhDMcPrxqgcRy7wp"; // the Terrace 長浜
 const PID_NAME = "the Terrace 長浜";
+const API_BASE = "https://minpaku-v2.web.app/api";
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { computeInvoiceDetails } = require("../../functions/api/invoices");
+/** compute-preview エンドポイントを叩いて集計結果を返す */
+async function fetchComputePreview(staffId: string, yearMonth: string, propertyId?: string) {
+  const auth = await issueOwnerIdToken();
+  if (!auth) throw new Error("ID トークン取得失敗");
+  const body: Record<string, string> = { staffId, yearMonth };
+  if (propertyId) body.propertyId = propertyId;
+  const res = await fetch(`${API_BASE}/invoices/compute-preview`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${auth.idToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`compute-preview ${res.status}: ${await res.text()}`);
+  return res.json();
+}
 
 test.describe("請求書 物件別内訳", () => {
   const TAG = E2E_TAG("invoice-property-breakdown");
@@ -95,8 +112,7 @@ test.describe("請求書 物件別内訳", () => {
   // TC-P1: byProperty に物件内訳が含まれる
   // =========================================================
   test("TC-P1: computeInvoiceDetails の byProperty に the Terrace 長浜 の内訳が含まれる", async () => {
-    const db = getDb();
-    const details = await computeInvoiceDetails(db, staffId, yearMonth);
+    const details = await fetchComputePreview(staffId, yearMonth);
 
     expect(details.byProperty).toBeDefined();
     const propEntry = details.byProperty[PID];
@@ -109,8 +125,7 @@ test.describe("請求書 物件別内訳", () => {
   // TC-P2: ランドリー出し 300円 + 立替 1500円 が shiftAmount に加算される
   // =========================================================
   test("TC-P2: ランドリー出し 300円 + 立替 1500円 が shiftAmount に反映される", async () => {
-    const db = getDb();
-    const details = await computeInvoiceDetails(db, staffId, yearMonth);
+    const details = await fetchComputePreview(staffId, yearMonth);
 
     const putOutDetail = details.shifts.find((s: any) => s.workType === "laundry_put_out");
     const expenseDetail = details.shifts.find((s: any) => s.workType === "laundry_expense");
@@ -145,8 +160,8 @@ test.describe("請求書 物件別内訳", () => {
       ...TAG,
     });
 
-    // propertyId フィルタ付きで集計
-    const details = await computeInvoiceDetails(db, staffId, yearMonth, [], PID);
+    // propertyId フィルタ付きで集計 (API 経由)
+    const details = await fetchComputePreview(staffId, yearMonth, PID);
 
     // 別物件のシフトは含まれない
     const otherShift = details.shifts.find((s: any) => s.propertyId === otherPid);
