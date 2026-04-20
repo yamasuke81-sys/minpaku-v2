@@ -10,3 +10,7 @@ temp/
 firebase-debug.log
 firestore-debug.log
 ui-debug.log
+
+# Playwright
+tests/playwright-report/
+tests/test-results/
