@@ -493,8 +493,19 @@ const API = {
 
     async selectStaff(recruitmentId, selectedStaff) {
       const staff = (selectedStaff || "").trim();
+      // staff 名カンマ区切り → staffId 配列に解決 (confirmRecruitment の
+      // selectedStaffIds チェックや LINE 通知先解決で必要)
+      let staffIds = [];
+      if (staff) {
+        const names = staff.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean);
+        const staffSnap = await db.collection("staff").get();
+        const nameToId = {};
+        staffSnap.forEach(d => { nameToId[d.data().name] = d.id; });
+        staffIds = names.map(n => nameToId[n]).filter(Boolean);
+      }
       const update = {
         selectedStaff: staff,
+        selectedStaffIds: staffIds,
         status: staff ? "選定済" : "募集中",
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       };
