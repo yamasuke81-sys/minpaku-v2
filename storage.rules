@@ -11,10 +11,27 @@ service firebase.storage {
                   && request.auth.token.role == "owner";
     }
 
-    // チェックリスト写真 — 認証済みユーザーのみ
-    match /checklist-photos/{allPaths=**} {
-      allow read, write: if request.auth != null
-                         && request.resource.size < 10 * 1024 * 1024;
+    // チェックリスト写真 — 認証済みスタッフ/オーナーのみ
+    // パス: checklist-photos/{propertyId}/{checklistId}/{kind}/{filename}
+    match /checklist-photos/{propertyId}/{checklistId}/{kind}/{filename} {
+      // 読み取り: 認証済みユーザー全員
+      allow read: if request.auth != null;
+      // 書き込み: オーナー または 該当物件が assignedPropertyIds に含まれるスタッフ
+      // 5MB 以下の画像ファイルのみ許可
+      allow write: if request.auth != null
+                   && request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*')
+                   && (request.auth.token.role == "owner"
+                       || request.auth.token.role == "sub_owner"
+                       || propertyId in firestore.get(
+                            /databases/(default)/documents/staff/$(request.auth.uid)
+                          ).data.assignedPropertyIds);
+      // 削除: オーナー/サブオーナー または アップロード者本人
+      allow delete: if request.auth != null
+                    && (request.auth.token.role == "owner"
+                        || request.auth.token.role == "sub_owner"
+                        || (resource.metadata != null
+                            && resource.metadata.uploadedBy == request.auth.uid));
     }
 
     // フォーム画像（旧）

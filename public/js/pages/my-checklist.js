@@ -374,6 +374,7 @@ const MyChecklistPage = {
           this._updateHeaderStatus();
           this._updateTabBadges();
           this.renderActiveArea();
+          this.renderPhotoSection();
           this.renderFooter();
         }
       }, err => {
@@ -459,7 +460,8 @@ const MyChecklistPage = {
         </ul>
       </div>
       <div id="mclAreaContent"></div>
-      <div id="mclFooter" class="mt-4"></div>
+      <div id="mclPhotoSection" class="mt-4"></div>
+      <div id="mclFooter" class="mt-3"></div>
     `;
 
     this._setupTabStickyObserver(body);
@@ -499,6 +501,7 @@ const MyChecklistPage = {
     });
 
     this.renderActiveArea();
+    this.renderPhotoSection();
     this.renderFooter();
   },
 
@@ -1385,6 +1388,17 @@ const MyChecklistPage = {
       );
       if (!ok) return;
     }
+    // 写真が1枚もない場合は警告
+    const c = this.checklist || {};
+    const hasPhotos = (c.beforePhotos && c.beforePhotos.length > 0)
+                   || (c.afterPhotos && c.afterPhotos.length > 0);
+    if (!hasPhotos) {
+      const okPhoto = await showConfirm(
+        "清掃前・後の写真がまだ1枚もアップロードされていません。\n写真なしで清掃完了にしますか？",
+        { title: "写真なしで完了", okLabel: "このまま完了にする", okClass: "btn-warning" }
+      );
+      if (!okPhoto) return;
+    }
     const btn = document.getElementById('mclCompleteBtn');
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 処理中...'; }
     try {
@@ -1707,5 +1721,278 @@ const MyChecklistPage = {
 
   escapeHtml(s) {
     return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-  }
+  },
+
+  // ===== 写真セクション =====
+  MAX_PHOTOS: 20,
+  MAX_PHOTO_BYTES: 5 * 1024 * 1024, // 5MB (リサイズ後の上限)
+  PHOTO_LONG_SIDE: 1920,             // リサイズ時の長辺 px
+
+  /** 写真セクション全体を描画 */
+  renderPhotoSection() {
+    const el = document.getElementById("mclPhotoSection");
+    if (!el || !this.checklist) return;
+    const c = this.checklist;
+    const isCompleted = c.status === "completed";
+    const before = c.beforePhotos || [];
+    const after = c.afterPhotos || [];
+
+    const makeGrid = (kind, photos) => {
+      const label = kind === "before" ? "清掃前" : "清掃後";
+      const count = photos.length;
+      const canAdd = !isCompleted && count < this.MAX_PHOTOS;
+      const thumbs = photos.map((p, i) => `
+        <div class="mcl-photo-thumb" style="position:relative;width:100px;height:100px;flex-shrink:0;">
+          <img src="${this.escapeHtml(p.url)}" alt="${label}" loading="lazy"
+               style="width:100%;height:100%;object-fit:cover;border-radius:6px;cursor:pointer;"
+               data-photo-url="${this.escapeHtml(p.url)}" class="mcl-photo-preview">
+          ${isCompleted ? "" : `
+            <button type="button" class="btn btn-sm btn-danger mcl-photo-del"
+                    data-kind="${kind}" data-idx="${i}"
+                    style="position:absolute;top:2px;right:2px;padding:1px 5px;font-size:12px;border-radius:10px;opacity:0.85;">
+              ×
+            </button>
+          `}
+        </div>
+      `).join("");
+
+      return `
+        <div class="card mb-3">
+          <div class="card-body pb-2">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <h6 class="card-title mb-0">
+                <i class="bi bi-camera"></i> ${label}
+                <span class="badge bg-secondary ms-1">${count}/${this.MAX_PHOTOS}</span>
+              </h6>
+              ${canAdd ? `
+                <label class="btn btn-sm btn-outline-primary mb-0" style="cursor:pointer;">
+                  <i class="bi bi-plus-lg"></i> 写真を追加
+                  <input type="file" accept="image/*" multiple capture="environment"
+                         class="d-none mcl-photo-input" data-kind="${kind}">
+                </label>
+              ` : (!isCompleted ? `<span class="small text-muted">最大${this.MAX_PHOTOS}枚</span>` : "")}
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+              ${thumbs || `<div class="text-muted small">まだ写真はありません</div>`}
+              ${!isCompleted && !canAdd && count >= this.MAX_PHOTOS
+                ? `<div class="small text-warning mt-1 w-100"><i class="bi bi-exclamation-triangle"></i> 最大枚数に達しました</div>`
+                : ""}
+            </div>
+          </div>
+        </div>
+      `;
+    };
+
+    el.innerHTML = `
+      <div class="px-1">
+        <div class="d-flex align-items-center mb-2 gap-2">
+          <span class="fw-bold"><i class="bi bi-images"></i> 清掃写真</span>
+          <span class="small text-muted">前後の写真を記録できます（30日保持）</span>
+        </div>
+        ${makeGrid("before", before)}
+        ${makeGrid("after", after)}
+      </div>
+    `;
+
+    // ファイル選択イベント
+    el.querySelectorAll(".mcl-photo-input").forEach(inp => {
+      inp.addEventListener("change", (ev) => {
+        const kind = inp.dataset.kind;
+        const files = Array.from(ev.target.files || []);
+        if (!files.length) return;
+        inp.value = ""; // 同一ファイル再選択を可能にする
+        this._handlePhotoFiles(kind, files);
+      });
+    });
+
+    // 削除ボタン
+    el.querySelectorAll(".mcl-photo-del").forEach(btn => {
+      btn.addEventListener("click", () => {
+        this.deletePhoto(btn.dataset.kind, parseInt(btn.dataset.idx, 10));
+      });
+    });
+
+    // プレビュー拡大
+    el.querySelectorAll(".mcl-photo-preview").forEach(img => {
+      img.addEventListener("click", () => this._previewPhotoUrl(img.dataset.photoUrl));
+    });
+  },
+
+  /** ファイルを受け取ってリサイズ→アップロード */
+  async _handlePhotoFiles(kind, files) {
+    const c = this.checklist;
+    if (!c) return;
+    const current = (kind === "before" ? c.beforePhotos : c.afterPhotos) || [];
+    const remaining = this.MAX_PHOTOS - current.length;
+    if (remaining <= 0) {
+      showToast("上限に達しています", `${kind === "before" ? "清掃前" : "清掃後"}写真は最大${this.MAX_PHOTOS}枚です`, "error");
+      return;
+    }
+    const targets = files.slice(0, remaining);
+    if (files.length > remaining) {
+      showToast("一部スキップ", `上限のため ${files.length - remaining} 枚はスキップしました`, "info");
+    }
+
+    // アップロード中バナーを表示
+    const el = document.getElementById("mclPhotoSection");
+    let banner = el?.querySelector(`.mcl-upload-banner[data-kind="${kind}"]`);
+    if (!banner && el) {
+      banner = document.createElement("div");
+      banner.className = "alert alert-info py-2 small mcl-upload-banner";
+      banner.dataset.kind = kind;
+      banner.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> アップロード中...`;
+      el.prepend(banner);
+    }
+
+    let uploaded = 0;
+    for (const file of targets) {
+      try {
+        await this.uploadPhoto(kind, file);
+        uploaded++;
+      } catch (e) {
+        console.error("写真アップロードエラー:", e.message);
+        showToast("アップロード失敗", e.message, "error");
+      }
+    }
+
+    if (banner) banner.remove();
+    if (uploaded > 0) {
+      showToast("アップロード完了", `${uploaded} 枚の写真を保存しました`, "success");
+    }
+  },
+
+  /** 1枚アップロード: リサイズ → Storage → Firestore */
+  async uploadPhoto(kind, file) {
+    const c = this.checklist;
+    if (!c || !this.checklistId) return;
+
+    // リサイズ
+    const blob = await this._resizeImage(file, this.PHOTO_LONG_SIDE);
+
+    // Storage パス
+    const ts = Date.now();
+    const rand = Math.random().toString(36).slice(2, 7);
+    const ext = "jpg";
+    const path = `checklist-photos/${c.propertyId}/${this.checklistId}/${kind}/${ts}_${rand}.${ext}`;
+
+    // Firebase Storage へアップロード
+    const storageRef = firebase.storage().ref(path);
+    const user = firebase.auth().currentUser;
+    const metadata = {
+      contentType: "image/jpeg",
+      customMetadata: {
+        uploadedBy: user?.uid || "",
+        uploadedAt: new Date().toISOString(),
+        checklistId: this.checklistId,
+        kind,
+      },
+    };
+    await storageRef.put(blob, metadata);
+    const url = await storageRef.getDownloadURL();
+
+    // Firestore の配列に追加
+    const field = kind === "before" ? "beforePhotos" : "afterPhotos";
+    await firebase.firestore().collection("checklists").doc(this.checklistId).update({
+      [field]: firebase.firestore.FieldValue.arrayUnion({
+        url,
+        uploadedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        uploadedBy: user?.uid || "",
+        kind,
+        path,
+      }),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+  },
+
+  /** 写真を削除 (Firestore array 除去 + Storage 削除) */
+  async deletePhoto(kind, idx) {
+    const c = this.checklist;
+    if (!c || !this.checklistId) return;
+
+    const photos = (kind === "before" ? c.beforePhotos : c.afterPhotos) || [];
+    const photo = photos[idx];
+    if (!photo) return;
+
+    const ok = await showConfirm(
+      "この写真を削除しますか？削除後は元に戻せません。",
+      { title: "写真の削除", okLabel: "削除する", okClass: "btn-danger" }
+    );
+    if (!ok) return;
+
+    // Firestore から除去
+    const field = kind === "before" ? "beforePhotos" : "afterPhotos";
+    try {
+      await firebase.firestore().collection("checklists").doc(this.checklistId).update({
+        [field]: firebase.firestore.FieldValue.arrayRemove(photo),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      showToast("エラー", `Firestore 更新失敗: ${e.message}`, "error");
+      return;
+    }
+
+    // Storage から削除 (失敗しても Firestore 側はすでに除去済み)
+    try {
+      const storagePath = photo.path || this._extractPhotoPath(photo.url);
+      if (storagePath) {
+        await firebase.storage().ref(storagePath).delete();
+      }
+    } catch (e) {
+      console.warn("Storage 削除失敗 (無視):", e.message);
+    }
+  },
+
+  /** URL から Storage パスを抽出 (フロントエンド版) */
+  _extractPhotoPath(url) {
+    if (!url) return null;
+    try {
+      const m = url.match(/\/o\/([^?#]+)/);
+      if (m) return decodeURIComponent(m[1]);
+    } catch (_) {}
+    return null;
+  },
+
+  /** HTML5 Canvas で長辺 maxPx にリサイズして JPEG Blob を返す */
+  _resizeImage(file, maxPx) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        let w = img.naturalWidth;
+        let h = img.naturalHeight;
+        // リサイズ不要なら品質圧縮のみ
+        if (w > maxPx || h > maxPx) {
+          if (w >= h) { h = Math.round(h * maxPx / w); w = maxPx; }
+          else { w = Math.round(w * maxPx / h); h = maxPx; }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+        canvas.toBlob(blob => {
+          if (blob) resolve(blob);
+          else reject(new Error("canvas.toBlob failed"));
+        }, "image/jpeg", 0.85);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("画像の読み込みに失敗しました")); };
+      img.src = url;
+    });
+  },
+
+  /** 写真をフルスクリーンプレビュー */
+  _previewPhotoUrl(url) {
+    const existing = document.getElementById("mclPhotoPreviewModal");
+    if (existing) existing.remove();
+    const div = document.createElement("div");
+    div.id = "mclPhotoPreviewModal";
+    div.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;";
+    div.innerHTML = `
+      <img src="${this.escapeHtml(url)}" style="max-width:95vw;max-height:90vh;border-radius:8px;">
+      <button style="position:absolute;top:12px;right:16px;background:none;border:none;color:#fff;font-size:2rem;line-height:1;cursor:pointer;">&times;</button>
+    `;
+    div.addEventListener("click", () => div.remove());
+    document.body.appendChild(div);
+  },
 };

@@ -248,6 +248,9 @@ exports.syncIcal = onSchedule({
 // 孤児データクリーンアップ（毎日 2:00 JST）
 exports.orphanCleanup = require("./scheduled/orphanCleanup").orphanCleanup;
 
+// チェックリスト写真 30日超過削除（毎日 3:00 JST）
+exports.photoCleanup = require("./scheduled/photoCleanup").photoCleanup;
+
 // BEDS24同期（5分おき）— BEDS24登録後に有効化
 // exports.syncBeds24 = onSchedule({
 //   schedule: "every 5 minutes",
@@ -324,4 +327,33 @@ exports.onChecklistLaundryChange = onDocumentUpdated(
 exports.onErrorLogCreated = onDocumentCreated(
   "error_logs/{logId}",
   require("./triggers/onErrorLogCreated")
+);
+
+// ========== 通知スケジュール (未実装通知の発火) ==========
+
+// 名簿未入力リマインド（毎朝9:00 JST）
+exports.rosterRemind = onSchedule({
+  schedule: "0 9 * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/rosterRemind"));
+
+// 直前予約リマインド（毎朝10:00 JST）
+exports.urgentRemind = onSchedule({
+  schedule: "0 10 * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/urgentRemind"));
+
+// スタッフ未決定リマインド（毎朝11:00 JST）
+exports.staffUndecidedRemind = onSchedule({
+  schedule: "0 11 * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/staffUndecidedRemind"));
+
+// 予約確認メール（bookings 新規作成時 → ゲストへ名簿フォームURL送信）
+exports.onBookingConfirmMail = onDocumentCreated(
+  { document: "bookings/{bookingId}", region: "asia-northeast1" },
+  require("./triggers/onBookingConfirmMail")
 );
