@@ -34,12 +34,20 @@ function findBookingMatch(bookings, parsedInfo, propertyIdHint) {
     ? String(parsedInfo.reservationCode).toLowerCase()
     : null;
 
-  // 1. icalUid 部分一致
+  // 1. icalUid / icalUrl / notes / description に reservationCode を含む部分一致
+  //    Airbnb iCal UID は {hash}-{hash}@airbnb.com で HM コードを含まないが、
+  //    description や URL に HM コードが含まれる場合があるため広範に検索
   if (code) {
     for (const b of bookings) {
-      const uid = String((b.data && b.data.icalUid) || "").toLowerCase();
-      if (uid && uid.includes(code)) {
-        return { id: b.id, data: b.data, matchReason: "icalUid" };
+      const d = b.data || {};
+      const haystack = [
+        String(d.icalUid || ""),
+        String(d.icalUrl || ""),
+        String(d.notes || ""),
+        String(d.description || ""),
+      ].join(" ").toLowerCase();
+      if (haystack.includes(code)) {
+        return { id: b.id, data: d, matchReason: "codeInHaystack" };
       }
     }
     // 2. beds24BookingId 完全一致

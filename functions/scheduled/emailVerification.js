@@ -214,7 +214,12 @@ async function emailVerificationCore(db, opts = {}) {
           const bodyHtml = extractBody(detail.data.payload, false);
           const matched = matchVerificationTarget(toHeader, verificationTargets);
           const propertyId = matched ? matched.propertyId : null;
-          const platform = matched ? matched.platform : guessPlatform(fromHeader);
+          // platform は from ヘッダから判定する (verificationTargets に同じメアドを
+          // 複数 platform で登録した場合でも正しく識別するため)
+          const platformFromSender = guessPlatform(fromHeader);
+          const platform = platformFromSender !== "Unknown"
+            ? platformFromSender
+            : (matched && matched.platform) || "Unknown";
           const receivedAt = detail.data.internalDate
             ? admin.firestore.Timestamp.fromMillis(parseInt(detail.data.internalDate, 10))
             : null;
