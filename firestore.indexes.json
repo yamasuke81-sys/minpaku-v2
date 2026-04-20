@@ -66,6 +66,15 @@
       ]
     },
     {
+      "collectionGroup": "laundry",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "propertyId", "order": "ASCENDING" },
+        { "fieldPath": "staffId", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "shifts",
       "queryScope": "COLLECTION",
       "fields": [
