@@ -130,7 +130,7 @@ const DashboardPage = {
         db.collection("properties").where("active", "==", true).get(),
       ]);
 
-      // === 募集データの正規化（checkOutDate/checkoutDate両対応 + volunteers統合） ===
+      // === 募集データの正規化（checkOutDate/checkoutDate両対応） ===
       const RECRUIT_EXCLUDE_STATUS = ["キャンセル", "キャンセル済み", "期限切れ", "cancelled"];
       let recruitments = recruitSnap.docs.map(doc => {
         const d = doc.data();
@@ -145,48 +145,6 @@ const DashboardPage = {
           selectedStaff: d.selectedStaff || "",
         };
       }).filter(r => !RECRUIT_EXCLUDE_STATUS.includes(r.status));
-
-      // volunteers/コレクションの回答データをrecruitmentsに統合
-      try {
-        const volSnap = await db.collection("volunteers").get();
-        if (!volSnap.empty) {
-          // recruitIdは旧シートの行番号（"r5"等）またはrecordIndex
-          // recruitmentsのbookingRowNumと照合
-          const volsByRecruitIdx = {};
-          volSnap.docs.forEach(vDoc => {
-            const v = vDoc.data();
-            const rKey = String(v.recruitId || "").replace(/^r/, "").trim();
-            if (!rKey) return;
-            if (!volsByRecruitIdx[rKey]) volsByRecruitIdx[rKey] = [];
-            // 回答マッピング: ステータス列の値を◎/△/×に変換
-            let response = v.status || v.response || "";
-            if (response === "◎" || response === "◯" || response === "○" || response === "可能" || response === "OK") response = "◎";
-            else if (response === "△" || response === "条件付き" || response === "要相談") response = "△";
-            else if (response === "×" || response === "不可" || response === "NG") response = "×";
-            volsByRecruitIdx[rKey].push({
-              staffName: v.staffName || "",
-              staffEmail: v.email || "",
-              response: response || "◎",
-              memo: v.memo || v.condition || "",
-              respondedAt: v.volunteerDate || "",
-            });
-          });
-
-          // recruitmentsにvolunteers回答をマージ
-          recruitments.forEach((r, idx) => {
-            if (r.responses && r.responses.length > 0) return; // 既に回答がある場合はスキップ
-            // bookingRowNumで照合（旧募集シートの行番号=Index+1）
-            const rowNum = r.bookingRowNum || (idx + 1);
-            const vols = volsByRecruitIdx[String(rowNum)] || volsByRecruitIdx[String(idx + 1)] || [];
-            if (vols.length > 0) {
-              r.responses = vols;
-            }
-          });
-          console.log(`[Dashboard] volunteers ${volSnap.size}件をrecruitmentsに統合`);
-        }
-      } catch (e) {
-        console.warn("volunteers読み込みスキップ:", e.message);
-      }
 
       // === 予約データの統合（CI+COキーでマージ、ソース優先度付き） ===
       // 優先度: beds24 > bookings > guestRegistrations > migrated
@@ -263,30 +221,6 @@ const DashboardPage = {
         bbq: g.bbq || "", parking: g.parking || "",
         memo: g.memo || "",
       }, "guestRegistrations"));
-
-      // 3) migrated_*（旧GASデータ）— 最低優先
-      try {
-        const migratedSnap = await db.collection("migrated_民泊メイン_フォームの回答_1").get();
-        migratedSnap.docs.forEach(d => {
-          const data = d.data();
-          const ciRaw = data["チェックイン"] || data["チェックイン / Check-in"];
-          const coRaw = data["チェックアウト"] || data["チェックアウト / Check-out"];
-          if (!ciRaw) return;
-          addBooking({
-            id: "m_" + d.id,
-            guestName: data["お名前"] || data["宿泊者名"] || "",
-            checkIn: ciRaw, checkOut: coRaw || "",
-            guestCount: Number(data["宿泊人数"]) || Number(data["大人の人数"]) || 1,
-            source: (data["予約元"] || data["予約サイト"] || "migrated").toString(),
-            bbq: (data["BBQ"] || data["ＢＢＱ"] || "").toString(),
-            parking: (data["駐車場"] || "").toString(),
-            nationality: (data["国籍"] || "").toString(),
-            memo: (data["メモ"] || data["連絡事項"] || "").toString(),
-          }, "migrated");
-        });
-      } catch (e) {
-        console.warn("migratedコレクション読み込みスキップ:", e.message);
-      }
 
       const bookings = Array.from(bookingMap.values());
 
