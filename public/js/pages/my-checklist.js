@@ -1615,65 +1615,57 @@ const MyChecklistPage = {
   playJumperAnimation() {
     this._jumpStep = ((this._jumpStep || 0) % 3) + 1; // 1→2→3→1...
     const step = this._jumpStep;
-    // SVG ドット絵マリオ風キャラ(16x16グリッド, 4px/px)
+    // SVG ドット絵マリオ風キャラ 横向きジャンプポーズ(右向き, 16x16グリッド)
+    // 赤帽子, 肌色, 茶髪/口ひげ, 青オーバーオール, 金ボタン, 茶靴
     const svg = `
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="64" height="64" shape-rendering="crispEdges">
         <g>
-          <rect x="5" y="1" width="5" height="1" fill="#d72c00"/>
-          <rect x="4" y="2" width="7" height="1" fill="#d72c00"/>
-          <rect x="3" y="3" width="3" height="1" fill="#7a3b10"/>
-          <rect x="6" y="3" width="2" height="1" fill="#f7c89a"/>
-          <rect x="8" y="3" width="1" height="1" fill="#7a3b10"/>
-          <rect x="9" y="3" width="2" height="1" fill="#f7c89a"/>
-          <rect x="3" y="4" width="2" height="1" fill="#7a3b10"/>
-          <rect x="5" y="4" width="1" height="1" fill="#f7c89a"/>
-          <rect x="6" y="4" width="1" height="1" fill="#000"/>
-          <rect x="7" y="4" width="2" height="1" fill="#f7c89a"/>
-          <rect x="9" y="4" width="1" height="1" fill="#000"/>
-          <rect x="10" y="4" width="1" height="1" fill="#f7c89a"/>
-          <rect x="3" y="5" width="1" height="1" fill="#7a3b10"/>
-          <rect x="4" y="5" width="2" height="1" fill="#f7c89a"/>
-          <rect x="6" y="5" width="1" height="1" fill="#7a3b10"/>
-          <rect x="7" y="5" width="4" height="1" fill="#f7c89a"/>
-          <rect x="4" y="6" width="1" height="1" fill="#7a3b10"/>
-          <rect x="5" y="6" width="5" height="1" fill="#f7c89a"/>
-          <rect x="10" y="6" width="1" height="1" fill="#7a3b10"/>
-          <rect x="5" y="7" width="5" height="1" fill="#f7c89a"/>
-          <rect x="3" y="8" width="1" height="1" fill="#d72c00"/>
-          <rect x="4" y="8" width="2" height="1" fill="#1f5fd8"/>
-          <rect x="6" y="8" width="4" height="1" fill="#d72c00"/>
-          <rect x="10" y="8" width="2" height="1" fill="#1f5fd8"/>
-          <rect x="12" y="8" width="1" height="1" fill="#d72c00"/>
-          <rect x="2" y="9" width="1" height="1" fill="#d72c00"/>
+          <!-- 帽子 -->
+          <rect x="6" y="0" width="4" height="1" fill="#d72c00"/>
+          <rect x="5" y="1" width="8" height="1" fill="#d72c00"/>
+          <!-- 顔(右向き): 左側に後頭部の髪, 右側が顔前 -->
+          <rect x="4" y="2" width="2" height="1" fill="#7a3b10"/>
+          <rect x="6" y="2" width="3" height="1" fill="#f7c89a"/>
+          <rect x="9" y="2" width="1" height="1" fill="#d72c00"/>
+          <rect x="4" y="3" width="1" height="1" fill="#7a3b10"/>
+          <rect x="5" y="3" width="1" height="1" fill="#f7c89a"/>
+          <rect x="6" y="3" width="1" height="1" fill="#000000"/>
+          <rect x="7" y="3" width="3" height="1" fill="#f7c89a"/>
+          <rect x="4" y="4" width="2" height="1" fill="#7a3b10"/>
+          <rect x="6" y="4" width="4" height="1" fill="#f7c89a"/>
+          <!-- 口ひげ -->
+          <rect x="5" y="5" width="1" height="1" fill="#7a3b10"/>
+          <rect x="6" y="5" width="3" height="1" fill="#f7c89a"/>
+          <rect x="7" y="5" width="2" height="1" fill="#7a3b10"/>
+          <!-- 首〜肩 & 前方に突き出した腕 -->
+          <rect x="5" y="6" width="3" height="1" fill="#f7c89a"/>
+          <rect x="8" y="6" width="3" height="1" fill="#d72c00"/>
+          <rect x="4" y="7" width="2" height="1" fill="#f7c89a"/>
+          <rect x="7" y="7" width="5" height="1" fill="#d72c00"/>
+          <!-- 胸+後方の腕(左肩側) -->
+          <rect x="3" y="8" width="2" height="1" fill="#f7c89a"/>
+          <rect x="6" y="8" width="6" height="1" fill="#d72c00"/>
+          <rect x="12" y="8" width="1" height="1" fill="#f7c89a"/>
+          <!-- 胴(赤→オーバーオール移行) -->
           <rect x="3" y="9" width="1" height="1" fill="#f7c89a"/>
-          <rect x="4" y="9" width="2" height="1" fill="#1f5fd8"/>
-          <rect x="6" y="9" width="1" height="1" fill="#d72c00"/>
-          <rect x="7" y="9" width="2" height="1" fill="#f1c40f"/>
-          <rect x="9" y="9" width="1" height="1" fill="#d72c00"/>
-          <rect x="10" y="9" width="2" height="1" fill="#1f5fd8"/>
-          <rect x="12" y="9" width="1" height="1" fill="#f7c89a"/>
-          <rect x="13" y="9" width="1" height="1" fill="#d72c00"/>
-          <rect x="2" y="10" width="1" height="1" fill="#f7c89a"/>
-          <rect x="3" y="10" width="1" height="1" fill="#f7c89a"/>
-          <rect x="4" y="10" width="1" height="1" fill="#1f5fd8"/>
-          <rect x="5" y="10" width="3" height="1" fill="#d72c00"/>
-          <rect x="8" y="10" width="1" height="1" fill="#f1c40f"/>
-          <rect x="9" y="10" width="3" height="1" fill="#d72c00"/>
-          <rect x="12" y="10" width="1" height="1" fill="#1f5fd8"/>
-          <rect x="13" y="10" width="2" height="1" fill="#f7c89a"/>
-          <rect x="3" y="11" width="1" height="1" fill="#f7c89a"/>
-          <rect x="4" y="11" width="1" height="1" fill="#1f5fd8"/>
-          <rect x="5" y="11" width="6" height="1" fill="#d72c00"/>
-          <rect x="11" y="11" width="1" height="1" fill="#1f5fd8"/>
-          <rect x="12" y="11" width="1" height="1" fill="#f7c89a"/>
-          <rect x="4" y="12" width="3" height="1" fill="#1f5fd8"/>
-          <rect x="9" y="12" width="3" height="1" fill="#1f5fd8"/>
+          <rect x="6" y="9" width="2" height="1" fill="#d72c00"/>
+          <rect x="8" y="9" width="2" height="1" fill="#1f5fd8"/>
+          <rect x="10" y="9" width="2" height="1" fill="#d72c00"/>
+          <rect x="12" y="9" width="2" height="1" fill="#f7c89a"/>
+          <!-- オーバーオール本体 -->
+          <rect x="5" y="10" width="8" height="1" fill="#1f5fd8"/>
+          <rect x="4" y="11" width="3" height="1" fill="#1f5fd8"/>
+          <rect x="7" y="11" width="1" height="1" fill="#f1c40f"/>
+          <rect x="8" y="11" width="5" height="1" fill="#1f5fd8"/>
+          <rect x="4" y="12" width="7" height="1" fill="#1f5fd8"/>
+          <!-- 両足を曲げた飛んでるポーズ -->
           <rect x="3" y="13" width="3" height="1" fill="#1f5fd8"/>
-          <rect x="10" y="13" width="3" height="1" fill="#1f5fd8"/>
-          <rect x="2" y="14" width="3" height="1" fill="#7a3b10"/>
-          <rect x="11" y="14" width="3" height="1" fill="#7a3b10"/>
-          <rect x="2" y="15" width="4" height="1" fill="#7a3b10"/>
-          <rect x="10" y="15" width="4" height="1" fill="#7a3b10"/>
+          <rect x="7" y="13" width="3" height="1" fill="#1f5fd8"/>
+          <!-- 靴(後方の足 下がり気味, 前方の足 上がり気味) -->
+          <rect x="3" y="14" width="3" height="1" fill="#3b1f00"/>
+          <rect x="8" y="14" width="3" height="1" fill="#3b1f00"/>
+          <rect x="2" y="15" width="3" height="1" fill="#3b1f00"/>
+          <rect x="9" y="15" width="3" height="1" fill="#3b1f00"/>
         </g>
       </svg>`;
     const el = document.createElement("div");
