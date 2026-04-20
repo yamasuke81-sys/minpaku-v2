@@ -7,6 +7,24 @@ const https = require("https");
 const crypto = require("crypto");
 const admin = require("firebase-admin");
 
+/**
+ * 対象 uid が「オーナー」staff ドキュメントに紐付くか判定
+ * オーナー = staff.isOwner === true
+ * @returns {Promise<{isOwner: boolean, staffId?: string, staffName?: string}>}
+ */
+async function checkIfOwnerUid(db, uid) {
+  if (!uid) return { isOwner: false };
+  // staff コレクションで authUid 逆引き
+  const snap = await db.collection("staff").where("authUid", "==", uid).limit(1).get();
+  if (snap.empty) return { isOwner: false };
+  const s = snap.docs[0].data();
+  return {
+    isOwner: s.isOwner === true,
+    staffId: snap.docs[0].id,
+    staffName: s.name,
+  };
+}
+
 module.exports = function authApi(db) {
   const router = express.Router();
 
@@ -94,10 +112,18 @@ module.exports = function authApi(db) {
         await staffDoc.ref.update({ authUid: uid, updatedAt: new Date() });
       }
 
-      // カスタムクレーム設定（サブオーナー対応）
-      const staffClaims = staffData.isSubOwner
-        ? { role: "sub_owner", staffId, ownedPropertyIds: staffData.ownedPropertyIds || [] }
-        : { role: "staff", staffId };
+      // カスタムクレーム設定（サブオーナー対応 + オーナー降格防止）
+      const ownerCheckCallback = await checkIfOwnerUid(db, uid);
+      let staffClaims;
+      if (ownerCheckCallback.isOwner) {
+        // オーナー uid は降格しない
+        staffClaims = { role: "owner", staffId: ownerCheckCallback.staffId };
+        console.log(`[line-callback] オーナー uid ${uid} を owner role 維持`);
+      } else {
+        staffClaims = staffData.isSubOwner
+          ? { role: "sub_owner", staffId, ownedPropertyIds: staffData.ownedPropertyIds || [] }
+          : { role: "staff", staffId };
+      }
       await admin.auth().setCustomUserClaims(uid, staffClaims);
 
       // カスタムトークン発行
@@ -197,10 +223,18 @@ module.exports = function authApi(db) {
         updatedAt: new Date(),
       });
 
-      // カスタムクレーム設定（サブオーナー対応）
-      const inviteLineClaims = staffData.isSubOwner
-        ? { role: "sub_owner", staffId, ownedPropertyIds: staffData.ownedPropertyIds || [] }
-        : { role: "staff", staffId };
+      // カスタムクレーム設定（サブオーナー対応 + オーナー降格防止）
+      const ownerCheckInviteLine = await checkIfOwnerUid(db, uid);
+      let inviteLineClaims;
+      if (ownerCheckInviteLine.isOwner) {
+        // オーナー uid は降格しない
+        inviteLineClaims = { role: "owner", staffId: ownerCheckInviteLine.staffId };
+        console.log(`[accept-invite-line] オーナー uid ${uid} を owner role 維持`);
+      } else {
+        inviteLineClaims = staffData.isSubOwner
+          ? { role: "sub_owner", staffId, ownedPropertyIds: staffData.ownedPropertyIds || [] }
+          : { role: "staff", staffId };
+      }
       await admin.auth().setCustomUserClaims(uid, inviteLineClaims);
 
       // 招待トークンを使用済みに
@@ -282,8 +316,15 @@ module.exports = function authApi(db) {
         await staffDoc.ref.update({ authUid: uid, updatedAt: new Date() });
       }
 
-      // カスタムクレーム設定
-      await admin.auth().setCustomUserClaims(uid, { role: "staff", staffId });
+      // カスタムクレーム設定（オーナー降格防止）
+      const ownerCheckInvite = await checkIfOwnerUid(db, uid);
+      if (ownerCheckInvite.isOwner) {
+        // オーナー uid は降格しない
+        await admin.auth().setCustomUserClaims(uid, { role: "owner", staffId: ownerCheckInvite.staffId });
+        console.log(`[accept-invite] オーナー uid ${uid} を owner role 維持`);
+      } else {
+        await admin.auth().setCustomUserClaims(uid, { role: "staff", staffId });
+      }
 
       // 招待トークンを使用済みに
       await inviteDoc.ref.update({ used: true, usedAt: new Date(), usedByUid: uid });
@@ -340,8 +381,15 @@ module.exports = function authApi(db) {
       const staffId = invite.staffId;
       const uid = user.uid;
 
-      // カスタムクレーム設定（role: staff + staffId）
-      await admin.auth().setCustomUserClaims(uid, { role: "staff", staffId });
+      // カスタムクレーム設定（role: staff + staffId、オーナー降格防止）
+      const ownerCheckEmail = await checkIfOwnerUid(db, uid);
+      if (ownerCheckEmail.isOwner) {
+        // オーナー uid は降格しない
+        await admin.auth().setCustomUserClaims(uid, { role: "owner", staffId: ownerCheckEmail.staffId });
+        console.log(`[accept-invite-email] オーナー uid ${uid} を owner role 維持`);
+      } else {
+        await admin.auth().setCustomUserClaims(uid, { role: "staff", staffId });
+      }
 
       // スタッフドキュメントに authUid と email を記録
       const updateData = {
@@ -450,10 +498,18 @@ module.exports = function authApi(db) {
         }
       }
 
-      // カスタムクレーム設定（role: sub_owner / staff + staffId）
-      const claims = staffData.isSubOwner
-        ? { role: "sub_owner", staffId, ownedPropertyIds: staffData.ownedPropertyIds || [] }
-        : { role: "staff", staffId };
+      // カスタムクレーム設定（role: sub_owner / staff + staffId、オーナー降格防止）
+      const ownerCheckLiff = await checkIfOwnerUid(db, uid);
+      let claims;
+      if (ownerCheckLiff.isOwner) {
+        // オーナー uid は降格しない
+        claims = { role: "owner", staffId: ownerCheckLiff.staffId };
+        console.log(`[liff-login] オーナー uid ${uid} を owner role 維持`);
+      } else {
+        claims = staffData.isSubOwner
+          ? { role: "sub_owner", staffId, ownedPropertyIds: staffData.ownedPropertyIds || [] }
+          : { role: "staff", staffId };
+      }
       await admin.auth().setCustomUserClaims(uid, claims);
 
       // staff ドキュメントに authUid を記録（まだ保存されていない場合）
@@ -549,6 +605,16 @@ module.exports = function authApi(db) {
         return res.status(400).json({ error: "role は 'owner' / 'sub_owner' / 'staff' のみ" });
       }
 
+      // オーナー uid への staff/sub_owner 降格を拒否
+      if (role !== "owner") {
+        const ownerCheckSetRole = await checkIfOwnerUid(db, uid);
+        if (ownerCheckSetRole.isOwner) {
+          return res.status(400).json({
+            error: `この UID (${ownerCheckSetRole.staffName}) はオーナーのため staff/sub_owner に降格できません`,
+          });
+        }
+      }
+
       const claims = { role };
       if ((role === "staff" || role === "sub_owner") && staffId) {
         claims.staffId = staffId;
@@ -595,6 +661,11 @@ module.exports = function authApi(db) {
         return res.status(404).json({ error: "スタッフが見つかりません" });
       }
 
+      // オーナー本人をサブオーナー化しようとした場合は拒否
+      if (staffDoc.data()?.isOwner) {
+        return res.status(400).json({ error: "オーナー本人をサブオーナー化することはできません" });
+      }
+
       // Firestoreのスタッフドキュメント更新
       const updateData = {
         isSubOwner: !!isSubOwner,
@@ -607,14 +678,21 @@ module.exports = function authApi(db) {
       await staffDoc.ref.update(updateData);
 
       // Firebase Auth カスタムクレーム更新（authUid が存在する場合のみ）
+      // isOwner チェックは上で済んでいるが、authUid ベースでも念のため二重チェック
       const staffData = staffDoc.data();
       if (staffData.authUid) {
-        const newRole = isSubOwner ? "sub_owner" : "staff";
-        const claims = { role: newRole, staffId };
-        if (isSubOwner) {
-          claims.ownedPropertyIds = updateData.ownedPropertyIds;
+        const ownerCheckSubOwner = await checkIfOwnerUid(db, staffData.authUid);
+        if (ownerCheckSubOwner.isOwner) {
+          // オーナー uid は降格しない（到達しないはずだが安全弁として）
+          console.log(`[set-sub-owner] オーナー uid ${staffData.authUid} を owner role 維持`);
+        } else {
+          const newRole = isSubOwner ? "sub_owner" : "staff";
+          const claimsSubOwner = { role: newRole, staffId };
+          if (isSubOwner) {
+            claimsSubOwner.ownedPropertyIds = updateData.ownedPropertyIds;
+          }
+          await admin.auth().setCustomUserClaims(staffData.authUid, claimsSubOwner);
         }
-        await admin.auth().setCustomUserClaims(staffData.authUid, claims);
       }
 
       res.json({ success: true, staffId, isSubOwner: !!isSubOwner });
