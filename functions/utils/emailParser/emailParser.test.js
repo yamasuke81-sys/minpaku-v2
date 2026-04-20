@@ -66,12 +66,47 @@ const AIRBNB_CHANGED = {
   body: "テストゲストさんが予約の変更に同意しました\nテストゲスト\nAnywhere, 日本",
 };
 
-// Booking.com 確認メール (予約番号あり、ゲスト側 or ホスト側 stub 動作確認)
-const BOOKING_EMAIL = {
-  subject: "予約が確定しました",
-  fromHeader: "Booking.com <noreply@booking.com>",
-  receivedAt: new Date("2026-04-06T14:17:00+09:00"),
-  body: "予約ID 5622417501\n建物タイトル...\n宿泊期間 2026-04-26 15:00 〜2026-04-27 11:00",
+// Booking.com ホスト側 - 新しい予約通知 (匿名化済)
+const BOOKING_CONFIRMED = {
+  subject: "Booking.com - 新しい予約がありました！ (5750794035, 2026年5月3日日曜日)",
+  fromHeader: "noreply@booking.com",
+  receivedAt: new Date("2026-04-19T14:34:00+09:00"),
+  body: [
+    "セキュリティ対策のため、ログインの前にアドレスバーのURLがhttps://admin.booking.comになっていることを確認してください。",
+    "テスト物件名 Booking confirmation — 5750794035",
+    "IATA/TIDS: PC029090",
+    "たった今、Booking.comゲストから新しい予約がありました。",
+    "本予約はスマート・フレックス予約です。",
+    "上記のリンクが開かない場合は、こちらをコピーしてブラウザに貼り付けてください：",
+    "https://admin.booking.com/hotel/hoteladmin/extranet_ng/manage/booking.html?res_id=5750794035&hotel_id=14868587&lang=ja&from_confirmation_email=1",
+    "以上、よろしくお願い申し上げます。",
+  ].join("\n"),
+};
+
+// Booking.com ホスト側 - キャンセル通知 (匿名化済)
+const BOOKING_CANCELLED = {
+  subject: "Booking.com - 予約のキャンセルがありました (5750794035, 2026年5月3日日曜日)",
+  fromHeader: "noreply@booking.com",
+  receivedAt: new Date("2026-04-20T08:27:00+09:00"),
+  body: [
+    "セキュリティ対策のため、ログインの前にアドレスバーのURLがhttps://admin.booking.comになっていることを確認してください。",
+    "テスト物件名 Cancellation — 5750794035",
+    "IATA/TIDS: PC029090",
+    "Test Guest様のご予約（予約番号： 5750794035）がキャンセルされましたので、Booking.comにてキャンセル処理をさせていただきました。",
+    "https://admin.booking.com/hotel/hoteladmin/extranet_ng/manage/booking.html?res_id=5750794035&hotel_id=14868587&lang=ja&from_confirmation_email=1",
+  ].join("\n"),
+};
+
+// Booking.com ホスト側 - 変更通知 (匿名化済)
+const BOOKING_CHANGED = {
+  subject: "Booking.com - 予約の変更がありました！ (6787949698, 2026年5月3日日曜日)",
+  fromHeader: "noreply@booking.com",
+  receivedAt: new Date("2026-04-21T10:00:00+09:00"),
+  body: [
+    "テスト物件名 Modification — 6787949698",
+    "IATA/TIDS: PC029090",
+    "https://admin.booking.com/hotel/hoteladmin/extranet_ng/manage/booking.html?res_id=6787949698&hotel_id=14868587&lang=ja",
+  ].join("\n"),
 };
 
 // ======================================================
@@ -282,29 +317,141 @@ describe("parseAirbnbEmail: 月またぎ checkIn 12月 → checkOut 1月", () =>
 });
 
 // ======================================================
-// Booking.com テスト (stub)
+// Booking.com テスト (ホスト側 noreply@booking.com 3 種)
 // ======================================================
 
-describe("parseBookingEmail: stub 動作確認", () => {
-  const r = parseBookingEmail(BOOKING_EMAIL);
+const { _pure: bookingPure } = require("./booking");
 
-  test("platform Booking.com", () => {
+describe("booking 純粋関数: parseSubject", () => {
+  test("新しい予約 件名", () => {
+    const r = bookingPure.parseSubject("Booking.com - 新しい予約がありました！ (5750794035, 2026年5月3日日曜日)");
+    assert.deepStrictEqual(r, {
+      reservationId: "5750794035",
+      checkIn: { year: 2026, month: 5, day: 3 },
+    });
+  });
+  test("キャンセル 件名", () => {
+    const r = bookingPure.parseSubject("Booking.com - 予約のキャンセルがありました (5750794035, 2026年5月3日日曜日)");
+    assert.strictEqual(r.reservationId, "5750794035");
+    assert.strictEqual(r.checkIn.year, 2026);
+  });
+  test("半角カッコでもマッチ", () => {
+    const r = bookingPure.parseSubject("Booking.com - 新しい予約がありました！ (1234567890, 2026年1月1日水曜日)");
+    assert.strictEqual(r.reservationId, "1234567890");
+  });
+  test("全角カッコでもマッチ", () => {
+    const r = bookingPure.parseSubject("Booking.com - 新しい予約がありました！ （1234567890, 2026年1月1日水曜日）");
+    assert.strictEqual(r.reservationId, "1234567890");
+  });
+  test("フォーマット不一致は null", () => {
+    assert.strictEqual(bookingPure.parseSubject("別件"), null);
+    assert.strictEqual(bookingPure.parseSubject(""), null);
+  });
+});
+
+describe("booking 純粋関数: detectSubjectKind", () => {
+  test("新しい予約 → confirmed", () => {
+    assert.strictEqual(bookingPure.detectSubjectKind("Booking.com - 新しい予約がありました！ (...)"), "confirmed");
+  });
+  test("キャンセル → cancelled", () => {
+    assert.strictEqual(bookingPure.detectSubjectKind("Booking.com - 予約のキャンセルがありました (...)"), "cancelled");
+  });
+  test("変更 → changed", () => {
+    assert.strictEqual(bookingPure.detectSubjectKind("Booking.com - 予約の変更がありました！ (...)"), "changed");
+  });
+  test("Booking.com を含まない → unknown", () => {
+    assert.strictEqual(bookingPure.detectSubjectKind("Airbnb 予約確定"), "unknown");
+  });
+});
+
+describe("booking 純粋関数: 本文フィールド抽出", () => {
+  test("reservationId を本文からフォールバック", () => {
+    assert.strictEqual(
+      bookingPure.extractReservationIdFromBody("the Terrace 長浜 Booking confirmation — 5750794035"),
+      "5750794035"
+    );
+    // URL からでもフォールバック
+    assert.strictEqual(
+      bookingPure.extractReservationIdFromBody("https://example/booking.html?res_id=1234567890&hotel_id=1"),
+      "1234567890"
+    );
+  });
+  test("propertyName 抽出", () => {
+    assert.strictEqual(
+      bookingPure.extractPropertyName("the Terrace 長浜 Booking confirmation — 5750794035"),
+      "the Terrace 長浜"
+    );
+    assert.strictEqual(
+      bookingPure.extractPropertyName("テスト物件 Cancellation — 1234567890"),
+      "テスト物件"
+    );
+  });
+  test("hotel_id 抽出", () => {
+    assert.strictEqual(
+      bookingPure.extractHotelId("res_id=5750794035&hotel_id=14868587&lang=ja"),
+      "14868587"
+    );
+  });
+  test("guestName (キャンセルメールのみ)", () => {
+    assert.strictEqual(
+      bookingPure.extractGuestName("Masanori Matsuura様のご予約（予約番号： 5750794035）がキャンセル"),
+      "Masanori Matsuura"
+    );
+    assert.strictEqual(
+      bookingPure.extractGuestName("山田太郎様のご予約（予約番号：1234）"),
+      "山田太郎"
+    );
+  });
+});
+
+describe("parseBookingEmail: 新しい予約", () => {
+  const r = parseBookingEmail(BOOKING_CONFIRMED);
+
+  test("platform / kind", () => {
     assert.strictEqual(r.platform, "Booking.com");
-  });
-  test("予約 ID を best-effort で抽出", () => {
-    assert.strictEqual(r.reservationCode, "5622417501");
-  });
-  test("件名 '確定' で kind=confirmed", () => {
     assert.strictEqual(r.kind, "confirmed");
   });
-  test("詳細フィールドは null (本実装待ち)", () => {
-    assert.strictEqual(r.checkIn, null);
-    assert.strictEqual(r.checkOut, null);
-    assert.strictEqual(r.guestCount, null);
+  test("reservationCode は件名から取得", () => {
+    assert.strictEqual(r.reservationCode, "5750794035");
   });
-  test("_note で stub であることが明示されている", () => {
-    assert.ok(r._note);
-    assert.ok(r._note.includes("stub"));
+  test("checkIn 年月日が件名から取得 (time は null)", () => {
+    assert.deepStrictEqual(r.checkIn, { date: "2026-05-03", time: null });
+  });
+  test("checkOut は null (メールに含まれない)", () => {
+    assert.strictEqual(r.checkOut, null);
+  });
+  test("confirmed メールには guestName なし", () => {
+    assert.strictEqual(r.guestName, null);
+  });
+  test("propertyName / hotelId は本文から取得", () => {
+    assert.strictEqual(r.propertyName, "テスト物件名");
+    assert.strictEqual(r.hotelId, "14868587");
+  });
+});
+
+describe("parseBookingEmail: キャンセル", () => {
+  const r = parseBookingEmail(BOOKING_CANCELLED);
+
+  test("kind=cancelled", () => {
+    assert.strictEqual(r.kind, "cancelled");
+  });
+  test("reservationCode / checkIn 共通", () => {
+    assert.strictEqual(r.reservationCode, "5750794035");
+    assert.deepStrictEqual(r.checkIn, { date: "2026-05-03", time: null });
+  });
+  test("cancelled メールは guestName を取得できる", () => {
+    assert.strictEqual(r.guestName, "Test Guest");
+  });
+});
+
+describe("parseBookingEmail: 変更", () => {
+  const r = parseBookingEmail(BOOKING_CHANGED);
+
+  test("kind=changed", () => {
+    assert.strictEqual(r.kind, "changed");
+  });
+  test("別の reservationId を拾う", () => {
+    assert.strictEqual(r.reservationCode, "6787949698");
   });
 });
 
@@ -317,7 +464,8 @@ describe("detectPlatform", () => {
     assert.strictEqual(detectPlatform("automated@airbnb.com"), "Airbnb");
     assert.strictEqual(detectPlatform("Airbnb <no-reply@airbnb.jp>"), "Airbnb");
   });
-  test("Booking.com", () => {
+  test("Booking.com (noreply@booking.com ホスト通知)", () => {
+    assert.strictEqual(detectPlatform("noreply@booking.com"), "Booking.com");
     assert.strictEqual(detectPlatform("Booking.com <noreply@booking.com>"), "Booking.com");
     assert.strictEqual(detectPlatform("customer.service@mail.booking.com"), "Booking.com");
   });
@@ -352,5 +500,17 @@ describe("parseEmail ディスパッチャ", () => {
     const r = parseEmail({ subject: "x", body: "y", fromHeader: "rand@example.com" });
     assert.strictEqual(r.platform, "Unknown");
     assert.strictEqual(r.kind, "unknown");
+  });
+  test("Booking.com ホスト通知メールを dispatcher 経由でパース", () => {
+    const r = parseEmail({
+      subject: BOOKING_CONFIRMED.subject,
+      body: BOOKING_CONFIRMED.body,
+      fromHeader: BOOKING_CONFIRMED.fromHeader,
+      receivedAt: BOOKING_CONFIRMED.receivedAt,
+    });
+    assert.strictEqual(r.platform, "Booking.com");
+    assert.strictEqual(r.kind, "confirmed");
+    assert.strictEqual(r.reservationCode, "5750794035");
+    assert.strictEqual(r.checkIn.date, "2026-05-03");
   });
 });
