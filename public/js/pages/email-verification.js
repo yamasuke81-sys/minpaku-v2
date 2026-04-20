@@ -15,6 +15,7 @@ const EmailVerificationPage = {
   items: [],
   filter: "all", // all | unmatched | matched | cancelled | cancelled-unmatched | changed | ignored | pending
   properties: [], // { id, name, color? } 手動紐付けの候補物件絞り込み用
+  gmailAccounts: [], // 連携済 Gmail アカウント一覧
 
   async render(container) {
     container.innerHTML = `
@@ -26,11 +27,24 @@ const EmailVerificationPage = {
         </div>
       </div>
 
-      <div class="alert alert-info small">
-        OTA (Airbnb / Booking.com) からの予約確認メールを Gmail で巡回し、iCal 予約と突合します。
-        Gmail は <strong>81hassac@gmail.com</strong> 等の事業用アカウントを
-        <a href="#/tax-docs">税理士資料ページ</a>で事前に連携してください
-        (connect URL: <code>/gmail-auth/start?context=emailVerification&amp;email=...@gmail.com</code>)。
+      <!-- Gmail 連携パネル -->
+      <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-google"></i> Gmail 連携</span>
+          <button class="btn btn-sm btn-outline-primary" id="btnEvConnectGmail">
+            <i class="bi bi-plus-lg"></i> 新しいアカウントを連携
+          </button>
+        </div>
+        <div class="card-body">
+          <div id="evAccountsList" class="small">
+            <div class="text-muted">読み込み中...</div>
+          </div>
+          <div class="small text-muted mt-2">
+            OTA (Airbnb / Booking.com) からのホスト向け通知メールが届く事業用 Gmail を連携してください。
+            連携後は 10 分おきに自動巡回し、物件の <strong>検証用メールアドレス</strong>
+            (物件詳細モーダルで登録) 宛てに届いた予約関連メールを自動で予約と突合します。
+          </div>
+        </div>
       </div>
 
       <!-- ステータスフィルタ -->
@@ -104,12 +118,16 @@ const EmailVerificationPage = {
     `;
 
     this.bindHandlers_();
-    await this.load_();
+    await Promise.all([this.load_(), this.loadAccounts_()]);
   },
 
   bindHandlers_() {
-    document.getElementById("btnEvRefresh").addEventListener("click", () => this.load_());
+    document.getElementById("btnEvRefresh").addEventListener("click", () => {
+      this.load_();
+      this.loadAccounts_();
+    });
     document.getElementById("btnEvRunNow").addEventListener("click", () => this.runNow_());
+    document.getElementById("btnEvConnectGmail").addEventListener("click", () => this.connectGmail_());
     document.querySelectorAll("#evFilterBar button").forEach((b) => {
       b.addEventListener("click", (e) => {
         document.querySelectorAll("#evFilterBar button").forEach((x) => x.classList.remove("active"));
@@ -128,6 +146,91 @@ const EmailVerificationPage = {
     } catch (e) {
       document.getElementById("evListBody").innerHTML =
         `<tr><td colspan="8" class="text-center text-danger py-4">読み込み失敗: ${this.escape_(e.message)}</td></tr>`;
+    }
+  },
+
+  // ====== Gmail アカウント管理 ======
+
+  async loadAccounts_() {
+    const listEl = document.getElementById("evAccountsList");
+    try {
+      const data = await this.cfApi_("GET", "/gmail-auth/accounts?context=emailVerification");
+      this.gmailAccounts = data.accounts || [];
+      this.renderAccounts_();
+    } catch (e) {
+      listEl.innerHTML = `<div class="text-danger">アカウント一覧取得失敗: ${this.escape_(e.message)}</div>`;
+    }
+  },
+
+  renderAccounts_() {
+    const listEl = document.getElementById("evAccountsList");
+    if (!this.gmailAccounts.length) {
+      listEl.innerHTML = `
+        <div class="alert alert-warning mb-0 py-2">
+          連携済みアカウントがありません。右上の「新しいアカウントを連携」から Gmail を連携してください。
+        </div>
+      `;
+      return;
+    }
+    listEl.innerHTML = `
+      <div class="d-flex flex-column gap-1">
+        ${this.gmailAccounts.map((a) => {
+          const email = this.escape_(a.email || "");
+          const savedAt = a.savedAt ? this.formatTs_(a.savedAt) : "";
+          const ok = a.hasRefreshToken
+            ? `<span class="badge bg-success">有効</span>`
+            : `<span class="badge bg-danger">リフレッシュトークン無し</span>`;
+          return `
+            <div class="d-flex align-items-center justify-content-between border rounded p-2">
+              <div>
+                <i class="bi bi-envelope-fill text-primary"></i>
+                <strong>${email}</strong>
+                ${ok}
+                ${savedAt ? `<span class="text-muted small ms-2">連携日: ${savedAt}</span>` : ""}
+              </div>
+              <button class="btn btn-sm btn-outline-danger" data-account="${email}">
+                <i class="bi bi-x-circle"></i> 解除
+              </button>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+    listEl.querySelectorAll("button[data-account]").forEach((btn) => {
+      btn.addEventListener("click", () => this.removeAccount_(btn.dataset.account));
+    });
+  },
+
+  async connectGmail_() {
+    const email = window.showPrompt
+      ? await window.showPrompt("連携する Gmail アドレスを入力してください (例: 81hassac@gmail.com)", "", "Gmail 連携")
+      : window.prompt("連携する Gmail アドレス (例: 81hassac@gmail.com):");
+    if (!email) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      if (window.showAlert) await window.showAlert("メールアドレスの形式が正しくありません", "エラー");
+      return;
+    }
+    const url = `https://api-5qrfx7ujcq-an.a.run.app/gmail-auth/start?context=emailVerification&email=${encodeURIComponent(email)}`;
+    window.open(url, "_blank", "noopener");
+    if (window.showAlert) {
+      await window.showAlert(
+        "新しいタブで Google 認証画面が開きます。完了後、このページの「再読込」ボタンを押してください。",
+        "Gmail 連携"
+      );
+    }
+  },
+
+  async removeAccount_(email) {
+    if (!email) return;
+    const ok = window.showConfirm
+      ? await window.showConfirm(`${email} の Gmail 連携を解除しますか？ 以降のメール巡回は対象外になります。`, "連携解除")
+      : window.confirm(`${email} の Gmail 連携を解除しますか？`);
+    if (!ok) return;
+    try {
+      await this.cfApi_("DELETE", `/gmail-auth/accounts/${encodeURIComponent(email)}?context=emailVerification`);
+      await this.loadAccounts_();
+    } catch (e) {
+      if (window.showAlert) await window.showAlert(`解除失敗: ${e.message}`, "エラー");
     }
   },
 
