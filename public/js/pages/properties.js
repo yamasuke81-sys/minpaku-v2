@@ -5,6 +5,23 @@
 // LINE チャネル配列の上限（将来拡張しやすいよう定数化）
 const LINE_CHANNELS_MAX = 2;
 
+// 物件番号プルダウンの候補範囲
+const PROPERTY_NUMBER_MAX = 20;
+
+// 物件表示色のプリセット候補
+const PRESET_COLORS = [
+  { value: "#dc3545", name: "赤" },
+  { value: "#198754", name: "緑" },
+  { value: "#0d6efd", name: "青" },
+  { value: "#ffc107", name: "黄" },
+  { value: "#6f42c1", name: "紫" },
+  { value: "#fd7e14", name: "オレンジ" },
+  { value: "#20c997", name: "ティール" },
+  { value: "#d63384", name: "ピンク" },
+  { value: "#6c757d", name: "グレー" },
+  { value: "#0dcaf0", name: "シアン" },
+];
+
 const PropertiesPage = {
   propertyList: [],
   modal: null,
@@ -192,7 +209,9 @@ const PropertiesPage = {
     document.getElementById("propertySkills").value = (property?.requiredSkills || []).join(",");
     document.getElementById("propertySelectionMethod").value = property?.selectionMethod || "ownerConfirm";
     document.getElementById("propertyCleaningRequiredCount").value = property?.cleaningRequiredCount || 1;
-    document.getElementById("propertyNumber").value = property?.propertyNumber || "";
+    // 物件番号プルダウン / 色スウォッチを重複チェック込みで描画
+    this._renderPropertyNumberSelect(property?.propertyNumber ?? null);
+    this._renderPropertyColorSwatches(property?.color || "#0d6efd");
     document.getElementById("propertyColor").value = property?.color || "#0d6efd";
 
     // 直前点検設定
@@ -314,6 +333,20 @@ const PropertiesPage = {
       return;
     }
 
+    // 物件番号 / 色の他物件重複チェック
+    const numRaw = document.getElementById("propertyNumber").value;
+    const numVal = numRaw === "" ? null : Number(numRaw);
+    const colorVal = document.getElementById("propertyColor").value || null;
+    const dup = this._findDuplicateNumberOrColor(id, numVal, colorVal);
+    if (dup.number) {
+      showToast("入力エラー", `物件番号 ${numVal} は「${dup.number.name}」で使用中です`, "error");
+      return;
+    }
+    if (dup.color) {
+      showToast("入力エラー", `表示色は「${dup.color.name}」で使用中です`, "error");
+      return;
+    }
+
     const requiredSkills = document.getElementById("propertySkills").value
       .split(",").map((s) => s.trim()).filter(Boolean);
 
@@ -402,6 +435,16 @@ const PropertiesPage = {
     const name = document.getElementById("propertyName").value.trim();
     // 物件名が空のままなら自動保存しない
     if (!name) return;
+
+    // 物件番号 / 色の重複は自動保存対象外 (手動保存時のみエラー表示)
+    const numRawA = document.getElementById("propertyNumber").value;
+    const numValA = numRawA === "" ? null : Number(numRawA);
+    const colorValA = document.getElementById("propertyColor").value || null;
+    const dupA = this._findDuplicateNumberOrColor(id, numValA, colorValA);
+    if (dupA.number || dupA.color) {
+      console.warn("[物件自動保存] 番号/色の重複のためスキップ");
+      return;
+    }
 
     const requiredSkills = document.getElementById("propertySkills").value
       .split(",").map((s) => s.trim()).filter(Boolean);
@@ -727,6 +770,130 @@ const PropertiesPage = {
    */
   _bindPropertyIcalEvents(_propertyId) {
     // no-op: _loadPropertyIcal で bindLegacy 済み
+  },
+
+  // ---- 物件番号 / 色の重複防止 ----
+
+  /**
+   * 他物件の物件番号 → 物件情報 のマップを返す
+   * 編集中の物件 (this.editingId) は除外する
+   */
+  _usedPropertyNumbers() {
+    const map = new Map();
+    (this.propertyList || []).forEach(p => {
+      if (!p || p.id === this.editingId) return;
+      if (p.propertyNumber != null && p.propertyNumber !== "") {
+        map.set(Number(p.propertyNumber), p);
+      }
+    });
+    return map;
+  },
+
+  /**
+   * 他物件で使用中の色 (小文字) → 物件情報 のマップを返す
+   */
+  _usedPropertyColors() {
+    const map = new Map();
+    (this.propertyList || []).forEach(p => {
+      if (!p || p.id === this.editingId) return;
+      if (p.color) map.set(String(p.color).toLowerCase(), p);
+    });
+    return map;
+  },
+
+  /**
+   * 物件番号プルダウンを描画 (既使用番号は disabled + 物件名表示)
+   */
+  _renderPropertyNumberSelect(currentValue) {
+    const sel = document.getElementById("propertyNumber");
+    if (!sel) return;
+    const used = this._usedPropertyNumbers();
+    const cur = currentValue == null || currentValue === "" ? "" : String(currentValue);
+    const opts = [`<option value="">(未設定)</option>`];
+    for (let n = 1; n <= PROPERTY_NUMBER_MAX; n++) {
+      const conflict = used.get(n);
+      const selected = cur === String(n) ? "selected" : "";
+      if (conflict) {
+        opts.push(
+          `<option value="${n}" disabled>${n} (既使用: ${this.escapeHtml(conflict.name)})</option>`
+        );
+      } else {
+        opts.push(`<option value="${n}" ${selected}>${n}</option>`);
+      }
+    }
+    sel.innerHTML = opts.join("");
+    // 既存値が範囲外の場合は option を動的追加
+    if (cur && Number(cur) > PROPERTY_NUMBER_MAX) {
+      const extra = document.createElement("option");
+      extra.value = cur;
+      extra.textContent = cur;
+      extra.selected = true;
+      sel.appendChild(extra);
+    }
+  },
+
+  /**
+   * 色スウォッチを描画 (既使用色は半透明+斜線+tooltip)
+   */
+  _renderPropertyColorSwatches(currentValue) {
+    const container = document.getElementById("propertyColorSwatches");
+    if (!container) return;
+    const used = this._usedPropertyColors();
+    const cur = (currentValue || "").toLowerCase();
+    container.innerHTML = PRESET_COLORS.map(c => {
+      const key = c.value.toLowerCase();
+      const conflict = used.get(key);
+      const isCurrent = cur === key;
+      const disabled = !!conflict;
+      // 半透明 + 斜線 (linear-gradient) で既使用を表現
+      const bg = disabled
+        ? `background: linear-gradient(135deg, ${c.value} 0%, ${c.value} 45%, rgba(255,255,255,.8) 48%, rgba(255,255,255,.8) 52%, ${c.value} 55%, ${c.value} 100%); opacity:.55;`
+        : `background:${c.value};`;
+      const border = isCurrent ? "border:3px solid #000;" : "border:1px solid #ccc;";
+      const title = disabled
+        ? `${c.name}: ${this.escapeHtml(conflict.name)} で使用中`
+        : c.name;
+      return `<button type="button" class="property-color-swatch" data-color="${c.value}"
+        ${disabled ? "disabled" : ""}
+        title="${title}"
+        style="width:26px;height:26px;border-radius:4px;padding:0;${bg}${border}cursor:${disabled ? "not-allowed" : "pointer"};"></button>`;
+    }).join("");
+
+    // 既存リスナを一掃するため委譲で登録
+    if (!container.dataset.swatchBound) {
+      container.dataset.swatchBound = "1";
+      container.addEventListener("click", (e) => {
+        const btn = e.target.closest(".property-color-swatch");
+        if (!btn || btn.disabled) return;
+        const v = btn.dataset.color;
+        const input = document.getElementById("propertyColor");
+        if (input) {
+          input.value = v;
+          // change イベントを発火させて自動保存をトリガー
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        // 選択状態を視覚更新
+        this._renderPropertyColorSwatches(v);
+      });
+    }
+  },
+
+  /**
+   * 他物件と番号/色が重複しているか調べる
+   * @returns {{number: object|null, color: object|null}}
+   */
+  _findDuplicateNumberOrColor(editingId, num, color) {
+    const result = { number: null, color: null };
+    (this.propertyList || []).forEach(p => {
+      if (!p || p.id === editingId) return;
+      if (num != null && p.propertyNumber != null && Number(p.propertyNumber) === Number(num)) {
+        result.number = p;
+      }
+      if (color && p.color && String(p.color).toLowerCase() === String(color).toLowerCase()) {
+        result.color = p;
+      }
+    });
+    return result;
   },
 
   // ---- 共通ユーティリティ ----
