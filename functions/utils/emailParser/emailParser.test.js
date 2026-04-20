@@ -195,11 +195,23 @@ describe("airbnb 純粋関数: detectSubjectKind", () => {
   test("予約確定 → confirmed", () => {
     assert.strictEqual(airbnbPure.detectSubjectKind("予約確定 - 太郎さんが11月2日ご到着です"), "confirmed");
   });
-  test("予約変更が承認 → changed", () => {
-    assert.strictEqual(airbnbPure.detectSubjectKind("予約変更が承認されました"), "changed");
+  test("予約変更が承認 → change-approved", () => {
+    assert.strictEqual(airbnbPure.detectSubjectKind("予約変更が承認されました"), "change-approved");
   });
-  test("予約キャンセル → cancelled", () => {
+  test("予約変更をご希望 → change-request", () => {
+    assert.strictEqual(
+      airbnbPure.detectSubjectKind("Muhamad Nurakmalさんが予約変更をご希望です"),
+      "change-request"
+    );
+  });
+  test("予約キャンセル → cancelled (旧形式)", () => {
     assert.strictEqual(airbnbPure.detectSubjectKind("予約がキャンセルされました"), "cancelled");
+  });
+  test("キャンセルのお知らせ → cancelled (新形式)", () => {
+    assert.strictEqual(
+      airbnbPure.detectSubjectKind("キャンセルのお知らせ：2026年5月4日～6日のご予約（HMJENWXRMS）"),
+      "cancelled"
+    );
   });
   test("予約リクエスト → request", () => {
     assert.strictEqual(airbnbPure.detectSubjectKind("保留中: 予約リクエスト・【NewOpenSALE】..."), "request");
@@ -278,9 +290,142 @@ describe("parseAirbnbEmail: 海外ゲスト 予約確定", () => {
 describe("parseAirbnbEmail: 予約変更承認 (詳細なし)", () => {
   const r = parseAirbnbEmail(AIRBNB_CHANGED);
 
-  test("kind は changed、詳細フィールドは null", () => {
-    assert.strictEqual(r.kind, "changed");
+  test("kind は change-approved、詳細フィールドは null", () => {
+    assert.strictEqual(r.kind, "change-approved");
     assert.strictEqual(r.reservationCode, null);
+    assert.strictEqual(r.checkIn, null);
+    assert.strictEqual(r.checkOut, null);
+    assert.strictEqual(r.guestCount, null);
+  });
+});
+
+// ======================================================
+// Airbnb キャンセル (新形式件名 + 本文) / 変更リクエスト テスト
+// ======================================================
+
+// キャンセルメール (匿名化): 件名主導で情報抽出
+const AIRBNB_CANCELLED_NEW = {
+  subject: "キャンセルのお知らせ：2026年5月4日～6日のご予約（HMJENWXRMS）",
+  fromHeader: "Airbnb <automated@airbnb.com>",
+  receivedAt: new Date("2026-04-14T09:08:00+09:00"),
+  body: [
+    "予約がキャンセルされました",
+    "テスト物件リスティング名｜10名OK・BBQ可・駐車3台",
+    "リスティング#1496523336810635360",
+    "5月4日～6日, 4人",
+    "大変恐れ入りますが、ゲストのテストゲストさんにより、やむを得ず5月4日～6日のご予約（HMJENWXRMS）がキャンセルされました。",
+    "Airbnb Ireland UC8 Hanover Quay",
+  ].join("\n"),
+};
+
+// 予約変更リクエスト (匿名化): 件名のみ主情報
+const AIRBNB_CHANGE_REQUEST = {
+  subject: "Test Guestさんが予約変更をご希望です",
+  fromHeader: "Airbnb <automated@airbnb.com>",
+  receivedAt: new Date("2026-04-15T10:00:00+09:00"),
+  body: "新しいチェックイン日 / チェックアウト日など詳細は旅程表を確認してください。",
+};
+
+describe("airbnb 純粋関数: parseCancelSubject", () => {
+  test("件名から年+日付範囲+確認コード抽出", () => {
+    const r = airbnbPure.parseCancelSubject("キャンセルのお知らせ：2026年5月4日～6日のご予約（HMJENWXRMS）");
+    assert.strictEqual(r.reservationCode, "HMJENWXRMS");
+    assert.deepStrictEqual(r.checkIn, { year: 2026, month: 5, day: 4 });
+    assert.deepStrictEqual(r.checkOut, { year: 2026, month: 5, day: 6 });
+  });
+  test("月またぎ: 2026年5月30日～6月2日", () => {
+    const r = airbnbPure.parseCancelSubject("キャンセルのお知らせ：2026年5月30日～6月2日のご予約（HMTEST0000）");
+    assert.strictEqual(r.checkIn.month, 5);
+    assert.strictEqual(r.checkOut.month, 6);
+    assert.strictEqual(r.checkOut.year, 2026);
+  });
+  test("年またぎ: 2025年12月31日～1月2日", () => {
+    const r = airbnbPure.parseCancelSubject("キャンセルのお知らせ：2025年12月31日～1月2日のご予約（HMYEAREND1）");
+    assert.strictEqual(r.checkIn.year, 2025);
+    assert.strictEqual(r.checkOut.year, 2026);
+  });
+  test("フォーマット不一致は null", () => {
+    assert.strictEqual(airbnbPure.parseCancelSubject("無関係"), null);
+  });
+});
+
+describe("airbnb 純粋関数: parseChangeRequestSubject", () => {
+  test("半角スペース込み英語名", () => {
+    const r = airbnbPure.parseChangeRequestSubject("Muhamad Nurakmalさんが予約変更をご希望です");
+    assert.strictEqual(r.guestName, "Muhamad Nurakmal");
+  });
+  test("日本語名", () => {
+    const r = airbnbPure.parseChangeRequestSubject("山田 太郎さんが予約変更をご希望です");
+    assert.strictEqual(r.guestName, "山田 太郎");
+  });
+  test("フォーマット不一致は null", () => {
+    assert.strictEqual(airbnbPure.parseChangeRequestSubject("無関係"), null);
+  });
+});
+
+describe("airbnb 純粋関数: キャンセル本文フィールド抽出", () => {
+  test("extractCancelGuestFirstName", () => {
+    assert.strictEqual(
+      airbnbPure.extractCancelGuestFirstName("ゲストの和行さんにより、やむを得ず..."),
+      "和行"
+    );
+    assert.strictEqual(
+      airbnbPure.extractCancelGuestFirstName("ゲストのTestGuestさんにより"),
+      "TestGuest"
+    );
+  });
+  test("extractListingId", () => {
+    assert.strictEqual(
+      airbnbPure.extractListingId("リスティング#1496523336810635360"),
+      "1496523336810635360"
+    );
+  });
+  test("extractCancelGuestCount: 単月", () => {
+    assert.deepStrictEqual(
+      airbnbPure.extractCancelGuestCount("5月4日～6日, 4人"),
+      { adults: 4, children: 0, infants: 0, total: 4 }
+    );
+  });
+  test("extractCancelGuestCount: 月またぎ", () => {
+    assert.deepStrictEqual(
+      airbnbPure.extractCancelGuestCount("5月30日～6月2日, 2人"),
+      { adults: 2, children: 0, infants: 0, total: 2 }
+    );
+  });
+});
+
+describe("parseAirbnbEmail: キャンセル (新形式件名)", () => {
+  const r = parseAirbnbEmail(AIRBNB_CANCELLED_NEW);
+
+  test("kind=cancelled", () => {
+    assert.strictEqual(r.kind, "cancelled");
+  });
+  test("reservationCode は件名から", () => {
+    assert.strictEqual(r.reservationCode, "HMJENWXRMS");
+  });
+  test("checkIn/checkOut は件名から (年含む、time=null)", () => {
+    assert.deepStrictEqual(r.checkIn, { date: "2026-05-04", time: null });
+    assert.deepStrictEqual(r.checkOut, { date: "2026-05-06", time: null });
+  });
+  test("guestFirstName は本文から", () => {
+    assert.strictEqual(r.guestFirstName, "テストゲスト");
+  });
+  test("listingId / guestCount も本文から", () => {
+    assert.strictEqual(r.listingId, "1496523336810635360");
+    assert.deepStrictEqual(r.guestCount, { adults: 4, children: 0, infants: 0, total: 4 });
+  });
+});
+
+describe("parseAirbnbEmail: 予約変更リクエスト", () => {
+  const r = parseAirbnbEmail(AIRBNB_CHANGE_REQUEST);
+
+  test("kind=change-request", () => {
+    assert.strictEqual(r.kind, "change-request");
+  });
+  test("件名からゲスト名抽出", () => {
+    assert.strictEqual(r.guestName, "Test Guest");
+  });
+  test("詳細は null (本文に情報なし)", () => {
     assert.strictEqual(r.checkIn, null);
     assert.strictEqual(r.checkOut, null);
     assert.strictEqual(r.guestCount, null);

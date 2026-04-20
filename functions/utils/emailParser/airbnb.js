@@ -68,14 +68,71 @@ function extractTotalAmount(body) {
 }
 
 // 件名から kind を判定
+//   confirmed        : 新規予約確定 (予約確定 - ...)
+//   cancelled        : キャンセル (キャンセルのお知らせ / 予約がキャンセル)
+//   change-approved  : 予約変更が承認された (双方合意済、新 CI/CO 反映)
+//   change-request   : 予約変更をご希望 (ゲストから要望、ホスト承認待ち)
+//   request          : 予約リクエスト (新規予約の承認待ち)
 function detectSubjectKind(subject) {
   const s = String(subject || "");
   if (/予約確定/.test(s)) return "confirmed";
-  if (/予約変更が承認|予約.*変更.*承認/.test(s)) return "changed";
-  if (/予約.*キャンセル|キャンセルされました/.test(s)) return "cancelled";
+  if (/キャンセルのお知らせ|予約.*キャンセル|キャンセルされました/.test(s)) return "cancelled";
+  if (/予約変更が承認|予約変更.*承認/.test(s)) return "change-approved";
+  if (/予約変更.*希望|予約変更をご希望/.test(s)) return "change-request";
   if (/保留中.*予約リクエスト|予約リクエスト.*保留/.test(s)) return "request";
   if (/予約リクエスト/.test(s)) return "request";
   return "unknown";
+}
+
+// キャンセル通知の件名から reservationCode + 日付範囲を抽出 (年含む)
+// 例: 「キャンセルのお知らせ：2026年5月4日～6日のご予約（HMJENWXRMS）」
+//     「キャンセルのお知らせ：2026年12月31日～1月2日のご予約（HM...）」 (年またぎ)
+function parseCancelSubject(subject) {
+  const s = String(subject || "");
+  const m = /キャンセルのお知らせ[：:]\s*(\d{4})年(\d{1,2})月(\d{1,2})日[〜～\-](?:(\d{1,2})月)?(\d{1,2})日.*?[（(]\s*(HM[A-Z0-9]+)\s*[)）]/.exec(s);
+  if (!m) return null;
+  const year = +m[1];
+  const m1 = +m[2];
+  const d1 = +m[3];
+  const m2 = m[4] ? +m[4] : m1; // 同月なら月を省略する仕様
+  const d2 = +m[5];
+  // 12月→1月 の年またぎ対応
+  const checkOutYear = m1 === 12 && m2 === 1 ? year + 1 : year;
+  return {
+    reservationCode: m[6],
+    checkIn: { year, month: m1, day: d1 },
+    checkOut: { year: checkOutYear, month: m2, day: d2 },
+  };
+}
+
+// 予約変更リクエスト件名からゲスト名を抽出
+// 例: 「Muhamad Nurakmalさんが予約変更をご希望です」
+function parseChangeRequestSubject(subject) {
+  const s = String(subject || "");
+  const m = /^(.+?)さんが予約変更をご希望/.exec(s);
+  return m ? { guestName: m[1].trim() } : null;
+}
+
+// キャンセル本文からゲストのファーストネーム抽出
+// 例: 「ゲストの和行さんにより、やむを得ず…がキャンセル」
+function extractCancelGuestFirstName(body) {
+  const m = /ゲストの(.+?)さんにより/.exec(String(body || ""));
+  return m ? m[1].trim() : null;
+}
+
+// 本文から Airbnb リスティング ID を抽出
+// 例: 「リスティング#1496523336810635360」
+function extractListingId(body) {
+  const m = /リスティング#(\d+)/.exec(String(body || ""));
+  return m ? m[1] : null;
+}
+
+// キャンセル本文 「{M}月{D}日〜{D2}日, {N}人」から人数合計を抽出
+function extractCancelGuestCount(body) {
+  const m = /\d+月\d+日[〜～\-](?:\d+月)?\d+日\s*,\s*(\d+)人/.exec(String(body || ""));
+  if (!m) return null;
+  const total = +m[1];
+  return { adults: total, children: 0, infants: 0, total };
 }
 
 // 年推測: メール本文に年が含まれないため、受信日時から推測
@@ -97,18 +154,13 @@ function pad2(n) { return String(n).padStart(2, "0"); }
 
 /**
  * Airbnb メールから構造化情報を抽出
+ * kind によって抽出経路が異なる:
+ *   - confirmed       : 本文から全情報取得、年は受信日時から推論
+ *   - cancelled       : 件名から reservationCode/checkIn/checkOut (年含む) + 本文補完
+ *   - change-request  : 件名から guestName のみ (本文は詳細なし)
+ *   - change-approved : 件名 + 本文で補完可能な範囲
+ *   - request / unknown: best-effort
  * @param {{subject:string, body:string, receivedAt?:Date|string|number}} input
- * @returns {{
- *   platform: "Airbnb",
- *   kind: "confirmed"|"changed"|"cancelled"|"request"|"unknown",
- *   reservationCode: string|null,
- *   guestName: string|null,
- *   guestFirstName: string|null,
- *   checkIn: {date:string, time:string}|null,
- *   checkOut: {date:string, time:string}|null,
- *   guestCount: {adults:number, children:number, infants:number, total:number}|null,
- *   totalAmount: number|null,
- * }}
  */
 function parseAirbnbEmail(input) {
   const subject = (input && input.subject) || "";
@@ -116,6 +168,59 @@ function parseAirbnbEmail(input) {
   const receivedAt = input && input.receivedAt ? new Date(input.receivedAt) : new Date();
 
   const kind = detectSubjectKind(subject);
+
+  // ========== kind=cancelled: 件名主導 ==========
+  if (kind === "cancelled") {
+    const cancelInfo = parseCancelSubject(subject);
+    const listingId = extractListingId(body);
+    const cancelCount = extractCancelGuestCount(body);
+    const firstName = extractCancelGuestFirstName(body);
+
+    let checkIn = null;
+    let checkOut = null;
+    if (cancelInfo) {
+      checkIn = {
+        date: `${cancelInfo.checkIn.year}-${pad2(cancelInfo.checkIn.month)}-${pad2(cancelInfo.checkIn.day)}`,
+        time: null,
+      };
+      checkOut = {
+        date: `${cancelInfo.checkOut.year}-${pad2(cancelInfo.checkOut.month)}-${pad2(cancelInfo.checkOut.day)}`,
+        time: null,
+      };
+    }
+
+    return {
+      platform: "Airbnb",
+      kind,
+      reservationCode: (cancelInfo && cancelInfo.reservationCode) || extractReservationCode(body),
+      guestName: null, // キャンセル件名にフルネーム無し
+      guestFirstName: firstName,
+      checkIn,
+      checkOut,
+      guestCount: cancelCount,
+      totalAmount: null,
+      listingId,
+    };
+  }
+
+  // ========== kind=change-request: 件名からゲスト名のみ ==========
+  if (kind === "change-request") {
+    const changeReqInfo = parseChangeRequestSubject(subject);
+    return {
+      platform: "Airbnb",
+      kind,
+      reservationCode: extractReservationCode(body),
+      guestName: changeReqInfo ? changeReqInfo.guestName : null,
+      guestFirstName: null,
+      checkIn: null,
+      checkOut: null,
+      guestCount: null,
+      totalAmount: null,
+      listingId: extractListingId(body),
+    };
+  }
+
+  // ========== kind=confirmed / change-approved / request / unknown: 本文主導 ==========
   const reservationCode = extractReservationCode(body);
   const guestName = extractGuestNameFromSubject(subject);
   const guestFirstName = extractGuestFirstNameFromBody(body);
@@ -123,6 +228,7 @@ function parseAirbnbEmail(input) {
   const checkOutRaw = extractCheckOut(body);
   const guestCount = extractGuestCount(body);
   const totalAmount = extractTotalAmount(body);
+  const listingId = extractListingId(body);
 
   let checkIn = null;
   let checkOut = null;
@@ -137,7 +243,6 @@ function parseAirbnbEmail(input) {
   if (checkOutRaw) {
     let y;
     if (checkIn) {
-      // checkIn と同じ年、または月跨ぎ (checkIn 12月 → checkOut 1月) なら翌年
       const ciYear = parseInt(checkIn.date.slice(0, 4), 10);
       y = checkInRaw && checkInRaw.month > checkOutRaw.month ? ciYear + 1 : ciYear;
     } else {
@@ -159,6 +264,7 @@ function parseAirbnbEmail(input) {
     checkOut,
     guestCount,
     totalAmount,
+    listingId,
   };
 }
 
@@ -168,6 +274,11 @@ module.exports = {
     extractReservationCode,
     extractGuestNameFromSubject,
     extractGuestFirstNameFromBody,
+    parseCancelSubject,
+    parseChangeRequestSubject,
+    extractCancelGuestFirstName,
+    extractListingId,
+    extractCancelGuestCount,
     extractCheckIn,
     extractCheckOut,
     extractGuestCount,
