@@ -206,6 +206,16 @@ async function renderInvoicePdfBuffer(invoice, staff, client, propertyMap) {
     pdfDoc.text("", pdfDoc.page.margins.left, y);
     pdfDoc.moveDown(0.8);
 
+    // 請求書メモ (支払期限の上)
+    if (staff.invoiceMemo) {
+      setFont(9);
+      pdfDoc.fillColor("#333");
+      pdfDoc.text("メモ:", leftX, pdfDoc.y);
+      pdfDoc.text(String(staff.invoiceMemo), leftX + 12, pdfDoc.y, { width: pageWidth - 12 });
+      pdfDoc.fillColor("#000");
+      pdfDoc.moveDown(0.4);
+    }
+
     setFont(10);
     pdfDoc.text(`支払期限: ${fmt(paymentDue)}`, leftX, pdfDoc.y);
     pdfDoc.moveDown(0.5);
@@ -420,6 +430,16 @@ async function generateInvoicePdf_(db, invoiceId) {
     // pdfkit では .y 直接代入は非推奨のため text("") で位置を更新してから moveDown で余白確保
     pdfDoc.text("", pdfDoc.page.margins.left, y);
     pdfDoc.moveDown(0.8);
+
+    // ── 請求書メモ (支払期限の上) ──
+    if (staff.invoiceMemo) {
+      setFont(9);
+      pdfDoc.fillColor("#333");
+      pdfDoc.text("メモ：", leftX, pdfDoc.y);
+      pdfDoc.text(String(staff.invoiceMemo), leftX + 12, pdfDoc.y, { width: pageWidth - 12 });
+      pdfDoc.fillColor("#000");
+      pdfDoc.moveDown(0.4);
+    }
 
     // ── 支払期限 ──
     setFont(10);

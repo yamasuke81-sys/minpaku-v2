@@ -176,6 +176,10 @@ const MyInvoiceCreatePage = {
                 </div>
                 <div class="col-md-4"><label class="form-label small mb-1">口座番号 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="accountNumber"></div>
                 <div class="col-md-4"><label class="form-label small mb-1">口座名義 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="accountHolder"></div>
+                <div class="col-md-12">
+                  <label class="form-label small mb-1">請求書メモ <span class="text-muted small">(PDF の支払期限の上に表示)</span></label>
+                  <textarea class="form-control form-control-sm s-field" data-field="invoiceMemo" rows="3" placeholder="例: 振込手数料はご負担ください / 初回のみ特別単価適用 等"></textarea>
+                </div>
               </div>
             </div>
             <div class="modal-footer">
@@ -304,7 +308,7 @@ const MyInvoiceCreatePage = {
 
   // スタッフ情報パネルの値を流し込み + 自動保存をセット
   _renderStaffInfoFields() {
-    const fields = ["name", "phone", "address", "email", "bankName", "branchName", "accountType", "accountNumber", "accountHolder"];
+    const fields = ["name", "phone", "address", "email", "bankName", "branchName", "accountType", "accountNumber", "accountHolder", "invoiceMemo"];
     fields.forEach(f => {
       const el = document.querySelector(`.s-field[data-field="${f}"]`);
       if (!el) return;
