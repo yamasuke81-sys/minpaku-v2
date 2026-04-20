@@ -62,10 +62,37 @@ const MyInvoiceCreatePage = {
             <option value="">物件を選択</option>
           </select>
           <button class="btn btn-sm btn-outline-primary" id="btnRecalc"><i class="bi bi-arrow-clockwise"></i> 再集計</button>
+          <!-- プレビューボタン: PDF 同等の見た目を新タブ的モーダルで表示 -->
+          <button class="btn btn-sm btn-outline-info" id="btnPreviewPdf" title="PDFプレビュー">
+            <i class="bi bi-file-earmark-pdf"></i> プレビュー
+          </button>
           <!-- 歯車アイコン: 請求書記載情報モーダルを開く -->
           <button class="btn btn-sm btn-outline-secondary" id="btnStaffInfoSettings" title="請求書記載情報" data-bs-toggle="tooltip">
             <i class="bi bi-gear"></i>
           </button>
+        </div>
+      </div>
+
+      <!-- PDF プレビュー モーダル -->
+      <div class="modal fade" id="pdfPreviewModal" tabindex="-1" aria-labelledby="pdfPreviewModalTitle">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+          <div class="modal-content">
+            <div class="modal-header py-2">
+              <h5 class="modal-title" id="pdfPreviewModalTitle"><i class="bi bi-file-earmark-pdf"></i> 請求書プレビュー</h5>
+              <div class="ms-auto d-flex gap-2 me-2">
+                <a class="btn btn-sm btn-outline-primary" id="btnPdfOpenNewTab" href="#" target="_blank" rel="noopener">
+                  <i class="bi bi-box-arrow-up-right"></i> 新タブで開く
+                </a>
+                <a class="btn btn-sm btn-outline-success" id="btnPdfDownload" href="#" download>
+                  <i class="bi bi-download"></i> ダウンロード
+                </a>
+              </div>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0" style="min-height:80vh;">
+              <iframe id="pdfPreviewIframe" src="about:blank" style="width:100%;height:80vh;border:0;"></iframe>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -178,6 +205,17 @@ const MyInvoiceCreatePage = {
       this.loadSummary();
     });
     document.getElementById("btnSubmitInvoice").addEventListener("click", () => this.submit());
+    document.getElementById("btnPreviewPdf").addEventListener("click", () => this.previewPdf());
+
+    // プレビューモーダルが閉じたら iframe の Blob URL を解放
+    document.getElementById("pdfPreviewModal").addEventListener("hidden.bs.modal", () => {
+      if (this._previewBlobUrl) {
+        URL.revokeObjectURL(this._previewBlobUrl);
+        this._previewBlobUrl = null;
+      }
+      const ifr = document.getElementById("pdfPreviewIframe");
+      if (ifr) ifr.src = "about:blank";
+    });
     // 歯車アイコン: 請求書記載情報モーダルを開く
     document.getElementById("btnStaffInfoSettings").addEventListener("click", () => this.toggleStaffInfo(true));
 
@@ -739,6 +777,69 @@ const MyInvoiceCreatePage = {
       await this.loadPastInvoices();
     } catch (e) {
       showToast("エラー", e.message, "error");
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = orig;
+    }
+  },
+
+  // PDFプレビュー: /my-preview-pdf を POST で呼んで PDF Blob を取得、
+  // モーダル内の iframe に表示する (Storage には保存しない)
+  async previewPdf() {
+    const ym = document.getElementById("invMonth").value;
+    if (!ym) { showToast("エラー", "対象年月を指定してください", "error"); return; }
+    if (!this.propertyId) { showToast("エラー", "物件を選択してください", "warning"); return; }
+
+    // manual 行の収集 (submit() と同じロジック)
+    const manualItems = [...document.querySelectorAll("#manualRows tr")].map(tr => {
+      const preset = tr.querySelector(".m-preset");
+      const v = preset?.value || "";
+      let label = "";
+      if (v === "__custom__") {
+        label = tr.querySelector(".m-label")?.value.trim() || "";
+      } else if (v) {
+        const opt = preset.options[preset.selectedIndex];
+        label = opt?.dataset?.label || opt?.text || "";
+      }
+      return {
+        date: tr.querySelector(".m-date")?.value || "",
+        label,
+        amount: Number(tr.querySelector(".m-amount")?.value) || 0,
+        memo: tr.querySelector(".m-memo")?.value || "",
+      };
+    }).filter(i => i.label || i.amount);
+
+    const btn = document.getElementById("btnPreviewPdf");
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 生成中...';
+
+    try {
+      const token = await firebase.auth().currentUser.getIdToken();
+      const body = { yearMonth: ym, propertyId: this.propertyId, manualItems };
+      if (this.isOwner && this.staffId) body.asStaffId = this.staffId;
+      const res = await fetch(`${this.CF_BASE}/invoices/my-preview-pdf`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      // 直前に貼ってあった Blob URL があれば解放
+      if (this._previewBlobUrl) URL.revokeObjectURL(this._previewBlobUrl);
+      this._previewBlobUrl = URL.createObjectURL(blob);
+      const ifr = document.getElementById("pdfPreviewIframe");
+      ifr.src = this._previewBlobUrl;
+      document.getElementById("btnPdfOpenNewTab").href = this._previewBlobUrl;
+      const dlBtn = document.getElementById("btnPdfDownload");
+      dlBtn.href = this._previewBlobUrl;
+      dlBtn.setAttribute("download", `invoice_preview_${ym}.pdf`);
+      bootstrap.Modal.getOrCreateInstance(document.getElementById("pdfPreviewModal")).show();
+    } catch (e) {
+      showToast("プレビュー失敗", e.message, "error");
     } finally {
       btn.disabled = false;
       btn.innerHTML = orig;

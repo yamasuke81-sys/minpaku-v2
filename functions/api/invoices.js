@@ -45,6 +45,187 @@ function fmtDate(val) {
 }
 
 /**
+ * 請求書データから PDF Buffer を生成する (Storage に保存しない)
+ * プレビュー用途。generateInvoicePdf_ の描画ロジックを共有するが、tmp 書込・
+ * Storage アップロード・Drive 保存は行わず、生 Buffer を返す。
+ *
+ * @param {Object} invoice - { id, yearMonth, staffId, staffName, propertyId, propertyName,
+ *                             total, details: {shifts, special, laundry, manualItems, prepaid}, remarks }
+ * @param {Object} staff - staff ドキュメントのデータ (name, address, bankName 等)
+ * @param {Object} client - settings/clientInfo (宛先情報)
+ * @param {Object} propertyMap - { propertyId: propertyName }
+ * @returns {Promise<Buffer>}
+ */
+async function renderInvoicePdfBuffer(invoice, staff, client, propertyMap) {
+  const cjkFont = findCjkFont();
+
+  return await new Promise((resolve, reject) => {
+    const pdfOpts = { margin: 40, size: "A4" };
+    if (cjkFont) pdfOpts.font = cjkFont;
+    const pdfDoc = new PDFDocument(pdfOpts);
+    const buffers = [];
+    pdfDoc.on("data", (chunk) => buffers.push(chunk));
+    pdfDoc.on("end", () => resolve(Buffer.concat(buffers)));
+    pdfDoc.on("error", reject);
+
+    const setFont = (size = 10) => { if (cjkFont) pdfDoc.font(cjkFont).fontSize(size); else pdfDoc.font("Helvetica").fontSize(size); };
+
+    const today = new Date();
+    const issuedDate = `${today.getFullYear()}年${String(today.getMonth() + 1).padStart(2, "0")}月${String(today.getDate()).padStart(2, "0")}日`;
+    const [yy, mm] = (invoice.yearMonth || "").split("-").map(Number);
+    const firstDay = new Date(yy, mm - 1, 1);
+    const lastDay = new Date(yy, mm, 0);
+    const fmt = (d) => `${d.getFullYear()}年${String(d.getMonth() + 1).padStart(2, "0")}月${String(d.getDate()).padStart(2, "0")}日`;
+    const periodLabel = `${yy}年${mm}月分`;
+    const periodRange = `${fmt(firstDay)}〜${fmt(lastDay)}`;
+    const paymentDue = new Date(yy, mm, 5);
+
+    const leftX = 40;
+    const rightX = 340;
+    const pageWidth = 515;
+
+    // 宛先(左) + 請求元(右)
+    let topY = pdfDoc.y;
+    setFont(10);
+    pdfDoc.text(`〒${client.zipCode || ""}`, leftX, topY);
+    pdfDoc.text(client.address || "", leftX, topY + 14);
+    setFont(12);
+    pdfDoc.text(`${client.companyName || ""}  御中`, leftX, topY + 28, { underline: true });
+
+    setFont(9);
+    pdfDoc.text(staff.address || staff.memo || "", rightX, topY, { width: 210, align: "right" });
+    pdfDoc.text(invoice.staffName || staff.name || "", rightX, topY + 14, { width: 210, align: "right" });
+
+    // タイトル
+    pdfDoc.moveDown(3);
+    setFont(22);
+    pdfDoc.text("請求書", leftX, pdfDoc.y, { width: pageWidth, align: "center" });
+    pdfDoc.moveDown(0.5);
+    setFont(10);
+    pdfDoc.text(`請求日:${issuedDate}`, leftX, pdfDoc.y, { width: pageWidth, align: "right" });
+    pdfDoc.moveDown(1);
+    pdfDoc.text("下記の通り、御請求申し上げます。", leftX, pdfDoc.y);
+    pdfDoc.moveDown(0.8);
+    pdfDoc.text(`請求対象年月:${periodLabel}(${periodRange})`, leftX, pdfDoc.y);
+    if (invoice.propertyName) {
+      pdfDoc.moveDown(0.3);
+      pdfDoc.text(`対象物件:${invoice.propertyName}`, leftX, pdfDoc.y);
+    }
+    pdfDoc.moveDown(0.8);
+
+    // 合計
+    setFont(14);
+    pdfDoc.text(`合計金額: ¥${fmtYen(invoice.total)}(税込)`, leftX, pdfDoc.y, { underline: true });
+    pdfDoc.moveDown(1);
+
+    // 明細行構築
+    const rows = [];
+    const shifts = invoice.details?.shifts || [];
+    shifts.forEach((s) => {
+      const propName = propertyMap[s.propertyId] || s.propertyId || "";
+      let label = `清掃 ${propName}`;
+      if (s.workType === "pre_inspection") label = `直前点検 ${propName}`;
+      else if (s.workType === "laundry_put_out") label = s.workItemName || `ランドリー出し`;
+      else if (s.workType === "laundry_collected") label = s.workItemName || `ランドリー受取`;
+      else if (s.workType === "laundry_expense") label = s.workItemName || `ランドリー立替`;
+      else if (s.workType === "other") label = `その他作業 ${propName}`;
+      let memo = s.memo || "";
+      if (s.isTimee && s.timeeDetail) {
+        const td = s.timeeDetail;
+        memo = `タイミー ${td.start}〜${td.end}(${td.durationH}h) × ¥${td.hourlyRate}/h`;
+      } else if (s.guestCount > 1) {
+        memo = `ゲスト${s.guestCount}名`;
+      }
+      rows.push({ date: s.date ? fmtDate(s.date) : "", label, amount: s.amount || 0, memo });
+    });
+    (invoice.details?.special || []).forEach((sp) => {
+      const propName = propertyMap[sp.propertyId] || sp.propertyId || "";
+      rows.push({
+        date: sp.date ? fmtDate(sp.date) : (sp.dateStr || ""),
+        label: `特別加算: ${sp.name || ""}${propName ? " (" + propName + ")" : ""}`,
+        amount: sp.amount || 0, memo: "",
+      });
+    });
+    (invoice.details?.laundry || []).forEach((l) => {
+      rows.push({
+        date: l.date ? fmtDate(l.date) : "",
+        label: l.label || "ランドリー立替",
+        amount: l.amount || 0,
+        memo: l.memo || l.note || "",
+      });
+    });
+    (invoice.details?.prepaid || []).forEach((p) => {
+      rows.push({
+        date: p.purchasedAt ? fmtDate(p.purchasedAt) : "",
+        label: `プリカ購入 ${p.cardNumber || ""}${p.depotName ? " (" + p.depotName + ")" : ""}`,
+        amount: p.amount || 0, memo: "",
+      });
+    });
+    const manualItems = invoice.details?.manualItems || invoice.manualItems || invoice.details?.manual || [];
+    manualItems.forEach((item) => {
+      rows.push({
+        date: item.date ? fmtDate(item.date) : "",
+        label: item.label || "",
+        amount: item.amount || 0,
+        memo: item.memo || "",
+      });
+    });
+
+    // テーブル
+    setFont(10);
+    const col = { date: leftX, label: leftX + 90, amount: leftX + 400 };
+    const colW = { date: 85, label: 300, amount: 110 };
+    const tableStartY = pdfDoc.y;
+    pdfDoc.rect(leftX, tableStartY, pageWidth, 22).fillAndStroke("#f0f0f0", "#aaaaaa");
+    pdfDoc.fillColor("#000");
+    pdfDoc.text("日付", col.date + 4, tableStartY + 6, { width: colW.date - 4 });
+    pdfDoc.text("作業内容", col.label + 4, tableStartY + 6, { width: colW.label - 4 });
+    pdfDoc.text("金額", col.amount + 4, tableStartY + 6, { width: colW.amount - 8, align: "right" });
+    let y = tableStartY + 22;
+    rows.forEach((r) => {
+      const memoH = r.memo ? 12 : 0;
+      const rowH = 20 + memoH;
+      if (y + rowH > 780) {
+        pdfDoc.addPage();
+        y = 40;
+      }
+      pdfDoc.rect(leftX, y, pageWidth, rowH).stroke("#cccccc");
+      pdfDoc.fillColor("#000");
+      setFont(10);
+      pdfDoc.text(r.date, col.date + 4, y + 5, { width: colW.date - 4 });
+      pdfDoc.text(r.label, col.label + 4, y + 5, { width: colW.label - 4 });
+      pdfDoc.text(`¥${fmtYen(r.amount)}`, col.amount + 4, y + 5, { width: colW.amount - 8, align: "right" });
+      if (r.memo) {
+        setFont(8);
+        pdfDoc.fillColor("#666");
+        pdfDoc.text(`備考: ${r.memo}`, col.label + 4, y + 19, { width: colW.label + colW.amount - 4 });
+        pdfDoc.fillColor("#000");
+      }
+      y += rowH;
+    });
+    pdfDoc.text("", pdfDoc.page.margins.left, y);
+    pdfDoc.moveDown(0.8);
+
+    setFont(10);
+    pdfDoc.text(`支払期限: ${fmt(paymentDue)}`, leftX, pdfDoc.y);
+    pdfDoc.moveDown(0.5);
+    const bankLine = [
+      staff.bankName || "-",
+      staff.branchName ? `${staff.branchName}支店` : "",
+      staff.accountType || "",
+      staff.accountNumber || "",
+      staff.accountHolder || "",
+    ].filter(Boolean).join("  ");
+    pdfDoc.text(`振込先: ${bankLine}`, leftX, pdfDoc.y);
+    pdfDoc.moveDown(0.5);
+    pdfDoc.text("備考:", leftX, pdfDoc.y);
+    pdfDoc.text(invoice.remarks || "", leftX, pdfDoc.y + 14, { width: pageWidth });
+
+    pdfDoc.end();
+  });
+}
+
+/**
  * 請求書PDFを生成して Firebase Storage に保存、署名付きURL(7日間)を返す
  * (ルート /:id/pdf の実装を関数化したもの。my-submit からも呼ぶ)
  */
@@ -1116,6 +1297,90 @@ module.exports = function invoicesApi(db) {
     } catch (e) {
       console.error("請求書取得エラー:", e);
       res.status(500).json({ error: "請求書の取得に失敗しました" });
+    }
+  });
+
+  // 請求書プレビュー PDF を生成して Buffer で返す (Storage 保存なし)
+  // POST /invoices/my-preview-pdf  body: { yearMonth, propertyId, manualItems?, asStaffId? (オーナー専用代理) }
+  router.post("/my-preview-pdf", async (req, res) => {
+    try {
+      const { yearMonth, propertyId, manualItems = [], asStaffId } = req.body || {};
+      if (!yearMonth || !/^\d{4}-\d{2}$/.test(yearMonth)) {
+        return res.status(400).json({ error: "yearMonth(YYYY-MM)は必須です" });
+      }
+      if (!propertyId || typeof propertyId !== "string") {
+        return res.status(400).json({ error: "propertyId は必須です" });
+      }
+
+      // 対象 staffId 決定 (/my-submit と同じロジック)
+      const uid = req.user.uid;
+      const reqStaffId = req.user.staffId;
+      let staffDoc = null;
+      if (asStaffId && req.user.role === "owner") {
+        const d = await db.collection("staff").doc(asStaffId).get();
+        if (d.exists) staffDoc = { id: d.id, ...d.data() };
+      } else {
+        if (reqStaffId) {
+          const d = await db.collection("staff").doc(reqStaffId).get();
+          if (d.exists) staffDoc = { id: d.id, ...d.data() };
+        }
+        if (!staffDoc) {
+          const snap = await db.collection("staff").where("authUid", "==", uid).limit(1).get();
+          if (!snap.empty) staffDoc = { id: snap.docs[0].id, ...snap.docs[0].data() };
+        }
+      }
+      if (!staffDoc) return res.status(404).json({ error: "スタッフが見つかりません" });
+
+      // 集計 (invoiceExclusions も既に適用される)
+      const details = await computeInvoiceDetails(db, staffDoc.id, yearMonth, manualItems, propertyId);
+
+      // 宛先(client)情報
+      let client = {};
+      try {
+        const cDoc = await db.collection("settings").doc("clientInfo").get();
+        if (cDoc.exists) client = cDoc.data();
+      } catch (_) {}
+      if (!client.companyName) {
+        client = {
+          zipCode: "736-0061",
+          address: "広島県安芸郡海田町上市4-23-12",
+          companyName: "合同会社八朔",
+          ...client,
+        };
+      }
+
+      // propertyMap (1物件のみ)
+      const propertyMap = {};
+      const pDoc = await db.collection("properties").doc(propertyId).get();
+      const propertyName = pDoc.exists ? pDoc.data().name : propertyId;
+      propertyMap[propertyId] = propertyName;
+
+      // invoice-like オブジェクト
+      const invoice = {
+        id: "preview",
+        yearMonth,
+        staffId: staffDoc.id,
+        staffName: staffDoc.name || "",
+        propertyId,
+        propertyName,
+        total: details.total,
+        details: {
+          shifts: details.shifts,
+          special: details.special,
+          laundry: details.laundry,
+          manualItems: details.manual,
+          prepaid: details.prepaid,
+        },
+        remarks: "(プレビュー)",
+      };
+
+      const buf = await renderInvoicePdfBuffer(invoice, staffDoc, client, propertyMap);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="preview_${yearMonth}_${staffDoc.id}.pdf"`);
+      res.send(buf);
+    } catch (e) {
+      console.error("my-preview-pdf エラー:", e);
+      res.status(500).json({ error: e.message });
     }
   });
 
