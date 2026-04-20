@@ -149,10 +149,16 @@ async function detectDoubleBooking(db, bookingId, after) {
     });
   }
 
-  // 通知設定を参照して送信先を判定
+  // 通知設定を参照して送信先を判定（物件別オーバーライド適用）
   try {
     const { settings } = await getNotificationSettings_(db);
-    const targets = resolveNotifyTargets(settings, "double_booking");
+    // 物件別 channelOverrides を取得（after.propertyId がある場合のみ）
+    let propertyOverrides = {};
+    if (after.propertyId) {
+      const propDoc = await db.collection("properties").doc(after.propertyId).get();
+      if (propDoc.exists) propertyOverrides = propDoc.data().channelOverrides || {};
+    }
+    const targets = resolveNotifyTargets(settings, "double_booking", propertyOverrides);
     if (targets.enabled) {
       const title = `ダブルブッキング検出: ${after.checkIn}〜${after.checkOut}`;
       const body = `【⚠️ ダブルブッキング警告】\n物件: ${after.propertyName || after.propertyId}\n日程: ${after.checkIn} 〜 ${after.checkOut}\n衝突件数: ${conflicts.length}件\n\n確認: https://minpaku-v2.web.app/#/dashboard`;
@@ -505,7 +511,9 @@ module.exports = async function onBookingChange(event) {
   // ========== LINE通知 ==========
   try {
     const { settings } = await getNotificationSettings_(db);
-    const targets = resolveNotifyTargets(settings, "recruit_start");
+    // propertyData は既に取得済みなので再取得しない
+    const propertyOverrides = (propertyData && propertyData.channelOverrides) || {};
+    const targets = resolveNotifyTargets(settings, "recruit_start", propertyOverrides);
 
     if (!targets.enabled) {
       console.log("recruit_start通知が無効のためスキップ");
@@ -660,7 +668,9 @@ module.exports = async function onBookingChange(event) {
     // 直前点検の募集通知
     try {
       const { settings: s2 } = await getNotificationSettings_(db);
-      const tgt2 = resolveNotifyTargets(s2, "recruit_start");
+      // propertyData は既に取得済みなので再取得しない
+      const propOv2 = (propertyData && propertyData.channelOverrides) || {};
+      const tgt2 = resolveNotifyTargets(s2, "recruit_start", propOv2);
       if (!tgt2.enabled || !insRecruitmentId) return;
       const appUrl2 = s2?.appUrl || "https://minpaku-v2.web.app";
       const recruitUrl2 = `${appUrl2}/#/my-recruitment`;

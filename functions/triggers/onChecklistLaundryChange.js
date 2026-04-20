@@ -191,7 +191,7 @@ module.exports = async (event) => {
       const checkoutDate = after.checkoutDate || "";
       const dateStr = fmtDate(checkoutDate);
 
-      // 通知設定から対象チャネルと appUrl を取得
+      // 通知設定から対象チャネルと appUrl を取得（物件別オーバーライド適用）
       const { settings } = await getNotificationSettings_(db);
       const appUrl = settings?.appUrl || "https://minpaku-v2.web.app";
       const shiftId = after.shiftId || "";
@@ -208,7 +208,13 @@ module.exports = async (event) => {
       const title = `ランドリー: ${label}`;
       const body = `🧺 ランドリー ${label}\n\n${dateStr} ${propertyName}\n${staffName}さんが${timeStr}に${verb}。\n詳細: ${checklistUrl}`;
 
-      const targets = resolveNotifyTargets(settings, type);
+      // 物件別オーバーライドを取得
+      let propertyOverrides = {};
+      if (after.propertyId) {
+        const propDoc = await db.collection("properties").doc(after.propertyId).get();
+        if (propDoc.exists) propertyOverrides = propDoc.data().channelOverrides || {};
+      }
+      const targets = resolveNotifyTargets(settings, type, propertyOverrides);
       if (!targets.enabled) {
         console.log(`[onChecklistLaundryChange] ${type} 無効化されているためスキップ`);
         continue;

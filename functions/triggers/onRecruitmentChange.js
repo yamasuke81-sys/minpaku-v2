@@ -27,11 +27,15 @@ module.exports = async function onRecruitmentChange(event) {
   const propertyId = after.propertyId || "";
   const recruitmentId = event.params.recruitmentId;
 
-  // 物件の selectionMethod を取得
+  // 物件データを取得（selectionMethod と channelOverrides を共通取得）
   let selectionMethod = "ownerConfirm";
+  let propertyOverrides = {};
   if (propertyId) {
     const pd = await db.collection("properties").doc(propertyId).get();
-    if (pd.exists) selectionMethod = pd.data().selectionMethod || "ownerConfirm";
+    if (pd.exists) {
+      selectionMethod = pd.data().selectionMethod || "ownerConfirm";
+      propertyOverrides = pd.data().channelOverrides || {};
+    }
   }
 
   // firstCome: ◎回答で即自動確定
@@ -87,9 +91,9 @@ module.exports = async function onRecruitmentChange(event) {
     }
   }
 
-  // recruit_response が無効化されていれば送信しない
+  // recruit_response が無効化されていれば送信しない（物件別オーバーライド適用）
   const { settings } = await getNotificationSettings_(db);
-  const targets = resolveNotifyTargets(settings, "recruit_response");
+  const targets = resolveNotifyTargets(settings, "recruit_response", propertyOverrides);
   if (!targets.enabled) return;
 
   // 通常通知

@@ -298,30 +298,53 @@ async function _sendOwnerLine_(settings, fallbackToken, fallbackUserId, text) {
 /**
  * 通知種別ごとの送信先を判定
  * settings.channels[notifyType] の ownerLine / groupLine / ownerEmail / fcmStaff / fcmOwner で制御
+ * propertyOverrides がある場合は物件別設定を優先（存在するフィールドのみ上書き）
+ *
  * @param {object} settings - settings/notifications ドキュメント
  * @param {string} notifyType - 通知種別キー（例: "recruit_start"）
+ * @param {object} [propertyOverrides={}] - properties/{pid}.channelOverrides の値。省略時は全物件共通設定のみ使用
  * @returns {{ enabled: boolean, ownerLine: boolean, groupLine: boolean, staffLine: boolean, ownerEmail: boolean, fcmStaff: boolean, fcmOwner: boolean, sendToGroup: boolean, sendToIndividual: boolean }}
  */
-function resolveNotifyTargets(settings, notifyType) {
+function resolveNotifyTargets(settings, notifyType, propertyOverrides = {}) {
   const defaults = { enabled: true, ownerLine: true, groupLine: false, staffLine: false, ownerEmail: false, discordOwner: false, discordSubOwner: false, fcmStaff: false, fcmOwner: false, sendToGroup: false, sendToIndividual: true };
   if (!settings || !settings.channels) return defaults;
-  const ch = settings.channels[notifyType];
-  if (!ch) return defaults;
-  if (ch.enabled === false) {
+  const ch = settings.channels[notifyType] || {};
+
+  // 物件別オーバーライド: channelOverrides[notifyType] の値（undefined でなければ優先）
+  const ov = (propertyOverrides && typeof propertyOverrides === "object")
+    ? (propertyOverrides[notifyType] || {})
+    : {};
+
+  // 各フィールドの解決: 物件別 → グローバル → デフォルト の優先順位
+  const pick = (key, defaultVal) => {
+    if (ov[key] !== undefined) return ov[key];
+    if (ch[key] !== undefined) return ch[key];
+    return defaultVal;
+  };
+
+  // enabled の判定（物件別 > グローバル > デフォルト true）
+  const resolvedEnabled = pick("enabled", true);
+  if (resolvedEnabled === false) {
     return { enabled: false, ownerLine: false, groupLine: false, staffLine: false, ownerEmail: false, discordOwner: false, discordSubOwner: false, fcmStaff: false, fcmOwner: false, sendToGroup: false, sendToIndividual: false };
   }
 
   // 新形式: ownerLine / groupLine / staffLine / ownerEmail / discordOwner / discordSubOwner / fcmStaff / fcmOwner
-  if (ch.ownerLine !== undefined || ch.groupLine !== undefined || ch.staffLine !== undefined || ch.ownerEmail !== undefined || ch.discordOwner !== undefined || ch.discordSubOwner !== undefined || ch.fcmStaff !== undefined || ch.fcmOwner !== undefined) {
-    const ownerLine = ch.ownerLine !== false;
-    const groupLine = !!ch.groupLine;
-    const staffLine = !!ch.staffLine;
-    const ownerEmail = !!ch.ownerEmail;
-    const discordOwner = !!ch.discordOwner;
-    const discordSubOwner = !!ch.discordSubOwner;
+  const hasNewFormat = ch.ownerLine !== undefined || ch.groupLine !== undefined || ch.staffLine !== undefined
+    || ch.ownerEmail !== undefined || ch.discordOwner !== undefined || ch.discordSubOwner !== undefined
+    || ch.fcmStaff !== undefined || ch.fcmOwner !== undefined
+    || ov.ownerLine !== undefined || ov.groupLine !== undefined || ov.staffLine !== undefined
+    || ov.ownerEmail !== undefined;
+
+  if (hasNewFormat) {
+    const ownerLine = pick("ownerLine", true) !== false;
+    const groupLine = !!pick("groupLine", false);
+    const staffLine = !!pick("staffLine", false);
+    const ownerEmail = !!pick("ownerEmail", false);
+    const discordOwner = !!pick("discordOwner", false);
+    const discordSubOwner = !!pick("discordSubOwner", false);
     // FCMチャネル（Web Push）
-    const fcmStaff = !!ch.fcmStaff;
-    const fcmOwner = !!ch.fcmOwner;
+    const fcmStaff = !!pick("fcmStaff", false);
+    const fcmOwner = !!pick("fcmOwner", false);
     return {
       enabled: true,
       ownerLine,

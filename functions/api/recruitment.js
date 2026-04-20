@@ -72,7 +72,13 @@ module.exports = function recruitmentApi(db) {
       // LINE通知送信（非同期、エラーでもAPIは成功とする）
       try {
         const { settings } = await getNotificationSettings_(db);
-        const targets = resolveNotifyTargets(settings, "recruit_start");
+        // 物件別オーバーライドを取得
+        let propertyOverrides = {};
+        if (data.propertyId) {
+          const propDoc = await db.collection("properties").doc(data.propertyId).get();
+          if (propDoc.exists) propertyOverrides = propDoc.data().channelOverrides || {};
+        }
+        const targets = resolveNotifyTargets(settings, "recruit_start", propertyOverrides);
         if (targets.enabled) {
           const appUrl = (settings && settings.appUrl) || process.env.APP_BASE_URL || "https://minpaku-v2.web.app";
           const recruitUrl = `${appUrl.replace(/\/$/, "")}/#/my-recruitment`;

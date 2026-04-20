@@ -1230,3 +1230,6 @@ module.exports = function invoicesApi(db) {
 
   return router;
 };
+
+// テスト/検証スクリプト用: 内部計算関数をエクスポート
+module.exports.computeInvoiceDetails = computeInvoiceDetails;
