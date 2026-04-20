@@ -11,7 +11,7 @@ const {
   resolveNotifyTargets,
   getNotificationSettings_,
 } = require("../utils/lineNotify");
-const { addRecruitmentToActiveStaff } = require("../utils/inactiveStaff");
+const { addRecruitmentToActiveStaff, removeRecruitmentFromAllStaff } = require("../utils/inactiveStaff");
 
 // YYYY-MM-DD 文字列から UTC midnight の Date を作成 (JST ズレなし)
 function toUtcMidnight(dateStr) {
@@ -59,7 +59,10 @@ async function cancelCleaningForDate_(db, propertyId, dateStr, excludeBookingId)
     .where("propertyId", "==", propertyId)
     .where("checkoutDate", "==", dateStr)
     .get();
-  for (const r of recSnap.docs) await r.ref.delete();
+  for (const r of recSnap.docs) {
+    await removeRecruitmentFromAllStaff(db, r.id);
+    await r.ref.delete();
+  }
 }
 
 // ========== D-1: ダブルブッキング検知 ==========
@@ -169,10 +172,10 @@ async function detectDoubleBooking(db, bookingId, after) {
       const title = `ダブルブッキング検出: ${after.checkIn}〜${after.checkOut}`;
       const body = `【⚠️ ダブルブッキング警告】\n物件: ${after.propertyName || after.propertyId}\n日程: ${after.checkIn} 〜 ${after.checkOut}\n衝突件数: ${conflicts.length}件\n\n確認: https://minpaku-v2.web.app/#/dashboard`;
       if (targets.ownerLine) {
-        await notifyOwner(db, "double_booking", title, body);
+        await notifyOwner(db, "double_booking", title, body, {}, propertyOverrides);
       }
       if (targets.groupLine) {
-        await notifyGroup(db, "double_booking", title, body);
+        await notifyGroup(db, "double_booking", title, body, {}, propertyOverrides);
       }
     }
   } catch (e) {
@@ -290,7 +293,10 @@ module.exports = async function onBookingChange(event) {
           const recSnap = await db.collection("recruitments")
             .where("propertyId", "==", pid)
             .where("checkoutDate", "==", co).get();
-          for (const r of recSnap.docs) await r.ref.delete();
+          for (const r of recSnap.docs) {
+            await removeRecruitmentFromAllStaff(db, r.id);
+            await r.ref.delete();
+          }
           console.log(`[onBookingChange] キャンセル連動削除: ${bid} (${co}, prop=${pid})`);
         } else {
           console.log(`[onBookingChange] キャンセル: ${bid} (同日別active予約あり、削除スキップ)`);
@@ -472,6 +478,7 @@ module.exports = async function onBookingChange(event) {
       // 全募集が残留物 → 削除して再生成
       for (const recDoc of existingRecruitments.docs) {
         try {
+          await removeRecruitmentFromAllStaff(db, recDoc.id);
           await recDoc.ref.delete();
           console.log(`予約 ${bookingId}: 残留募集 ${recDoc.id} を削除`);
         } catch (e) {
@@ -550,7 +557,8 @@ module.exports = async function onBookingChange(event) {
         "recruit_start",
         `清掃スタッフ募集: ${checkOut}`,
         `【清掃スタッフ募集】\n${checkOut} ${propertyName}\n${memo}\n回答: ${recruitUrl}`,
-        baseVars
+        baseVars,
+        propertyOverrides
       );
     }
 
@@ -561,7 +569,8 @@ module.exports = async function onBookingChange(event) {
         "recruit_start",
         `清掃スタッフ募集: ${checkOut}`,
         flexMessage,
-        baseVars
+        baseVars,
+        propertyOverrides
       );
     }
 
@@ -577,7 +586,8 @@ module.exports = async function onBookingChange(event) {
           "recruit_start",
           `清掃スタッフ募集: ${checkOut}`,
           flexMessage,
-          baseVars
+          baseVars,
+          propertyOverrides
         )
       );
       await Promise.all(notifyPromises);
@@ -685,15 +695,15 @@ module.exports = async function onBookingChange(event) {
 
       if (tgt2.ownerLine) {
         await notifyOwner(db, "recruit_start", `直前点検スタッフ募集: ${checkIn}`,
-          `【直前点検スタッフ募集】\n${checkIn} ${propertyName}\n${memo2}\n回答: ${recruitUrl2}`, baseVars2);
+          `【直前点検スタッフ募集】\n${checkIn} ${propertyName}\n${memo2}\n回答: ${recruitUrl2}`, baseVars2, propOv2);
       }
       if (tgt2.groupLine) {
-        await notifyGroup(db, "recruit_start", `直前点検スタッフ募集: ${checkIn}`, flex2, baseVars2);
+        await notifyGroup(db, "recruit_start", `直前点検スタッフ募集: ${checkIn}`, flex2, baseVars2, propOv2);
       }
       if (tgt2.staffLine) {
         const staffSnap2 = await db.collection("staff").where("active", "==", true).get();
         await Promise.all(staffSnap2.docs.map(doc =>
-          notifyStaff(db, doc.id, "recruit_start", `直前点検スタッフ募集: ${checkIn}`, flex2, baseVars2)
+          notifyStaff(db, doc.id, "recruit_start", `直前点検スタッフ募集: ${checkIn}`, flex2, baseVars2, propOv2)
         ));
       }
     } catch (notifErr) {

@@ -71,8 +71,25 @@ async function removeRecruitmentFromStaff(db, staffId, recruitmentId) {
   });
 }
 
+/**
+ * 全スタッフの pendingRecruitmentIds から指定 recruitment ID を除去する。
+ * recruitment 削除時に孤児 ID が蓄積しないよう呼び出す。
+ */
+async function removeRecruitmentFromAllStaff(db, recruitmentId) {
+  if (!recruitmentId) return;
+  const snap = await db.collection("staff")
+    .where("pendingRecruitmentIds", "array-contains", recruitmentId).get();
+  for (const d of snap.docs) {
+    await d.ref.update({
+      pendingRecruitmentIds: FieldValue.arrayRemove(recruitmentId),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  }
+}
+
 module.exports = {
   INACTIVE_THRESHOLD,
   addRecruitmentToActiveStaff,
   removeRecruitmentFromStaff,
+  removeRecruitmentFromAllStaff,
 };

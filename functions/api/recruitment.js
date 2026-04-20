@@ -8,7 +8,7 @@ const {
   notifyStaff, notifyGroup, notifyOwner,
   buildRecruitmentFlex, resolveNotifyTargets, getNotificationSettings_,
 } = require("../utils/lineNotify");
-const { addRecruitmentToActiveStaff, removeRecruitmentFromStaff } = require("../utils/inactiveStaff");
+const { addRecruitmentToActiveStaff, removeRecruitmentFromStaff, removeRecruitmentFromAllStaff } = require("../utils/inactiveStaff");
 
 module.exports = function recruitmentApi(db) {
   const router = Router();
@@ -163,6 +163,8 @@ module.exports = function recruitmentApi(db) {
       if (!doc.exists) {
         return res.status(404).json({ error: "募集が見つかりません" });
       }
+      // staff の pendingRecruitmentIds から除去してから削除
+      await removeRecruitmentFromAllStaff(db, req.params.id);
       // サブコレクションの回答も削除
       const respSnap = await docRef.collection("responses").get();
       const batch = db.batch();
