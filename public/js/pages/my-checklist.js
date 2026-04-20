@@ -621,10 +621,11 @@ const MyChecklistPage = {
     const storedInfo = extractLaundry(laundry.stored);
     // 順序強制: putOut → collected → stored の順でしか押せない
     // 取消しは「実施済ボタンを再度押す」ことで可能 (その後ろのアクションも連動して取消)
+    // 清掃完了後でもランドリーは独立して記録/修正可能
     const laundryEnabled = {
-      putOut: !isCompleted,
-      collected: !isCompleted && (collectedInfo.active || putOutInfo.active),
-      stored: !isCompleted && (storedInfo.active || collectedInfo.active),
+      putOut: true,
+      collected: collectedInfo.active || putOutInfo.active,
+      stored: storedInfo.active || collectedInfo.active,
     };
     const lBtn = (key, label, icon, info) => {
       const enabled = laundryEnabled[key];
@@ -686,14 +687,10 @@ const MyChecklistPage = {
         <div class="card ${allDone ? 'border-success' : ''}">
           <div class="card-body">
             <h6 class="card-title"><i class="bi bi-flag-fill text-success"></i> 清掃完了</h6>
-            ${!allDone ? `
-              <div class="alert alert-info py-2 small mb-2">
-                <i class="bi bi-info-circle"></i>
-                未チェック <strong>${total - done}</strong> 件。ランドリー記録も完了処理も未チェックのまま進められます。
-              </div>` : `
+            ${allDone ? `
               <div class="alert alert-success py-2 small mb-2">
                 <i class="bi bi-check-circle"></i> 全項目チェック済み (${done}/${total})。完了処理を行えます。
-              </div>`}
+              </div>` : ''}
             <button type="button" class="btn btn-success btn-lg w-100" id="mclCompleteBtn">
               <i class="bi bi-check2-circle"></i> 清掃完了にする
             </button>
@@ -703,7 +700,8 @@ const MyChecklistPage = {
           </div>
         </div>`;
 
-    el.innerHTML = laundrySection + completeSection;
+    // 清掃完了を上、ランドリーを下に配置 (完了後もランドリーは独立して記録可能)
+    el.innerHTML = completeSection + laundrySection;
 
     // #/my-laundry エイリアス経由のスクロール復元
     if (sessionStorage.getItem("pclScrollToLaundry") === "1") {
