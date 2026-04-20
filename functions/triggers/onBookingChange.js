@@ -13,6 +13,12 @@ const {
 } = require("../utils/lineNotify");
 const { addRecruitmentToActiveStaff } = require("../utils/inactiveStaff");
 
+// YYYY-MM-DD 文字列から UTC midnight の Date を作成 (JST ズレなし)
+function toUtcMidnight(dateStr) {
+  if (!dateStr) return null;
+  return new Date(dateStr + "T00:00:00.000Z");
+}
+
 // キャンセル済みステータス判定（module スコープで共有）
 function isCancelled(s) {
   const x = String(s || "").toLowerCase();
@@ -39,7 +45,7 @@ async function cancelCleaningForDate_(db, propertyId, dateStr, excludeBookingId)
     console.log(`[cancelCleaningForDate_] ${dateStr} に他active予約あり、キャンセルスキップ`);
     return;
   }
-  const dObj = new Date(dateStr); dObj.setHours(0,0,0,0);
+  const dObj = toUtcMidnight(dateStr);
   const shiftSnap = await db.collection("shifts")
     .where("propertyId", "==", propertyId)
     .where("date", "==", dObj)
@@ -271,7 +277,7 @@ module.exports = async function onBookingChange(event) {
 
         if (!stillHasActive) {
           // 対応するシフト削除
-          const coDate = new Date(co); coDate.setHours(0,0,0,0);
+          const coDate = toUtcMidnight(co);
           const shiftSnap = await db.collection("shifts")
             .where("propertyId", "==", pid)
             .where("date", "==", coDate).get();
@@ -325,8 +331,7 @@ module.exports = async function onBookingChange(event) {
   // checkOutが過去の場合はスキップ（YYYY-MM-DD形式）
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const checkOutDate = new Date(checkOut);
-  checkOutDate.setHours(0, 0, 0, 0);
+  const checkOutDate = toUtcMidnight(checkOut);
   if (checkOutDate < today) {
     console.log(`予約 ${bookingId}: checkOut(${checkOut})が過去のためスキップ`);
     return;
@@ -588,7 +593,7 @@ module.exports = async function onBookingChange(event) {
     if (!inspection.enabled) return;
     if (!checkIn) return;
 
-    const checkInDate = new Date(checkIn); checkInDate.setHours(0,0,0,0);
+    const checkInDate = toUtcMidnight(checkIn);
     if (checkInDate < today) return;
 
     // 期間フィルタ
