@@ -41,7 +41,16 @@ module.exports = async function onChecklistComplete(event) {
   const admin = require("firebase-admin");
   const db = admin.firestore();
 
-  const { shiftId, staffId, date, propertyName, staffName, completedAt } = after;
+  const { shiftId, staffId, date, propertyName, staffName, completedAt, propertyId } = after;
+
+  // 物件別オーバーライドを取得
+  let propertyOverrides = {};
+  try {
+    if (propertyId) {
+      const propDoc = await db.collection("properties").doc(propertyId).get();
+      if (propDoc.exists) propertyOverrides = propDoc.data().channelOverrides || {};
+    }
+  } catch (_) { /* 失敗しても継続 */ }
 
   // 通知用の共通変数を組み立て (日付整形・URL生成)
   let appUrl = "https://minpaku-v2.web.app";
@@ -83,7 +92,7 @@ module.exports = async function onChecklistComplete(event) {
       url: checklistUrl,
     };
     const ownerMsg = `✨ 清掃完了\n\n${dateStr} ${propertyName || ""}\n${staffName || "スタッフ"}さんが${timeStr}に清掃を完了しました。\n詳細: ${checklistUrl}`;
-    await notifyOwner(db, "cleaning_done", "清掃完了", ownerMsg, vars);
+    await notifyOwner(db, "cleaning_done", "清掃完了", ownerMsg, vars, propertyOverrides);
   } catch (e) {
     console.error("オーナー通知エラー:", e);
     try {
@@ -105,7 +114,7 @@ module.exports = async function onChecklistComplete(event) {
         url: checklistUrl,
       };
       const staffMsg = `🧺 ランドリーの入力をお願いします\n\n${dateStr} ${propertyName || ""}\n清掃お疲れさまでした。ランドリーの使用がある場合は入力をお願いします。\n詳細: ${checklistUrl}`;
-      await notifyStaff(db, staffId, "laundry_reminder", "ランドリー入力リマインド", staffMsg, vars);
+      await notifyStaff(db, staffId, "laundry_reminder", "ランドリー入力リマインド", staffMsg, vars, propertyOverrides);
     } catch (e) {
       console.error("スタッフ通知エラー:", e);
       try {

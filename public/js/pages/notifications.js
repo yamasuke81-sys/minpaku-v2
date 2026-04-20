@@ -203,6 +203,12 @@ const NotificationsPage = {
 
       <!-- 通知チャンネル設定 -->
       <h5 class="mb-3">通知チャンネル設定</h5>
+      <div class="alert alert-info small mb-3">
+        <i class="bi bi-info-circle-fill"></i>
+        ここでの設定は<strong>全物件共通</strong>のデフォルト値です。
+        物件ごとに個別設定をしている場合は、<a href="#/reservation-flow" class="alert-link">予約フロー構成</a> /
+        <a href="#/cleaning-flow" class="alert-link">清掃フロー構成</a> の物件カード「物件別設定上書き」から個別に変更してください。
+      </div>
       <p class="text-muted small mb-3">各通知の有効/無効と送り先を設定します。送り先は複数選択可能です。</p>
 
       <div class="d-flex flex-wrap gap-3 mb-3 small text-muted">

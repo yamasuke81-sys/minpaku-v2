@@ -605,6 +605,9 @@ const ReservationFlowPage = {
             ${this._esc(p.name)}
           </button>
         `).join("")}
+        <button class="btn btn-sm btn-outline-info ms-2 rf-import-btn" style="font-size:0.78rem;">
+          <i class="bi bi-box-arrow-in-down"></i> 他物件からインポート
+        </button>
         <span class="text-muted small ms-1">※ 物件メモは物件ごとに保存されます。通知設定は全物件共通です。</span>
       </div>
     `;
@@ -616,6 +619,13 @@ const ReservationFlowPage = {
         this._renderSwimLane();
       });
     });
+
+    const importBtn = wrap.querySelector(".rf-import-btn");
+    if (importBtn) {
+      importBtn.addEventListener("click", () => {
+        this._showImportModal("reservation");
+      });
+    }
   },
 
   _visibleProperties() {
@@ -908,8 +918,8 @@ const ReservationFlowPage = {
     const panelId = `rf-ovpanel-${key}-${pid}`;
     const hasAny = Object.keys(ov).some(k => ov[k] !== undefined);
 
-    // 各フィールドのチェックボックス (上書きするか) と値トグル
-    const fields = [
+    // ---- ブール型フィールド (enabled / 送信先) ----
+    const boolFields = [
       { field: "enabled",    label: "有効/無効",        icon: "bi-power",             globalVal: globalCh.enabled !== false },
       { field: "ownerLine",  label: "オーナーLINE",     icon: "bi-person-circle",     globalVal: globalCh.ownerLine !== false },
       { field: "groupLine",  label: "グループLINE",     icon: "bi-people-fill",       globalVal: !!globalCh.groupLine },
@@ -917,7 +927,7 @@ const ReservationFlowPage = {
       { field: "ownerEmail", label: "オーナーメール",   icon: "bi-envelope",          globalVal: !!globalCh.ownerEmail },
     ];
 
-    const rows = fields.map(({ field, label, icon, globalVal }) => {
+    const boolRows = boolFields.map(({ field, label, icon, globalVal }) => {
       const isOverriding = ov[field] !== undefined;
       const ovVal = isOverriding ? ov[field] : globalVal;
       return `
@@ -942,6 +952,70 @@ const ReservationFlowPage = {
         </div>`;
     }).join("");
 
+    // ---- customMessage オーバーライド ----
+    const isMsgOv = ov.customMessage !== undefined;
+    const msgGlobal = this._esc(globalCh.customMessage || "");
+    const msgOvVal = this._esc(isMsgOv ? (ov.customMessage || "") : "");
+    const msgRow = `
+      <div class="py-1 border-bottom" style="font-size:0.8rem;" id="rf-ov-msgrow-${key}-${pid}">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <div class="form-check mb-0" style="min-width:130px;">
+            <input class="form-check-input rf-ov-check" type="checkbox" id="rf-ovc-${key}-${pid}-customMessage"
+              data-notif-key="${key}" data-pid="${pid}" data-field="customMessage"
+              ${isMsgOv ? "checked" : ""}>
+            <label class="form-check-label small" for="rf-ovc-${key}-${pid}-customMessage">
+              <i class="bi bi-pencil-square"></i> メッセージ上書き
+            </label>
+          </div>
+          <span class="text-muted small" style="font-size:0.7rem;">${isMsgOv ? "物件別メッセージ" : `全共通: ${msgGlobal ? msgGlobal.slice(0,30) + "…" : "(未設定)"}`}</span>
+        </div>
+        <div class="rf-ov-txt-wrap ${isMsgOv ? "" : "d-none"}" id="rf-ovwrap-${key}-${pid}-customMessage">
+          <textarea class="form-control form-control-sm rf-ov-msg-ta" rows="3"
+            style="font-size:0.78rem;font-family:monospace;"
+            data-notif-key="${key}" data-pid="${pid}" data-field="customMessage"
+            placeholder="全共通メッセージを上書き（空欄=継承）">${msgOvVal}</textarea>
+          <div class="mt-1">
+            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 rf-ov-push-global"
+              data-notif-key="${key}" data-pid="${pid}" style="font-size:0.7rem;" title="この物件の設定を全共通へ反映">
+              <i class="bi bi-arrow-up-circle"></i> 全共通に反映
+            </button>
+          </div>
+        </div>
+      </div>`;
+
+    // ---- timings オーバーライド ----
+    const isTmOv = Array.isArray(ov.timings);
+    const tmOvTimings = isTmOv ? ov.timings : [];
+    const globalTimingsStr = Array.isArray(globalCh.timings) && globalCh.timings.length
+      ? `${globalCh.timings.length}件設定済み`
+      : `(未設定)`;
+    // タイミングオーバーライド用のキー: 物件別タイミング行をグローバルと区別するため suffix を付与
+    const ovTimingKey = `${key}--ov--${pid}`;
+    const tmRows = tmOvTimings.map((t, idx) => this._renderTimingRow(ovTimingKey, t, idx)).join("");
+    const timingsRow = `
+      <div class="py-1" style="font-size:0.8rem;" id="rf-ov-tmrow-${key}-${pid}">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <div class="form-check mb-0" style="min-width:130px;">
+            <input class="form-check-input rf-ov-check" type="checkbox" id="rf-ovc-${key}-${pid}-timings"
+              data-notif-key="${key}" data-pid="${pid}" data-field="timings"
+              ${isTmOv ? "checked" : ""}>
+            <label class="form-check-label small" for="rf-ovc-${key}-${pid}-timings">
+              <i class="bi bi-clock"></i> タイミング上書き
+            </label>
+          </div>
+          <span class="text-muted small" style="font-size:0.7rem;">${isTmOv ? `物件別 ${tmOvTimings.length}件` : `全共通: ${globalTimingsStr}`}</span>
+        </div>
+        <div class="rf-ov-tm-wrap ${isTmOv ? "" : "d-none"}" id="rf-ovwrap-${key}-${pid}-timings">
+          <div class="rf-ov-timings" data-notif-key="${key}" data-pid="${pid}" data-ov-timing-key="${ovTimingKey}">
+            ${tmRows}
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-primary mt-1 rf-ov-add-timing"
+            data-notif-key="${key}" data-pid="${pid}" data-ov-timing-key="${ovTimingKey}" style="font-size:0.75rem;">
+            <i class="bi bi-plus"></i> タイミング追加
+          </button>
+        </div>
+      </div>`;
+
     return `
       <div class="rf-override-panel mt-2 border rounded p-2" data-notif-key="${key}" data-pid="${pid}" style="background:#fff8e1;">
         <div class="d-flex align-items-center mb-2">
@@ -949,7 +1023,9 @@ const ReservationFlowPage = {
           ${hasAny ? `<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 rf-ov-clear" data-notif-key="${key}" data-pid="${pid}" style="font-size:0.72rem;" title="全フィールドの上書きを解除"><i class="bi bi-x-circle"></i> 全解除</button>` : ""}
         </div>
         <div id="${panelId}">
-          ${rows}
+          ${boolRows}
+          ${msgRow}
+          ${timingsRow}
         </div>
         <div class="small text-muted mt-1" style="font-size:0.7rem;">
           <i class="bi bi-info-circle"></i> チェックした項目のみ上書き。未チェックは「全共通」の値を継承。
@@ -1120,7 +1196,7 @@ const ReservationFlowPage = {
         }
       }
 
-      // タイミング追加
+      // グローバルタイミング追加
       const addBtn = e.target.closest(".rf-add-timing");
       if (addBtn) {
         const notifKey = addBtn.dataset.notifKey;
@@ -1129,6 +1205,30 @@ const ReservationFlowPage = {
         const idx = list.querySelectorAll(".notify-timing-row").length;
         const emptyT = { mode: "event", timing: "immediate", timingMinutes: "", beforeDays: 3, beforeTime: "09:00", schedulePattern: "monthEnd", scheduleDay: 1, scheduleDow: 0, scheduleTime: "09:00" };
         list.insertAdjacentHTML("beforeend", this._renderTimingRow(notifKey, emptyT, idx));
+      }
+
+      // 物件別オーバーライド タイミング追加
+      const ovAddBtn = e.target.closest(".rf-ov-add-timing");
+      if (ovAddBtn) {
+        const notifKey = ovAddBtn.dataset.notifKey;
+        const pid = ovAddBtn.dataset.pid;
+        const ovTimingKey = ovAddBtn.dataset.ovTimingKey || `${notifKey}--ov--${pid}`;
+        const list = wrap.querySelector(`.rf-ov-timings[data-notif-key="${notifKey}"][data-pid="${pid}"]`);
+        if (!list) return;
+        const idx = list.querySelectorAll(".notify-timing-row").length;
+        const emptyT = { mode: "event", timing: "immediate", timingMinutes: "", beforeDays: 3, beforeTime: "09:00", schedulePattern: "monthEnd", scheduleDay: 1, scheduleDow: 0, scheduleTime: "09:00" };
+        list.insertAdjacentHTML("beforeend", this._renderTimingRow(ovTimingKey, emptyT, idx));
+        this._queueSaveOverride(notifKey, pid);
+        return;
+      }
+
+      // 全共通に反映ボタン
+      const pushBtn = e.target.closest(".rf-ov-push-global");
+      if (pushBtn) {
+        const notifKey = pushBtn.dataset.notifKey;
+        const pid = pushBtn.dataset.pid;
+        this._pushOverrideToGlobal(notifKey, pid, wrap);
+        return;
       }
 
       // タイミング削除
@@ -1141,8 +1241,15 @@ const ReservationFlowPage = {
           r.dataset.idx = i;
           r.querySelectorAll("[data-idx]").forEach(el => el.dataset.idx = i);
         });
-        const notifKey = rmBtn.dataset.notifKey;
-        if (notifKey) this._queueSaveNotif(notifKey);
+        const rawKey = rmBtn.dataset.notifKey;
+        if (rawKey) {
+          if (rawKey.includes("--ov--")) {
+            const [baseKey, , pidRm] = rawKey.split("--ov--");
+            this._queueSaveOverride(baseKey, pidRm);
+          } else {
+            this._queueSaveNotif(rawKey);
+          }
+        }
       }
 
       // 変数タグクリック → textarea に挿入
@@ -1195,10 +1302,17 @@ const ReservationFlowPage = {
         const notifKey = e.target.dataset.notifKey;
         const pid = e.target.dataset.pid;
         const field = e.target.dataset.field;
+        // bool フィールドは opacity+pe-none、テキスト/タイミングは d-none で制御
         const wrap2 = document.getElementById(`rf-ovwrap-${notifKey}-${pid}-${field}`);
         if (wrap2) {
-          wrap2.classList.toggle("opacity-50", !e.target.checked);
-          wrap2.classList.toggle("pe-none", !e.target.checked);
+          if (field === "customMessage") {
+            wrap2.classList.toggle("d-none", !e.target.checked);
+          } else if (field === "timings") {
+            wrap2.classList.toggle("d-none", !e.target.checked);
+          } else {
+            wrap2.classList.toggle("opacity-50", !e.target.checked);
+            wrap2.classList.toggle("pe-none", !e.target.checked);
+          }
         }
         this._queueSaveOverride(notifKey, pid);
         return;
@@ -1213,10 +1327,10 @@ const ReservationFlowPage = {
       }
 
       // タイミング行: モード切替
-      const notifKey = e.target.dataset.notifKey;
+      const rawKey = e.target.dataset.notifKey;
       const idx = e.target.dataset.idx;
-      if (notifKey && idx !== undefined) {
-        const row = wrap.querySelector(`.notify-timing-row[data-notif-key="${notifKey}"][data-idx="${idx}"]`);
+      if (rawKey && idx !== undefined) {
+        const row = wrap.querySelector(`.notify-timing-row[data-notif-key="${rawKey}"][data-idx="${idx}"]`);
         if (row) {
           if (e.target.classList.contains("rf-mode-radio")) {
             const mode = e.target.value;
@@ -1238,7 +1352,13 @@ const ReservationFlowPage = {
             row.querySelector(".rf-schedule-dow")?.classList.toggle("d-none", val !== "weekly");
           }
         }
-        this._queueSaveNotif(notifKey);
+        // ovTimingKey (globalNotifKey--ov--pid) の場合はオーバーライド保存
+        if (rawKey.includes("--ov--")) {
+          const [baseKey, , pid] = rawKey.split("--ov--");
+          this._queueSaveOverride(baseKey, pid);
+        } else {
+          this._queueSaveNotif(rawKey);
+        }
       }
 
       // 送信先チェックボックス (全共通)
@@ -1259,7 +1379,13 @@ const ReservationFlowPage = {
             cb.checked = false;
             const field = cb.dataset.field;
             const w = document.getElementById(`rf-ovwrap-${notifKey}-${pid}-${field}`);
-            if (w) { w.classList.add("opacity-50", "pe-none"); }
+            if (w) {
+              if (field === "customMessage" || field === "timings") {
+                w.classList.add("d-none");
+              } else {
+                w.classList.add("opacity-50", "pe-none");
+              }
+            }
           }
         });
         this._queueSaveOverride(notifKey, pid);
@@ -1275,9 +1401,19 @@ const ReservationFlowPage = {
       if (e.target.classList.contains("rf-memo")) {
         this._queueSave(e.target.dataset.pid, e.target.dataset.step);
       }
+      // 物件別メッセージ上書きtextarea
+      if (e.target.classList.contains("rf-ov-msg-ta")) {
+        this._queueSaveOverride(e.target.dataset.notifKey, e.target.dataset.pid);
+      }
       // タイミング数値入力
       if (e.target.dataset.notifKey && e.target.dataset.idx !== undefined) {
-        this._queueSaveNotif(e.target.dataset.notifKey);
+        const rawKey = e.target.dataset.notifKey;
+        if (rawKey.includes("--ov--")) {
+          const [baseKey, , pid] = rawKey.split("--ov--");
+          this._queueSaveOverride(baseKey, pid);
+        } else {
+          this._queueSaveNotif(rawKey);
+        }
       }
     });
   },
@@ -1319,6 +1455,150 @@ const ReservationFlowPage = {
     if (this._saveTimers[timerKey]) clearTimeout(this._saveTimers[timerKey]);
     this._showStatus("saving");
     this._saveTimers[timerKey] = setTimeout(() => this._saveOverride(notifKey, pid), 800);
+  },
+
+  // ========== 物件別設定を全共通へ反映 ==========
+  async _pushOverrideToGlobal(notifKey, pid, wrap) {
+    const prop = this.properties.find(p => p.id === pid);
+    const ov = (prop?.channelOverrides || {})[notifKey] || {};
+    if (!Object.keys(ov).length) {
+      showAlert("物件別設定がありません。", "info");
+      return;
+    }
+    const confirmed = await showConfirm(
+      `この物件の「${notifKey}」設定を全共通へ反映しますか？\n全物件に影響します。`,
+      "全共通に反映"
+    );
+    if (!confirmed) return;
+    try {
+      // 物件別設定を全共通に上書き
+      const globalEntry = {};
+      if (ov.customMessage !== undefined) globalEntry.customMessage = ov.customMessage;
+      if (Array.isArray(ov.timings))       globalEntry.timings = ov.timings;
+      if (!Object.keys(globalEntry).length) {
+        showAlert("反映できる値（customMessage / timings）がありません。", "warning");
+        return;
+      }
+      await db.collection("settings").doc("notifications").set({
+        channels: { [notifKey]: globalEntry },
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      // ローカルキャッシュ更新
+      this.notifChannels[notifKey] = { ...(this.notifChannels[notifKey] || {}), ...globalEntry };
+      showAlert("全共通に反映しました。", "success");
+    } catch (e) {
+      showAlert("反映失敗: " + e.message, "danger");
+    }
+  },
+
+  // ========== 他物件からインポートモーダル ==========
+  _showImportModal(pageType) {
+    const targetPid = this._selectedPid;
+    const targetProp = this.properties.find(p => p.id === targetPid);
+    if (!targetProp) { showAlert("インポート先物件が選択されていません。", "warning"); return; }
+
+    // インポート元候補 (現物件以外)
+    const sources = this.properties.filter(p => p.id !== targetPid);
+    if (!sources.length) { showAlert("他の物件がありません。", "info"); return; }
+
+    const modalId = "rfImportModal";
+    // 既存モーダルを削除
+    document.getElementById(modalId)?.remove();
+
+    const optionsHtml = sources.map(p => `
+      <div class="form-check">
+        <input class="form-check-input" type="radio" name="rfImportSrc" id="rfImportSrc-${p.id}" value="${p.id}">
+        <label class="form-check-label" for="rfImportSrc-${p.id}">
+          <span class="badge me-1" style="background:${p.color || "#6c757d"}">${p.propertyNumber || "-"}</span>
+          ${this._esc(p.name)}
+        </label>
+      </div>
+    `).join("");
+
+    const html = `
+      <div class="modal fade" id="${modalId}" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="bi bi-box-arrow-in-down"></i> 他物件からインポート</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <p class="small text-muted mb-2">コピー元の物件を選択してください。現在の設定は上書きされます。</p>
+              <div class="mb-3 border rounded p-2">${optionsHtml}</div>
+              <div class="mb-2 fw-semibold small">コピー対象:</div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="rfImportChkOverrides" checked>
+                <label class="form-check-label small" for="rfImportChkOverrides">channelOverrides (通知の物件別設定)</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="rfImportChkFlow">
+                <label class="form-check-label small" for="rfImportChkFlow">${pageType === "reservation" ? "reservationFlow (フロー memo)" : "cleaningFlow (フロー memo)"}</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="rfImportChkFields">
+                <label class="form-check-label small" for="rfImportChkFields">showNoiseAgreement / miniGameEnabled / customFormEnabled</label>
+              </div>
+              <p class="text-warning small mt-2 mb-0"><i class="bi bi-exclamation-triangle"></i> コピー先「${this._esc(targetProp.name)}」の対象フィールドが上書きされます。</p>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+              <button type="button" class="btn btn-primary" id="rfImportExecBtn"><i class="bi bi-check-circle"></i> インポート実行</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.insertAdjacentHTML("beforeend", html);
+    const modal = new bootstrap.Modal(document.getElementById(modalId));
+    modal.show();
+
+    document.getElementById("rfImportExecBtn").addEventListener("click", async () => {
+      const srcId = document.querySelector(`input[name="rfImportSrc"]:checked`)?.value;
+      if (!srcId) { showAlert("コピー元物件を選択してください。", "warning"); return; }
+
+      const copyOverrides = document.getElementById("rfImportChkOverrides")?.checked;
+      const copyFlow      = document.getElementById("rfImportChkFlow")?.checked;
+      const copyFields    = document.getElementById("rfImportChkFields")?.checked;
+
+      try {
+        // コピー元ドキュメント取得
+        const srcDoc = await db.collection("properties").doc(srcId).get();
+        if (!srcDoc.exists) { showAlert("コピー元物件が見つかりません。", "danger"); return; }
+        const srcData = srcDoc.data();
+        const updatePayload = { updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+
+        if (copyOverrides && srcData.channelOverrides) {
+          updatePayload.channelOverrides = srcData.channelOverrides;
+        }
+        if (copyFlow) {
+          const flowKey = pageType === "reservation" ? "reservationFlow" : "cleaningFlow";
+          if (srcData[flowKey]) updatePayload[flowKey] = srcData[flowKey];
+        }
+        if (copyFields) {
+          if (srcData.showNoiseAgreement !== undefined) updatePayload.showNoiseAgreement = srcData.showNoiseAgreement;
+          if (srcData.miniGameEnabled    !== undefined) updatePayload.miniGameEnabled    = srcData.miniGameEnabled;
+          if (srcData.customFormEnabled  !== undefined) updatePayload.customFormEnabled  = srcData.customFormEnabled;
+        }
+
+        await db.collection("properties").doc(targetPid).set(updatePayload, { merge: true });
+
+        // ローカルキャッシュ更新
+        const prop = this.properties.find(p => p.id === targetPid);
+        if (prop) Object.assign(prop, updatePayload);
+
+        modal.hide();
+        // 画面再描画
+        this._renderSwimLane();
+        showAlert("インポートが完了しました。", "success");
+      } catch (e) {
+        showAlert("インポート失敗: " + e.message, "danger");
+      }
+    });
+
+    document.getElementById(modalId).addEventListener("hidden.bs.modal", () => {
+      document.getElementById(modalId)?.remove();
+    });
   },
 
   // ========== 保存: 物件ドキュメント ==========
@@ -1370,17 +1650,58 @@ const ReservationFlowPage = {
     const wrap = document.getElementById("rfSwimLane");
     if (!wrap) return;
 
-    const ovFields = ["enabled", "ownerLine", "groupLine", "staffLine", "ownerEmail"];
     const overrideEntry = {};
 
-    for (const field of ovFields) {
+    // ---- ブール型フィールド ----
+    for (const field of ["enabled", "ownerLine", "groupLine", "staffLine", "ownerEmail"]) {
       const checkEl = wrap.querySelector(`.rf-ov-check[data-notif-key="${notifKey}"][data-pid="${pid}"][data-field="${field}"]`);
       const valEl   = wrap.querySelector(`.rf-ov-val[data-notif-key="${notifKey}"][data-pid="${pid}"][data-field="${field}"]`);
       if (checkEl && checkEl.checked && valEl) {
-        // 上書きする → 値を保存
         overrideEntry[field] = !!valEl.checked;
       }
-      // チェックなし → このフィールドは保存しない (継承)
+    }
+
+    // ---- customMessage オーバーライド ----
+    const msgCheck = wrap.querySelector(`.rf-ov-check[data-notif-key="${notifKey}"][data-pid="${pid}"][data-field="customMessage"]`);
+    const msgTa    = wrap.querySelector(`.rf-ov-msg-ta[data-notif-key="${notifKey}"][data-pid="${pid}"]`);
+    if (msgCheck && msgCheck.checked && msgTa) {
+      overrideEntry.customMessage = msgTa.value;
+    }
+
+    // ---- timings オーバーライド ----
+    const tmCheck = wrap.querySelector(`.rf-ov-check[data-notif-key="${notifKey}"][data-pid="${pid}"][data-field="timings"]`);
+    if (tmCheck && tmCheck.checked) {
+      const ovTimingKey = `${notifKey}--ov--${pid}`;
+      const tmContainer = wrap.querySelector(`.rf-ov-timings[data-notif-key="${notifKey}"][data-pid="${pid}"]`);
+      const timings = [];
+      if (tmContainer) {
+        tmContainer.querySelectorAll(".notify-timing-row").forEach((row) => {
+          const modeChecked = row.querySelector("input.rf-mode-radio:checked");
+          const mode = modeChecked ? modeChecked.value : "event";
+          const q = (sel) => row.querySelector(sel);
+          const t = { mode };
+          if (mode === "event") {
+            const timing = q(`select[data-field="timing"]`)?.value || "immediate";
+            t.timing = timing;
+            if (timing === "custom") {
+              t.timingMinutes = parseInt(q(`input[data-field="timingMinutes"]`)?.value, 10) || 0;
+            } else if (timing === "beforeEvent") {
+              t.beforeDays = parseInt(q(`input[data-field="beforeDays"]`)?.value, 10) || 0;
+              t.beforeTime = q(`input[data-field="beforeTime"]`)?.value || "09:00";
+            }
+          } else {
+            t.schedulePattern = q(`select[data-field="schedulePattern"]`)?.value || "monthEnd";
+            t.scheduleTime = q(`input[data-field="scheduleTime"]`)?.value || "09:00";
+            if (t.schedulePattern === "monthlyDay") {
+              t.scheduleDay = parseInt(q(`input[data-field="scheduleDay"]`)?.value, 10) || 1;
+            } else if (t.schedulePattern === "weekly") {
+              t.scheduleDow = parseInt(q(`select[data-field="scheduleDow"]`)?.value, 10) || 0;
+            }
+          }
+          timings.push(t);
+        });
+      }
+      overrideEntry.timings = timings;
     }
 
     try {

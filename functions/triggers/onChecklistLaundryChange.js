@@ -222,11 +222,11 @@ module.exports = async (event) => {
 
       // オーナーLINE
       if (targets.ownerLine) {
-        await notifyOwner(db, type, title, body, vars);
+        await notifyOwner(db, type, title, body, vars, propertyOverrides);
       }
       // グループLINE
       if (targets.groupLine) {
-        await notifyGroup(db, type, title, body, vars);
+        await notifyGroup(db, type, title, body, vars, propertyOverrides);
       }
       // スタッフ個別LINE (割当済みスタッフ全員)
       if (targets.staffLine) {
@@ -235,7 +235,7 @@ module.exports = async (event) => {
           : (after.staffId ? [after.staffId] : []);
         for (const sid of staffIds) {
           try {
-            await notifyStaff(db, sid, type, title, body, vars);
+            await notifyStaff(db, sid, type, title, body, vars, propertyOverrides);
           } catch (e) {
             console.error(`[onChecklistLaundryChange] staff ${sid} 通知エラー:`, e.message);
           }

@@ -381,15 +381,30 @@ function resolveNotifyTargets(settings, notifyType, propertyOverrides = {}) {
 /**
  * settings/notifications の channels[type].customMessage を読んで
  * {変数名} を vars オブジェクトで置換した文字列を返す。カスタムなしなら fallback を返す。
+ * propertyOverrides が渡された場合は物件別 customMessage を優先する。
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} type 通知種別キー
+ * @param {string|object} fallback デフォルトメッセージ (Flex等のオブジェクトはカスタム対象外)
+ * @param {object} [vars] {変数名} 置換用マップ
+ * @param {object} [propertyOverrides] properties/{pid}.channelOverrides の値
  */
-async function resolveMessage_(db, type, fallback, vars) {
+async function resolveMessage_(db, type, fallback, vars, propertyOverrides) {
   try {
     if (typeof fallback !== "string") return fallback; // Flex等はカスタム対象外
     const doc = await db.collection("settings").doc("notifications").get();
-    if (!doc.exists) return fallback;
-    const ch = (doc.data().channels || {})[type];
-    if (!ch || !ch.customMessage || !String(ch.customMessage).trim()) return fallback;
-    let msg = String(ch.customMessage);
+    const globalCh = doc.exists ? ((doc.data().channels || {})[type] || {}) : {};
+
+    // 物件別オーバーライドの customMessage を優先
+    const propOv = (propertyOverrides && typeof propertyOverrides === "object")
+      ? (propertyOverrides[type] || {})
+      : {};
+    const customMessage = propOv.customMessage !== undefined
+      ? propOv.customMessage
+      : globalCh.customMessage;
+
+    if (!customMessage || !String(customMessage).trim()) return fallback;
+    let msg = String(customMessage);
     if (vars && typeof vars === "object") {
       Object.keys(vars).forEach(k => {
         msg = msg.replace(new RegExp(`\\{${k}\\}`, "g"), String(vars[k] ?? ""));
@@ -409,9 +424,10 @@ async function resolveMessage_(db, type, fallback, vars) {
  * @param {string} title - ログ用タイトル
  * @param {string|object} body - デフォルトテキスト or Flex（customMessageがあれば置換）
  * @param {object} [vars] - customMessage 内の {変数名} に差し込む値
+ * @param {object} [propertyOverrides] - properties/{pid}.channelOverrides (物件別上書き)
  */
-async function notifyStaff(db, staffId, type, title, body, vars) {
-  body = await resolveMessage_(db, type, body, vars);
+async function notifyStaff(db, staffId, type, title, body, vars, propertyOverrides) {
+  body = await resolveMessage_(db, type, body, vars, propertyOverrides);
   // スタッフのlineUserId取得
   const staffDoc = await db.collection("staff").doc(staffId).get();
   if (!staffDoc.exists) {
@@ -462,9 +478,10 @@ async function notifyStaff(db, staffId, type, title, body, vars) {
  * @param {string} type 通知種別キー
  * @param {string|object} body デフォルト or Flex
  * @param {object} [vars] customMessage 置換用変数
+ * @param {object} [propertyOverrides] properties/{pid}.channelOverrides (物件別上書き)
  */
-async function notifyGroup(db, type, title, body, vars) {
-  body = await resolveMessage_(db, type, body, vars);
+async function notifyGroup(db, type, title, body, vars, propertyOverrides) {
+  body = await resolveMessage_(db, type, body, vars, propertyOverrides);
   const { channelToken, groupId } = await getNotificationSettings_(db);
   if (!channelToken) {
     return { success: false, error: "LINEチャネルトークン未設定" };
@@ -585,9 +602,10 @@ function buildRecruitmentFlex(recruitment, baseUrl) {
 /**
  * Firestoreから通知設定を読み取り、LINE/メールで送信+通知ログ記録
  * settings/notifications の enableLine / enableEmail / notifyEmails で制御
+ * @param {object} [propertyOverrides] properties/{pid}.channelOverrides (物件別上書き)
  */
-async function notifyOwner(db, type, title, body, vars) {
-  body = await resolveMessage_(db, type, body, vars);
+async function notifyOwner(db, type, title, body, vars, propertyOverrides) {
+  body = await resolveMessage_(db, type, body, vars, propertyOverrides);
   const { settings, channelToken, ownerUserId } = await getNotificationSettings_(db);
   if (!settings) {
     console.warn("通知設定が未登録です（settings/notifications）");
