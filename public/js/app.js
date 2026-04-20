@@ -27,6 +27,7 @@ const App = {
     projects: ProjectsPage,
     "scan-sorter": ScanSorterPage,
     "tax-docs": TaxDocsPage,
+    "email-verification": EmailVerificationPage,
     settings: SettingsPage,
   },
 
