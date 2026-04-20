@@ -86,9 +86,6 @@ async function resolveInvoiceRecipient_(db, propertyId, client) {
       picked = profiles[0];
     }
 
-    // デバッグログ (一時的): profile 解決結果を確認
-    console.log(`[resolveInvoiceRecipient_] propertyId=${propertyId} ownerStaffId=${ownerStaffId} ownerBillingProfileId=${ownerBillingProfileId || "(none)"} profilesCount=${profiles.length} picked=${picked ? picked.id + "/" + picked.label : "(null)"}`);
-
     if (picked) {
       return {
         companyName: picked.companyName || s.name || "",
