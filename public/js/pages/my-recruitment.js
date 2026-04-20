@@ -49,8 +49,13 @@ const MyRecruitmentPage = {
     container.innerHTML = `
       <div class="page-header">
         <h2><i class="bi bi-calendar-check"></i> 清掃スケジュール</h2>
-        <div class="d-flex align-items-center gap-1">
-          <button class="btn btn-sm btn-outline-secondary" id="btnMyCalPrev" title="前の月" style="min-width:36px;">◀</button>
+        <div class="d-flex align-items-center gap-1 flex-wrap">
+          <button class="btn btn-sm" id="btnGoLatestChecklist"
+            style="background:#ffc107;color:#000;font-weight:600;border:1px solid #ffc107;"
+            title="直近の清掃チェックリストを開く">
+            <i class="bi bi-clipboard-check"></i> 清掃チェックリスト
+          </button>
+          <button class="btn btn-sm btn-outline-secondary ms-2" id="btnMyCalPrev" title="前の月" style="min-width:36px;">◀</button>
           <input type="month" class="form-control form-control-sm" style="width:140px;" id="myCalMonth">
           <button class="btn btn-sm btn-outline-secondary" id="btnMyCalNext" title="次の月" style="min-width:36px;">▶</button>
           <button class="btn btn-sm btn-outline-primary ms-2" id="btnMyCalToday">今日</button>
@@ -208,6 +213,42 @@ const MyRecruitmentPage = {
         monthInput.value = this._calMonth;
         this._initialScrollDone = false; // 「今日」ボタン押下時は今日へ再スクロール
         this.renderCalendar();
+      });
+
+      // 清掃チェックリストボタン: 直近の自分のシフト (今日以降の最古 or 過去の最新) に紐づく
+      // チェックリスト画面へ遷移する
+      document.getElementById("btnGoLatestChecklist").addEventListener("click", async () => {
+        try {
+          const todayMid = new Date(); todayMid.setHours(0, 0, 0, 0);
+          // 1. 今日以降の最も近いシフト (昇順)
+          let snap = await db.collection("shifts")
+            .where("staffId", "==", this.staffId)
+            .where("date", ">=", todayMid)
+            .orderBy("date", "asc").limit(1).get();
+          // 2. 無ければ過去の最新シフト (降順)
+          if (snap.empty) {
+            snap = await db.collection("shifts")
+              .where("staffId", "==", this.staffId)
+              .where("date", "<", todayMid)
+              .orderBy("date", "desc").limit(1).get();
+          }
+          if (snap.empty) {
+            showToast("シフトなし", "あなたに割り当てられたシフトが見つかりません", "warning");
+            return;
+          }
+          const shiftId = snap.docs[0].id;
+          // 対応する checklist を探す (shiftId で1件)
+          const clSnap = await db.collection("checklists")
+            .where("shiftId", "==", shiftId).limit(1).get();
+          if (clSnap.empty) {
+            // チェックリスト未生成 → 一覧へ
+            location.hash = `#/my-checklist`;
+            return;
+          }
+          location.hash = `#/my-checklist/${clSnap.docs[0].id}`;
+        } catch (e) {
+          showToast("エラー", `チェックリスト遷移失敗: ${e.message}`, "error");
+        }
       });
 
       document.querySelectorAll(".resp-btn").forEach(btn => {

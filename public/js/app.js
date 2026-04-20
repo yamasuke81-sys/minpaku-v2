@@ -213,8 +213,8 @@ const App = {
     const hash = location.hash.replace("#", "") || "/";
     const path = hash.split("/").filter(Boolean);
 
-    // デフォルトページ: オーナー/サブオーナー→dashboard、スタッフ→my-dashboard
-    const defaultPage = role === "staff" ? "my-dashboard" : "dashboard";
+    // デフォルトページ: オーナー/サブオーナー→dashboard、スタッフ→my-recruitment (マイページは非表示化済)
+    const defaultPage = role === "staff" ? "my-recruitment" : "dashboard";
     const pageName = path[0] || defaultPage;
 
     // ロール別ページマップ選択（オーナー/サブオーナーはスタッフページにもアクセス可能）
@@ -240,8 +240,8 @@ const App = {
       } catch (_) {}
     } else {
       // スタッフがオーナーページにアクセスしようとした場合など
-      const backPage = role === "staff" ? "my-dashboard" : "dashboard";
-      const backLabel = role === "staff" ? "マイページ" : "ダッシュボード";
+      const backPage = role === "staff" ? "my-recruitment" : "dashboard";
+      const backLabel = role === "staff" ? "清掃スケジュール" : "ダッシュボード";
       document.getElementById("pageContainer").innerHTML = `
         <div class="empty-state fade-in">
           <i class="bi bi-tools"></i>
