@@ -1,0 +1,19 @@
+{
+  "name": "minpaku-v2-tests",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:owner": "playwright test e2e/owner-flow.spec.ts",
+    "test:staff": "playwright test e2e/staff-flow.spec.ts",
+    "test:guest": "playwright test e2e/guest-flow.spec.ts",
+    "test:mobile": "playwright test --project=mobile",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "latest",
+    "firebase-admin": "^13.0.0",
+    "typescript": "^5",
+    "@types/node": "^22"
+  }
+}
