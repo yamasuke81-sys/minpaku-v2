@@ -148,7 +148,7 @@ describe("decideBookingUpdate: confirmed メール + 既存 iCal 予約", () => 
       guestFirstName: "テスト太郎",
       guestCount: { adults: 4, children: 2, infants: 0, total: 6 },
     };
-    const { updates } = decideBookingUpdate(booking, parsedInfo, "msg123");
+    const { updates } = decideBookingUpdate(booking, parsedInfo, "msg123", Date.now());
     assert.strictEqual(updates.guestName, "テスト太郎 山田");
     assert.strictEqual(updates.guestCount, 6);
     assert.strictEqual(updates.emailMessageId, "msg123");
@@ -160,7 +160,7 @@ describe("decideBookingUpdate: confirmed メール + 既存 iCal 予約", () => 
       guestName: "CLOSED - Not available",
       _icalOriginalName: "CLOSED - Not available",
     };
-    const { updates } = decideBookingUpdate(booking, { guestName: "Masanori Matsuura", kind: "confirmed" }, "m1");
+    const { updates } = decideBookingUpdate(booking, { guestName: "Masanori Matsuura", kind: "confirmed" }, "m1", Date.now());
     assert.strictEqual(updates.guestName, "Masanori Matsuura");
   });
 
@@ -172,7 +172,8 @@ describe("decideBookingUpdate: confirmed メール + 既存 iCal 予約", () => 
     const { updates } = decideBookingUpdate(
       booking,
       { guestName: "Different Name", kind: "confirmed" },
-      "m1"
+      "m1",
+      Date.now()
     );
     assert.strictEqual(updates.guestName, undefined); // 上書きしない
   });
@@ -182,20 +183,21 @@ describe("decideBookingUpdate: confirmed メール + 既存 iCal 予約", () => 
     const { updates } = decideBookingUpdate(
       booking,
       { guestCount: { total: 5 }, kind: "confirmed" },
-      "m1"
+      "m1",
+      Date.now()
     );
     assert.strictEqual(updates.guestCount, undefined);
   });
 
   test("parsedInfo に guestCount なしの場合は何もしない", () => {
     const booking = { guestCount: 0 };
-    const { updates } = decideBookingUpdate(booking, { kind: "confirmed" }, "m1");
+    const { updates } = decideBookingUpdate(booking, { kind: "confirmed" }, "m1", Date.now());
     assert.strictEqual(updates.guestCount, undefined);
   });
 
   test("guestName / guestFirstName どちらも null ならゲスト名更新なし", () => {
     const booking = { guestName: "Airbnb (Not available)", _icalOriginalName: "Airbnb (Not available)" };
-    const { updates } = decideBookingUpdate(booking, { kind: "confirmed" }, "m1");
+    const { updates } = decideBookingUpdate(booking, { kind: "confirmed" }, "m1", Date.now());
     assert.strictEqual(updates.guestName, undefined);
   });
 
@@ -204,23 +206,57 @@ describe("decideBookingUpdate: confirmed メール + 既存 iCal 予約", () => 
     const { updates } = decideBookingUpdate(
       booking,
       { kind: "confirmed", guestFirstName: "Taro" },
-      "m1"
+      "m1",
+      Date.now()
     );
     assert.strictEqual(updates.guestName, "Taro");
+  });
+
+  test("最新勝ち: 古いメールはスキップ", () => {
+    const now = Date.now();
+    const booking = {
+      guestName: "Generic",
+      _icalOriginalName: "Generic",
+      emailVerifiedAt: { toMillis: () => now },
+    };
+    const { updates, skippedReason } = decideBookingUpdate(
+      booking,
+      { kind: "confirmed", guestName: "Old Email" },
+      "m1",
+      now - 10000 // 10 秒前のメール
+    );
+    assert.strictEqual(updates, null);
+    assert.ok(skippedReason && skippedReason.includes("古いメール"));
+  });
+
+  test("最新勝ち: 新しいメールは通る", () => {
+    const booking = {
+      guestName: "Generic",
+      _icalOriginalName: "Generic",
+      emailVerifiedAt: { toMillis: () => Date.now() - 60000 },
+    };
+    const { updates } = decideBookingUpdate(
+      booking,
+      { kind: "confirmed", guestName: "New Email" },
+      "m1",
+      Date.now()
+    );
+    assert.ok(updates);
+    assert.strictEqual(updates.guestName, "New Email");
   });
 });
 
 describe("decideBookingUpdate: cancelled メール", () => {
   test("manualOverride=false なら status=cancelled", () => {
     const booking = { status: "confirmed", manualOverride: false };
-    const { updates } = decideBookingUpdate(booking, { kind: "cancelled" }, "m1");
+    const { updates } = decideBookingUpdate(booking, { kind: "cancelled" }, "m1", Date.now());
     assert.strictEqual(updates.status, "cancelled");
     assert.strictEqual(updates.cancelSource, "email");
   });
 
   test("manualOverride=true は保護、status 変更せず note のみ残す", () => {
     const booking = { status: "confirmed", manualOverride: true };
-    const { updates } = decideBookingUpdate(booking, { kind: "cancelled" }, "m1");
+    const { updates } = decideBookingUpdate(booking, { kind: "cancelled" }, "m1", Date.now());
     assert.strictEqual(updates.status, undefined);
     assert.ok(updates._emailVerificationNote);
     assert.ok(updates._emailVerificationNote.includes("manualOverride"));
@@ -228,7 +264,7 @@ describe("decideBookingUpdate: cancelled メール", () => {
 
   test("既に cancelled なら status 再設定しない", () => {
     const booking = { status: "cancelled" };
-    const { updates } = decideBookingUpdate(booking, { kind: "cancelled" }, "m1");
+    const { updates } = decideBookingUpdate(booking, { kind: "cancelled" }, "m1", Date.now());
     assert.strictEqual(updates.status, undefined);
   });
 });

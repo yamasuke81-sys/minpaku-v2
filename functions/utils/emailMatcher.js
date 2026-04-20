@@ -60,16 +60,27 @@ function findBookingMatch(bookings, parsedInfo, propertyIdHint) {
   }
 
   // 3. source + propertyId + checkIn 日付 フォールバック
+  //    ※候補が複数ある場合は null (曖昧マッチによる誤更新を防ぐ)
   if (parsedInfo.platform && parsedInfo.checkIn && parsedInfo.checkIn.date) {
     const ciDate = parsedInfo.checkIn.date; // "YYYY-MM-DD"
+    const candidates = [];
     for (const b of bookings) {
       const d = b.data || {};
       if (d.source !== parsedInfo.platform) continue;
       if (propertyIdHint && d.propertyId && d.propertyId !== propertyIdHint) continue;
       const bCheckIn = normalizeCheckInDate_(d.checkIn);
       if (bCheckIn === ciDate) {
-        return { id: b.id, data: d, matchReason: "dateAndPlatform" };
+        candidates.push({ id: b.id, data: d, matchReason: "dateAndPlatform" });
       }
+    }
+    if (candidates.length === 1) return candidates[0];
+    if (candidates.length > 1) {
+      return {
+        id: null,
+        data: null,
+        matchReason: "ambiguous-dateAndPlatform",
+        candidateIds: candidates.map((c) => c.id),
+      };
     }
   }
 
@@ -108,11 +119,29 @@ function normalizeCheckInDate_(v) {
 // bookings 更新決定 (保守的なマージロジック)
 // ======================================================
 
+// 任意形式の時刻値を ms に変換
+function toMs_(v) {
+  if (v == null) return null;
+  if (typeof v === "number") return v;
+  if (v instanceof Date) return v.getTime();
+  if (typeof v.toMillis === "function") return v.toMillis();
+  if (typeof v._seconds === "number") return v._seconds * 1000 + (v._nanoseconds ? Math.floor(v._nanoseconds / 1e6) : 0);
+  if (typeof v === "string") {
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? null : d.getTime();
+  }
+  return null;
+}
+
 /**
  * 突合成功時に bookings ドキュメントへ書き込む更新オブジェクトを決定
  *
  * 保守方針:
- *   - emailVerifiedAt / emailMessageId は常に上書き
+ *   - **最新勝ちルール**: booking.emailVerifiedAt より古いメールは全て skip (古いメールで
+ *     新しい状態を上書きしない)。同時刻または新規メールのみ反映
+ *   - emailVerifiedAt には **メールの受信日時** (処理時刻ではない) を保存 → 真実の
+ *     source of truth として時系列比較に使える
+ *   - emailMessageId も常に上書き
  *   - guestName: 既存が空 or iCal の generic name (Not available / Reserved / Airbnb / Booking.com) の場合のみ上書き
  *   - guestCount: 既存が 0 or 未設定の場合のみ上書き
  *   - status=cancelled: manualOverride=true の予約は保護 (ガード)、それ以外は cancelled に設定
@@ -121,17 +150,31 @@ function normalizeCheckInDate_(v) {
  * @param {object} booking - bookings ドキュメントの data
  * @param {object} parsedInfo
  * @param {string} messageId - Gmail message.id
+ * @param {Date|Timestamp|number|string|null} emailReceivedAt - メールの受信日時
  * @returns {{ updates: object, skippedReason: string|null }}
  */
-function decideBookingUpdate(booking, parsedInfo, messageId) {
+function decideBookingUpdate(booking, parsedInfo, messageId, emailReceivedAt) {
   if (!booking || !parsedInfo) {
     return { updates: null, skippedReason: "booking または parsedInfo が空" };
   }
 
+  // ---- 最新勝ちガード: 古いメールは scope しない ----
+  const newMs = toMs_(emailReceivedAt);
+  const existingMs = toMs_(booking.emailVerifiedAt);
+  if (newMs != null && existingMs != null && newMs < existingMs) {
+    return {
+      updates: null,
+      skippedReason: `古いメール (${new Date(newMs).toISOString()}) を検出。booking は既により新しいメール (${new Date(existingMs).toISOString()}) で更新済みのためスキップ`,
+    };
+  }
+
   const updates = {
-    emailVerifiedAt: { __placeholder: "serverTimestamp" }, // 呼出側で実 Timestamp に置換
     emailMessageId: messageId || null,
   };
+  if (newMs != null) {
+    // 呼出側で Timestamp.fromMillis に置換
+    updates.emailVerifiedAt = { __placeholder: "timestampFromMs", ms: newMs };
+  }
 
   // ---- ゲスト名の慎重マージ ----
   const existingName = String(booking.guestName || "");
