@@ -173,18 +173,6 @@
               <label class="form-label">契約開始日</label>
               <input type="date" class="form-control" id="staffContractDate">
             </div>
-            <div class="col-md-6">
-              <label class="form-label">会社名 / 屋号 <small class="text-muted">(請求書宛名、個人なら空欄可)</small></label>
-              <input type="text" class="form-control" id="staffCompanyName">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">郵便番号 <small class="text-muted">(請求書に記載)</small></label>
-              <input type="text" class="form-control" id="staffZipCode" placeholder="例: 736-0061">
-            </div>
-            <div class="col-12">
-              <label class="form-label">住所 <small class="text-muted">(請求書に記載)</small></label>
-              <input type="text" class="form-control" id="staffAddress">
-            </div>
             <div class="col-md-6 d-flex align-items-end">
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="staffIsTimee">
@@ -260,6 +248,28 @@
                       <input type="email" class="form-control" id="staffSubOwnerEmail" placeholder="subowner@example.com">
                     </div>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 請求書表示内容 (オーナー/サブオーナー兼、一般スタッフも銀行情報と共に表示) -->
+            <div class="col-12">
+              <hr><h6><i class="bi bi-receipt"></i> 請求書表示内容</h6>
+              <div class="small text-muted mb-2">
+                このスタッフが請求書の宛名 (物件オーナー) に指定された場合、あるいは自身が請求書作成者の場合に表示されます。
+              </div>
+              <div class="row g-2">
+                <div class="col-md-4">
+                  <label class="form-label">〒 (郵便番号)</label>
+                  <input type="text" class="form-control" id="staffZipCode" placeholder="例: 736-0061">
+                </div>
+                <div class="col-md-8">
+                  <label class="form-label">住所</label>
+                  <input type="text" class="form-control" id="staffAddress">
+                </div>
+                <div class="col-12">
+                  <label class="form-label">屋号 <small class="text-muted">(法人の場合。空欄なら氏名が宛名に使われます)</small></label>
+                  <input type="text" class="form-control" id="staffCompanyName">
                 </div>
               </div>
             </div>
@@ -1231,7 +1241,7 @@
   <script src="js/auth.js?v=0415a"></script>
   <script src="js/api.js?v=0421c"></script>
   <script src="js/pages/dashboard.js?v=0420d"></script>
-  <script src="js/pages/staff.js?v=0421n"></script>
+  <script src="js/pages/staff.js?v=0421o"></script>
   <script src="js/pages/properties.js?v=0421m"></script>
   <script src="js/pages/recruitment.js?v=0421e"></script>
   <script src="js/shared/form-schema.js?v=0419b"></script>
@@ -1259,7 +1269,7 @@
   <script src="js/pages/my-recruitment.js?v=0421e"></script>
   <script src="js/pages/my-checklist.js?v=0421c"></script>
   <script src="js/pages/my-invoice.js?v=0421d"></script>
-  <script src="js/pages/my-invoice-create.js?v=0421m"></script>
+  <script src="js/pages/my-invoice-create.js?v=0421n"></script>
   <script src="js/app.js?v=0420d"></script>
   <script>
   // サイドバートグル（PC: collapsed切替 / モバイル: show切替）

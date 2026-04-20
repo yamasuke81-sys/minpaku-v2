@@ -173,9 +173,6 @@ const MyInvoiceCreatePage = {
             <div class="modal-body">
               <div class="small text-muted mb-2">この情報は<strong>スタッフマスタと同期</strong>しています。編集すると自動でスタッフタブにも反映されます。</div>
               <div class="row g-2" id="staffInfoFields">
-                <div class="col-md-8"><label class="form-label small mb-1">会社名 / 屋号</label><input type="text" class="form-control form-control-sm s-field" data-field="companyName" placeholder="例: 合同会社○○ (個人の場合は空欄)"></div>
-                <div class="col-md-4"><label class="form-label small mb-1">郵便番号</label><input type="text" class="form-control form-control-sm s-field" data-field="zipCode" placeholder="例: 736-0061"></div>
-                <div class="col-md-12 small text-muted" style="margin-top:-4px;">個人の場合は会社名を空欄可。会社名を入れると請求書宛名に「社名 御中」、空欄なら「氏名 御中」と表示されます。</div>
                 <div class="col-md-6"><label class="form-label small mb-1">氏名 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="name"></div>
                 <div class="col-md-6"><label class="form-label small mb-1">電話</label><input type="tel" class="form-control form-control-sm s-field" data-field="phone"></div>
                 <div class="col-md-12"><label class="form-label small mb-1">住所 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="address"></div>
@@ -318,7 +315,7 @@ const MyInvoiceCreatePage = {
 
   // スタッフ情報パネルの値を流し込み + 自動保存をセット
   _renderStaffInfoFields() {
-    const fields = ["companyName", "zipCode", "name", "phone", "address", "email", "bankName", "branchName", "accountType", "accountNumber", "accountHolder"];
+    const fields = ["name", "phone", "address", "email", "bankName", "branchName", "accountType", "accountNumber", "accountHolder"];
     fields.forEach(f => {
       const el = document.querySelector(`.s-field[data-field="${f}"]`);
       if (!el) return;
