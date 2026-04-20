@@ -176,8 +176,9 @@ async function emailVerificationCore(db, opts = {}) {
       oauth2Client.setCredentials({ refresh_token: tokenData.refreshToken });
       const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
-      const labelId = await ensureProcessedLabel(gmail);
-      const query = buildGmailQuery(uniqueEmails, labelId);
+      // ラベル機能は gmail.modify スコープが必要なため使用しない。
+      // 重複処理は emailVerifications/{messageId} のドキュメント存在チェックで防ぐ。
+      const query = buildGmailQuery(uniqueEmails, null);
       if (!query) continue;
 
       const listRes = await gmail.users.messages.list({
@@ -292,12 +293,8 @@ async function emailVerificationCore(db, opts = {}) {
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
           });
 
-          // 処理済ラベル付与
-          await gmail.users.messages.modify({
-            userId: "me",
-            id: msg.id,
-            requestBody: { addLabelIds: [labelId] },
-          });
+          // 処理済マークは emailVerifications/{messageId} ドキュメント存在で判定するため
+          // Gmail ラベル付与 (gmail.modify スコープ要) は行わない
 
           result.newlySaved++;
           result.processedCount++;
