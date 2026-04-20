@@ -373,7 +373,73 @@ const RecruitmentPage = {
       reopenBtn.classList.add("d-none");
     }
 
+    // オーナー限定: 情報履歴 (iCal 取得日 / Gmail 照合日 等) を非同期で描画
+    const ownerInfoEl = document.getElementById("ownerInfoLog");
+    if (ownerInfoEl) {
+      ownerInfoEl.classList.add("d-none");
+      ownerInfoEl.innerHTML = "";
+      if (Auth?.isOwner?.() && r.bookingId) {
+        this._renderOwnerInfoLog(r);
+      }
+    }
+
     this.detailModal.show();
+  },
+
+  // オーナー限定: 募集詳細モーダル最下部に「情報履歴」を描画
+  // データソース: bookings ドキュメント
+  //   - iCal 取得日 = bookings.createdAt
+  //   - 最終同期日 = bookings.updatedAt
+  //   - iCal UID / source / 手動復元フラグ
+  //   - Gmail 照合 (将来実装): bookings.emailVerifiedAt / emailMessageId
+  async _renderOwnerInfoLog(recruitment) {
+    const el = document.getElementById("ownerInfoLog");
+    if (!el) return;
+    try {
+      const snap = await db.collection("bookings").doc(recruitment.bookingId).get();
+      if (!snap.exists) return;
+      const b = snap.data();
+      const fmt = (ts) => {
+        if (!ts) return "-";
+        const d = ts.toDate ? ts.toDate() : new Date(ts);
+        return d.toLocaleString("ja-JP");
+      };
+      const lines = [];
+      lines.push(`<div><strong>データソース:</strong> ${this.escapeHtml(b.source || b.syncSource || "-")}</div>`);
+      lines.push(`<div><strong>情報登録日 (iCal 初回取得):</strong> ${fmt(b.createdAt)}</div>`);
+      lines.push(`<div><strong>最終同期日:</strong> ${fmt(b.updatedAt)}</div>`);
+      if (b.icalUid) lines.push(`<div><strong>iCal UID:</strong> <code style="font-size:11px;">${this.escapeHtml(b.icalUid)}</code></div>`);
+      if (b.manualOverride) {
+        lines.push(`<div class="text-warning mt-1"><strong><i class="bi bi-pencil-square"></i> 手動復元:</strong> ${fmt(b.manualOverrideAt)}</div>`);
+        if (b.manualOverrideReason) {
+          lines.push(`<div class="text-warning ps-3"><small>${this.escapeHtml(b.manualOverrideReason)}</small></div>`);
+        }
+      }
+      // Gmail 照合情報 (feature/email-verification で実装予定)
+      if (b.emailVerifiedAt) {
+        lines.push(`<div class="text-success mt-1"><strong><i class="bi bi-envelope-check"></i> Gmail 照合日:</strong> ${fmt(b.emailVerifiedAt)}</div>`);
+        if (b.emailMessageId) {
+          const gmailUrl = `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(b.emailMessageId)}`;
+          lines.push(`<div class="ps-3"><a href="${gmailUrl}" target="_blank" rel="noopener" class="small"><i class="bi bi-box-arrow-up-right"></i> Gmail でメールを開く</a></div>`);
+        }
+      } else {
+        lines.push(`<div class="text-muted mt-1"><small><i class="bi bi-envelope-slash"></i> Gmail 照合: 未実行 (機能実装待ち)</small></div>`);
+      }
+      el.innerHTML = `
+        <hr>
+        <details>
+          <summary class="small text-muted" style="cursor:pointer;">
+            <i class="bi bi-shield-lock"></i> 情報履歴 (オーナーのみ)
+          </summary>
+          <div class="small text-muted mt-2" style="line-height:1.7;">
+            ${lines.join("")}
+          </div>
+        </details>
+      `;
+      el.classList.remove("d-none");
+    } catch (e) {
+      console.warn("情報履歴読み込みエラー:", e);
+    }
   },
 
   async renderResponseTable(recruitment) {
