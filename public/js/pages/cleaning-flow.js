@@ -354,8 +354,6 @@ const CleaningFlowPage = {
         各カードを展開すると通知設定（文言・タイミング・送信先）を直接編集できます。
       </p>
       ${this._renderStyles()}
-      <!-- 物件フィルタ -->
-      <div id="propertyFilterHost-cleaning-flow"></div>
       <!-- モバイルタブ -->
       <div class="rf-mobile-tabs d-md-none mb-2">
         <ul class="nav nav-pills nav-fill rf-lane-tabs">
@@ -409,20 +407,6 @@ const CleaningFlowPage = {
       console.warn("notifications 取得失敗:", e.message);
       this.notifChannels = {};
     }
-
-    this.selectedPropertyIds = PropertyFilter.getSelectedIds("cleaning-flow", this.properties);
-
-    // 物件フィルタ
-    PropertyFilter.render({
-      containerId: "propertyFilterHost-cleaning-flow",
-      tabKey: "cleaning-flow",
-      properties: this.properties,
-      onChange: (ids) => {
-        this.selectedPropertyIds = ids;
-        this._renderPropertySelector();
-        this._renderSwimLane();
-      },
-    });
 
     this._renderPropertySelector();
     this._renderSwimLane();

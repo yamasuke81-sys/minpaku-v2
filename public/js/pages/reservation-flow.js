@@ -509,8 +509,8 @@ const ReservationFlowPage = {
         各カードを展開すると通知設定（文言・タイミング・送信先）を直接編集できます。
       </p>
       ${this._renderStyles()}
-      <!-- 物件フィルタ -->
-      <div id="propertyFilterHost-reservation-flow"></div>
+      <!-- 物件セレクタ (1物件フォーカス) -->
+      <div id="rfPropertySelector" class="mb-2"></div>
       <!-- モバイルタブ -->
       <div class="rf-mobile-tabs d-md-none mb-2">
         <ul class="nav nav-pills nav-fill rf-lane-tabs">
@@ -521,8 +521,6 @@ const ReservationFlowPage = {
           <li class="nav-item"><a class="nav-link" href="#" data-lane="branch">🔴 分岐</a></li>
         </ul>
       </div>
-      <!-- 物件セレクタ (スイムレーン用) -->
-      <div id="rfPropertySelector" class="mb-3"></div>
       <!-- メインスイムレーン -->
       <div id="rfSwimLane"></div>
     `;
@@ -564,20 +562,6 @@ const ReservationFlowPage = {
       console.warn("notifications 取得失敗:", e.message);
       this.notifChannels = {};
     }
-
-    this.selectedPropertyIds = PropertyFilter.getSelectedIds("reservation-flow", this.properties);
-
-    // 物件フィルタ
-    PropertyFilter.render({
-      containerId: "propertyFilterHost-reservation-flow",
-      tabKey: "reservation-flow",
-      properties: this.properties,
-      onChange: (ids) => {
-        this.selectedPropertyIds = ids;
-        this._renderPropertySelector();
-        this._renderSwimLane();
-      },
-    });
 
     this._renderPropertySelector();
     this._renderSwimLane();
