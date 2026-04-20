@@ -327,12 +327,18 @@
             </div>
             <div class="col-md-3">
               <label class="form-label">物件番号</label>
-              <input type="number" class="form-control" id="propertyNumber" min="1" max="999">
+              <select class="form-select" id="propertyNumber">
+                <option value="">(未設定)</option>
+              </select>
               <div class="form-text">全画面共通の識別番号</div>
             </div>
             <div class="col-md-3">
               <label class="form-label">表示色</label>
-              <input type="color" class="form-control form-control-color" id="propertyColor" value="#0d6efd">
+              <div id="propertyColorSwatches" class="d-flex flex-wrap gap-1 mb-1"></div>
+              <div class="d-flex align-items-center gap-2">
+                <input type="color" class="form-control form-control-color form-control-sm" id="propertyColor" value="#0d6efd" style="width:44px;height:28px;">
+                <small class="text-muted">カスタム色</small>
+              </div>
               <div class="form-text">横カレンダー等で使用</div>
             </div>
             <div class="col-md-3">
@@ -1218,7 +1224,7 @@
   <script src="js/api.js?v=0421c"></script>
   <script src="js/pages/dashboard.js?v=0420d"></script>
   <script src="js/pages/staff.js?v=0420d"></script>
-  <script src="js/pages/properties.js?v=0421l"></script>
+  <script src="js/pages/properties.js?v=0421m"></script>
   <script src="js/pages/recruitment.js?v=0421e"></script>
   <script src="js/shared/form-schema.js?v=0419b"></script>
   <script src="js/pages/guests.js?v=0419b"></script>

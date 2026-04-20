@@ -124,14 +124,14 @@ const MyInvoiceCreatePage = {
         </div>
       </div>
 
-      <!-- オーナーへのメッセージ (請求書メモ) — 毎月内容を変えて OK、staff には保存しない -->
+      <!-- メモ (スタッフ→オーナー) — 毎月内容を変えて OK、staff には保存しない -->
       <div class="card mb-3">
         <div class="card-body">
           <label class="form-label mb-1" for="invoiceMemoText">
-            <i class="bi bi-chat-left-text"></i> オーナーへのメッセージ (請求書メモ)
+            <i class="bi bi-chat-left-text"></i> メモ
           </label>
-          <div class="small text-muted mb-2">支払期限の上に表示されます。毎月内容を変えてOK</div>
-          <textarea id="invoiceMemoText" class="form-control form-control-sm" rows="3" placeholder="例: 振込手数料はご負担ください / 今月は特別な対応がありました 等"></textarea>
+          <div class="small text-muted mb-2">請求書のメモ欄に表示されます。</div>
+          <textarea id="invoiceMemoText" class="form-control form-control-sm" rows="3"></textarea>
         </div>
       </div>
 
