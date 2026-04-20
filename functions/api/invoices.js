@@ -576,8 +576,9 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
   // 交通費
   const transportationFee = rawShifts.length * (staff.transportationFee || 0);
 
-  // 手動追加項目
+  // 手動追加項目 (date フィールド対応 — 旧データは date 無しでも読める)
   const manual = (manualItems || []).map(i => ({
+    date: i.date ? String(i.date) : "",
     label: String(i.label || ""),
     amount: Number(i.amount) || 0,
     memo: String(i.memo || ""),
@@ -626,6 +627,103 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
     byProperty[pid].total += l.amount || 0;
   }
 
+  // --- 縦テーブル用の行データ (rows) ---
+  // 日付 | 項目 | 単価 | 備考 の4列で、日付昇順に並べる
+  const toDateStr = (v) => {
+    if (!v) return "";
+    const d = v.toDate ? v.toDate() : new Date(v);
+    if (isNaN(d.getTime())) return "";
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+  const rows = [];
+
+  // プロパティ cleaningRequiredCount のキャッシュ (清掃1人/2人作業の判定用)
+  const reqCountCache = {};
+  const getReqCount = async (pid) => {
+    if (!pid) return 1;
+    if (reqCountCache[pid] !== undefined) return reqCountCache[pid];
+    const p = await getProperty(pid);
+    reqCountCache[pid] = Number(p?.cleaningRequiredCount || 1);
+    return reqCountCache[pid];
+  };
+
+  // シフトから行を生成
+  for (const s of shiftDetails) {
+    const dateStr = toDateStr(s.date);
+    let category = "";
+    if (s.workType === "cleaning_by_count") {
+      const reqCount = await getReqCount(s.propertyId);
+      category = reqCount >= 2 ? "清掃2人作業" : "清掃1人作業";
+    } else if (s.workType === "pre_inspection") {
+      category = "直前点検";
+    } else if (s.workType === "laundry_put_out") {
+      category = "ランドリー出し";
+    } else if (s.workType === "laundry_collected") {
+      category = "ランドリー受取";
+    } else if (s.workType === "laundry_expense") {
+      category = "ランドリー";
+    } else if (s.workType === "other") {
+      category = "その他";
+    } else {
+      category = s.workType || "作業";
+    }
+    let note = s.propertyName || "";
+    if (s.isTimee && s.timeeDetail) {
+      const td = s.timeeDetail;
+      note = `${note} / タイミー ${td.start}〜${td.end}(${td.durationH}h) × ¥${td.hourlyRate}/h`;
+    } else if (s.guestCount > 1) {
+      note = `${note} / ゲスト${s.guestCount}名`;
+    }
+    rows.push({
+      date: dateStr,
+      category,
+      unitPrice: s.amount || 0,
+      note: note.replace(/^ \/ /, ""),
+    });
+  }
+
+  // 特別加算行
+  for (const sp of specialDetails) {
+    rows.push({
+      date: sp.dateStr || toDateStr(sp.date),
+      category: `特別加算: ${sp.name || ""}`,
+      unitPrice: sp.amount || 0,
+      note: "",
+    });
+  }
+
+  // ランドリー (立替=請求ランドリー立替、非立替=ランドリー作業)
+  for (const l of reimbursableLaundry.filter(x => !x.sourceShiftId)) {
+    rows.push({
+      date: toDateStr(l.date),
+      category: "立替",
+      unitPrice: l.amount || 0,
+      note: l.memo || "",
+    });
+  }
+  // 非立替のランドリー (作業報酬としてシフトに入らない純粋な出し/受取記録がある場合)
+  // ※ 既存 shift から来る laundry_put_out/collected は shiftDetails 側で計上済みなので重複させない
+
+  // 交通費 (月末にまとめて1行)
+  if (transportationFee > 0) {
+    const eomDate = new Date(y, m, 0);
+    const eomStr = `${eomDate.getFullYear()}-${String(eomDate.getMonth() + 1).padStart(2, "0")}-${String(eomDate.getDate()).padStart(2, "0")}`;
+    rows.push({
+      date: eomStr,
+      category: "交通費",
+      unitPrice: transportationFee,
+      note: `${rawShifts.length}回 × ¥${staff.transportationFee || 0}`,
+    });
+  }
+
+  // 日付昇順ソート (空の date は末尾)
+  rows.sort((a, b) => {
+    if (!a.date && !b.date) return 0;
+    if (!a.date) return 1;
+    if (!b.date) return -1;
+    return a.date.localeCompare(b.date);
+  });
+
   return {
     shifts: shiftDetails,
     laundry: laundryDetails,
@@ -639,6 +737,7 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
     total,
     shiftCount: rawShifts.length,
     byProperty,
+    rows,
   };
 }
 
@@ -709,6 +808,7 @@ module.exports = function invoicesApi(db) {
         laundry: computed.laundry,
         special: computed.special,
         byProperty: computed.byProperty,
+        rows: computed.rows || [],
       });
     } catch (e) {
       console.error("compute-preview エラー:", e);
