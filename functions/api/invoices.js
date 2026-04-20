@@ -410,10 +410,14 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
   if (propertyId) laundryQuery = laundryQuery.where("propertyId", "==", propertyId);
   const laundrySnap = await laundryQuery.get();
   const laundryAll = laundrySnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  // ランドリー立替の請求書計上対象:
+  //   - 現金 (cash) のみ対象 (スタッフが自分のお金で立替)
+  //   - クレジットカード (credit): 削除 (オーナー支払い or 個人カード、立替対象外)
+  //   - プリペイドカード (prepaid): 別途 prepaidDetails (新規購入) で計上
+  //   - 店舗請求 (shop_bill): オーナーが後で直接店舗に払うため立替対象外
   const reimbursableLaundry = laundryAll.filter(l => {
-    if (l.isReimbursable !== undefined) return l.isReimbursable === true;
-    // 旧データ互換: paymentMethod がある場合
-    return l.paymentMethod === "cash" || l.paymentMethod === "credit";
+    const pm = l.paymentMethod || (l.isReimbursable ? "cash" : null);
+    return pm === "cash";
   });
 
   // 提出先(depot)マスター settings/laundryDepots.items: [{id,kind,name,rates}]
@@ -500,6 +504,9 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
   for (const shift of rawShifts) {
     const propertyId = shift.propertyId || "";
     const workType = shift.workType || "cleaning_by_count";
+    // laundry_expense は shift 側では計上せず、laundry ドキュメント側に一本化
+    // (shift と laundry で同じ金額が二重計上されるのを防ぐ)
+    if (workType === "laundry_expense") continue;
     const dateStr = shift.date
       ? (shift.date.toDate ? shift.date.toDate() : new Date(shift.date)).toISOString().slice(0, 10)
       : "";
@@ -728,11 +735,12 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
 
   // --- 縦テーブル用の行データ (rows) ---
   // 日付 | 項目 | 単価 | 備考 の4列で、日付昇順に並べる
+  // 日付表示は YYYY/MM/DD (ユーザー仕様)
   const toDateStr = (v) => {
     if (!v) return "";
     const d = v.toDate ? v.toDate() : new Date(v);
     if (isNaN(d.getTime())) return "";
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
   };
   const rows = [];
 
@@ -799,20 +807,54 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
     });
   }
 
-  // ランドリー (立替=請求ランドリー立替、非立替=ランドリー作業)
-  // 提出先(depot)名を note に付与
-  for (const l of reimbursableLaundry.filter(x => !x.sourceShiftId)) {
+  // ランドリー (paymentMethod 別に分岐)
+  //   cash    → category="ランドリー" / note="物件名 / 提出先 / 立替" / unitPrice=金額
+  //   credit  → 行を出さない (立替対象外)
+  //   prepaid → プリカ新規購入が同日・同 depot にある場合のみ行を出す
+  //             note="物件名 / 提出先 / プリカ新規購入" / unitPrice=0
+  //             (実費は別途プリカ購入行で計上されるため二重計上回避)
+  //   shop_bill → 行を出さない (オーナーが店舗直接支払)
+  for (const l of laundryAll.filter(x => !x.sourceShiftId)) {
+    const pm = l.paymentMethod || (l.isReimbursable ? "cash" : null);
+    if (pm !== "cash" && pm !== "prepaid") continue;
+
     const depotName = resolveDepotName(l);
     const memo = l.memo || "";
-    let note = "";
-    if (memo && depotName) note = `${memo} / ${depotName}`;
-    else if (depotName) note = depotName;
-    else note = memo;
+    const ldate = toDateStr(l.date);
+    // 物件名 (note 先頭に付ける)
+    let propertyName = "";
+    if (l.propertyId) {
+      const p = await getProperty(l.propertyId);
+      propertyName = p?.name || "";
+    }
+
+    let unitPrice = 0;
+    let suffix = "";
+
+    if (pm === "cash") {
+      unitPrice = l.amount || 0;
+      suffix = "立替";
+    } else if (pm === "prepaid") {
+      // 同日・同 depot の新規購入があるか
+      const hasPurchase = prepaidDetails.some(p =>
+        toDateStr(p.purchasedAt) === ldate && (p.depotId || "") === (l.depotId || "")
+      );
+      if (!hasPurchase) continue; // 既存プリカ使用は行なし
+      suffix = "プリカ新規購入";
+    }
+
+    // note 組立: 物件名 / メモ / 提出先 / 立替(or プリカ新規購入)
+    const parts = [];
+    if (propertyName) parts.push(propertyName);
+    if (memo) parts.push(memo);
+    if (depotName) parts.push(depotName);
+    parts.push(suffix);
+
     rows.push({
-      date: toDateStr(l.date),
-      category: "立替",
-      unitPrice: l.amount || 0,
-      note,
+      date: ldate,
+      category: "ランドリー",
+      unitPrice,
+      note: parts.filter(Boolean).join(" / "),
     });
   }
   // 非立替のランドリー (作業報酬としてシフトに入らない純粋な出し/受取記録がある場合)
@@ -831,7 +873,7 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
   // 交通費 (月末にまとめて1行)
   if (transportationFee > 0) {
     const eomDate = new Date(y, m, 0);
-    const eomStr = `${eomDate.getFullYear()}-${String(eomDate.getMonth() + 1).padStart(2, "0")}-${String(eomDate.getDate()).padStart(2, "0")}`;
+    const eomStr = `${eomDate.getFullYear()}/${String(eomDate.getMonth() + 1).padStart(2, "0")}/${String(eomDate.getDate()).padStart(2, "0")}`;
     rows.push({
       date: eomStr,
       category: "交通費",
