@@ -245,6 +245,9 @@ exports.syncIcal = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/syncIcal"));
 
+// 孤児データクリーンアップ（毎日 2:00 JST）
+exports.orphanCleanup = require("./scheduled/orphanCleanup").orphanCleanup;
+
 // BEDS24同期（5分おき）— BEDS24登録後に有効化
 // exports.syncBeds24 = onSchedule({
 //   schedule: "every 5 minutes",

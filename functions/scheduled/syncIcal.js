@@ -27,6 +27,22 @@ function detectPlatform(url) {
 }
 
 /**
+ * Airbnb ホストブロック等のブロック予約かどうかを判定
+ * 実予約ではない場合は true を返す
+ */
+function isBlockEvent(summary) {
+  const s = String(summary || "").toLowerCase().trim();
+  if (!s) return false;
+  return (
+    /not available/i.test(s) ||
+    /^reserved$/i.test(s) ||
+    /^blocked$/i.test(s) ||
+    /^closed$/i.test(s) ||
+    /^unavailable/i.test(s)
+  );
+}
+
+/**
  * iCalイベントからゲスト名を抽出（SUMMARYから推定）
  */
 function extractGuestName(event, platform) {
@@ -37,6 +53,8 @@ function extractGuestName(event, platform) {
   if (platform === "Airbnb") {
     // ブロック・非公開（"Airbnb (Not available)" 形式や括弧付きにも対応）
     if (/not available|closed|blocked/i.test(summary)) return "";
+    // 単独の "Reserved" / "Blocked" / "Closed" / "Unavailable" → ブロック予約
+    if (isBlockEvent(summary)) return "";
     // "予約済み - XXX" → XXX
     const m = summary.match(/^(?:予約済み|Reserved|Booked)\s*[-–—]\s*(.+)/i);
     if (m) return m[1].trim();
@@ -330,6 +348,30 @@ async function syncIcal() {
     }
     if (cleaned > 0) {
       console.log(`[syncIcal] ${cleaned}件のキャンセル済み重複を削除`);
+    }
+
+    // ===== 既存の Reserved ブロック予約を cancelled に修正 =====
+    // 以前のバージョンで ingest されてしまった guestName="Reserved" のブロック予約を修正する
+    let fixedBlock = 0;
+    const reservedSnap = await db.collection("bookings")
+      .where("syncSource", "==", "ical")
+      .where("status", "==", "confirmed")
+      .where("guestName", "==", "Reserved")
+      .get();
+    for (const doc of reservedSnap.docs) {
+      const data = doc.data();
+      // DESCRIPTION に Reservation URL がある場合は実予約なので触らない
+      if (data.notes && /reservation url:/i.test(data.notes)) continue;
+      await doc.ref.update({
+        status: "cancelled",
+        cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
+        cancelReason: "iCal同期: Reservedブロック予約のため自動キャンセル",
+      });
+      fixedBlock++;
+      console.log(`[syncIcal] Reserved修正(cancelled): ${data.checkIn}〜${data.checkOut} (${doc.id})`);
+    }
+    if (fixedBlock > 0) {
+      console.log(`[syncIcal] ${fixedBlock}件のReservedブロック予約をcancelledに修正`);
     }
   } catch (e) {
     console.error("[syncIcal] キャンセル/クリーンアップエラー:", e.message);
