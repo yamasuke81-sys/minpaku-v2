@@ -251,8 +251,9 @@ async function emailVerificationCore(db, opts = {}) {
               const bookingsArr = bookingsSnap.docs.map((d) => ({ id: d.id, data: d.data() }));
               bookingMatch = findBookingMatch(bookingsArr, extractedInfo, propertyId);
 
-              if (bookingMatch) {
-                const decision = decideBookingUpdate(bookingMatch.data, extractedInfo, msg.id);
+              if (bookingMatch && bookingMatch.id) {
+                const emailReceivedMs = receivedAt ? receivedAt.toMillis() : null;
+                const decision = decideBookingUpdate(bookingMatch.data, extractedInfo, msg.id, emailReceivedMs);
                 if (decision && decision.updates) {
                   // placeholder を実 FieldValue に置換
                   const bookingPatch = {};
@@ -260,13 +261,20 @@ async function emailVerificationCore(db, opts = {}) {
                     const v = decision.updates[k];
                     if (v && typeof v === "object" && v.__placeholder === "serverTimestamp") {
                       bookingPatch[k] = admin.firestore.FieldValue.serverTimestamp();
+                    } else if (v && typeof v === "object" && v.__placeholder === "timestampFromMs") {
+                      bookingPatch[k] = admin.firestore.Timestamp.fromMillis(v.ms);
                     } else if (v !== undefined) {
                       bookingPatch[k] = v;
                     }
                   }
+                  bookingPatch.emailMatchedBy = "auto"; // 自動マッチマーク
                   await db.collection("bookings").doc(bookingMatch.id).update(bookingPatch);
                   bookingUpdates = Object.keys(bookingPatch);
+                } else if (decision && decision.skippedReason) {
+                  console.log(`[bookingUpdate skipped] msg=${msg.id} booking=${bookingMatch.id}: ${decision.skippedReason}`);
                 }
+              } else if (bookingMatch && bookingMatch.matchReason === "ambiguous-dateAndPlatform") {
+                console.log(`[bookingUpdate skipped] msg=${msg.id} ambiguous candidates: ${(bookingMatch.candidateIds || []).join(", ")}`);
               }
             } catch (me) {
               result.errors.push(`match ${msg.id}: ${me.message}`);
