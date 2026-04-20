@@ -70,8 +70,16 @@ const MyRecruitmentPage = {
             <span><span style="display:inline-block;width:12px;height:12px;background:#a7c7ff;border-radius:2px;vertical-align:middle;"></span> 確定済</span>
             <span>👤 あなた</span>
             <span>|</span>
-            <span>募集ピル: <span style="background:#198754;color:#fff;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">清</span> 清掃</span>
-            <span><span style="background:#7c3aed;color:#fff;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">直</span> 直前点検</span>
+            <span>募集ピル:
+              <span style="background:#fd7e14;color:#fff;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">清</span>募集中
+              <span style="background:#ffc107;color:#333;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">清</span>選定済
+              <span style="background:#198754;color:#fff;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">清</span>確定済 = 清掃
+            </span>
+            <span>
+              <span style="background:#a78bfa;color:#1e0a3c;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">直</span>募集中
+              <span style="background:#c4b5fd;color:#1e0a3c;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">直</span>選定済
+              <span style="background:#7c3aed;color:#fff;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">直</span>確定済 = 直前点検
+            </span>
           </div>
         </div>
       </div>
