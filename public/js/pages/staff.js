@@ -247,6 +247,7 @@ const StaffPage = {
           ${canDrag ? '<i class="bi bi-grip-vertical text-muted me-1 staff-handle" style="cursor:grab;"></i>' : ''}
           <strong>${this.escapeHtml(s.name)}</strong>
           ${s.isTimee ? '<span class="badge bg-warning text-dark ms-1" title="タイミー">T</span>' : ""}
+          ${s.isSubOwner ? '<span class="badge bg-purple ms-1" style="background:#7c3aed;color:#fff;" title="サブオーナー">SO</span>' : ""}
           ${s.skills && s.skills.length ? `<br><small class="text-muted">${s.skills.join(", ")}</small>` : ""}
         </td>
         <td class="d-none d-md-table-cell">${this.escapeHtml(s.email || "-")}</td>
@@ -264,6 +265,9 @@ const StaffPage = {
             <button class="btn btn-outline-primary btn-edit" title="編集">
               <i class="bi bi-pencil"></i>
             </button>
+            ${s.isSubOwner ? `<button class="btn btn-outline-purple btn-impersonate" title="代理ログイン" style="color:#7c3aed;border-color:#7c3aed;" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}">
+              <i class="bi bi-person-badge"></i>
+            </button>` : ""}
             ${!s.active ? `<button class="btn btn-outline-success btn-reactivate" title="非アクティブ解除">
               <i class="bi bi-arrow-counterclockwise"></i>
             </button>` : ""}
@@ -289,6 +293,18 @@ const StaffPage = {
         const id = e.currentTarget.closest("tr").dataset.id;
         const staff = this.staffList.find((s) => s.id === id);
         if (staff) this.deleteStaff(staff);
+      });
+    });
+
+    // 代理ログインボタン（オーナーのみ表示）
+    tbody.querySelectorAll(".btn-impersonate").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        const staffId = btn.dataset.staffId;
+        const staffName = btn.dataset.staffName;
+        const ok = await showConfirm(`${staffName} のサブオーナー視点で代理閲覧しますか？\n\n画面上部にバナーが表示されます。「解除」ボタンで元の表示に戻ります。`, "代理閲覧");
+        if (!ok) return;
+        localStorage.setItem("impersonateAs", staffId);
+        window.location.reload();
       });
     });
 
@@ -626,6 +642,26 @@ const StaffPage = {
     return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
   },
 
+  // 所有物件チェックボックス (サブオーナー用)
+  async renderOwnedPropertyCheckboxes(ownedIds) {
+    const el = document.getElementById("staffOwnedProperties");
+    if (!el) return;
+    const minpaku = await API.properties.listMinpakuNumbered();
+    if (minpaku.length === 0) {
+      el.innerHTML = `<small class="text-muted">有効な民泊物件がありません</small>`;
+      return;
+    }
+    const set = new Set(ownedIds || []);
+    el.innerHTML = minpaku.map(p => `
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" value="${p.id}" id="oprop_${p.id}" ${set.has(p.id) ? "checked" : ""}>
+        <label class="form-check-label" for="oprop_${p.id}">
+          <span class="badge me-1" style="background:${p._color};color:#fff;">${p._num}</span>${this.escapeHtml(p.name)}
+        </label>
+      </div>
+    `).join("");
+  },
+
   // 横カレンダーのセルクリック時: 代理回答ピッカー
   openResponsePicker(td, recruit) {
     // 既存ピッカー除去
@@ -732,6 +768,26 @@ const StaffPage = {
     // 担当物件チェックボックス(民泊物件のみ、デフォルト外れ)
     this.renderPropertyCheckboxes(staff?.assignedPropertyIds || []);
 
+    // サブオーナーセクション（編集時のみ表示）
+    const subOwnerSection = document.getElementById("staffSubOwnerSection");
+    if (isEdit) {
+      subOwnerSection.classList.remove("d-none");
+      const isSubOwnerEl = document.getElementById("staffIsSubOwner");
+      isSubOwnerEl.checked = !!staff?.isSubOwner;
+      // 所有物件チェックボックス
+      this.renderOwnedPropertyCheckboxes(staff?.ownedPropertyIds || []);
+      document.getElementById("staffSubOwnerLineUserId").value = staff?.subOwnerLineUserId || "";
+      document.getElementById("staffSubOwnerEmail").value = staff?.subOwnerEmail || "";
+      // サブオーナーON/OFFで詳細を表示切替
+      const subOwnerDetails = document.getElementById("subOwnerDetails");
+      subOwnerDetails.classList.toggle("d-none", !isSubOwnerEl.checked);
+      isSubOwnerEl.onchange = () => {
+        subOwnerDetails.classList.toggle("d-none", !isSubOwnerEl.checked);
+      };
+    } else {
+      subOwnerSection.classList.add("d-none");
+    }
+
     // LINE連携セクション（編集時のみ表示）
     const lineSection = document.getElementById("staffLineSection");
     const lineUserIdEl = document.getElementById("staffLineUserId");
@@ -830,11 +886,45 @@ const StaffPage = {
       if (lineUserId !== undefined) {
         data.lineUserId = lineUserId || null;
       }
+
+      // サブオーナー設定
+      const isSubOwnerEl = document.getElementById("staffIsSubOwner");
+      if (isSubOwnerEl) {
+        data.isSubOwner = isSubOwnerEl.checked;
+        if (isSubOwnerEl.checked) {
+          const ownedPropertyIds = [];
+          document.querySelectorAll("#staffOwnedProperties input[type=checkbox]:checked").forEach(cb => {
+            ownedPropertyIds.push(cb.value);
+          });
+          data.ownedPropertyIds = ownedPropertyIds;
+          data.subOwnerLineUserId = (document.getElementById("staffSubOwnerLineUserId")?.value || "").trim() || null;
+          data.subOwnerEmail = (document.getElementById("staffSubOwnerEmail")?.value || "").trim() || null;
+        } else {
+          data.ownedPropertyIds = [];
+          data.subOwnerLineUserId = null;
+          data.subOwnerEmail = null;
+        }
+      }
     }
 
     try {
       if (id) {
         await API.staff.update(id, data);
+        // Firebase Auth カスタムクレームもサーバー側で更新
+        if (data.isSubOwner !== undefined) {
+          try {
+            await API.callFunction("POST", "/auth/set-sub-owner", {
+              staffId: id,
+              isSubOwner: data.isSubOwner,
+              ownedPropertyIds: data.ownedPropertyIds || [],
+              subOwnerLineUserId: data.subOwnerLineUserId,
+              subOwnerEmail: data.subOwnerEmail,
+            });
+          } catch (claimErr) {
+            // クレーム更新失敗はトーストで警告するが保存は続行
+            showToast("警告", `カスタムクレーム更新失敗（再ログインで反映）: ${claimErr.message}`, "error");
+          }
+        }
         showToast("完了", "スタッフ情報を更新しました", "success");
       } else {
         await API.staff.create(data);

@@ -32,22 +32,47 @@ const PropertyFilter = {
       return;
     }
 
+    // サブオーナー / impersonation 時は選択肢を強制制限
+    const forcedIds = this._getForcedIds(properties);
+    const isForcedMode = forcedIds !== null;
+
     // 現在の選択状態を復元
     const useGlobal = this._getUseGlobal(tabKey);
-    const selectedIds = this._getSelectedIds(tabKey, properties);
+    const selectedIds = isForcedMode ? forcedIds : this._getSelectedIds(tabKey, properties);
 
-    container.innerHTML = this._buildHTML(tabKey, properties, selectedIds, useGlobal);
-    this._bindEvents(container, tabKey, properties, selectedIds, onChange);
+    container.innerHTML = this._buildHTML(tabKey, properties, selectedIds, useGlobal, isForcedMode);
+    this._bindEvents(container, tabKey, properties, selectedIds, onChange, isForcedMode);
   },
 
   /**
    * 現在の選択済みIDを取得する (外部から参照用)
+   * サブオーナーまたは impersonation 中は ownedPropertyIds に強制制限
    * @param {string} tabKey
    * @param {Array}  properties
    * @returns {string[]}
    */
   getSelectedIds(tabKey, properties) {
+    const forcedIds = this._getForcedIds(properties);
+    if (forcedIds !== null) return forcedIds;
     return this._getSelectedIds(tabKey, properties);
+  },
+
+  /**
+   * サブオーナー / impersonation 時の強制フィルタIDを返す
+   * 対象外の場合は null を返す
+   */
+  _getForcedIds(properties) {
+    // impersonation (オーナーがサブオーナー代理閲覧中)
+    if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
+      const owned = App.impersonatingData.ownedPropertyIds || [];
+      return properties.filter(p => owned.includes(p.id)).map(p => p.id);
+    }
+    // サブオーナー本人のログイン
+    if (typeof Auth !== "undefined" && Auth.currentUser?.role === "sub_owner") {
+      const owned = Auth.currentUser.ownedPropertyIds || [];
+      return properties.filter(p => owned.includes(p.id)).map(p => p.id);
+    }
+    return null;
   },
 
   // === 内部メソッド ===
@@ -96,7 +121,7 @@ const PropertyFilter = {
   },
 
   /** チェックボックスのHTML文字列を生成 */
-  _buildHTML(tabKey, properties, selectedIds, useGlobal) {
+  _buildHTML(tabKey, properties, selectedIds, useGlobal, isForcedMode = false) {
     const selectedSet = new Set(selectedIds);
     const checkboxes = properties.map(p => {
       const checked = selectedSet.has(p.id);
@@ -117,10 +142,10 @@ const PropertyFilter = {
       `;
     }).join("");
 
-    return `
-      <div class="property-filter d-flex flex-wrap gap-2 align-items-center mb-3">
-        <span class="text-muted small me-1">物件:</span>
-        ${checkboxes}
+    // サブオーナー / impersonation 時は操作UI を非表示にして「フィルタ固定」バッジだけ表示
+    const controlsHtml = isForcedMode
+      ? `<span class="badge bg-warning text-dark ms-2"><i class="bi bi-lock-fill"></i> 物件フィルタ固定中</span>`
+      : `
         <button class="btn btn-sm btn-outline-secondary pf-all" type="button">全ON</button>
         <button class="btn btn-sm btn-outline-secondary pf-none" type="button">全OFF</button>
         <div class="form-check form-switch ms-3 mb-0">
@@ -129,12 +154,25 @@ const PropertyFilter = {
             ${useGlobal ? "checked" : ""}>
           <label class="form-check-label small text-muted" for="pf-${this._esc(tabKey)}-global">全タブ共通</label>
         </div>
+      `;
+
+    return `
+      <div class="property-filter d-flex flex-wrap gap-2 align-items-center mb-3">
+        <span class="text-muted small me-1">物件:</span>
+        ${checkboxes}
+        ${controlsHtml}
       </div>
     `;
   },
 
   /** イベントバインド */
-  _bindEvents(container, tabKey, properties, initialSelectedIds, onChange) {
+  _bindEvents(container, tabKey, properties, initialSelectedIds, onChange, isForcedMode = false) {
+    // サブオーナー強制モードでは変更不可（初期値のみで onChange を一度呼ぶ）
+    if (isForcedMode) {
+      setTimeout(() => onChange && onChange([...initialSelectedIds]), 0);
+      return;
+    }
+
     // 現在の選択状態 (ミュータブル)
     let selectedIds = [...initialSelectedIds];
 

@@ -8,12 +8,17 @@ service cloud.firestore {
       return request.auth != null && (request.auth.token.role == 'owner' || request.auth.token.role == null);
     }
 
+    // サブオーナー: role == sub_owner
+    function isSubOwner() {
+      return request.auth != null && request.auth.token.role == 'sub_owner';
+    }
+
     // スタッフ: 認証済み + role == staff
     function isStaff() {
       return request.auth != null && request.auth.token.role == 'staff';
     }
 
-    // 認証済みユーザー
+    // 認証済みユーザー（owner / sub_owner / staff 全て含む）
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -23,37 +28,48 @@ service cloud.firestore {
       return request.auth.token.staffId;
     }
 
+    // 指定物件IDへのアクセス権チェック
+    // オーナー: 全物件OK、サブオーナー: 所有物件のみ、スタッフ: false（読取は別途許可）
+    function isMyProperty(pid) {
+      return isOwner() || (isSubOwner() && pid in request.auth.token.ownedPropertyIds);
+    }
+
     // スタッフマスタ — オーナーのみ書き込み
-    // スタッフは自分のデータ + アクティブスタッフ全員の名前/IDを読み取り可能
+    // スタッフ/サブオーナーは自分のデータ + アクティブスタッフ全員の名前/IDを読み取り可能
     // (my-recruitment のカレンダーでスタッフ一覧を表示するために必要)
     match /staff/{staffId} {
       allow read: if isOwner()
+        || isSubOwner()
         || (isStaff() && myStaffId() == staffId)
         || (isStaff() && resource.data.active == true);
       allow write: if isOwner();
     }
 
-    // 物件 — オーナーのみ書き込み、スタッフは読み取りのみ
+    // 物件 — オーナーのみ書き込み、スタッフ/サブオーナーは読み取りのみ
     match /properties/{propertyId} {
       allow read: if isAuthenticated();
       allow write: if isOwner();
     }
 
-    // 予約 — オーナーのみ書き込み、スタッフは読み取りのみ
+    // 予約 — オーナーは全操作、サブオーナーは所有物件のみ読み書き、スタッフは読み取りのみ
     match /bookings/{bookingId} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner();
+      allow read: if isOwner() || isSubOwner() || isStaff();
+      allow write: if isOwner() || (isSubOwner() && isMyProperty(resource.data.propertyId));
     }
 
-    // シフト — オーナーは全操作、スタッフは自分のシフトのみ読み取り
+    // シフト — オーナーは全操作、サブオーナーは所有物件のみ読み取り、スタッフは自分のシフトのみ読み取り
     match /shifts/{shiftId} {
-      allow read: if isOwner() || (isStaff() && resource.data.staffId == myStaffId());
-      allow write: if isOwner();
+      allow read: if isOwner()
+        || (isSubOwner() && isMyProperty(resource.data.propertyId))
+        || (isStaff() && resource.data.staffId == myStaffId());
+      allow write: if isOwner() || (isSubOwner() && isMyProperty(resource.data.propertyId));
     }
 
-    // コインランドリー — スタッフは自分の記録を作成・読み取り、オーナーは全操作
+    // コインランドリー — スタッフは自分の記録を作成・読み取り、サブオーナーは所有物件を閲覧、オーナーは全操作
     match /laundry/{recordId} {
-      allow read: if isOwner() || (isStaff() && resource.data.staffId == myStaffId());
+      allow read: if isOwner()
+        || (isSubOwner() && isMyProperty(resource.data.propertyId))
+        || (isStaff() && resource.data.staffId == myStaffId());
       allow create: if isStaff() && request.resource.data.staffId == myStaffId();
       allow update, delete: if isOwner();
     }
@@ -67,10 +83,10 @@ service cloud.firestore {
          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'confirmedAt']));
     }
 
-    // チェックリスト — 読取は全スタッフ+オーナー可(履歴確認用)
+    // チェックリスト — 読取は全スタッフ+サブオーナー+オーナー可(履歴確認用)
     // 更新: 割当済みスタッフ OR 担当物件に紐づくスタッフ (シフト未確定時でも操作可能)
     match /checklists/{checklistId} {
-      allow read: if isOwner() || isStaff();
+      allow read: if isOwner() || isSubOwner() || isStaff();
       allow create: if isAuthenticated();
       allow update: if isOwner()
         || (isStaff() && (
@@ -101,23 +117,25 @@ service cloud.firestore {
       allow write: if isOwner();
     }
 
-    // 募集管理 — オーナーは全操作、スタッフは読み取り+自分の回答更新のみ
+    // 募集管理 — オーナーは全操作、サブオーナーは所有物件のみ操作、スタッフは読み取り+自分の回答更新のみ
     match /recruitments/{recruitmentId} {
       allow read: if isAuthenticated();
-      allow create, delete: if isOwner();
+      allow create, delete: if isOwner() || (isSubOwner() && isMyProperty(resource.data.propertyId));
       // スタッフは responses 配列と updatedAt のみ更新可能 (担当物件のみ)
+      // サブオーナーは所有物件の募集を更新可能
       allow update: if isOwner()
+        || (isSubOwner() && isMyProperty(resource.data.propertyId))
         || (isStaff()
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['responses', 'updatedAt'])
             && (resource.data.propertyId == null
                 || resource.data.propertyId in get(/databases/$(database)/documents/staff/$(myStaffId())).data.assignedPropertyIds));
 
-      // 回答サブコレクション — スタッフは自分の回答を作成・更新、オーナーは全操作
+      // 回答サブコレクション — スタッフは自分の回答を作成・更新、オーナー/サブオーナーは全操作
       match /responses/{responseId} {
         allow read: if isAuthenticated();
         allow create: if isAuthenticated();
-        allow update: if isOwner() || (isStaff() && resource.data.staffId == myStaffId());
-        allow delete: if isOwner() || (isStaff() && resource.data.staffId == myStaffId());
+        allow update: if isOwner() || isSubOwner() || (isStaff() && resource.data.staffId == myStaffId());
+        allow delete: if isOwner() || isSubOwner() || (isStaff() && resource.data.staffId == myStaffId());
       }
     }
 

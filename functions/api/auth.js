@@ -94,8 +94,11 @@ module.exports = function authApi(db) {
         await staffDoc.ref.update({ authUid: uid, updatedAt: new Date() });
       }
 
-      // カスタムクレーム設定
-      await admin.auth().setCustomUserClaims(uid, { role: "staff", staffId });
+      // カスタムクレーム設定（サブオーナー対応）
+      const staffClaims = staffData.isSubOwner
+        ? { role: "sub_owner", staffId, ownedPropertyIds: staffData.ownedPropertyIds || [] }
+        : { role: "staff", staffId };
+      await admin.auth().setCustomUserClaims(uid, staffClaims);
 
       // カスタムトークン発行
       const customToken = await admin.auth().createCustomToken(uid);
@@ -194,8 +197,11 @@ module.exports = function authApi(db) {
         updatedAt: new Date(),
       });
 
-      // カスタムクレーム設定
-      await admin.auth().setCustomUserClaims(uid, { role: "staff", staffId });
+      // カスタムクレーム設定（サブオーナー対応）
+      const inviteLineClaims = staffData.isSubOwner
+        ? { role: "sub_owner", staffId, ownedPropertyIds: staffData.ownedPropertyIds || [] }
+        : { role: "staff", staffId };
+      await admin.auth().setCustomUserClaims(uid, inviteLineClaims);
 
       // 招待トークンを使用済みに
       await inviteDoc.ref.update({
@@ -444,8 +450,11 @@ module.exports = function authApi(db) {
         }
       }
 
-      // カスタムクレーム設定（role: staff + staffId）
-      await admin.auth().setCustomUserClaims(uid, { role: "staff", staffId });
+      // カスタムクレーム設定（role: sub_owner / staff + staffId）
+      const claims = staffData.isSubOwner
+        ? { role: "sub_owner", staffId, ownedPropertyIds: staffData.ownedPropertyIds || [] }
+        : { role: "staff", staffId };
+      await admin.auth().setCustomUserClaims(uid, claims);
 
       // staff ドキュメントに authUid を記録（まだ保存されていない場合）
       if (!staffData.authUid) {
@@ -536,13 +545,20 @@ module.exports = function authApi(db) {
       if (!uid || !role) {
         return res.status(400).json({ error: "uid と role が必要です" });
       }
-      if (!["owner", "staff"].includes(role)) {
-        return res.status(400).json({ error: "role は 'owner' または 'staff' のみ" });
+      if (!["owner", "sub_owner", "staff"].includes(role)) {
+        return res.status(400).json({ error: "role は 'owner' / 'sub_owner' / 'staff' のみ" });
       }
 
       const claims = { role };
-      if (role === "staff" && staffId) {
+      if ((role === "staff" || role === "sub_owner") && staffId) {
         claims.staffId = staffId;
+      }
+      // sub_owner の場合は ownedPropertyIds も取得してクレームに含める
+      if (role === "sub_owner" && staffId) {
+        const sDoc = await db.collection("staff").doc(staffId).get();
+        if (sDoc.exists) {
+          claims.ownedPropertyIds = sDoc.data().ownedPropertyIds || [];
+        }
       }
 
       await admin.auth().setCustomUserClaims(uid, claims);
@@ -550,6 +566,60 @@ module.exports = function authApi(db) {
       res.json({ success: true, uid, claims });
     } catch (e) {
       console.error("ロール設定エラー:", e);
+      res.status(500).json({ error: `サーバーエラー: ${e.message}` });
+    }
+  });
+
+  /**
+   * POST /auth/set-sub-owner
+   * スタッフをサブオーナーに昇格 / 解除（オーナー限定）
+   * リクエスト: { staffId: string, isSubOwner: boolean, ownedPropertyIds?: string[], subOwnerLineUserId?: string, subOwnerEmail?: string }
+   */
+  router.post("/set-sub-owner", async (req, res) => {
+    try {
+      const user = await authenticateRequest_(req);
+      if (!user) {
+        return res.status(401).json({ error: "認証が必要です" });
+      }
+      if (user.role && user.role !== "owner") {
+        return res.status(403).json({ error: "オーナー権限が必要です" });
+      }
+
+      const { staffId, isSubOwner, ownedPropertyIds = [], subOwnerLineUserId, subOwnerEmail } = req.body;
+      if (!staffId) {
+        return res.status(400).json({ error: "staffId が必要です" });
+      }
+
+      const staffDoc = await db.collection("staff").doc(staffId).get();
+      if (!staffDoc.exists) {
+        return res.status(404).json({ error: "スタッフが見つかりません" });
+      }
+
+      // Firestoreのスタッフドキュメント更新
+      const updateData = {
+        isSubOwner: !!isSubOwner,
+        ownedPropertyIds: isSubOwner ? (Array.isArray(ownedPropertyIds) ? ownedPropertyIds : []) : [],
+        updatedAt: new Date(),
+      };
+      if (subOwnerLineUserId !== undefined) updateData.subOwnerLineUserId = subOwnerLineUserId || null;
+      if (subOwnerEmail !== undefined) updateData.subOwnerEmail = subOwnerEmail || null;
+
+      await staffDoc.ref.update(updateData);
+
+      // Firebase Auth カスタムクレーム更新（authUid が存在する場合のみ）
+      const staffData = staffDoc.data();
+      if (staffData.authUid) {
+        const newRole = isSubOwner ? "sub_owner" : "staff";
+        const claims = { role: newRole, staffId };
+        if (isSubOwner) {
+          claims.ownedPropertyIds = updateData.ownedPropertyIds;
+        }
+        await admin.auth().setCustomUserClaims(staffData.authUid, claims);
+      }
+
+      res.json({ success: true, staffId, isSubOwner: !!isSubOwner });
+    } catch (e) {
+      console.error("サブオーナー設定エラー:", e);
       res.status(500).json({ error: `サーバーエラー: ${e.message}` });
     }
   });

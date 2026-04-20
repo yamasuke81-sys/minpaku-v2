@@ -77,6 +77,7 @@ const Auth = {
         user.getIdTokenResult().then((result) => {
           this.currentUser.role = result.claims.role || "owner";
           this.currentUser.staffId = result.claims.staffId || null;
+          this.currentUser.ownedPropertyIds = result.claims.ownedPropertyIds || [];
           App.onAuthReady();
         });
       } else {
@@ -334,7 +335,11 @@ const Auth = {
   },
 
   isOwner() {
-    return this.currentUser && this.currentUser.role === "owner";
+    return this.currentUser && (this.currentUser.role === "owner" || this.currentUser.role == null);
+  },
+
+  isSubOwner() {
+    return this.currentUser && this.currentUser.role === "sub_owner";
   },
 
   isStaff() {

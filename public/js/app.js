@@ -75,6 +75,84 @@ const App = {
     });
   },
 
+  // ========== Impersonation (代理閲覧) ==========
+
+  /** 代理閲覧中のサブオーナーStaffId (null = 通常モード) */
+  impersonating: null,
+  impersonatingData: null,
+
+  /**
+   * 起動時に impersonateAs を読み込む
+   * メインオーナーが特定サブオーナーの視点でアプリを閲覧するための機構
+   */
+  async initImpersonation() {
+    const impersonateAs = localStorage.getItem("impersonateAs");
+    if (!impersonateAs) {
+      this.impersonating = null;
+      this.impersonatingData = null;
+      return;
+    }
+    // 実際のロールがオーナーの場合のみ有効
+    const role = Auth.currentUser?.role || "owner";
+    if (role !== "owner" && role !== null && role !== undefined) {
+      // オーナー以外は impersonation 不可
+      localStorage.removeItem("impersonateAs");
+      return;
+    }
+    try {
+      const db = firebase.firestore();
+      const sDoc = await db.collection("staff").doc(impersonateAs).get();
+      if (!sDoc.exists || !sDoc.data().isSubOwner) {
+        localStorage.removeItem("impersonateAs");
+        return;
+      }
+      this.impersonating = impersonateAs;
+      this.impersonatingData = { id: impersonateAs, ...sDoc.data() };
+      this._showImpersonateBanner(this.impersonatingData);
+    } catch (e) {
+      console.warn("impersonation初期化エラー:", e.message);
+      localStorage.removeItem("impersonateAs");
+    }
+  },
+
+  /** 代理閲覧バナーを表示 */
+  _showImpersonateBanner(subOwner) {
+    let banner = document.getElementById("impersonateBanner");
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.id = "impersonateBanner";
+      banner.className = "impersonate-banner alert alert-warning alert-dismissible mb-0 rounded-0 d-flex align-items-center";
+      banner.style.cssText = "position:sticky;top:0;z-index:1050;font-size:0.85rem;padding:6px 12px;";
+      document.querySelector(".app-main")?.prepend(banner);
+    }
+    banner.innerHTML = `
+      <i class="bi bi-person-badge me-2"></i>
+      <strong>代理閲覧中: ${this.escapeHtml(subOwner.name)}</strong>
+      <span class="ms-2 text-muted small">(所有物件: ${(subOwner.ownedPropertyIds || []).length}件)</span>
+      <button type="button" class="btn btn-sm btn-outline-dark ms-auto" id="btnExitImpersonate">
+        <i class="bi bi-x-circle"></i> 解除
+      </button>
+    `;
+    document.getElementById("btnExitImpersonate")?.addEventListener("click", () => {
+      localStorage.removeItem("impersonateAs");
+      window.location.reload();
+    });
+  },
+
+  /** impersonation中の ownedPropertyIds を返す (通常時は null) */
+  getImpersonatedPropertyIds() {
+    if (!this.impersonating || !this.impersonatingData) return null;
+    return this.impersonatingData.ownedPropertyIds || [];
+  },
+
+  escapeHtml(s) {
+    const d = document.createElement("div");
+    d.textContent = String(s || "");
+    return d.innerHTML;
+  },
+
+  // ========== 認証完了後の初期化 ==========
+
   onAuthReady() {
     const user = Auth.currentUser;
     if (user) {
@@ -95,7 +173,8 @@ const App = {
     // スタッフ側のプリカ管理タブ: 担当物件に紐づくカードがある場合のみ表示
     if (role === "staff") this._maybeShowStaffPrepaidNav();
 
-    this.route();
+    // impersonation 初期化（オーナーのみ）
+    this.initImpersonation().then(() => this.route());
   },
 
   // スタッフの担当物件に紐づくプリカが存在する時だけサイドバーに「プリカ管理」を表示
@@ -134,16 +213,16 @@ const App = {
     const hash = location.hash.replace("#", "") || "/";
     const path = hash.split("/").filter(Boolean);
 
-    // デフォルトページ: オーナー→dashboard、スタッフ→my-dashboard
+    // デフォルトページ: オーナー/サブオーナー→dashboard、スタッフ→my-dashboard
     const defaultPage = role === "staff" ? "my-dashboard" : "dashboard";
     const pageName = path[0] || defaultPage;
 
-    // ロール別ページマップ選択（オーナーはスタッフページにもアクセス可能）
+    // ロール別ページマップ選択（オーナー/サブオーナーはスタッフページにもアクセス可能）
     const availablePages = role === "staff"
       ? this.staffPages
       : { ...this.pages, ...this.staffPages };
 
-    // サイドバーのアクティブ状態更新
+    // サイドバーのアクティブ状態更新（サブオーナーはオーナーナビを使用）
     const navId = role === "staff" ? "#staffNav" : "#ownerNav";
     document.querySelectorAll(`${navId} .nav-link`).forEach((el) => {
       el.classList.toggle("active", el.getAttribute("data-page") === pageName);

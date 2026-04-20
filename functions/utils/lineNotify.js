@@ -660,6 +660,67 @@ async function notifyOwner(db, type, title, body, vars, propertyOverrides) {
 }
 
 /**
+ * 指定物件のサブオーナーに個別通知を送信する
+ * notifyOwner の補助として呼び出す（既存の notifyOwner 経路に追加する形）
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} propertyId - 対象物件ID
+ * @param {string} title - 通知タイトル（ログ用）
+ * @param {string} body - 送信テキスト
+ * @returns {Promise<{success: boolean, sent: number}>}
+ */
+async function notifySubOwners(db, propertyId, title, body) {
+  if (!propertyId) return { success: false, sent: 0 };
+  let sentCount = 0;
+  try {
+    const { channelToken } = await getNotificationSettings_(db);
+    const staffSnap = await db.collection("staff")
+      .where("isSubOwner", "==", true)
+      .where("ownedPropertyIds", "array-contains", propertyId)
+      .get();
+
+    for (const s of staffSnap.docs) {
+      const sData = s.data();
+      if (!sData.active) continue;
+
+      // サブオーナー専用 LINE User ID に個別送信
+      if (sData.subOwnerLineUserId && channelToken) {
+        const result = await sendLineMessage(channelToken, sData.subOwnerLineUserId, body);
+        if (result.success) sentCount++;
+        try {
+          await db.collection("notifications").add({
+            type: "sub_owner_notify",
+            title,
+            body: body.slice(0, 1000),
+            staffId: s.id,
+            staffName: sData.name,
+            propertyId,
+            sentAt: new Date(),
+            channel: "line",
+            target: "sub_owner",
+            success: result.success,
+            error: result.error || null,
+          });
+        } catch (e) { console.error("通知ログ記録エラー:", e); }
+      }
+
+      // サブオーナー専用メールに送信
+      if (sData.subOwnerEmail) {
+        try {
+          await sendNotificationEmail_(sData.subOwnerEmail, title, body);
+          sentCount++;
+        } catch (e) {
+          console.error(`サブオーナー(${sData.name}) メール通知エラー:`, e.message);
+        }
+      }
+    }
+  } catch (e) {
+    console.error("サブオーナー通知エラー:", e.message);
+    return { success: false, sent: sentCount };
+  }
+  return { success: sentCount > 0, sent: sentCount };
+}
+
+/**
  * Discord Webhook に通知を送信
  * @param {string} webhookUrl Discord Webhook URL
  * @param {string} content テキスト (最大2000文字)
@@ -941,6 +1002,7 @@ module.exports = {
   notifyOwner,
   notifyStaff,
   notifyGroup,
+  notifySubOwners,
   buildRecruitmentFlex,
   resolveNotifyTargets,
   getNotificationSettings_,

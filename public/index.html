@@ -225,6 +225,39 @@
               <textarea class="form-control" id="staffMemo" rows="2"></textarea>
             </div>
 
+            <!-- サブオーナー設定（編集時のみ表示） -->
+            <div class="col-12 d-none" id="staffSubOwnerSection">
+              <hr><h6><i class="bi bi-person-badge"></i> サブオーナー設定</h6>
+              <div class="row g-2">
+                <div class="col-12">
+                  <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="staffIsSubOwner" role="switch">
+                    <label class="form-check-label" for="staffIsSubOwner">
+                      <strong>サブオーナーとして扱う</strong>
+                      <small class="text-muted d-block">ONにすると物件フィルタが自動適用され、LINE/メール個別通知が送られます</small>
+                    </label>
+                  </div>
+                </div>
+                <div id="subOwnerDetails" class="col-12 d-none">
+                  <div class="row g-2 mt-1">
+                    <div class="col-12">
+                      <label class="form-label">所有物件 <small class="text-muted">(サブオーナーが管理する物件)</small></label>
+                      <div id="staffOwnedProperties" class="d-flex flex-wrap gap-3 border rounded p-2"></div>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label">個別通知先 LINE User ID</label>
+                      <input type="text" class="form-control" id="staffSubOwnerLineUserId" placeholder="Uxxxxxx...">
+                      <div class="form-text">サブオーナー宛の個別LINE通知先</div>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label">個別通知先メール</label>
+                      <input type="email" class="form-control" id="staffSubOwnerEmail" placeholder="subowner@example.com">
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <!-- LINE連携・アプリ招待（編集時のみ表示） -->
             <div class="col-12 d-none" id="staffLineSection">
               <hr><h6><i class="bi bi-line"></i> LINE連携・アプリ招待</h6>
