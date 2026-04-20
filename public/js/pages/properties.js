@@ -12,6 +12,8 @@ const PropertiesPage = {
   _autoSaveTimer: null,  // 自動保存デバウンスタイマー
   // 現在モーダルに表示している LINE チャネル配列（保存済みトークンを保持するため）
   _lineChannels: [],
+  // オーナー候補 (isOwner or isSubOwner の staff)
+  _ownerStaffOptions: [],
 
   async render(container) {
     container.innerHTML = `
@@ -45,9 +47,24 @@ const PropertiesPage = {
   async loadProperties() {
     try {
       this.propertyList = await API.properties.list(false);
+      // オーナー候補 (isOwner or isSubOwner の staff) を取得
+      await this._loadOwnerStaffOptions();
       this.renderCards();
     } catch (e) {
       showToast("エラー", `物件読み込み失敗: ${e.message}`, "error");
+    }
+  },
+
+  // オーナー候補 (請求書宛名用) を staff から取得
+  async _loadOwnerStaffOptions() {
+    try {
+      const snap = await db.collection("staff").orderBy("displayOrder", "asc").get();
+      this._ownerStaffOptions = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(s => s.isOwner === true || s.isSubOwner === true);
+    } catch (e) {
+      console.warn("オーナー候補読込失敗:", e.message);
+      this._ownerStaffOptions = [];
     }
   },
 
@@ -206,6 +223,9 @@ const PropertiesPage = {
     document.getElementById("propertyKeyboxNumber").value = property?.keyboxNumber || "";
     document.getElementById("propertyNotes").value = property?.notes || "";
 
+    // オーナー (請求書宛名) プルダウンを構築
+    this._renderOwnerStaffSelect(property?.ownerStaffId || "");
+
     // LINE 連携フィールド
     document.getElementById("propertyLineEnabled").checked = !!property?.lineEnabled;
     document.getElementById("propertyLineChannelStrategy").value =
@@ -341,6 +361,8 @@ const PropertiesPage = {
       })(),
       keyboxNumber: document.getElementById("propertyKeyboxNumber").value.trim() || null,
       notes: document.getElementById("propertyNotes").value.trim(),
+      // オーナー (請求書宛名用 staff ID)
+      ownerStaffId: document.getElementById("propertyOwnerStaffId")?.value || null,
       // LINE 連携フィールド
       lineEnabled: document.getElementById("propertyLineEnabled").checked,
       lineChannelStrategy: document.getElementById("propertyLineChannelStrategy").value || "fallback",
@@ -426,6 +448,8 @@ const PropertiesPage = {
       })(),
       keyboxNumber: document.getElementById("propertyKeyboxNumber").value.trim() || null,
       notes: document.getElementById("propertyNotes").value.trim(),
+      // オーナー (請求書宛名用 staff ID)
+      ownerStaffId: document.getElementById("propertyOwnerStaffId")?.value || null,
       lineEnabled: document.getElementById("propertyLineEnabled").checked,
       lineChannelStrategy: document.getElementById("propertyLineChannelStrategy").value || "fallback",
       lineChannels: this._collectLineChannels(),
@@ -505,6 +529,20 @@ const PropertiesPage = {
   toggleInspectionPeriodBlocks(recur) {
     document.getElementById("inspectionPeriodFull")?.classList.toggle("d-none", recur);
     document.getElementById("inspectionPeriodRecur")?.classList.toggle("d-none", !recur);
+  },
+
+  // オーナー (請求書宛名) プルダウンを描画
+  _renderOwnerStaffSelect(selectedId) {
+    const sel = document.getElementById("propertyOwnerStaffId");
+    if (!sel) return;
+    const escape = (s) => this.escapeHtml(String(s || ""));
+    const opts = [`<option value="">(未設定 / 既定宛先を使用)</option>`].concat(
+      this._ownerStaffOptions.map(s => {
+        const flag = s.isOwner ? "オーナー" : "サブオーナー";
+        return `<option value="${escape(s.id)}" ${s.id === selectedId ? "selected" : ""}>${escape(s.name)} (${flag})</option>`;
+      })
+    ).join("");
+    sel.innerHTML = opts;
   },
 
   // ---- LINE 複数チャネル UI ----

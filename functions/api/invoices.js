@@ -45,6 +45,74 @@ function fmtDate(val) {
 }
 
 /**
+ * 請求書宛名を解決する
+ * 物件 (ownerStaffId) に紐付いたオーナー staff 情報を優先、無ければ settings/clientInfo、
+ * さらに無ければ合同会社八朔 (既定) を使用する。
+ *
+ * @param {Firestore} db
+ * @param {string|null} propertyId
+ * @param {Object} client - 既に取得済みの settings/clientInfo (fallback 用)
+ * @returns {Promise<{companyName:string, address:string, zipCode:string, name:string, source:string}>}
+ */
+async function resolveInvoiceRecipient_(db, propertyId, client) {
+  // fallback: settings/clientInfo → 既定 (合同会社八朔)
+  const fallback = {
+    companyName: client?.companyName || "合同会社八朔",
+    address: client?.address || "広島県安芸郡海田町上市4-23-12",
+    zipCode: client?.zipCode || "736-0061",
+    name: client?.name || "",
+    source: "settings",
+  };
+  if (!propertyId) return fallback;
+  try {
+    const pDoc = await db.collection("properties").doc(propertyId).get();
+    if (!pDoc.exists) return fallback;
+    const ownerStaffId = pDoc.data().ownerStaffId;
+    if (!ownerStaffId) return fallback;
+    const sDoc = await db.collection("staff").doc(ownerStaffId).get();
+    if (!sDoc.exists) return fallback;
+    const s = sDoc.data();
+    return {
+      // 会社名があれば社名、無ければ氏名を宛名として使う
+      companyName: s.companyName || s.name || fallback.companyName,
+      address: s.address || fallback.address,
+      zipCode: s.zipCode || fallback.zipCode,
+      name: s.name || "",
+      source: "ownerStaff",
+    };
+  } catch (e) {
+    console.warn("[resolveInvoiceRecipient_] 失敗:", e.message);
+    return fallback;
+  }
+}
+
+/**
+ * invoice.details (shifts/special/laundry/prepaid) および transportationFee を
+ * excludedRows に基づいてフィルタする。PDF描画前に呼ぶことで除外行が PDF に出ないようにする。
+ *
+ * @param {Object} details - { shifts, special, laundry, prepaid, manualItems, manual }
+ * @param {Array} excludedRows - [{type, refId, ...}]
+ * @param {string} yearMonth - "YYYY-MM" (交通費除外判定用)
+ * @returns {Object} フィルタ済み details + transportationExcluded フラグ
+ */
+function applyExclusionsToDetails_(details, excludedRows, yearMonth) {
+  const excludedKeys = new Set((excludedRows || []).map(r => `${r.type}:${r.refId}`));
+  const shifts = (details?.shifts || []).filter(s => !excludedKeys.has(`shift:${s.shiftId || s.id || ""}`));
+  const special = (details?.special || []).filter(sp => !excludedKeys.has(`special:${(sp.shiftId || "")}_${sp.name || ""}`));
+  const laundry = (details?.laundry || []).filter(l => !excludedKeys.has(`laundry:${l.id || ""}`));
+  const prepaid = (details?.prepaid || []).filter(p => !excludedKeys.has(`prepaid:${p.cardId || p.cardNumber || ""}`));
+  const transportationExcluded = excludedKeys.has(`transportation:${yearMonth || ""}`);
+  return {
+    shifts,
+    special,
+    laundry,
+    prepaid,
+    manualItems: details?.manualItems || details?.manual || [],
+    transportationExcluded,
+  };
+}
+
+/**
  * 請求書データから PDF Buffer を生成する (Storage に保存しない)
  * プレビュー用途。generateInvoicePdf_ の描画ロジックを共有するが、tmp 書込・
  * Storage アップロード・Drive 保存は行わず、生 Buffer を返す。
@@ -208,12 +276,13 @@ async function renderInvoicePdfBuffer(invoice, staff, client, propertyMap) {
     pdfDoc.text("", pdfDoc.page.margins.left, y);
     pdfDoc.moveDown(0.8);
 
-    // 請求書メモ (支払期限の上)
-    if (staff.invoiceMemo) {
+    // 請求書メモ (支払期限の上) — invoice.invoiceMemo 優先 (毎月内容可変)
+    const memoText = invoice.invoiceMemo || "";
+    if (memoText) {
       setFont(9);
       pdfDoc.fillColor("#333");
       pdfDoc.text("メモ:", leftX, pdfDoc.y);
-      pdfDoc.text(String(staff.invoiceMemo), leftX + 12, pdfDoc.y, { width: pageWidth - 12 });
+      pdfDoc.text(String(memoText), leftX + 12, pdfDoc.y, { width: pageWidth - 12 });
       pdfDoc.fillColor("#000");
       pdfDoc.moveDown(0.4);
     }
@@ -249,21 +318,14 @@ async function generateInvoicePdf_(db, invoiceId) {
   const staffDoc = await db.collection("staff").doc(invoice.staffId).get();
   const staff = staffDoc.exists ? staffDoc.data() : {};
 
-  // 宛先(請求先)情報: settings/clientInfo に保存されたメインオーナーの会社情報
-  let client = {};
+  // 宛先(請求先)情報: まず settings/clientInfo を取得
+  let clientBase = {};
   try {
     const cDoc = await db.collection("settings").doc("clientInfo").get();
-    if (cDoc.exists) client = cDoc.data();
+    if (cDoc.exists) clientBase = cDoc.data();
   } catch (_) {}
-  // デフォルト宛先 (合同会社八朔)
-  if (!client.companyName) {
-    client = {
-      zipCode: "736-0061",
-      address: "広島県安芸郡海田町上市4-23-12",
-      companyName: "合同会社八朔",
-      ...client,
-    };
-  }
+  // 物件のオーナー (ownerStaffId) → staff 情報を優先し、なければ clientInfo/既定
+  const client = await resolveInvoiceRecipient_(db, invoice.propertyId || null, clientBase);
 
   const propertyIds = [...new Set((invoice.details?.shifts || []).map((s) => s.propertyId).filter(Boolean))];
   const propertyMap = {};
@@ -339,9 +401,11 @@ async function generateInvoicePdf_(db, invoiceId) {
     pdfDoc.moveDown(1);
 
     // ── 明細テーブル ──
+    // 除外行 (invoice.excludedRows) を詳細配列からフィルタしてから描画
+    const _filtered = applyExclusionsToDetails_(invoice.details || {}, invoice.excludedRows || [], invoice.yearMonth);
     // 行を構築: 清掃明細 + 特別加算 + ランドリー明細 + 追加項目
     const rows = [];
-    const shifts = invoice.details?.shifts || [];
+    const shifts = _filtered.shifts;
     shifts.forEach((s) => {
       const propName = propertyMap[s.propertyId] || s.propertyId || "";
       let label = `清掃 ${propName}`;
@@ -365,7 +429,7 @@ async function generateInvoicePdf_(db, invoiceId) {
         section: "shift",
       });
     });
-    const specialItems = invoice.details?.special || [];
+    const specialItems = _filtered.special;
     specialItems.forEach((sp) => {
       const propName = propertyMap[sp.propertyId] || sp.propertyId || "";
       rows.push({
@@ -376,7 +440,7 @@ async function generateInvoicePdf_(db, invoiceId) {
         section: "special",
       });
     });
-    const laundry = invoice.details?.laundry || [];
+    const laundry = _filtered.laundry;
     laundry.forEach((l) => {
       rows.push({
         date: l.date ? fmtDate(l.date) : "",
@@ -386,7 +450,7 @@ async function generateInvoicePdf_(db, invoiceId) {
         section: "laundry",
       });
     });
-    const manualItems = invoice.details?.manualItems || invoice.manualItems || [];
+    const manualItems = _filtered.manualItems || invoice.manualItems || [];
     manualItems.forEach((item) => {
       rows.push({
         date: item.date ? fmtDate(item.date) : "",
@@ -435,12 +499,13 @@ async function generateInvoicePdf_(db, invoiceId) {
     pdfDoc.text("", pdfDoc.page.margins.left, y);
     pdfDoc.moveDown(0.8);
 
-    // ── 請求書メモ (支払期限の上) ──
-    if (staff.invoiceMemo) {
+    // ── 請求書メモ (支払期限の上) ── invoice.invoiceMemo 優先 (毎月可変)
+    const memoText = invoice.invoiceMemo || "";
+    if (memoText) {
       setFont(9);
       pdfDoc.fillColor("#333");
       pdfDoc.text("メモ：", leftX, pdfDoc.y);
-      pdfDoc.text(String(staff.invoiceMemo), leftX + 12, pdfDoc.y, { width: pageWidth - 12 });
+      pdfDoc.text(String(memoText), leftX + 12, pdfDoc.y, { width: pageWidth - 12 });
       pdfDoc.fillColor("#000");
       pdfDoc.moveDown(0.4);
     }
@@ -838,9 +903,11 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
 
   // ランドリー集計
   // sourceShiftId が設定されている場合は shift 経由で計上済みのためスキップ (二重カウント防止)
+  // id は除外キー (laundry:{id}) とのマッチ用
   const laundryDetails = reimbursableLaundry
     .filter(l => !l.sourceShiftId)
     .map(l => ({
+      id: l.id,  // 除外マッチ用
       date: l.date,
       amount: l.amount || 0,
       memo: l.memo || "",
@@ -1325,10 +1392,10 @@ module.exports = function invoicesApi(db) {
   });
 
   // 請求書プレビュー PDF を生成して Buffer で返す (Storage 保存なし)
-  // POST /invoices/my-preview-pdf  body: { yearMonth, propertyId, manualItems?, asStaffId? (オーナー専用代理) }
+  // POST /invoices/my-preview-pdf  body: { yearMonth, propertyId, manualItems?, invoiceMemo?, asStaffId? (オーナー専用代理) }
   router.post("/my-preview-pdf", async (req, res) => {
     try {
-      const { yearMonth, propertyId, manualItems = [], asStaffId } = req.body || {};
+      const { yearMonth, propertyId, manualItems = [], invoiceMemo = "", asStaffId } = req.body || {};
       if (!yearMonth || !/^\d{4}-\d{2}$/.test(yearMonth)) {
         return res.status(400).json({ error: "yearMonth(YYYY-MM)は必須です" });
       }
@@ -1358,20 +1425,14 @@ module.exports = function invoicesApi(db) {
       // 集計 (invoiceExclusions も既に適用される)
       const details = await computeInvoiceDetails(db, staffDoc.id, yearMonth, manualItems, propertyId);
 
-      // 宛先(client)情報
-      let client = {};
+      // 宛先(client)情報: まず settings/clientInfo を取得し、
+      // 物件のオーナー (ownerStaffId) があれば staff 情報で上書きする
+      let clientBase = {};
       try {
         const cDoc = await db.collection("settings").doc("clientInfo").get();
-        if (cDoc.exists) client = cDoc.data();
+        if (cDoc.exists) clientBase = cDoc.data();
       } catch (_) {}
-      if (!client.companyName) {
-        client = {
-          zipCode: "736-0061",
-          address: "広島県安芸郡海田町上市4-23-12",
-          companyName: "合同会社八朔",
-          ...client,
-        };
-      }
+      const client = await resolveInvoiceRecipient_(db, propertyId, clientBase);
 
       // propertyMap (1物件のみ)
       const propertyMap = {};
@@ -1379,7 +1440,20 @@ module.exports = function invoicesApi(db) {
       const propertyName = pDoc.exists ? pDoc.data().name : propertyId;
       propertyMap[propertyId] = propertyName;
 
-      // invoice-like オブジェクト
+      // 除外行を詳細配列からもフィルタ (PDF に除外項目が出ないように)
+      const filtered = applyExclusionsToDetails_(
+        {
+          shifts: details.shifts,
+          special: details.special,
+          laundry: details.laundry,
+          prepaid: details.prepaid,
+          manualItems: details.manual,
+        },
+        details.excludedRows || [],
+        yearMonth,
+      );
+
+      // invoice-like オブジェクト (除外済み詳細を使用)
       const invoice = {
         id: "preview",
         yearMonth,
@@ -1388,12 +1462,13 @@ module.exports = function invoicesApi(db) {
         propertyId,
         propertyName,
         total: details.total,
+        invoiceMemo: invoiceMemo || "",
         details: {
-          shifts: details.shifts,
-          special: details.special,
-          laundry: details.laundry,
-          manualItems: details.manual,
-          prepaid: details.prepaid,
+          shifts: filtered.shifts,
+          special: filtered.special,
+          laundry: filtered.laundry,
+          manualItems: filtered.manualItems,
+          prepaid: filtered.prepaid,
         },
         remarks: "(プレビュー)",
       };
@@ -1409,10 +1484,10 @@ module.exports = function invoicesApi(db) {
   });
 
   // スタッフが自分の請求書を作成 or 更新（月次集計）
-  // POST /invoices/my-submit  body: { yearMonth: "YYYY-MM", propertyId: string, manualItems?: [...], asStaffId?: string (オーナー専用代理) }
+  // POST /invoices/my-submit  body: { yearMonth, propertyId, manualItems?, invoiceMemo?, asStaffId? }
   router.post("/my-submit", async (req, res) => {
     try {
-      const { yearMonth, propertyId, manualItems = [], asStaffId } = req.body || {};
+      const { yearMonth, propertyId, manualItems = [], invoiceMemo = "", asStaffId } = req.body || {};
       if (!yearMonth || !/^\d{4}-\d{2}$/.test(yearMonth)) {
         return res.status(400).json({ error: "yearMonth(YYYY-MM)は必須です" });
       }
@@ -1493,6 +1568,10 @@ module.exports = function invoicesApi(db) {
           prepaid: computed.prepaid || [],
           manualItems: computed.manual,
         },
+        // 除外行 (PDF 再生成でも除外が維持されるよう invoice ドキュメントに保存)
+        excludedRows: computed.excludedRows || [],
+        // オーナーへのメッセージ (毎月可変、staff へは保存しない)
+        invoiceMemo: String(invoiceMemo || ""),
         submittedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       };

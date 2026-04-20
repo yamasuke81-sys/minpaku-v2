@@ -124,6 +124,17 @@ const MyInvoiceCreatePage = {
         </div>
       </div>
 
+      <!-- オーナーへのメッセージ (請求書メモ) — 毎月内容を変えて OK、staff には保存しない -->
+      <div class="card mb-3">
+        <div class="card-body">
+          <label class="form-label mb-1" for="invoiceMemoText">
+            <i class="bi bi-chat-left-text"></i> オーナーへのメッセージ (請求書メモ)
+          </label>
+          <div class="small text-muted mb-2">支払期限の上に表示されます。毎月内容を変えてOK</div>
+          <textarea id="invoiceMemoText" class="form-control form-control-sm" rows="3" placeholder="例: 振込手数料はご負担ください / 今月は特別な対応がありました 等"></textarea>
+        </div>
+      </div>
+
       <!-- 合計 + 送信ボタン -->
       <div class="card mb-3 border-primary">
         <div class="card-body d-flex justify-content-between align-items-center">
@@ -162,6 +173,9 @@ const MyInvoiceCreatePage = {
             <div class="modal-body">
               <div class="small text-muted mb-2">この情報は<strong>スタッフマスタと同期</strong>しています。編集すると自動でスタッフタブにも反映されます。</div>
               <div class="row g-2" id="staffInfoFields">
+                <div class="col-md-8"><label class="form-label small mb-1">会社名 / 屋号</label><input type="text" class="form-control form-control-sm s-field" data-field="companyName" placeholder="例: 合同会社○○ (個人の場合は空欄)"></div>
+                <div class="col-md-4"><label class="form-label small mb-1">郵便番号</label><input type="text" class="form-control form-control-sm s-field" data-field="zipCode" placeholder="例: 736-0061"></div>
+                <div class="col-md-12 small text-muted" style="margin-top:-4px;">個人の場合は会社名を空欄可。会社名を入れると請求書宛名に「社名 御中」、空欄なら「氏名 御中」と表示されます。</div>
                 <div class="col-md-6"><label class="form-label small mb-1">氏名 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="name"></div>
                 <div class="col-md-6"><label class="form-label small mb-1">電話</label><input type="tel" class="form-control form-control-sm s-field" data-field="phone"></div>
                 <div class="col-md-12"><label class="form-label small mb-1">住所 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="address"></div>
@@ -176,10 +190,6 @@ const MyInvoiceCreatePage = {
                 </div>
                 <div class="col-md-4"><label class="form-label small mb-1">口座番号 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="accountNumber"></div>
                 <div class="col-md-4"><label class="form-label small mb-1">口座名義 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="accountHolder"></div>
-                <div class="col-md-12">
-                  <label class="form-label small mb-1">請求書メモ <span class="text-muted small">(PDF の支払期限の上に表示)</span></label>
-                  <textarea class="form-control form-control-sm s-field" data-field="invoiceMemo" rows="3" placeholder="例: 振込手数料はご負担ください / 初回のみ特別単価適用 等"></textarea>
-                </div>
               </div>
             </div>
             <div class="modal-footer">
@@ -308,7 +318,7 @@ const MyInvoiceCreatePage = {
 
   // スタッフ情報パネルの値を流し込み + 自動保存をセット
   _renderStaffInfoFields() {
-    const fields = ["name", "phone", "address", "email", "bankName", "branchName", "accountType", "accountNumber", "accountHolder", "invoiceMemo"];
+    const fields = ["companyName", "zipCode", "name", "phone", "address", "email", "bankName", "branchName", "accountType", "accountNumber", "accountHolder"];
     fields.forEach(f => {
       const el = document.querySelector(`.s-field[data-field="${f}"]`);
       if (!el) return;
@@ -760,7 +770,9 @@ const MyInvoiceCreatePage = {
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 送信中...';
     try {
       const token = await firebase.auth().currentUser.getIdToken();
-      const body = { yearMonth: ym, propertyId: this.propertyId, manualItems };
+      // オーナーへのメッセージ (請求書メモ) — 毎月可変
+      const invoiceMemo = document.getElementById("invoiceMemoText")?.value || "";
+      const body = { yearMonth: ym, propertyId: this.propertyId, manualItems, invoiceMemo };
       if (this.isOwner && this.staffId) body.asStaffId = this.staffId;
       const res = await fetch(`${this.CF_BASE}/invoices/my-submit`, {
         method: "POST",
@@ -820,7 +832,9 @@ const MyInvoiceCreatePage = {
 
     try {
       const token = await firebase.auth().currentUser.getIdToken();
-      const body = { yearMonth: ym, propertyId: this.propertyId, manualItems };
+      // オーナーへのメッセージ (請求書メモ)
+      const invoiceMemo = document.getElementById("invoiceMemoText")?.value || "";
+      const body = { yearMonth: ym, propertyId: this.propertyId, manualItems, invoiceMemo };
       if (this.isOwner && this.staffId) body.asStaffId = this.staffId;
       const res = await fetch(`${this.CF_BASE}/invoices/my-preview-pdf`, {
         method: "POST",
