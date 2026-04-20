@@ -393,6 +393,33 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
   if (!staffDoc.exists) throw new Error("スタッフが見つかりません");
   const staff = { id: staffDoc.id, ...staffDoc.data() };
 
+  // --- 除外設定 (invoiceExclusions/{yearMonth}_{staffId}_{propertyId}) の読み込み ---
+  // 各 row に {type, refId} を付けておき、"type:refId" が excludedSet に含まれる場合はスキップ
+  // 物件別化: propertyId がある場合のみ除外ドキュメントを読む
+  const excludedSet = new Set();
+  const excludedMetaMap = {}; // "type:refId" -> {excludedAt, excludedBy, note}
+  try {
+    const exclusionDocId = propertyId
+      ? `${yearMonth}_${staffId}_${propertyId}`
+      : `${yearMonth}_${staffId}`; // 後方互換 (物件未指定時)
+    const exDoc = await db.collection("invoiceExclusions").doc(exclusionDocId).get();
+    if (exDoc.exists) {
+      const arr = Array.isArray(exDoc.data().exclusions) ? exDoc.data().exclusions : [];
+      for (const ex of arr) {
+        if (!ex || !ex.type || !ex.refId) continue;
+        const key = `${ex.type}:${ex.refId}`;
+        excludedSet.add(key);
+        excludedMetaMap[key] = {
+          excludedAt: ex.excludedAt || null,
+          excludedBy: ex.excludedBy || null,
+          note: ex.note || "",
+        };
+      }
+    }
+  } catch (e) {
+    console.warn("invoiceExclusions 読み込みエラー (無視):", e.message);
+  }
+
   // シフト取得 (propertyId 指定時はフィルタ)
   let shiftsQuery = db.collection("shifts")
     .where("staffId", "==", staffId)
@@ -563,6 +590,7 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
 
     shiftAmount += amount;
     shiftDetails.push({
+      shiftId: shift.id,
       date: shift.date,
       propertyId,
       propertyName: shift.propertyName || "",
@@ -590,6 +618,7 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
           if (addAmt > 0) {
             specialAmount += addAmt;
             specialDetails.push({
+              shiftId: shift.id,
               date: shift.date,
               dateStr,
               name: sr.name || "(特別加算)",
@@ -658,17 +687,20 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
       const amount = Number(card.chargeAmount) || 0;
       if (amount <= 0) continue;
 
-      // 物件名カンマ区切り
+      // 物件名カンマ区切り (物件別請求書では省略)
       const propNames = [];
-      for (const pid of (card.propertyIds || [])) {
-        const p = await getProperty(pid);
-        propNames.push(p?.name || pid);
+      if (!propertyId) {
+        for (const pid of (card.propertyIds || [])) {
+          const p = await getProperty(pid);
+          propNames.push(p?.name || pid);
+        }
       }
       const depotName = depotMap[card.depotId] || card.depotId || "";
       const note = `${card.cardNumber || ""}${depotName ? ` (${depotName})` : ""}${propNames.length ? ` ${propNames.join(",")}` : ""}`.trim();
 
       prepaidExpense += amount;
       prepaidDetails.push({
+        cardId: card.id || card.cardId || "",
         purchasedAt: paDate,
         cardNumber: card.cardNumber || "",
         depotId: card.depotId || "",
@@ -754,6 +786,30 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
     return reqCountCache[pid];
   };
 
+  // 除外された rows を分けて格納 (UI 表示用)
+  const excludedRows = [];
+  // row を push する前に除外判定するヘルパー
+  // - excludedSet に含まれる場合は excludedRows に入れて rows には入れない
+  // - 同時に再計算用の差し引き情報を返す (subtract: {shift, special, laundryCash, prepaid, transport})
+  const subtract = { shift: 0, special: 0, laundryCash: 0, prepaid: 0, transport: 0 };
+  const pushRow = (row, subtractKey) => {
+    const key = `${row.type}:${row.refId}`;
+    if (excludedSet.has(key)) {
+      const meta = excludedMetaMap[key] || {};
+      excludedRows.push({
+        ...row,
+        excludedAt: meta.excludedAt || null,
+        excludedBy: meta.excludedBy || null,
+        excludedNote: meta.note || "",
+      });
+      if (subtractKey && subtract.hasOwnProperty(subtractKey)) {
+        subtract[subtractKey] += Number(row.unitPrice) || 0;
+      }
+      return;
+    }
+    rows.push(row);
+  };
+
   // シフトから行を生成
   for (const s of shiftDetails) {
     const dateStr = toDateStr(s.date);
@@ -774,12 +830,16 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
     } else {
       category = s.workType || "作業";
     }
-    let note = s.propertyName || "";
+    // 物件別請求書では物件名は note 不要 (propertyId で一意)
+    // propertyId 未指定時のみ物件名を含める (後方互換)
+    let note = propertyId ? "" : (s.propertyName || "");
     if (s.isTimee && s.timeeDetail) {
       const td = s.timeeDetail;
-      note = `${note} / タイミー ${td.start}〜${td.end}(${td.durationH}h) × ¥${td.hourlyRate}/h`;
+      const timeePart = `タイミー ${td.start}〜${td.end}(${td.durationH}h) × ¥${td.hourlyRate}/h`;
+      note = note ? `${note} / ${timeePart}` : timeePart;
     } else if (s.guestCount > 1) {
-      note = `${note} / ゲスト${s.guestCount}名`;
+      const guestPart = `ゲスト${s.guestCount}名`;
+      note = note ? `${note} / ${guestPart}` : guestPart;
     }
     // ランドリー系シフト(出し/受取/立替)は提出先(depot/リネン屋)名を note に追記
     if (s.workType === "laundry_put_out" || s.workType === "laundry_collected" || s.workType === "laundry_expense") {
@@ -789,22 +849,26 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
         note = note ? `${note} / ${depotName}` : depotName;
       }
     }
-    rows.push({
+    pushRow({
+      type: "shift",
+      refId: s.shiftId || s.id || "",
       date: dateStr,
       category,
       unitPrice: s.amount || 0,
       note: note.replace(/^ \/ /, ""),
-    });
+    }, "shift");
   }
 
   // 特別加算行
   for (const sp of specialDetails) {
-    rows.push({
+    pushRow({
+      type: "special",
+      refId: `${sp.shiftId || ""}_${sp.name || ""}`,
       date: sp.dateStr || toDateStr(sp.date),
       category: `特別加算: ${sp.name || ""}`,
       unitPrice: sp.amount || 0,
       note: "",
-    });
+    }, "special");
   }
 
   // ランドリー (paymentMethod 別に分岐)
@@ -821,9 +885,10 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
     const depotName = resolveDepotName(l);
     const memo = l.memo || "";
     const ldate = toDateStr(l.date);
-    // 物件名 (note 先頭に付ける)
+    // 物件別請求書では物件名は note 不要 (propertyId で一意)
+    // propertyId 未指定時のみ物件名を含める (後方互換)
     let propertyName = "";
-    if (l.propertyId) {
+    if (!propertyId && l.propertyId) {
       const p = await getProperty(l.propertyId);
       propertyName = p?.name || "";
     }
@@ -843,43 +908,50 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
       suffix = "プリカ新規購入";
     }
 
-    // note 組立: 物件名 / メモ / 提出先 / 立替(or プリカ新規購入)
+    // note 組立: (物件名) / メモ / 提出先 / 立替(or プリカ新規購入)
+    // 物件別化時は物件名を省略
     const parts = [];
     if (propertyName) parts.push(propertyName);
     if (memo) parts.push(memo);
     if (depotName) parts.push(depotName);
     parts.push(suffix);
 
-    rows.push({
+    pushRow({
+      type: "laundry",
+      refId: l.id || "",
       date: ldate,
       category: "ランドリー",
       unitPrice,
       note: parts.filter(Boolean).join(" / "),
-    });
+    }, "laundryCash");
   }
   // 非立替のランドリー (作業報酬としてシフトに入らない純粋な出し/受取記録がある場合)
   // ※ 既存 shift から来る laundry_put_out/collected は shiftDetails 側で計上済みなので重複させない
 
   // プリカ購入行 (購入日ごとに1行)
   for (const p of prepaidDetails) {
-    rows.push({
+    pushRow({
+      type: "prepaid",
+      refId: p.cardId || p.cardNumber || toDateStr(p.purchasedAt),
       date: toDateStr(p.purchasedAt),
       category: "プリカ購入",
       unitPrice: p.amount || 0,
       note: p.note || "",
-    });
+    }, "prepaid");
   }
 
   // 交通費 (月末にまとめて1行)
   if (transportationFee > 0) {
     const eomDate = new Date(y, m, 0);
     const eomStr = `${eomDate.getFullYear()}/${String(eomDate.getMonth() + 1).padStart(2, "0")}/${String(eomDate.getDate()).padStart(2, "0")}`;
-    rows.push({
+    pushRow({
+      type: "transportation",
+      refId: yearMonth,
       date: eomStr,
       category: "交通費",
       unitPrice: transportationFee,
       note: `${rawShifts.length}回 × ¥${staff.transportationFee || 0}`,
-    });
+    }, "transport");
   }
 
   // 日付昇順ソート (空の date は末尾)
@@ -890,22 +962,32 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
     return a.date.localeCompare(b.date);
   });
 
+  // 除外分を各合計から差し引く (再計算ベース)
+  const adjShiftAmount = Math.max(0, shiftAmount - (subtract.shift || 0));
+  const adjSpecialAmount = Math.max(0, specialAmount - (subtract.special || 0));
+  const adjLaundryAmount = Math.max(0, laundryAmount - (subtract.laundryCash || 0));
+  const adjPrepaidExpense = Math.max(0, prepaidExpense - (subtract.prepaid || 0));
+  const adjTransportationFee = Math.max(0, transportationFee - (subtract.transport || 0));
+  const adjTotal = adjShiftAmount + adjLaundryAmount + adjSpecialAmount
+    + adjTransportationFee + manualAmount + adjPrepaidExpense;
+
   return {
     shifts: shiftDetails,
     laundry: laundryDetails,
     special: specialDetails,
     manual,
     prepaid: prepaidDetails,
-    shiftAmount,
-    laundryAmount,
-    specialAmount,
-    transportationFee,
+    shiftAmount: adjShiftAmount,
+    laundryAmount: adjLaundryAmount,
+    specialAmount: adjSpecialAmount,
+    transportationFee: adjTransportationFee,
     manualAmount,
-    prepaidExpense,
-    total,
+    prepaidExpense: adjPrepaidExpense,
+    total: adjTotal,
     shiftCount: rawShifts.length,
     byProperty,
     rows,
+    excludedRows,
   };
 }
 
@@ -979,6 +1061,7 @@ module.exports = function invoicesApi(db) {
         prepaid: computed.prepaid || [],
         byProperty: computed.byProperty,
         rows: computed.rows || [],
+        excludedRows: computed.excludedRows || [],
       });
     } catch (e) {
       console.error("compute-preview エラー:", e);
@@ -1037,12 +1120,15 @@ module.exports = function invoicesApi(db) {
   });
 
   // スタッフが自分の請求書を作成 or 更新（月次集計）
-  // POST /invoices/my-submit  body: { yearMonth: "YYYY-MM", manualItems?: [...], asStaffId?: string (オーナー専用代理) }
+  // POST /invoices/my-submit  body: { yearMonth: "YYYY-MM", propertyId: string, manualItems?: [...], asStaffId?: string (オーナー専用代理) }
   router.post("/my-submit", async (req, res) => {
     try {
-      const { yearMonth, manualItems = [], asStaffId } = req.body || {};
+      const { yearMonth, propertyId, manualItems = [], asStaffId } = req.body || {};
       if (!yearMonth || !/^\d{4}-\d{2}$/.test(yearMonth)) {
         return res.status(400).json({ error: "yearMonth(YYYY-MM)は必須です" });
+      }
+      if (!propertyId || typeof propertyId !== "string") {
+        return res.status(400).json({ error: "propertyId は必須です (物件を選択してください)" });
       }
       const uid = req.user.uid;
       const reqStaffId = req.user.staffId;
@@ -1079,20 +1165,30 @@ module.exports = function invoicesApi(db) {
         });
       }
 
-      // computeInvoiceDetails で統合集計
+      // computeInvoiceDetails で統合集計 (物件別)
       let computed;
       try {
-        computed = await computeInvoiceDetails(db, staffDoc.id, yearMonth, manualItems);
+        computed = await computeInvoiceDetails(db, staffDoc.id, yearMonth, manualItems, propertyId);
       } catch (compErr) {
         return res.status(500).json({ error: "集計処理に失敗しました: " + compErr.message });
       }
 
-      const invoiceId = `INV-${yearMonth.replace("-", "")}-${staffDoc.id.substring(0, 6)}`;
+      // 物件名取得 (invoice ドキュメントへの propertyName 保存用)
+      let propertyName = "";
+      try {
+        const pDoc = await db.collection("properties").doc(propertyId).get();
+        if (pDoc.exists) propertyName = pDoc.data().name || "";
+      } catch (_) { /* ignore */ }
+
+      // invoiceId: 物件別化のため propertyId 短縮形を末尾に付与
+      const invoiceId = `INV-${yearMonth.replace("-", "")}-${staffDoc.id.substring(0, 6)}-${propertyId.substring(0, 6)}`;
       const [, m] = yearMonth.split("-").map(Number);
       const invoiceData = {
         yearMonth,
         staffId: staffDoc.id,
         staffName: staffDoc.name,
+        propertyId,
+        propertyName,
         basePayment: computed.shiftAmount,
         laundryFee: computed.laundryAmount,
         transportationFee: computed.transportationFee,

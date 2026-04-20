@@ -16,6 +16,8 @@ const MyInvoiceCreatePage = {
   staffOptions: [],    // オーナー用スタッフ一覧
   workItemOptions: [], // { key, label, amount } 報酬プルダウン用
   _summaryRows: [],    // 集計行キャッシュ (縦テーブル表示用)
+  propertyId: null,    // 選択中の物件ID (物件別請求書)
+  propertyMap: {},     // { id: {name, ...} } 物件マスタキャッシュ
 
   // 請求書記載情報の必須項目
   REQUIRED_STAFF_FIELDS: ["name", "address", "email", "bankName", "branchName", "accountNumber", "accountHolder"],
@@ -56,6 +58,9 @@ const MyInvoiceCreatePage = {
         <div class="d-flex align-items-center gap-2 flex-wrap">
           ${staffSelectorHtml}
           <input type="month" class="form-control form-control-sm" id="invMonth" value="${defaultYM}" style="width:160px;">
+          <select id="invPropertySel" class="form-select form-select-sm" style="width:180px;">
+            <option value="">物件を選択</option>
+          </select>
           <button class="btn btn-sm btn-outline-primary" id="btnRecalc"><i class="bi bi-arrow-clockwise"></i> 再集計</button>
           <!-- 歯車アイコン: 請求書記載情報モーダルを開く -->
           <button class="btn btn-sm btn-outline-secondary" id="btnStaffInfoSettings" title="請求書記載情報" data-bs-toggle="tooltip">
@@ -157,8 +162,10 @@ const MyInvoiceCreatePage = {
     if (this.isOwner) {
       document.getElementById("invStaffSel").addEventListener("change", async (e) => {
         this.staffId = e.target.value;
+        this.propertyId = null; // スタッフ切替で物件選択リセット
         await this.loadStaffDoc();
         await this.loadWorkItemOptions();
+        await this.rebuildPropertySelect();
         await this.loadSummary();
         await this.loadPastInvoices();
       });
@@ -166,6 +173,10 @@ const MyInvoiceCreatePage = {
     document.getElementById("btnAddRow").addEventListener("click", () => this.addManualRow());
     document.getElementById("btnRecalc").addEventListener("click", () => this.loadSummary());
     document.getElementById("invMonth").addEventListener("change", () => this.loadSummary());
+    document.getElementById("invPropertySel").addEventListener("change", (e) => {
+      this.propertyId = e.target.value || null;
+      this.loadSummary();
+    });
     document.getElementById("btnSubmitInvoice").addEventListener("click", () => this.submit());
     // 歯車アイコン: 請求書記載情報モーダルを開く
     document.getElementById("btnStaffInfoSettings").addEventListener("click", () => this.toggleStaffInfo(true));
@@ -177,8 +188,44 @@ const MyInvoiceCreatePage = {
 
     await this.loadStaffDoc();
     await this.loadWorkItemOptions();
+    await this.rebuildPropertySelect();
     await this.loadSummary();
     await this.loadPastInvoices();
+  },
+
+  // 物件プルダウンを担当物件のみで再構築
+  // スタッフ: 自分の assignedPropertyIds、オーナー: 選択中スタッフの assignedPropertyIds
+  async rebuildPropertySelect() {
+    const sel = document.getElementById("invPropertySel");
+    if (!sel) return;
+    // 物件マスタを 1 回だけ取得
+    if (!Object.keys(this.propertyMap).length) {
+      try {
+        const snap = await db.collection("properties").where("active", "==", true).get();
+        snap.docs.forEach(d => { this.propertyMap[d.id] = { id: d.id, ...d.data() }; });
+      } catch (e) {
+        console.warn("物件マスタ読込失敗:", e.message);
+      }
+    }
+    const assigned = Array.isArray(this.staffDoc?.assignedPropertyIds) ? this.staffDoc.assignedPropertyIds : [];
+    const targetIds = assigned.filter(id => this.propertyMap[id]);
+    const opts = [`<option value="">物件を選択</option>`].concat(
+      targetIds.map(id => {
+        const p = this.propertyMap[id];
+        const selected = this.propertyId === id ? " selected" : "";
+        return `<option value="${this._esc(id)}"${selected}>${this._esc(p.name || id)}</option>`;
+      })
+    ).join("");
+    sel.innerHTML = opts;
+    // 選択中の propertyId が候補外なら null 化
+    if (this.propertyId && !targetIds.includes(this.propertyId)) {
+      this.propertyId = null;
+    }
+    // 担当物件が 1件なら自動選択
+    if (!this.propertyId && targetIds.length === 1) {
+      this.propertyId = targetIds[0];
+      sel.value = this.propertyId;
+    }
   },
 
   // モーダル開閉 (既存 API 互換: forceOpen=true→開く / false→閉じる / null→トグル)
@@ -356,11 +403,30 @@ const MyInvoiceCreatePage = {
     if (!ym) return;
 
     const sumEl = document.getElementById("invSummary");
+
+    // 物件未選択時はガイド表示 + 再集計ボタン無効化
+    const recalcBtn = document.getElementById("btnRecalc");
+    if (!this.propertyId) {
+      sumEl.innerHTML = `<div class="alert alert-info mb-0 small"><i class="bi bi-info-circle"></i> 物件を選択してください</div>`;
+      if (recalcBtn) recalcBtn.disabled = true;
+      // 合計もリセット
+      this._previewShiftAmount = 0;
+      this._previewLaundryAmount = 0;
+      this._previewSpecialAmount = 0;
+      this._previewTransportFee = 0;
+      this._previewPrepaidExpense = 0;
+      this._previewShiftCount = 0;
+      this._summaryRows = [];
+      this.updateTotal();
+      return;
+    }
+    if (recalcBtn) recalcBtn.disabled = false;
+
     sumEl.innerHTML = `<div class="text-muted small"><span class="spinner-border spinner-border-sm"></span> 集計中...</div>`;
 
     try {
       const token = await firebase.auth().currentUser.getIdToken();
-      const body = { yearMonth: ym };
+      const body = { yearMonth: ym, propertyId: this.propertyId };
       if (this.isOwner && this.staffId) body.staffId = this.staffId;
 
       const res = await fetch(`${this.CF_BASE}/invoices/compute-preview`, {
@@ -400,10 +466,11 @@ const MyInvoiceCreatePage = {
     this.updateTotal();
   },
 
-  // 縦 4 列テーブル (日付 | 項目 | 単価 | 備考) を描画
+  // 縦 5 列テーブル (日付 | 項目 | 単価 | 備考 | 操作) を描画
   _renderSummaryTable(el, preview) {
     const rows = preview.rows || [];
-    if (!rows.length) {
+    const excludedRows = preview.excludedRows || [];
+    if (!rows.length && !excludedRows.length) {
       el.innerHTML = `<div class="text-muted small">対象月の実績はありません</div>`;
       return;
     }
@@ -417,15 +484,51 @@ const MyInvoiceCreatePage = {
       const catHtml = isPrepaid
         ? `<i class="bi bi-credit-card-2-front text-warning"></i> ${this._esc(r.category || "")}`
         : this._esc(r.category || "");
+      // 除外ボタン (type/refId があるもののみ)
+      const hasRef = r.type && r.refId;
+      const excludeBtn = hasRef
+        ? `<button class="btn btn-sm btn-outline-danger btn-exclude" data-type="${this._esc(r.type)}" data-ref-id="${this._esc(r.refId)}" title="請求書から除外"><i class="bi bi-dash-circle"></i> 除外</button>`
+        : "";
       return `
       <tr${trCls}>
         <td class="small">${this._esc(r.date || "")}</td>
         <td class="small">${catHtml}</td>
         <td class="text-end small">¥${Number(r.unitPrice || 0).toLocaleString()}</td>
         <td class="text-muted small">${this._esc(r.note || "")}</td>
+        <td class="text-end">${excludeBtn}</td>
       </tr>
     `;
     }).join("");
+
+    // 除外済み行 (折りたたみ)
+    let excludedHtml = "";
+    if (excludedRows.length) {
+      const exBody = excludedRows.map(r => {
+        const by = r.excludedBy?.staffName || "";
+        return `
+          <tr class="text-muted">
+            <td class="small"><s>${this._esc(r.date || "")}</s></td>
+            <td class="small"><s>${this._esc(r.category || "")}</s></td>
+            <td class="text-end small"><s>¥${Number(r.unitPrice || 0).toLocaleString()}</s></td>
+            <td class="small"><s>${this._esc(r.note || "")}</s>${by ? ` <span class="badge bg-light text-muted">除外: ${this._esc(by)}</span>` : ""}</td>
+            <td class="text-end">
+              <button class="btn btn-sm btn-outline-secondary btn-unexclude" data-type="${this._esc(r.type || "")}" data-ref-id="${this._esc(r.refId || "")}"><i class="bi bi-arrow-counterclockwise"></i> 除外解除</button>
+            </td>
+          </tr>
+        `;
+      }).join("");
+      excludedHtml = `
+        <details class="mt-2">
+          <summary class="text-muted small" style="cursor:pointer;">除外済み ${excludedRows.length}件 ▸</summary>
+          <div class="table-responsive mt-2">
+            <table class="table table-sm table-borderless align-middle mb-0">
+              <tbody>${exBody}</tbody>
+            </table>
+          </div>
+        </details>
+      `;
+    }
+
     el.innerHTML = `
       <div class="table-responsive">
         <table class="table table-sm table-hover align-middle mb-0">
@@ -435,6 +538,7 @@ const MyInvoiceCreatePage = {
               <th>項目</th>
               <th class="text-end" style="width:110px;">単価</th>
               <th>備考</th>
+              <th style="width:100px;"></th>
             </tr>
           </thead>
           <tbody>${body}</tbody>
@@ -442,13 +546,94 @@ const MyInvoiceCreatePage = {
             <tr class="fw-bold table-light">
               <td colspan="2">自動集計 合計</td>
               <td class="text-end">¥${total.toLocaleString()}</td>
-              <td></td>
+              <td colspan="2"></td>
             </tr>
           </tfoot>
         </table>
       </div>
       <div class="text-muted small mt-1">※ 階段制単価・workType別・タイミー時給・特別加算を含む正確な計算です</div>
+      ${excludedHtml}
     `;
+
+    // 除外ボタン handler
+    el.querySelectorAll(".btn-exclude").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        const t = e.currentTarget;
+        this._handleExclude(t.dataset.type, t.dataset.refId);
+      });
+    });
+    // 除外解除ボタン handler
+    el.querySelectorAll(".btn-unexclude").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        const t = e.currentTarget;
+        this._handleUnexclude(t.dataset.type, t.dataset.refId);
+      });
+    });
+  },
+
+  // 項目を請求書から除外
+  async _handleExclude(type, refId) {
+    if (!type || !refId) return;
+    if (!this.propertyId) { await showAlert("物件を選択してください"); return; }
+    const ok = await showConfirm("この項目を請求書から除外しますか?\n(情報自体は削除されません)", { title: "除外" });
+    if (!ok) return;
+    try {
+      const ym = document.getElementById("invMonth").value;
+      if (!ym) return;
+      const docId = `${ym}_${this.staffId}_${this.propertyId}`;
+      const ref = db.collection("invoiceExclusions").doc(docId);
+      const entry = {
+        type,
+        refId,
+        excludedAt: new Date(),
+        excludedBy: {
+          staffId: this.staffId || "",
+          staffName: this.staffDoc?.name || Auth.currentUser?.displayName || "",
+        },
+      };
+      // ドキュメントが無い場合に備え set(merge) + arrayUnion
+      await ref.set({
+        staffId: this.staffId,
+        yearMonth: ym,
+        propertyId: this.propertyId,
+        exclusions: firebase.firestore.FieldValue.arrayUnion(entry),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      if (typeof showToast === "function") showToast("除外しました", "再集計します", "success");
+      await this.loadSummary();
+    } catch (e) {
+      console.error("除外エラー:", e);
+      await showAlert("除外に失敗しました: " + (e.message || e));
+    }
+  },
+
+  // 除外を解除
+  async _handleUnexclude(type, refId) {
+    if (!type || !refId) return;
+    if (!this.propertyId) { await showAlert("物件を選択してください"); return; }
+    try {
+      const ym = document.getElementById("invMonth").value;
+      if (!ym) return;
+      const docId = `${ym}_${this.staffId}_${this.propertyId}`;
+      const ref = db.collection("invoiceExclusions").doc(docId);
+      // arrayRemove は完全一致が必要なので、現状を読んで type/refId 一致分を削除
+      const snap = await ref.get();
+      if (!snap.exists) { await this.loadSummary(); return; }
+      const cur = Array.isArray(snap.data().exclusions) ? snap.data().exclusions : [];
+      const removed = cur.filter(x => !(x && x.type === type && x.refId === refId));
+      await ref.set({
+        staffId: this.staffId,
+        yearMonth: ym,
+        propertyId: this.propertyId,
+        exclusions: removed,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      if (typeof showToast === "function") showToast("除外を解除しました", "再集計します", "success");
+      await this.loadSummary();
+    } catch (e) {
+      console.error("除外解除エラー:", e);
+      await showAlert("除外解除に失敗しました: " + (e.message || e));
+    }
   },
 
   updateTotal() {
@@ -482,6 +667,16 @@ const MyInvoiceCreatePage = {
 
   async submit() {
     const ym = document.getElementById("invMonth").value;
+
+    // 物件選択チェック
+    if (!this.propertyId) {
+      if (typeof showToast === "function") {
+        showToast("物件が未選択です", "請求書を作成する物件を選んでください", "error");
+      } else {
+        await showAlert("物件を選択してください");
+      }
+      return;
+    }
 
     // 必須項目チェック
     const missing = this._validateStaffInfo();
@@ -523,7 +718,7 @@ const MyInvoiceCreatePage = {
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 送信中...';
     try {
       const token = await firebase.auth().currentUser.getIdToken();
-      const body = { yearMonth: ym, manualItems };
+      const body = { yearMonth: ym, propertyId: this.propertyId, manualItems };
       if (this.isOwner && this.staffId) body.asStaffId = this.staffId;
       const res = await fetch(`${this.CF_BASE}/invoices/my-submit`, {
         method: "POST",
@@ -572,7 +767,14 @@ const MyInvoiceCreatePage = {
         listEl.innerHTML = `<div class="text-muted small">過去の請求書はまだありません。</div>`;
         return;
       }
-      invoices.sort((a, b) => (b.yearMonth || "").localeCompare(a.yearMonth || ""));
+      // yearMonth 降順 → 同月内は propertyName 昇順で並べる (同月複数物件があれば並ぶ)
+      invoices.sort((a, b) => {
+        const ym = (b.yearMonth || "").localeCompare(a.yearMonth || "");
+        if (ym !== 0) return ym;
+        const an = a.propertyName || this.propertyMap[a.propertyId]?.name || "";
+        const bn = b.propertyName || this.propertyMap[b.propertyId]?.name || "";
+        return an.localeCompare(bn);
+      });
       listEl.innerHTML = invoices.map(inv => this._renderPastRow(inv)).join("");
       // 明細トグル
       listEl.querySelectorAll(".past-toggle-detail").forEach(btn => {
@@ -618,12 +820,22 @@ const MyInvoiceCreatePage = {
     `).join("");
     const hasDetail = shiftRows || manualRows;
 
+    // 物件名 (propertyName 優先、なければ propertyId から解決)
+    let propLabel = inv.propertyName || "";
+    if (!propLabel && inv.propertyId && this.propertyMap[inv.propertyId]) {
+      propLabel = this.propertyMap[inv.propertyId].name || "";
+    }
+    const propBadge = propLabel
+      ? `<span class="badge bg-light text-dark border ms-2"><i class="bi bi-house-door"></i> ${this._esc(propLabel)}</span>`
+      : "";
+
     return `
       <div class="border rounded p-2 mb-2">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
           <div>
             <strong>${this._esc(inv.yearMonth || "")}</strong>
             <span class="badge ${st.cls} ms-2">${st.label}</span>
+            ${propBadge}
           </div>
           <div class="d-flex align-items-center gap-2 flex-wrap">
             <span class="fw-bold">¥${(inv.total||0).toLocaleString()}</span>

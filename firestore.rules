@@ -83,6 +83,16 @@ service cloud.firestore {
          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'confirmedAt']));
     }
 
+    // 請求書除外設定 (docId=`{yearMonth}_{staffId}` または `{yearMonth}_{staffId}_{propertyId}`)
+    // オーナー: 全操作、スタッフ: 自分の除外設定のみ read/write
+    // split("_")[1] で staffId 部分を取得 (yearMonth は YYYY-MM で "_" を含まないため安全)
+    match /invoiceExclusions/{docId} {
+      allow read: if isOwner()
+        || (isStaff() && docId.split("_")[1] == myStaffId());
+      allow write: if isOwner()
+        || (isStaff() && docId.split("_")[1] == myStaffId());
+    }
+
     // チェックリスト — 読取は全スタッフ+サブオーナー+オーナー可(履歴確認用)
     // 更新: 割当済みスタッフ OR 担当物件に紐づくスタッフ (シフト未確定時でも操作可能)
     match /checklists/{checklistId} {
