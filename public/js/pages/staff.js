@@ -750,6 +750,10 @@ const StaffPage = {
     document.getElementById("staffName").value = staff?.name || "";
     document.getElementById("staffEmail").value = staff?.email || "";
     document.getElementById("staffPhone").value = staff?.phone || "";
+    const companyEl = document.getElementById("staffCompanyName");
+    if (companyEl) companyEl.value = staff?.companyName || "";
+    const zipEl = document.getElementById("staffZipCode");
+    if (zipEl) zipEl.value = staff?.zipCode || "";
     const addrEl = document.getElementById("staffAddress");
     if (addrEl) addrEl.value = staff?.address || "";
     document.getElementById("staffContractDate").value = staff?.contractStartDate
@@ -867,6 +871,8 @@ const StaffPage = {
       name,
       email: document.getElementById("staffEmail").value.trim(),
       phone: document.getElementById("staffPhone").value.trim(),
+      companyName: (document.getElementById("staffCompanyName")?.value || "").trim(),
+      zipCode: (document.getElementById("staffZipCode")?.value || "").trim(),
       address: (document.getElementById("staffAddress")?.value || "").trim(),
       contractStartDate: document.getElementById("staffContractDate").value || null,
       isTimee: !!document.getElementById("staffIsTimee")?.checked,
