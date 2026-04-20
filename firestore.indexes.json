@@ -117,6 +117,14 @@
         { "fieldPath": "docType", "order": "ASCENDING" },
         { "fieldPath": "count", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "properties",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "active", "order": "ASCENDING" },
+        { "fieldPath": "displayOrder", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
