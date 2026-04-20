@@ -2,12 +2,18 @@
  * チェックリスト laundry フィールド変更検知トリガー
  *
  * checklists/{checklistId} の laundry.{putOut|collected|stored} が
- * null/未設定 → 値あり に遷移した瞬間に対応する通知を送信する。
+ * null/未設定 → 値あり に遷移した瞬間に対応する通知と作業実績(shift)を生成する。
  *
  * 通知 type:
  * - laundry_put_out   洗濯物を出した
  * - laundry_collected 洗濯物を回収した
  * - laundry_stored    洗濯物を収納した
+ *
+ * 作業実績 (workType):
+ * - laundry_put_out  → shift(workType=laundry_put_out, workItemName=「ランドリー出し」)
+ *                    → shift(workType=laundry_expense, workItemName=「ランドリープリカXXX」or「ランドリー現金XXX」) ※立替あり時
+ * - laundry_collected → shift(workType=laundry_collected, workItemName=「ランドリー受取」)
+ * - laundry_stored    → 生成なし
  *
  * 既存の onChecklistComplete は status=completed 遷移のみを見るので、
  * このトリガーとは干渉しない (同じ onDocumentUpdated だが別 export)。
@@ -115,6 +121,166 @@ async function syncPutOutToLaundry(db, checklistId, after, putOut) {
 }
 
 /**
+ * 作業実績 (shift) を冪等生成する
+ * sourceChecklistId + sourceAction で既存ドキュメントを検索し、あれば update、なければ新規作成
+ *
+ * @param {object} db
+ * @param {string} checklistId
+ * @param {string} sourceAction  "put_out" | "expense" | "collected"
+ * @param {object} shiftData     保存するフィールド
+ */
+async function upsertLaundryShift(db, checklistId, sourceAction, shiftData) {
+  const existing = await db.collection("shifts")
+    .where("sourceChecklistId", "==", checklistId)
+    .where("sourceAction", "==", sourceAction)
+    .limit(1)
+    .get();
+
+  if (!existing.empty) {
+    await existing.docs[0].ref.update({ ...shiftData, updatedAt: FieldValue.serverTimestamp() });
+    console.log(`[upsertLaundryShift] update docId=${existing.docs[0].id} action=${sourceAction}`);
+  } else {
+    await db.collection("shifts").add({
+      ...shiftData,
+      sourceChecklistId: checklistId,
+      sourceAction,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    console.log(`[upsertLaundryShift] create action=${sourceAction} checklistId=${checklistId}`);
+  }
+}
+
+/**
+ * 作業実績 (shift) を削除する (sourceChecklistId + sourceAction で特定)
+ */
+async function deleteLaundryShift(db, checklistId, sourceAction) {
+  const snap = await db.collection("shifts")
+    .where("sourceChecklistId", "==", checklistId)
+    .where("sourceAction", "==", sourceAction)
+    .get();
+  await Promise.all(snap.docs.map(d => d.ref.delete()));
+  if (!snap.empty) {
+    console.log(`[deleteLaundryShift] deleted ${snap.size} docs action=${sourceAction} checklistId=${checklistId}`);
+  }
+}
+
+/**
+ * propertyWorkItems から workItem を name で検索する
+ * 見つからなければ fallback で name="ランドリー立替" の仮 workItem を返す
+ */
+async function findWorkItemByName(db, propertyId, name) {
+  if (!propertyId) return null;
+  try {
+    const doc = await db.collection("propertyWorkItems").doc(propertyId).get();
+    if (!doc.exists) return null;
+    const items = doc.data().items || [];
+    const found = items.find(wi => wi.name === name);
+    if (found) return found;
+  } catch (e) {
+    console.warn(`[findWorkItemByName] propertyWorkItems 取得失敗:`, e.message);
+  }
+  return null;
+}
+
+/**
+ * putOut セット時に作業実績を生成する
+ * - shift1: workType=laundry_put_out (「ランドリー出し」)
+ * - shift2: workType=laundry_expense (「ランドリープリカXXXX」or「ランドリー現金XXXX」) ※立替あり時
+ */
+async function createPutOutShifts(db, checklistId, after, putOut) {
+  const propertyId = after.propertyId || "";
+  const bookingId = after.bookingId || "";
+  const date = after.checkoutDate || after.date || null;
+
+  // staffId を決定 (by オブジェクト or 文字列)
+  const byObj = putOut.by;
+  const staffId = (byObj && typeof byObj === "object")
+    ? (byObj.staffId || byObj.uid || "")
+    : (typeof byObj === "string" ? byObj : "");
+
+  // 「ランドリー出し」 workItem を名前で検索
+  const putOutItemName = "ランドリー出し";
+  const putOutItem = await findWorkItemByName(db, propertyId, putOutItemName);
+  const putOutAmount = putOutItem ? (Number(putOutItem.commonRate || putOutItem.commonRates?.[1] || 0)) : 0;
+
+  const baseShiftData = {
+    staffId,
+    propertyId,
+    propertyName: after.propertyName || "",
+    bookingId,
+    date: date ? (typeof date === "string" ? new Date(date + "T00:00:00.000Z") : date) : null,
+    status: "completed",
+    assignMethod: "auto_laundry",
+  };
+
+  // shift1: ランドリー出し
+  await upsertLaundryShift(db, checklistId, "put_out", {
+    ...baseShiftData,
+    workType: "laundry_put_out",
+    workItemName: putOutItemName,
+    amount: putOutAmount,
+  });
+
+  // shift2: 立替金額がある場合のみ
+  const amount = Number(putOut.amount) || 0;
+  if (amount > 0) {
+    const paymentMethod = putOut.paymentMethod || "";
+    let expenseName;
+    if (paymentMethod === "prepaid") {
+      expenseName = `ランドリープリカ${amount}`;
+    } else {
+      expenseName = `ランドリー現金${amount}`;
+    }
+    // workItem を名前で検索 (なければ fallback として amount をそのまま使用)
+    const expenseItem = await findWorkItemByName(db, propertyId, expenseName);
+    const expenseAmount = expenseItem ? (Number(expenseItem.commonRate || expenseItem.commonRates?.[1] || amount)) : amount;
+
+    await upsertLaundryShift(db, checklistId, "expense", {
+      ...baseShiftData,
+      workType: "laundry_expense",
+      workItemName: expenseName,
+      amount: expenseAmount,
+    });
+  } else {
+    // 金額が 0 になった場合は expense shift を削除
+    await deleteLaundryShift(db, checklistId, "expense");
+  }
+}
+
+/**
+ * collected セット時に作業実績を生成する
+ * - shift: workType=laundry_collected (「ランドリー受取」)
+ */
+async function createCollectedShift(db, checklistId, after, collected) {
+  const propertyId = after.propertyId || "";
+  const bookingId = after.bookingId || "";
+  const date = after.checkoutDate || after.date || null;
+
+  const byObj = collected.by;
+  const staffId = (byObj && typeof byObj === "object")
+    ? (byObj.staffId || byObj.uid || "")
+    : (typeof byObj === "string" ? byObj : "");
+
+  const collectedItemName = "ランドリー受取";
+  const collectedItem = await findWorkItemByName(db, propertyId, collectedItemName);
+  const collectedAmount = collectedItem ? (Number(collectedItem.commonRate || collectedItem.commonRates?.[1] || 0)) : 0;
+
+  await upsertLaundryShift(db, checklistId, "collected", {
+    staffId,
+    propertyId,
+    propertyName: after.propertyName || "",
+    bookingId,
+    date: date ? (typeof date === "string" ? new Date(date + "T00:00:00.000Z") : date) : null,
+    status: "completed",
+    assignMethod: "auto_laundry",
+    workType: "laundry_collected",
+    workItemName: collectedItemName,
+    amount: collectedAmount,
+  });
+}
+
+/**
  * putOut が削除された (null に戻された) 場合、対応する laundry ドキュメントも削除
  */
 async function deleteLaundryByChecklist(db, checklistId) {
@@ -160,12 +326,32 @@ module.exports = async (event) => {
         });
       } catch (_) { /* ignore */ }
     }
+    // 作業実績 (shift) 自動生成
+    try {
+      await createPutOutShifts(db, checklistId, after, afterPutOut);
+    } catch (e) {
+      console.error(`[onChecklistLaundryChange] createPutOutShifts エラー:`, e);
+      try {
+        await db.collection("error_logs").add({
+          type: "onChecklistLaundryChange_putOutShift",
+          message: e.message,
+          checklistId,
+          createdAt: new Date(),
+        });
+      } catch (_) { /* ignore */ }
+    }
   } else if (wasSet && !nowSet) {
-    // putOut が削除された → laundry コレクションからも削除
+    // putOut が削除された → laundry コレクションからも削除、対応 shift も削除
     try {
       await deleteLaundryByChecklist(db, checklistId);
     } catch (e) {
       console.error(`[onChecklistLaundryChange] deleteLaundryByChecklist エラー:`, e);
+    }
+    try {
+      await deleteLaundryShift(db, checklistId, "put_out");
+      await deleteLaundryShift(db, checklistId, "expense");
+    } catch (e) {
+      console.error(`[onChecklistLaundryChange] deleteLaundryShift(put_out/expense) エラー:`, e);
     }
   }
 
@@ -179,7 +365,34 @@ module.exports = async (event) => {
   for (const { key, type, label, verb } of actions) {
     const wasSet = isLaundrySet(beforeLaundry[key]);
     const nowSet = isLaundrySet(afterLaundry[key]);
-    if (wasSet || !nowSet) continue; // null → 値 の遷移のみで発火
+
+    // 削除時 (値あり → null): collected の場合は shift も削除
+    if (wasSet && !nowSet && key === "collected") {
+      try {
+        await deleteLaundryShift(db, checklistId, "collected");
+      } catch (e) {
+        console.error(`[onChecklistLaundryChange] deleteLaundryShift(collected) エラー:`, e);
+      }
+    }
+
+    if (wasSet || !nowSet) continue; // null → 値 の遷移のみで通知処理
+
+    // collected: 作業実績を生成
+    if (key === "collected") {
+      try {
+        await createCollectedShift(db, checklistId, after, afterLaundry[key]);
+      } catch (e) {
+        console.error(`[onChecklistLaundryChange] createCollectedShift エラー:`, e);
+        try {
+          await db.collection("error_logs").add({
+            type: "onChecklistLaundryChange_collectedShift",
+            message: e.message,
+            checklistId,
+            createdAt: new Date(),
+          });
+        } catch (_) { /* ignore */ }
+      }
+    }
 
     try {
       const val = afterLaundry[key] || {};

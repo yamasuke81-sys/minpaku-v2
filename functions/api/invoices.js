@@ -151,6 +151,9 @@ async function generateInvoicePdf_(db, invoiceId) {
       const propName = propertyMap[s.propertyId] || s.propertyId || "";
       let label = `清掃 ${propName}`;
       if (s.workType === "pre_inspection") label = `直前点検 ${propName}`;
+      else if (s.workType === "laundry_put_out") label = s.workItemName || `ランドリー出し`;
+      else if (s.workType === "laundry_collected") label = s.workItemName || `ランドリー受取`;
+      else if (s.workType === "laundry_expense") label = s.workItemName || `ランドリー立替`;
       else if (s.workType === "other") label = `その他作業 ${propName}`;
       let memo = s.memo || "";
       if (s.isTimee && s.timeeDetail) {
@@ -469,9 +472,17 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = []) {
     const booking = await getBooking(shift.bookingId);
     const guestCount = Math.min(booking?.guestCount || 1, 3);
 
-    // propertyWorkItems から該当 type の作業項目を検索
+    // propertyWorkItems から作業項目を検索
+    // laundry_* は workItemName (名前) で一致検索、それ以外は type で一致検索
     const workItems = await getWorkItems(propertyId);
-    const workItem = (workItems || []).find(wi => (wi.type || "other") === workType);
+    let workItem;
+    if (shift.workItemName) {
+      // shift に workItemName が記録されている場合は名前で優先マッチ
+      workItem = (workItems || []).find(wi => wi.name === shift.workItemName);
+    }
+    if (!workItem) {
+      workItem = (workItems || []).find(wi => (wi.type || "other") === workType);
+    }
 
     let amount = 0;
 
@@ -495,8 +506,16 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = []) {
         amount = typeof rates === "object" ? (rates[guestCount] || rates[3] || 0) : Number(workItem.commonRate || 0);
       }
     } else {
-      // workItem 未設定時は staff.ratePerJob フォールバック
-      amount = staff.ratePerJob || 0;
+      // workItem 未設定時のフォールバック
+      // laundry_expense は shift.amount が立替実費なのでそのまま使用
+      if (workType === "laundry_expense") {
+        amount = Number(shift.amount) || 0;
+      } else if (workType === "laundry_put_out" || workType === "laundry_collected") {
+        // 報酬設定未登録の場合は 0 円（請求書には行として表示されるが 0 円）
+        amount = 0;
+      } else {
+        amount = staff.ratePerJob || 0;
+      }
     }
 
     shiftAmount += amount;
@@ -540,12 +559,15 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = []) {
   }
 
   // ランドリー集計
-  const laundryDetails = reimbursableLaundry.map(l => ({
-    date: l.date,
-    amount: l.amount || 0,
-    memo: l.memo || "",
-    label: "ランドリー立替",
-  }));
+  // sourceShiftId が設定されている場合は shift 経由で計上済みのためスキップ (二重カウント防止)
+  const laundryDetails = reimbursableLaundry
+    .filter(l => !l.sourceShiftId)
+    .map(l => ({
+      date: l.date,
+      amount: l.amount || 0,
+      memo: l.memo || "",
+      label: "ランドリー立替",
+    }));
   const laundryAmount = laundryDetails.reduce((s, l) => s + l.amount, 0);
 
   // 交通費
@@ -1233,3 +1255,5 @@ module.exports = function invoicesApi(db) {
 
 // テスト/検証スクリプト用: 内部計算関数をエクスポート
 module.exports.computeInvoiceDetails = computeInvoiceDetails;
+// migration スクリプト用: PDF 生成関数をエクスポート
+module.exports.generateInvoicePdf_ = generateInvoicePdf_;
