@@ -318,6 +318,10 @@ async function syncIcal() {
       if (syncedIcalUids.has(data.icalUid)) continue;
       // icalUidがないものはスキップ（手動作成の予約）
       if (!data.icalUid) continue;
+      // 手動で confirmed に戻された予約はキャンセル検知の対象外
+      // (Booking.com iCal は実予約でも CLOSED しか出さないため、ユーザーが
+      // 手動で確認して confirmed に復元した予約を保護する)
+      if (data.manualOverride) continue;
 
       // iCalに存在しない → キャンセル扱い
       await doc.ref.update({
@@ -371,6 +375,8 @@ async function syncIcal() {
       const data = doc.data();
       // DESCRIPTION に Reservation URL がある場合は実予約なので触らない
       if (data.notes && /reservation url:/i.test(data.notes)) continue;
+      // 手動で confirmed に戻された予約は保護
+      if (data.manualOverride) continue;
       await doc.ref.update({
         status: "cancelled",
         cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
