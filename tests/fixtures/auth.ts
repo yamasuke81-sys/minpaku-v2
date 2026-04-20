@@ -28,8 +28,9 @@ async function exchangeCustomToken(customToken: string): Promise<{ idToken: stri
 }
 
 // createCustomToken は SA の iam.serviceAccounts.signBlob 権限が必要。
-// ADC (gcloud auth application-default login) では使えないため、
-// 失敗した場合は null を返す。CI では SA キーを使うこと。
+// ADC (gcloud auth application-default login) のみでは使えないため、
+// CI 環境 (CI=true) では失敗をそのまま throw する。
+// ローカル環境では null を返してテストを skip する。
 export async function issueOwnerIdToken(): Promise<{ idToken: string; uid: string } | null> {
   ensureAdminInit();
   try {
@@ -38,6 +39,10 @@ export async function issueOwnerIdToken(): Promise<{ idToken: string; uid: strin
       .createCustomToken(OWNER_UID, { role: "owner", staffId: OWNER_STAFF_ID });
     return exchangeCustomToken(customToken);
   } catch (e) {
+    if (process.env.CI === "true") {
+      // CI では失敗として扱う (skip しない)
+      throw new Error(`CI で ID トークン発行失敗: ${(e as Error).message}`);
+    }
     console.warn(
       "  ⚠ createCustomToken 失敗 (SA 権限不足 or ADC 未設定)。UI 認証テストをスキップします。",
       (e as Error).message
@@ -54,6 +59,9 @@ export async function issueStaffIdToken(staffUid: string): Promise<{ idToken: st
       .createCustomToken(staffUid, { role: "staff" });
     return exchangeCustomToken(customToken);
   } catch (e) {
+    if (process.env.CI === "true") {
+      throw new Error(`CI で スタッフ ID トークン発行失敗: ${(e as Error).message}`);
+    }
     console.warn("  ⚠ createCustomToken 失敗:", (e as Error).message);
     return null;
   }

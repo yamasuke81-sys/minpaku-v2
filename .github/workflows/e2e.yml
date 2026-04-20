@@ -27,8 +27,22 @@ jobs:
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
+      - name: Verify ADC + createCustomToken
+        working-directory: tests
+        run: |
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS"
+          node -e "
+            const admin = require('firebase-admin');
+            admin.initializeApp({ projectId: 'minpaku-v2', credential: admin.credential.applicationDefault() });
+            admin.auth().createCustomToken('rwHczfRz8DfnWCrQ7yeAYnsd8in2', { role: 'owner' })
+              .then(t => { console.log('createCustomToken OK:', t.slice(0, 30) + '...'); process.exit(0); })
+              .catch(e => { console.error('createCustomToken NG:', e.message); process.exit(1); });
+          "
+
       - name: Run E2E tests
         working-directory: tests
+        env:
+          CI: "true"
         run: npm test
 
       - name: Upload Playwright Report

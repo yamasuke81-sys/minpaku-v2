@@ -121,8 +121,9 @@ test("TC-O1: 名簿手動登録で booking/shift/checklist が自動生成され
 // =========================================================
 test("TC-O2: 予約フロー構成画面でレーンとカードが表示される", async ({ page }) => {
   if (!ownerIdToken || !ownerUid) {
-    console.warn("  ⚠ オーナートークン未取得のためスキップ (SA 権限が必要)");
-    test.skip();
+    // CI では beforeAll で throw されるため、ここに到達しない
+    // ローカル (SA 権限なし) のみ skip
+    test.skip(process.env.CI !== "true", "オーナートークン未取得 (ローカル SA 権限不足)");
     return;
   }
   // オーナー認証を localStorage に注入
