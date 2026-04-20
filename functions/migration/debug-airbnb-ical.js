@@ -25,7 +25,7 @@ admin.initializeApp({
 const db = admin.firestore();
 
 const TARGET_PROPERTY_ID = "tsZybhDMcPrxqgcRy7wp"; // the Terrace 長浜
-const TARGET_MONTH = "2026-05"; // 対象月 (YYYY-MM)
+const TARGET_MONTH = "2026-10"; // 対象月 (YYYY-MM)
 const MAX_DESC_LEN = 500; // DESCRIPTION 出力の最大文字数
 
 function header(tag) {

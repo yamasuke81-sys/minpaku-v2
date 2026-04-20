@@ -107,6 +107,7 @@ const ReservationFlowPage = {
       phase: 1,
       linkHash: "#/properties",
       linkLabel: "物件編集→iCal設定",
+      icalPanel: true,  // カード展開時に iCal URL 管理パネルを表示
     },
     {
       key: "double_booking",
@@ -859,6 +860,19 @@ const ReservationFlowPage = {
       ? `<div class="small text-muted mt-1" style="font-size:11px;"><i class="bi bi-info-circle"></i> ${this._esc(step.hint)}</div>`
       : "";
 
+    // iCal URL 管理パネル埋込用コンテナ (展開時に propertyIcalPanel.render で注入)
+    const icalPanelHtml = step.icalPanel
+      ? `
+        <div class="mt-2 p-2 border rounded" style="background:#f8fafc;">
+          <div class="small fw-semibold mb-2"><i class="bi bi-calendar2-event text-primary"></i> iCal URL 管理（${this._esc(property.name)}）</div>
+          <div class="rf-ical-container" data-pid="${property.id}"></div>
+          <div class="small text-muted mt-1" style="font-size:11px;">
+            <i class="bi bi-arrow-left-right"></i> 物件詳細モーダルと同一データ (syncSettings) を共有します。
+          </div>
+        </div>
+      `
+      : "";
+
     return `
       <div class="rf-card ${enabled ? "rf-card-enabled" : "rf-card-disabled"}" data-step="${step.key}" data-pid="${property.id}">
         <!-- ヘッダー (常時表示) -->
@@ -876,10 +890,11 @@ const ReservationFlowPage = {
           </div>
         </div>
         <!-- 展開コンテンツ (デフォルト非表示) -->
-        <div class="rf-card-body" id="${foldId}" style="display:none;">
+        <div class="rf-card-body" id="${foldId}" style="display:none;" data-step-key="${step.key}" data-pid="${property.id}">
           ${hintHtml}
           ${notifEditorHtml}
           ${overridePanelHtml}
+          ${icalPanelHtml}
           <!-- リンクボタン -->
           ${(guestBtn || linkBtn) ? `<div class="mt-2 d-flex flex-wrap gap-1">${guestBtn}${linkBtn}</div>` : ""}
           <!-- 物件固有メモ -->
@@ -1177,6 +1192,14 @@ const ReservationFlowPage = {
           const isOpen = body.style.display !== "none";
           body.style.display = isOpen ? "none" : "";
           if (chev) chev.style.transform = isOpen ? "" : "rotate(180deg)";
+          // 展開時: iCal パネルを遅延レンダリング
+          if (!isOpen) {
+            const icalEl = body.querySelector(".rf-ical-container");
+            if (icalEl && window.propertyIcalPanel && !icalEl.dataset.rendered) {
+              icalEl.dataset.rendered = "1";
+              window.propertyIcalPanel.render(icalEl, icalEl.dataset.pid);
+            }
+          }
         }
       }
 

@@ -43,6 +43,9 @@ const MyRecruitmentPage = {
     // 前回のリスナーを解除
     this.detach();
 
+    // ページ再訪時は必ず「今日」へスクロールするようリセット
+    this._initialScrollDone = false;
+
     container.innerHTML = `
       <div class="page-header">
         <h2><i class="bi bi-calendar-check"></i> 清掃スケジュール</h2>

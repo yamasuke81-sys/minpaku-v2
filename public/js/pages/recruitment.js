@@ -152,6 +152,10 @@ const RecruitmentPage = {
 
   renderList() {
     const container = document.getElementById("recruitmentList");
+    // 別画面 (清掃スケジュール等) から openDetailModal 経由で reopenRecruitment が
+    // 呼ばれた後、this.loadData() → renderList() が連鎖する。そのとき募集画面の
+    // DOM は存在しないので何もしない。
+    if (!container) return;
     let filtered = [...this.recruitments];
     if (this.currentFilter !== "all") {
       filtered = filtered.filter(r => r.status === this.currentFilter);
