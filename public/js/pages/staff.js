@@ -95,6 +95,8 @@ const StaffPage = {
       this.renderHeader();
       this.renderTable();
       // this.renderCalendar();  // 横カレンダーは清掃スケジュールタブに統合
+      // 物件画面から「このスタッフの請求書表示内容を編集」で遷移してきた場合の自動オープン
+      this._openFromSession();
     } catch (e) {
       showToast("エラー", `データ読み込み失敗: ${e.message}`, "error");
     }
@@ -750,6 +752,31 @@ const StaffPage = {
     document.getElementById("staffName").value = staff?.name || "";
     document.getElementById("staffEmail").value = staff?.email || "";
     document.getElementById("staffPhone").value = staff?.phone || "";
+
+    // 請求書表示内容 (複数名義)
+    // 初期値: billingProfiles[] があればそれを使う / 無ければ旧 companyName/zipCode/address を 1 エントリに変換
+    let initProfiles = Array.isArray(staff?.billingProfiles) ? staff.billingProfiles.slice() : [];
+    if (initProfiles.length === 0) {
+      const hasLegacy = (staff?.companyName || staff?.zipCode || staff?.address);
+      if (hasLegacy) {
+        initProfiles = [{
+          id: this._genProfileId(),
+          label: "メイン",
+          companyName: staff?.companyName || "",
+          zipCode: staff?.zipCode || "",
+          address: staff?.address || "",
+        }];
+      }
+    }
+    this._billingProfiles = initProfiles.map(p => ({
+      id: p.id || this._genProfileId(),
+      label: p.label || "",
+      companyName: p.companyName || "",
+      zipCode: p.zipCode || "",
+      address: p.address || "",
+    }));
+    this._renderBillingProfiles();
+    // 旧フィールド (hidden) のミラー初期化
     const companyEl = document.getElementById("staffCompanyName");
     if (companyEl) companyEl.value = staff?.companyName || "";
     const zipEl = document.getElementById("staffZipCode");
@@ -867,13 +894,19 @@ const StaffPage = {
       assignedPropertyIds.push(cb.value);
     });
 
+    // 請求書表示内容: UI から収集 → 空エントリ除外
+    const billingProfiles = this._collectBillingProfiles();
+    // 後方互換ミラー: 先頭エントリを旧フィールドにコピー
+    const firstBp = billingProfiles[0] || { companyName: "", zipCode: "", address: "" };
+
     const data = {
       name,
       email: document.getElementById("staffEmail").value.trim(),
       phone: document.getElementById("staffPhone").value.trim(),
-      companyName: (document.getElementById("staffCompanyName")?.value || "").trim(),
-      zipCode: (document.getElementById("staffZipCode")?.value || "").trim(),
-      address: (document.getElementById("staffAddress")?.value || "").trim(),
+      billingProfiles,
+      companyName: firstBp.companyName || "",
+      zipCode: firstBp.zipCode || "",
+      address: firstBp.address || "",
       contractStartDate: document.getElementById("staffContractDate").value || null,
       isTimee: !!document.getElementById("staffIsTimee")?.checked,
       skills,
@@ -953,6 +986,135 @@ const StaffPage = {
       await this.loadData();
     } catch (e) {
       showToast("エラー", `無効化に失敗しました: ${e.message}`, "error");
+    }
+  },
+
+  // ---- 請求書表示内容: 複数名義 UI ----
+
+  _billingProfiles: [],
+
+  // ユニークな名義 ID を生成 (UUID 簡易版)
+  _genProfileId() {
+    return "bp_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  },
+
+  // 現在の this._billingProfiles を基にリストを描画
+  _renderBillingProfiles() {
+    const container = document.getElementById("staffBillingProfilesList");
+    if (!container) return;
+    const escape = (s) => this.escapeHtml(String(s || ""));
+    if (!this._billingProfiles.length) {
+      container.innerHTML = `<p class="text-muted small mb-0">名義が登録されていません。「+ 名義を追加」で作成してください。</p>`;
+    } else {
+      container.innerHTML = this._billingProfiles.map((bp, i) => `
+        <div class="card mb-2 border-secondary-subtle" data-bp-idx="${i}">
+          <div class="card-header d-flex justify-content-between align-items-center py-1 px-3 bg-light">
+            <span class="fw-semibold small">名義 #${i + 1}</span>
+            <button type="button" class="btn btn-sm btn-outline-danger btn-bp-remove py-0 px-2" data-idx="${i}" title="削除">
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </div>
+          <div class="card-body py-2 px-3">
+            <div class="row g-2">
+              <div class="col-md-6">
+                <label class="form-label mb-1 small">ラベル</label>
+                <input type="text" class="form-control form-control-sm bp-label" data-idx="${i}" placeholder="例: 個人名義 / 株式会社A" value="${escape(bp.label)}">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1 small">屋号 <small class="text-muted">(空欄=個人)</small></label>
+                <input type="text" class="form-control form-control-sm bp-companyName" data-idx="${i}" value="${escape(bp.companyName)}">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1 small">〒</label>
+                <input type="text" class="form-control form-control-sm bp-zipCode" data-idx="${i}" placeholder="例: 736-0061" value="${escape(bp.zipCode)}">
+              </div>
+              <div class="col-md-8">
+                <label class="form-label mb-1 small">住所</label>
+                <input type="text" class="form-control form-control-sm bp-address" data-idx="${i}" value="${escape(bp.address)}">
+              </div>
+            </div>
+          </div>
+        </div>
+      `).join("");
+    }
+    this._bindBillingProfileEvents();
+
+    // 「+ 名義を追加」ボタンイベント (1 回だけ)
+    const addBtn = document.getElementById("btnAddBillingProfile");
+    if (addBtn && !addBtn.dataset.bound) {
+      addBtn.dataset.bound = "1";
+      addBtn.addEventListener("click", () => {
+        const n = this._billingProfiles.length + 1;
+        this._billingProfiles.push({
+          id: this._genProfileId(),
+          label: `名義 ${n}`,
+          companyName: "",
+          zipCode: "",
+          address: "",
+        });
+        this._renderBillingProfiles();
+      });
+    }
+  },
+
+  // 入力/削除イベントを紐付け
+  _bindBillingProfileEvents() {
+    const container = document.getElementById("staffBillingProfilesList");
+    if (!container) return;
+    // 削除
+    container.querySelectorAll(".btn-bp-remove").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        const i = Number(e.currentTarget.dataset.idx);
+        if (!isNaN(i)) {
+          this._billingProfiles.splice(i, 1);
+          this._renderBillingProfiles();
+        }
+      });
+    });
+    // 各入力 → state 同期
+    const syncField = (selector, field) => {
+      container.querySelectorAll(selector).forEach(el => {
+        el.addEventListener("input", (e) => {
+          const i = Number(e.currentTarget.dataset.idx);
+          if (!isNaN(i) && this._billingProfiles[i]) {
+            this._billingProfiles[i][field] = e.currentTarget.value;
+          }
+        });
+      });
+    };
+    syncField(".bp-label", "label");
+    syncField(".bp-companyName", "companyName");
+    syncField(".bp-zipCode", "zipCode");
+    syncField(".bp-address", "address");
+  },
+
+  // 保存用に billingProfiles を収集 (空エントリを除外)
+  _collectBillingProfiles() {
+    return (this._billingProfiles || [])
+      .map(bp => ({
+        id: bp.id || this._genProfileId(),
+        label: (bp.label || "").trim(),
+        companyName: (bp.companyName || "").trim(),
+        zipCode: (bp.zipCode || "").trim(),
+        address: (bp.address || "").trim(),
+      }))
+      // ラベルと 3 項目全てが空のエントリは除外
+      .filter(bp => bp.label || bp.companyName || bp.zipCode || bp.address);
+  },
+
+  // 他画面 (物件モーダル) から遷移してきた場合の自動編集対応
+  _openFromSession() {
+    try {
+      const targetId = sessionStorage.getItem("openStaffEdit");
+      if (!targetId) return;
+      sessionStorage.removeItem("openStaffEdit");
+      const staff = this.staffList.find(s => s.id === targetId);
+      if (staff) {
+        // loadData 直後はレンダリング完了直後なので少し遅延
+        setTimeout(() => this.openModal(staff), 100);
+      }
+    } catch (e) {
+      console.warn("[staff _openFromSession]", e.message);
     }
   },
 

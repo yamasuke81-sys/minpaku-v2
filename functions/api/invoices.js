@@ -67,23 +67,48 @@ async function resolveInvoiceRecipient_(db, propertyId, client) {
   try {
     const pDoc = await db.collection("properties").doc(propertyId).get();
     if (!pDoc.exists) return fallback;
-    const ownerStaffId = pDoc.data().ownerStaffId;
+    const pData = pDoc.data();
+    const ownerStaffId = pData.ownerStaffId;
+    const ownerBillingProfileId = pData.ownerBillingProfileId || null;
     if (!ownerStaffId) return fallback;
     const sDoc = await db.collection("staff").doc(ownerStaffId).get();
     if (!sDoc.exists) return fallback;
     const s = sDoc.data();
-    // ownerStaffId が指定されている場合は、その staff の情報で一本化する。
-    // 各フィールドが空でも clientInfo (合同会社八朔) にフォールバックしない
-    // (宛名が社名=八朔/住所=スタッフ宅 のような混在を防ぐ)。
-    // staff に入っていないフィールドは空表示のまま (ユーザーが記載情報
-    // モーダルで補完する前提)。
-    return {
-      companyName: s.companyName || s.name || "",
-      address: s.address || "",
-      zipCode: s.zipCode || "",
-      name: s.name || "",
-      source: "ownerStaff",
-    };
+
+    // 1. 物件に紐付けられた billingProfile を優先して解決
+    const profiles = Array.isArray(s.billingProfiles) ? s.billingProfiles : [];
+    let picked = null;
+    if (ownerBillingProfileId) {
+      picked = profiles.find(p => p && p.id === ownerBillingProfileId) || null;
+    }
+    // 2. 未指定 or 不一致で profiles が 1 件ならそれを使う
+    if (!picked && profiles.length === 1) {
+      picked = profiles[0];
+    }
+
+    if (picked) {
+      return {
+        companyName: picked.companyName || s.name || "",
+        address: picked.address || "",
+        zipCode: picked.zipCode || "",
+        name: s.name || "",
+        source: "ownerStaffBillingProfile",
+      };
+    }
+
+    // 3. 旧データ互換: profiles が無い / 選択不能なら staff 直下の旧フィールドを使う
+    if (s.companyName || s.address || s.zipCode) {
+      return {
+        companyName: s.companyName || s.name || "",
+        address: s.address || "",
+        zipCode: s.zipCode || "",
+        name: s.name || "",
+        source: "ownerStaffLegacy",
+      };
+    }
+
+    // 4. それも無ければ fallback (settings/clientInfo)
+    return fallback;
   } catch (e) {
     console.warn("[resolveInvoiceRecipient_] 失敗:", e.message);
     return fallback;

@@ -253,26 +253,21 @@
               </div>
             </div>
 
-            <!-- 請求書表示内容 (オーナー/サブオーナー兼、一般スタッフも銀行情報と共に表示) -->
+            <!-- 請求書表示内容 (複数名義対応、物件ごとに選択) -->
             <div class="col-12">
               <hr><h6><i class="bi bi-receipt"></i> 請求書表示内容</h6>
               <div class="small text-muted mb-2">
-                このスタッフが請求書の宛名 (物件オーナー) に指定された場合、あるいは自身が請求書作成者の場合に表示されます。
+                このスタッフが物件オーナーに指定された場合に請求書の宛名として使われます。
+                個人名義と法人名義など、複数の名義を登録し、物件ごとに使用する名義を切り替えられます。
               </div>
-              <div class="row g-2">
-                <div class="col-md-4">
-                  <label class="form-label">〒 (郵便番号)</label>
-                  <input type="text" class="form-control" id="staffZipCode" placeholder="例: 736-0061">
-                </div>
-                <div class="col-md-8">
-                  <label class="form-label">住所</label>
-                  <input type="text" class="form-control" id="staffAddress">
-                </div>
-                <div class="col-12">
-                  <label class="form-label">屋号 <small class="text-muted">(法人の場合。空欄なら氏名が宛名に使われます)</small></label>
-                  <input type="text" class="form-control" id="staffCompanyName">
-                </div>
-              </div>
+              <div id="staffBillingProfilesList"></div>
+              <button type="button" class="btn btn-outline-primary btn-sm mt-2" id="btnAddBillingProfile">
+                <i class="bi bi-plus-lg"></i> 名義を追加
+              </button>
+              <!-- 旧フィールド: 非表示で保持 (後方互換ミラー用。UIには出さない) -->
+              <input type="hidden" id="staffZipCode">
+              <input type="hidden" id="staffAddress">
+              <input type="hidden" id="staffCompanyName">
             </div>
 
             <!-- LINE連携・アプリ招待（編集時のみ表示） -->
@@ -382,6 +377,19 @@
                 <option value="">(未設定 / 既定宛先を使用)</option>
               </select>
               <div class="form-text">請求書の宛名として使用。未設定時は共通設定の宛先が使われます。</div>
+              <!-- 名義選択 (オーナー選択後に表示) -->
+              <div id="propertyOwnerBillingProfileWrap" class="mt-2 d-none">
+                <label class="form-label mb-1 small">名義 (請求書表示内容)</label>
+                <select class="form-select form-select-sm" id="propertyOwnerBillingProfileId">
+                  <option value="">(自動選択)</option>
+                </select>
+                <div class="form-text" id="propertyOwnerBillingProfileHint"></div>
+              </div>
+              <div class="mt-1">
+                <a href="#" id="linkToStaffBilling" class="small d-none">
+                  <i class="bi bi-box-arrow-up-right"></i> このスタッフの請求書表示内容を編集
+                </a>
+              </div>
             </div>
             <div class="col-md-6">
               <label class="form-label">キーボックス番号</label>
@@ -1242,8 +1250,8 @@
   <script src="js/auth.js?v=0415a"></script>
   <script src="js/api.js?v=0421c"></script>
   <script src="js/pages/dashboard.js?v=0420d"></script>
-  <script src="js/pages/staff.js?v=0421o"></script>
-  <script src="js/pages/properties.js?v=0421m"></script>
+  <script src="js/pages/staff.js?v=0421p"></script>
+  <script src="js/pages/properties.js?v=0421n"></script>
   <script src="js/pages/recruitment.js?v=0421e"></script>
   <script src="js/shared/form-schema.js?v=0419b"></script>
   <script src="js/pages/guests.js?v=0419b"></script>

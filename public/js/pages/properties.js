@@ -242,8 +242,13 @@ const PropertiesPage = {
     document.getElementById("propertyKeyboxNumber").value = property?.keyboxNumber || "";
     document.getElementById("propertyNotes").value = property?.notes || "";
 
-    // オーナー (請求書宛名) プルダウンを構築
+    // オーナー (請求書宛名) プルダウンを構築 + 名義 / 編集リンク
     this._renderOwnerStaffSelect(property?.ownerStaffId || "");
+    this._renderOwnerBillingProfileSelect(
+      property?.ownerStaffId || "",
+      property?.ownerBillingProfileId || ""
+    );
+    this._bindOwnerStaffChange();
 
     // LINE 連携フィールド
     document.getElementById("propertyLineEnabled").checked = !!property?.lineEnabled;
@@ -394,8 +399,9 @@ const PropertiesPage = {
       })(),
       keyboxNumber: document.getElementById("propertyKeyboxNumber").value.trim() || null,
       notes: document.getElementById("propertyNotes").value.trim(),
-      // オーナー (請求書宛名用 staff ID)
+      // オーナー (請求書宛名用 staff ID) + 名義 (billingProfile ID)
       ownerStaffId: document.getElementById("propertyOwnerStaffId")?.value || null,
+      ownerBillingProfileId: document.getElementById("propertyOwnerBillingProfileId")?.value || null,
       // LINE 連携フィールド
       lineEnabled: document.getElementById("propertyLineEnabled").checked,
       lineChannelStrategy: document.getElementById("propertyLineChannelStrategy").value || "fallback",
@@ -491,8 +497,9 @@ const PropertiesPage = {
       })(),
       keyboxNumber: document.getElementById("propertyKeyboxNumber").value.trim() || null,
       notes: document.getElementById("propertyNotes").value.trim(),
-      // オーナー (請求書宛名用 staff ID)
+      // オーナー (請求書宛名用 staff ID) + 名義 (billingProfile ID)
       ownerStaffId: document.getElementById("propertyOwnerStaffId")?.value || null,
+      ownerBillingProfileId: document.getElementById("propertyOwnerBillingProfileId")?.value || null,
       lineEnabled: document.getElementById("propertyLineEnabled").checked,
       lineChannelStrategy: document.getElementById("propertyLineChannelStrategy").value || "fallback",
       lineChannels: this._collectLineChannels(),
@@ -586,6 +593,113 @@ const PropertiesPage = {
       })
     ).join("");
     sel.innerHTML = opts;
+  },
+
+  // 選択スタッフの billingProfiles[] から名義プルダウンを描画
+  _renderOwnerBillingProfileSelect(staffId, selectedBpId) {
+    const wrap = document.getElementById("propertyOwnerBillingProfileWrap");
+    const sel = document.getElementById("propertyOwnerBillingProfileId");
+    const hint = document.getElementById("propertyOwnerBillingProfileHint");
+    const link = document.getElementById("linkToStaffBilling");
+    if (!wrap || !sel) return;
+    const escape = (s) => this.escapeHtml(String(s || ""));
+
+    // リンク更新 (スタッフ未選択なら非表示)
+    if (link) {
+      if (staffId) {
+        link.classList.remove("d-none");
+        link.dataset.staffId = staffId;
+      } else {
+        link.classList.add("d-none");
+        link.dataset.staffId = "";
+      }
+    }
+
+    if (!staffId) {
+      wrap.classList.add("d-none");
+      sel.innerHTML = `<option value="">(自動選択)</option>`;
+      if (hint) hint.textContent = "";
+      return;
+    }
+
+    const staff = this._ownerStaffOptions.find(s => s.id === staffId);
+    let profiles = Array.isArray(staff?.billingProfiles) ? staff.billingProfiles : [];
+    // 旧データ互換: billingProfiles が無い & 旧 companyName/zipCode/address のどれかがあれば仮想 1 エントリ
+    if (profiles.length === 0 && staff && (staff.companyName || staff.zipCode || staff.address)) {
+      profiles = [{
+        id: "__legacy__",
+        label: "メイン (旧形式)",
+        companyName: staff.companyName || "",
+        zipCode: staff.zipCode || "",
+        address: staff.address || "",
+      }];
+    }
+
+    wrap.classList.remove("d-none");
+
+    if (profiles.length === 0) {
+      sel.innerHTML = `<option value="">(名義未登録)</option>`;
+      sel.disabled = true;
+      if (hint) {
+        hint.innerHTML = `<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> このスタッフに請求書表示内容が未登録です。右のリンクから登録してください。</span>`;
+      }
+      return;
+    }
+
+    sel.disabled = false;
+    const optsHtml = profiles.map(p => {
+      const label = p.label || (p.companyName || "(無題)");
+      const detail = [p.companyName, p.address].filter(Boolean).join(" / ");
+      const display = detail ? `${label} — ${detail}` : label;
+      const sel2 = p.id === selectedBpId ? "selected" : "";
+      return `<option value="${escape(p.id)}" ${sel2}>${escape(display)}</option>`;
+    }).join("");
+
+    if (profiles.length === 1) {
+      // 1 件なら自動選択
+      sel.innerHTML = optsHtml;
+      sel.value = profiles[0].id;
+      if (hint) hint.textContent = "このスタッフの名義は 1 件のため自動選択されています。";
+    } else {
+      // 2 件以上は手動選択 (先頭に未選択を入れない: 必ず選ぶ運用)
+      sel.innerHTML = optsHtml;
+      if (selectedBpId && profiles.find(p => p.id === selectedBpId)) {
+        sel.value = selectedBpId;
+      } else {
+        sel.value = profiles[0].id;
+      }
+      if (hint) hint.textContent = "使用する名義を選択してください。";
+    }
+  },
+
+  // オーナースタッフ変更 / 編集リンクのイベント紐付け (1 回だけ)
+  _bindOwnerStaffChange() {
+    const sel = document.getElementById("propertyOwnerStaffId");
+    if (sel && !sel.dataset.ownerChangeBound) {
+      sel.dataset.ownerChangeBound = "1";
+      sel.addEventListener("change", () => {
+        // オーナー変更時は名義選択をリセットして再描画
+        this._renderOwnerBillingProfileSelect(sel.value || "", "");
+      });
+    }
+    const link = document.getElementById("linkToStaffBilling");
+    if (link && !link.dataset.bound) {
+      link.dataset.bound = "1";
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        const staffId = link.dataset.staffId || document.getElementById("propertyOwnerStaffId")?.value || "";
+        if (!staffId) return;
+        // sessionStorage に対象 staffId を置き、スタッフ画面に遷移後に staff.js が自動で開く
+        try { sessionStorage.setItem("openStaffEdit", staffId); } catch (err) {}
+        this.modal.hide();
+        const modalEl = document.getElementById("propertyModal");
+        const onHidden = () => {
+          modalEl.removeEventListener("hidden.bs.modal", onHidden);
+          location.hash = "#/staff";
+        };
+        modalEl.addEventListener("hidden.bs.modal", onHidden);
+      });
+    }
   },
 
   // ---- LINE 複数チャネル UI ----
