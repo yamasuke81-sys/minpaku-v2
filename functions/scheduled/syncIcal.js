@@ -53,7 +53,16 @@ function extractGuestName(event, platform) {
   if (platform === "Airbnb") {
     // ブロック・非公開（"Airbnb (Not available)" 形式や括弧付きにも対応）
     if (/not available|closed|blocked/i.test(summary)) return "";
-    // 単独の "Reserved" / "Blocked" / "Closed" / "Unavailable" → ブロック予約
+    // 単独の "Reserved" → DESCRIPTION に Reservation URL があれば実予約扱いで "Reserved" を返す
+    // (後段の救済ロジックで実予約として処理される)
+    if (/^reserved$/i.test(summary)) {
+      const desc = event.description || "";
+      if (/reservation url:/i.test(desc)) {
+        return "Reserved";
+      }
+      return ""; // Reservation URL なし → ブロック扱い (従来通り)
+    }
+    // その他の単独ブロックイベント ("Blocked" / "Closed" / "Unavailable" など) はブロック
     if (isBlockEvent(summary)) return "";
     // "予約済み - XXX" → XXX
     const m = summary.match(/^(?:予約済み|Reserved|Booked)\s*[-–—]\s*(.+)/i);
