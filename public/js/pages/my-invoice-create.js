@@ -57,51 +57,10 @@ const MyInvoiceCreatePage = {
           ${staffSelectorHtml}
           <input type="month" class="form-control form-control-sm" id="invMonth" value="${defaultYM}" style="width:160px;">
           <button class="btn btn-sm btn-outline-primary" id="btnRecalc"><i class="bi bi-arrow-clockwise"></i> 再集計</button>
-        </div>
-      </div>
-
-      <!-- 過去の請求書 -->
-      <div class="card mb-3">
-        <div class="card-body">
-          <h6 class="mb-2"><i class="bi bi-clock-history"></i> 過去の請求書</h6>
-          <div id="pastInvoicesList" class="small">
-            <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> 読込中...</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 請求書記載情報 (折りたたみ) -->
-      <div class="card mb-3">
-        <div class="card-body p-0">
-          <button class="btn btn-link text-decoration-none w-100 d-flex justify-content-between align-items-center p-3" type="button" id="btnToggleStaffInfo" style="color:inherit;">
-            <span class="text-start">
-              <i class="bi bi-person-vcard"></i> <strong>請求書記載情報</strong>
-              <span id="staffInfoSummary" class="ms-2 small text-muted"></span>
-            </span>
-            <span>
-              <span id="staffInfoSaveStatus" class="small me-2"></span>
-              <i class="bi bi-chevron-down" id="staffInfoChevron" style="transition:transform 0.2s;"></i>
-            </span>
+          <!-- 歯車アイコン: 請求書記載情報モーダルを開く -->
+          <button class="btn btn-sm btn-outline-secondary" id="btnStaffInfoSettings" title="請求書記載情報" data-bs-toggle="tooltip">
+            <i class="bi bi-gear"></i>
           </button>
-          <div id="staffInfoBody" class="p-3 pt-0 d-none">
-            <div class="small text-muted mb-2">この情報は<strong>スタッフマスタと同期</strong>しています。編集すると自動でスタッフタブにも反映されます。</div>
-            <div class="row g-2" id="staffInfoFields">
-              <div class="col-md-6"><label class="form-label small mb-1">氏名 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="name"></div>
-              <div class="col-md-6"><label class="form-label small mb-1">電話</label><input type="tel" class="form-control form-control-sm s-field" data-field="phone"></div>
-              <div class="col-md-12"><label class="form-label small mb-1">住所 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="address"></div>
-              <div class="col-md-6"><label class="form-label small mb-1">メールアドレス <span class="text-danger">*</span></label><input type="email" class="form-control form-control-sm s-field" data-field="email"></div>
-              <div class="col-md-6"></div>
-              <div class="col-md-6"><label class="form-label small mb-1">金融機関名 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="bankName"></div>
-              <div class="col-md-6"><label class="form-label small mb-1">支店名 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="branchName"></div>
-              <div class="col-md-4"><label class="form-label small mb-1">口座種類</label>
-                <select class="form-select form-select-sm s-field" data-field="accountType">
-                  <option value="普通">普通</option><option value="当座">当座</option>
-                </select>
-              </div>
-              <div class="col-md-4"><label class="form-label small mb-1">口座番号 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="accountNumber"></div>
-              <div class="col-md-4"><label class="form-label small mb-1">口座名義 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="accountHolder"></div>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -133,6 +92,7 @@ const MyInvoiceCreatePage = {
         </div>
       </div>
 
+      <!-- 合計 + 送信ボタン -->
       <div class="card mb-3 border-primary">
         <div class="card-body d-flex justify-content-between align-items-center">
           <div>
@@ -145,6 +105,53 @@ const MyInvoiceCreatePage = {
         </div>
       </div>
       <div id="invResult"></div>
+
+      <!-- 過去の請求書 -->
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6 class="mb-2"><i class="bi bi-clock-history"></i> 過去の請求書</h6>
+          <div id="pastInvoicesList" class="small">
+            <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> 読込中...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 請求書記載情報モーダル (歯車アイコンで開く) -->
+      <div class="modal fade" id="staffInfoModal" tabindex="-1" aria-labelledby="staffInfoModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="staffInfoModalLabel">
+                <i class="bi bi-person-vcard"></i> 請求書記載情報
+                <span id="staffInfoSaveStatus" class="small ms-2"></span>
+              </h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="閉じる"></button>
+            </div>
+            <div class="modal-body">
+              <div class="small text-muted mb-2">この情報は<strong>スタッフマスタと同期</strong>しています。編集すると自動でスタッフタブにも反映されます。</div>
+              <div class="row g-2" id="staffInfoFields">
+                <div class="col-md-6"><label class="form-label small mb-1">氏名 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="name"></div>
+                <div class="col-md-6"><label class="form-label small mb-1">電話</label><input type="tel" class="form-control form-control-sm s-field" data-field="phone"></div>
+                <div class="col-md-12"><label class="form-label small mb-1">住所 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="address"></div>
+                <div class="col-md-6"><label class="form-label small mb-1">メールアドレス <span class="text-danger">*</span></label><input type="email" class="form-control form-control-sm s-field" data-field="email"></div>
+                <div class="col-md-6"></div>
+                <div class="col-md-6"><label class="form-label small mb-1">金融機関名 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="bankName"></div>
+                <div class="col-md-6"><label class="form-label small mb-1">支店名 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="branchName"></div>
+                <div class="col-md-4"><label class="form-label small mb-1">口座種類</label>
+                  <select class="form-select form-select-sm s-field" data-field="accountType">
+                    <option value="普通">普通</option><option value="当座">当座</option>
+                  </select>
+                </div>
+                <div class="col-md-4"><label class="form-label small mb-1">口座番号 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="accountNumber"></div>
+                <div class="col-md-4"><label class="form-label small mb-1">口座名義 <span class="text-danger">*</span></label><input type="text" class="form-control form-control-sm s-field" data-field="accountHolder"></div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button>
+            </div>
+          </div>
+        </div>
+      </div>
     `;
 
     if (this.isOwner) {
@@ -160,7 +167,8 @@ const MyInvoiceCreatePage = {
     document.getElementById("btnRecalc").addEventListener("click", () => this.loadSummary());
     document.getElementById("invMonth").addEventListener("change", () => this.loadSummary());
     document.getElementById("btnSubmitInvoice").addEventListener("click", () => this.submit());
-    document.getElementById("btnToggleStaffInfo").addEventListener("click", () => this.toggleStaffInfo());
+    // 歯車アイコン: 請求書記載情報モーダルを開く
+    document.getElementById("btnStaffInfoSettings").addEventListener("click", () => this.toggleStaffInfo(true));
 
     if (!this.staffId) {
       container.innerHTML = `<div class="alert alert-warning">スタッフ情報が確認できません</div>`;
@@ -173,27 +181,31 @@ const MyInvoiceCreatePage = {
     await this.loadPastInvoices();
   },
 
-  // 折りたたみトグル
+  // モーダル開閉 (既存 API 互換: forceOpen=true→開く / false→閉じる / null→トグル)
   toggleStaffInfo(forceOpen = null) {
-    const body = document.getElementById("staffInfoBody");
-    const chev = document.getElementById("staffInfoChevron");
-    if (!body || !chev) return;
-    const shouldOpen = forceOpen === null ? body.classList.contains("d-none") : forceOpen;
-    body.classList.toggle("d-none", !shouldOpen);
-    chev.style.transform = shouldOpen ? "rotate(180deg)" : "";
+    const modalEl = document.getElementById("staffInfoModal");
+    if (!modalEl) return;
+    // Bootstrap Modal インスタンスを取得 or 生成
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    const isShown = modalEl.classList.contains("show");
+    const shouldOpen = forceOpen === null ? !isShown : forceOpen;
+    if (shouldOpen) modal.show();
+    else modal.hide();
   },
 
-  // サマリラベル更新 (折りたたみ時のヘッダ要約)
+  // 歯車アイコンの tooltip に記載情報の要約を反映 (未入力なら赤点)
   _updateStaffInfoSummary() {
-    const sEl = document.getElementById("staffInfoSummary");
-    if (!sEl) return;
+    const btn = document.getElementById("btnStaffInfoSettings");
+    if (!btn) return;
     const d = this.staffDoc || {};
     const acc = d.accountNumber ? String(d.accountNumber).slice(-4) : "";
     const parts = [];
     if (d.name) parts.push(d.name);
     if (d.bankName) parts.push(d.bankName);
     if (acc) parts.push(`末尾${acc}`);
-    sEl.textContent = parts.length ? `(${parts.join(" / ")})` : "(未入力)";
+    const summary = parts.length ? parts.join(" / ") : "未入力";
+    btn.setAttribute("title", `請求書記載情報 (${summary})`);
+    btn.setAttribute("data-bs-original-title", `請求書記載情報 (${summary})`);
   },
 
   async loadStaffDoc() {
