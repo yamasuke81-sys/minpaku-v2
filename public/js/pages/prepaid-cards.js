@@ -18,6 +18,7 @@ const PrepaidCardsPage = {
   cards: [],
   depots: [],
   properties: [],
+  staffList: [],   // 購入者プルダウン用 (オーナー時のみ取得)
   staffDoc: null,  // スタッフ側表示時の自分情報
   canEdit: false,
 
@@ -119,6 +120,14 @@ const PrepaidCardsPage = {
                   <input type="number" class="form-control" id="newPrepaidBalance" min="0" value="2200">
                 </div>
               </div>
+              <!-- 購入者選択 (オーナーのみ表示。スタッフ/サブオーナーは自動で自分) -->
+              <div class="mb-3 d-none" id="newPrepaidPurchaserWrap">
+                <label class="form-label">購入者 <span class="text-danger">*</span></label>
+                <select class="form-select" id="newPrepaidPurchaser">
+                  <option value="">-- 選択 --</option>
+                </select>
+                <div class="form-text small">購入者の月次請求書に立替として自動計上されます</div>
+              </div>
               <div class="mb-3">
                 <label class="form-label">利用物件 (複数選択可)</label>
                 <div id="newPrepaidProperties" class="d-flex flex-wrap gap-2 border rounded p-2"></div>
@@ -176,6 +185,15 @@ const PrepaidCardsPage = {
     if (!this.canEdit && this.staffDoc) {
       const assigned = new Set(this.staffDoc.assignedPropertyIds || []);
       this.properties = this.properties.filter(p => assigned.has(p.id));
+    }
+
+    // オーナー時のみスタッフ一覧を取得 (購入者プルダウン用)
+    if (this.isOwnerLevel) {
+      try {
+        const snap = await db.collection("staff").orderBy("displayOrder", "asc").get();
+        this.staffList = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .filter(s => s.name && s.active !== false);
+      } catch (_) { this.staffList = []; }
     }
 
     // 物件フィルタセレクトを構築
@@ -454,6 +472,30 @@ const PrepaidCardsPage = {
     balanceInput.value = this._resolveBalance(2000, depotSel.value);
     memoInput.value = "";
 
+    // 購入者プルダウン: オーナーのみ表示、スタッフ/サブオーナーは非表示で自動決定
+    const purchaserWrap = document.getElementById("newPrepaidPurchaserWrap");
+    const purchaserSel = document.getElementById("newPrepaidPurchaser");
+    const role = (Auth.currentUser && Auth.currentUser.role) || "owner";
+    const myStaffId = Auth.currentUser?.staffId || "";
+    const myName = Auth.currentUser?.displayName || Auth.currentUser?.name || "";
+    if (role === "owner") {
+      // オーナーはスタッフ一覧+自分を選択可 (デフォルト自分)
+      purchaserWrap.classList.remove("d-none");
+      const opts = this.staffList.map(s =>
+        `<option value="${s.id}" data-name="${this._esc(s.name)}" ${s.id === myStaffId ? "selected" : ""}>${this._esc(s.name)}${s.isOwner ? " (オーナー)" : ""}</option>`
+      ).join("");
+      purchaserSel.innerHTML = `<option value="">-- 選択 --</option>` + opts;
+      // staffList に自分が含まれていない場合 (オーナーが staff 化されていない等) のフォールバック
+      if (myStaffId && !this.staffList.some(s => s.id === myStaffId)) {
+        purchaserSel.insertAdjacentHTML("beforeend",
+          `<option value="${myStaffId}" data-name="${this._esc(myName)}" selected>${this._esc(myName)} (自分)</option>`);
+      }
+    } else {
+      // スタッフ/サブオーナーは UI 非表示、自分に自動設定
+      purchaserWrap.classList.add("d-none");
+      purchaserSel.innerHTML = `<option value="${myStaffId}" data-name="${this._esc(myName)}" selected>${this._esc(myName)}</option>`;
+    }
+
     // 購入金額 / 提出先変更時、チャージルールに基づき残高を自動計算
     const recalcBalance = () => {
       const charge = Number(chargeInput.value) || 0;
@@ -501,9 +543,18 @@ const PrepaidCardsPage = {
       const prefix = prefixInput.value.trim();
       const cardNumber = numberInput.value.trim();
       const balance = Number(balanceInput.value) || 0;
+      const chargeAmount = Number(chargeInput.value) || 0;
       if (!depotId) { showToast("入力エラー", "提出先を選択してください", "error"); return; }
       if (!prefix) { showToast("入力エラー", "カード番号の頭文字を入力してください", "error"); return; }
       if (!cardNumber) { showToast("入力エラー", "カード番号が採番できませんでした", "error"); return; }
+      // 購入者情報を取得 (オーナー時はプルダウン、スタッフ時は自分)
+      const purchaserStaffId = purchaserSel.value || "";
+      const purchaserOpt = purchaserSel.options[purchaserSel.selectedIndex];
+      const purchaserStaffName = purchaserOpt?.dataset?.name || purchaserOpt?.text || "";
+      if (!purchaserStaffId) {
+        showToast("入力エラー", "購入者を選択してください", "error");
+        return;
+      }
       const propertyIds = [...document.querySelectorAll(".new-prepaid-property:checked")].map(cb => cb.value);
       const memo = memoInput.value.trim();
       // 頭文字をマスタにキャッシュ
@@ -511,6 +562,10 @@ const PrepaidCardsPage = {
       const newCard = {
         id: "prepaid_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
         cardNumber, balance, depotId, propertyIds, memo,
+        // 請求書集計用メタデータ
+        chargeAmount,
+        purchasedAt: firebase.firestore.Timestamp.now(),
+        purchasedBy: { staffId: purchaserStaffId, staffName: purchaserStaffName },
       };
       this.cards.push(newCard);
       // this.cards を直接 Firestore へ保存 (save() は DOM から読む仕様で新規カードが含まれないため)
@@ -545,7 +600,9 @@ const PrepaidCardsPage = {
       const cardNumber = el.querySelector(".c-number").value.trim();
       if (!cardNumber && !existing.cardNumber) return;  // 空スキップ
       const propertyIds = [...el.querySelectorAll(".c-property:checked")].map(cb => cb.value);
+      // 既存メタデータ (chargeAmount/purchasedAt/purchasedBy) は保持して上書きしない
       items.push({
+        ...existing,
         id: existing.id || ("prepaid_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
         cardNumber: cardNumber || existing.cardNumber,
         balance: Number(el.querySelector(".c-balance").value) || 0,

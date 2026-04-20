@@ -367,6 +367,7 @@ const MyInvoiceCreatePage = {
       this._previewLaundryAmount = preview.laundryAmount || 0;
       this._previewSpecialAmount = preview.specialAmount || 0;
       this._previewTransportFee = preview.transportationFee || 0;
+      this._previewPrepaidExpense = preview.prepaidExpense || 0;
       this._previewShiftCount = preview.shiftCount || 0;
       this._summaryRows = preview.rows || [];
 
@@ -379,6 +380,7 @@ const MyInvoiceCreatePage = {
       this._previewLaundryAmount = 0;
       this._previewSpecialAmount = 0;
       this._previewTransportFee = 0;
+      this._previewPrepaidExpense = 0;
       this._previewShiftCount = 0;
       this._summaryRows = [];
       return;
@@ -394,15 +396,24 @@ const MyInvoiceCreatePage = {
       return;
     }
     const total = (preview.shiftAmount || 0) + (preview.laundryAmount || 0)
-      + (preview.specialAmount || 0) + (preview.transportationFee || 0);
-    const body = rows.map(r => `
-      <tr>
+      + (preview.specialAmount || 0) + (preview.transportationFee || 0)
+      + (preview.prepaidExpense || 0);
+    const body = rows.map(r => {
+      // プリカ購入行は控えめに黄色背景+カードアイコン
+      const isPrepaid = r.category === "プリカ購入";
+      const trCls = isPrepaid ? ' style="background:#fffbea;"' : "";
+      const catHtml = isPrepaid
+        ? `<i class="bi bi-credit-card-2-front text-warning"></i> ${this._esc(r.category || "")}`
+        : this._esc(r.category || "");
+      return `
+      <tr${trCls}>
         <td class="small">${this._esc(r.date || "")}</td>
-        <td class="small">${this._esc(r.category || "")}</td>
+        <td class="small">${catHtml}</td>
         <td class="text-end small">¥${Number(r.unitPrice || 0).toLocaleString()}</td>
         <td class="text-muted small">${this._esc(r.note || "")}</td>
       </tr>
-    `).join("");
+    `;
+    }).join("");
     el.innerHTML = `
       <div class="table-responsive">
         <table class="table table-sm table-hover align-middle mb-0">
@@ -432,7 +443,8 @@ const MyInvoiceCreatePage = {
     const apiBase = (this._previewShiftAmount || 0)
       + (this._previewLaundryAmount || 0)
       + (this._previewSpecialAmount || 0)
-      + (this._previewTransportFee || 0);
+      + (this._previewTransportFee || 0)
+      + (this._previewPrepaidExpense || 0);
     const manualTotal = [...document.querySelectorAll("#manualRows .m-amount")]
       .reduce((s, i) => s + (Number(i.value) || 0), 0);
     const total = apiBase + manualTotal;

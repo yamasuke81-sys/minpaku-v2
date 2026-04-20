@@ -416,6 +416,39 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
     return l.paymentMethod === "cash" || l.paymentMethod === "credit";
   });
 
+  // 提出先(depot)マスター settings/laundryDepots.items: [{id,kind,name,rates}]
+  // depotId / depot フィールドから提出先名を解決するために利用
+  let depotMasterItems = [];
+  try {
+    const depotDoc = await db.collection("settings").doc("laundryDepots").get();
+    if (depotDoc.exists && Array.isArray(depotDoc.data().items)) {
+      depotMasterItems = depotDoc.data().items;
+    }
+  } catch (_) { /* ignore */ }
+  const depotById = {};
+  for (const d of depotMasterItems) {
+    if (d && d.id) depotById[d.id] = d;
+  }
+  // laundry ドキュメント (または同等オブジェクト) から depot 表示名を解決
+  const resolveDepotName = (l) => {
+    if (!l) return "";
+    if (l.depotId) {
+      const m = depotById[l.depotId];
+      if (m && m.name) return m.name;
+    }
+    if (l.depot) {
+      if (depotById[l.depot] && depotById[l.depot].name) return depotById[l.depot].name;
+      return String(l.depot);
+    }
+    if (l.depotOther) return String(l.depotOther);
+    return "";
+  };
+  // shift と laundry の紐付け用マップ (sourceChecklistId 経由)
+  const laundryByChecklistId = {};
+  for (const l of laundryAll) {
+    if (l.sourceChecklistId) laundryByChecklistId[l.sourceChecklistId] = l;
+  }
+
   // propertyWorkItems のキャッシュ (propertyId → workItems)
   const workItemsCache = {};
   const getWorkItems = async (propertyId) => {
@@ -529,6 +562,7 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
       workType,
       guestCount: booking?.guestCount || 1,
       amount,
+      sourceChecklistId: shift.sourceChecklistId || "",
       isTimee: staff.isTimee || false,
       timeeDetail: staff.isTimee ? (() => {
         const property = propertyCache[propertyId];
@@ -576,6 +610,71 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
   // 交通費
   const transportationFee = rawShifts.length * (staff.transportationFee || 0);
 
+  // --- プリカ購入の立替集計 ---
+  // settings/prepaidCards から、指定スタッフが該当月に購入したカードを抽出
+  let prepaidExpense = 0;
+  const prepaidDetails = [];
+  try {
+    const pcDoc = await db.collection("settings").doc("prepaidCards").get();
+    const items = (pcDoc.exists && Array.isArray(pcDoc.data().items)) ? pcDoc.data().items : [];
+    // depotId → depotName マップ (備考用)
+    let depotMap = {};
+    try {
+      const depotDoc = await db.collection("settings").doc("laundryDepots").get();
+      const dItems = (depotDoc.exists && Array.isArray(depotDoc.data().items)) ? depotDoc.data().items : [];
+      dItems.forEach(d => { depotMap[d.id || d.name] = d.name || d.id; });
+    } catch (_) {}
+
+    // 月範囲は start/end (JST 月初〜月末 23:59:59) を流用
+    const startMs = start.getTime();
+    const endMs = end.getTime();
+
+    for (const card of items) {
+      // メタデータが無い旧データはスキップ
+      if (!card.purchasedBy || !card.purchasedBy.staffId || !card.purchasedAt) continue;
+      if (card.purchasedBy.staffId !== staffId) continue;
+
+      // purchasedAt を Date に変換
+      const paRaw = card.purchasedAt;
+      const paDate = paRaw.toDate ? paRaw.toDate()
+        : (paRaw._seconds ? new Date(paRaw._seconds * 1000) : new Date(paRaw));
+      if (isNaN(paDate.getTime())) continue;
+      const paMs = paDate.getTime();
+      if (paMs < startMs || paMs > endMs) continue;
+
+      // propertyId 指定時は所属物件に含まれるカードのみ
+      if (propertyId) {
+        const pids = Array.isArray(card.propertyIds) ? card.propertyIds : [];
+        if (!pids.includes(propertyId)) continue;
+      }
+
+      const amount = Number(card.chargeAmount) || 0;
+      if (amount <= 0) continue;
+
+      // 物件名カンマ区切り
+      const propNames = [];
+      for (const pid of (card.propertyIds || [])) {
+        const p = await getProperty(pid);
+        propNames.push(p?.name || pid);
+      }
+      const depotName = depotMap[card.depotId] || card.depotId || "";
+      const note = `${card.cardNumber || ""}${depotName ? ` (${depotName})` : ""}${propNames.length ? ` ${propNames.join(",")}` : ""}`.trim();
+
+      prepaidExpense += amount;
+      prepaidDetails.push({
+        purchasedAt: paDate,
+        cardNumber: card.cardNumber || "",
+        depotId: card.depotId || "",
+        depotName,
+        propertyIds: card.propertyIds || [],
+        amount,
+        note,
+      });
+    }
+  } catch (e) {
+    console.warn("プリカ集計エラー (無視):", e.message);
+  }
+
   // 手動追加項目 (date フィールド対応 — 旧データは date 無しでも読める)
   const manual = (manualItems || []).map(i => ({
     date: i.date ? String(i.date) : "",
@@ -585,7 +684,7 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
   }));
   const manualAmount = manual.reduce((s, i) => s + i.amount, 0);
 
-  const total = shiftAmount + laundryAmount + specialAmount + transportationFee + manualAmount;
+  const total = shiftAmount + laundryAmount + specialAmount + transportationFee + manualAmount + prepaidExpense;
 
   // --- 物件別内訳 (byProperty) ---
   // shiftDetails と laundryDetails を propertyId でグループ化
@@ -674,6 +773,14 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
     } else if (s.guestCount > 1) {
       note = `${note} / ゲスト${s.guestCount}名`;
     }
+    // ランドリー系シフト(出し/受取/立替)は提出先(depot/リネン屋)名を note に追記
+    if (s.workType === "laundry_put_out" || s.workType === "laundry_collected" || s.workType === "laundry_expense") {
+      const lrec = s.sourceChecklistId ? laundryByChecklistId[s.sourceChecklistId] : null;
+      const depotName = resolveDepotName(lrec);
+      if (depotName) {
+        note = note ? `${note} / ${depotName}` : depotName;
+      }
+    }
     rows.push({
       date: dateStr,
       category,
@@ -693,16 +800,33 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
   }
 
   // ランドリー (立替=請求ランドリー立替、非立替=ランドリー作業)
+  // 提出先(depot)名を note に付与
   for (const l of reimbursableLaundry.filter(x => !x.sourceShiftId)) {
+    const depotName = resolveDepotName(l);
+    const memo = l.memo || "";
+    let note = "";
+    if (memo && depotName) note = `${memo} / ${depotName}`;
+    else if (depotName) note = depotName;
+    else note = memo;
     rows.push({
       date: toDateStr(l.date),
       category: "立替",
       unitPrice: l.amount || 0,
-      note: l.memo || "",
+      note,
     });
   }
   // 非立替のランドリー (作業報酬としてシフトに入らない純粋な出し/受取記録がある場合)
   // ※ 既存 shift から来る laundry_put_out/collected は shiftDetails 側で計上済みなので重複させない
+
+  // プリカ購入行 (購入日ごとに1行)
+  for (const p of prepaidDetails) {
+    rows.push({
+      date: toDateStr(p.purchasedAt),
+      category: "プリカ購入",
+      unitPrice: p.amount || 0,
+      note: p.note || "",
+    });
+  }
 
   // 交通費 (月末にまとめて1行)
   if (transportationFee > 0) {
@@ -729,11 +853,13 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
     laundry: laundryDetails,
     special: specialDetails,
     manual,
+    prepaid: prepaidDetails,
     shiftAmount,
     laundryAmount,
     specialAmount,
     transportationFee,
     manualAmount,
+    prepaidExpense,
     total,
     shiftCount: rawShifts.length,
     byProperty,
@@ -802,11 +928,13 @@ module.exports = function invoicesApi(db) {
         laundryAmount: computed.laundryAmount,
         specialAmount: computed.specialAmount,
         transportationFee: computed.transportationFee,
+        prepaidExpense: computed.prepaidExpense || 0,
         manualAmount: 0,
         total: computed.total,
         shifts: computed.shifts,
         laundry: computed.laundry,
         special: computed.special,
+        prepaid: computed.prepaid || [],
         byProperty: computed.byProperty,
         rows: computed.rows || [],
       });
@@ -927,6 +1055,7 @@ module.exports = function invoicesApi(db) {
         laundryFee: computed.laundryAmount,
         transportationFee: computed.transportationFee,
         specialAllowance: computed.specialAmount,
+        prepaidExpense: computed.prepaidExpense || 0,
         total: computed.total,
         status: "submitted",
         byProperty: computed.byProperty || {},
@@ -934,6 +1063,7 @@ module.exports = function invoicesApi(db) {
           shifts: computed.shifts,
           laundry: computed.laundry,
           special: computed.special,
+          prepaid: computed.prepaid || [],
           manualItems: computed.manual,
         },
         submittedAt: FieldValue.serverTimestamp(),
@@ -1064,6 +1194,7 @@ module.exports = function invoicesApi(db) {
           laundryFee: computed.laundryAmount,
           transportationFee: computed.transportationFee,
           specialAllowance: computed.specialAmount,
+          prepaidExpense: computed.prepaidExpense || 0,
           total: computed.total,
           status: "draft",
           pdfUrl: null,
@@ -1074,6 +1205,7 @@ module.exports = function invoicesApi(db) {
             shifts: computed.shifts,
             laundry: computed.laundry,
             special: computed.special,
+            prepaid: computed.prepaid || [],
             manualItems: [],
           },
           createdAt: FieldValue.serverTimestamp(),
@@ -1116,7 +1248,7 @@ module.exports = function invoicesApi(db) {
 
       // total再計算
       const manualTotal = manualItems.reduce((s, item) => s + (item.amount || 0), 0);
-      const newTotal = (data.basePayment || 0) + (data.laundryFee || 0) + (data.transportationFee || 0) + (data.specialAllowance || 0) + manualTotal;
+      const newTotal = (data.basePayment || 0) + (data.laundryFee || 0) + (data.transportationFee || 0) + (data.specialAllowance || 0) + (data.prepaidExpense || 0) + manualTotal;
 
       await docRef.update({
         "details.manualItems": manualItems,
@@ -1151,7 +1283,7 @@ module.exports = function invoicesApi(db) {
 
       // total再計算
       const manualTotal = manualItems.reduce((s, item) => s + (item.amount || 0), 0);
-      const newTotal = (data.basePayment || 0) + (data.laundryFee || 0) + (data.transportationFee || 0) + (data.specialAllowance || 0) + manualTotal;
+      const newTotal = (data.basePayment || 0) + (data.laundryFee || 0) + (data.transportationFee || 0) + (data.specialAllowance || 0) + (data.prepaidExpense || 0) + manualTotal;
 
       await docRef.update({
         "details.manualItems": manualItems,
@@ -1196,14 +1328,14 @@ module.exports = function invoicesApi(db) {
         const manualItems = updates.manualItems ?? current.details?.manualItems ?? [];
         const manualTotal = manualItems.reduce((s, item) => s + (item.amount || 0), 0);
         updates.total = (current.basePayment || 0) + (current.laundryFee || 0) +
-          Number(updates.transportationFee) + (current.specialAllowance || 0) + manualTotal;
+          Number(updates.transportationFee) + (current.specialAllowance || 0) + (current.prepaidExpense || 0) + manualTotal;
       }
 
       // manualItems が更新された場合も合計再計算（transportationFee 未更新時）
       if (updates.manualItems !== undefined && updates.transportationFee === undefined) {
         const manualTotal = updates.manualItems.reduce((s, item) => s + (item.amount || 0), 0);
         updates.total = (current.basePayment || 0) + (current.laundryFee || 0) +
-          (current.transportationFee || 0) + (current.specialAllowance || 0) + manualTotal;
+          (current.transportationFee || 0) + (current.specialAllowance || 0) + (current.prepaidExpense || 0) + manualTotal;
         // details.manualItems も同期
         updates["details.manualItems"] = updates.manualItems;
         delete updates.manualItems;
@@ -1294,12 +1426,14 @@ module.exports = function invoicesApi(db) {
         laundryFee: computed.laundryAmount,
         transportationFee: computed.transportationFee,
         specialAllowance: computed.specialAmount,
+        prepaidExpense: computed.prepaidExpense || 0,
         total: computed.total,
         byProperty: computed.byProperty || {},
         details: {
           shifts: computed.shifts,
           laundry: computed.laundry,
           special: computed.special,
+          prepaid: computed.prepaid || [],
           manualItems: computed.manual,
         },
         recalculatedAt: FieldValue.serverTimestamp(),
