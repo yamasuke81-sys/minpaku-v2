@@ -544,7 +544,31 @@ const RecruitmentPage = {
     const recruitmentId = document.getElementById("detailRecruitId").value;
     if (!recruitmentId) return;
 
-    const recruitment = this.recruitments.find(r => r.id === recruitmentId);
+    let recruitment = this.recruitments.find(r => r.id === recruitmentId);
+
+    // 現在のチェック状態を DOM から取得 (cb.value = staffName)
+    const checkedNames = [];
+    document.querySelectorAll("#responseTableBody .staff-select-cb:checked").forEach(cb => {
+      checkedNames.push(cb.value);
+    });
+
+    // チェックが保存済と異なる場合、先に自動保存 (「選択状態を保存」を押さなくてもOKに)
+    const savedCsv = (recruitment?.selectedStaff || "").trim();
+    const checkedCsv = checkedNames.join(",");
+    const savedSorted = savedCsv.split(/[,、\s]+/).filter(Boolean).sort().join(",");
+    const checkedSorted = [...checkedNames].sort().join(",");
+    if (checkedNames.length > 0 && savedSorted !== checkedSorted) {
+      try {
+        await API.recruitments.selectStaff(recruitmentId, checkedCsv);
+        recruitment = await API.recruitments.get(recruitmentId);
+        const idx = this.recruitments.findIndex(r => r.id === recruitmentId);
+        if (idx >= 0) this.recruitments[idx] = recruitment;
+      } catch (e) {
+        showToast("エラー", `候補保存失敗: ${e.message}`, "error");
+        return;
+      }
+    }
+
     // selectedStaffIds が空または未定義の場合は確定不可
     const ids = recruitment?.selectedStaffIds;
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
