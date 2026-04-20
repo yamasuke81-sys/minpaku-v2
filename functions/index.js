@@ -143,6 +143,10 @@ app.use("/notifications", notificationsApi(db));
 const syncApi = require("./api/sync");
 app.use("/sync", syncApi(db));
 
+// ========== メール照合機能 API (Step 2) ==========
+const emailVerificationApi = require("./api/email-verification");
+app.use("/email-verification", emailVerificationApi(db));
+
 // gmail-auth は authenticate の前に登録済み（認証不要）
 
 // ========== グローバルエラーハンドラ (HTMLレスポンス漏れ防止) ==========
@@ -359,3 +363,10 @@ exports.onInvoiceStatusChange = onDocumentUpdated(
   { document: "invoices/{invoiceId}", region: "asia-northeast1" },
   require("./triggers/onInvoiceStatusChange")
 );
+
+// ========== メール照合機能 (Step 2) ==========
+// 10分おきの定期巡回 (OTA メールを Gmail API で取得 → emailVerifications/ に保存)
+exports.scheduledEmailVerification = require("./scheduled/emailVerification").scheduled;
+
+// 予約新規作成時の即時巡回トリガー (iCal 同期で新予約検出直後に Gmail を覗く)
+exports.onBookingEmailCheck = require("./triggers/onBookingEmailCheck");

@@ -279,5 +279,11 @@ service cloud.firestore {
         allow read, write: if isOwner();
       }
     }
+
+    // メール照合機能: Gmail 巡回で保存される OTA メール生データ + 突合結果 — オーナーのみ
+    // (settings/gmailOAuthEmailVerification は settings/{document=**} 既定ルールでカバー済)
+    match /emailVerifications/{messageId} {
+      allow read, write: if isOwner();
+    }
   }
 }
