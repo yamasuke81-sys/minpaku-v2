@@ -375,14 +375,15 @@ function isDateInSpecialRate(dateStr, sr) {
 /**
  * 請求書の共通集計関数
  * my-submit と generate の重複ロジックを統合
- * 戻り値: { shifts, laundry, special, manual, shiftAmount, laundryAmount, specialAmount, transportationFee, total }
+ * 戻り値: { shifts, laundry, special, manual, shiftAmount, laundryAmount, specialAmount, transportationFee, total, byProperty }
  *
  * @param {object} db - Firestore インスタンス
  * @param {string} staffId - スタッフID
  * @param {string} yearMonth - "YYYY-MM"
  * @param {Array} manualItems - 手動追加項目 (オプション)
+ * @param {string|null} propertyId - 物件フィルタ (null=全物件合算)
  */
-async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = []) {
+async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], propertyId = null) {
   const [y, m] = yearMonth.split("-").map(Number);
   const start = new Date(y, m - 1, 1);
   const end = new Date(y, m, 0, 23, 59, 59);
@@ -392,20 +393,22 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = []) {
   if (!staffDoc.exists) throw new Error("スタッフが見つかりません");
   const staff = { id: staffDoc.id, ...staffDoc.data() };
 
-  // シフト取得
-  const shiftsSnap = await db.collection("shifts")
+  // シフト取得 (propertyId 指定時はフィルタ)
+  let shiftsQuery = db.collection("shifts")
     .where("staffId", "==", staffId)
     .where("date", ">=", start)
-    .where("date", "<=", end)
-    .get();
+    .where("date", "<=", end);
+  if (propertyId) shiftsQuery = shiftsQuery.where("propertyId", "==", propertyId);
+  const shiftsSnap = await shiftsQuery.get();
   const rawShifts = shiftsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-  // ランドリー取得 (isReimbursable === true のみ計上)
-  const laundrySnap = await db.collection("laundry")
+  // ランドリー取得 (isReimbursable === true のみ計上。propertyId フィルタ適用)
+  let laundryQuery = db.collection("laundry")
     .where("staffId", "==", staffId)
     .where("date", ">=", start)
-    .where("date", "<=", end)
-    .get();
+    .where("date", "<=", end);
+  if (propertyId) laundryQuery = laundryQuery.where("propertyId", "==", propertyId);
+  const laundrySnap = await laundryQuery.get();
   const laundryAll = laundrySnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const reimbursableLaundry = laundryAll.filter(l => {
     if (l.isReimbursable !== undefined) return l.isReimbursable === true;
@@ -583,6 +586,46 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = []) {
 
   const total = shiftAmount + laundryAmount + specialAmount + transportationFee + manualAmount;
 
+  // --- 物件別内訳 (byProperty) ---
+  // shiftDetails と laundryDetails を propertyId でグループ化
+  const byProperty = {};
+
+  for (const s of shiftDetails) {
+    const pid = s.propertyId || "_unknown";
+    if (!byProperty[pid]) {
+      // 物件名を取得
+      let pName = s.propertyName || "";
+      if (!pName && pid !== "_unknown") {
+        const prop = await getProperty(pid);
+        pName = prop?.name || pid;
+      }
+      byProperty[pid] = { propertyName: pName, shiftCount: 0, shiftAmount: 0, laundryAmount: 0, total: 0 };
+    }
+    byProperty[pid].shiftCount += 1;
+    byProperty[pid].shiftAmount += s.amount || 0;
+    byProperty[pid].total += s.amount || 0;
+  }
+
+  for (const l of laundryDetails) {
+    // laundry はコレクションに propertyId が保存されている場合にグループ化
+    // reimbursableLaundry から元データの propertyId を引く
+    const origDoc = reimbursableLaundry.find(r => !r.sourceShiftId &&
+      (l.date === r.date || JSON.stringify(l.date) === JSON.stringify(r.date)) &&
+      (l.amount === r.amount || l.amount === (r.amount || 0)));
+    const pid = origDoc?.propertyId || "_unknown";
+
+    if (!byProperty[pid]) {
+      let pName = "";
+      if (pid !== "_unknown") {
+        const prop = await getProperty(pid);
+        pName = prop?.name || pid;
+      }
+      byProperty[pid] = { propertyName: pName, shiftCount: 0, shiftAmount: 0, laundryAmount: 0, total: 0 };
+    }
+    byProperty[pid].laundryAmount += l.amount || 0;
+    byProperty[pid].total += l.amount || 0;
+  }
+
   return {
     shifts: shiftDetails,
     laundry: laundryDetails,
@@ -595,6 +638,7 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = []) {
     manualAmount,
     total,
     shiftCount: rawShifts.length,
+    byProperty,
   };
 }
 
@@ -639,10 +683,13 @@ module.exports = function invoicesApi(db) {
         return res.status(404).json({ error: "スタッフ情報が見つかりません" });
       }
 
+      // propertyId オプション (物件別プレビュー)
+      const { propertyId: reqPropertyId } = req.body || {};
+
       // computeInvoiceDetails で計算 (Firestoreへの書き込みなし)
       let computed;
       try {
-        computed = await computeInvoiceDetails(db, targetStaffId, yearMonth, []);
+        computed = await computeInvoiceDetails(db, targetStaffId, yearMonth, [], reqPropertyId || null);
       } catch (compErr) {
         return res.status(500).json({ error: "集計処理に失敗しました: " + compErr.message });
       }
@@ -650,6 +697,7 @@ module.exports = function invoicesApi(db) {
       res.json({
         staffId: targetStaffId,
         yearMonth,
+        propertyId: reqPropertyId || null,
         shiftCount: computed.shiftCount,
         shiftAmount: computed.shiftAmount,
         laundryAmount: computed.laundryAmount,
@@ -660,6 +708,7 @@ module.exports = function invoicesApi(db) {
         shifts: computed.shifts,
         laundry: computed.laundry,
         special: computed.special,
+        byProperty: computed.byProperty,
       });
     } catch (e) {
       console.error("compute-preview エラー:", e);
@@ -780,6 +829,7 @@ module.exports = function invoicesApi(db) {
         specialAllowance: computed.specialAmount,
         total: computed.total,
         status: "submitted",
+        byProperty: computed.byProperty || {},
         details: {
           shifts: computed.shifts,
           laundry: computed.laundry,
@@ -869,7 +919,7 @@ module.exports = function invoicesApi(db) {
         return res.status(403).json({ error: "オーナー権限が必要です" });
       }
 
-      const { yearMonth } = req.body;
+      const { yearMonth, propertyId: genPropertyId } = req.body;
       if (!yearMonth || !/^\d{4}-\d{2}$/.test(yearMonth)) {
         return res.status(400).json({ error: "yearMonth（YYYY-MM形式）は必須です" });
       }
@@ -886,18 +936,19 @@ module.exports = function invoicesApi(db) {
       const skipped = [];
 
       for (const staff of staffList) {
-        // 既存請求書チェック (draft のみ上書き可、それ以外はスキップ)
-        const invoiceId = `INV-${yearMonth.replace("-", "")}-${staff.id.substring(0, 6)}`;
+        // invoiceId: 物件別発行時は propertyId の短縮形を付与
+        const propSuffix = genPropertyId ? `-${genPropertyId.substring(0, 6)}` : "";
+        const invoiceId = `INV-${yearMonth.replace("-", "")}-${staff.id.substring(0, 6)}${propSuffix}`;
         const existing = await collection.doc(invoiceId).get();
         if (existing.exists && existing.data().status !== "draft") {
           skipped.push(invoiceId);
           continue;
         }
 
-        // computeInvoiceDetails で統合集計
+        // computeInvoiceDetails で統合集計 (propertyId フィルタ対応)
         let computed;
         try {
-          computed = await computeInvoiceDetails(db, staff.id, yearMonth, []);
+          computed = await computeInvoiceDetails(db, staff.id, yearMonth, [], genPropertyId || null);
         } catch (compErr) {
           console.error(`${staff.id} 集計エラー:`, compErr.message);
           continue;
@@ -917,6 +968,8 @@ module.exports = function invoicesApi(db) {
           status: "draft",
           pdfUrl: null,
           confirmedAt: null,
+          propertyId: genPropertyId || null,
+          byProperty: computed.byProperty || {},
           details: {
             shifts: computed.shifts,
             laundry: computed.laundry,
@@ -1142,6 +1195,7 @@ module.exports = function invoicesApi(db) {
         transportationFee: computed.transportationFee,
         specialAllowance: computed.specialAmount,
         total: computed.total,
+        byProperty: computed.byProperty || {},
         details: {
           shifts: computed.shifts,
           laundry: computed.laundry,

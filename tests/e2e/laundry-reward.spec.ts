@@ -242,4 +242,65 @@ test.describe("ランドリー報酬自動生成", () => {
     expect(expenseSnap.size).toBe(0);
     console.log(`  TC-L4: put_out/expense shift 削除確認`);
   });
+
+  // =========================================================
+  // TC-L5: auth uid で by.uid を操作しても shift の staffId は staff doc ID になる
+  // =========================================================
+  test("TC-L5: auth uid 経由でも shift.staffId が staff doc ID になる", async () => {
+    const db = getDb();
+
+    // テストスタッフに authUid をセット
+    const fakeAuthUid = `e2e-fake-uid-${Date.now()}`;
+    await db.collection("staff").doc(staffId).update({ authUid: fakeAuthUid });
+
+    // putOut に uid (auth uid) を使って操作
+    const now = new Date();
+    const clRef2 = db.collection("checklists").doc();
+    const checklistId2 = clRef2.id;
+    await clRef2.set({
+      propertyId: PID,
+      propertyName: "the Terrace 長浜",
+      bookingId,
+      staffId,
+      checkoutDate: testDate,
+      status: "in_progress",
+      laundry: {},
+      ...TAG,
+    });
+
+    await db.collection("checklists").doc(checklistId2).update({
+      "laundry.putOut": {
+        at: now,
+        by: { uid: fakeAuthUid, name: "E2E-ランドリーテストスタッフ" }, // staffId なし、uid のみ
+        depot: "テストコインランドリー",
+        depotKind: "coin",
+        paymentMethod: "prepaid",
+        amount: 1500,
+      },
+    });
+
+    // put_out shift が生成され、staffId が staff doc ID になっているか確認
+    const putOutShift = await waitFor(
+      async () => {
+        const snap = await db.collection("shifts")
+          .where("sourceChecklistId", "==", checklistId2)
+          .where("sourceAction", "==", "put_out")
+          .get();
+        return snap.empty ? null : snap.docs[0].data();
+      },
+      (data) => data !== null && data.staffId !== undefined,
+      30_000,
+      2_000
+    );
+
+    // staffId は auth uid ではなく staff doc ID であること
+    expect(putOutShift.staffId).toBe(staffId);
+    expect(putOutShift.staffId).not.toBe(fakeAuthUid);
+    console.log(`  TC-L5: shift.staffId=${putOutShift.staffId} (auth uid=${fakeAuthUid} ではない)`);
+
+    // クリーンアップ
+    await clRef2.delete();
+    const shiftSnap = await db.collection("shifts").where("sourceChecklistId", "==", checklistId2).get();
+    for (const d of shiftSnap.docs) await d.ref.delete();
+  });
 });

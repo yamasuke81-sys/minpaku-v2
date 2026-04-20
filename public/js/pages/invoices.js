@@ -294,6 +294,7 @@ const InvoicesPage = {
     const laundry = details.laundry || [];
     const special = details.special || [];
     const manualItems = details.manualItems || [];
+    const byProperty = inv.byProperty || {};
     const isOwner = Auth.currentUser?.role === "owner";
 
     document.getElementById("invoiceDetailTitle").textContent =
@@ -304,6 +305,28 @@ const InvoicesPage = {
       const d = val.toDate ? val.toDate() : (val.seconds ? new Date(val.seconds * 1000) : new Date(val));
       return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
     };
+
+    // 物件別内訳 HTML
+    const byPropertyEntries = Object.entries(byProperty);
+    const byPropertyHtml = byPropertyEntries.length ? `
+      <h6><i class="bi bi-building"></i> 物件別内訳</h6>
+      <table class="table table-sm table-bordered mb-3">
+        <thead class="table-light">
+          <tr><th>物件</th><th class="text-end">清掃回数</th><th class="text-end">清掃報酬</th><th class="text-end">ランドリー</th><th class="text-end fw-bold">小計</th></tr>
+        </thead>
+        <tbody>
+          ${byPropertyEntries.map(([pid, bp]) => `
+            <tr>
+              <td>${this.esc(bp.propertyName || pid)}</td>
+              <td class="text-end">${bp.shiftCount || 0}回</td>
+              <td class="text-end">${formatCurrency(bp.shiftAmount || 0)}</td>
+              <td class="text-end">${formatCurrency(bp.laundryAmount || 0)}</td>
+              <td class="text-end fw-bold">${formatCurrency(bp.total || 0)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    ` : "";
 
     document.getElementById("invoiceDetailBody").innerHTML = `
       <div class="row mb-3">
@@ -322,8 +345,10 @@ const InvoicesPage = {
         </div>
       </div>
 
+      ${byPropertyHtml}
+
       <!-- 清掃明細 -->
-      <h6><i class="bi bi-calendar-check"></i> 清掃明細（${shifts.length}回）</h6>
+      <h6><i class="bi bi-calendar-check"></i> 作業明細（${shifts.length}件）</h6>
       ${shifts.length ? `
         <table class="table table-sm table-bordered mb-3">
           <thead class="table-light">
@@ -331,7 +356,10 @@ const InvoicesPage = {
           </thead>
           <tbody>
             ${shifts.map(s => {
-              const typeLabel = { cleaning_by_count: "清掃", pre_inspection: "直前点検", other: "その他" }[s.workType] || s.workType || "清掃";
+              const typeLabel = {
+                cleaning_by_count: "清掃", pre_inspection: "直前点検", other: "その他",
+                laundry_put_out: "ランドリー出し", laundry_collected: "ランドリー受取", laundry_expense: "ランドリー立替",
+              }[s.workType] || s.workType || "清掃";
               let detail = "";
               if (s.isTimee && s.timeeDetail) {
                 const td = s.timeeDetail;

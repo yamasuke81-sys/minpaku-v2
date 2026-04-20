@@ -67,6 +67,28 @@ function fmtTime(ts) {
 }
 
 /**
+ * by オブジェクトから staff ドキュメントの ID を解決する
+ * 優先順: 1. by.staffId  2. by.uid → authUid で逆引き  3. 文字列そのまま(旧形式)
+ */
+async function resolveStaffDocId(db, by) {
+  if (!by) return null;
+  if (typeof by === "object") {
+    if (by.staffId) return by.staffId;
+    if (by.uid) {
+      // authUid で staff doc を逆引き
+      try {
+        const snap = await db.collection("staff").where("authUid", "==", by.uid).limit(1).get();
+        if (!snap.empty) return snap.docs[0].id;
+      } catch (e) {
+        console.warn(`[resolveStaffDocId] authUid 逆引き失敗:`, e.message);
+      }
+    }
+  }
+  if (typeof by === "string") return by; // 旧形式(文字列 = staffId 前提)
+  return null;
+}
+
+/**
  * putOut データを laundry コレクションに同期する
  * 二重作成防止: sourceChecklistId + sourceField で既存ドキュメントを検索し、あれば update
  */
@@ -75,12 +97,8 @@ async function syncPutOutToLaundry(db, checklistId, after, putOut) {
   // cash/credit は立替あり、prepaid/invoice は立替なし
   const isReimbursable = ["cash", "credit"].includes(paymentMethod);
 
-  // putOut.by は { uid, staffId, name } のオブジェクト形式 (my-checklist.js)。
-  // 古い by が文字列で入っている互換性も維持。staffId を優先し、なければ uid を fallback
-  const byObj = putOut.by;
-  const staffIdStr = (byObj && typeof byObj === "object")
-    ? (byObj.staffId || byObj.uid || "")
-    : (typeof byObj === "string" ? byObj : "");
+  // staff ドキュメント ID を解決 (auth uid 混入バグ対策)
+  const staffIdStr = await resolveStaffDocId(db, putOut.by) || "";
 
   const laundryData = {
     date: after.checkoutDate || after.date || null,
@@ -193,11 +211,8 @@ async function createPutOutShifts(db, checklistId, after, putOut) {
   const bookingId = after.bookingId || "";
   const date = after.checkoutDate || after.date || null;
 
-  // staffId を決定 (by オブジェクト or 文字列)
-  const byObj = putOut.by;
-  const staffId = (byObj && typeof byObj === "object")
-    ? (byObj.staffId || byObj.uid || "")
-    : (typeof byObj === "string" ? byObj : "");
+  // staff ドキュメント ID を解決 (auth uid 混入バグ対策)
+  const staffId = await resolveStaffDocId(db, putOut.by) || "";
 
   // 「ランドリー出し」 workItem を名前で検索
   const putOutItemName = "ランドリー出し";
@@ -257,10 +272,8 @@ async function createCollectedShift(db, checklistId, after, collected) {
   const bookingId = after.bookingId || "";
   const date = after.checkoutDate || after.date || null;
 
-  const byObj = collected.by;
-  const staffId = (byObj && typeof byObj === "object")
-    ? (byObj.staffId || byObj.uid || "")
-    : (typeof byObj === "string" ? byObj : "");
+  // staff ドキュメント ID を解決 (auth uid 混入バグ対策)
+  const staffId = await resolveStaffDocId(db, collected.by) || "";
 
   const collectedItemName = "ランドリー受取";
   const collectedItem = await findWorkItemByName(db, propertyId, collectedItemName);

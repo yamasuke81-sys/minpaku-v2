@@ -83,14 +83,43 @@ const MyInvoicePage = {
     const isDraft = inv.status === "draft";
     const detailId = `invDetail_${inv.id}`;
 
+    // 物件別内訳 HTML
+    const byPropertyEntries = Object.entries(inv.byProperty || {});
+    const byPropertySection = byPropertyEntries.length ? `
+      <div class="mb-3">
+        <div class="small fw-bold text-muted mb-1"><i class="bi bi-building"></i> 物件別内訳</div>
+        <table class="table table-sm table-bordered mb-0">
+          <thead class="table-light">
+            <tr><th>物件</th><th class="text-end">清掃</th><th class="text-end">ランドリー</th><th class="text-end fw-bold">小計</th></tr>
+          </thead>
+          <tbody>
+            ${byPropertyEntries.map(([pid, bp]) => `
+              <tr>
+                <td class="small">${this._esc(bp.propertyName || pid)}</td>
+                <td class="text-end small">¥${(bp.shiftAmount || 0).toLocaleString()}</td>
+                <td class="text-end small">¥${(bp.laundryAmount || 0).toLocaleString()}</td>
+                <td class="text-end small fw-bold">¥${(bp.total || 0).toLocaleString()}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    ` : "";
+
     // 明細行 HTML を組み立て
-    const shiftRows = (inv.shifts || []).map(s => `
-      <tr>
-        <td>${this._esc(s.date || "")}</td>
-        <td>${this._esc(s.propertyName || "")}</td>
-        <td class="text-end">¥${(s.amount || 0).toLocaleString()}</td>
-        <td class="text-muted small">${this._esc(s.memo || "")}</td>
-      </tr>`).join("");
+    const shiftRows = (inv.shifts || []).map(s => {
+      const typeLabel = {
+        cleaning_by_count: "清掃", pre_inspection: "直前点検", other: "その他",
+        laundry_put_out: "ランドリー出し", laundry_collected: "ランドリー受取", laundry_expense: "ランドリー立替",
+      }[s.workType] || s.workItemName || "清掃";
+      return `
+        <tr>
+          <td>${this._esc(s.date || "")}</td>
+          <td>${this._esc(typeLabel)}${s.propertyName ? `<br><small class="text-muted">${this._esc(s.propertyName)}</small>` : ""}</td>
+          <td class="text-end">¥${(s.amount || 0).toLocaleString()}</td>
+          <td class="text-muted small">${this._esc(s.memo || "")}</td>
+        </tr>`;
+    }).join("");
 
     const laundryRows = (inv.laundry || []).map(l => `
       <tr>
@@ -107,7 +136,7 @@ const MyInvoicePage = {
         <td class="text-muted small">${this._esc(m.memo || "")}</td>
       </tr>`).join("");
 
-    const hasDetail = shiftRows || laundryRows || manualRows;
+    const hasDetail = shiftRows || laundryRows || manualRows || byPropertyEntries.length;
 
     // PDF リンク
     const pdfBtn = inv.pdfUrl
@@ -161,6 +190,7 @@ const MyInvoicePage = {
 
           ${hasDetail ? `
           <div id="${detailId}" class="d-none mt-3">
+            ${byPropertySection}
             <table class="table table-sm align-middle">
               <thead class="table-light">
                 <tr>
