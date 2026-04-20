@@ -22,10 +22,10 @@ describe("findBookingMatch: icalUid 部分一致", () => {
     { id: "ical_booking_5750794035", data: { icalUid: "5750794035@booking.com", source: "Booking.com" } },
   ];
 
-  test("Airbnb 確認コードで一致", () => {
+  test("Airbnb 確認コードで一致 (icalUid 内)", () => {
     const r = findBookingMatch(bookings, { reservationCode: "HMH2KHHTF5" });
     assert.strictEqual(r.id, "ical_HMH2KHHTF5_airbnb_com");
-    assert.strictEqual(r.matchReason, "icalUid");
+    assert.strictEqual(r.matchReason, "codeInHaystack");
   });
 
   test("Booking.com 予約 ID で一致", () => {

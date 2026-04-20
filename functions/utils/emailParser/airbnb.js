@@ -27,6 +27,14 @@ function extractGuestNameFromSubject(subject) {
   return m ? m[1].trim() : null;
 }
 
+// 件名から「M月D日ご到着」のチェックイン月日を抽出
+// 例: 「予約確定 - Mike Dierkxさんが8月3日ご到着です」
+function extractCheckInFromSubject(subject) {
+  const m = /(\d{1,2})月(\d{1,2})日ご到着/.exec(String(subject || ""));
+  if (!m) return null;
+  return { month: +m[1], day: +m[2] };
+}
+
 // 本文冒頭からゲストのファーストネームを抽出: 「新規予約確定です! {FirstName}さんが{M}月{D}日到着。」
 function extractGuestFirstNameFromBody(body) {
   const m = /新規予約確定です[!！]\s*(.+?)さんが\s*\d+月\d+日到着/.exec(String(body || ""));
@@ -224,7 +232,12 @@ function parseAirbnbEmail(input) {
   const reservationCode = extractReservationCode(body);
   const guestName = extractGuestNameFromSubject(subject);
   const guestFirstName = extractGuestFirstNameFromBody(body);
-  const checkInRaw = extractCheckIn(body);
+  // checkIn: まず本文から取得を試みて、取れなかったら件名の「M月D日ご到着」から補完
+  let checkInRaw = extractCheckIn(body);
+  if (!checkInRaw) {
+    const subj = extractCheckInFromSubject(subject);
+    if (subj) checkInRaw = { month: subj.month, day: subj.day, hour: 0, minute: 0 };
+  }
   const checkOutRaw = extractCheckOut(body);
   const guestCount = extractGuestCount(body);
   const totalAmount = extractTotalAmount(body);
@@ -273,6 +286,7 @@ module.exports = {
   _pure: {
     extractReservationCode,
     extractGuestNameFromSubject,
+    extractCheckInFromSubject,
     extractGuestFirstNameFromBody,
     parseCancelSubject,
     parseChangeRequestSubject,
