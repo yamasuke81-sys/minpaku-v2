@@ -1536,10 +1536,10 @@ const MyChecklistPage = {
             </div>
           </div>
           ${it.supplyItem ? `
-            <div class="form-check ms-0 mt-2 ps-1" onclick="event.stopPropagation()">
-              <input class="form-check-input mcl-restock" type="checkbox" id="sup-${it.id}"
-                     ${needsRestock ? "checked" : ""} style="width:20px;height:20px;">
-              <label class="form-check-label text-warning ms-2" for="sup-${it.id}">
+            <div class="d-flex align-items-center mt-2" onclick="event.stopPropagation()">
+              <input class="form-check-input mcl-restock flex-shrink-0" type="checkbox" id="sup-${it.id}"
+                     ${needsRestock ? "checked" : ""} style="width:20px;height:20px;margin:0;">
+              <label class="text-warning ms-2 mb-0" for="sup-${it.id}" style="cursor:pointer;">
                 <i class="bi bi-exclamation-triangle"></i> 要補充
               </label>
             </div>
