@@ -72,11 +72,15 @@ async function resolveInvoiceRecipient_(db, propertyId, client) {
     const sDoc = await db.collection("staff").doc(ownerStaffId).get();
     if (!sDoc.exists) return fallback;
     const s = sDoc.data();
+    // ownerStaffId が指定されている場合は、その staff の情報で一本化する。
+    // 各フィールドが空でも clientInfo (合同会社八朔) にフォールバックしない
+    // (宛名が社名=八朔/住所=スタッフ宅 のような混在を防ぐ)。
+    // staff に入っていないフィールドは空表示のまま (ユーザーが記載情報
+    // モーダルで補完する前提)。
     return {
-      // 会社名があれば社名、無ければ氏名を宛名として使う
-      companyName: s.companyName || s.name || fallback.companyName,
-      address: s.address || fallback.address,
-      zipCode: s.zipCode || fallback.zipCode,
+      companyName: s.companyName || s.name || "",
+      address: s.address || "",
+      zipCode: s.zipCode || "",
       name: s.name || "",
       source: "ownerStaff",
     };
