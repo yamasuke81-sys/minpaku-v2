@@ -533,6 +533,11 @@ const MyRecruitmentPage = {
         source: (b.source || "").toLowerCase(), guestCount: b.guestCount || 0,
         propertyName: b.propertyName || "", propertyId: pid,
         checkIn: b.checkIn, checkOut: b.checkOut,
+        // メール照合情報 (予約詳細モーダルで「照合メール」行を出すため)
+        emailMessageId: b.emailMessageId || null,
+        emailThreadId: b.emailThreadId || null,
+        emailSubject: b.emailSubject || null,
+        emailVerifiedAt: b.emailVerifiedAt || null,
       };
       for (let d = new Date(ci); d < co; d.setDate(d.getDate() + 1)) {
         const ds = d.toLocaleDateString("sv-SE");
