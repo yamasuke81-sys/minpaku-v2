@@ -158,34 +158,39 @@ async function detectDoubleBooking(db, bookingId, after) {
     });
   }
 
-  // ダブルブッキングの LINE 通知は現在無効化 (ユーザー指示 2026-04-22)
-  // conflict 検知の DB マーキング (conflictWithIds / bookingConflicts) は
-  // 後日 UI 表示等で活用する可能性があるため残す。通知だけ抑制する。
-  // 将来復活させる場合は下のブロックを有効化する:
-  //
-  // try {
-  //   const { settings } = await getNotificationSettings_(db);
-  //   let propertyOverrides = {};
-  //   if (after.propertyId) {
-  //     const propDoc = await db.collection("properties").doc(after.propertyId).get();
-  //     if (propDoc.exists) propertyOverrides = propDoc.data().channelOverrides || {};
-  //   }
-  //   const targets = resolveNotifyTargets(settings, "double_booking", propertyOverrides);
-  //   if (targets.enabled) {
-  //     const title = `ダブルブッキング検出: ${after.checkIn}〜${after.checkOut}`;
-  //     const body = `【⚠️ ダブルブッキング警告】\n物件: ${after.propertyName || after.propertyId}\n日程: ${after.checkIn} 〜 ${after.checkOut}\n衝突件数: ${conflicts.length}件`;
-  //     if (targets.ownerLine) {
-  //       await notifyOwner(db, "double_booking", title, body, {}, propertyOverrides);
-  //     }
-  //     if (targets.groupLine) {
-  //       await notifyGroup(db, "double_booking", title, body, {}, propertyOverrides);
-  //     }
-  //   }
-  // } catch (e) {
-  //   console.error("[onBookingChange] ダブルブッキング通知エラー:", e);
-  // }
+  // ダブルブッキング通知: 手動予約が絡む場合のみ通知抑制 (ユーザー指示 2026-04-22)
+  // 両方 iCal 由来の重複は従来通り LINE 通知する
+  const isManualLike = (x) => (x && x.manualOverride === true) || (x && /manual/i.test(String(x.source || "")));
+  const afterIsManual = isManualLike(after);
+  const anyConflictIsManual = conflicts.some(c => isManualLike(c.data()));
 
-  console.log(`[onBookingChange] ダブルブッキング検出 (通知無効): ${bookingId} と ${conflictIds.join(", ")}`);
+  if (afterIsManual || anyConflictIsManual) {
+    console.log(`[onBookingChange] ダブルブッキング検出 (手動絡みのため通知抑制): ${bookingId} と ${conflictIds.join(", ")}`);
+  } else {
+    // 通知設定を参照して送信先を判定（物件別オーバーライド適用）
+    try {
+      const { settings } = await getNotificationSettings_(db);
+      let propertyOverrides = {};
+      if (after.propertyId) {
+        const propDoc = await db.collection("properties").doc(after.propertyId).get();
+        if (propDoc.exists) propertyOverrides = propDoc.data().channelOverrides || {};
+      }
+      const targets = resolveNotifyTargets(settings, "double_booking", propertyOverrides);
+      if (targets.enabled) {
+        const title = `ダブルブッキング検出: ${after.checkIn}〜${after.checkOut}`;
+        const body = `【⚠️ ダブルブッキング警告】\n物件: ${after.propertyName || after.propertyId}\n日程: ${after.checkIn} 〜 ${after.checkOut}\n衝突件数: ${conflicts.length}件\n\n確認: https://minpaku-v2.web.app/#/schedule`;
+        if (targets.ownerLine) {
+          await notifyOwner(db, "double_booking", title, body, {}, propertyOverrides);
+        }
+        if (targets.groupLine) {
+          await notifyGroup(db, "double_booking", title, body, {}, propertyOverrides);
+        }
+      }
+    } catch (e) {
+      console.error("[onBookingChange] ダブルブッキング通知エラー:", e);
+    }
+    console.log(`[onBookingChange] ダブルブッキング検出: ${bookingId} と ${conflictIds.join(", ")}`);
+  }
 }
 
 // ========== D-2: cancelled化時の conflict 解決 ==========
