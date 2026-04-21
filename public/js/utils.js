@@ -32,6 +32,28 @@ window.formatDateFull = function(val) {
   return `${+y}年${+mo}月${+d}日(${dow})`;
 };
 
+// 回答日時などの短縮表示: Timestamp/Date/ISO文字列 → "M/D HH:MM"
+// 年月日・曜日・秒は省略 (募集詳細テーブル等で横幅節約)
+window.formatTimeShort = function(val) {
+  if (val === null || val === undefined || val === "") return "";
+  let d;
+  if (val && typeof val.toDate === "function") {
+    d = val.toDate();
+  } else if (typeof val === "string" || typeof val === "number") {
+    d = new Date(val);
+  } else if (val instanceof Date) {
+    d = val;
+  } else {
+    return "";
+  }
+  if (isNaN(d.getTime())) return "";
+  const mo = d.getMonth() + 1;
+  const da = d.getDate();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${mo}/${da} ${hh}:${mm}`;
+};
+
 // BBQ などの三値 (true/false/未設定) を記号 ◎ / × / - に変換
 // 許容入力: true/false 真偽値、"true"/"false"/"yes"/"no"/"有"/"無"/"◎"/"×" 文字列、数値
 window.bbqToSymbol = function(val) {

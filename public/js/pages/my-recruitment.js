@@ -247,40 +247,9 @@ const MyRecruitmentPage = {
         this.renderCalendar();
       });
 
-      // 清掃チェックリストボタン: 直近の自分のシフト (今日以降の最古 or 過去の最新) に紐づく
-      // チェックリスト画面へ遷移する
-      document.getElementById("btnGoLatestChecklist").addEventListener("click", async () => {
-        try {
-          const todayMid = new Date(); todayMid.setHours(0, 0, 0, 0);
-          // 1. 今日以降の最も近いシフト (昇順)
-          let snap = await db.collection("shifts")
-            .where("staffId", "==", this.staffId)
-            .where("date", ">=", todayMid)
-            .orderBy("date", "asc").limit(1).get();
-          // 2. 無ければ過去の最新シフト (降順)
-          if (snap.empty) {
-            snap = await db.collection("shifts")
-              .where("staffId", "==", this.staffId)
-              .where("date", "<", todayMid)
-              .orderBy("date", "desc").limit(1).get();
-          }
-          if (snap.empty) {
-            showToast("シフトなし", "あなたに割り当てられたシフトが見つかりません", "warning");
-            return;
-          }
-          const shiftId = snap.docs[0].id;
-          // 対応する checklist を探す (shiftId で1件)
-          const clSnap = await db.collection("checklists")
-            .where("shiftId", "==", shiftId).limit(1).get();
-          if (clSnap.empty) {
-            // チェックリスト未生成 → 一覧へ
-            location.hash = `#/my-checklist`;
-            return;
-          }
-          location.hash = `#/my-checklist/${clSnap.docs[0].id}`;
-        } catch (e) {
-          showToast("エラー", `チェックリスト遷移失敗: ${e.message}`, "error");
-        }
+      // D: 清掃チェックリストボタン → 物件選択モーダル → 選択物件の直近確定済シフトの checklist を開く
+      document.getElementById("btnGoLatestChecklist").addEventListener("click", () => {
+        this._openPropertyPickerForChecklist();
       });
 
       document.querySelectorAll(".resp-btn").forEach(btn => {
@@ -1153,19 +1122,26 @@ const MyRecruitmentPage = {
       });
     });
 
-    // イベント: item タップ → 回答 or 代理回答(オーナー)
+    // イベント: item タップ → 募集詳細モーダルを開く (B1: 挙動一本化)
+    // 回答ボタンはモーダル内 (A4) に集約したので、ここではモーダルを開くだけ
     container.querySelectorAll('.cal-cell-item[data-click-mode="respond"]').forEach(el => {
-      el.addEventListener("click", (ev) => {
+      el.addEventListener("click", async (ev) => {
         ev.stopPropagation();
         // 非アクティブスタッフは回答UIを開かない
         if (this._isInactive) {
           showToast("非アクティブ", this.staffDoc?.inactiveReason || "直近15回の清掃募集について回答がなかったため、非アクティブとなりました。解除する場合はオーナーまでご連絡ください。", "warning");
           return;
         }
-        const dateStr = el.dataset.date;
         const recruitId = el.dataset.recruitId;
         const recruit = this.recruitments.find(r => r.id === recruitId);
         if (!recruit) return;
+        if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
+          await RecruitmentPage.ensureLoaded();
+          RecruitmentPage.openDetailModal(recruit, { viewMode: this.isOwnerView ? "owner" : "staff" });
+        }
+        return; // 以下の旧 responseModal ロジックは実行しない
+        // eslint-disable-next-line no-unreachable
+        const dateStr = el.dataset.date;
         this._pendingRecruitId = recruit.id;
         this._pendingDate = dateStr;
         this._pendingStaffId = el.dataset.staffId;
@@ -1811,6 +1787,99 @@ const MyRecruitmentPage = {
   },
 
   esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; },
+
+  // D: 物件選択モーダルを開き、選択物件の直近確定済シフトの checklist を開く
+  async _openPropertyPickerForChecklist() {
+    try {
+      let props = this._properties || [];
+      if (!props.length) {
+        props = await API.properties.list(true);
+        this._properties = props;
+      }
+      props = props
+        .filter(p => p.active !== false)
+        .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+      if (!props.length) {
+        showToast("物件なし", "登録された物件がありません", "warning");
+        return;
+      }
+      // モーダル構築
+      const modalId = "checklistPropPicker_" + Date.now().toString(36);
+      const html = `
+        <div class="modal fade" id="${modalId}" tabindex="-1">
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+              <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="bi bi-house-door"></i> 物件を選択</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+              </div>
+              <div class="modal-body">
+                <div class="small text-muted mb-2">チェックリストを開く物件を選んでください</div>
+                <div class="list-group">
+                  ${props.map(p => `
+                    <button type="button" class="list-group-item list-group-item-action pick-prop"
+                      data-prop-id="${this.esc(p.id)}">
+                      ${this.esc(p.name)}
+                    </button>
+                  `).join("")}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>`;
+      document.body.insertAdjacentHTML("beforeend", html);
+      const modalEl = document.getElementById(modalId);
+      const modal = new bootstrap.Modal(modalEl);
+      modalEl.addEventListener("hidden.bs.modal", () => modalEl.remove());
+      modalEl.querySelectorAll(".pick-prop").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const pid = btn.dataset.propId;
+          modal.hide();
+          await this._goChecklistForProperty(pid);
+        });
+      });
+      modal.show();
+    } catch (e) {
+      showToast("エラー", `物件一覧取得失敗: ${e.message}`, "error");
+    }
+  },
+
+  // 物件IDから直近確定済みシフトを特定し、その checklist を開く
+  async _goChecklistForProperty(propertyId) {
+    try {
+      const todayMid = new Date(); todayMid.setHours(0, 0, 0, 0);
+      // 今日以降の最古 (staffId が設定されているもの=確定済)
+      let snap = await db.collection("shifts")
+        .where("propertyId", "==", propertyId)
+        .where("date", ">=", todayMid)
+        .orderBy("date", "asc").limit(10).get();
+      let shiftDoc = snap.docs.find(d => d.data().staffId);
+      if (!shiftDoc) {
+        // 過去の最新
+        snap = await db.collection("shifts")
+          .where("propertyId", "==", propertyId)
+          .where("date", "<", todayMid)
+          .orderBy("date", "desc").limit(10).get();
+        shiftDoc = snap.docs.find(d => d.data().staffId);
+      }
+      if (!shiftDoc) {
+        showToast("シフトなし", "この物件の確定済シフトが見つかりません", "warning");
+        location.hash = `#/my-checklist`;
+        return;
+      }
+      const shiftId = shiftDoc.id;
+      const clSnap = await db.collection("checklists")
+        .where("shiftId", "==", shiftId).limit(1).get();
+      if (clSnap.empty) {
+        showToast("情報", "チェックリスト未生成。一覧へ遷移します", "info");
+        location.hash = `#/my-checklist`;
+        return;
+      }
+      location.hash = `#/my-checklist/${clSnap.docs[0].id}`;
+    } catch (e) {
+      showToast("エラー", `チェックリスト遷移失敗: ${e.message}`, "error");
+    }
+  },
 
   fmtDate(dateStr) {
     if (!dateStr) return "-";

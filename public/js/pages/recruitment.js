@@ -351,7 +351,9 @@ const RecruitmentPage = {
     const responses = r.responses || [];
 
     document.getElementById("detailRecruitId").value = r.id;
-    document.getElementById("detailCheckoutDate").textContent = r.checkoutDate || "-";
+    // A1: チェックアウト日を「YYYY年M月D日(曜)」形式に統一
+    document.getElementById("detailCheckoutDate").textContent =
+      (typeof formatDateFull === "function") ? formatDateFull(r.checkoutDate) : (r.checkoutDate || "-");
     document.getElementById("detailProperty").textContent = r.propertyName || "-";
     // workType バッジを detailStatus の前に表示
     const workTypeBadgeEl = document.getElementById("detailWorkTypeBadge");
@@ -394,7 +396,222 @@ const RecruitmentPage = {
       reopenBtn?.classList.add("d-none");
     }
 
+    // A4: 自分の回答ボタン (◎△×) をモーダル上部に描画
+    this.renderMyResponseArea(r);
+    // A5: 右カラムのチェックリスト (読み取り専用) を描画
+    this.renderChecklistSidebar(r);
+
     this.detailModal.show();
+  },
+
+  // A4: 自分の回答ボタンをモーダル上部 (スタッフ選定セクションの上) に描画
+  // - 確定済み (スタッフ確定済み) は非表示
+  // - 自分が未回答: ◎/△/× 3ボタン (△ は理由入力欄展開)
+  // - 既に回答済み: 現在の回答 + 取消ボタン
+  async renderMyResponseArea(recruitment) {
+    const area = document.getElementById("detailMyResponseArea");
+    if (!area) return;
+    area.innerHTML = "";
+    area.classList.add("d-none");
+
+    if (recruitment.status === "スタッフ確定済み") return;
+    if (!Auth || !Auth.currentUser) return;
+
+    // 自分の staffId / name / email を特定 (オーナーも自分の staff ドキュメント扱い)
+    let myStaffId = Auth.currentUser.staffId;
+    let myStaff = null;
+    if (!this.staffList || !this.staffList.length) {
+      this.staffList = await API.staff.list(true);
+    }
+    if (myStaffId) {
+      myStaff = this.staffList.find(s => s.id === myStaffId);
+    }
+    // オーナーで staffId クレームが無い場合、authUid で staff コレクションから解決
+    if (!myStaff && Auth.isOwner && Auth.isOwner() && Auth.currentUser.uid) {
+      myStaff = this.staffList.find(s => s.authUid === Auth.currentUser.uid);
+      if (myStaff) myStaffId = myStaff.id;
+    }
+    if (!myStaff) return;
+
+    const responses = recruitment.responses || [];
+    const myEmail = (myStaff.email || "").toLowerCase();
+    const mine = responses.find(r => {
+      if (r.staffId && myStaffId && r.staffId === myStaffId) return true;
+      if (r.staffName && myStaff.name && r.staffName === myStaff.name) return true;
+      if (r.staffEmail && myEmail && r.staffEmail.toLowerCase() === myEmail) return true;
+      return false;
+    });
+
+    area.classList.remove("d-none");
+    if (mine) {
+      // 既回答表示 + 取消
+      const respLabel = mine.response === "◎" ? '<span class="badge bg-success">◎ OK</span>'
+        : mine.response === "△" ? '<span class="badge bg-warning text-dark">△ 条件付</span>'
+        : mine.response === "×" ? '<span class="badge bg-danger">× NG</span>'
+        : `<span class="badge bg-secondary">${this.escapeHtml(mine.response || "-")}</span>`;
+      area.innerHTML = `
+        <div class="border rounded p-2 bg-light">
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <strong>あなたの回答:</strong> ${respLabel}
+            ${mine.memo ? `<span class="small text-muted">（理由: ${this.escapeHtml(mine.memo)}）</span>` : ""}
+            <button class="btn btn-sm btn-outline-secondary ms-auto" id="btnMyRespCancel">
+              <i class="bi bi-x-lg"></i> 取消 (未回答に戻す)
+            </button>
+          </div>
+        </div>`;
+      document.getElementById("btnMyRespCancel").addEventListener("click", async () => {
+        await this._submitMyResponse(recruitment, myStaff, null, null);
+      });
+    } else {
+      area.innerHTML = `
+        <div class="border rounded p-2 bg-light">
+          <div class="small text-muted mb-2"><i class="bi bi-hand-index"></i> あなたの回答を選択してください</div>
+          <div class="d-flex gap-2 flex-wrap">
+            <button type="button" class="btn btn-success" data-resp="◎">◎ OK</button>
+            <button type="button" class="btn btn-warning" data-resp="△">△ 条件付</button>
+            <button type="button" class="btn btn-danger" data-resp="×">× NG</button>
+          </div>
+          <div id="myRespTriangleArea" class="d-none mt-2">
+            <label class="form-label small fw-bold mb-1">△の理由 (必須)</label>
+            <textarea id="myRespTriangleReason" class="form-control form-control-sm" rows="2" placeholder="詳しい理由を入力..."></textarea>
+            <div class="d-flex gap-2 mt-2">
+              <button type="button" class="btn btn-sm btn-warning" id="btnMyRespSubmitTriangle">
+                <i class="bi bi-check-lg"></i> △ で送信
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="btnMyRespCancelTriangle">キャンセル</button>
+            </div>
+          </div>
+        </div>`;
+      area.querySelectorAll('button[data-resp]').forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const resp = btn.dataset.resp;
+          if (resp === "△") {
+            area.querySelector("#myRespTriangleArea").classList.remove("d-none");
+            area.querySelector("#myRespTriangleReason").focus();
+          } else {
+            await this._submitMyResponse(recruitment, myStaff, resp, "");
+          }
+        });
+      });
+      area.querySelector("#btnMyRespCancelTriangle")?.addEventListener("click", () => {
+        area.querySelector("#myRespTriangleArea").classList.add("d-none");
+      });
+      area.querySelector("#btnMyRespSubmitTriangle")?.addEventListener("click", async () => {
+        const reason = area.querySelector("#myRespTriangleReason").value.trim();
+        if (!reason) {
+          showToast("入力エラー", "△の理由を入力してください", "error");
+          return;
+        }
+        await this._submitMyResponse(recruitment, myStaff, "△", reason);
+      });
+    }
+  },
+
+  // 自分の回答を Firestore に書き込み (response=null で取消)
+  async _submitMyResponse(recruitment, myStaff, response, memo) {
+    try {
+      const ref = db.collection("recruitments").doc(recruitment.id);
+      const doc = await ref.get();
+      if (!doc.exists) throw new Error("募集が見つかりません");
+      const data = doc.data();
+      if (data.status === "スタッフ確定済み") throw new Error("確定済みの募集は変更できません");
+      const responses = data.responses || [];
+      const myEmail = (myStaff.email || "").toLowerCase();
+      const match = (r) => {
+        if (r.staffId && myStaff.id && r.staffId === myStaff.id) return true;
+        if (r.staffName && myStaff.name && r.staffName === myStaff.name) return true;
+        if (r.staffEmail && myEmail && r.staffEmail.toLowerCase() === myEmail) return true;
+        return false;
+      };
+      const filtered = responses.filter(r => !match(r));
+      if (response) {
+        filtered.push({
+          staffId: myStaff.id,
+          staffName: myStaff.name || "",
+          staffEmail: myStaff.email || "",
+          response,
+          memo: memo || "",
+          respondedAt: new Date().toISOString(),
+        });
+      }
+      await ref.update({ responses: filtered, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+      showToast("完了", response ? `${response} で回答しました` : "回答を取り消しました", "success");
+      const updated = await API.recruitments.get(recruitment.id);
+      const idx = this.recruitments.findIndex(r => r.id === recruitment.id);
+      if (idx >= 0) this.recruitments[idx] = updated;
+      // モーダル再描画
+      this.openDetailModal(updated, { viewMode: this._viewMode });
+      this.renderList();
+    } catch (e) {
+      showToast("エラー", e.message, "error");
+    }
+  },
+
+  // A5: 右カラムに該当 bookingId に紐づく shift の checklist を読み取り専用表示
+  async renderChecklistSidebar(recruitment) {
+    const el = document.getElementById("detailChecklistArea");
+    if (!el) return;
+    el.innerHTML = '<div class="text-muted small">読み込み中...</div>';
+    try {
+      if (!recruitment.bookingId) {
+        el.innerHTML = '<div class="text-muted small">予約未紐付けのためチェックリストを表示できません</div>';
+        return;
+      }
+      // bookingId から最初の shift を特定
+      const shiftSnap = await db.collection("shifts")
+        .where("bookingId", "==", recruitment.bookingId).limit(1).get();
+      if (shiftSnap.empty) {
+        el.innerHTML = '<div class="text-muted small">対応するシフトがありません</div>';
+        return;
+      }
+      const shiftId = shiftSnap.docs[0].id;
+      const clSnap = await db.collection("checklists")
+        .where("shiftId", "==", shiftId).limit(1).get();
+      if (clSnap.empty) {
+        el.innerHTML = '<div class="text-muted small"><i class="bi bi-exclamation-circle"></i> チェックリスト未生成</div>';
+        return;
+      }
+      const cl = clSnap.docs[0].data();
+      const items = cl.items || [];
+      if (!items.length) {
+        el.innerHTML = '<div class="text-muted small">項目なし</div>';
+        return;
+      }
+      // L1 (area 等) ごとにグルーピングして表示 (items が配列 or ツリー構造いずれでも対応)
+      // 最小実装: items が {name, checked, note?, photoUrl?, l1?, l2?} のフラット配列を想定
+      const totalCount = items.length;
+      const checkedCount = items.filter(it => it.checked).length;
+      const groups = {};
+      items.forEach(it => {
+        const key = it.l1 || it.area || "その他";
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(it);
+      });
+      const statusBadge = cl.status === "completed"
+        ? '<span class="badge bg-success">完了</span>'
+        : '<span class="badge bg-secondary">進行中</span>';
+      let html = `
+        <div class="mb-2 d-flex align-items-center gap-2 flex-wrap">
+          ${statusBadge}
+          <span class="small text-muted">${checkedCount} / ${totalCount} 完了</span>
+        </div>`;
+      Object.keys(groups).forEach(g => {
+        html += `<div class="mt-2"><div class="small fw-bold text-secondary">${this.escapeHtml(g)}</div><ul class="list-unstyled mb-0 small">`;
+        groups[g].forEach(it => {
+          const mark = it.checked
+            ? '<i class="bi bi-check-square-fill text-success"></i>'
+            : '<i class="bi bi-square text-muted"></i>';
+          const name = this.escapeHtml(it.name || it.text || "-");
+          const note = it.note ? ` <span class="text-muted">(${this.escapeHtml(it.note)})</span>` : "";
+          html += `<li class="py-1 border-bottom" style="border-color:#f1f3f5!important;">${mark} ${name}${note}</li>`;
+        });
+        html += `</ul></div>`;
+      });
+      el.innerHTML = html;
+    } catch (e) {
+      console.warn("チェックリスト取得エラー:", e);
+      el.innerHTML = `<div class="text-danger small">読み込みエラー: ${this.escapeHtml(e.message)}</div>`;
+    }
   },
 
   // オーナー限定: 募集詳細モーダル最下部に「情報履歴」を描画
@@ -507,23 +724,34 @@ const RecruitmentPage = {
     tbody.innerHTML = rows.map(row => {
       const s = row.staff;
       const checked = currentSelected.includes(s.name) ? "checked" : "";
+      // A2: 回答日時は "M/D HH:MM" に統一
       const respondedStr = row.respondedAt
-        ? (row.respondedAt.toDate ? row.respondedAt.toDate().toLocaleString("ja-JP") : String(row.respondedAt))
+        ? ((typeof formatTimeShort === "function") ? formatTimeShort(row.respondedAt)
+            : (row.respondedAt.toDate ? row.respondedAt.toDate().toLocaleString("ja-JP") : String(row.respondedAt)))
         : "";
-      // スタッフビュー時: 自分の行のみ回答ボタンを表示 (他人の代理回答は不可)
-      const canRespond = !confirmed && (!isStaffView || (myStaffId && s.id === myStaffId));
+      // A4 で自分の回答はモーダル上部に集約したので、テーブル内の自分行の回答ボタンは非表示にする
+      // オーナービュー時は他スタッフへの代理回答のみ可 (自分の行は上部で操作)
+      const isMeRow = myStaffId && s.id === myStaffId;
+      const canRespond = !confirmed && !isStaffView && !isMeRow;
       const selectCell = isStaffView ? "" : `
         <td>
           <input class="form-check-input staff-select-cb" type="checkbox"
                  value="${this.escapeHtml(s.name)}" ${checked} ${confirmed ? "disabled" : ""}>
         </td>`;
+      // A3: △ 回答の行は、直下に memo を薄色テキストで常時展開表示 (回答|理由 を一覧化)
+      const colspan = isStaffView ? 4 : 5;
+      const memoRow = (row.response === "△" && row.memo) ? `
+        <tr class="triangle-memo-row">
+          <td colspan="${colspan}" class="small text-muted ps-4 py-1" style="background:#fffbea;border-top:0;">
+            <i class="bi bi-chat-left-text"></i> 理由: ${this.escapeHtml(row.memo)}
+          </td>
+        </tr>` : "";
       return `
         <tr>
           ${selectCell}
           <td>
             ${this.escapeHtml(s.name)}
             ${s.isOwner ? '<span class="badge bg-info ms-1" title="オーナー">OWN</span>' : ""}
-            ${row.memo ? `<div><small class="text-muted">${this.escapeHtml(row.memo)}</small></div>` : ""}
           </td>
           <td>${respBadge(row.response)}</td>
           <td class="small text-muted d-none d-md-table-cell">${respondedStr}</td>
@@ -537,6 +765,7 @@ const RecruitmentPage = {
             ` : ""}
           </td>
         </tr>
+        ${memoRow}
       `;
     }).join("");
 
