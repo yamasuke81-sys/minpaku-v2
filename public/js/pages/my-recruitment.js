@@ -2466,8 +2466,8 @@ const MyRecruitmentPage = {
     }
   },
 
-  // 物件IDから直近確定済みシフトを特定し、その checklist を開く
-  // propertyId 単一条件で取得後、クライアント側で日付 + staffId フィルタ (複合インデックス不要)
+  // 物件IDから本日以降の直近シフトを特定し、その checklist を開く
+  // 仕様: スタッフ未確定でも OK、過去にはフォールバックしない (過去を開いても意味がないため)
   async _goChecklistForProperty(propertyId) {
     try {
       const todayMid = new Date(); todayMid.setHours(0, 0, 0, 0);
@@ -2481,22 +2481,15 @@ const MyRecruitmentPage = {
 
       const snap = await db.collection("shifts")
         .where("propertyId", "==", propertyId).get();
-      const confirmed = snap.docs
+      // 本日以降のシフトに絞って最古 (= 最も近い未来) を選ぶ
+      const future = snap.docs
         .map(d => ({ id: d.id, data: d.data(), _ms: toMs(d.data().date) }))
-        .filter(x => x.data.staffId); // 確定済 (staffId あり) に絞る
-
-      // 今日以降の最古
-      const future = confirmed
         .filter(x => x._ms >= todayMs)
         .sort((a, b) => a._ms - b._ms);
-      // 無ければ過去の最新
-      const past = confirmed
-        .filter(x => x._ms < todayMs)
-        .sort((a, b) => b._ms - a._ms);
 
-      const shiftDoc = future[0] || past[0];
+      const shiftDoc = future[0];
       if (!shiftDoc) {
-        showToast("シフトなし", "この物件の確定済シフトが見つかりません", "warning");
+        showToast("シフトなし", "本日以降のシフトが見つかりません", "warning");
         location.hash = `#/my-checklist`;
         return;
       }
