@@ -293,6 +293,90 @@ const MyRecruitmentPage = {
     }
   },
 
+  /**
+   * bookings + guestRegistrations をマージして this.bookings にセット
+   * dashboard.js の addBooking ロジックを移植 (CI+CO 複合キー + ソース優先度)
+   */
+  _mergeBookingSources() {
+    const rawBookings = this._rawBookings || [];
+    const rawGuests = this._rawGuestRegs || [];
+    const toDateStr = (v) => this._toDateStr(v);
+
+    const SOURCE_PRIORITY = { beds24: 40, booking: 30, bookings: 30, direct: 20, manual: 20, guest_form: 15, "名簿": 10, migrated: 5, "": 0 };
+    const getSourcePriority = (src) => {
+      if (!src) return 0;
+      const s = String(src).toLowerCase();
+      for (const [k, val] of Object.entries(SOURCE_PRIORITY)) {
+        if (s.includes(k)) return val;
+      }
+      return 1;
+    };
+    const isPlaceholder = (name) => {
+      if (!name) return true;
+      const n = String(name).trim().toLowerCase();
+      return !n || n === "-" || n.includes("airbnb") || n.includes("booking.com") ||
+        n.includes("not available") || n.includes("blocked") || n.includes("closed") || n.includes("reserved");
+    };
+
+    const bookingMap = new Map(); // key: "CI|CO" → merged
+    const addBooking = (b, sourceType) => {
+      const ci = toDateStr(b.checkIn);
+      const co = toDateStr(b.checkOut);
+      if (!ci) return;
+      const key = `${ci}|${co}`;
+      const existing = bookingMap.get(key);
+      if (!existing) {
+        bookingMap.set(key, { ...b, checkIn: ci, checkOut: co, _sourceType: sourceType, _sources: [sourceType] });
+        return;
+      }
+      existing._sources.push(sourceType);
+      const newPri = getSourcePriority(b.source || b.bookingSite || sourceType);
+      const existPri = getSourcePriority(existing.source || existing._sourceType);
+      if (!isPlaceholder(b.guestName) && (isPlaceholder(existing.guestName) || newPri > existPri)) {
+        existing.guestName = b.guestName;
+      }
+      if ((b.guestCount || 0) > (existing.guestCount || 0)) existing.guestCount = b.guestCount;
+      if (newPri > existPri && b.source) existing.source = b.source;
+      if (b.bookingSite && !existing.bookingSite) existing.bookingSite = b.bookingSite;
+      ["nationality", "bbq", "parking", "memo", "phone", "email", "icalUrl", "syncSource",
+       "beds24Source", "beds24BookingId", "propertyId", "propertyName",
+       "emailMessageId", "emailThreadId", "emailSubject", "emailVerifiedAt"].forEach(f => {
+        if (b[f] && !existing[f]) existing[f] = b[f];
+      });
+    };
+
+    // 1) bookings コレクション - 最優先
+    rawBookings.forEach(b => addBooking(b, "bookings"));
+    // 2) guestRegistrations - 補完 (bookings 側に無い予約を拾う)
+    rawGuests.forEach(g => addBooking({
+      id: "g_" + g.id,
+      guestName: g.guestName || "",
+      checkIn: g.checkIn, checkOut: g.checkOut,
+      guestCount: g.guestCount || 0,
+      source: g.bookingSite || g.source || "名簿",
+      propertyId: g.propertyId || "",
+      nationality: g.nationality || "",
+      bbq: g.bbq || "", parking: g.parking || "",
+      memo: g.memo || "",
+    }, "guestRegistrations"));
+
+    this.bookings = Array.from(bookingMap.values());
+  },
+
+  // YYYY-MM-DD 文字列化 (string / Date / Firestore Timestamp 対応、JST)
+  _toDateStr(val) {
+    if (!val) return "";
+    if (typeof val === "string") {
+      const m = val.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+      if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+      return val.slice(0, 10);
+    }
+    const d = val.toDate ? val.toDate() : new Date(val);
+    if (isNaN(d.getTime())) return "";
+    const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+    return jst.toISOString().slice(0, 10);
+  },
+
   // 日付フィールド名の揺れを正規化
   _normalizeDate(raw) {
     if (!raw) return "";
@@ -375,10 +459,11 @@ const MyRecruitmentPage = {
     }
     const unsubBooking = bookingQuery.onSnapshot(snap => {
       // キャンセル予約は全て除外（"cancelled" / "canceled" / 日本語）
-      this.bookings = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(b => {
+      this._rawBookings = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(b => {
         const s = String(b.status || "").toLowerCase();
         return !s.includes("cancel") && b.status !== "キャンセル" && b.status !== "キャンセル済み";
       });
+      this._mergeBookingSources();
 
       this._loadedFlags.bookings = true;
       this._tryRenderCalendar();
@@ -399,14 +484,36 @@ const MyRecruitmentPage = {
       guestQuery = guestQuery.where("propertyId", "in", assignedIds);
     }
     const unsubGuest = guestQuery.onSnapshot(snap => {
-      // 名簿マッピング（PII フィールドを除外して最小限フィールドのみ保持）
+      const isOwnerView = (typeof Auth !== "undefined") && Auth?.isOwner?.();
+      // 生データ保持 (マージ用): オーナー時のみ PII 含む、スタッフ時は最小限フィールド
+      this._rawGuestRegs = snap.docs.map(d => {
+        const g = d.data();
+        if (isOwnerView) {
+          return { id: d.id, ...g };
+        }
+        return {
+          id: d.id,
+          guestCount: g.guestCount || 0,
+          guestCountInfants: g.guestCountInfants || 0,
+          checkIn: g.checkIn, checkOut: g.checkOut,
+          propertyId: g.propertyId || "",
+          checkInTime: g.checkInTime || "", checkOutTime: g.checkOutTime || "",
+          bbq: g.bbq || "", carCount: g.carCount || 0,
+          paidParking: g.paidParking || "",
+          bedChoice: g.bedChoice || "", nationality: g.nationality || "",
+          parking: g.parking || "", transport: g.transport || "",
+          vehicleTypes: g.vehicleTypes || [],
+          bookingSite: g.bookingSite || "", source: g.source || "",
+        };
+      });
+
+      // guestMap 構築 (画面表示用)
       this.guestMap = {};
       snap.docs.forEach(d => {
         const g = d.data();
         const ci = g.checkIn;
         if (!ci) return;
-        // guestName / address / phone / email / passportNumber 等の PII は保持しない
-        this.guestMap[ci] = {
+        const entry = {
           guestCount: g.guestCount || 0,
           guestCountInfants: g.guestCountInfants || 0,
           checkIn: g.checkIn, checkOut: g.checkOut,
@@ -417,9 +524,32 @@ const MyRecruitmentPage = {
           parking: g.parking || "", transport: g.transport || "",
           vehicleTypes: g.vehicleTypes || [],
         };
-        // 受信したドキュメントから PII を明示的に参照解除（GC 補助）
-        // d.data() の raw オブジェクトはここでスコープ外になり解放される
+        // オーナー時は予約詳細モーダルで使う PII も含める
+        if (isOwnerView) {
+          Object.assign(entry, {
+            guestName: g.guestName || "",
+            address: g.address || "",
+            phone: g.phone || "", phone2: g.phone2 || "",
+            email: g.email || "",
+            passportNumber: g.passportNumber || "",
+            purpose: g.purpose || "",
+            memo: g.memo || "",
+            emergencyName: g.emergencyName || "",
+            emergencyPhone: g.emergencyPhone || "",
+            previousStay: g.previousStay || "",
+            nextStay: g.nextStay || "",
+            noiseAgree: g.noiseAgree || false,
+            guests: g.guests || [],
+            allGuests: g.allGuests || [],
+            parkingAllocation: g.parkingAllocation || [],
+            passportPhotoUrl: g.passportPhotoUrl || "",
+          });
+        }
+        if (g.propertyId) this.guestMap[`${g.propertyId}_${ci}`] = entry;
+        this.guestMap[ci] = entry;
       });
+
+      this._mergeBookingSources();
 
       this._loadedFlags.guests = true;
       this._tryRenderCalendar();
@@ -473,6 +603,8 @@ const MyRecruitmentPage = {
     this._loadedFlags = { recruitments: false, bookings: false, guests: false, staff: false };
     this._initialRenderDone = false;
     this._modalRerenderQueued = false;
+    this._rawBookings = null;
+    this._rawGuestRegs = null;
   },
 
   renderCalendar() {
