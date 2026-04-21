@@ -1186,8 +1186,71 @@ const DashboardPage = {
         ${recruit ? `<button class="btn btn-sm btn-outline-primary ms-2" id="calBtnOpenRecruit"><i class="bi bi-megaphone"></i> 募集詳細</button>` : ""}
       </div>
       ${nextBookingBlock}
+      ${(() => {
+        // 手動予約の削除ボタン (オーナー視点のみ)
+        const isManualBk = b.manualOverride === true || /manual/i.test(String(b.source || ""));
+        if (!isManualBk || isStaffView) return "";
+        return `
+          <hr>
+          <div class="text-end">
+            <button class="btn btn-outline-danger btn-sm" id="calBtnDeleteManualBooking" data-booking-id="${this.esc(b.id)}">
+              <i class="bi bi-trash"></i> この予約を削除
+            </button>
+          </div>
+        `;
+      })()}
     `;
     bootstrap.Modal.getOrCreateInstance(modalEl).show();
+
+    // 手動予約の削除ボタン
+    const btnDelManual = document.getElementById("calBtnDeleteManualBooking");
+    if (btnDelManual) {
+      btnDelManual.addEventListener("click", async () => {
+        const bookingId = btnDelManual.dataset.bookingId;
+        if (!bookingId) return;
+        const guestLabel = b.guestName || "(ゲスト名なし)";
+        const ok = await showConfirm(
+          `この予約を削除します。\n\nゲスト: ${guestLabel}\nCI: ${ci} / CO: ${co}\n\n紐付く清掃募集・シフト・チェックリストも削除されます。よろしいですか?`,
+          { title: "予約を削除", okLabel: "削除", okClass: "btn-danger" }
+        );
+        if (!ok) return;
+        btnDelManual.disabled = true;
+        btnDelManual.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 削除中...';
+        try {
+          const db = firebase.firestore();
+          // 1) shifts (bookingId 一致) → 紐付く checklists も削除
+          const shiftSnap = await db.collection("shifts").where("bookingId", "==", bookingId).get();
+          for (const s of shiftSnap.docs) {
+            const clSnap = await db.collection("checklists").where("shiftId", "==", s.id).get();
+            for (const c of clSnap.docs) await c.ref.delete();
+            await s.ref.delete();
+          }
+          // 2) recruitments (bookingId 一致)
+          const recSnap = await db.collection("recruitments").where("bookingId", "==", bookingId).get();
+          for (const r of recSnap.docs) {
+            await r.ref.delete();
+          }
+          // 3) bookings 本体
+          await db.collection("bookings").doc(bookingId).delete();
+
+          // ローカルキャッシュからも除去
+          if (this.bookings) {
+            const idx = this.bookings.findIndex(x => x.id === bookingId);
+            if (idx !== -1) this.bookings.splice(idx, 1);
+          }
+          if (this.refreshCalendar) this.refreshCalendar();
+
+          const modalInst = bootstrap.Modal.getInstance(modalEl);
+          if (modalInst) modalInst.hide();
+          await showAlert("予約を削除しました");
+        } catch (e) {
+          console.error("手動予約削除エラー:", e);
+          btnDelManual.disabled = false;
+          btnDelManual.innerHTML = '<i class="bi bi-trash"></i> この予約を削除';
+          await showAlert("削除に失敗しました: " + (e.message || e));
+        }
+      });
+    }
 
     // 募集詳細ボタン: ctx 注入された recruitments から検索して openRecruitmentModal
     const btnOpenRecruit = document.getElementById("calBtnOpenRecruit");
