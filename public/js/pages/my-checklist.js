@@ -355,10 +355,36 @@ const MyChecklistPage = {
     const db = firebase.firestore();
     this.checklistId = await this.resolveChecklistId();
     if (!this.checklistId) {
+      // shift から propertyId を取得してテンプレ編集画面へのリンクを表示
+      let propertyId = null;
+      let propertyName = "";
+      try {
+        if (this.shiftId) {
+          const sDoc = await db.collection("shifts").doc(this.shiftId).get();
+          if (sDoc.exists) {
+            propertyId = sDoc.data().propertyId || null;
+            propertyName = sDoc.data().propertyName || "";
+            if (propertyId && !propertyName) {
+              const pDoc = await db.collection("properties").doc(propertyId).get();
+              if (pDoc.exists) propertyName = pDoc.data().name || "";
+            }
+          }
+        }
+      } catch (_) { /* noop */ }
+
+      const tmplLink = propertyId
+        ? `<div class="mt-3"><a href="#/property-checklist/${propertyId}" class="btn btn-primary btn-sm">
+             <i class="bi bi-pencil-square"></i> ${propertyName ? `「${this.escapeHtml(propertyName)}」の` : ""}チェックリストテンプレートを編集
+           </a></div>`
+        : `<div class="mt-3"><a href="#/properties" class="btn btn-outline-primary btn-sm">
+             <i class="bi bi-building"></i> 物件管理画面へ
+           </a></div>`;
+
       document.getElementById("mclBody").innerHTML = `
         <div class="alert alert-warning">
           このシフトのチェックリストがまだ作成されていません。<br>
           物件にチェックリストテンプレートが登録されているか確認してください。
+          ${tmplLink}
         </div>
       `;
       return;

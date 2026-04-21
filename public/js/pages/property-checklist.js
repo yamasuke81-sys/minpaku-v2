@@ -430,13 +430,13 @@ const PropertyChecklistPage = {
            data-parent-id="${parentId}">
         <div class="accordion-item">
           <h2 class="accordion-header">
-            <button class="accordion-button collapsed ${headerBg}" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}">
+            <button class="accordion-button ${headerBg}" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="true">
               <i class="bi bi-grip-vertical text-muted me-2 handle" style="cursor:grab;"></i>
               ${this.escapeHtml(cat.name)}
               <span class="badge bg-secondary ms-2">${this.countLeaves(cat)}</span>
             </button>
           </h2>
-          <div id="${collapseId}" class="accordion-collapse collapse">
+          <div id="${collapseId}" class="accordion-collapse collapse show">
             <div class="accordion-body">
               <div class="d-flex mb-2">
                 <button class="btn btn-sm btn-link" data-act="${l.rename}"><i class="bi bi-pencil"></i> 名前</button>
