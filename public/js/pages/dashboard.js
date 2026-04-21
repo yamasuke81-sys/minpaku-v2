@@ -1078,7 +1078,7 @@ const DashboardPage = {
         </a>`).join("")}
       </div>` : "";
 
-    // 次の予約情報 (拡張版: BBQ/交通/車台数/有料駐車場 追加)
+    // 次の予約情報 (拡張版: BBQ/交通/車台数/有料駐車場 追加、次予約なしでも「予約なし」と表示)
     let nextBookingBlock = "";
     if (co) {
       const nextBooking = bookings.find(nb => nb.id !== b.id && this.toDateStr(nb.checkIn) === co);
@@ -1098,6 +1098,11 @@ const DashboardPage = {
             <tr><th class="text-muted">車台数</th><td>${nextGuest.carCount ? this.esc(String(nextGuest.carCount)) + "台" : "-"}</td></tr>
             <tr><th class="text-muted">有料駐車場</th><td>${v(nextGuest.paidParking)}</td></tr>
           </table>`;
+      } else {
+        nextBookingBlock = `
+          <hr>
+          <h6 class="mb-2"><i class="bi bi-arrow-right-circle"></i> 次の予約</h6>
+          <div class="text-muted small">予約なし</div>`;
       }
     }
     // 既存 nextBookingHtml は使わない (新 nextBookingBlock に統合)
