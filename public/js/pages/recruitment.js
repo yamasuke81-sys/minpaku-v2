@@ -341,8 +341,12 @@ const RecruitmentPage = {
   },
 
   // === 募集詳細モーダル ===
-  openDetailModal(recruitment) {
+  openDetailModal(recruitment, options = {}) {
     this._currentRecruitment = recruitment;
+    // viewMode: "owner" | "staff"。省略時は Auth.isOwner() から判定
+    const viewMode = options.viewMode || ((typeof Auth !== "undefined" && Auth.isOwner && Auth.isOwner()) ? "owner" : "staff");
+    this._viewMode = viewMode;
+    const isStaffView = viewMode === "staff";
     const r = recruitment;
     const responses = r.responses || [];
 
@@ -374,13 +378,20 @@ const RecruitmentPage = {
     }
 
     // オーナー限定: 情報履歴 (iCal 取得日 / Gmail 照合日 等) を非同期で描画
+    // スタッフビュー時は常に非表示
     const ownerInfoEl = document.getElementById("ownerInfoLog");
     if (ownerInfoEl) {
       ownerInfoEl.classList.add("d-none");
       ownerInfoEl.innerHTML = "";
-      if (Auth?.isOwner?.() && r.bookingId) {
+      if (!isStaffView && Auth?.isOwner?.() && r.bookingId) {
         this._renderOwnerInfoLog(r);
       }
+    }
+
+    // スタッフビュー時: スタッフ確定ボタン・募集再開ボタンを非表示
+    if (isStaffView) {
+      confirmBtn?.classList.add("d-none");
+      reopenBtn?.classList.add("d-none");
     }
 
     this.detailModal.show();
@@ -445,6 +456,12 @@ const RecruitmentPage = {
   async renderResponseTable(recruitment) {
     const tbody = document.getElementById("responseTableBody");
     const responses = recruitment.responses || [];
+    const isStaffView = this._viewMode === "staff";
+    // スタッフビュー時: 選定列とテーブルヘッダ「選定」を非表示
+    const theadSelectTh = document.querySelector('#responseTableBody')?.parentElement?.querySelector('thead th:first-child');
+    if (theadSelectTh) theadSelectTh.style.display = isStaffView ? "none" : "";
+    // 自分のstaffIdを特定 (スタッフビュー時、自分の行のみ代理回答ボタンを出す)
+    const myStaffId = (typeof Auth !== "undefined" && Auth.currentUser) ? Auth.currentUser.staffId : null;
 
     // 回答マップ (name優先、emailフォールバック)
     const respByName = {};
@@ -493,12 +510,16 @@ const RecruitmentPage = {
       const respondedStr = row.respondedAt
         ? (row.respondedAt.toDate ? row.respondedAt.toDate().toLocaleString("ja-JP") : String(row.respondedAt))
         : "";
+      // スタッフビュー時: 自分の行のみ回答ボタンを表示 (他人の代理回答は不可)
+      const canRespond = !confirmed && (!isStaffView || (myStaffId && s.id === myStaffId));
+      const selectCell = isStaffView ? "" : `
+        <td>
+          <input class="form-check-input staff-select-cb" type="checkbox"
+                 value="${this.escapeHtml(s.name)}" ${checked} ${confirmed ? "disabled" : ""}>
+        </td>`;
       return `
         <tr>
-          <td>
-            <input class="form-check-input staff-select-cb" type="checkbox"
-                   value="${this.escapeHtml(s.name)}" ${checked} ${confirmed ? "disabled" : ""}>
-          </td>
+          ${selectCell}
           <td>
             ${this.escapeHtml(s.name)}
             ${s.isOwner ? '<span class="badge bg-info ms-1" title="オーナー">OWN</span>' : ""}
@@ -507,11 +528,11 @@ const RecruitmentPage = {
           <td>${respBadge(row.response)}</td>
           <td class="small text-muted d-none d-md-table-cell">${respondedStr}</td>
           <td>
-            ${!confirmed ? `
+            ${canRespond ? `
               <div class="btn-group btn-group-sm">
-                <button class="btn btn-outline-success btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="◎" title="代理で◎">◎</button>
-                <button class="btn btn-outline-warning btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="△" title="代理で△">△</button>
-                <button class="btn btn-outline-danger btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="×" title="代理で×">×</button>
+                <button class="btn btn-outline-success btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="◎" title="◎">◎</button>
+                <button class="btn btn-outline-warning btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="△" title="△">△</button>
+                <button class="btn btn-outline-danger btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="×" title="×">×</button>
               </div>
             ` : ""}
           </td>
@@ -549,6 +570,9 @@ const RecruitmentPage = {
   async renderSelectionActions(recruitment) {
     const selectContainer = document.getElementById("staffSelectContainer");
     if (!selectContainer) return;
+    const isStaffView = this._viewMode === "staff";
+    // スタッフビュー時は選定アクション全体を非表示
+    if (isStaffView) { selectContainer.innerHTML = ""; return; }
     const confirmed = recruitment.status === "スタッフ確定済み";
     if (confirmed) { selectContainer.innerHTML = ""; return; }
 

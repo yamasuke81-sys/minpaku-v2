@@ -298,12 +298,13 @@ const DashboardPage = {
       const responses = r.responses || [];
       const maru = responses.filter(v => v.response === "◎").length;
       const isPast = rCoDate < today;
+      const rCoLabel = (typeof formatDateFull === "function") ? formatDateFull(rCoDate) : rCoDate;
 
       if (r.status === "選定済") {
         actions.push({
           icon: "bi-check2-circle",
           color: "info",
-          text: `${rCoDate} — スタッフ選定済み → 確定してください`,
+          text: `${rCoLabel} — スタッフ選定済み → 確定してください`,
           id: r.id,
           action: "confirm",
         });
@@ -311,7 +312,7 @@ const DashboardPage = {
         actions.push({
           icon: "bi-person-plus",
           color: "warning",
-          text: `${rCoDate} — ◎${maru}名回答あり → スタッフを選定してください`,
+          text: `${rCoLabel} — ◎${maru}名回答あり → スタッフを選定してください`,
           id: r.id,
           action: "select",
         });
@@ -319,7 +320,7 @@ const DashboardPage = {
         actions.push({
           icon: "bi-exclamation-triangle",
           color: "danger",
-          text: `${rCoDate} — 回答なし！スタッフに連絡してください`,
+          text: `${rCoLabel} — 回答なし！スタッフに連絡してください`,
           id: r.id,
           action: "detail",
         });
@@ -1086,8 +1087,8 @@ const DashboardPage = {
           <hr>
           <h6 class="mb-2"><i class="bi bi-arrow-right-circle"></i> 次の予約</h6>
           <table class="table table-sm table-borderless mb-0">
-            <tr><th width="110" class="text-muted">ゲスト名</th><td>${v(nextBooking.guestName)}</td></tr>
-            <tr><th class="text-muted">チェックイン</th><td>${vd(this.toDateStr(nextBooking.checkIn))}</td></tr>
+            ${isStaffView ? "" : `<tr><th width="110" class="text-muted">ゲスト名</th><td>${v(nextBooking.guestName)}</td></tr>`}
+            <tr><th width="110" class="text-muted">チェックイン</th><td>${vd(this.toDateStr(nextBooking.checkIn))} <strong>${this.esc(nextGuest.checkInTime || "--:--")}</strong></td></tr>
             <tr><th class="text-muted">宿泊人数</th><td>${nextBooking.guestCount ? this.esc(String(nextBooking.guestCount)) + "名" : "-"}</td></tr>
             <tr><th class="text-muted">BBQ</th><td>${vb(nextGuest.bbq)}</td></tr>
             <tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${v(nextGuest.bedChoice)}</td></tr>
@@ -1106,9 +1107,9 @@ const DashboardPage = {
 
       <h6 class="mb-2 text-primary">基本情報</h6>
       <table class="table table-sm table-borderless mb-2">
-        <tr><th width="110" class="text-muted">ゲスト名</th><td class="fw-bold">${v(b.guestName)}</td></tr>
-        <tr><th class="text-muted">チェックイン</th><td>${vd(ci)}${guestData.checkInTime ? ` <strong>${this.esc(guestData.checkInTime)}</strong>` : ""}</td></tr>
-        <tr><th class="text-muted">チェックアウト</th><td>${vd(co)}${guestData.checkOutTime ? ` <strong>${this.esc(guestData.checkOutTime)}</strong>` : ""}</td></tr>
+        ${isStaffView ? "" : `<tr><th width="110" class="text-muted">ゲスト名</th><td class="fw-bold">${v(b.guestName)}</td></tr>`}
+        <tr><th width="110" class="text-muted">チェックイン</th><td>${vd(ci)} <strong>${this.esc(guestData.checkInTime || "--:--")}</strong></td></tr>
+        <tr><th class="text-muted">チェックアウト</th><td>${vd(co)} <strong>${this.esc(guestData.checkOutTime || "--:--")}</strong></td></tr>
         <tr><th class="text-muted">宿泊人数</th><td>
           ${isStaffView
             ? `${b.guestCount ? this.esc(String(b.guestCount)) + "名" : "-"}`
@@ -1139,7 +1140,6 @@ const DashboardPage = {
       <table class="table table-sm table-borderless mb-2">
         <tr><th width="110" class="text-muted">BBQ</th><td>${vb(guestData.bbq !== undefined && guestData.bbq !== "" ? guestData.bbq : b.bbq)}</td></tr>
         <tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${v(guestData.bedChoice)}</td></tr>
-        <tr><th class="text-muted">メモ</th><td>${vl(guestData.memo || b.memo || b.notes)}</td></tr>
       </table>
 
       <h6 class="mb-2 text-primary">交通・駐車場</h6>
@@ -1165,10 +1165,12 @@ const DashboardPage = {
         </table>
       `}
 
-      <h6 class="mb-2 text-primary">同意状況</h6>
-      <table class="table table-sm table-borderless mb-2">
-        <tr><th width="110" class="text-muted">騒音ルール</th><td>${noiseBadge}</td></tr>
-      </table>
+      ${isStaffView ? "" : `
+        <h6 class="mb-2 text-primary">同意状況</h6>
+        <table class="table table-sm table-borderless mb-2">
+          <tr><th width="110" class="text-muted">騒音ルール</th><td>${noiseBadge}</td></tr>
+        </table>
+      `}
 
       ${companionsHtml}
       ${isStaffView ? "" : passportHtml}
@@ -1177,7 +1179,7 @@ const DashboardPage = {
 
       <hr>
       <div>
-        <strong class="small text-muted">清掃担当（CO: ${v(co)}）</strong><br>
+        <strong class="small text-muted">清掃担当（CO: ${vd(co)}）</strong><br>
         ${cleaningHtml}
         ${recruit ? `<button class="btn btn-sm btn-outline-primary ms-2" id="calBtnOpenRecruit"><i class="bi bi-megaphone"></i> 募集詳細</button>` : ""}
       </div>
@@ -1196,7 +1198,7 @@ const DashboardPage = {
           if (modalInst) modalInst.hide();
           (async () => {
             if (RecruitmentPage.ensureLoaded) await RecruitmentPage.ensureLoaded();
-            RecruitmentPage.openDetailModal(r);
+            RecruitmentPage.openDetailModal(r, { viewMode });
           })();
         } else if (this.openRecruitmentModal) {
           this.openRecruitmentModal(r);

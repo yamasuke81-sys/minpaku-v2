@@ -1148,7 +1148,7 @@ const MyRecruitmentPage = {
         if (!recruit) return;
         if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
           await RecruitmentPage.ensureLoaded();
-          RecruitmentPage.openDetailModal(recruit);
+          RecruitmentPage.openDetailModal(recruit, { viewMode: this.isOwnerView ? "owner" : "staff" });
         }
       });
     });
@@ -1219,7 +1219,7 @@ const MyRecruitmentPage = {
             if (!recruit) return;
             if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
               await RecruitmentPage.ensureLoaded();
-              RecruitmentPage.openDetailModal(recruit);
+              RecruitmentPage.openDetailModal(recruit, { viewMode: this.isOwnerView ? "owner" : "staff" });
             }
           });
           ownerWrap = document.getElementById("ownerOpsFromResponseWrap");
@@ -1341,7 +1341,8 @@ const MyRecruitmentPage = {
     const staffItems = [];
     this.recruitments.forEach(r => {
       const propName = r.propertyName || this.propertyMap?.[r.propertyId]?.name || "";
-      const co = r.checkoutDate || "";
+      const coRaw = r.checkoutDate || "";
+      const co = coRaw && typeof formatDateFull === "function" ? formatDateFull(coRaw) : coRaw;
       const createdMs = toMs(r.createdAt);
       const updatedMs = toMs(r.updatedAt);
       // 新規募集 (createdAt が 24h 以内)
@@ -1374,7 +1375,8 @@ const MyRecruitmentPage = {
       const updatedMs = toMs(r.updatedAt);
       if (!updatedMs || (now - updatedMs) >= H24) return;
       const propName = r.propertyName || this.propertyMap?.[r.propertyId]?.name || "";
-      const co = r.checkoutDate || r.checkOutDate || "";
+      const coRaw = r.checkoutDate || r.checkOutDate || "";
+      const co = coRaw && typeof formatDateFull === "function" ? formatDateFull(coRaw) : coRaw;
       staffItems.push({
         sortMs: updatedMs, icon: "bi-x-circle", color: "secondary",
         text: `予約キャンセル: ${co}${propName ? " " + propName : ""} の清掃がなくなりました`,
@@ -1445,7 +1447,7 @@ const MyRecruitmentPage = {
         if (!r) return;
         if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
           if (RecruitmentPage.ensureLoaded) await RecruitmentPage.ensureLoaded();
-          RecruitmentPage.openDetailModal(r);
+          RecruitmentPage.openDetailModal(r, { viewMode: this.isOwnerView ? "owner" : "staff" });
         } else if (typeof DashboardPage !== "undefined" && DashboardPage.openRecruitmentModal) {
           DashboardPage.openRecruitmentModal(r);
         }
@@ -1563,9 +1565,10 @@ const MyRecruitmentPage = {
           });
         } else if (type === "recruitment") {
           if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
+            const _vm = this.isOwnerView ? "owner" : "staff";
             (async () => {
               if (RecruitmentPage.ensureLoaded) await RecruitmentPage.ensureLoaded();
-              RecruitmentPage.openDetailModal(data);
+              RecruitmentPage.openDetailModal(data, { viewMode: _vm });
             })();
           } else if (typeof DashboardPage !== "undefined" && DashboardPage.openRecruitmentModal) {
             DashboardPage.openRecruitmentModal(data);
