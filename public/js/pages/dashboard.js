@@ -1121,7 +1121,16 @@ const DashboardPage = {
     // 既存 nextBookingHtml は使わない (新 nextBookingBlock に統合)
     nextBookingHtml = "";
 
-    document.getElementById("calEventTitle").innerHTML = `<i class="bi bi-calendar-event"></i> 予約詳細 ${sourceBadge}`;
+    // 物件名バッジ: b.propertyName → 未設定なら propertyMap 系から逆引き、それも無ければ空
+    const propNameForTitle =
+      b.propertyName ||
+      (ctx.properties && ctx.properties.find && (ctx.properties.find(p => p.id === b.propertyId) || {}).name) ||
+      ((this.properties || []).find(p => p.id === b.propertyId) || {}).name ||
+      "";
+    const propNameBadge = propNameForTitle
+      ? `<span class="badge bg-light text-dark border ms-2" style="font-weight:500;">${this.esc(propNameForTitle)}</span>`
+      : "";
+    document.getElementById("calEventTitle").innerHTML = `<i class="bi bi-calendar-event"></i> 予約詳細 ${propNameBadge} ${sourceBadge}`;
     document.getElementById("calEventBody").innerHTML = `
       <div class="d-flex gap-2 mb-3">${rosterBadge}</div>
 

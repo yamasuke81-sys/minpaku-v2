@@ -759,7 +759,8 @@ const MyRecruitmentPage = {
       const hasBooking = !!bookingsByDate[dd.dateStr];
       const dowColor = dow === 0 ? "#dc3545" : (dow === 6 ? "#0d6efd" : "");
       const bg = isToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : "#f8f9fa");
-      html += `<th class="text-center${hasBooking ? " cal-date-hd" : ""}" data-cal-date="${dd.dateStr}" data-col-date="${dd.dateStr}" style="min-width:${colW};height:42px;font-size:14px;${dowColor ? "color:" + dowColor + ";" : ""}background:${bg};cursor:${hasBooking ? "pointer" : "default"};vertical-align:middle;"><div style="font-size:14px;font-weight:600;">${dd.day}</div><div style="font-size:12px;">${dayNames[dow]}</div></th>`;
+      // 日付ヘッダーはタップ無効 (物件行の各セルで予約を特定して開くため、ヘッダーは装飾のみ)
+      html += `<th class="text-center" data-cal-date="${dd.dateStr}" data-col-date="${dd.dateStr}" style="min-width:${colW};height:42px;font-size:14px;${dowColor ? "color:" + dowColor + ";" : ""}background:${bg};vertical-align:middle;"><div style="font-size:14px;font-weight:600;">${dd.day}</div><div style="font-size:12px;">${dayNames[dow]}</div></th>`;
     });
     html += "</tr>";
     html += `</thead><tbody>`;
@@ -1328,6 +1329,7 @@ const MyRecruitmentPage = {
             bookings: this.bookings,
             recruitments: this.recruitments,
             guestMap: this.guestMap,
+            properties: this.minpakuProperties || [],
             viewMode: isOwnerView ? "owner" : "staff",
             onGuestCountSaved: () => this.renderCalendar && this.renderCalendar(),
           });
