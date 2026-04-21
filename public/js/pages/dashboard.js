@@ -963,7 +963,10 @@ const DashboardPage = {
     let gmailRow = "";
     if (isOwnerView) {
       if (b.emailMessageId) {
-        const gmailUrl = `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(b.emailMessageId)}`;
+        // Gmail URL: u/{メールアドレス}/ 形式で、照合巡回に使っている Gmail アカウントを直接指定
+        // (u/0/ だとブラウザのデフォルトアカウント=個人 yamasuke81 が開かれてしまうため)
+        const gmailAcct = b.gmailAccount || "81hassac@gmail.com";
+        const gmailUrl = `https://mail.google.com/mail/u/${encodeURIComponent(gmailAcct)}/#all/${encodeURIComponent(b.emailMessageId)}`;
         const verifiedStr = b.emailVerifiedAt ? this.toDateStr(b.emailVerifiedAt) : "";
         gmailRow = `<tr><th class="text-muted">Gmail 照合</th><td>
           <a href="${gmailUrl}" target="_blank" rel="noopener" class="small">

@@ -1036,7 +1036,10 @@ const MyRecruitmentPage = {
           let gmailRow = "";
           if (isOwnerView) {
             if (b.emailMessageId) {
-              const gmailUrl = `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(b.emailMessageId)}`;
+              // Gmail URL: u/{メールアドレス}/ 形式で照合用アカウントを直接指定
+              // (u/0/ だとブラウザのデフォルトアカウント=個人が開かれてしまう)
+              const gmailAcct = b.gmailAccount || "81hassac@gmail.com";
+              const gmailUrl = `https://mail.google.com/mail/u/${encodeURIComponent(gmailAcct)}/#all/${encodeURIComponent(b.emailMessageId)}`;
               // emailVerifiedAt は Firestore Timestamp → JST 日付文字列へ変換してから fmtDate へ
               let verifiedStr = "";
               if (b.emailVerifiedAt) {
