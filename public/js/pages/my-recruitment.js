@@ -2407,7 +2407,13 @@ const MyRecruitmentPage = {
           ? this.staffDoc.assignedPropertyIds : [];
         props = props.filter(p => myAssigned.includes(p.id));
       }
-      props = props.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+      // 物件番号 (_num / propertyNumber) の昇順でソート (未設定は末尾)
+      props = props.sort((a, b) => {
+        const an = a._num != null ? a._num : (a.propertyNumber != null ? a.propertyNumber : 9999);
+        const bn = b._num != null ? b._num : (b.propertyNumber != null ? b.propertyNumber : 9999);
+        if (an !== bn) return an - bn;
+        return (a.displayOrder || 0) - (b.displayOrder || 0);
+      });
       if (!props.length) {
         showToast("物件なし", this.isOwnerView ? "登録された民泊物件がありません" : "あなたが担当している物件がありません", "warning");
         return;
@@ -2425,12 +2431,19 @@ const MyRecruitmentPage = {
               <div class="modal-body">
                 <div class="small text-muted mb-2">チェックリストを開く物件を選んでください</div>
                 <div class="list-group">
-                  ${props.map(p => `
-                    <button type="button" class="list-group-item list-group-item-action pick-prop"
-                      data-prop-id="${this.esc(p.id)}">
-                      ${this.esc(p.name)}
-                    </button>
-                  `).join("")}
+                  ${props.map(p => {
+                    const num = p._num != null ? p._num : (p.propertyNumber != null ? p.propertyNumber : "");
+                    const color = p._color || p.color || "#6c757d";
+                    const badge = num !== ""
+                      ? `<span class="badge me-2" style="background:${this.esc(color)};color:#fff;min-width:24px;">${this.esc(String(num))}</span>`
+                      : "";
+                    return `
+                      <button type="button" class="list-group-item list-group-item-action pick-prop d-flex align-items-center"
+                        data-prop-id="${this.esc(p.id)}">
+                        ${badge}${this.esc(p.name)}
+                      </button>
+                    `;
+                  }).join("")}
                 </div>
               </div>
             </div>
