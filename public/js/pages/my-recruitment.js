@@ -174,6 +174,24 @@ const MyRecruitmentPage = {
         <div class="collapse mt-2" id="myRecFullCalendar">
           <div class="card">
             <div class="card-body p-2">
+              <!-- 物件フィルタ (共通コンポーネント) -->
+              <div id="propertyFilterHost-myrec-fullcal" class="mb-2"></div>
+              <!-- 凡例 -->
+              <div class="d-flex flex-wrap gap-3 mb-2 small text-muted">
+                <span><span class="cal-legend" style="background:#FF5A5F"></span>Airbnb</span>
+                <span><span class="cal-legend" style="background:#003580"></span>Booking.com</span>
+                <span><span class="cal-legend" style="background:#0d6efd"></span>直接予約</span>
+                <span>|</span>
+                <span><span class="cal-legend" style="background:#198754"></span>🧹確定</span>
+                <span><span class="cal-legend" style="background:#ffc107"></span>🧹募集中</span>
+                <span><span class="cal-legend" style="background:#dc3545"></span>🧹回答なし</span>
+                <span>|</span>
+                <span><span class="cal-legend" style="background:#7c3aed"></span>🔍直前点検（確定）</span>
+                <span><span class="cal-legend" style="background:#a78bfa"></span>🔍直前点検（募集中）</span>
+                <span>|</span>
+                <span><span class="event-status-dot dot-roster-ok" style="display:inline-block"></span>名簿済</span>
+                <span><span class="event-status-dot dot-roster-ng" style="display:inline-block"></span>名簿未</span>
+              </div>
               <div id="myRecFullCalendarBody"></div>
             </div>
           </div>
@@ -433,6 +451,9 @@ const MyRecruitmentPage = {
     this.minpakuProperties = minpakuProps;
     this.propertyMap = {};
     minpakuProps.forEach(p => { this.propertyMap[p.id] = p; });
+
+    // 通知既読状態を取得 (ユーザー別 userNotificationStatus/{uid})
+    await this._loadReadIds();
 
     // 端末別設定を localStorage から読み込み (スタッフ毎 key)
     this._loadSettings();
@@ -994,10 +1015,22 @@ const MyRecruitmentPage = {
           // ● だけ Unicode 文字は上下ずれるので CSS 描画円にする (完全な垂直中央揃え)
           // ▲ ✖ は Unicode のまま、− は線
           let symHtml;
+          // △ 回答の理由 (memo) を探す
+          let triangleReason = "";
+          let triangleStaffName = "";
+          if (symbol === "▲") {
+            for (const r of responses) {
+              if (r.staffId === staff.id || r.staffName === staff.name || (r.staffEmail && staff.email && r.staffEmail.toLowerCase() === staff.email.toLowerCase())) {
+                triangleReason = r.memo || "";
+                triangleStaffName = r.staffName || staff.name || "";
+                break;
+              }
+            }
+          }
           if (symbol === "●") {
             symHtml = `<span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:${symColor};vertical-align:middle;"></span>`;
           } else if (symbol === "▲") {
-            symHtml = `<span style="display:inline-block;color:${symColor};font-size:17px;font-weight:bold;line-height:16px;vertical-align:middle;">▲</span>`;
+            symHtml = `<span class="triangle-reason-mark" data-triangle-reason="${this.esc(triangleReason)}" data-staff-name="${this.esc(triangleStaffName)}" style="display:inline-block;color:${symColor};font-size:17px;font-weight:bold;line-height:16px;vertical-align:middle;cursor:help;" title="△の理由を表示">▲</span>`;
           } else if (symbol === "✖") {
             symHtml = `<span style="display:inline-block;color:${symColor};font-size:17px;font-weight:bold;line-height:16px;vertical-align:middle;">✖</span>`;
           } else {
@@ -1197,6 +1230,18 @@ const MyRecruitmentPage = {
       });
     });
 
+    // △マークタップ: 理由 (memo) をポップアップ表示 (スタッフ/オーナー共通)
+    // stopPropagation で親セルの回答モーダルを開かないようにする
+    container.querySelectorAll('.triangle-reason-mark').forEach(el => {
+      el.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const reason = el.dataset.triangleReason || "";
+        const name = el.dataset.staffName || "不明";
+        const body = reason ? reason : "理由の記入なし";
+        showAlert(`${name} さんの△回答の理由:\n\n${body}`, { title: "△の理由" });
+      });
+    });
+
     // イベント: 日付ヘッダータップ → 予約詳細
     const isOwnerView = this.isOwnerView;
     container.querySelectorAll(".cal-date-hd").forEach(th => {
@@ -1275,11 +1320,11 @@ const MyRecruitmentPage = {
         const propName = r.propertyName || this.propertyMap?.[r.propertyId]?.name || "";
         const label = propName ? `${coDate} ${propName}` : coDate;
         if (r.status === "選定済") {
-          ownerItems.push({ icon: "bi-check2-circle", color: "info", text: `${label} — スタッフ選定済み → 確定してください`, id: r.id });
+          ownerItems.push({ icon: "bi-check2-circle", color: "info", text: `${label} — スタッフ選定済み → 確定してください`, id: r.id, notifId: `action-recruit-selected-${r.id}` });
         } else if (maru > 0) {
-          ownerItems.push({ icon: "bi-person-plus", color: "warning", text: `${label} — ◎${maru}名回答あり → スタッフを選定してください`, id: r.id });
+          ownerItems.push({ icon: "bi-person-plus", color: "warning", text: `${label} — ◎${maru}名回答あり → スタッフを選定してください`, id: r.id, notifId: `action-recruit-pending-${r.id}` });
         } else if (!isPast) {
-          ownerItems.push({ icon: "bi-exclamation-triangle", color: "danger", text: `${label} — 回答なし！スタッフに連絡してください`, id: r.id });
+          ownerItems.push({ icon: "bi-exclamation-triangle", color: "danger", text: `${label} — 回答なし！スタッフに連絡してください`, id: r.id, notifId: `action-no-response-${r.id}` });
         }
       });
     }
@@ -1304,6 +1349,7 @@ const MyRecruitmentPage = {
         staffItems.push({
           sortMs: createdMs, icon: "bi-megaphone", color: "primary",
           text: `清掃募集開始しました: ${co}${propName ? " " + propName : ""}`,
+          notifId: `news-recruit-started-${r.id}`,
         });
       }
       // スタッフ確定 (updatedAt が 24h 以内かつ status=スタッフ確定済み)
@@ -1312,6 +1358,7 @@ const MyRecruitmentPage = {
         staffItems.push({
           sortMs: updatedMs, icon: "bi-person-check-fill", color: "success",
           text: `スタッフ確定: ${co}${propName ? " " + propName : ""}${who ? " → " + who : ""}`,
+          notifId: `news-staff-confirmed-${r.id}`,
         });
       }
     });
@@ -1331,41 +1378,58 @@ const MyRecruitmentPage = {
       staffItems.push({
         sortMs: updatedMs, icon: "bi-x-circle", color: "secondary",
         text: `予約キャンセル: ${co}${propName ? " " + propName : ""} の清掃がなくなりました`,
+        notifId: `news-booking-cancelled-${r.id}`,
       });
     });
     staffItems.sort((a, b) => b.sortMs - a.sortMs);
 
     // --- レンダリング ---
+    const readIds = this._readIds || {};
+    const isRead = (nid) => !!(nid && readIds[nid]);
+    // 既読済みでも非表示にはしない (履歴表示)
+    const renderReadBadge = (nid) => isRead(nid)
+      ? `<span class="badge bg-secondary ms-2">既読</span>`
+      : `<button type="button" class="btn btn-outline-secondary btn-sm ms-2 notif-read-btn" data-notif-id="${this.esc(nid)}" title="既読にする"><i class="bi bi-check-lg"></i> 既読</button>`;
+    const itemCls = (nid) => isRead(nid) ? "opacity-50 text-muted" : "";
+
     let html = "";
     if (isOwner && ownerItems.length > 0) {
+      const unreadCount = ownerItems.filter(a => !isRead(a.notifId)).length;
       html += `
         <div class="card border-warning mb-2">
-          <div class="card-header bg-warning bg-opacity-10 py-2">
+          <div class="card-header bg-warning bg-opacity-10 py-2 d-flex align-items-center">
             <strong><i class="bi bi-bell"></i> 要対応（${ownerItems.length}件）</strong>
+            ${unreadCount > 0 ? `<button type="button" class="btn btn-sm btn-outline-secondary ms-auto notif-read-all" data-section="owner">全既読</button>` : ""}
           </div>
           <div class="list-group list-group-flush">
             ${ownerItems.map(a => `
-              <button class="list-group-item list-group-item-action d-flex align-items-center to-action-item"
-                data-id="${this.esc(a.id)}">
-                <i class="bi ${a.icon} text-${a.color} me-2 fs-5"></i>
-                <span>${this.esc(a.text)}</span>
-                <i class="bi bi-chevron-right ms-auto"></i>
-              </button>
+              <div class="list-group-item d-flex align-items-center ${itemCls(a.notifId)}">
+                <button class="btn btn-link text-start p-0 flex-grow-1 d-flex align-items-center text-decoration-none to-action-item ${itemCls(a.notifId)}"
+                  data-id="${this.esc(a.id)}">
+                  <i class="bi ${a.icon} text-${a.color} me-2 fs-5"></i>
+                  <span class="text-body">${this.esc(a.text)}</span>
+                  <i class="bi bi-chevron-right ms-2"></i>
+                </button>
+                ${renderReadBadge(a.notifId)}
+              </div>
             `).join("")}
           </div>
         </div>`;
     }
     if (staffItems.length > 0) {
+      const unreadCount = staffItems.filter(a => !isRead(a.notifId)).length;
       html += `
         <div class="card border-info">
-          <div class="card-header bg-info bg-opacity-10 py-2">
+          <div class="card-header bg-info bg-opacity-10 py-2 d-flex align-items-center">
             <strong><i class="bi bi-info-circle"></i> お知らせ（${staffItems.length}件）</strong>
+            ${unreadCount > 0 ? `<button type="button" class="btn btn-sm btn-outline-secondary ms-auto notif-read-all" data-section="staff">全既読</button>` : ""}
           </div>
           <div class="list-group list-group-flush">
             ${staffItems.map(a => `
-              <div class="list-group-item d-flex align-items-center">
+              <div class="list-group-item d-flex align-items-center ${itemCls(a.notifId)}">
                 <i class="bi ${a.icon} text-${a.color} me-2 fs-5"></i>
-                <span>${this.esc(a.text)}</span>
+                <span class="flex-grow-1">${this.esc(a.text)}</span>
+                ${renderReadBadge(a.notifId)}
               </div>
             `).join("")}
           </div>
@@ -1387,6 +1451,74 @@ const MyRecruitmentPage = {
         }
       });
     });
+
+    // 既読ボタン (個別)
+    host.querySelectorAll(".notif-read-btn").forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const nid = btn.dataset.notifId;
+        if (!nid) return;
+        btn.disabled = true;
+        await this._markAsRead([nid]);
+        this.renderToActions_();
+      });
+    });
+
+    // 全既読ボタン
+    host.querySelectorAll(".notif-read-all").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        const section = btn.dataset.section;
+        const targets = section === "owner" ? ownerItems : staffItems;
+        const unread = targets.map(a => a.notifId).filter(nid => nid && !isRead(nid));
+        if (unread.length === 0) return;
+        await this._markAsRead(unread);
+        this.renderToActions_();
+      });
+    });
+  },
+
+  /**
+   * 通知既読 ID 一覧を Firestore から取得
+   * userNotificationStatus/{uid} doc: { readIds: { [notifId]: Timestamp } }
+   */
+  async _loadReadIds() {
+    this._readIds = {};
+    try {
+      const uid = (typeof firebase !== "undefined" && firebase.auth().currentUser?.uid)
+        || Auth.currentUser?.uid;
+      if (!uid) return;
+      const doc = await db.collection("userNotificationStatus").doc(uid).get();
+      if (doc.exists) {
+        this._readIds = doc.data().readIds || {};
+      }
+    } catch (e) {
+      console.warn("[my-recruitment] _loadReadIds 失敗", e);
+    }
+  },
+
+  /**
+   * 通知 ID 配列を既読としてマーク (userNotificationStatus/{uid} に書き込み)
+   */
+  async _markAsRead(notifIds) {
+    if (!notifIds || notifIds.length === 0) return;
+    try {
+      const uid = (typeof firebase !== "undefined" && firebase.auth().currentUser?.uid)
+        || Auth.currentUser?.uid;
+      if (!uid) return;
+      const now = firebase.firestore.FieldValue.serverTimestamp();
+      const nowLocal = new Date();
+      const setPayload = { readIds: {} };
+      notifIds.forEach(id => {
+        setPayload.readIds[id] = now;
+        if (!this._readIds) this._readIds = {};
+        this._readIds[id] = nowLocal; // ローカル即時反映
+      });
+      await db.collection("userNotificationStatus").doc(uid).set(setPayload, { merge: true });
+    } catch (e) {
+      console.error("[my-recruitment] _markAsRead 失敗", e);
+      showToast("エラー", "既読の保存に失敗しました", "error");
+    }
   },
 
   /**
@@ -1396,6 +1528,19 @@ const MyRecruitmentPage = {
   _initFullCalendar() {
     const el = document.getElementById("myRecFullCalendarBody");
     if (!el || typeof FullCalendar === "undefined") return;
+    // 物件フィルタを描画 (選択変更で FullCalendar 再構築)
+    if (typeof PropertyFilter !== "undefined" && this.minpakuProperties) {
+      PropertyFilter.render({
+        containerId: "propertyFilterHost-myrec-fullcal",
+        tabKey: "myrec-fullcal",
+        properties: this.minpakuProperties,
+        onChange: (ids) => {
+          this._fullCalSelectedPropIds = ids;
+          this._refreshFullCalendar();
+        },
+      });
+      this._fullCalSelectedPropIds = PropertyFilter.getSelectedIds("myrec-fullcal", this.minpakuProperties);
+    }
     this._fc = new FullCalendar.Calendar(el, {
       initialView: "dayGridMonth",
       locale: "ja",
@@ -1440,6 +1585,13 @@ const MyRecruitmentPage = {
 
   _buildFullCalendarEvents() {
     const events = [];
+    // 物件フィルタ適用 (未設定時は全表示)
+    const selectedIds = this._fullCalSelectedPropIds;
+    const passFilter = (pid) => {
+      if (!selectedIds || selectedIds.length === 0) return !pid || true;
+      if (!pid) return true; // propertyId 欠損は表示
+      return selectedIds.includes(pid);
+    };
     const platformClass = (b) => {
       const s = `${b.source || ""} ${b.bookingSite || ""} ${b._sourceType || ""}`.toLowerCase();
       if (s.includes("airbnb")) return "fc-event-airbnb";
@@ -1452,6 +1604,7 @@ const MyRecruitmentPage = {
       const ci = b.checkIn;
       const co = b.checkOut;
       if (!ci) return;
+      if (!passFilter(b.propertyId)) return;
       const guestCount = b.guestCount ? `(${b.guestCount}名)` : "";
       events.push({
         id: "b_" + b.id,
@@ -1474,6 +1627,7 @@ const MyRecruitmentPage = {
       if (!co) return;
       const s = String(r.status || "");
       if (["キャンセル", "キャンセル済み", "期限切れ", "cancelled"].includes(s)) return;
+      if (!passFilter(r.propertyId)) return;
       const wt = r.workType === "pre_inspection" ? "pre" : "clean";
       const key = co + "_" + wt;
       const existing = recruitByKey[key];
