@@ -11,19 +11,22 @@ const db = admin.firestore();
   let total = 0;
   let hasEmailMessageId = 0;
   let hasEmailVerifiedAt = 0;
+  let hasEmailThreadId = 0;
   const rows = [];
   snap.docs.forEach((d) => {
     const b = d.data();
     total++;
     if (b.emailMessageId) hasEmailMessageId++;
     if (b.emailVerifiedAt) hasEmailVerifiedAt++;
-    if (b.emailMessageId || b.emailVerifiedAt) {
+    if (b.emailThreadId) hasEmailThreadId++;
+    if (b.emailMessageId || b.emailVerifiedAt || b.emailThreadId) {
       const ci = b.checkIn && b.checkIn.toDate ? b.checkIn.toDate().toISOString().slice(0, 10) : b.checkIn;
       rows.push({
         id: d.id.slice(0, 30),
         ci: ci || "-",
         guest: (b.guestName || "").slice(0, 20),
         emailMessageId: (b.emailMessageId || "").slice(0, 20),
+        emailThreadId: (b.emailThreadId || "").slice(0, 20),
         emailVerifiedAt: b.emailVerifiedAt ? (b.emailVerifiedAt.toDate ? b.emailVerifiedAt.toDate().toISOString() : String(b.emailVerifiedAt)) : "-",
         emailMatchedBy: b.emailMatchedBy || "-",
       });
@@ -31,6 +34,7 @@ const db = admin.firestore();
   });
   console.log(`bookings total: ${total}`);
   console.log(`  emailMessageId あり: ${hasEmailMessageId}`);
+  console.log(`  emailThreadId  あり: ${hasEmailThreadId}`);
   console.log(`  emailVerifiedAt あり: ${hasEmailVerifiedAt}`);
   console.log("--- 書込み済み一覧 ---");
   rows.forEach((r) => console.log(JSON.stringify(r)));

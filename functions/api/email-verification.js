@@ -67,6 +67,7 @@ module.exports = function emailVerificationApi(db) {
       await bookingRef.update({
         emailVerifiedAt: admin.firestore.FieldValue.serverTimestamp(),
         emailMessageId: ev.messageId,
+        emailThreadId: ev.threadId || null,
         emailMatchedBy: "manual",
       });
 
@@ -135,6 +136,7 @@ module.exports = function emailVerificationApi(db) {
         cancelSource: "email-manual",
         emailVerifiedAt: admin.firestore.FieldValue.serverTimestamp(),
         emailMessageId: ev.messageId,
+        emailThreadId: ev.threadId || null,
         emailMatchedBy: "manual",
       });
 

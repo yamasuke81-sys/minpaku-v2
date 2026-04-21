@@ -52,7 +52,7 @@ async function main() {
 
         if (bookingMatch) {
           const emailReceivedMs = data.receivedAt && data.receivedAt.toMillis ? data.receivedAt.toMillis() : null;
-          const decision = decideBookingUpdate(bookingMatch.data, extractedInfo, data.messageId, emailReceivedMs);
+          const decision = decideBookingUpdate(bookingMatch.data, extractedInfo, data.messageId, emailReceivedMs, data.threadId || null);
           if (decision && decision.updates) {
             const bookingPatch = {};
             for (const k of Object.keys(decision.updates)) {

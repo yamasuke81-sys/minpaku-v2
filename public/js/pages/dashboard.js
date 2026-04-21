@@ -962,11 +962,13 @@ const DashboardPage = {
     const isOwnerView = (typeof Auth !== "undefined") && Auth?.isOwner?.();
     let gmailRow = "";
     if (isOwnerView) {
-      if (b.emailMessageId) {
-        // Gmail URL: u/{メールアドレス}/ 形式で、照合巡回に使っている Gmail アカウントを直接指定
-        // (u/0/ だとブラウザのデフォルトアカウント=個人 yamasuke81 が開かれてしまうため)
+      if (b.emailMessageId || b.emailThreadId) {
+        // Gmail URL: u/{メールアドレス}/ 形式で照合用アカウントを直接指定
+        // (u/0/ だとブラウザのデフォルトアカウント=個人 yamasuke81 が開かれてしまう)
+        // #all/{threadId} 形式が最も確実 (messageId 単体だと "Temporary Error 404" が出る)
         const gmailAcct = b.gmailAccount || "81hassac@gmail.com";
-        const gmailUrl = `https://mail.google.com/mail/u/${encodeURIComponent(gmailAcct)}/#all/${encodeURIComponent(b.emailMessageId)}`;
+        const mailId = b.emailThreadId || b.emailMessageId;
+        const gmailUrl = `https://mail.google.com/mail/u/${encodeURIComponent(gmailAcct)}/#all/${encodeURIComponent(mailId)}`;
         const verifiedStr = b.emailVerifiedAt ? this.toDateStr(b.emailVerifiedAt) : "";
         gmailRow = `<tr><th class="text-muted">Gmail 照合</th><td>
           <a href="${gmailUrl}" target="_blank" rel="noopener" class="small">

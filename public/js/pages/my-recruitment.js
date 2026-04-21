@@ -1035,11 +1035,12 @@ const MyRecruitmentPage = {
           // Gmail 照合リンク (オーナー限定)
           let gmailRow = "";
           if (isOwnerView) {
-            if (b.emailMessageId) {
+            if (b.emailMessageId || b.emailThreadId) {
               // Gmail URL: u/{メールアドレス}/ 形式で照合用アカウントを直接指定
-              // (u/0/ だとブラウザのデフォルトアカウント=個人が開かれてしまう)
+              // #all/{threadId} 形式が最も確実 (messageId 単体だと 404 が出る)
               const gmailAcct = b.gmailAccount || "81hassac@gmail.com";
-              const gmailUrl = `https://mail.google.com/mail/u/${encodeURIComponent(gmailAcct)}/#all/${encodeURIComponent(b.emailMessageId)}`;
+              const mailId = b.emailThreadId || b.emailMessageId;
+              const gmailUrl = `https://mail.google.com/mail/u/${encodeURIComponent(gmailAcct)}/#all/${encodeURIComponent(mailId)}`;
               // emailVerifiedAt は Firestore Timestamp → JST 日付文字列へ変換してから fmtDate へ
               let verifiedStr = "";
               if (b.emailVerifiedAt) {
