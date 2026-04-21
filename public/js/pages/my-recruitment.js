@@ -336,7 +336,9 @@ const MyRecruitmentPage = {
       const ci = toDateStr(b.checkIn);
       const co = toDateStr(b.checkOut);
       if (!ci) return;
-      const key = `${ci}|${co}`;
+      // propertyId を key に含めて物件別に独立保持 (同日 CI/CO の異なる物件が 1件にマージされる問題を修正)
+      const pid = b.propertyId || "_nopid_";
+      const key = `${pid}|${ci}|${co}`;
       const existing = bookingMap.get(key);
       if (!existing) {
         bookingMap.set(key, { ...b, checkIn: ci, checkOut: co, _sourceType: sourceType, _sources: [sourceType] });

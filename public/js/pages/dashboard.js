@@ -175,7 +175,9 @@ const DashboardPage = {
         const ci = this.toDateStr(b.checkIn);
         const co = this.toDateStr(b.checkOut);
         if (!ci) return;
-        const key = `${ci}|${co}`;
+        // propertyId を key に含めて物件別に独立保持 (異なる物件の同日予約がマージされる問題を修正)
+        const pid = b.propertyId || "_nopid_";
+        const key = `${pid}|${ci}|${co}`;
         const existing = bookingMap.get(key);
 
         if (!existing) {
