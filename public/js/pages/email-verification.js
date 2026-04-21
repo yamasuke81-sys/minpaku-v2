@@ -117,6 +117,19 @@ const EmailVerificationPage = {
       </div>
     `;
 
+    // URL ハッシュから ?id=xxx を取り出してフォーカス対象に保持
+    // 例: #/email-verification?id=19da902504d3956d
+    //     ルータ側では ? 以降をそのまま hash に残している想定
+    try {
+      const hash = window.location.hash || "";
+      const qIdx = hash.indexOf("?");
+      if (qIdx >= 0) {
+        const params = new URLSearchParams(hash.slice(qIdx + 1));
+        const fid = params.get("id");
+        if (fid) this._focusId = fid;
+      }
+    } catch (e) { /* noop */ }
+
     this.bindHandlers_();
     await Promise.all([this.load_(), this.loadAccounts_()]);
   },
@@ -271,6 +284,35 @@ const EmailVerificationPage = {
         else if (action === "confirm-cancel") this.showLinkModal_(item, true);
       });
     });
+
+    // 予約詳細から飛んできた時のフォーカス対象 (messageId or bookingId) をスクロール + ハイライト
+    if (this._focusId) {
+      const targetId = this._focusId;
+      this._focusId = null;
+      // items から一致する行を検索 (messageId 直接 or matchedBookingId で絞り込み)
+      const hit = this.items.find((x) => x.id === targetId || x.matchedBookingId === targetId);
+      if (hit) {
+        // 現在のフィルタで hit が filtered に含まれなければ「すべて」に切替
+        const inFiltered = filtered.some((x) => x.id === hit.id);
+        if (!inFiltered) {
+          this.filter = "all";
+          document.querySelectorAll("#evFilterBar button").forEach((b) => {
+            b.classList.toggle("active", b.dataset.filter === "all");
+          });
+          this.renderTable_();
+          this._focusId = hit.id;
+          // 再帰的に再フォーカス (renderTable_ 後に再度呼ばれる)
+          return;
+        }
+        const row = body.querySelector(`tr[data-ev-id="${hit.id}"]`);
+        if (row) {
+          row.style.transition = "background-color 0.5s";
+          row.style.backgroundColor = "#fff3cd"; // ハイライト
+          row.scrollIntoView({ behavior: "smooth", block: "center" });
+          setTimeout(() => { row.style.backgroundColor = ""; }, 3000);
+        }
+      }
+    }
   },
 
   rowHtml_(it) {
@@ -292,7 +334,7 @@ const EmailVerificationPage = {
     const actions = this.actionsHtml_(it);
 
     return `
-      <tr>
+      <tr data-ev-id="${this.escape_(it.id)}">
         <td class="small">${this.escape_(receivedAt)}</td>
         <td>${this.platformBadge_(platform)}</td>
         <td class="small">

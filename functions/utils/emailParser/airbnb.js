@@ -81,8 +81,12 @@ function extractTotalAmount(body) {
 //   change-approved  : 予約変更が承認された (双方合意済、新 CI/CO 反映)
 //   change-request   : 予約変更をご希望 (ゲストから要望、ホスト承認待ち)
 //   request          : 予約リクエスト (新規予約の承認待ち)
+//   payout           : 送金通知 (¥xxx JPY の受取金を送金しました 等) → bookings 書込から除外
 function detectSubjectKind(subject) {
   const s = String(subject || "");
+  // 送金メールは予約ステータス変化なし (ただし予約コードは本文に含まれ matched になる
+  // ことがあるため明示分類して bookings の emailSubject を上書きしないようにする)
+  if (/受取金を送金|送金しました/.test(s)) return "payout";
   if (/予約確定/.test(s)) return "confirmed";
   if (/キャンセルのお知らせ|予約.*キャンセル|キャンセルされました/.test(s)) return "cancelled";
   if (/予約変更が承認|予約変更.*承認/.test(s)) return "change-approved";

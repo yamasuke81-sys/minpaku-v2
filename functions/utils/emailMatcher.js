@@ -158,6 +158,13 @@ function decideBookingUpdate(booking, parsedInfo, messageId, emailReceivedAt, th
     return { updates: null, skippedReason: "booking または parsedInfo が空" };
   }
 
+  // ---- 除外 kind: 予約ステータスに影響しないメールは bookings に書込まない ----
+  // (emailVerifications への記録は引き続き行う = 蓄積して将来ルール見直しに使う)
+  const EXCLUDED_KINDS = new Set(["payout"]);
+  if (EXCLUDED_KINDS.has(parsedInfo.kind)) {
+    return { updates: null, skippedReason: `kind=${parsedInfo.kind} は bookings 更新対象外` };
+  }
+
   // ---- 最新勝ちガード: 古いメールは scope しない ----
   const newMs = toMs_(emailReceivedAt);
   const existingMs = toMs_(booking.emailVerifiedAt);
@@ -228,6 +235,9 @@ function decideBookingUpdate(booking, parsedInfo, messageId, emailReceivedAt, th
 function decideVerificationStatus(parsedInfo, matchedBooking) {
   if (!parsedInfo) return "pending";
   const kind = parsedInfo.kind;
+  // payout (送金) は予約ステータスへの影響なし。emailVerifications 一覧に
+  // 独立ステータスとして並べて、集計や除外ルール見直しの対象にできるようにする
+  if (kind === "payout") return "payout";
   if (!matchedBooking) {
     return kind === "cancelled" ? "cancelled-unmatched" : "unmatched";
   }

@@ -1032,7 +1032,7 @@ const MyRecruitmentPage = {
         bs.forEach(b => {
           const src = b.source.includes("airbnb") ? "Airbnb" : (b.source.includes("booking") ? "Booking.com" : "直接予約");
           const guest = this.guestMap[b.checkIn];
-          // 照合メール情報 (オーナー限定、アプリ内のメール照合タブへ遷移)
+          // 照合メール情報 (オーナー限定、モーダル閉→メール照合画面の該当行にフォーカス遷移)
           let gmailRow = "";
           if (isOwnerView) {
             if (b.emailMessageId || b.emailThreadId || b.emailSubject) {
@@ -1047,8 +1047,10 @@ const MyRecruitmentPage = {
               }
               const esc = (s) => { const div = document.createElement("div"); div.textContent = s || ""; return div.innerHTML; };
               const subjectText = b.emailSubject ? esc(b.emailSubject) : "(件名未取得)";
+              const focusId = b.emailMessageId || "";
               gmailRow = `<tr><th class="text-muted">照合メール</th><td>
-                <a href="#/email-verification" class="small d-block" style="text-decoration:none">
+                <a href="javascript:void(0)" class="small d-block ev-focus-link"
+                   data-ev-focus-id="${esc(focusId)}" style="text-decoration:none">
                   <i class="bi bi-envelope-check text-success"></i> ${subjectText}
                   ${verifiedStr ? `<span class="text-muted ms-1">/ ${verifiedStr}</span>` : ""}
                 </a>
@@ -1077,7 +1079,20 @@ const MyRecruitmentPage = {
           </div>`;
         });
         document.getElementById("bookingDetailBody").innerHTML = html;
-        new bootstrap.Modal(document.getElementById("bookingDetailModal")).show();
+        const bdModalEl = document.getElementById("bookingDetailModal");
+        const bdModal = new bootstrap.Modal(bdModalEl);
+        bdModal.show();
+        // 照合メールリンク: モーダルを閉じてから #/email-verification?id=... へ遷移
+        bdModalEl.querySelectorAll(".ev-focus-link").forEach((a) => {
+          a.addEventListener("click", (ev) => {
+            ev.preventDefault();
+            const fid = a.dataset.evFocusId || "";
+            bdModal.hide();
+            setTimeout(() => {
+              location.hash = fid ? `#/email-verification?id=${encodeURIComponent(fid)}` : "#/email-verification";
+            }, 180);
+          });
+        });
       });
     });
 

@@ -212,7 +212,9 @@ const App = {
 
     const role = Auth.currentUser.role || "owner";
     const hash = location.hash.replace("#", "") || "/";
-    const path = hash.split("/").filter(Boolean);
+    // クエリ部分 (?key=val) は route 決定には使わずページ側へ伝える (location.hash は残す)
+    const pathOnly = hash.split("?")[0];
+    const path = pathOnly.split("/").filter(Boolean);
 
     // デフォルトページ: オーナー/サブオーナー→dashboard、スタッフ→my-recruitment (マイページは非表示化済)
     const defaultPage = role === "staff" ? "my-recruitment" : "dashboard";

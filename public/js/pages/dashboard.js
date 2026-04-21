@@ -959,15 +959,17 @@ const DashboardPage = {
     }
 
     // 照合メール情報 (オーナー限定)
-    // クリックでアプリ内のメール照合タブへ遷移 (Gmail 直接開きは 404 頻発で廃止)
+    // クリックでモーダルを閉じ、アプリ内「メール照合」画面の該当行にフォーカス遷移
     const isOwnerView = (typeof Auth !== "undefined") && Auth?.isOwner?.();
     let gmailRow = "";
     if (isOwnerView) {
       if (b.emailMessageId || b.emailThreadId || b.emailSubject) {
         const verifiedStr = b.emailVerifiedAt ? this.toDateStr(b.emailVerifiedAt) : "";
         const subjectText = b.emailSubject ? this.esc(b.emailSubject) : "(件名未取得)";
+        const focusId = b.emailMessageId || "";
         gmailRow = `<tr><th class="text-muted">照合メール</th><td>
-          <a href="#/email-verification" class="small d-block" style="text-decoration:none">
+          <a href="javascript:void(0)" class="small d-block ev-focus-link"
+             data-ev-focus-id="${this.esc(focusId)}" style="text-decoration:none">
             <i class="bi bi-envelope-check text-success"></i> ${subjectText}
             ${verifiedStr ? `<span class="text-muted ms-1">/ ${this.esc(verifiedStr)}</span>` : ""}
           </a>
@@ -1009,6 +1011,19 @@ const DashboardPage = {
       ${nextBookingHtml}
     `;
     bootstrap.Modal.getOrCreateInstance(modalEl).show();
+
+    // 照合メールリンク: モーダルを閉じてから #/email-verification?id=... へ遷移
+    document.querySelectorAll("#calEventBody .ev-focus-link").forEach((a) => {
+      a.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        const fid = a.dataset.evFocusId || "";
+        const modalInst = bootstrap.Modal.getInstance(modalEl);
+        if (modalInst) modalInst.hide();
+        setTimeout(() => {
+          location.hash = fid ? `#/email-verification?id=${encodeURIComponent(fid)}` : "#/email-verification";
+        }, 180);
+      });
+    });
 
     // 人数保存ボタンのイベントハンドラ
     const btnSave = document.getElementById("btnSaveGuestCount");
