@@ -477,14 +477,7 @@ const RecruitmentPage = {
             <button type="button" class="btn btn-danger" data-resp="×">× NG</button>
           </div>
           <div id="myRespTriangleArea" class="d-none mt-2">
-            <label class="form-label small fw-bold mb-1">△の理由 (必須)</label>
-            <textarea id="myRespTriangleReason" class="form-control form-control-sm" rows="2" placeholder="詳しい理由を入力..."></textarea>
-            <div class="d-flex gap-2 mt-2">
-              <button type="button" class="btn btn-sm btn-warning" id="btnMyRespSubmitTriangle">
-                <i class="bi bi-check-lg"></i> △ で送信
-              </button>
-              <button type="button" class="btn btn-sm btn-outline-secondary" id="btnMyRespCancelTriangle">キャンセル</button>
-            </div>
+            ${this._buildTriangleReasonHtml({ prefix: "myResp", submitLabel: "△ で送信" })}
           </div>
         </div>`;
       area.querySelectorAll('button[data-resp]').forEach(btn => {
@@ -498,16 +491,12 @@ const RecruitmentPage = {
           }
         });
       });
-      area.querySelector("#btnMyRespCancelTriangle")?.addEventListener("click", () => {
-        area.querySelector("#myRespTriangleArea").classList.add("d-none");
-      });
-      area.querySelector("#btnMyRespSubmitTriangle")?.addEventListener("click", async () => {
-        const reason = area.querySelector("#myRespTriangleReason").value.trim();
-        if (!reason) {
-          showToast("入力エラー", "△の理由を入力してください", "error");
-          return;
-        }
-        await this._submitMyResponse(recruitment, myStaff, "△", reason);
+      // 候補プリセット + キャンセル + 送信
+      this._bindTriangleReasonUI(area, "myResp", {
+        onCancel: () => { area.querySelector("#myRespTriangleArea").classList.add("d-none"); },
+        onSubmit: async (reason) => {
+          await this._submitMyResponse(recruitment, myStaff, "△", reason);
+        },
       });
     }
   },
@@ -825,6 +814,14 @@ const RecruitmentPage = {
             <i class="bi bi-chat-left-text"></i> 理由: ${this.escapeHtml(row.memo)}
           </td>
         </tr>` : "";
+      // 代理回答時の △ 理由入力エリア (初期は d-none)。スタッフ ID ごとに独立
+      const proxyPrefix = `proxy_${s.id}`;
+      const proxyTriangleRow = canRespond ? `
+        <tr class="proxy-triangle-row d-none" data-staff-id="${s.id}">
+          <td colspan="${colspan}" class="p-2" style="background:#fff5d7;">
+            ${this._buildTriangleReasonHtml({ prefix: proxyPrefix, submitLabel: "△ で代理送信" })}
+          </td>
+        </tr>` : "";
       return `
         <tr>
           ${selectCell}
@@ -845,30 +842,65 @@ const RecruitmentPage = {
           </td>
         </tr>
         ${memoRow}
+        ${proxyTriangleRow}
       `;
     }).join("");
+
+    // 代理回答の送信処理 (共通)
+    const submitProxy = async (staffId, staffName, staffEmail, response, memo) => {
+      const recruitmentId = document.getElementById("detailRecruitId").value;
+      try {
+        await API.recruitments.respond(recruitmentId, {
+          staffId, staffName, staffEmail, response, memo: memo || "",
+        });
+        showToast("完了", `${staffName} の回答を ${response} に設定しました`, "success");
+        const updated = await API.recruitments.get(recruitmentId);
+        const idx = this.recruitments.findIndex(r => r.id === recruitmentId);
+        if (idx >= 0) this.recruitments[idx] = updated;
+        this.renderResponseTable(updated);
+        this.renderSelectionActions(updated);
+        this.renderList();
+      } catch (e) {
+        showToast("エラー", `回答設定失敗: ${e.message}`, "error");
+      }
+    };
 
     // 代理回答ボタン
     tbody.querySelectorAll(".btn-respond").forEach(btn => {
       btn.addEventListener("click", async () => {
-        const recruitmentId = document.getElementById("detailRecruitId").value;
-        try {
-          await API.recruitments.respond(recruitmentId, {
-            staffId: btn.dataset.staffId,
-            staffName: btn.dataset.staffName,
-            staffEmail: btn.dataset.staffEmail,
-            response: btn.dataset.response,
-          });
-          showToast("完了", `${btn.dataset.staffName} の回答を ${btn.dataset.response} に設定しました`, "success");
-          const updated = await API.recruitments.get(recruitmentId);
-          const idx = this.recruitments.findIndex(r => r.id === recruitmentId);
-          if (idx >= 0) this.recruitments[idx] = updated;
-          this.renderResponseTable(updated);
-          this.renderSelectionActions(updated);
-          this.renderList();
-        } catch (e) {
-          showToast("エラー", `回答設定失敗: ${e.message}`, "error");
+        const staffId = btn.dataset.staffId;
+        const staffName = btn.dataset.staffName;
+        const staffEmail = btn.dataset.staffEmail;
+        const response = btn.dataset.response;
+        if (response === "△") {
+          // △: 該当行の理由入力 UI を展開
+          const triRow = tbody.querySelector(`.proxy-triangle-row[data-staff-id="${staffId}"]`);
+          if (triRow) {
+            triRow.classList.remove("d-none");
+            const ta = triRow.querySelector(`#proxy_${staffId}TriangleReason`);
+            if (ta) { ta.value = ""; ta.focus(); }
+          }
+        } else {
+          // ◎/×: 即時送信
+          await submitProxy(staffId, staffName, staffEmail, response, "");
         }
+      });
+    });
+
+    // 代理回答 △ 理由入力エリアのバインド (各行)
+    tbody.querySelectorAll(".proxy-triangle-row").forEach(triRow => {
+      const staffId = triRow.dataset.staffId;
+      const prefix = `proxy_${staffId}`;
+      // 対応するスタッフ情報は btn-respond から引く (△ ボタンに付与されている)
+      const btn = tbody.querySelector(`.btn-respond[data-staff-id="${staffId}"][data-response="△"]`);
+      if (!btn) return;
+      const staffName = btn.dataset.staffName;
+      const staffEmail = btn.dataset.staffEmail;
+      this._bindTriangleReasonUI(triRow, prefix, {
+        onCancel: () => { triRow.classList.add("d-none"); },
+        onSubmit: async (reason) => {
+          await submitProxy(staffId, staffName, staffEmail, "△", reason);
+        },
       });
     });
   },
@@ -1069,5 +1101,64 @@ const RecruitmentPage = {
     const div = document.createElement("div");
     div.textContent = str || "";
     return div.innerHTML;
+  },
+
+  // △理由入力の候補プリセット (共通)
+  _TRIANGLE_REASON_PRESETS: [
+    "午前なら◯",
+    "午後なら◯",
+    "短時間なら◯",
+    "他スタッフと一緒なら◯",
+    "夜勤明けで厳しい",
+    "時間調整が必要",
+  ],
+
+  // △理由入力 UI の HTML を生成 (部品化)
+  // prefix: "myResp" (自分の回答) / "proxy_{staffId}" (代理回答) 等
+  _buildTriangleReasonHtml({ prefix, submitLabel = "△ で送信" }) {
+    const textareaId = `${prefix}TriangleReason`;
+    const presetsHtml = this._TRIANGLE_REASON_PRESETS.map(txt =>
+      `<button type="button" class="btn btn-sm btn-outline-secondary reason-preset-${prefix}" data-reason="${this.escapeHtml(txt)}">${this.escapeHtml(txt)}</button>`
+    ).join("");
+    return `
+      <label class="form-label small fw-bold mb-1">△の理由 (必須)</label>
+      <div class="d-flex flex-wrap gap-1 mb-2">
+        ${presetsHtml}
+      </div>
+      <textarea id="${textareaId}" class="form-control form-control-sm" rows="2" placeholder="詳しい理由を入力..."></textarea>
+      <div class="d-flex gap-2 mt-2">
+        <button type="button" class="btn btn-sm btn-warning" id="btn${prefix}SubmitTriangle">
+          <i class="bi bi-check-lg"></i> ${this.escapeHtml(submitLabel)}
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btn${prefix}CancelTriangle">キャンセル</button>
+      </div>
+    `;
+  },
+
+  // △理由入力 UI のイベントバインド (部品化)
+  // container: この UI を含む要素。prefix: HTML 生成時と同じ prefix
+  // onSubmit(reason): 送信時コールバック、onCancel: キャンセル時コールバック
+  _bindTriangleReasonUI(container, prefix, { onSubmit, onCancel }) {
+    const textarea = container.querySelector(`#${prefix}TriangleReason`);
+    // プリセットクリック: textarea に追記 (末尾改行 + 候補)
+    container.querySelectorAll(`.reason-preset-${prefix}`).forEach(btn => {
+      btn.addEventListener("click", () => {
+        const val = textarea.value.trim();
+        textarea.value = val ? `${val}\n${btn.dataset.reason}` : btn.dataset.reason;
+        textarea.focus();
+      });
+    });
+    container.querySelector(`#btn${prefix}CancelTriangle`)?.addEventListener("click", () => {
+      if (onCancel) onCancel();
+    });
+    container.querySelector(`#btn${prefix}SubmitTriangle`)?.addEventListener("click", async () => {
+      const reason = textarea.value.trim();
+      if (!reason) {
+        showToast("入力エラー", "△の理由を入力してください", "error");
+        textarea.focus();
+        return;
+      }
+      if (onSubmit) await onSubmit(reason);
+    });
   },
 };
