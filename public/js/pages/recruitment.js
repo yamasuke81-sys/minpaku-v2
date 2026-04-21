@@ -740,7 +740,33 @@ const RecruitmentPage = {
     });
 
     // 最新のアクティブスタッフ全員(オーナー含む)
-    const allStaff = (await API.staff.list(true)).sort((a, b) => (a.displayOrder||0) - (b.displayOrder||0));
+    const rawStaff = (await API.staff.list(true)).sort((a, b) => (a.displayOrder||0) - (b.displayOrder||0));
+
+    // その物件の担当者のみに絞り込み (オーナーは常に含む、既に回答履歴がある staff は担当外でも残す)
+    // サブオーナーの場合は ownedPropertyIds で判定、通常スタッフは assignedPropertyIds
+    const propId = recruitment.propertyId;
+    const respondedIds = new Set();
+    const respondedNames = new Set();
+    const respondedEmails = new Set();
+    responses.forEach(rr => {
+      if (rr.staffId) respondedIds.add(rr.staffId);
+      if (rr.staffName) respondedNames.add(rr.staffName);
+      if (rr.staffEmail) respondedEmails.add(String(rr.staffEmail).toLowerCase());
+    });
+    const allStaff = rawStaff.filter(s => {
+      if (s.isOwner === true) return true; // オーナーは担当物件制限の対象外
+      // 既に回答履歴がある場合は担当外でも残す (履歴保持)
+      if (s.id && respondedIds.has(s.id)) return true;
+      if (s.name && respondedNames.has(s.name)) return true;
+      if (s.email && respondedEmails.has(String(s.email).toLowerCase())) return true;
+      // 担当物件判定
+      if (s.isSubOwner === true) {
+        const owned = Array.isArray(s.ownedPropertyIds) ? s.ownedPropertyIds : [];
+        return propId ? owned.includes(propId) : false;
+      }
+      const assigned = Array.isArray(s.assignedPropertyIds) ? s.assignedPropertyIds : [];
+      return propId ? assigned.includes(propId) : true;
+    });
 
     if (!allStaff.length) {
       tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">スタッフが登録されていません</td></tr>';

@@ -1125,20 +1125,46 @@ const MyRecruitmentPage = {
       });
     });
 
-    // セル全体タップ (td) → 募集詳細モーダルを開く (Task 6)
-    // clickMode: "detail" (確定済み) / "respond" (未確定)
+    // セル全体タップ (td) → その日の募集物件リスト中間モーダル or 詳細モーダル
+    // スタッフビュー: 自分の assignedPropertyIds で絞り込み
+    // オーナービュー: 全募集対象
+    // 1件のみ (+スタッフ単一担当) の場合は中間モーダルをスキップして直接詳細
     const handleCellClick = async (td) => {
       // 非アクティブスタッフは回答UIを開かない
       if (this._isInactive) {
         showToast("非アクティブ", this.staffDoc?.inactiveReason || "直近15回の清掃募集について回答がなかったため、非アクティブとなりました。解除する場合はオーナーまでご連絡ください。", "warning");
         return;
       }
-      const recruitId = td.dataset.recruitId;
-      const recruit = this.recruitments.find(r => r.id === recruitId);
-      if (!recruit) return;
+      const dateStr = td.dataset.date;
+      if (!dateStr) return;
+
+      // その日の募集を取得
+      let candidates = this.recruitments.filter(r => this._toDateStr(r.checkoutDate) === dateStr);
+
+      const isStaffView = !this.isOwnerView;
+      const myAssignedIds = Array.isArray(this.staffDoc?.assignedPropertyIds) ? this.staffDoc.assignedPropertyIds : [];
+
+      if (isStaffView) {
+        // スタッフビュー: 担当物件で絞り込み (未設定なら全物件扱い)
+        if (myAssignedIds.length > 0) {
+          candidates = candidates.filter(r => myAssignedIds.includes(r.propertyId));
+        }
+      }
+
+      if (candidates.length === 0) return;
+
+      // スキップ条件: スタッフは件数1 かつ 単一物件担当 / オーナーは件数1
+      const skipList = candidates.length === 1 && (
+        !isStaffView || myAssignedIds.length <= 1
+      );
+
       if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
         await RecruitmentPage.ensureLoaded();
-        RecruitmentPage.openDetailModal(recruit, { viewMode: this.isOwnerView ? "owner" : "staff" });
+        if (skipList) {
+          RecruitmentPage.openDetailModal(candidates[0], { viewMode: this.isOwnerView ? "owner" : "staff" });
+        } else {
+          this._showDayBookingsListModal(dateStr, candidates);
+        }
       }
     };
     container.querySelectorAll('td[data-cell-click="1"]').forEach(td => {
@@ -1819,6 +1845,84 @@ const MyRecruitmentPage = {
   },
 
   esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; },
+
+  // その日の募集物件リスト中間モーダル
+  // candidates: 既にフィルタ済の recruitments 配列
+  _showDayBookingsListModal(dateStr, candidates) {
+    const viewMode = this.isOwnerView ? "owner" : "staff";
+    const title = (typeof formatDateFull === "function" ? formatDateFull(dateStr) : dateStr) + " の募集";
+
+    // status ラベル整形 (本 v2 で使用されている日本語ステータスをそのまま表示)
+    const statusBadge = (st) => {
+      const s = String(st || "");
+      if (s === "スタッフ確定済み") return '<span class="badge bg-success">確定済</span>';
+      if (s === "選定済") return '<span class="badge bg-info text-dark">選定済</span>';
+      if (s === "募集中") return '<span class="badge bg-warning text-dark">募集中</span>';
+      return `<span class="badge bg-secondary">${this.esc(s || "-")}</span>`;
+    };
+
+    // 物件番号順に整列
+    const items = candidates.map(r => {
+      const prop = this.propertyMap?.[r.propertyId];
+      const num = prop && typeof prop._num === "number" ? prop._num : 999;
+      const color = prop?._color || "#6c757d";
+      const name = prop?.name || r.propertyName || "(物件不明)";
+      return { r, num, color, name };
+    }).sort((a, b) => a.num - b.num);
+
+    const listHtml = items.map(({ r, num, color, name }) => {
+      const numBadge = num < 999
+        ? `<span style="color:#fff;background:${color};padding:2px 7px;border-radius:4px;font-size:13px;font-weight:700;margin-right:8px;">${num}</span>`
+        : "";
+      return `
+        <button type="button" class="list-group-item list-group-item-action d-flex align-items-center gap-2 day-bk-item" data-recruit-id="${this.esc(r.id)}">
+          ${numBadge}
+          <span class="flex-grow-1 text-start">${this.esc(name)}</span>
+          ${statusBadge(r.status)}
+        </button>`;
+    }).join("");
+
+    // モーダル DOM を動的生成 (既存なら削除)
+    const modalId = "dayBookingsListModal";
+    document.getElementById(modalId)?.remove();
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `
+      <div class="modal fade" id="${modalId}" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="bi bi-calendar-event"></i> ${this.esc(title)}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="small text-muted mb-2">物件を選択すると募集詳細を開きます</div>
+              <div class="list-group">${listHtml}</div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap.firstElementChild);
+
+    const modalEl = document.getElementById(modalId);
+    const modal = new bootstrap.Modal(modalEl);
+    modalEl.querySelectorAll(".day-bk-item").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const rid = btn.dataset.recruitId;
+        const r = candidates.find(x => x.id === rid);
+        if (!r) return;
+        modal.hide();
+        // hide の transition 後に詳細モーダルを開く (モーダル重ね描画対策)
+        setTimeout(async () => {
+          if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
+            await RecruitmentPage.ensureLoaded();
+            RecruitmentPage.openDetailModal(r, { viewMode });
+          }
+        }, 180);
+      });
+    });
+    modalEl.addEventListener("hidden.bs.modal", () => modalEl.remove(), { once: true });
+    modal.show();
+  },
 
   // D: 物件選択モーダルを開き、選択物件の直近確定済シフトの checklist を開く
   async _openPropertyPickerForChecklist() {
