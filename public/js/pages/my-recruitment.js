@@ -947,7 +947,11 @@ const MyRecruitmentPage = {
 
         if (cellRecruits.length === 0) {
           const bg = isToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : "#f9f9f9");
-          html += `<td class="text-center" style="background:${bg};color:#adb5bd;height:${cellH};vertical-align:middle;">-</td>`;
+          // オーナーは募集ゼロ日でもセルタップで手動追加ダイアログを開けるように data-owner-add="1" 付与
+          const ownerAddAttr = isOwner
+            ? ` data-owner-add="1" data-date="${dd.dateStr}" style="background:${bg};color:#adb5bd;height:${cellH};vertical-align:middle;cursor:pointer;"`
+            : ` style="background:${bg};color:#adb5bd;height:${cellH};vertical-align:middle;"`;
+          html += `<td class="text-center"${ownerAddAttr}>-</td>`;
           return;
         }
 
@@ -1151,12 +1155,18 @@ const MyRecruitmentPage = {
         }
       }
 
-      if (candidates.length === 0) return;
+      if (candidates.length === 0) {
+        // オーナーのみ: 新規追加選択ダイアログを出す
+        if (this.isOwnerView) {
+          this._showAddPickerForDate(dateStr);
+        }
+        return;
+      }
 
-      // スキップ条件: スタッフは件数1 かつ 単一物件担当 / オーナーは件数1
+      // スキップ条件: スタッフは件数1 かつ 単一物件担当 / オーナーは件数1 (ただしオーナーは中間モーダル経由で追加ボタンを出す)
       const skipList = candidates.length === 1 && (
         !isStaffView || myAssignedIds.length <= 1
-      );
+      ) && !this.isOwnerView;
 
       if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
         await RecruitmentPage.ensureLoaded();
@@ -1173,6 +1183,18 @@ const MyRecruitmentPage = {
         handleCellClick(td);
       });
     });
+
+    // オーナー: 募集ゼロ日セルタップで手動追加ダイアログ
+    if (this.isOwnerView) {
+      container.querySelectorAll('td[data-owner-add="1"]').forEach(td => {
+        td.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          const dateStr = td.dataset.date;
+          if (!dateStr) return;
+          this._showAddPickerForDate(dateStr);
+        });
+      });
+    }
 
     // 旧: .cal-cell-item 個別ハンドラ (td ハンドラに統合済み)。下の未使用コードは残置
     if (false) {
@@ -1882,6 +1904,18 @@ const MyRecruitmentPage = {
         </button>`;
     }).join("");
 
+    // オーナー向け追加ボタン
+    const ownerAddHtml = this.isOwnerView ? `
+      <hr>
+      <div class="d-grid gap-2">
+        <button id="btnAddBooking" type="button" class="btn btn-outline-primary">
+          <i class="bi bi-plus-circle"></i> 予約を手動追加
+        </button>
+        <button id="btnAddRecruitment" type="button" class="btn btn-outline-primary">
+          <i class="bi bi-plus-circle"></i> 作業を手動募集
+        </button>
+      </div>` : "";
+
     // モーダル DOM を動的生成 (既存なら削除)
     const modalId = "dayBookingsListModal";
     document.getElementById(modalId)?.remove();
@@ -1897,6 +1931,7 @@ const MyRecruitmentPage = {
             <div class="modal-body">
               <div class="small text-muted mb-2">物件を選択すると募集詳細を開きます</div>
               <div class="list-group">${listHtml}</div>
+              ${ownerAddHtml}
             </div>
           </div>
         </div>
@@ -1919,6 +1954,332 @@ const MyRecruitmentPage = {
           }
         }, 180);
       });
+    });
+    // オーナー: 予約/募集 手動追加
+    if (this.isOwnerView) {
+      modalEl.querySelector("#btnAddBooking")?.addEventListener("click", () => {
+        modal.hide();
+        setTimeout(() => this._openAddBookingModal(dateStr), 180);
+      });
+      modalEl.querySelector("#btnAddRecruitment")?.addEventListener("click", () => {
+        modal.hide();
+        setTimeout(() => this._openAddRecruitmentModal(dateStr), 180);
+      });
+    }
+    modalEl.addEventListener("hidden.bs.modal", () => modalEl.remove(), { once: true });
+    modal.show();
+  },
+
+  // 既存募集なし日のオーナー向け選択ダイアログ
+  _showAddPickerForDate(dateStr) {
+    const title = (typeof formatDateFull === "function" ? formatDateFull(dateStr) : dateStr) + " に追加しますか?";
+    const modalId = "addPickerModal_" + Date.now().toString(36);
+    const html = `
+      <div class="modal fade" id="${modalId}" tabindex="-1">
+        <div class="modal-dialog modal-sm modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header py-2">
+              <h6 class="modal-title"><i class="bi bi-plus-square"></i> ${this.esc(title)}</h6>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="d-grid gap-2">
+                <button type="button" id="pickAddBooking" class="btn btn-outline-primary">
+                  <i class="bi bi-calendar-plus"></i> 予約を追加
+                </button>
+                <button type="button" id="pickAddRecruitment" class="btn btn-outline-primary">
+                  <i class="bi bi-megaphone"></i> 作業を募集
+                </button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML("beforeend", html);
+    const modalEl = document.getElementById(modalId);
+    const modal = new bootstrap.Modal(modalEl);
+    modalEl.querySelector("#pickAddBooking").addEventListener("click", () => {
+      modal.hide();
+      setTimeout(() => this._openAddBookingModal(dateStr), 180);
+    });
+    modalEl.querySelector("#pickAddRecruitment").addEventListener("click", () => {
+      modal.hide();
+      setTimeout(() => this._openAddRecruitmentModal(dateStr), 180);
+    });
+    modalEl.addEventListener("hidden.bs.modal", () => modalEl.remove(), { once: true });
+    modal.show();
+  },
+
+  // アクティブ物件リストを取得 (displayOrder 順)
+  _getActiveProperties() {
+    const props = (this.minpakuProperties || []).filter(p => p.active !== false);
+    return props.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  },
+
+  // 日付文字列 (YYYY-MM-DD) の翌日
+  _nextDayStr(dateStr) {
+    try {
+      const d = new Date(dateStr + "T00:00:00");
+      d.setDate(d.getDate() + 1);
+      return d.toISOString().slice(0, 10);
+    } catch (e) { return dateStr; }
+  },
+
+  // 予約手動追加モーダル
+  _openAddBookingModal(dateStr) {
+    const props = this._getActiveProperties();
+    if (!props.length) {
+      showAlert("登録された物件がありません。", { title: "エラー" });
+      return;
+    }
+    const nextDay = this._nextDayStr(dateStr);
+    const modalId = "addBookingModal_" + Date.now().toString(36);
+    const propOpts = props.map(p => `<option value="${this.esc(p.id)}">${this.esc(p.name)}</option>`).join("");
+    const html = `
+      <div class="modal fade" id="${modalId}" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="bi bi-calendar-plus"></i> 予約を手動追加</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-2">
+                <label class="form-label small mb-1">物件 <span class="text-danger">*</span></label>
+                <select id="addBkProperty" class="form-select form-select-sm">${propOpts}</select>
+              </div>
+              <div class="mb-2">
+                <label class="form-label small mb-1">ゲスト名 <span class="text-danger">*</span></label>
+                <input type="text" id="addBkGuestName" class="form-control form-control-sm">
+              </div>
+              <div class="mb-2">
+                <label class="form-label small mb-1">予約元</label>
+                <select id="addBkSource" class="form-select form-select-sm">
+                  <option value="manual" selected>手動追加</option>
+                  <option value="airbnb">Airbnb</option>
+                  <option value="booking">Booking.com</option>
+                  <option value="direct">直接予約</option>
+                  <option value="その他">その他</option>
+                </select>
+              </div>
+              <div class="row g-2 mb-2">
+                <div class="col-6">
+                  <label class="form-label small mb-1">チェックイン日</label>
+                  <input type="date" id="addBkCheckIn" class="form-control form-control-sm" value="${this.esc(dateStr)}">
+                </div>
+                <div class="col-6">
+                  <label class="form-label small mb-1">CI 時刻</label>
+                  <input type="time" id="addBkCheckInTime" class="form-control form-control-sm">
+                </div>
+              </div>
+              <div class="row g-2 mb-2">
+                <div class="col-6">
+                  <label class="form-label small mb-1">チェックアウト日</label>
+                  <input type="date" id="addBkCheckOut" class="form-control form-control-sm" value="${this.esc(nextDay)}">
+                </div>
+                <div class="col-6">
+                  <label class="form-label small mb-1">CO 時刻</label>
+                  <input type="time" id="addBkCheckOutTime" class="form-control form-control-sm">
+                </div>
+              </div>
+              <div class="mb-2">
+                <label class="form-label small mb-1">宿泊人数</label>
+                <input type="number" id="addBkGuestCount" class="form-control form-control-sm" min="1" value="1">
+              </div>
+              <div class="mb-2">
+                <label class="form-label small mb-1">メモ</label>
+                <textarea id="addBkNotes" class="form-control form-control-sm" rows="2"></textarea>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">キャンセル</button>
+              <button type="button" id="addBkSave" class="btn btn-primary btn-sm">
+                <i class="bi bi-save"></i> 追加
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML("beforeend", html);
+    const modalEl = document.getElementById(modalId);
+    const modal = new bootstrap.Modal(modalEl);
+    // CI 変更時に CO を翌日に
+    modalEl.querySelector("#addBkCheckIn").addEventListener("change", (ev) => {
+      const coInput = modalEl.querySelector("#addBkCheckOut");
+      if (!coInput.dataset.touched) {
+        coInput.value = this._nextDayStr(ev.target.value);
+      }
+    });
+    modalEl.querySelector("#addBkCheckOut").addEventListener("input", (ev) => {
+      ev.target.dataset.touched = "1";
+    });
+
+    modalEl.querySelector("#addBkSave").addEventListener("click", async () => {
+      const propertyId = modalEl.querySelector("#addBkProperty").value;
+      const guestName = modalEl.querySelector("#addBkGuestName").value.trim();
+      const source = modalEl.querySelector("#addBkSource").value;
+      const checkIn = modalEl.querySelector("#addBkCheckIn").value;
+      const checkInTime = modalEl.querySelector("#addBkCheckInTime").value;
+      const checkOut = modalEl.querySelector("#addBkCheckOut").value;
+      const checkOutTime = modalEl.querySelector("#addBkCheckOutTime").value;
+      const guestCount = parseInt(modalEl.querySelector("#addBkGuestCount").value, 10) || 1;
+      const notes = modalEl.querySelector("#addBkNotes").value.trim();
+
+      if (!propertyId || !guestName || !checkIn || !checkOut) {
+        showAlert("物件・ゲスト名・チェックイン/アウト日は必須です。", { title: "入力エラー" });
+        return;
+      }
+      if (checkOut <= checkIn) {
+        showAlert("チェックアウト日はチェックイン日より後に設定してください。", { title: "入力エラー" });
+        return;
+      }
+      const prop = props.find(p => p.id === propertyId);
+      const propertyName = prop?.name || "";
+      const saveBtn = modalEl.querySelector("#addBkSave");
+      saveBtn.disabled = true;
+      try {
+        const payload = {
+          propertyId,
+          propertyName,
+          guestName,
+          guestCount,
+          checkIn,            // YYYY-MM-DD 文字列 (既存の bookings と同形式)
+          checkOut,
+          source: source || "manual",
+          status: "confirmed",
+          manualOverride: true,
+          manualOverrideReason: "手動追加",
+          notes: notes || null,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        };
+        if (checkInTime) payload.checkInTime = checkInTime;
+        if (checkOutTime) payload.checkOutTime = checkOutTime;
+        await db.collection("bookings").add(payload);
+        modal.hide();
+        showAlert("予約を追加しました。既存トリガーが清掃シフト・募集を自動生成します。", { title: "完了" });
+      } catch (e) {
+        console.error("[addBooking] 保存エラー:", e);
+        showAlert(`保存に失敗しました: ${e.message}`, { title: "エラー" });
+        saveBtn.disabled = false;
+      }
+    });
+    modalEl.addEventListener("hidden.bs.modal", () => modalEl.remove(), { once: true });
+    modal.show();
+  },
+
+  // 作業募集手動作成モーダル
+  _openAddRecruitmentModal(dateStr) {
+    const props = this._getActiveProperties();
+    if (!props.length) {
+      showAlert("登録された物件がありません。", { title: "エラー" });
+      return;
+    }
+    const modalId = "addRecruitModal_" + Date.now().toString(36);
+    const propOpts = props.map(p => `<option value="${this.esc(p.id)}">${this.esc(p.name)}</option>`).join("");
+    const html = `
+      <div class="modal fade" id="${modalId}" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="bi bi-megaphone"></i> 作業を手動募集</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-2">
+                <label class="form-label small mb-1">物件 <span class="text-danger">*</span></label>
+                <select id="addRcProperty" class="form-select form-select-sm">${propOpts}</select>
+              </div>
+              <div class="mb-2">
+                <label class="form-label small mb-1">作業種別</label>
+                <select id="addRcWorkType" class="form-select form-select-sm">
+                  <option value="cleaning_by_count" selected>通常清掃</option>
+                  <option value="pre_inspection">直前点検</option>
+                </select>
+              </div>
+              <div class="mb-2">
+                <label class="form-label small mb-1">日付 <span class="text-danger">*</span></label>
+                <input type="date" id="addRcDate" class="form-control form-control-sm" value="${this.esc(dateStr)}">
+                <div class="form-text small">通常清掃: チェックアウト日 / 直前点検: チェックイン日</div>
+              </div>
+              <div class="mb-2">
+                <label class="form-label small mb-1">必要人数</label>
+                <input type="number" id="addRcRequired" class="form-control form-control-sm" min="1" value="1">
+              </div>
+              <div class="mb-2">
+                <label class="form-label small mb-1">メモ</label>
+                <textarea id="addRcMemo" class="form-control form-control-sm" rows="2"></textarea>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">キャンセル</button>
+              <button type="button" id="addRcSave" class="btn btn-primary btn-sm">
+                <i class="bi bi-save"></i> 募集作成
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML("beforeend", html);
+    const modalEl = document.getElementById(modalId);
+    const modal = new bootstrap.Modal(modalEl);
+
+    // 物件/作業種別変更時に必要人数のデフォルトを追従
+    const propSel = modalEl.querySelector("#addRcProperty");
+    const wtSel = modalEl.querySelector("#addRcWorkType");
+    const reqInput = modalEl.querySelector("#addRcRequired");
+    const updateRequiredDefault = () => {
+      if (reqInput.dataset.touched) return;
+      const prop = props.find(p => p.id === propSel.value);
+      if (!prop) return;
+      if (wtSel.value === "pre_inspection") {
+        reqInput.value = prop.inspection?.requiredCount || 1;
+      } else {
+        reqInput.value = prop.cleaningRequiredCount || 1;
+      }
+    };
+    propSel.addEventListener("change", updateRequiredDefault);
+    wtSel.addEventListener("change", updateRequiredDefault);
+    reqInput.addEventListener("input", (ev) => { ev.target.dataset.touched = "1"; });
+    updateRequiredDefault();
+
+    modalEl.querySelector("#addRcSave").addEventListener("click", async () => {
+      const propertyId = propSel.value;
+      const workType = wtSel.value;
+      const dateVal = modalEl.querySelector("#addRcDate").value;
+      const requiredCount = parseInt(reqInput.value, 10) || 1;
+      const memo = modalEl.querySelector("#addRcMemo").value.trim();
+      if (!propertyId || !dateVal) {
+        showAlert("物件と日付は必須です。", { title: "入力エラー" });
+        return;
+      }
+      const prop = props.find(p => p.id === propertyId);
+      const propertyName = prop?.name || "";
+      const saveBtn = modalEl.querySelector("#addRcSave");
+      saveBtn.disabled = true;
+      try {
+        await db.collection("recruitments").add({
+          propertyId,
+          propertyName,
+          workType,
+          checkoutDate: dateVal,  // 通常清掃: CO日 / 直前点検: CI日 (既存仕様踏襲)
+          bookingId: null,
+          manualCreated: true,
+          requiredCount,
+          memo: memo || "",
+          status: "募集中",
+          selectedStaffIds: [],
+          selectedStaff: "",
+          responses: [],
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+        modal.hide();
+        showAlert("募集を作成しました。", { title: "完了" });
+      } catch (e) {
+        console.error("[addRecruitment] 保存エラー:", e);
+        showAlert(`保存に失敗しました: ${e.message}`, { title: "エラー" });
+        saveBtn.disabled = false;
+      }
     });
     modalEl.addEventListener("hidden.bs.modal", () => modalEl.remove(), { once: true });
     modal.show();
