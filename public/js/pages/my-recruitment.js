@@ -180,18 +180,6 @@ const MyRecruitmentPage = {
         </div>
       </div>
 
-      <!-- 予約詳細モーダル -->
-      <div class="modal fade" id="bookingDetailModal" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered">
-          <div class="modal-content">
-            <div class="modal-header py-2">
-              <h6 class="modal-title">予約詳細</h6>
-              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body" id="bookingDetailBody"></div>
-          </div>
-        </div>
-      </div>
     `;
 
     try {
@@ -1217,86 +1205,19 @@ const MyRecruitmentPage = {
         const bs = bookingsByDate[dateStr];
         if (!bs || !bs.length) return;
 
-        // オーナーの場合は DashboardPage.showBookingModal に委譲して機能統一
-        if (isOwnerView && typeof DashboardPage !== "undefined" && DashboardPage.showBookingModal) {
-          // 同日 checkIn/checkOut 間の日付に複数バケットがあるので、最初のものを代表として選択
-          // 完全データは this.bookings から id で取得
+        // オーナー/スタッフ統合: DashboardPage.showBookingModal(fullB, ctx) で統一
+        // viewMode で PII 等の表示項目を絞る
+        if (typeof DashboardPage !== "undefined" && DashboardPage.showBookingModal) {
           const first = bs[0];
           const full = this.bookings.find(x => x.id === first.id) || first;
           DashboardPage.showBookingModal(full, {
             bookings: this.bookings,
             recruitments: this.recruitments,
             guestMap: this.guestMap,
-            onGuestCountSaved: () => this.renderCalendar(),
+            viewMode: isOwnerView ? "owner" : "staff",
+            onGuestCountSaved: () => this.renderCalendar && this.renderCalendar(),
           });
-          return;
         }
-
-        let html = "";
-        bs.forEach(b => {
-          const src = b.source.includes("airbnb") ? "Airbnb" : (b.source.includes("booking") ? "Booking.com" : "直接予約");
-          const guest = this.guestMap[b.checkIn];
-          // 照合メール情報 (オーナー限定、モーダル閉→メール照合画面の該当行にフォーカス遷移)
-          let gmailRow = "";
-          if (isOwnerView) {
-            if (b.emailMessageId || b.emailThreadId || b.emailSubject) {
-              // emailVerifiedAt は Firestore Timestamp → JST 日付文字列へ変換してから fmtDate へ
-              let verifiedStr = "";
-              if (b.emailVerifiedAt) {
-                try {
-                  const d = b.emailVerifiedAt.toDate ? b.emailVerifiedAt.toDate() : new Date(b.emailVerifiedAt);
-                  const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
-                  verifiedStr = this.fmtDate(jst.toISOString().slice(0, 10));
-                } catch (e) { verifiedStr = ""; }
-              }
-              const esc = (s) => { const div = document.createElement("div"); div.textContent = s || ""; return div.innerHTML; };
-              const subjectText = b.emailSubject ? esc(b.emailSubject) : "(件名未取得)";
-              const focusId = b.emailMessageId || "";
-              gmailRow = `<tr><th class="text-muted">照合メール</th><td>
-                <a href="javascript:void(0)" class="small d-block ev-focus-link"
-                   data-ev-focus-id="${esc(focusId)}" style="text-decoration:none">
-                  <i class="bi bi-envelope-check text-success"></i> ${subjectText}
-                  ${verifiedStr ? `<span class="text-muted ms-1">/ ${verifiedStr}</span>` : ""}
-                </a>
-                <small class="text-muted">タップで「メール照合」画面へ</small>
-              </td></tr>`;
-            } else {
-              gmailRow = `<tr><th class="text-muted">照合メール</th><td><small class="text-muted"><i class="bi bi-envelope-slash"></i> 未照合</small></td></tr>`;
-            }
-          }
-          html += `<div class="mb-2 p-2 border rounded">
-            <div class="fw-bold mb-1">${src}</div>
-            <table class="table table-sm table-borderless small mb-0">
-              <tr><th class="text-muted" style="width:35%">CI</th><td>${this.fmtDate(b.checkIn)}${guest?.checkInTime ? " " + guest.checkInTime : ""}</td></tr>
-              <tr><th class="text-muted">CO</th><td>${this.fmtDate(b.checkOut)}${guest?.checkOutTime ? " " + guest.checkOutTime : ""}</td></tr>
-              <tr><th class="text-muted">大人</th><td>${b.guestCount || "不明"}名${guest?.guestCountInfants ? ` + 乳幼児${guest.guestCountInfants}名` : ""}</td></tr>
-              ${b.propertyName ? `<tr><th class="text-muted">物件</th><td>${b.propertyName}</td></tr>` : ""}
-              ${guest ? `
-                ${guest.nationality ? `<tr><th class="text-muted">国籍</th><td>${guest.nationality}</td></tr>` : ""}
-                ${guest.transport ? `<tr><th class="text-muted">交通手段</th><td>${guest.transport}</td></tr>` : ""}
-                ${guest.carCount ? `<tr><th class="text-muted">車</th><td>${guest.carCount}台${guest.paidParking ? ` / 有料駐車場: ${guest.paidParking}` : ""}</td></tr>` : ""}
-                ${guest.bbq ? `<tr><th class="text-muted">BBQ</th><td>${guest.bbq}</td></tr>` : ""}
-                ${guest.bedChoice ? `<tr><th class="text-muted">ベッド</th><td>${guest.bedChoice}</td></tr>` : ""}
-              ` : '<tr><td colspan="2" class="text-muted fst-italic">名簿未提出</td></tr>'}
-              ${gmailRow}
-            </table>
-          </div>`;
-        });
-        document.getElementById("bookingDetailBody").innerHTML = html;
-        const bdModalEl = document.getElementById("bookingDetailModal");
-        const bdModal = new bootstrap.Modal(bdModalEl);
-        bdModal.show();
-        // 照合メールリンク: モーダルを閉じてから #/email-verification?id=... へ遷移
-        bdModalEl.querySelectorAll(".ev-focus-link").forEach((a) => {
-          a.addEventListener("click", (ev) => {
-            ev.preventDefault();
-            const fid = a.dataset.evFocusId || "";
-            bdModal.hide();
-            setTimeout(() => {
-              location.hash = fid ? `#/email-verification?id=${encodeURIComponent(fid)}` : "#/email-verification";
-            }, 180);
-          });
-        });
       });
     });
 
@@ -1487,10 +1408,12 @@ const MyRecruitmentPage = {
       eventClick: (info) => {
         const { type, data } = info.event.extendedProps;
         if (type === "booking" && typeof DashboardPage !== "undefined" && DashboardPage.showBookingModal) {
-          DashboardPage.showBookingModal(data, {
+          const full = this.bookings.find(x => x.id === data.id) || data;
+          DashboardPage.showBookingModal(full, {
             bookings: this.bookings,
             recruitments: this.recruitments,
             guestMap: this.guestMap,
+            viewMode: this.isOwnerView ? "owner" : "staff",
             onGuestCountSaved: () => this._refreshFullCalendar(),
           });
         } else if (type === "recruitment") {

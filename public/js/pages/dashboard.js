@@ -916,6 +916,11 @@ const DashboardPage = {
     const recruitments = ctx.recruitments || this.recruitments || [];
     const guestMap = ctx.guestMap || this.guestMap || {};
     const onGuestCountSaved = ctx.onGuestCountSaved || (() => this.refreshCalendar && this.refreshCalendar());
+    // viewMode: "owner"(デフォルト) | "staff"
+    // staff 指定時は PII (住所/電話/メール/旅券/前後泊/緊急連絡先/パスポート写真/照合メール) を非表示にし
+    // 宿泊人数編集 UI を読み取り表示へ差し替える。同行者表の住所/旅券番号列も省略。
+    const viewMode = ctx.viewMode || "owner";
+    const isStaffView = viewMode === "staff";
 
     let modalEl = document.getElementById("calendarEventModal");
     if (!modalEl) {
@@ -973,11 +978,11 @@ const DashboardPage = {
       }
     }
 
-    // 照合メール情報 (オーナー限定)
+    // 照合メール情報 (オーナー限定 + viewMode=staff では更に非表示)
     // クリックでモーダルを閉じ、アプリ内「メール照合」画面の該当行にフォーカス遷移
     const isOwnerView = (typeof Auth !== "undefined") && Auth?.isOwner?.();
     let gmailRow = "";
-    if (isOwnerView) {
+    if (isOwnerView && !isStaffView) {
       if (b.emailMessageId || b.emailThreadId || b.emailSubject) {
         const verifiedStr = b.emailVerifiedAt ? (typeof formatDateFull === "function" ? formatDateFull(b.emailVerifiedAt) : this.toDateStr(b.emailVerifiedAt)) : "";
         const subjectText = b.emailSubject ? this.esc(b.emailSubject) : "(件名未取得)";
@@ -1038,14 +1043,20 @@ const DashboardPage = {
       <h6 class="mb-2"><i class="bi bi-people"></i> 同行者（${companions.length}名）</h6>
       <div class="table-responsive">
         <table class="table table-sm table-bordered mb-0">
-          <thead class="table-light"><tr><th>氏名</th><th>年齢</th><th>住所</th><th>国籍</th><th>旅券番号</th></tr></thead>
+          <thead class="table-light"><tr>
+            <th>氏名</th>
+            <th>年齢</th>
+            ${isStaffView ? "" : "<th>住所</th>"}
+            <th>国籍</th>
+            ${isStaffView ? "" : "<th>旅券番号</th>"}
+          </tr></thead>
           <tbody>
             ${companions.map(c => `<tr>
               <td>${this.esc(c.name || "-")}</td>
               <td>${this.esc(c.age || "-")}</td>
-              <td>${this.esc(c.address || "-")}</td>
+              ${isStaffView ? "" : `<td>${this.esc(c.address || "-")}</td>`}
               <td>${this.esc(c.nationality || "日本")}</td>
-              <td>${this.esc(c.passportNumber || "-")}</td>
+              ${isStaffView ? "" : `<td>${this.esc(c.passportNumber || "-")}</td>`}
             </tr>`).join("")}
           </tbody>
         </table>
@@ -1099,10 +1110,13 @@ const DashboardPage = {
         <tr><th class="text-muted">チェックイン</th><td>${vd(ci)}${guestData.checkInTime ? ` <strong>${this.esc(guestData.checkInTime)}</strong>` : ""}</td></tr>
         <tr><th class="text-muted">チェックアウト</th><td>${vd(co)}${guestData.checkOutTime ? ` <strong>${this.esc(guestData.checkOutTime)}</strong>` : ""}</td></tr>
         <tr><th class="text-muted">宿泊人数</th><td>
-          <div class="input-group input-group-sm" style="width:170px;">
-            <input type="number" class="form-control" id="editGuestCount" value="${b.guestCount || 0}" min="1">
-            <button class="btn btn-outline-primary" id="btnSaveGuestCount" data-booking-id="${b.id}">保存</button>
-          </div>
+          ${isStaffView
+            ? `${b.guestCount ? this.esc(String(b.guestCount)) + "名" : "-"}`
+            : `<div class="input-group input-group-sm" style="width:170px;">
+                <input type="number" class="form-control" id="editGuestCount" value="${b.guestCount || 0}" min="1">
+                <button class="btn btn-outline-primary" id="btnSaveGuestCount" data-booking-id="${b.id}">保存</button>
+              </div>`
+          }
           ${guestData.guestCountInfants ? `<small class="text-muted">乳幼児${this.esc(String(guestData.guestCountInfants))}名</small>` : ""}
         </td></tr>
       </table>
@@ -1111,12 +1125,14 @@ const DashboardPage = {
       <table class="table table-sm table-borderless mb-2">
         <tr><th width="110" class="text-muted">国籍</th><td>${v(guestData.nationality || b.nationality)}</td></tr>
         <tr><th class="text-muted">年齢</th><td>${v(repAge)}</td></tr>
-        <tr><th class="text-muted">住所</th><td>${v(guestData.address)}</td></tr>
-        <tr><th class="text-muted">電話</th><td>${v(guestData.phone)}</td></tr>
-        <tr><th class="text-muted">電話2</th><td>${v(guestData.phone2)}</td></tr>
-        <tr><th class="text-muted">メール</th><td>${v(guestData.email)}</td></tr>
-        <tr><th class="text-muted">旅券番号</th><td>${v(guestData.passportNumber)}</td></tr>
-        <tr><th class="text-muted">旅の目的</th><td>${v(guestData.purpose)}</td></tr>
+        ${isStaffView ? "" : `
+          <tr><th class="text-muted">住所</th><td>${v(guestData.address)}</td></tr>
+          <tr><th class="text-muted">電話</th><td>${v(guestData.phone)}</td></tr>
+          <tr><th class="text-muted">電話2</th><td>${v(guestData.phone2)}</td></tr>
+          <tr><th class="text-muted">メール</th><td>${v(guestData.email)}</td></tr>
+          <tr><th class="text-muted">旅券番号</th><td>${v(guestData.passportNumber)}</td></tr>
+          <tr><th class="text-muted">旅の目的</th><td>${v(guestData.purpose)}</td></tr>
+        `}
       </table>
 
       <h6 class="mb-2 text-primary">宿泊情報</h6>
@@ -1135,17 +1151,19 @@ const DashboardPage = {
         <tr><th class="text-muted">有料駐車場</th><td>${v(guestData.paidParking)}</td></tr>
       </table>
 
-      <h6 class="mb-2 text-primary">緊急連絡先</h6>
-      <table class="table table-sm table-borderless mb-2">
-        <tr><th width="110" class="text-muted">氏名</th><td>${v(guestData.emergencyName)}</td></tr>
-        <tr><th class="text-muted">電話番号</th><td>${v(guestData.emergencyPhone)}</td></tr>
-      </table>
+      ${isStaffView ? "" : `
+        <h6 class="mb-2 text-primary">緊急連絡先</h6>
+        <table class="table table-sm table-borderless mb-2">
+          <tr><th width="110" class="text-muted">氏名</th><td>${v(guestData.emergencyName)}</td></tr>
+          <tr><th class="text-muted">電話番号</th><td>${v(guestData.emergencyPhone)}</td></tr>
+        </table>
 
-      <h6 class="mb-2 text-primary">前後泊</h6>
-      <table class="table table-sm table-borderless mb-2">
-        <tr><th width="110" class="text-muted">前泊地</th><td>${vl(guestData.previousStay)}</td></tr>
-        <tr><th class="text-muted">後泊地</th><td>${vl(guestData.nextStay)}</td></tr>
-      </table>
+        <h6 class="mb-2 text-primary">前後泊</h6>
+        <table class="table table-sm table-borderless mb-2">
+          <tr><th width="110" class="text-muted">前泊地</th><td>${vl(guestData.previousStay)}</td></tr>
+          <tr><th class="text-muted">後泊地</th><td>${vl(guestData.nextStay)}</td></tr>
+        </table>
+      `}
 
       <h6 class="mb-2 text-primary">同意状況</h6>
       <table class="table table-sm table-borderless mb-2">
@@ -1153,7 +1171,7 @@ const DashboardPage = {
       </table>
 
       ${companionsHtml}
-      ${passportHtml}
+      ${isStaffView ? "" : passportHtml}
 
       ${gmailRow ? `<hr><table class="table table-sm table-borderless mb-0">${gmailRow}</table>` : ""}
 
