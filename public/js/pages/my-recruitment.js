@@ -530,6 +530,7 @@ const MyRecruitmentPage = {
       const ci = new Date(b.checkIn + "T00:00:00");
       const co = new Date(b.checkOut + "T00:00:00");
       const bucket = {
+        id: b.id,
         source: (b.source || "").toLowerCase(), guestCount: b.guestCount || 0,
         propertyName: b.propertyName || "", propertyId: pid,
         checkIn: b.checkIn, checkOut: b.checkOut,
@@ -1033,6 +1034,22 @@ const MyRecruitmentPage = {
         const dateStr = th.dataset.calDate;
         const bs = bookingsByDate[dateStr];
         if (!bs || !bs.length) return;
+
+        // オーナーの場合は DashboardPage.showBookingModal に委譲して機能統一
+        if (isOwnerView && typeof DashboardPage !== "undefined" && DashboardPage.showBookingModal) {
+          // 同日 checkIn/checkOut 間の日付に複数バケットがあるので、最初のものを代表として選択
+          // 完全データは this.bookings から id で取得
+          const first = bs[0];
+          const full = this.bookings.find(x => x.id === first.id) || first;
+          DashboardPage.showBookingModal(full, {
+            bookings: this.bookings,
+            recruitments: this.recruitments,
+            guestMap: this.guestMap,
+            onGuestCountSaved: () => this.renderCalendar(),
+          });
+          return;
+        }
+
         let html = "";
         bs.forEach(b => {
           const src = b.source.includes("airbnb") ? "Airbnb" : (b.source.includes("booking") ? "Booking.com" : "直接予約");

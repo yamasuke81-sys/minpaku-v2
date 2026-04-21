@@ -445,11 +445,12 @@ const DashboardPage = {
   },
 
   // 名簿の記入済み判定
-  hasGuestRegistration(booking) {
-    if (!this.guestMap) return false;
+  hasGuestRegistration(booking, guestMap) {
+    const gm = guestMap || this.guestMap;
+    if (!gm) return false;
     const ci = this.toDateStr(booking.checkIn);
     // 複合キー優先、フォールバックで CI日のみ (propertyId 未設定レコード後方互換)
-    const g = ci ? (this.guestMap[`${booking.propertyId}_${ci}`] || this.guestMap[ci]) : null;
+    const g = ci ? (gm[`${booking.propertyId}_${ci}`] || gm[ci]) : null;
     if (!g) return false;
     // プレースホルダー名でないなら記入済み
     const name = (g.guestName || "").trim().toLowerCase();
@@ -901,7 +902,13 @@ const DashboardPage = {
     }
   },
 
-  showBookingModal(b) {
+  showBookingModal(b, ctx = {}) {
+    // ctx で外部 (my-recruitment など) からデータを注入可能。省略時は DashboardPage 自身の state を使う
+    const bookings = ctx.bookings || this.bookings || [];
+    const recruitments = ctx.recruitments || this.recruitments || [];
+    const guestMap = ctx.guestMap || this.guestMap || {};
+    const onGuestCountSaved = ctx.onGuestCountSaved || (() => this.refreshCalendar && this.refreshCalendar());
+
     let modalEl = document.getElementById("calendarEventModal");
     if (!modalEl) {
       const div = document.createElement("div");
@@ -913,7 +920,7 @@ const DashboardPage = {
     const ci = this.toDateStr(b.checkIn);
     const co = this.toDateStr(b.checkOut);
     const source = b.source || b.bookingSite || "";
-    const rosterOk = this.hasGuestRegistration(b);
+    const rosterOk = this.hasGuestRegistration(b, guestMap);
 
     // ソースバッジ
     const sourceBadge = source.toLowerCase().includes("airbnb")
@@ -928,7 +935,7 @@ const DashboardPage = {
       : '<span class="badge bg-danger"><i class="bi bi-exclamation-circle"></i> 名簿未記入</span>';
 
     // CO日の清掃募集を検索
-    const recruit = co ? this.recruitments.find(r => this.toDateStr(r.checkoutDate) === co) : null;
+    const recruit = co ? recruitments.find(r => this.toDateStr(r.checkoutDate) === co) : null;
     let cleaningHtml = '<span class="text-muted">募集なし</span>';
     if (recruit) {
       if (recruit.status === "スタッフ確定済み") {
@@ -947,7 +954,7 @@ const DashboardPage = {
     // 次の予約情報（同じ物件のCI >= 現在のCO）
     let nextBookingHtml = "";
     if (co) {
-      const nextBooking = this.bookings.find(nb =>
+      const nextBooking = bookings.find(nb =>
         nb.id !== b.id && this.toDateStr(nb.checkIn) === co
       );
       if (nextBooking) {
@@ -1006,11 +1013,30 @@ const DashboardPage = {
       <div class="border-top pt-2 mt-2">
         <strong class="small text-muted">清掃担当（CO: ${this.esc(co || "-")}）</strong><br>
         ${cleaningHtml}
-        ${recruit ? `<button class="btn btn-sm btn-outline-primary ms-2" onclick="DashboardPage.openRecruitmentModal(DashboardPage.recruitments.find(r=>r.id==='${recruit.id}'))"><i class="bi bi-megaphone"></i> 募集詳細</button>` : ""}
+        ${recruit ? `<button class="btn btn-sm btn-outline-primary ms-2" id="calBtnOpenRecruit"><i class="bi bi-megaphone"></i> 募集詳細</button>` : ""}
       </div>
       ${nextBookingHtml}
     `;
     bootstrap.Modal.getOrCreateInstance(modalEl).show();
+
+    // 募集詳細ボタン: ctx 注入された recruitments から検索して openRecruitmentModal
+    const btnOpenRecruit = document.getElementById("calBtnOpenRecruit");
+    if (btnOpenRecruit && recruit) {
+      btnOpenRecruit.addEventListener("click", () => {
+        const r = recruitments.find(x => x.id === recruit.id) || recruit;
+        // RecruitmentPage 側のモーダルを優先、なければ DashboardPage のものを使う
+        if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
+          const modalInst = bootstrap.Modal.getInstance(modalEl);
+          if (modalInst) modalInst.hide();
+          (async () => {
+            if (RecruitmentPage.ensureLoaded) await RecruitmentPage.ensureLoaded();
+            RecruitmentPage.openDetailModal(r);
+          })();
+        } else if (this.openRecruitmentModal) {
+          this.openRecruitmentModal(r);
+        }
+      });
+    }
 
     // 照合メールリンク: モーダルを閉じてから #/email-verification?id=... へ遷移
     document.querySelectorAll("#calEventBody .ev-focus-link").forEach((a) => {
@@ -1044,10 +1070,14 @@ const DashboardPage = {
           } else {
             await db.collection("bookings").doc(bookingId).update({ guestCount: newCount });
           }
-          // キャッシュを更新
-          const idx = this.bookings.findIndex(bk => bk.id === bookingId);
-          if (idx !== -1) this.bookings[idx].guestCount = newCount;
-          this.refreshCalendar();
+          // キャッシュを更新 (注入された bookings と、念のため DashboardPage 自身の bookings の双方)
+          const idx = bookings.findIndex(bk => bk.id === bookingId);
+          if (idx !== -1) bookings[idx].guestCount = newCount;
+          if (this.bookings && this.bookings !== bookings) {
+            const idx2 = this.bookings.findIndex(bk => bk.id === bookingId);
+            if (idx2 !== -1) this.bookings[idx2].guestCount = newCount;
+          }
+          onGuestCountSaved(newCount, bookingId);
           showToast("完了", "人数を更新しました", "success");
         } catch (e) {
           showToast("エラー", e.message, "error");
