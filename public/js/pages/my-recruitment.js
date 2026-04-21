@@ -109,6 +109,8 @@ const MyRecruitmentPage = {
         #myCalContainer table td, #myCalContainer table th { border:0; background-clip:padding-box; }
         /* 日付ヘッダーの下線 */
         #myCalContainer thead th { border-bottom:1px solid #dee2e6; }
+        /* 列 hover: 同じ日付の全セルを薄くハイライト */
+        #myCalContainer .col-hover { box-shadow: inset 0 0 0 9999px rgba(13,110,253,0.07); }
         /* sticky 左列の右側セパレータ */
         #myCalContainer .sticky-col { border-right:2px solid #dee2e6; }
         /* 物件ブロック (宿泊+清掃) の下端のみ線: 同一物件内の宿泊段と清掃段の間には線を引かない */
@@ -757,7 +759,7 @@ const MyRecruitmentPage = {
       const hasBooking = !!bookingsByDate[dd.dateStr];
       const dowColor = dow === 0 ? "#dc3545" : (dow === 6 ? "#0d6efd" : "");
       const bg = isToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : "#f8f9fa");
-      html += `<th class="text-center${hasBooking ? " cal-date-hd" : ""}" data-cal-date="${dd.dateStr}" style="min-width:${colW};height:42px;font-size:14px;${dowColor ? "color:" + dowColor + ";" : ""}background:${bg};cursor:${hasBooking ? "pointer" : "default"};vertical-align:middle;"><div style="font-size:14px;font-weight:600;">${dd.day}</div><div style="font-size:12px;">${dayNames[dow]}</div></th>`;
+      html += `<th class="text-center${hasBooking ? " cal-date-hd" : ""}" data-cal-date="${dd.dateStr}" data-col-date="${dd.dateStr}" style="min-width:${colW};height:42px;font-size:14px;${dowColor ? "color:" + dowColor + ";" : ""}background:${bg};cursor:${hasBooking ? "pointer" : "default"};vertical-align:middle;"><div style="font-size:14px;font-weight:600;">${dd.day}</div><div style="font-size:12px;">${dayNames[dow]}</div></th>`;
     });
     html += "</tr>";
     html += `</thead><tbody>`;
@@ -810,7 +812,7 @@ const MyRecruitmentPage = {
 
         allDates.forEach(dd => {
           if (!visible) {
-            html += `<td style="height:${propRowH};background:#f8f9fa;padding:0;"></td>`;
+            html += `<td data-col-date="${dd.dateStr}" style="height:${propRowH};background:#f8f9fa;padding:0;"></td>`;
             return;
           }
           const d = dd.dateStr;
@@ -880,7 +882,7 @@ const MyRecruitmentPage = {
           const ref = starting || middle || ending;
           const clickAttr = ref ? ` class="cal-date-hd" data-cal-date="${ref.checkIn}"` : "";
           const cursor = ref ? "cursor:pointer;" : "";
-          html += `<td${clickAttr} style="position:relative;height:${propRowH};background:${tdBg};padding:0;overflow:visible;${cursor}">${segs}</td>`;
+          html += `<td${clickAttr} data-col-date="${dd.dateStr}" style="position:relative;height:${propRowH};background:${tdBg};padding:0;overflow:visible;${cursor}">${segs}</td>`;
         });
         html += "</tr>";
 
@@ -888,16 +890,16 @@ const MyRecruitmentPage = {
         html += `<tr data-prop-row="${p.id}" data-row-type="recruit" style="${visible ? "" : "opacity:0.35;"}">`;
         allDates.forEach(dd => {
           if (!visible) {
-            html += `<td style="border-left:1px solid #dee2e6;border-right:1px solid #dee2e6;border-bottom:1px solid #dee2e6;height:${propRowH};background:#f8f9fa;padding:0;"></td>`;
+            html += `<td data-col-date="${dd.dateStr}" style="border-left:1px solid #dee2e6;border-right:1px solid #dee2e6;border-bottom:1px solid #dee2e6;height:${propRowH};background:#f8f9fa;padding:0;"></td>`;
             return;
           }
           const r = recruitByD[dd.dateStr];
           const isHdToday = dd.dateStr === todayStr;
           const cellBg = isHdToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : "#fff");
           if (r) {
-            html += `<td class="text-center" style="height:${propRowH};background:${cellBg};padding:1px;vertical-align:middle;">${this._recruitPill(r)}</td>`;
+            html += `<td class="text-center" data-col-date="${dd.dateStr}" style="height:${propRowH};background:${cellBg};padding:1px;vertical-align:middle;">${this._recruitPill(r)}</td>`;
           } else {
-            html += `<td style="height:${propRowH};background:${cellBg};padding:0;"></td>`;
+            html += `<td data-col-date="${dd.dateStr}" style="height:${propRowH};background:${cellBg};padding:0;"></td>`;
           }
         });
         html += "</tr>";
@@ -1033,7 +1035,7 @@ const MyRecruitmentPage = {
           ? ` data-cell-click="1" data-recruit-id="${cellClickTarget.recruitId}" data-prop-id="${cellClickTarget.propId}" data-prop-name="${this.esc(cellClickTarget.propName || "")}" data-click-mode="${cellClickTarget.clickMode}" data-staff-id="${staff.id}" data-staff-name="${this.esc(staff.name)}" data-staff-email="${this.esc(staff.email||"")}" data-is-me="${isMe}" data-date="${dd.dateStr}"`
           : "";
         const tdCursor = cellClickTarget ? "cursor:pointer;" : "";
-        html += `<td class="text-center" style="background:${cellBg};height:${cellH};vertical-align:middle;padding:2px 3px;white-space:nowrap;${tdCursor}"${tdData}>
+        html += `<td class="text-center" data-col-date="${dd.dateStr}" style="background:${cellBg};height:${cellH};vertical-align:middle;padding:2px 3px;white-space:nowrap;${tdCursor}"${tdData}>
           <span style="display:inline-flex;flex-wrap:wrap;gap:3px;justify-content:center;align-items:center;">${items.join("")}</span>
         </td>`;
       });
@@ -1042,6 +1044,25 @@ const MyRecruitmentPage = {
 
     html += "</tbody></table>";
     container.innerHTML = html;
+
+    // 列 hover: 同じ日付のセル全体を薄くハイライト (PC での操作性向上)
+    if (!container._colHoverBound) {
+      container._colHoverBound = true;
+      container.addEventListener("mouseover", (ev) => {
+        const cell = ev.target.closest("[data-col-date]");
+        const key = cell ? cell.dataset.colDate : null;
+        if (container._lastHoverCol === key) return;
+        container.querySelectorAll(".col-hover").forEach(el => el.classList.remove("col-hover"));
+        if (key) {
+          container.querySelectorAll(`[data-col-date="${key}"]`).forEach(el => el.classList.add("col-hover"));
+        }
+        container._lastHoverCol = key;
+      });
+      container.addEventListener("mouseleave", () => {
+        container.querySelectorAll(".col-hover").forEach(el => el.classList.remove("col-hover"));
+        container._lastHoverCol = null;
+      });
+    }
 
     // フローティング月バッジ: スクロール位置の年月を動的に表示
     const floatBadge = document.getElementById("myCalFloatingMonth");

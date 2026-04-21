@@ -1078,10 +1078,23 @@ const DashboardPage = {
         </a>`).join("")}
       </div>` : "";
 
-    // 次の予約情報 (拡張版: BBQ/交通/車台数/有料駐車場 追加、次予約なしでも「予約なし」と表示)
+    // 次の予約情報: 同物件の CO 日以降の未来予約のうち最も近い 1 件 (連泊つなぎだけでなく離れた将来も対象)
     let nextBookingBlock = "";
     if (co) {
-      const nextBooking = bookings.find(nb => nb.id !== b.id && this.toDateStr(nb.checkIn) === co);
+      const nextBooking = bookings
+        .filter(nb => {
+          if (nb.id === b.id) return false;
+          if (nb.propertyId !== b.propertyId) return false;
+          const s = String(nb.status || "").toLowerCase();
+          if (s.includes("cancel") || nb.status === "キャンセル" || nb.status === "キャンセル済み") return false;
+          const nbCi = this.toDateStr(nb.checkIn);
+          return nbCi && nbCi >= co;
+        })
+        .sort((a, c) => {
+          const aCi = this.toDateStr(a.checkIn) || "";
+          const cCi = this.toDateStr(c.checkIn) || "";
+          return aCi < cCi ? -1 : aCi > cCi ? 1 : 0;
+        })[0];
       if (nextBooking) {
         const nk1 = nextBooking.propertyId && nextBooking.checkIn ? `${nextBooking.propertyId}_${this.toDateStr(nextBooking.checkIn)}` : null;
         const nextGuest = (nk1 && guestMap[nk1]) || guestMap[this.toDateStr(nextBooking.checkIn)] || {};
