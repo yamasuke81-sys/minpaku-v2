@@ -414,8 +414,13 @@ const RecruitmentPage = {
     area.innerHTML = "";
     area.classList.add("d-none");
 
-    if (recruitment.status === "スタッフ確定済み") return;
     if (!Auth || !Auth.currentUser) return;
+
+    // 確定済みの場合: 自分が選定済みスタッフなら「回答変更要望」ボタンを出す (Task 8)
+    if (recruitment.status === "スタッフ確定済み") {
+      await this._renderChangeRequestArea(recruitment);
+      return;
+    }
 
     // 自分の staffId / name / email を特定 (オーナーも自分の staff ドキュメント扱い)
     let myStaffId = Auth.currentUser.staffId;
@@ -547,70 +552,118 @@ const RecruitmentPage = {
     }
   },
 
-  // A5: 右カラムに該当 bookingId に紐づく shift の checklist を読み取り専用表示
+  // Task 8: 確定済み募集で、自分が選定されているスタッフ向けに「回答変更要望」ボタンを表示
+  async _renderChangeRequestArea(recruitment) {
+    const area = document.getElementById("detailMyResponseArea");
+    if (!area) return;
+    // 自分の staff 情報を解決
+    let myStaffId = Auth.currentUser.staffId;
+    if (!this.staffList || !this.staffList.length) {
+      try { this.staffList = await API.staff.list(true); } catch (_) { this.staffList = []; }
+    }
+    let myStaff = myStaffId ? this.staffList.find(s => s.id === myStaffId) : null;
+    if (!myStaff && Auth.isOwner && Auth.isOwner() && Auth.currentUser.uid) {
+      myStaff = this.staffList.find(s => s.authUid === Auth.currentUser.uid);
+      if (myStaff) myStaffId = myStaff.id;
+    }
+    if (!myStaff) return;
+
+    // 選定されているかどうかを確認 (selectedStaff は名前カンマ区切り)
+    const sel = (recruitment.selectedStaff || "").trim();
+    if (!sel) return;
+    const selectedNames = sel.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean);
+    if (!selectedNames.includes(myStaff.name)) return;
+
+    // 既に自分の要望が登録済みかチェック
+    const existing = (recruitment.changeRequests || []).find(cr => cr && cr.staffId === myStaff.id);
+
+    area.classList.remove("d-none");
+    if (existing) {
+      area.innerHTML = `
+        <div class="border rounded p-2 bg-warning bg-opacity-10">
+          <div class="small"><i class="bi bi-hourglass-split"></i> 回答変更要望を送信済みです</div>
+          <div class="small text-muted mt-1">理由: ${this.escapeHtml(existing.reason || "")}</div>
+        </div>`;
+      return;
+    }
+
+    area.innerHTML = `
+      <div class="border rounded p-2 bg-light">
+        <div class="small text-muted mb-2">体調不良など、やむを得ず確定後に回答を変更したい場合はオーナーに変更要望を送信できます</div>
+        <button type="button" class="btn btn-outline-warning btn-sm" id="btnRequestChange">
+          <i class="bi bi-arrow-repeat"></i> 回答変更要望を出す
+        </button>
+      </div>`;
+    document.getElementById("btnRequestChange").addEventListener("click", async () => {
+      const reason = await showPrompt("回答変更要望の理由を入力してください", { title: "回答変更要望", placeholder: "例: 体調不良のため" });
+      if (!reason) return;
+      try {
+        const ref = db.collection("recruitments").doc(recruitment.id);
+        const FV = firebase.firestore.FieldValue;
+        await ref.update({
+          changeRequests: FV.arrayUnion({
+            staffId: myStaff.id,
+            staffName: myStaff.name || "",
+            reason: reason.trim(),
+            requestedAt: new Date().toISOString(),
+          }),
+          updatedAt: FV.serverTimestamp(),
+        });
+        showToast("送信完了", "回答変更要望をオーナーに送信しました", "success");
+        const updated = await API.recruitments.get(recruitment.id);
+        const idx = this.recruitments.findIndex(r => r.id === recruitment.id);
+        if (idx >= 0) this.recruitments[idx] = updated;
+        this.openDetailModal(updated, { viewMode: this._viewMode });
+      } catch (e) {
+        showToast("エラー", e.message, "error");
+      }
+    });
+  },
+
+  // A5: モーダル見出しの「チェックリストを開く」ボタンを設定
+  // - checklist ドキュメントが存在する場合: 有効化 + クリックで #/my-checklist/{id} へ遷移
+  // - 未生成の場合: disabled + title に理由
   async renderChecklistSidebar(recruitment) {
-    const el = document.getElementById("detailChecklistArea");
-    if (!el) return;
-    el.innerHTML = '<div class="text-muted small">読み込み中...</div>';
+    const btn = document.getElementById("btnOpenChecklistFromRecruitment");
+    if (!btn) return;
+    // 初期化: 一旦 disabled + 非表示化
+    btn.classList.remove("d-none");
+    btn.disabled = true;
+    btn.title = "読み込み中...";
+    btn.onclick = null;
     try {
       if (!recruitment.bookingId) {
-        el.innerHTML = '<div class="text-muted small">予約未紐付けのためチェックリストを表示できません</div>';
+        btn.disabled = true;
+        btn.title = "予約未紐付けのためチェックリスト未生成";
         return;
       }
-      // bookingId から最初の shift を特定
       const shiftSnap = await db.collection("shifts")
         .where("bookingId", "==", recruitment.bookingId).limit(1).get();
       if (shiftSnap.empty) {
-        el.innerHTML = '<div class="text-muted small">対応するシフトがありません</div>';
+        btn.disabled = true;
+        btn.title = "対応するシフトがありません";
         return;
       }
       const shiftId = shiftSnap.docs[0].id;
       const clSnap = await db.collection("checklists")
         .where("shiftId", "==", shiftId).limit(1).get();
       if (clSnap.empty) {
-        el.innerHTML = '<div class="text-muted small"><i class="bi bi-exclamation-circle"></i> チェックリスト未生成</div>';
+        btn.disabled = true;
+        btn.title = "未生成";
         return;
       }
-      const cl = clSnap.docs[0].data();
-      const items = cl.items || [];
-      if (!items.length) {
-        el.innerHTML = '<div class="text-muted small">項目なし</div>';
-        return;
-      }
-      // L1 (area 等) ごとにグルーピングして表示 (items が配列 or ツリー構造いずれでも対応)
-      // 最小実装: items が {name, checked, note?, photoUrl?, l1?, l2?} のフラット配列を想定
-      const totalCount = items.length;
-      const checkedCount = items.filter(it => it.checked).length;
-      const groups = {};
-      items.forEach(it => {
-        const key = it.l1 || it.area || "その他";
-        if (!groups[key]) groups[key] = [];
-        groups[key].push(it);
-      });
-      const statusBadge = cl.status === "completed"
-        ? '<span class="badge bg-success">完了</span>'
-        : '<span class="badge bg-secondary">進行中</span>';
-      let html = `
-        <div class="mb-2 d-flex align-items-center gap-2 flex-wrap">
-          ${statusBadge}
-          <span class="small text-muted">${checkedCount} / ${totalCount} 完了</span>
-        </div>`;
-      Object.keys(groups).forEach(g => {
-        html += `<div class="mt-2"><div class="small fw-bold text-secondary">${this.escapeHtml(g)}</div><ul class="list-unstyled mb-0 small">`;
-        groups[g].forEach(it => {
-          const mark = it.checked
-            ? '<i class="bi bi-check-square-fill text-success"></i>'
-            : '<i class="bi bi-square text-muted"></i>';
-          const name = this.escapeHtml(it.name || it.text || "-");
-          const note = it.note ? ` <span class="text-muted">(${this.escapeHtml(it.note)})</span>` : "";
-          html += `<li class="py-1 border-bottom" style="border-color:#f1f3f5!important;">${mark} ${name}${note}</li>`;
-        });
-        html += `</ul></div>`;
-      });
-      el.innerHTML = html;
+      const checklistId = clSnap.docs[0].id;
+      btn.disabled = false;
+      btn.title = "チェックリストを開く";
+      btn.onclick = () => {
+        // モーダルを閉じてから遷移 (モーダル残存対策)
+        try { this.detailModal?.hide(); } catch (_) {}
+        location.hash = `#/my-checklist/${checklistId}`;
+      };
     } catch (e) {
-      console.warn("チェックリスト取得エラー:", e);
-      el.innerHTML = `<div class="text-danger small">読み込みエラー: ${this.escapeHtml(e.message)}</div>`;
+      console.warn("チェックリストボタン設定エラー:", e);
+      btn.disabled = true;
+      btn.title = "読み込みエラー";
     }
   },
 

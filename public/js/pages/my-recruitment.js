@@ -953,6 +953,8 @@ const MyRecruitmentPage = {
 
         // 各募集ごとに物件バッジ+回答記号のアイテムを生成
         let anyConfirmed = false;
+        // セル全体タップ用に、代表となる clickable 募集を 1 件選ぶ
+        let cellClickTarget = null; // { recruit, prop, clickMode }
         const items = cellRecruits.map(({recruit, prop}) => {
           const responses = recruit.responses || [];
           let resp = "未回答";
@@ -974,8 +976,11 @@ const MyRecruitmentPage = {
           }
           if (confirmed) anyConfirmed = true;
 
-          const clickable = (recruit.status === "スタッフ確定済み") ? isOwner : (isMe || isOwner);
+          const clickable = (recruit.status === "スタッフ確定済み") ? (isOwner || (isMe && confirmed)) : (isMe || isOwner);
           const clickMode = (recruit.status === "スタッフ確定済み") ? "detail" : "respond";
+          if (clickable && !cellClickTarget) {
+            cellClickTarget = { recruitId: recruit.id, propId: prop ? prop.id : "", propName: prop ? prop.name : "", clickMode };
+          }
           // 物件番号バッジは回答済みのときのみ表示 (未回答は記号だけ)
           const propBadge = (resp !== "未回答" && prop)
             ? `<span style="color:#fff;background:${prop._color};padding:1px 4px;border-radius:3px;font-size:11px;font-weight:700;">${prop._num}</span>`
@@ -999,7 +1004,8 @@ const MyRecruitmentPage = {
           if (symbol === "●") {
             symHtml = `<span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:${symColor};vertical-align:middle;"></span>`;
           } else if (symbol === "▲") {
-            symHtml = `<span class="triangle-reason-mark" data-triangle-reason="${this.esc(triangleReason)}" data-staff-name="${this.esc(triangleStaffName)}" style="display:inline-block;color:${symColor};font-size:17px;font-weight:bold;line-height:16px;vertical-align:middle;cursor:help;" title="△の理由を表示">▲</span>`;
+            // △マーク: ポップアップは廃止 (理由は募集詳細モーダル内で展開表示)
+            symHtml = `<span style="display:inline-block;color:${symColor};font-size:17px;font-weight:bold;line-height:16px;vertical-align:middle;">▲</span>`;
           } else if (symbol === "✖") {
             symHtml = `<span style="display:inline-block;color:${symColor};font-size:17px;font-weight:bold;line-height:16px;vertical-align:middle;">✖</span>`;
           } else {
@@ -1008,8 +1014,19 @@ const MyRecruitmentPage = {
           return `<span class="${clickable ? 'cal-cell-item' : ''}" data-recruit-id="${recruit.id}" data-prop-id="${prop ? prop.id : ''}" data-prop-name="${prop ? this.esc(prop.name) : ''}" data-click-mode="${clickMode}" data-staff-id="${staff.id}" data-staff-name="${this.esc(staff.name)}" data-staff-email="${this.esc(staff.email||"")}" data-is-me="${isMe}" data-date="${dd.dateStr}" style="display:inline-flex;align-items:center;gap:3px;line-height:1;padding:1px 3px;border-radius:4px;${clickable ? 'cursor:pointer;' : ''}">${propBadge}${symHtml}</span>`;
         });
 
-        const cellBg = anyConfirmed ? "#a7c7ff" : (isToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : ""));
-        html += `<td class="text-center" style="background:${cellBg};height:${cellH};vertical-align:middle;padding:2px 3px;white-space:nowrap;">
+        // 回答可能セル (自分が行動可能) は他月でも白背景に
+        // cellClickTarget が存在する = そのスタッフ行で回答/詳細表示が可能
+        const isActionable = !!cellClickTarget;
+        const cellBg = anyConfirmed ? "#a7c7ff"
+          : (isToday ? "#e8f0fe"
+            : (isActionable ? "#fff"
+              : (!dd.isCurrent ? "#e9ecef" : "")));
+        // セル全体クリック: 内部アイテム (.cal-cell-item) と同じ挙動を td に付与
+        const tdData = cellClickTarget
+          ? ` data-cell-click="1" data-recruit-id="${cellClickTarget.recruitId}" data-prop-id="${cellClickTarget.propId}" data-prop-name="${this.esc(cellClickTarget.propName || "")}" data-click-mode="${cellClickTarget.clickMode}" data-staff-id="${staff.id}" data-staff-name="${this.esc(staff.name)}" data-staff-email="${this.esc(staff.email||"")}" data-is-me="${isMe}" data-date="${dd.dateStr}"`
+          : "";
+        const tdCursor = cellClickTarget ? "cursor:pointer;" : "";
+        html += `<td class="text-center" style="background:${cellBg};height:${cellH};vertical-align:middle;padding:2px 3px;white-space:nowrap;${tdCursor}"${tdData}>
           <span style="display:inline-flex;flex-wrap:wrap;gap:3px;justify-content:center;align-items:center;">${items.join("")}</span>
         </td>`;
       });
@@ -1108,30 +1125,34 @@ const MyRecruitmentPage = {
       });
     });
 
-    // 確定済セル item → オーナーはその場で詳細モーダル表示(ページ遷移なし)
-    container.querySelectorAll('.cal-cell-item[data-click-mode="detail"]').forEach(el => {
-      el.addEventListener("click", async (ev) => {
+    // セル全体タップ (td) → 募集詳細モーダルを開く (Task 6)
+    // clickMode: "detail" (確定済み) / "respond" (未確定)
+    const handleCellClick = async (td) => {
+      // 非アクティブスタッフは回答UIを開かない
+      if (this._isInactive) {
+        showToast("非アクティブ", this.staffDoc?.inactiveReason || "直近15回の清掃募集について回答がなかったため、非アクティブとなりました。解除する場合はオーナーまでご連絡ください。", "warning");
+        return;
+      }
+      const recruitId = td.dataset.recruitId;
+      const recruit = this.recruitments.find(r => r.id === recruitId);
+      if (!recruit) return;
+      if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
+        await RecruitmentPage.ensureLoaded();
+        RecruitmentPage.openDetailModal(recruit, { viewMode: this.isOwnerView ? "owner" : "staff" });
+      }
+    };
+    container.querySelectorAll('td[data-cell-click="1"]').forEach(td => {
+      td.addEventListener("click", (ev) => {
         ev.stopPropagation();
-        const recruitId = el.dataset.recruitId;
-        const recruit = this.recruitments.find(r => r.id === recruitId);
-        if (!recruit) return;
-        if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
-          await RecruitmentPage.ensureLoaded();
-          RecruitmentPage.openDetailModal(recruit, { viewMode: this.isOwnerView ? "owner" : "staff" });
-        }
+        handleCellClick(td);
       });
     });
 
-    // イベント: item タップ → 募集詳細モーダルを開く (B1: 挙動一本化)
-    // 回答ボタンはモーダル内 (A4) に集約したので、ここではモーダルを開くだけ
-    container.querySelectorAll('.cal-cell-item[data-click-mode="respond"]').forEach(el => {
-      el.addEventListener("click", async (ev) => {
+    // 旧: .cal-cell-item 個別ハンドラ (td ハンドラに統合済み)。下の未使用コードは残置
+    if (false) {
+      container.querySelectorAll('.cal-cell-item').forEach(el => {
+        el.addEventListener("click", async (ev) => {
         ev.stopPropagation();
-        // 非アクティブスタッフは回答UIを開かない
-        if (this._isInactive) {
-          showToast("非アクティブ", this.staffDoc?.inactiveReason || "直近15回の清掃募集について回答がなかったため、非アクティブとなりました。解除する場合はオーナーまでご連絡ください。", "warning");
-          return;
-        }
         const recruitId = el.dataset.recruitId;
         const recruit = this.recruitments.find(r => r.id === recruitId);
         if (!recruit) return;
@@ -1204,19 +1225,8 @@ const MyRecruitmentPage = {
 
         new bootstrap.Modal(document.getElementById("responseModal")).show();
       });
-    });
-
-    // △マークタップ: 理由 (memo) をポップアップ表示 (スタッフ/オーナー共通)
-    // stopPropagation で親セルの回答モーダルを開かないようにする
-    container.querySelectorAll('.triangle-reason-mark').forEach(el => {
-      el.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        const reason = el.dataset.triangleReason || "";
-        const name = el.dataset.staffName || "不明";
-        const body = reason ? reason : "理由の記入なし";
-        showAlert(`${name} さんの△回答の理由:\n\n${body}`, { title: "△の理由" });
       });
-    });
+    }
 
     // イベント: 日付ヘッダータップ → 予約詳細
     const isOwnerView = this.isOwnerView;
@@ -1303,6 +1313,26 @@ const MyRecruitmentPage = {
           ownerItems.push({ icon: "bi-exclamation-triangle", color: "danger", text: `${label} — 回答なし！スタッフに連絡してください`, id: r.id, notifId: `action-no-response-${r.id}` });
         }
       });
+
+      // 回答変更要望 (Task 8): 確定済み募集でも changeRequests があれば要対応に表示
+      this.recruitments.forEach(r => {
+        const reqs = Array.isArray(r.changeRequests) ? r.changeRequests : [];
+        if (!reqs.length) return;
+        const propName = r.propertyName || this.propertyMap?.[r.propertyId]?.name || "";
+        const coDisp = r.checkoutDate && typeof formatDateFull === "function" ? formatDateFull(r.checkoutDate) : (r.checkoutDate || "");
+        reqs.forEach(cr => {
+          if (!cr || !cr.staffId) return;
+          const name = cr.staffName || "スタッフ";
+          const reason = cr.reason || "";
+          ownerItems.push({
+            icon: "bi-arrow-repeat",
+            color: "warning",
+            text: `${name} さんが ${coDisp}${propName ? " " + propName : ""} の回答変更を希望: ${reason}`,
+            id: r.id,
+            notifId: `action-change-request-${r.id}-${cr.staffId}`,
+          });
+        });
+      });
     }
 
     // --- B. 全員向けお知らせ (24h 以内) ---
@@ -1364,50 +1394,46 @@ const MyRecruitmentPage = {
     // --- レンダリング ---
     const readIds = this._readIds || {};
     const isRead = (nid) => !!(nid && readIds[nid]);
-    // 既読済みでも非表示にはしない (履歴表示)
-    const renderReadBadge = (nid) => isRead(nid)
-      ? `<span class="badge bg-secondary ms-2">既読</span>`
-      : `<button type="button" class="btn btn-outline-secondary btn-sm ms-2 notif-read-btn" data-notif-id="${this.esc(nid)}" title="既読にする"><i class="bi bi-check-lg"></i> 既読</button>`;
-    const itemCls = (nid) => isRead(nid) ? "opacity-50 text-muted" : "";
+    // 既読アイテムは UI から非表示 (Firestore データは保持)
+    const visibleOwnerItems = ownerItems.filter(a => !isRead(a.notifId));
+    const visibleStaffItems = staffItems.filter(a => !isRead(a.notifId));
 
     let html = "";
-    if (isOwner && ownerItems.length > 0) {
-      const unreadCount = ownerItems.filter(a => !isRead(a.notifId)).length;
+    if (isOwner && visibleOwnerItems.length > 0) {
       html += `
         <div class="card border-warning mb-2">
           <div class="card-header bg-warning bg-opacity-10 py-2 d-flex align-items-center">
-            <strong><i class="bi bi-bell"></i> 要対応（${ownerItems.length}件）</strong>
-            ${unreadCount > 0 ? `<button type="button" class="btn btn-sm btn-outline-secondary ms-auto notif-read-all" data-section="owner">全既読</button>` : ""}
+            <strong><i class="bi bi-bell"></i> 要対応（${visibleOwnerItems.length}件）</strong>
+            <button type="button" class="btn btn-sm btn-outline-secondary ms-auto notif-read-all" data-section="owner">全既読</button>
           </div>
           <div class="list-group list-group-flush">
-            ${ownerItems.map(a => `
-              <div class="list-group-item d-flex align-items-center ${itemCls(a.notifId)}">
-                <button class="btn btn-link text-start p-0 flex-grow-1 d-flex align-items-center text-decoration-none to-action-item ${itemCls(a.notifId)}"
+            ${visibleOwnerItems.map(a => `
+              <div class="list-group-item d-flex align-items-center" data-notif-row="${this.esc(a.notifId)}">
+                <button class="btn btn-link text-start p-0 flex-grow-1 d-flex align-items-center text-decoration-none to-action-item"
                   data-id="${this.esc(a.id)}">
                   <i class="bi ${a.icon} text-${a.color} me-2 fs-5"></i>
                   <span class="text-body">${this.esc(a.text)}</span>
                   <i class="bi bi-chevron-right ms-2"></i>
                 </button>
-                ${renderReadBadge(a.notifId)}
+                <button type="button" class="btn btn-outline-secondary btn-sm ms-2 notif-read-btn" data-notif-id="${this.esc(a.notifId)}" title="既読にする"><i class="bi bi-check-lg"></i> 既読</button>
               </div>
             `).join("")}
           </div>
         </div>`;
     }
-    if (staffItems.length > 0) {
-      const unreadCount = staffItems.filter(a => !isRead(a.notifId)).length;
+    if (visibleStaffItems.length > 0) {
       html += `
         <div class="card border-info">
           <div class="card-header bg-info bg-opacity-10 py-2 d-flex align-items-center">
-            <strong><i class="bi bi-info-circle"></i> お知らせ（${staffItems.length}件）</strong>
-            ${unreadCount > 0 ? `<button type="button" class="btn btn-sm btn-outline-secondary ms-auto notif-read-all" data-section="staff">全既読</button>` : ""}
+            <strong><i class="bi bi-info-circle"></i> お知らせ（${visibleStaffItems.length}件）</strong>
+            <button type="button" class="btn btn-sm btn-outline-secondary ms-auto notif-read-all" data-section="staff">全既読</button>
           </div>
           <div class="list-group list-group-flush">
-            ${staffItems.map(a => `
-              <div class="list-group-item d-flex align-items-center ${itemCls(a.notifId)}">
+            ${visibleStaffItems.map(a => `
+              <div class="list-group-item d-flex align-items-center" data-notif-row="${this.esc(a.notifId)}">
                 <i class="bi ${a.icon} text-${a.color} me-2 fs-5"></i>
                 <span class="flex-grow-1">${this.esc(a.text)}</span>
-                ${renderReadBadge(a.notifId)}
+                <button type="button" class="btn btn-outline-secondary btn-sm ms-2 notif-read-btn" data-notif-id="${this.esc(a.notifId)}" title="既読にする"><i class="bi bi-check-lg"></i> 既読</button>
               </div>
             `).join("")}
           </div>
@@ -1430,27 +1456,33 @@ const MyRecruitmentPage = {
       });
     });
 
-    // 既読ボタン (個別)
+    // 既読ボタン (個別) — 押下即行で該当行を DOM から remove + Firestore 書き込み
     host.querySelectorAll(".notif-read-btn").forEach(btn => {
       btn.addEventListener("click", async (ev) => {
         ev.stopPropagation();
         const nid = btn.dataset.notifId;
         if (!nid) return;
         btn.disabled = true;
+        // 即時 DOM 除去
+        const row = host.querySelector(`[data-notif-row="${CSS.escape(nid)}"]`);
+        if (row) row.remove();
         await this._markAsRead([nid]);
         this.renderToActions_();
       });
     });
 
-    // 全既読ボタン
+    // 全既読ボタン — 該当セクションのカードごと即時除去
     host.querySelectorAll(".notif-read-all").forEach(btn => {
       btn.addEventListener("click", async () => {
         btn.disabled = true;
         const section = btn.dataset.section;
-        const targets = section === "owner" ? ownerItems : staffItems;
-        const unread = targets.map(a => a.notifId).filter(nid => nid && !isRead(nid));
-        if (unread.length === 0) return;
-        await this._markAsRead(unread);
+        const targets = section === "owner" ? visibleOwnerItems : visibleStaffItems;
+        const ids = targets.map(a => a.notifId).filter(Boolean);
+        if (ids.length === 0) return;
+        // 即時 DOM 除去 (カード単位)
+        const card = btn.closest(".card");
+        if (card) card.remove();
+        await this._markAsRead(ids);
         this.renderToActions_();
       });
     });

@@ -811,17 +811,20 @@
 
   <!-- 募集詳細モーダル -->
   <div class="modal fade" id="recruitmentDetailModal" tabindex="-1">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-lg">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title"><i class="bi bi-megaphone"></i> 募集詳細</h5>
+          <h5 class="modal-title me-auto"><i class="bi bi-megaphone"></i> 募集詳細</h5>
+          <button type="button" class="btn btn-sm btn-outline-primary me-2 d-none" id="btnOpenChecklistFromRecruitment" title="">
+            <i class="bi bi-clipboard-check"></i> チェックリストを開く
+          </button>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
           <input type="hidden" id="detailRecruitId">
           <div class="row g-3">
-            <!-- 左カラム: 募集詳細 -->
-            <div class="col-12 col-md-7">
+            <!-- 1 カラムレイアウト -->
+            <div class="col-12">
               <!-- 募集概要 -->
               <div class="row mb-3">
                 <div class="col-md-6">
@@ -872,19 +875,6 @@
 
               <!-- オーナー限定: 情報登録履歴 (iCal 取得日 / Gmail 照合日 等) -->
               <div id="ownerInfoLog" class="d-none"></div>
-            </div>
-            <!-- 右カラム: チェックリスト (読み取り専用) -->
-            <div class="col-12 col-md-5">
-              <div class="card h-100">
-                <div class="card-header py-2 d-flex align-items-center">
-                  <i class="bi bi-clipboard-check me-2"></i>
-                  <strong>チェックリスト</strong>
-                  <span class="ms-auto small text-muted">参照のみ</span>
-                </div>
-                <div class="card-body p-2" id="detailChecklistArea" style="max-height:60vh;overflow-y:auto;">
-                  <div class="text-muted small">読み込み中...</div>
-                </div>
-              </div>
             </div>
           </div>
         </div>

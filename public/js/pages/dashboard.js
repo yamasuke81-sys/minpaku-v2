@@ -1138,7 +1138,7 @@ const DashboardPage = {
 
       <h6 class="mb-2 text-primary">宿泊情報</h6>
       <table class="table table-sm table-borderless mb-2">
-        <tr><th width="110" class="text-muted">BBQ</th><td>${vb(guestData.bbq !== undefined && guestData.bbq !== "" ? guestData.bbq : b.bbq)}</td></tr>
+        <tr><th width="110" class="text-muted">BBQ</th><td>${vb(guestData.bbq)}</td></tr>
         <tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${v(guestData.bedChoice)}</td></tr>
       </table>
 
