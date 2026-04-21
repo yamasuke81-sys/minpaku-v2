@@ -880,7 +880,9 @@ const MyRecruitmentPage = {
           }
 
           const ref = starting || middle || ending;
-          const clickAttr = ref ? ` class="cal-date-hd" data-cal-date="${ref.checkIn}"` : "";
+          // data-booking-id にセル対象予約の ID を埋め込むことで、同日複数物件の予約が
+          // ある時も「タップしたセルの物件」の予約が開くようにする (bs[0] に頼らない)
+          const clickAttr = ref ? ` class="cal-date-hd" data-cal-date="${ref.checkIn}" data-booking-id="${this.esc(ref.id)}"` : "";
           const cursor = ref ? "cursor:pointer;" : "";
           html += `<td${clickAttr} data-col-date="${dd.dateStr}" style="position:relative;height:${propRowH};background:${tdBg};padding:0;overflow:visible;${cursor}">${segs}</td>`;
         });
@@ -1300,20 +1302,29 @@ const MyRecruitmentPage = {
       });
     }
 
-    // イベント: 日付ヘッダータップ → 予約詳細
+    // イベント: 日付ヘッダー / 物件行セルのタップ → 予約詳細
+    // 物件行セルの場合は data-booking-id で特定の予約を直接開く (同日複数物件で誤爆防止)
+    // 日付ヘッダー (th) には data-booking-id が無いので従来通り bookingsByDate の先頭を使う
     const isOwnerView = this.isOwnerView;
-    container.querySelectorAll(".cal-date-hd").forEach(th => {
-      th.addEventListener("click", () => {
-        const dateStr = th.dataset.calDate;
-        const bs = bookingsByDate[dateStr];
-        if (!bs || !bs.length) return;
-
-        // オーナー/スタッフ統合: DashboardPage.showBookingModal(fullB, ctx) で統一
-        // viewMode で PII 等の表示項目を絞る
-        if (typeof DashboardPage !== "undefined" && DashboardPage.showBookingModal) {
+    container.querySelectorAll(".cal-date-hd").forEach(el => {
+      el.addEventListener("click", () => {
+        let targetBooking = null;
+        const bookingId = el.dataset.bookingId;
+        if (bookingId) {
+          targetBooking = this.bookings.find(x => x.id === bookingId) || null;
+        }
+        if (!targetBooking) {
+          const dateStr = el.dataset.calDate;
+          const bs = bookingsByDate[dateStr];
+          if (!bs || !bs.length) return;
+          // 日付ヘッダー由来 (物件指定なし) の場合は、日付内の最初の予約
           const first = bs[0];
-          const full = this.bookings.find(x => x.id === first.id) || first;
-          DashboardPage.showBookingModal(full, {
+          targetBooking = this.bookings.find(x => x.id === first.id) || first;
+        }
+        if (!targetBooking) return;
+
+        if (typeof DashboardPage !== "undefined" && DashboardPage.showBookingModal) {
+          DashboardPage.showBookingModal(targetBooking, {
             bookings: this.bookings,
             recruitments: this.recruitments,
             guestMap: this.guestMap,
