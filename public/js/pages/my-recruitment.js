@@ -157,6 +157,21 @@ const MyRecruitmentPage = {
         </div>
       </div>
 
+      <!-- フルカレンダー (月表示) 折りたたみ -->
+      <div class="mt-4">
+        <button class="btn btn-sm btn-outline-secondary" type="button"
+          data-bs-toggle="collapse" data-bs-target="#myRecFullCalendar" aria-expanded="false">
+          <i class="bi bi-calendar3"></i> フルカレンダー (月表示) ▼
+        </button>
+        <div class="collapse mt-2" id="myRecFullCalendar">
+          <div class="card">
+            <div class="card-body p-2">
+              <div id="myRecFullCalendarBody"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- 予約詳細モーダル -->
       <div class="modal fade" id="bookingDetailModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
@@ -287,6 +302,18 @@ const MyRecruitmentPage = {
         }
         this.submitCurrentResponse("△", reason);
       });
+
+      // FullCalendar 折りたたみ: 初回展開時に lazy 初期化
+      const fcCollapse = document.getElementById("myRecFullCalendar");
+      if (fcCollapse) {
+        fcCollapse.addEventListener("shown.bs.collapse", () => {
+          if (this._fcInitialized) {
+            this._refreshFullCalendar();
+            return;
+          }
+          this._initFullCalendar();
+        }, { once: false });
+      }
 
       // renderCalendar() は subscribeData() 内の onSnapshot コールバックが呼ぶ。
       // ここでの直接呼び出しは不要（データ未着状態で描画してしまうのを防ぐ）。
@@ -615,6 +642,11 @@ const MyRecruitmentPage = {
     this._rawBookings = null;
     this._rawGuestRegs = null;
     this._rawRecruitmentsAll = null;
+    if (this._fc) {
+      try { this._fc.destroy(); } catch (e) { /* ignore */ }
+      this._fc = null;
+    }
+    this._fcInitialized = false;
   },
 
   renderCalendar() {
@@ -1279,6 +1311,9 @@ const MyRecruitmentPage = {
 
     // 要対応 / お知らせ描画
     this.renderToActions_();
+
+    // FullCalendar が既に初期化済みならデータを更新
+    if (this._fcInitialized) this._refreshFullCalendar();
   },
 
   /**
@@ -1423,6 +1458,133 @@ const MyRecruitmentPage = {
         }
       });
     });
+  },
+
+  /**
+   * FullCalendar (月表示) 初期化 - 折りたたみ内に予約+募集を表示
+   * DashboardPage の buildCalendarEvents を参考に、シンプル版を my-recruitment 側に持つ
+   */
+  _initFullCalendar() {
+    const el = document.getElementById("myRecFullCalendarBody");
+    if (!el || typeof FullCalendar === "undefined") return;
+    this._fc = new FullCalendar.Calendar(el, {
+      initialView: "dayGridMonth",
+      locale: "ja",
+      headerToolbar: { left: "prev,next today", center: "title", right: "dayGridMonth,listWeek" },
+      height: "auto",
+      dayMaxEvents: 4,
+      eventDisplay: "block",
+      eventOrder: "order",
+      events: this._buildFullCalendarEvents(),
+      eventClick: (info) => {
+        const { type, data } = info.event.extendedProps;
+        if (type === "booking" && typeof DashboardPage !== "undefined" && DashboardPage.showBookingModal) {
+          DashboardPage.showBookingModal(data, {
+            bookings: this.bookings,
+            recruitments: this.recruitments,
+            guestMap: this.guestMap,
+            onGuestCountSaved: () => this._refreshFullCalendar(),
+          });
+        } else if (type === "recruitment") {
+          if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
+            (async () => {
+              if (RecruitmentPage.ensureLoaded) await RecruitmentPage.ensureLoaded();
+              RecruitmentPage.openDetailModal(data);
+            })();
+          } else if (typeof DashboardPage !== "undefined" && DashboardPage.openRecruitmentModal) {
+            DashboardPage.openRecruitmentModal(data);
+          }
+        }
+      },
+    });
+    this._fc.render();
+    this._fcInitialized = true;
+  },
+
+  _refreshFullCalendar() {
+    if (!this._fc) return;
+    this._fc.removeAllEvents();
+    this._fc.addEventSource(this._buildFullCalendarEvents());
+  },
+
+  _buildFullCalendarEvents() {
+    const events = [];
+    const platformClass = (b) => {
+      const s = `${b.source || ""} ${b.bookingSite || ""} ${b._sourceType || ""}`.toLowerCase();
+      if (s.includes("airbnb")) return "fc-event-airbnb";
+      if (s.includes("booking")) return "fc-event-booking-com";
+      return "fc-event-direct";
+    };
+
+    // 宿泊イベント
+    (this.bookings || []).forEach(b => {
+      const ci = b.checkIn;
+      const co = b.checkOut;
+      if (!ci) return;
+      const guestCount = b.guestCount ? `(${b.guestCount}名)` : "";
+      events.push({
+        id: "b_" + b.id,
+        title: (b.guestName || "予約") + " " + guestCount,
+        start: ci,
+        end: co || ci,
+        allDay: true,
+        order: 1,
+        classNames: [platformClass(b)],
+        borderColor: "transparent",
+        extendedProps: { type: "booking", data: b },
+      });
+    });
+
+    // 募集イベント: 同 CO 日+workType で優先度の高い1件のみ
+    const STATUS_PRIORITY = { "スタッフ確定済み": 4, "選定済": 3, "募集中": 2 };
+    const recruitByKey = {};
+    (this.recruitments || []).forEach(r => {
+      const co = r.checkoutDate;
+      if (!co) return;
+      const s = String(r.status || "");
+      if (["キャンセル", "キャンセル済み", "期限切れ", "cancelled"].includes(s)) return;
+      const wt = r.workType === "pre_inspection" ? "pre" : "clean";
+      const key = co + "_" + wt;
+      const existing = recruitByKey[key];
+      const newPri = STATUS_PRIORITY[r.status] || 1;
+      const existPri = existing ? (STATUS_PRIORITY[existing.status] || 1) : 0;
+      if (!existing || newPri > existPri) recruitByKey[key] = r;
+    });
+    Object.values(recruitByKey).forEach(r => {
+      const co = r.checkoutDate;
+      const responses = r.responses || [];
+      const maru = responses.filter(v => v.response === "◎").length;
+      const sankaku = responses.filter(v => v.response === "△").length;
+      const totalResp = responses.length;
+      const isPre = r.workType === "pre_inspection";
+      const wtPrefix = isPre ? "[直] " : "[清] ";
+      const wtIcon = isPre ? "🔍 " : "🧹 ";
+      const cssBase = isPre ? "fc-event-pre-inspection" : "fc-event-cleaning";
+      let cssClass, title;
+      if (r.status === "スタッフ確定済み") {
+        cssClass = cssBase + "-decided";
+        title = wtPrefix + wtIcon + (r.selectedStaff || "確定");
+      } else if (r.status === "選定済") {
+        cssClass = cssBase + "-selected";
+        title = wtPrefix + wtIcon + (r.selectedStaff || "") + "(選定済)";
+      } else if (maru > 0) {
+        cssClass = cssBase;
+        title = wtPrefix + wtIcon + "募集中 ◎" + maru + (sankaku ? " △" + sankaku : "");
+      } else if (totalResp > 0) {
+        cssClass = cssBase;
+        title = wtPrefix + wtIcon + "募集中 (△" + sankaku + " ×" + (totalResp - sankaku) + ")";
+      } else {
+        cssClass = cssBase + "-noresponse";
+        title = wtPrefix + wtIcon + "募集中（回答なし）";
+      }
+      events.push({
+        id: "r_" + r.id,
+        title, start: co, allDay: true, order: 0,
+        classNames: [cssClass], borderColor: "transparent",
+        extendedProps: { type: "recruitment", data: r },
+      });
+    });
+    return events;
   },
 
   _pendingRecruitId: null,
