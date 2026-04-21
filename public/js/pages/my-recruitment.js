@@ -2139,6 +2139,30 @@ const MyRecruitmentPage = {
       const saveBtn = modalEl.querySelector("#addBkSave");
       saveBtn.disabled = true;
       try {
+        // 同一物件・同期間の手動予約重複チェック (iCal 由来は対象外)
+        const bSnap = await db.collection("bookings")
+          .where("propertyId", "==", propertyId)
+          .get();
+        const hasConflict = bSnap.docs.some(d => {
+          const x = d.data();
+          const isManual = x.manualOverride === true || /manual/i.test(String(x.source || ""));
+          if (!isManual) return false;
+          if (x.status === "cancelled") return false;
+          const existCi = typeof x.checkIn === "string"
+            ? x.checkIn
+            : (x.checkIn?.toDate?.().toISOString().slice(0, 10));
+          const existCo = typeof x.checkOut === "string"
+            ? x.checkOut
+            : (x.checkOut?.toDate?.().toISOString().slice(0, 10));
+          if (!existCi || !existCo) return false;
+          // 日程重複: existCi < newCo かつ newCi < existCo
+          return existCi < checkOut && checkIn < existCo;
+        });
+        if (hasConflict) {
+          await showAlert("この物件には既に同期間の手動予約が登録されています。編集または削除してから追加してください。", { title: "重複エラー" });
+          saveBtn.disabled = false;
+          return;
+        }
         const payload = {
           propertyId,
           propertyName,
@@ -2258,6 +2282,23 @@ const MyRecruitmentPage = {
       const saveBtn = modalEl.querySelector("#addRcSave");
       saveBtn.disabled = true;
       try {
+        // 同一物件・同日付の手動募集重複チェック
+        const rSnap = await db.collection("recruitments")
+          .where("propertyId", "==", propertyId)
+          .where("checkoutDate", "==", dateVal)
+          .get();
+        const hasConflict = rSnap.docs.some(d => {
+          const x = d.data();
+          if (x.manualCreated !== true) return false;
+          const st = String(x.status || "");
+          if (st === "cancelled" || st === "キャンセル") return false;
+          return true;
+        });
+        if (hasConflict) {
+          await showAlert("この物件には既に同日付の手動募集が登録されています。編集または削除してから追加してください。", { title: "重複エラー" });
+          saveBtn.disabled = false;
+          return;
+        }
         await db.collection("recruitments").add({
           propertyId,
           propertyName,
