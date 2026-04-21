@@ -166,7 +166,7 @@ const ChecklistPage = {
       const hasPhoto = items.some(i => i.photoUrl);
 
       return `
-        <div class="card mb-2 cursor-pointer" style="cursor:pointer" onclick="location.hash='#/my-checklist/${r.id}'">
+        <div class="card mb-2 cursor-pointer" style="cursor:pointer" onclick="location.hash='#/my-checklist/${r.shiftId || r.id}'">
           <div class="card-body py-3">
             <div class="d-flex justify-content-between align-items-center">
               <div>

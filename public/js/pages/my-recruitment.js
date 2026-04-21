@@ -2508,7 +2508,8 @@ const MyRecruitmentPage = {
         location.hash = `#/my-checklist`;
         return;
       }
-      location.hash = `#/my-checklist/${clSnap.docs[0].id}`;
+      // my-checklist 画面のルートは #/my-checklist/:shiftId (shiftId から checklist を逆引き)
+      location.hash = `#/my-checklist/${shiftId}`;
     } catch (e) {
       showToast("エラー", `チェックリスト遷移失敗: ${e.message}`, "error");
     }
