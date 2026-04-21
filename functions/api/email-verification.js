@@ -68,6 +68,7 @@ module.exports = function emailVerificationApi(db) {
         emailVerifiedAt: admin.firestore.FieldValue.serverTimestamp(),
         emailMessageId: ev.messageId,
         emailThreadId: ev.threadId || null,
+        emailSubject: ev.subject || null,
         emailMatchedBy: "manual",
       });
 
@@ -137,6 +138,7 @@ module.exports = function emailVerificationApi(db) {
         emailVerifiedAt: admin.firestore.FieldValue.serverTimestamp(),
         emailMessageId: ev.messageId,
         emailThreadId: ev.threadId || null,
+        emailSubject: ev.subject || null,
         emailMatchedBy: "manual",
       });
 

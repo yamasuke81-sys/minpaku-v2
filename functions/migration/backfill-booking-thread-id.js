@@ -20,8 +20,9 @@ const db = admin.firestore();
       await db.collection("bookings").doc(ev.matchedBookingId).update({
         emailThreadId: ev.threadId,
         emailMessageId: ev.messageId,
+        emailSubject: ev.subject || null,
       });
-      console.log(`  ✓ ${ev.matchedBookingId.slice(0, 30)} ← threadId=${ev.threadId}`);
+      console.log(`  ✓ ${ev.matchedBookingId.slice(0, 30)} subject="${(ev.subject || "").slice(0, 40)}"`);
       updated++;
     } catch (e) {
       console.error(`  ✗ ${ev.matchedBookingId}: ${e.message}`);

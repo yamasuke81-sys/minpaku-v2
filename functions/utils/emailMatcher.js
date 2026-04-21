@@ -153,7 +153,7 @@ function toMs_(v) {
  * @param {Date|Timestamp|number|string|null} emailReceivedAt - メールの受信日時
  * @returns {{ updates: object, skippedReason: string|null }}
  */
-function decideBookingUpdate(booking, parsedInfo, messageId, emailReceivedAt, threadId) {
+function decideBookingUpdate(booking, parsedInfo, messageId, emailReceivedAt, threadId, subject) {
   if (!booking || !parsedInfo) {
     return { updates: null, skippedReason: "booking または parsedInfo が空" };
   }
@@ -170,9 +170,9 @@ function decideBookingUpdate(booking, parsedInfo, messageId, emailReceivedAt, th
 
   const updates = {
     emailMessageId: messageId || null,
-    // threadId は Gmail の会話スレッド ID。UI の URL 生成で `#all/{threadId}` 形式で使うと
-    // 確実に該当メールを開ける (messageId 単体だと "Temporary Error 404" が出るケースあり)
     emailThreadId: threadId || null,
+    // subject は UI (予約詳細モーダル) で「📧 {subject} / {日付}」表示に使う
+    emailSubject: subject || null,
   };
   if (newMs != null) {
     // 呼出側で Timestamp.fromMillis に置換

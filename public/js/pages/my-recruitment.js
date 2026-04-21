@@ -1032,15 +1032,10 @@ const MyRecruitmentPage = {
         bs.forEach(b => {
           const src = b.source.includes("airbnb") ? "Airbnb" : (b.source.includes("booking") ? "Booking.com" : "直接予約");
           const guest = this.guestMap[b.checkIn];
-          // Gmail 照合リンク (オーナー限定)
+          // 照合メール情報 (オーナー限定、アプリ内のメール照合タブへ遷移)
           let gmailRow = "";
           if (isOwnerView) {
-            if (b.emailMessageId || b.emailThreadId) {
-              // Gmail URL: u/{メールアドレス}/ 形式で照合用アカウントを直接指定
-              // #all/{threadId} 形式が最も確実 (messageId 単体だと 404 が出る)
-              const gmailAcct = b.gmailAccount || "81hassac@gmail.com";
-              const mailId = b.emailThreadId || b.emailMessageId;
-              const gmailUrl = `https://mail.google.com/mail/u/${encodeURIComponent(gmailAcct)}/#all/${encodeURIComponent(mailId)}`;
+            if (b.emailMessageId || b.emailThreadId || b.emailSubject) {
               // emailVerifiedAt は Firestore Timestamp → JST 日付文字列へ変換してから fmtDate へ
               let verifiedStr = "";
               if (b.emailVerifiedAt) {
@@ -1050,14 +1045,17 @@ const MyRecruitmentPage = {
                   verifiedStr = this.fmtDate(jst.toISOString().slice(0, 10));
                 } catch (e) { verifiedStr = ""; }
               }
-              gmailRow = `<tr><th class="text-muted">Gmail 照合</th><td>
-                <a href="${gmailUrl}" target="_blank" rel="noopener" class="small">
-                  <i class="bi bi-envelope-check"></i> 予約メールを開く
+              const esc = (s) => { const div = document.createElement("div"); div.textContent = s || ""; return div.innerHTML; };
+              const subjectText = b.emailSubject ? esc(b.emailSubject) : "(件名未取得)";
+              gmailRow = `<tr><th class="text-muted">照合メール</th><td>
+                <a href="#/email-verification" class="small d-block" style="text-decoration:none">
+                  <i class="bi bi-envelope-check text-success"></i> ${subjectText}
+                  ${verifiedStr ? `<span class="text-muted ms-1">/ ${verifiedStr}</span>` : ""}
                 </a>
-                ${verifiedStr ? `<small class="text-muted ms-2">(照合日: ${verifiedStr})</small>` : ""}
+                <small class="text-muted">タップで「メール照合」画面へ</small>
               </td></tr>`;
             } else {
-              gmailRow = `<tr><th class="text-muted">Gmail 照合</th><td><small class="text-muted"><i class="bi bi-envelope-slash"></i> 未照合</small></td></tr>`;
+              gmailRow = `<tr><th class="text-muted">照合メール</th><td><small class="text-muted"><i class="bi bi-envelope-slash"></i> 未照合</small></td></tr>`;
             }
           }
           html += `<div class="mb-2 p-2 border rounded">

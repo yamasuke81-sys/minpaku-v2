@@ -254,7 +254,7 @@ async function emailVerificationCore(db, opts = {}) {
               if (bookingMatch && bookingMatch.id) {
                 const emailReceivedMs = receivedAt ? receivedAt.toMillis() : null;
                 const threadId = detail.data.threadId || null;
-                const decision = decideBookingUpdate(bookingMatch.data, extractedInfo, msg.id, emailReceivedMs, threadId);
+                const decision = decideBookingUpdate(bookingMatch.data, extractedInfo, msg.id, emailReceivedMs, threadId, subject);
                 if (decision && decision.updates) {
                   // placeholder を実 FieldValue に置換
                   const bookingPatch = {};
