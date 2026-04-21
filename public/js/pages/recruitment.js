@@ -641,13 +641,14 @@ const RecruitmentPage = {
         btn.title = "未生成";
         return;
       }
-      const checklistId = clSnap.docs[0].id;
       btn.disabled = false;
       btn.title = "チェックリストを開く";
       btn.onclick = () => {
         // モーダルを閉じてから遷移 (モーダル残存対策)
+        // my-checklist 画面は shiftId 経由で checklist を検索する実装なので、
+        // checklistId ではなく shiftId を URL に乗せる
         try { this.detailModal?.hide(); } catch (_) {}
-        location.hash = `#/my-checklist/${checklistId}`;
+        location.hash = `#/my-checklist/${shiftId}`;
       };
     } catch (e) {
       console.warn("チェックリストボタン設定エラー:", e);
