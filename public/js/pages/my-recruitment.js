@@ -826,7 +826,8 @@ const MyRecruitmentPage = {
 
           // セグメント描画 (バー高さ = 清掃pillと同じ 20px 固定、上下中央)
           // z-index:2 でセル罫線より前面に表示
-          const barTopStyle = "top:50%;transform:translateY(-50%);height:20px;";
+          // pointer-events:none で内部要素のタップを td 全体に確実にバブルさせる
+          const barTopStyle = "top:50%;transform:translateY(-50%);height:20px;pointer-events:none;";
           let segs = "";
           if (ending) {
             const c = bookingColor(ending.source, fallbackColor);
@@ -839,11 +840,11 @@ const MyRecruitmentPage = {
           if (starting) {
             const c = bookingColor(starting.source, fallbackColor);
             segs += `<div style="position:absolute;left:50%;right:0;${barTopStyle}background:${c};border-top-left-radius:999px;border-bottom-left-radius:999px;z-index:2;"></div>`;
-            // 名簿ドット (CIの右半分、左寄せ)
+            // 名簿ドット (CIの右半分、左寄せ) — pointer-events:none で td タップを透過
             const hasGuest = !!this.guestMap[starting.checkIn];
             const dotColor = hasGuest ? "#198754" : "#dc3545";
             const dotTitle = hasGuest ? "名簿提出済み" : "名簿未提出";
-            segs += `<span style="position:absolute;left:calc(50% + 4px);top:50%;transform:translateY(-50%);width:9px;height:9px;border-radius:50%;background:${dotColor};border:1.5px solid #fff;z-index:4;" title="${dotTitle}"></span>`;
+            segs += `<span style="position:absolute;left:calc(50% + 4px);top:50%;transform:translateY(-50%);width:9px;height:9px;border-radius:50%;background:${dotColor};border:1.5px solid #fff;z-index:4;pointer-events:none;" title="${dotTitle}"></span>`;
           }
 
           // ラベル (宿泊人数) 表示: 連泊なら CI+1 日 (中間セル中央)、1泊なら CI+CO 境界を跨いで中央
