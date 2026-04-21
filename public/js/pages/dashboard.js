@@ -449,10 +449,18 @@ const DashboardPage = {
     const gm = guestMap || this.guestMap;
     if (!gm) return false;
     const ci = this.toDateStr(booking.checkIn);
-    // 複合キー優先、フォールバックで CI日のみ (propertyId 未設定レコード後方互換)
-    const g = ci ? (gm[`${booking.propertyId}_${ci}`] || gm[ci]) : null;
+    if (!ci) return false;
+    // 複合キー (propertyId + CI) で厳密に照合。
+    // CI 単独キーへの fallback は別物件の同日名簿を誤って拾うため撤去。
+    // propertyId 未設定の古い名簿は CI 単独キーで取るが、その guest 側も propertyId を持たない場合に限る。
+    let g = null;
+    if (booking.propertyId) {
+      g = gm[`${booking.propertyId}_${ci}`] || null;
+    } else {
+      const cand = gm[ci];
+      if (cand && !cand.propertyId) g = cand;
+    }
     if (!g) return false;
-    // プレースホルダー名でないなら記入済み
     const name = (g.guestName || "").trim().toLowerCase();
     if (!name || name === "-") return false;
     if (name.includes("airbnb") || name.includes("booking") || name.includes("not available") || name.includes("blocked") || name.includes("closed")) return false;
@@ -971,7 +979,7 @@ const DashboardPage = {
     let gmailRow = "";
     if (isOwnerView) {
       if (b.emailMessageId || b.emailThreadId || b.emailSubject) {
-        const verifiedStr = b.emailVerifiedAt ? this.toDateStr(b.emailVerifiedAt) : "";
+        const verifiedStr = b.emailVerifiedAt ? (typeof formatDateFull === "function" ? formatDateFull(b.emailVerifiedAt) : this.toDateStr(b.emailVerifiedAt)) : "";
         const subjectText = b.emailSubject ? this.esc(b.emailSubject) : "(件名未取得)";
         const focusId = b.emailMessageId || "";
         gmailRow = `<tr><th class="text-muted">照合メール</th><td>
@@ -1003,6 +1011,13 @@ const DashboardPage = {
       const escaped = this.esc(String(val));
       return (typeof linkifyUrls === "function") ? linkifyUrls(escaped) : escaped;
     };
+    // 日付ヘルパ: YYYY年M月D日(曜) 形式
+    const vd = (val) => {
+      if (!val) return "-";
+      return (typeof formatDateFull === "function") ? formatDateFull(val) : this.esc(String(val));
+    };
+    // BBQ (true/false/"Yes"/"No" 等) → ◎×−
+    const vb = (val) => (typeof bbqToSymbol === "function") ? bbqToSymbol(val) : v(val);
     // 代表者年齢 (allGuests[0].age)
     const repAge = guestData.allGuests?.[0]?.age || "";
     // 駐車場割当テキスト
@@ -1061,9 +1076,10 @@ const DashboardPage = {
           <h6 class="mb-2"><i class="bi bi-arrow-right-circle"></i> 次の予約</h6>
           <table class="table table-sm table-borderless mb-0">
             <tr><th width="110" class="text-muted">ゲスト名</th><td>${v(nextBooking.guestName)}</td></tr>
-            <tr><th class="text-muted">チェックイン</th><td>${v(this.toDateStr(nextBooking.checkIn))}</td></tr>
+            <tr><th class="text-muted">チェックイン</th><td>${vd(this.toDateStr(nextBooking.checkIn))}</td></tr>
             <tr><th class="text-muted">宿泊人数</th><td>${nextBooking.guestCount ? this.esc(String(nextBooking.guestCount)) + "名" : "-"}</td></tr>
-            <tr><th class="text-muted">BBQ</th><td>${v(nextGuest.bbq)}</td></tr>
+            <tr><th class="text-muted">BBQ</th><td>${vb(nextGuest.bbq)}</td></tr>
+            <tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${v(nextGuest.bedChoice)}</td></tr>
             <tr><th class="text-muted">交通手段</th><td>${v(nextGuest.transport)}</td></tr>
             <tr><th class="text-muted">車台数</th><td>${nextGuest.carCount ? this.esc(String(nextGuest.carCount)) + "台" : "-"}</td></tr>
             <tr><th class="text-muted">有料駐車場</th><td>${v(nextGuest.paidParking)}</td></tr>
@@ -1080,8 +1096,8 @@ const DashboardPage = {
       <h6 class="mb-2 text-primary">基本情報</h6>
       <table class="table table-sm table-borderless mb-2">
         <tr><th width="110" class="text-muted">ゲスト名</th><td class="fw-bold">${v(b.guestName)}</td></tr>
-        <tr><th class="text-muted">チェックイン</th><td>${v(ci)}${guestData.checkInTime ? ` <strong>${this.esc(guestData.checkInTime)}</strong>` : ""}</td></tr>
-        <tr><th class="text-muted">チェックアウト</th><td>${v(co)}${guestData.checkOutTime ? ` <strong>${this.esc(guestData.checkOutTime)}</strong>` : ""}</td></tr>
+        <tr><th class="text-muted">チェックイン</th><td>${vd(ci)}${guestData.checkInTime ? ` <strong>${this.esc(guestData.checkInTime)}</strong>` : ""}</td></tr>
+        <tr><th class="text-muted">チェックアウト</th><td>${vd(co)}${guestData.checkOutTime ? ` <strong>${this.esc(guestData.checkOutTime)}</strong>` : ""}</td></tr>
         <tr><th class="text-muted">宿泊人数</th><td>
           <div class="input-group input-group-sm" style="width:170px;">
             <input type="number" class="form-control" id="editGuestCount" value="${b.guestCount || 0}" min="1">
@@ -1105,8 +1121,8 @@ const DashboardPage = {
 
       <h6 class="mb-2 text-primary">宿泊情報</h6>
       <table class="table table-sm table-borderless mb-2">
-        <tr><th width="110" class="text-muted">BBQ</th><td>${v(guestData.bbq || b.bbq)}</td></tr>
-        <tr><th class="text-muted">ベッド</th><td>${v(guestData.bedChoice)}</td></tr>
+        <tr><th width="110" class="text-muted">BBQ</th><td>${vb(guestData.bbq !== undefined && guestData.bbq !== "" ? guestData.bbq : b.bbq)}</td></tr>
+        <tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${v(guestData.bedChoice)}</td></tr>
         <tr><th class="text-muted">メモ</th><td>${vl(guestData.memo || b.memo || b.notes)}</td></tr>
       </table>
 

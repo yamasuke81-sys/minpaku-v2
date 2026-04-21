@@ -701,12 +701,12 @@ const GuestsPage = {
         <div class="col-md-6">
           <h6 class="border-bottom pb-1 mb-2">宿泊情報</h6>
           <table class="table table-sm table-borderless">
-            <tr><th style="width:120px">チェックイン</th><td>${g.checkIn ? formatDate(g.checkIn) : "-"}${g.checkInTime ? ` <strong>${this.escapeHtml(g.checkInTime)}</strong>` : ""}</td></tr>
-            <tr><th>チェックアウト</th><td>${g.checkOut ? formatDate(g.checkOut) : "-"}${g.checkOutTime ? ` <strong>${this.escapeHtml(g.checkOutTime)}</strong>` : ""}${g._coMismatch ? `<br><span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle"></i> 予約サイトとCO日が異なります（${this.escapeHtml(g._coOriginal)} vs ${this.escapeHtml(g._coIncoming)}）</span>` : ""}</td></tr>
+            <tr><th style="width:120px">チェックイン</th><td>${g.checkIn ? (typeof formatDateFull === "function" ? formatDateFull(g.checkIn) : formatDate(g.checkIn)) : "-"}${g.checkInTime ? ` <strong>${this.escapeHtml(g.checkInTime)}</strong>` : ""}</td></tr>
+            <tr><th>チェックアウト</th><td>${g.checkOut ? (typeof formatDateFull === "function" ? formatDateFull(g.checkOut) : formatDate(g.checkOut)) : "-"}${g.checkOutTime ? ` <strong>${this.escapeHtml(g.checkOutTime)}</strong>` : ""}${g._coMismatch ? `<br><span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle"></i> 予約サイトとCO日が異なります（${this.escapeHtml(g._coOriginal)} vs ${this.escapeHtml(g._coIncoming)}）</span>` : ""}</td></tr>
             <tr><th>宿泊人数</th><td>${g.guestCount ? g.guestCount + "名" : "-"}${g.guestCountInfants ? ` ＋ 乳幼児${g.guestCountInfants}名（3才以下）` : ""}</td></tr>
             <tr><th>予約元</th><td>${this.getSourceIcon(g.source)} ${v(g.bookingSite)}</td></tr>
-            <tr><th>BBQ</th><td>${v(g.bbq)}</td></tr>
-            <tr><th>ベッド</th><td>${v(g.bedChoice)}</td></tr>
+            <tr><th>BBQ</th><td>${typeof bbqToSymbol === "function" ? bbqToSymbol(g.bbq) : v(g.bbq)}</td></tr>
+            <tr><th>ベッド数（2名宿泊時）</th><td>${v(g.bedChoice)}</td></tr>
             <tr><th>メモ</th><td>${vl(g.memo)}</td></tr>
           </table>
         </div>
