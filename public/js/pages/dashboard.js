@@ -989,33 +989,165 @@ const DashboardPage = {
       }
     }
 
+    // 名簿データ取得 (複合キー or CIキー の両方を試す)
+    const guestKey1 = b.propertyId && ci ? `${b.propertyId}_${ci}` : null;
+    const guestData = (guestKey1 && guestMap[guestKey1]) || (ci && guestMap[ci]) || {};
+    // 値表示ヘルパ: 空なら "-"
+    const v = (val) => {
+      if (val === null || val === undefined || val === "") return "-";
+      return this.esc(String(val));
+    };
+    // URL linkify 版 (エスケープ済み→リンク化)
+    const vl = (val) => {
+      if (val === null || val === undefined || val === "") return "-";
+      const escaped = this.esc(String(val));
+      return (typeof linkifyUrls === "function") ? linkifyUrls(escaped) : escaped;
+    };
+    // 代表者年齢 (allGuests[0].age)
+    const repAge = guestData.allGuests?.[0]?.age || "";
+    // 駐車場割当テキスト
+    const parkingAllocText = (guestData.parkingAllocation || []).map(a =>
+      `${a.index}台目(${this.esc(a.vehicleType || "")}) → ${this.esc(a.spot || "")}`
+    ).join("<br>") || "-";
+    // 車種
+    const vehicleTypes = Array.isArray(guestData.vehicleTypes) && guestData.vehicleTypes.length
+      ? guestData.vehicleTypes.map(x => this.esc(x)).join(", ") : "-";
+    // 同意バッジ
+    const noiseBadge = guestData.noiseAgree
+      ? '<span class="badge bg-success">同意済</span>'
+      : '<span class="badge bg-danger">未同意</span>';
+    // 同行者
+    const companions = guestData.guests || [];
+    const companionsHtml = companions.length > 0 ? `
+      <hr>
+      <h6 class="mb-2"><i class="bi bi-people"></i> 同行者（${companions.length}名）</h6>
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered mb-0">
+          <thead class="table-light"><tr><th>氏名</th><th>年齢</th><th>住所</th><th>国籍</th><th>旅券番号</th></tr></thead>
+          <tbody>
+            ${companions.map(c => `<tr>
+              <td>${this.esc(c.name || "-")}</td>
+              <td>${this.esc(c.age || "-")}</td>
+              <td>${this.esc(c.address || "-")}</td>
+              <td>${this.esc(c.nationality || "日本")}</td>
+              <td>${this.esc(c.passportNumber || "-")}</td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>` : "";
+    // パスポート写真
+    const passportPhotos = [];
+    if (guestData.passportPhotoUrl) passportPhotos.push({ name: guestData.guestName || "代表者", url: guestData.passportPhotoUrl });
+    companions.forEach(c => { if (c.passportPhotoUrl) passportPhotos.push({ name: c.name || "同行者", url: c.passportPhotoUrl }); });
+    const passportHtml = passportPhotos.length > 0 ? `
+      <hr>
+      <h6 class="mb-2"><i class="bi bi-image"></i> パスポート写真</h6>
+      <div class="d-flex flex-wrap gap-2">
+        ${passportPhotos.map(p => `<a href="${this.esc(p.url)}" target="_blank" rel="noopener" class="text-center">
+          <img src="${this.esc(p.url)}" alt="${this.esc(p.name)}" style="max-width:140px;max-height:110px;border-radius:6px;border:1px solid #dee2e6;">
+          <small class="d-block text-muted">${this.esc(p.name)}</small>
+        </a>`).join("")}
+      </div>` : "";
+
+    // 次の予約情報 (拡張版: BBQ/交通/車台数/有料駐車場 追加)
+    let nextBookingBlock = "";
+    if (co) {
+      const nextBooking = bookings.find(nb => nb.id !== b.id && this.toDateStr(nb.checkIn) === co);
+      if (nextBooking) {
+        const nk1 = nextBooking.propertyId && nextBooking.checkIn ? `${nextBooking.propertyId}_${this.toDateStr(nextBooking.checkIn)}` : null;
+        const nextGuest = (nk1 && guestMap[nk1]) || guestMap[this.toDateStr(nextBooking.checkIn)] || {};
+        nextBookingBlock = `
+          <hr>
+          <h6 class="mb-2"><i class="bi bi-arrow-right-circle"></i> 次の予約</h6>
+          <table class="table table-sm table-borderless mb-0">
+            <tr><th width="110" class="text-muted">ゲスト名</th><td>${v(nextBooking.guestName)}</td></tr>
+            <tr><th class="text-muted">チェックイン</th><td>${v(this.toDateStr(nextBooking.checkIn))}</td></tr>
+            <tr><th class="text-muted">宿泊人数</th><td>${nextBooking.guestCount ? this.esc(String(nextBooking.guestCount)) + "名" : "-"}</td></tr>
+            <tr><th class="text-muted">BBQ</th><td>${v(nextGuest.bbq)}</td></tr>
+            <tr><th class="text-muted">交通手段</th><td>${v(nextGuest.transport)}</td></tr>
+            <tr><th class="text-muted">車台数</th><td>${nextGuest.carCount ? this.esc(String(nextGuest.carCount)) + "台" : "-"}</td></tr>
+            <tr><th class="text-muted">有料駐車場</th><td>${v(nextGuest.paidParking)}</td></tr>
+          </table>`;
+      }
+    }
+    // 既存 nextBookingHtml は使わない (新 nextBookingBlock に統合)
+    nextBookingHtml = "";
+
     document.getElementById("calEventTitle").innerHTML = `<i class="bi bi-calendar-event"></i> 予約詳細 ${sourceBadge}`;
     document.getElementById("calEventBody").innerHTML = `
       <div class="d-flex gap-2 mb-3">${rosterBadge}</div>
+
+      <h6 class="mb-2 text-primary">基本情報</h6>
       <table class="table table-sm table-borderless mb-2">
-        <tr><th width="110" class="text-muted">ゲスト名</th><td class="fw-bold">${this.esc(b.guestName || "-")}</td></tr>
-        <tr><th class="text-muted">チェックイン</th><td>${this.esc(ci || "-")}</td></tr>
-        <tr><th class="text-muted">チェックアウト</th><td>${this.esc(co || "-")}</td></tr>
+        <tr><th width="110" class="text-muted">ゲスト名</th><td class="fw-bold">${v(b.guestName)}</td></tr>
+        <tr><th class="text-muted">チェックイン</th><td>${v(ci)}${guestData.checkInTime ? ` <strong>${this.esc(guestData.checkInTime)}</strong>` : ""}</td></tr>
+        <tr><th class="text-muted">チェックアウト</th><td>${v(co)}${guestData.checkOutTime ? ` <strong>${this.esc(guestData.checkOutTime)}</strong>` : ""}</td></tr>
         <tr><th class="text-muted">宿泊人数</th><td>
           <div class="input-group input-group-sm" style="width:170px;">
             <input type="number" class="form-control" id="editGuestCount" value="${b.guestCount || 0}" min="1">
             <button class="btn btn-outline-primary" id="btnSaveGuestCount" data-booking-id="${b.id}">保存</button>
           </div>
-          ${b.guestCountInfants ? `<small class="text-muted">乳幼児${b.guestCountInfants}</small>` : ""}
+          ${guestData.guestCountInfants ? `<small class="text-muted">乳幼児${this.esc(String(guestData.guestCountInfants))}名</small>` : ""}
         </td></tr>
-        ${b.nationality ? `<tr><th class="text-muted">国籍</th><td>${this.esc(b.nationality)}</td></tr>` : ""}
-        ${b.bbq ? `<tr><th class="text-muted">BBQ</th><td>${this.esc(b.bbq)}</td></tr>` : ""}
-        ${b.parking ? `<tr><th class="text-muted">駐車場</th><td>${this.esc(b.parking)}</td></tr>` : ""}
-        ${b.notes || b.memo ? `<tr><th class="text-muted">メモ</th><td>${this.esc(b.notes || b.memo)}</td></tr>` : ""}
-        ${gmailRow}
       </table>
 
-      <div class="border-top pt-2 mt-2">
-        <strong class="small text-muted">清掃担当（CO: ${this.esc(co || "-")}）</strong><br>
+      <h6 class="mb-2 text-primary">代表者情報</h6>
+      <table class="table table-sm table-borderless mb-2">
+        <tr><th width="110" class="text-muted">国籍</th><td>${v(guestData.nationality || b.nationality)}</td></tr>
+        <tr><th class="text-muted">年齢</th><td>${v(repAge)}</td></tr>
+        <tr><th class="text-muted">住所</th><td>${v(guestData.address)}</td></tr>
+        <tr><th class="text-muted">電話</th><td>${v(guestData.phone)}</td></tr>
+        <tr><th class="text-muted">電話2</th><td>${v(guestData.phone2)}</td></tr>
+        <tr><th class="text-muted">メール</th><td>${v(guestData.email)}</td></tr>
+        <tr><th class="text-muted">旅券番号</th><td>${v(guestData.passportNumber)}</td></tr>
+        <tr><th class="text-muted">旅の目的</th><td>${v(guestData.purpose)}</td></tr>
+      </table>
+
+      <h6 class="mb-2 text-primary">宿泊情報</h6>
+      <table class="table table-sm table-borderless mb-2">
+        <tr><th width="110" class="text-muted">BBQ</th><td>${v(guestData.bbq || b.bbq)}</td></tr>
+        <tr><th class="text-muted">ベッド</th><td>${v(guestData.bedChoice)}</td></tr>
+        <tr><th class="text-muted">メモ</th><td>${vl(guestData.memo || b.memo || b.notes)}</td></tr>
+      </table>
+
+      <h6 class="mb-2 text-primary">交通・駐車場</h6>
+      <table class="table table-sm table-borderless mb-2">
+        <tr><th width="110" class="text-muted">交通手段</th><td>${v(guestData.transport)}</td></tr>
+        <tr><th class="text-muted">車台数</th><td>${guestData.carCount ? this.esc(String(guestData.carCount)) + "台" : "-"}</td></tr>
+        <tr><th class="text-muted">車種</th><td>${vehicleTypes}</td></tr>
+        <tr><th class="text-muted">駐車場割当</th><td>${parkingAllocText}</td></tr>
+        <tr><th class="text-muted">有料駐車場</th><td>${v(guestData.paidParking)}</td></tr>
+      </table>
+
+      <h6 class="mb-2 text-primary">緊急連絡先</h6>
+      <table class="table table-sm table-borderless mb-2">
+        <tr><th width="110" class="text-muted">氏名</th><td>${v(guestData.emergencyName)}</td></tr>
+        <tr><th class="text-muted">電話番号</th><td>${v(guestData.emergencyPhone)}</td></tr>
+      </table>
+
+      <h6 class="mb-2 text-primary">前後泊</h6>
+      <table class="table table-sm table-borderless mb-2">
+        <tr><th width="110" class="text-muted">前泊地</th><td>${vl(guestData.previousStay)}</td></tr>
+        <tr><th class="text-muted">後泊地</th><td>${vl(guestData.nextStay)}</td></tr>
+      </table>
+
+      <h6 class="mb-2 text-primary">同意状況</h6>
+      <table class="table table-sm table-borderless mb-2">
+        <tr><th width="110" class="text-muted">騒音ルール</th><td>${noiseBadge}</td></tr>
+      </table>
+
+      ${companionsHtml}
+      ${passportHtml}
+
+      ${gmailRow ? `<hr><table class="table table-sm table-borderless mb-0">${gmailRow}</table>` : ""}
+
+      <hr>
+      <div>
+        <strong class="small text-muted">清掃担当（CO: ${v(co)}）</strong><br>
         ${cleaningHtml}
         ${recruit ? `<button class="btn btn-sm btn-outline-primary ms-2" id="calBtnOpenRecruit"><i class="bi bi-megaphone"></i> 募集詳細</button>` : ""}
       </div>
-      ${nextBookingHtml}
+      ${nextBookingBlock}
     `;
     bootstrap.Modal.getOrCreateInstance(modalEl).show();
 

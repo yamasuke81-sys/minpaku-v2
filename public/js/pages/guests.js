@@ -669,68 +669,75 @@ const GuestsPage = {
     if (g.passportPhotoUrl) passportPhotos.push({ name: g.guestName || "代表者", url: g.passportPhotoUrl });
     companions.forEach(c => { if (c.passportPhotoUrl) passportPhotos.push({ name: c.name || "同行者", url: c.passportPhotoUrl }); });
 
+    // 空なら "-" を返すヘルパ
+    const v = (val) => {
+      if (val === null || val === undefined || val === "") return "-";
+      return this.escapeHtml(String(val));
+    };
+    // URL linkify 版
+    const vl = (val) => {
+      if (val === null || val === undefined || val === "") return "-";
+      const escaped = this.escapeHtml(String(val));
+      return (typeof linkifyUrls === "function") ? linkifyUrls(escaped) : escaped;
+    };
+    const repAge = g.allGuests?.[0]?.age || "";
+
     body.innerHTML = `
       <div class="row g-3">
         <div class="col-md-6">
           <h6 class="border-bottom pb-1 mb-2">代表者情報</h6>
           <table class="table table-sm table-borderless">
-            <tr><th style="width:120px">氏名</th><td><strong>${this.escapeHtml(g.guestName || "-")}</strong></td></tr>
-            <tr><th>国籍</th><td>${this.escapeHtml(g.nationality || "日本")}</td></tr>
-            ${g.allGuests?.[0]?.age ? `<tr><th>年齢</th><td>${this.escapeHtml(g.allGuests[0].age)}</td></tr>` : ""}
-            <tr><th>住所</th><td>${this.escapeHtml(g.address || "-")}</td></tr>
-            <tr><th>電話</th><td>${this.escapeHtml(g.phone || "-")}</td></tr>
-            ${g.phone2 ? `<tr><th>電話2</th><td>${this.escapeHtml(g.phone2)}</td></tr>` : ""}
-            <tr><th>メール</th><td>${this.escapeHtml(g.email || "-")}</td></tr>
-            <tr><th>旅券番号</th><td>${this.escapeHtml(g.passportNumber || "-")}</td></tr>
-            <tr><th>旅の目的</th><td>${this.escapeHtml(g.purpose || "-")}</td></tr>
+            <tr><th style="width:120px">氏名</th><td><strong>${v(g.guestName)}</strong></td></tr>
+            <tr><th>国籍</th><td>${v(g.nationality || "日本")}</td></tr>
+            <tr><th>年齢</th><td>${v(repAge)}</td></tr>
+            <tr><th>住所</th><td>${v(g.address)}</td></tr>
+            <tr><th>電話</th><td>${v(g.phone)}</td></tr>
+            <tr><th>電話2</th><td>${v(g.phone2)}</td></tr>
+            <tr><th>メール</th><td>${v(g.email)}</td></tr>
+            <tr><th>旅券番号</th><td>${v(g.passportNumber)}</td></tr>
+            <tr><th>旅の目的</th><td>${v(g.purpose)}</td></tr>
           </table>
         </div>
         <div class="col-md-6">
           <h6 class="border-bottom pb-1 mb-2">宿泊情報</h6>
           <table class="table table-sm table-borderless">
-            <tr><th style="width:120px">チェックイン</th><td>${formatDate(g.checkIn)}${g.checkInTime ? ` <strong>${this.escapeHtml(g.checkInTime)}</strong>` : ""}</td></tr>
-            <tr><th>チェックアウト</th><td>${formatDate(g.checkOut)}${g.checkOutTime ? ` <strong>${this.escapeHtml(g.checkOutTime)}</strong>` : ""}${g._coMismatch ? `<br><span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle"></i> 予約サイトとCO日が異なります（${this.escapeHtml(g._coOriginal)} vs ${this.escapeHtml(g._coIncoming)}）</span>` : ""}</td></tr>
-            <tr><th>宿泊人数</th><td>${g.guestCount || "-"}名${g.guestCountInfants ? ` ＋ 乳幼児${g.guestCountInfants}名（3才以下）` : ""}</td></tr>
-            <tr><th>予約元</th><td>${this.getSourceIcon(g.source)} ${this.escapeHtml(g.bookingSite || "")}</td></tr>
-            <tr><th>BBQ</th><td>${this.escapeHtml(g.bbq || "-")}</td></tr>
-            ${g.bedChoice ? `<tr><th>ベッド</th><td>${this.escapeHtml(g.bedChoice)}</td></tr>` : ""}
-            <tr><th>メモ</th><td>${this.escapeHtml(g.memo || "-")}</td></tr>
+            <tr><th style="width:120px">チェックイン</th><td>${g.checkIn ? formatDate(g.checkIn) : "-"}${g.checkInTime ? ` <strong>${this.escapeHtml(g.checkInTime)}</strong>` : ""}</td></tr>
+            <tr><th>チェックアウト</th><td>${g.checkOut ? formatDate(g.checkOut) : "-"}${g.checkOutTime ? ` <strong>${this.escapeHtml(g.checkOutTime)}</strong>` : ""}${g._coMismatch ? `<br><span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle"></i> 予約サイトとCO日が異なります（${this.escapeHtml(g._coOriginal)} vs ${this.escapeHtml(g._coIncoming)}）</span>` : ""}</td></tr>
+            <tr><th>宿泊人数</th><td>${g.guestCount ? g.guestCount + "名" : "-"}${g.guestCountInfants ? ` ＋ 乳幼児${g.guestCountInfants}名（3才以下）` : ""}</td></tr>
+            <tr><th>予約元</th><td>${this.getSourceIcon(g.source)} ${v(g.bookingSite)}</td></tr>
+            <tr><th>BBQ</th><td>${v(g.bbq)}</td></tr>
+            <tr><th>ベッド</th><td>${v(g.bedChoice)}</td></tr>
+            <tr><th>メモ</th><td>${vl(g.memo)}</td></tr>
           </table>
         </div>
       </div>
 
       <!-- 交通・駐車場 -->
-      ${g.transport || g.carCount || g.paidParking || (g.vehicleTypes || []).length ? `
       <hr>
       <h6><i class="bi bi-car-front"></i> 交通・駐車場</h6>
       <table class="table table-sm table-borderless">
-        <tr><th style="width:120px">交通手段</th><td>${this.escapeHtml(g.transport)}</td></tr>
-        ${g.carCount ? `<tr><th>車台数</th><td>${g.carCount}台</td></tr>` : ""}
-        ${(g.vehicleTypes || []).length ? `<tr><th>車種</th><td>${g.vehicleTypes.map(v => this.escapeHtml(v)).join(", ")}</td></tr>` : ""}
-        ${g.parkingAllocation ? `<tr><th>駐車場割当</th><td>${parkingAllocText}</td></tr>` : ""}
-        ${g.paidParking ? `<tr><th>有料駐車場</th><td>${this.escapeHtml(g.paidParking)}</td></tr>` : ""}
+        <tr><th style="width:120px">交通手段</th><td>${v(g.transport)}</td></tr>
+        <tr><th>車台数</th><td>${g.carCount ? g.carCount + "台" : "-"}</td></tr>
+        <tr><th>車種</th><td>${(g.vehicleTypes || []).length ? g.vehicleTypes.map(x => this.escapeHtml(x)).join(", ") : "-"}</td></tr>
+        <tr><th>駐車場割当</th><td>${parkingAllocText}</td></tr>
+        <tr><th>有料駐車場</th><td>${v(g.paidParking)}</td></tr>
       </table>
-      ` : ""}
 
       <!-- 緊急連絡先 -->
-      ${g.emergencyName || g.emergencyPhone ? `
       <hr>
       <h6><i class="bi bi-telephone"></i> 緊急連絡先</h6>
       <table class="table table-sm table-borderless">
-        <tr><th style="width:120px">氏名</th><td>${this.escapeHtml(g.emergencyName || "-")}</td></tr>
-        <tr><th>電話番号</th><td>${this.escapeHtml(g.emergencyPhone || "-")}</td></tr>
+        <tr><th style="width:120px">氏名</th><td>${v(g.emergencyName)}</td></tr>
+        <tr><th>電話番号</th><td>${v(g.emergencyPhone)}</td></tr>
       </table>
-      ` : ""}
 
       <!-- 前泊地・後泊地 -->
-      ${g.previousStay || g.nextStay ? `
       <hr>
       <h6><i class="bi bi-signpost-2"></i> 前後泊</h6>
       <table class="table table-sm table-borderless">
-        ${g.previousStay ? `<tr><th style="width:120px">前泊地</th><td>${this.escapeHtml(g.previousStay)}</td></tr>` : ""}
-        ${g.nextStay ? `<tr><th style="width:120px">後泊地</th><td>${this.escapeHtml(g.nextStay)}</td></tr>` : ""}
+        <tr><th style="width:120px">前泊地</th><td>${vl(g.previousStay)}</td></tr>
+        <tr><th>後泊地</th><td>${vl(g.nextStay)}</td></tr>
       </table>
-      ` : ""}
 
       <!-- 同意状況 -->
       <hr>
@@ -739,9 +746,10 @@ const GuestsPage = {
         <tr><th style="width:120px">騒音ルール</th><td>${g.noiseAgree ? '<span class="badge bg-success">同意済</span>' : '<span class="badge bg-danger">未同意</span>'}</td></tr>
       </table>
 
+      <!-- 同行者 -->
+      <hr>
+      <h6><i class="bi bi-people"></i> 同行者${companions.length > 0 ? `（${companions.length}名）` : ""}</h6>
       ${companions.length > 0 ? `
-        <hr>
-        <h6><i class="bi bi-people"></i> 同行者（${companions.length}名）</h6>
         <div class="table-responsive">
           <table class="table table-sm table-bordered">
             <thead class="table-light">
@@ -750,22 +758,22 @@ const GuestsPage = {
             <tbody>
               ${companions.map(c => `
                 <tr>
-                  <td>${this.escapeHtml(c.name || "-")}</td>
-                  <td>${this.escapeHtml(c.age || "-")}</td>
-                  <td>${this.escapeHtml(c.address || "-")}</td>
-                  <td>${this.escapeHtml(c.nationality || "日本")}</td>
-                  <td>${this.escapeHtml(c.passportNumber || "-")}</td>
+                  <td>${v(c.name)}</td>
+                  <td>${v(c.age)}</td>
+                  <td>${v(c.address)}</td>
+                  <td>${v(c.nationality || "日本")}</td>
+                  <td>${v(c.passportNumber)}</td>
                 </tr>
               `).join("")}
             </tbody>
           </table>
         </div>
-      ` : ""}
+      ` : `<p class="text-muted small mb-0">同行者なし</p>`}
 
       <!-- パスポート写真 -->
+      <hr>
+      <h6><i class="bi bi-image"></i> パスポート写真</h6>
       ${passportPhotos.length > 0 ? `
-        <hr>
-        <h6><i class="bi bi-image"></i> パスポート写真</h6>
         <div class="row g-2">
           ${passportPhotos.map(p => `
             <div class="col-auto">
@@ -776,7 +784,7 @@ const GuestsPage = {
             </div>
           `).join("")}
         </div>
-      ` : ""}
+      ` : `<p class="text-muted small mb-0">パスポート写真なし</p>`}
     `;
 
     this.detailModal.show();
