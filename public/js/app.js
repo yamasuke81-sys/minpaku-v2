@@ -7,7 +7,6 @@ const App = {
 
   // オーナー用ページ
   pages: {
-    dashboard: DashboardPage,
     staff: StaffPage,
     properties: PropertiesPage,
     "property-checklist": PropertyChecklistPage,
@@ -210,14 +209,25 @@ const App = {
       return; // hashchange イベントが再発火して route() が再呼び出しされる
     }
 
+    // #/dashboard または #/ (ルート) → #/my-recruitment へリダイレクト
+    // ダッシュボード画面は廃止され、清掃スケジュール画面に統合済み (Phase 2-5)
+    if (location.hash === "#/dashboard" || location.hash === "#/" || location.hash === "") {
+      // スタッフ時はスタッフ側 defaultPage へ
+      const r = Auth.currentUser?.role || "owner";
+      if (r !== "staff") {
+        location.hash = "#/my-recruitment";
+        return;
+      }
+    }
+
     const role = Auth.currentUser.role || "owner";
     const hash = location.hash.replace("#", "") || "/";
     // クエリ部分 (?key=val) は route 決定には使わずページ側へ伝える (location.hash は残す)
     const pathOnly = hash.split("?")[0];
     const path = pathOnly.split("/").filter(Boolean);
 
-    // デフォルトページ: オーナー/サブオーナー→dashboard、スタッフ→my-recruitment (マイページは非表示化済)
-    const defaultPage = role === "staff" ? "my-recruitment" : "dashboard";
+    // デフォルトページ: 全ロール→my-recruitment (清掃スケジュール画面に統合済み)
+    const defaultPage = "my-recruitment";
     const pageName = path[0] || defaultPage;
 
     // ロール別ページマップ選択（オーナー/サブオーナーはスタッフページにもアクセス可能）
