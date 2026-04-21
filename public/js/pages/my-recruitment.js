@@ -2389,18 +2389,27 @@ const MyRecruitmentPage = {
   },
 
   // D: 物件選択モーダルを開き、選択物件の直近確定済シフトの checklist を開く
+  //   - オーナービュー: 民泊全物件
+  //   - スタッフビュー: 自分の担当物件 (staff.assignedPropertyIds) のみ
   async _openPropertyPickerForChecklist() {
     try {
-      let props = this._properties || [];
+      // 民泊物件リストをベースにする (清掃チェックリストは民泊のみ対象)
+      let props = Array.isArray(this.minpakuProperties) && this.minpakuProperties.length
+        ? [...this.minpakuProperties]
+        : [];
       if (!props.length) {
-        props = await API.properties.list(true);
-        this._properties = props;
+        const raw = await API.properties.list(true);
+        props = (raw || []).filter(p => p.active !== false && (p.type === "minpaku" || !p.type));
       }
-      props = props
-        .filter(p => p.active !== false)
-        .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+      // スタッフビューなら担当物件のみに絞り込み
+      if (!this.isOwnerView) {
+        const myAssigned = Array.isArray(this.staffDoc?.assignedPropertyIds)
+          ? this.staffDoc.assignedPropertyIds : [];
+        props = props.filter(p => myAssigned.includes(p.id));
+      }
+      props = props.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
       if (!props.length) {
-        showToast("物件なし", "登録された物件がありません", "warning");
+        showToast("物件なし", this.isOwnerView ? "登録された民泊物件がありません" : "あなたが担当している物件がありません", "warning");
         return;
       }
       // モーダル構築
