@@ -962,10 +962,12 @@ const MyRecruitmentPage = {
 
       allDates.forEach(dd => {
         const isToday = dd.dateStr === todayStr;
-        // このスタッフが対象にしうる物件ID群 (オーナー or 担当未設定は全物件)
-        const targetPropIds = (staff.isOwner || !hasAssignments)
-          ? this.minpakuProperties.map(p => p.id)
-          : assigned;
+        // このスタッフが対象にしうる物件ID群
+        // - 担当物件が設定されていればそれで絞る (isOwner=true のオーナー/代理スタッフも含む)
+        // - 未設定の場合は全物件 (新規スタッフなど)
+        const targetPropIds = hasAssignments
+          ? assigned
+          : this.minpakuProperties.map(p => p.id);
 
         // この日の該当募集を全て収集 (物件単位)
         const cellRecruits = [];
