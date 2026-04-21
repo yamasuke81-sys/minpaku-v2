@@ -1022,6 +1022,7 @@ const MyRecruitmentPage = {
     });
 
     // イベント: 日付ヘッダータップ → 予約詳細
+    const isOwnerView = (typeof Auth !== "undefined") && Auth?.isOwner?.();
     container.querySelectorAll(".cal-date-hd").forEach(th => {
       th.addEventListener("click", () => {
         const dateStr = th.dataset.calDate;
@@ -1031,6 +1032,30 @@ const MyRecruitmentPage = {
         bs.forEach(b => {
           const src = b.source.includes("airbnb") ? "Airbnb" : (b.source.includes("booking") ? "Booking.com" : "直接予約");
           const guest = this.guestMap[b.checkIn];
+          // Gmail 照合リンク (オーナー限定)
+          let gmailRow = "";
+          if (isOwnerView) {
+            if (b.emailMessageId) {
+              const gmailUrl = `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(b.emailMessageId)}`;
+              // emailVerifiedAt は Firestore Timestamp → JST 日付文字列へ変換してから fmtDate へ
+              let verifiedStr = "";
+              if (b.emailVerifiedAt) {
+                try {
+                  const d = b.emailVerifiedAt.toDate ? b.emailVerifiedAt.toDate() : new Date(b.emailVerifiedAt);
+                  const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+                  verifiedStr = this.fmtDate(jst.toISOString().slice(0, 10));
+                } catch (e) { verifiedStr = ""; }
+              }
+              gmailRow = `<tr><th class="text-muted">Gmail 照合</th><td>
+                <a href="${gmailUrl}" target="_blank" rel="noopener" class="small">
+                  <i class="bi bi-envelope-check"></i> 予約メールを開く
+                </a>
+                ${verifiedStr ? `<small class="text-muted ms-2">(照合日: ${verifiedStr})</small>` : ""}
+              </td></tr>`;
+            } else {
+              gmailRow = `<tr><th class="text-muted">Gmail 照合</th><td><small class="text-muted"><i class="bi bi-envelope-slash"></i> 未照合</small></td></tr>`;
+            }
+          }
           html += `<div class="mb-2 p-2 border rounded">
             <div class="fw-bold mb-1">${src}</div>
             <table class="table table-sm table-borderless small mb-0">
@@ -1045,6 +1070,7 @@ const MyRecruitmentPage = {
                 ${guest.bbq ? `<tr><th class="text-muted">BBQ</th><td>${guest.bbq}</td></tr>` : ""}
                 ${guest.bedChoice ? `<tr><th class="text-muted">ベッド</th><td>${guest.bedChoice}</td></tr>` : ""}
               ` : '<tr><td colspan="2" class="text-muted fst-italic">名簿未提出</td></tr>'}
+              ${gmailRow}
             </table>
           </div>`;
         });

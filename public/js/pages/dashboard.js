@@ -958,6 +958,26 @@ const DashboardPage = {
       }
     }
 
+    // Gmail 照合リンク (オーナー限定)
+    const isOwnerView = (typeof Auth !== "undefined") && Auth?.isOwner?.();
+    let gmailRow = "";
+    if (isOwnerView) {
+      if (b.emailMessageId) {
+        const gmailUrl = `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(b.emailMessageId)}`;
+        const verifiedStr = b.emailVerifiedAt ? this.toDateStr(b.emailVerifiedAt) : "";
+        gmailRow = `<tr><th class="text-muted">Gmail 照合</th><td>
+          <a href="${gmailUrl}" target="_blank" rel="noopener" class="small">
+            <i class="bi bi-envelope-check"></i> 予約メールを開く
+          </a>
+          ${verifiedStr ? `<small class="text-muted ms-2">(照合日: ${this.esc(verifiedStr)})</small>` : ""}
+        </td></tr>`;
+      } else {
+        gmailRow = `<tr><th class="text-muted">Gmail 照合</th><td>
+          <small class="text-muted"><i class="bi bi-envelope-slash"></i> 未照合</small>
+        </td></tr>`;
+      }
+    }
+
     document.getElementById("calEventTitle").innerHTML = `<i class="bi bi-calendar-event"></i> 予約詳細 ${sourceBadge}`;
     document.getElementById("calEventBody").innerHTML = `
       <div class="d-flex gap-2 mb-3">${rosterBadge}</div>
@@ -976,6 +996,7 @@ const DashboardPage = {
         ${b.bbq ? `<tr><th class="text-muted">BBQ</th><td>${this.esc(b.bbq)}</td></tr>` : ""}
         ${b.parking ? `<tr><th class="text-muted">駐車場</th><td>${this.esc(b.parking)}</td></tr>` : ""}
         ${b.notes || b.memo ? `<tr><th class="text-muted">メモ</th><td>${this.esc(b.notes || b.memo)}</td></tr>` : ""}
+        ${gmailRow}
       </table>
 
       <div class="border-top pt-2 mt-2">
