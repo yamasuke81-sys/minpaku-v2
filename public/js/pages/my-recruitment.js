@@ -61,6 +61,9 @@ const MyRecruitmentPage = {
           <button class="btn btn-sm btn-outline-primary ms-2" id="btnMyCalToday">今日</button>
         </div>
       </div>
+      <!-- 要対応 / お知らせセクション -->
+      <div id="myRecToActions" class="mb-3"></div>
+
       <div class="mb-2">
         <button class="btn btn-sm btn-link text-muted p-0 text-decoration-none" type="button"
           data-bs-toggle="collapse" data-bs-target="#myCalLegend" aria-expanded="false">
@@ -436,7 +439,13 @@ const MyRecruitmentPage = {
       recruitQuery = recruitQuery.where("propertyId", "in", assignedIds);
     }
     const unsubRecruit = recruitQuery.onSnapshot(snap => {
-      // checkoutDate 正規化・フィルタ
+      // 全件 (キャンセル含む) を保持 → お知らせセクションで使用
+      this._rawRecruitmentsAll = snap.docs.map(d => {
+        const raw = d.data();
+        const coDate = this._normalizeDate(raw.checkoutDate || raw.checkOutDate || raw.checkOutdate);
+        return { id: d.id, ...raw, checkoutDate: coDate };
+      });
+      // checkoutDate 正規化・フィルタ (キャンセル除外、画面表示用)
       this.recruitments = snap.docs.map(d => {
         const raw = d.data();
         const coDate = this._normalizeDate(raw.checkoutDate || raw.checkOutDate || raw.checkOutdate);
@@ -605,6 +614,7 @@ const MyRecruitmentPage = {
     this._modalRerenderQueued = false;
     this._rawBookings = null;
     this._rawGuestRegs = null;
+    this._rawRecruitmentsAll = null;
   },
 
   renderCalendar() {
@@ -1266,6 +1276,153 @@ const MyRecruitmentPage = {
       }
       this._initialScrollDone = true;
     }
+
+    // 要対応 / お知らせ描画
+    this.renderToActions_();
+  },
+
+  /**
+   * 画面上部の要対応リスト (オーナー向け) + お知らせ (全員向け) を描画
+   * - オーナー向け: 3日以内の募集中(回答状況)、選定済(要確定)、回答なし警告
+   * - 全員向け: 新規募集 / スタッフ確定 / 清掃消滅 の 24h 以内のお知らせ
+   */
+  renderToActions_() {
+    const host = document.getElementById("myRecToActions");
+    if (!host) return;
+    const isOwner = (typeof Auth !== "undefined") && Auth?.isOwner?.();
+
+    const today = new Date().toISOString().slice(0, 10);
+    const soonD = new Date();
+    soonD.setDate(soonD.getDate() + 3);
+    const soonStr = soonD.toISOString().slice(0, 10);
+    const now = Date.now();
+    const H24 = 24 * 3600 * 1000;
+
+    // --- A. オーナー向け要対応 ---
+    const ownerItems = [];
+    if (isOwner) {
+      this.recruitments.forEach(r => {
+        if (r.status !== "募集中" && r.status !== "選定済") return;
+        const coDate = r.checkoutDate;
+        if (!coDate || coDate > soonStr) return;
+        const responses = r.responses || [];
+        const maru = responses.filter(v => v.response === "◎").length;
+        const isPast = coDate < today;
+        const propName = r.propertyName || this.propertyMap?.[r.propertyId]?.name || "";
+        const label = propName ? `${coDate} ${propName}` : coDate;
+        if (r.status === "選定済") {
+          ownerItems.push({ icon: "bi-check2-circle", color: "info", text: `${label} — スタッフ選定済み → 確定してください`, id: r.id });
+        } else if (maru > 0) {
+          ownerItems.push({ icon: "bi-person-plus", color: "warning", text: `${label} — ◎${maru}名回答あり → スタッフを選定してください`, id: r.id });
+        } else if (!isPast) {
+          ownerItems.push({ icon: "bi-exclamation-triangle", color: "danger", text: `${label} — 回答なし！スタッフに連絡してください`, id: r.id });
+        }
+      });
+    }
+
+    // --- B. 全員向けお知らせ (24h 以内) ---
+    const toMs = (v) => {
+      if (!v) return 0;
+      if (typeof v === "number") return v;
+      if (v.toMillis) return v.toMillis();
+      if (v.toDate) return v.toDate().getTime();
+      const d = new Date(v);
+      return isNaN(d.getTime()) ? 0 : d.getTime();
+    };
+    const staffItems = [];
+    this.recruitments.forEach(r => {
+      const propName = r.propertyName || this.propertyMap?.[r.propertyId]?.name || "";
+      const co = r.checkoutDate || "";
+      const createdMs = toMs(r.createdAt);
+      const updatedMs = toMs(r.updatedAt);
+      // 新規募集 (createdAt が 24h 以内)
+      if (createdMs && (now - createdMs) < H24 && r.status === "募集中") {
+        staffItems.push({
+          sortMs: createdMs, icon: "bi-megaphone", color: "primary",
+          text: `清掃募集開始しました: ${co}${propName ? " " + propName : ""}`,
+        });
+      }
+      // スタッフ確定 (updatedAt が 24h 以内かつ status=スタッフ確定済み)
+      if (r.status === "スタッフ確定済み" && updatedMs && (now - updatedMs) < H24) {
+        const who = r.selectedStaff || "";
+        staffItems.push({
+          sortMs: updatedMs, icon: "bi-person-check-fill", color: "success",
+          text: `スタッフ確定: ${co}${propName ? " " + propName : ""}${who ? " → " + who : ""}`,
+        });
+      }
+    });
+    // 予約キャンセルで清掃消滅: bookings 側に cancelled は除外済みなので追跡困難
+    // → recruitments で status=cancelled かつ updatedAt が 24h 以内のものを拾う
+    (this._rawBookings || []).forEach(() => {}); // 予約 cancel 情報はデータ源がフィルタ済で取得不可。recruitments 側で代替
+    // recruitments 再スキャン: cancel/期限切れ 状態への遷移
+    // 注: this.recruitments は既にフィルタ済。cancelled は除外されているため、生の Firestore snapshot からの情報が無い
+    // → 代替として this._rawRecruitmentsAll (無ければスキップ)
+    (this._rawRecruitmentsAll || []).forEach(r => {
+      const s = String(r.status || "");
+      if (!["cancelled", "キャンセル", "キャンセル済み"].includes(s)) return;
+      const updatedMs = toMs(r.updatedAt);
+      if (!updatedMs || (now - updatedMs) >= H24) return;
+      const propName = r.propertyName || this.propertyMap?.[r.propertyId]?.name || "";
+      const co = r.checkoutDate || r.checkOutDate || "";
+      staffItems.push({
+        sortMs: updatedMs, icon: "bi-x-circle", color: "secondary",
+        text: `予約キャンセル: ${co}${propName ? " " + propName : ""} の清掃がなくなりました`,
+      });
+    });
+    staffItems.sort((a, b) => b.sortMs - a.sortMs);
+
+    // --- レンダリング ---
+    let html = "";
+    if (isOwner && ownerItems.length > 0) {
+      html += `
+        <div class="card border-warning mb-2">
+          <div class="card-header bg-warning bg-opacity-10 py-2">
+            <strong><i class="bi bi-bell"></i> 要対応（${ownerItems.length}件）</strong>
+          </div>
+          <div class="list-group list-group-flush">
+            ${ownerItems.map(a => `
+              <button class="list-group-item list-group-item-action d-flex align-items-center to-action-item"
+                data-id="${this.esc(a.id)}">
+                <i class="bi ${a.icon} text-${a.color} me-2 fs-5"></i>
+                <span>${this.esc(a.text)}</span>
+                <i class="bi bi-chevron-right ms-auto"></i>
+              </button>
+            `).join("")}
+          </div>
+        </div>`;
+    }
+    if (staffItems.length > 0) {
+      html += `
+        <div class="card border-info">
+          <div class="card-header bg-info bg-opacity-10 py-2">
+            <strong><i class="bi bi-info-circle"></i> お知らせ（${staffItems.length}件）</strong>
+          </div>
+          <div class="list-group list-group-flush">
+            ${staffItems.map(a => `
+              <div class="list-group-item d-flex align-items-center">
+                <i class="bi ${a.icon} text-${a.color} me-2 fs-5"></i>
+                <span>${this.esc(a.text)}</span>
+              </div>
+            `).join("")}
+          </div>
+        </div>`;
+    }
+    host.innerHTML = html;
+
+    // 要対応アイテム → 対応する募集詳細モーダルを開く
+    host.querySelectorAll(".to-action-item").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.id;
+        const r = this.recruitments.find(x => x.id === id);
+        if (!r) return;
+        if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
+          if (RecruitmentPage.ensureLoaded) await RecruitmentPage.ensureLoaded();
+          RecruitmentPage.openDetailModal(r);
+        } else if (typeof DashboardPage !== "undefined" && DashboardPage.openRecruitmentModal) {
+          DashboardPage.openRecruitmentModal(r);
+        }
+      });
+    });
   },
 
   _pendingRecruitId: null,
