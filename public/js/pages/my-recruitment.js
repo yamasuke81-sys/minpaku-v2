@@ -931,10 +931,23 @@ const MyRecruitmentPage = {
 
     // ===== スタッフ行 =====
     const isOwner = this.isOwnerView === true;
+    // スタッフビューでは「自分と担当物件が重なる他スタッフ」+「自分自身」+「メインオーナー」のみ表示。
+    // オーナービューでは全スタッフを表示。
+    const myAssignedForStaff = Array.isArray(this.staffDoc?.assignedPropertyIds)
+      ? this.staffDoc.assignedPropertyIds
+      : [];
+    const visibleStaffList = isOwner
+      ? this.staffList
+      : this.staffList.filter(s => {
+          if (s.id === this.staffId) return true;     // 自分は必ず表示
+          if (s.isOwner) return true;                   // メインオーナー行は残す
+          const theirAssigned = Array.isArray(s.assignedPropertyIds) ? s.assignedPropertyIds : [];
+          return theirAssigned.some(pid => myAssignedForStaff.includes(pid));
+        });
     // 自分の行を一番上に固定: 自分を先頭に、それ以外は元の並び順を維持
     const orderedStaff = [
-      ...this.staffList.filter(s => s.id === this.staffId),
-      ...this.staffList.filter(s => s.id !== this.staffId),
+      ...visibleStaffList.filter(s => s.id === this.staffId),
+      ...visibleStaffList.filter(s => s.id !== this.staffId),
     ];
     orderedStaff.forEach(staff => {
       const isMe = staff.id === this.staffId;
