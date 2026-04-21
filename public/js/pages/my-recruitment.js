@@ -731,8 +731,17 @@ const MyRecruitmentPage = {
       return fallback;
     };
 
+    // スタッフビューでは assignedPropertyIds に含まれる物件のみを閲覧対象にする。
+    // オーナービュー (#/schedule) では全民泊物件を対象。
+    const myAssigned = Array.isArray(this.staffDoc?.assignedPropertyIds)
+      ? this.staffDoc.assignedPropertyIds
+      : [];
+    const displayProperties = this.isOwnerView
+      ? this.minpakuProperties
+      : this.minpakuProperties.filter(p => myAssigned.includes(p.id));
+
     // 非表示中の物件一覧 (セクション見出し内に復旧ボタンを出す)
-    const hiddenProps = this.minpakuProperties.filter(p => this._propertyVisibility[p.id] === false);
+    const hiddenProps = displayProperties.filter(p => this._propertyVisibility[p.id] === false);
 
     // border-collapse:separate + border-spacing:0 にしないとセルの境界線がバー (z-index) の前面に描画される
     let html = `<table class="table table-sm table-hover mb-0 align-middle" style="font-size:13px;white-space:nowrap;border-collapse:separate;border-spacing:0;min-width:calc(${stickyW} + ${allDates.length} * ${colW});">`;
@@ -766,8 +775,8 @@ const MyRecruitmentPage = {
     html += `</thead><tbody>`;
 
     // ===== 物件セクション =====
-    const visibleProps = this.minpakuProperties.filter(p => this._propertyVisibility[p.id] !== false);
-    if (this.minpakuProperties.length > 0) {
+    const visibleProps = displayProperties.filter(p => this._propertyVisibility[p.id] !== false);
+    if (displayProperties.length > 0) {
       // セクション見出し (非表示物件の復旧ボタンもここに)
       const restoreButtons = hiddenProps.length
         ? hiddenProps.map(p => `<button type="button" class="prop-restore ms-1" data-prop-id="${p.id}" title="${this.esc(p.name)} を再表示" style="border:1px solid #ced4da;background:#fff;border-radius:4px;padding:2px 6px;font-size:12px;cursor:pointer;">
@@ -784,7 +793,8 @@ const MyRecruitmentPage = {
       // 各物件は常に 2 段 (1段目=宿泊バー / 2段目=清掃募集)。
       // 同日 CI/CO は半セル吸収で同一セル内に並べる (レーン分離なし)。
       // 非表示の物件は描画をスキップ (復旧は見出しの目アイコンボタンから)。
-      this.minpakuProperties.forEach(p => {
+      // スタッフビューは displayProperties が担当物件のみに絞られている。
+      displayProperties.forEach(p => {
         const visible = this._propertyVisibility[p.id] !== false;
         if (!visible) return;
         const recruitByD = recruitByPropDate[p.id] || {};
