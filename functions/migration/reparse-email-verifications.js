@@ -51,13 +51,16 @@ async function main() {
         bookingMatch = findBookingMatch(bookingsArr, extractedInfo, data.propertyId);
 
         if (bookingMatch) {
-          const decision = decideBookingUpdate(bookingMatch.data, extractedInfo, data.messageId);
+          const emailReceivedMs = data.receivedAt && data.receivedAt.toMillis ? data.receivedAt.toMillis() : null;
+          const decision = decideBookingUpdate(bookingMatch.data, extractedInfo, data.messageId, emailReceivedMs);
           if (decision && decision.updates) {
             const bookingPatch = {};
             for (const k of Object.keys(decision.updates)) {
               const v = decision.updates[k];
               if (v && typeof v === "object" && v.__placeholder === "serverTimestamp") {
                 bookingPatch[k] = admin.firestore.FieldValue.serverTimestamp();
+              } else if (v && typeof v === "object" && v.__placeholder === "timestampFromMs") {
+                bookingPatch[k] = admin.firestore.Timestamp.fromMillis(v.ms);
               } else if (v !== undefined) {
                 bookingPatch[k] = v;
               }
