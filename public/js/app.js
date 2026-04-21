@@ -28,6 +28,8 @@ const App = {
     "tax-docs": TaxDocsPage,
     "email-verification": EmailVerificationPage,
     settings: SettingsPage,
+    // 予約・清掃スケジュール (オーナー用フル機能ビュー) — MyRecruitmentPage を view mode で分岐
+    "schedule": MyRecruitmentPage,
   },
 
   // スタッフ用ページ
@@ -209,15 +211,12 @@ const App = {
       return; // hashchange イベントが再発火して route() が再呼び出しされる
     }
 
-    // #/dashboard または #/ (ルート) → #/my-recruitment へリダイレクト
-    // ダッシュボード画面は廃止され、清掃スケジュール画面に統合済み (Phase 2-5)
+    // #/dashboard または #/ (ルート) → ロールに応じてリダイレクト
+    // オーナー/サブオーナー → #/schedule (フル機能)、スタッフ → #/my-recruitment (スタッフビュー)
     if (location.hash === "#/dashboard" || location.hash === "#/" || location.hash === "") {
-      // スタッフ時はスタッフ側 defaultPage へ
-      const r = Auth.currentUser?.role || "owner";
-      if (r !== "staff") {
-        location.hash = "#/my-recruitment";
-        return;
-      }
+      const currentRole = Auth?.currentUser?.role || "owner";
+      location.hash = currentRole === "staff" ? "#/my-recruitment" : "#/schedule";
+      return;
     }
 
     const role = Auth.currentUser.role || "owner";
@@ -226,8 +225,8 @@ const App = {
     const pathOnly = hash.split("?")[0];
     const path = pathOnly.split("/").filter(Boolean);
 
-    // デフォルトページ: 全ロール→my-recruitment (清掃スケジュール画面に統合済み)
-    const defaultPage = "my-recruitment";
+    // デフォルトページ: スタッフ→my-recruitment、それ以外→schedule
+    const defaultPage = role === "staff" ? "my-recruitment" : "schedule";
     const pageName = path[0] || defaultPage;
 
     // ロール別ページマップ選択（オーナー/サブオーナーはスタッフページにもアクセス可能）

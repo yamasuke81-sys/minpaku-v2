@@ -21,7 +21,15 @@ const MyRecruitmentPage = {
   _initialRenderDone: false,
 
   async render(container) {
-    const isOwner = Auth.isOwner();
+    const authIsOwner = Auth.isOwner();
+    // ビューモード判定: #/schedule → owner ビュー、#/my-recruitment → staff ビュー
+    const _hash = (location.hash || "").split("?")[0];
+    const isScheduleRoute = _hash === "#/schedule" || _hash.startsWith("#/schedule/");
+    this._viewMode = isScheduleRoute ? "owner" : "staff";
+    // オーナー機能表示の判定はこれ一本。スタッフログイン時は自動で false
+    this.isOwnerView = this._viewMode === "owner" && authIsOwner;
+    // 既存コード互換 (staffId 解決/非アクティブ判定など) 用のローカル変数
+    const isOwner = authIsOwner;
     this.staffId = Auth.currentUser?.staffId;
 
     // オーナーの場合: カスタムクレームに staffId が無くても、
@@ -48,7 +56,7 @@ const MyRecruitmentPage = {
 
     container.innerHTML = `
       <div class="page-header">
-        <h2><i class="bi bi-calendar-check"></i> 清掃スケジュール</h2>
+        <h2><i class="bi bi-calendar-check"></i> ${this._viewMode === "owner" ? "予約・清掃スケジュール" : "清掃スケジュール"}</h2>
         <div class="d-flex align-items-center gap-1 flex-wrap">
           <button class="btn btn-sm" id="btnGoLatestChecklist"
             style="background:#ffc107;color:#000;font-weight:600;border:1px solid #ffc107;"
@@ -520,7 +528,7 @@ const MyRecruitmentPage = {
       guestQuery = guestQuery.where("propertyId", "in", assignedIds);
     }
     const unsubGuest = guestQuery.onSnapshot(snap => {
-      const isOwnerView = (typeof Auth !== "undefined") && Auth?.isOwner?.();
+      const isOwnerView = this.isOwnerView;
       // 生データ保持 (マージ用): オーナー時のみ PII 含む、スタッフ時は最小限フィールド
       this._rawGuestRegs = snap.docs.map(d => {
         const g = d.data();
@@ -926,7 +934,7 @@ const MyRecruitmentPage = {
     }
 
     // ===== スタッフ行 =====
-    const isOwner = Auth?.isOwner?.() === true;
+    const isOwner = this.isOwnerView === true;
     // 自分の行を一番上に固定: 自分を先頭に、それ以外は元の並び順を維持
     const orderedStaff = [
       ...this.staffList.filter(s => s.id === this.staffId),
@@ -1202,7 +1210,7 @@ const MyRecruitmentPage = {
     });
 
     // イベント: 日付ヘッダータップ → 予約詳細
-    const isOwnerView = (typeof Auth !== "undefined") && Auth?.isOwner?.();
+    const isOwnerView = this.isOwnerView;
     container.querySelectorAll(".cal-date-hd").forEach(th => {
       th.addEventListener("click", () => {
         const dateStr = th.dataset.calDate;
@@ -1324,7 +1332,7 @@ const MyRecruitmentPage = {
   renderToActions_() {
     const host = document.getElementById("myRecToActions");
     if (!host) return;
-    const isOwner = (typeof Auth !== "undefined") && Auth?.isOwner?.();
+    const isOwner = this.isOwnerView;
 
     const today = new Date().toISOString().slice(0, 10);
     const soonD = new Date();
