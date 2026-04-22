@@ -97,6 +97,7 @@ const MyChecklistPage = {
           <label class="form-check-label small" for="mclListShowPast">完了済も表示</label>
         </div>
       </div>
+      <div id="mclPropFilterBar" class="d-flex flex-wrap gap-1 mb-3"></div>
       <div id="mclListBody"><div class="text-center text-muted py-5"><div class="spinner-border"></div></div></div>
     `;
 
@@ -108,7 +109,7 @@ const MyChecklistPage = {
           ? API.properties.listMinpakuNumbered()
           : db.collection("properties").where("active","==",true).get().then(s => s.docs.map(d => ({ id:d.id, ...d.data() }))),
       ]);
-      this._listData = clSnap.docs.map(d => ({ id: d.id, ...d.data() })).map(c => {
+      const rawList = clSnap.docs.map(d => ({ id: d.id, ...d.data() })).map(c => {
         // checkoutDate は Timestamp / Date / "YYYY-MM-DD" のいずれか
         let ds = "";
         const co = c.checkoutDate;
@@ -143,6 +144,10 @@ const MyChecklistPage = {
       }
       this._listProps = filteredProps;
 
+      // 担当物件 (filteredProps) に含まれる checklists のみ _listData に保持
+      const allowedIds = new Set((filteredProps || []).map(p => p.id));
+      this._listData = rawList.filter(c => allowedIds.has(c.propertyId));
+
       const propSelect = document.getElementById("mclListProp");
       filteredProps.forEach(p => {
         const opt = document.createElement("option");
@@ -150,6 +155,45 @@ const MyChecklistPage = {
         opt.textContent = (p._num ? `${p._num} ` : "") + (p.name || "");
         propSelect.appendChild(opt);
       });
+
+      // 物件フィルター UI (目アイコン型トグル) - localStorage 永続化
+      const visKey = `mclPropVisibility_${this.staffId || "anon"}`;
+      let storedVis = {};
+      try { storedVis = JSON.parse(localStorage.getItem(visKey) || "{}"); } catch (_) { storedVis = {}; }
+      this._mclPropVisibility = {};
+      filteredProps.forEach(p => {
+        this._mclPropVisibility[p.id] = storedVis[p.id] !== false; // 既定 true
+      });
+      const renderPropFilterBar = () => {
+        const bar = document.getElementById("mclPropFilterBar");
+        if (!bar) return;
+        bar.innerHTML = filteredProps.map(p => {
+          const visible = this._mclPropVisibility[p.id] !== false;
+          const icon = visible ? "bi-eye" : "bi-eye-slash";
+          const opacity = visible ? "1" : "0.35";
+          const color = p._color || "#6c757d";
+          const num = p._num || "";
+          const name = this.escapeHtml((p.name || "").slice(0, 10));
+          return `
+            <button type="button" class="prop-vis-toggle" data-prop-id="${p.id}"
+              style="border:1px solid #ced4da;background:#fff;border-radius:6px;padding:3px 8px;display:inline-flex;align-items:center;gap:4px;cursor:pointer;opacity:${opacity};">
+              <i class="bi ${icon}"></i>
+              <span class="badge" style="background:${color};color:#fff;">${this.escapeHtml(String(num))}</span>
+              ${name}
+            </button>`;
+        }).join("");
+        bar.querySelectorAll(".prop-vis-toggle").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const pid2 = btn.getAttribute("data-prop-id");
+            this._mclPropVisibility[pid2] = !this._mclPropVisibility[pid2];
+            try { localStorage.setItem(visKey, JSON.stringify(this._mclPropVisibility)); } catch (_) {}
+            renderPropFilterBar();
+            this._renderListBody();
+          });
+        });
+      };
+      this._renderMclPropFilterBar = renderPropFilterBar;
+      renderPropFilterBar();
 
       // 端末ごとの設定を localStorage から復元 (staffId 別 key)
       const lsKey = `mclList_${this.staffId || "anon"}`;
@@ -191,7 +235,10 @@ const MyChecklistPage = {
     const sortMode = document.getElementById("mclListSort").value || "date-desc";
     const today = new Date().toLocaleDateString("sv-SE");
 
-    let items = (this._listData || []).filter(c => !pid || c.propertyId === pid);
+    const vis = this._mclPropVisibility || {};
+    const hiddenIds = new Set(Object.entries(vis).filter(([, v]) => v === false).map(([k]) => k));
+    let items = (this._listData || []).filter(c => !hiddenIds.has(c.propertyId));
+    if (pid) items = items.filter(c => c.propertyId === pid);
     if (!showPast) {
       // 既定: 今日以降 + 今日より前で未完了 (status != completed)
       items = items.filter(c => c._dateStr >= today || c.status !== "completed");
