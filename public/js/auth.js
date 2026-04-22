@@ -104,6 +104,15 @@ const Auth = {
 
     try {
       await firebase.auth().signInWithEmailAndPassword(email, password);
+      // パスワードマネージャ (Google / Bitwarden / 1Password 等) に資格情報保存を促す。
+      // PasswordCredential API が利用できるブラウザでは明示的に store を呼ぶ。
+      // (form 属性だけでは資格情報保存プロンプトが出ないブラウザでも拾われるようにする)
+      try {
+        if (window.PasswordCredential && navigator.credentials) {
+          const cred = new PasswordCredential({ id: email, password, name: email });
+          await navigator.credentials.store(cred);
+        }
+      } catch (_) { /* noop — ブラウザ非対応 / ユーザー拒否は無視 */ }
     } catch (e) {
       const messages = {
         "auth/user-not-found": "ユーザーが見つかりません",
