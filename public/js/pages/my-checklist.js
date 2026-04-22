@@ -469,40 +469,31 @@ const MyChecklistPage = {
         if (!this.activeAreaId && this.checklist.templateSnapshot?.length) {
           this.activeAreaId = this.checklist.templateSnapshot[0].id;
         }
-        // templateSnapshot (タブ構造) が変わっていなければ、body 全体を再構築せず
-        // タブバッジ・エリア内容・フッターのみ更新 (ランドリー操作での微振動を回避)
-        // hasPendingWrites=true のローカル推定フェーズでは templateSnapshot の
-        // JSON 比較が不安定になる可能性があるため、サーバー確定後のみ全体再構築を許可
-        const templateChanged = !old
-          || (
-            !snap.metadata.hasPendingWrites
-            && JSON.stringify(old.templateSnapshot || []) !== JSON.stringify(this.checklist.templateSnapshot || [])
-          );
+        // templateSnapshot のタブ構造 (エリア数・各エリアID) が変わった場合のみ全体再構築
+        // エリア数と ID 配列のみ比較し、itemStates 等の細かな変化では再構築しない
+        // hasPendingWrites ガードを外し、ローカル即時反映を許可 (チェック操作での UX 向上)
+        const oldIds = (old?.templateSnapshot || []).map(a => a.id).join(",");
+        const newIds = (this.checklist.templateSnapshot || []).map(a => a.id).join(",");
+        const templateChanged = !old || oldIds !== newIds;
         if (templateChanged) {
           this.renderTree();
         } else {
-          // 差分更新時は innerHTML 置き換えでスクロール位置がリセットされることが
-          // あるため、前後で window.scrollY を保持・復元する (チェック操作で画面が
-          // 勝手に先頭へ飛ぶのを防止)
+          // 差分更新: スクロール位置を保持しながらバッジ・コンテンツ・タブスタイルを一括更新
+          // requestAnimationFrame 1回にまとめて余分な reflow を最小化
           const prevScrollY = window.scrollY;
           const mainEl = document.querySelector(".app-main");
           const prevMainScroll = mainEl ? mainEl.scrollTop : 0;
-          // activeTopTab を保持しておき、_renderActiveTopTab 内で誤って変更された
-          // 場合でも正しい値でスタイルを設定し直す
           const savedActiveTopTab = this.activeTopTab;
+
           this._updateHeaderStatus();
-          this._updateTabBadges();
-          // アクティブな上位タブの内容のみ再描画
-          this._renderActiveTopTab();
-          // _renderActiveTopTab 内 (renderFooter 等) で activeTopTab が変わっていたら元に戻す
-          if (this.activeTopTab !== savedActiveTopTab) {
-            this.activeTopTab = savedActiveTopTab;
-          }
-          // コンテンツ描画後に再度タブスタイルを確定させる (描画後に activeTopTab が
-          // 変わっていた場合でも濃紺アクティブが正しいタブに表示されることを保証)
-          this._updateTopTabStyles();
-          // レイアウト確定後に復元 (requestAnimationFrame で次フレーム)
+          // バッジ更新 + アクティブタブコンテンツ再描画 + タブスタイル確定を 1 rAF にまとめる
           requestAnimationFrame(() => {
+            this._updateTabBadges();
+            this._renderActiveTopTab();
+            if (this.activeTopTab !== savedActiveTopTab) {
+              this.activeTopTab = savedActiveTopTab;
+            }
+            // スクロール位置を復元
             window.scrollTo({ top: prevScrollY, behavior: "instant" });
             if (mainEl) mainEl.scrollTop = prevMainScroll;
           });
@@ -686,7 +677,9 @@ const MyChecklistPage = {
     body.querySelectorAll(".mcl-top-tab").forEach(n => {
       const tid = n.dataset.topTab;
       const isActive = tid === this.activeTopTab;
-      n.setAttribute("style", isActive ? activeTabStyle : inactiveTabStyle);
+      // スタイルが変わっていない場合は setAttribute をスキップして不要な reflow を防ぐ
+      const newStyle = isActive ? activeTabStyle : inactiveTabStyle;
+      if (n.getAttribute("style") !== newStyle) n.setAttribute("style", newStyle);
       // バッジ更新
       let badge = n.querySelector(".badge");
       if (tid === "restock") {
@@ -1073,12 +1066,10 @@ const MyChecklistPage = {
       const total = this.countItems([area]);
       const allDone = total > 0 && done === total;
       const isActive = n.classList.contains("active");
-      if (isActive) {
-        // アクティブタブは Bootstrap の .nav-link.active に依存せず明示的に青を設定 (!important で上書き確保)
-        n.setAttribute("style", "background:#0d6efd !important;border:1px solid #0d6efd !important;color:#fff !important;font-weight:600;");
-      } else {
-        n.setAttribute("style", `background:${allDone ? '#d1f5d6' : '#f1f3f5'};border:1px solid ${allDone ? '#74c786' : '#ced4da'};color:${allDone ? '#0b5d24' : '#495057'};font-weight:600;`);
-      }
+      const newAreaStyle = isActive
+        ? "background:#0d6efd !important;border:1px solid #0d6efd !important;color:#fff !important;font-weight:600;"
+        : `background:${allDone ? '#d1f5d6' : '#f1f3f5'};border:1px solid ${allDone ? '#74c786' : '#ced4da'};color:${allDone ? '#0b5d24' : '#495057'};font-weight:600;`;
+      if (n.getAttribute("style") !== newAreaStyle) n.setAttribute("style", newAreaStyle);
       const badge = n.querySelector(".badge");
       if (badge) {
         badge.className = `badge ${isActive ? 'bg-light text-dark' : (allDone ? 'bg-success' : 'bg-secondary')} ms-1`;

@@ -1238,17 +1238,28 @@ const MyRecruitmentPage = {
       const dateStr = td.dataset.date;
       if (!dateStr) return;
 
-      // その日の募集を取得
+      // セルに recruitId が直接付与されている場合はそれを優先 (担当物件フィルタのズレを回避)
+      const directRecruitId = td.dataset.recruitId;
+      if (directRecruitId) {
+        const recruit = this.recruitments.find(r => r.id === directRecruitId);
+        if (recruit && typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
+          await RecruitmentPage.ensureLoaded();
+          RecruitmentPage.openDetailModal(recruit, { viewMode: this.isOwnerView ? "owner" : "staff" });
+          return;
+        }
+      }
+
+      // フォールバック: その日の募集を日付で絞り込む
       let candidates = this.recruitments.filter(r => this._toDateStr(r.checkoutDate) === dateStr);
 
       const isStaffView = !this.isOwnerView;
       const myAssignedIds = Array.isArray(this.staffDoc?.assignedPropertyIds) ? this.staffDoc.assignedPropertyIds : [];
 
-      if (isStaffView) {
-        // スタッフビュー: 担当物件で絞り込み (未設定なら全物件扱い)
-        if (myAssignedIds.length > 0) {
-          candidates = candidates.filter(r => myAssignedIds.includes(r.propertyId));
-        }
+      if (isStaffView && myAssignedIds.length > 0) {
+        // 担当物件で絞り込み (未設定なら全物件扱い)
+        const filtered = candidates.filter(r => myAssignedIds.includes(r.propertyId));
+        // 絞り込み後に件数0になる場合は絞り込みしない (フィルタ不整合の保険)
+        if (filtered.length > 0) candidates = filtered;
       }
 
       if (candidates.length === 0) {
