@@ -121,26 +121,25 @@ const MyChecklistPage = {
         return { ...c, _dateStr: ds };
       }).filter(c => c._dateStr);
 
-      // ロール別フィルタ (Task 7)
-      //  - オーナー / サブオーナー: 民泊物件すべて (listMinpakuNumbered は既に minpaku のみ)
-      //  - スタッフ: staff.assignedPropertyIds に含まれる物件のみ
+      // 担当物件フィルタ: ロール問わず staff ドキュメントの assignedPropertyIds (サブオーナーは
+      // ownedPropertyIds も考慮) で絞り込む。設定が無い場合のみフォールバックで全民泊物件を表示。
       let filteredProps = propSnap;
-      const isOwnerRole = (typeof Auth !== "undefined" && Auth.isOwner && Auth.isOwner());
-      const isSubOwnerRole = !!(Auth?.currentUser?.role === "sub_owner" || Auth?.currentUser?.isSubOwner);
-      if (!isOwnerRole && !isSubOwnerRole) {
-        // スタッフ: assignedPropertyIds を staff ドキュメントから取得
-        try {
-          const staffId = Auth?.currentUser?.staffId || this.staffId;
-          if (staffId) {
-            const sd = await db.collection("staff").doc(staffId).get();
-            const assigned = (sd.exists && Array.isArray(sd.data().assignedPropertyIds)) ? sd.data().assignedPropertyIds : [];
-            if (assigned.length > 0) {
-              filteredProps = propSnap.filter(p => assigned.includes(p.id));
+      try {
+        const staffId = Auth?.currentUser?.staffId || this.staffId;
+        if (staffId) {
+          const sd = await db.collection("staff").doc(staffId).get();
+          if (sd.exists) {
+            const sData = sd.data();
+            const assigned = Array.isArray(sData.assignedPropertyIds) ? sData.assignedPropertyIds : [];
+            const owned = Array.isArray(sData.ownedPropertyIds) ? sData.ownedPropertyIds : [];
+            const myIds = [...new Set([...assigned, ...owned])];
+            if (myIds.length > 0) {
+              filteredProps = propSnap.filter(p => myIds.includes(p.id));
             }
           }
-        } catch (e) {
-          console.warn("[my-checklist] assignedPropertyIds 取得失敗", e);
         }
+      } catch (e) {
+        console.warn("[my-checklist] assignedPropertyIds 取得失敗", e);
       }
       this._listProps = filteredProps;
 
@@ -149,10 +148,18 @@ const MyChecklistPage = {
       this._listData = rawList.filter(c => allowedIds.has(c.propertyId));
 
       const propSelect = document.getElementById("mclListProp");
-      filteredProps.forEach(p => {
+      // 物件番号の昇順で並べる (番号未設定は末尾)
+      const propsSorted = [...filteredProps].sort((a, b) => {
+        const an = a._num != null ? a._num : (a.propertyNumber != null ? a.propertyNumber : 9999);
+        const bn = b._num != null ? b._num : (b.propertyNumber != null ? b.propertyNumber : 9999);
+        if (an !== bn) return an - bn;
+        return (a.displayOrder || 0) - (b.displayOrder || 0);
+      });
+      propsSorted.forEach(p => {
         const opt = document.createElement("option");
         opt.value = p.id;
-        opt.textContent = (p._num ? `${p._num} ` : "") + (p.name || "");
+        const num = p._num != null ? p._num : (p.propertyNumber != null ? p.propertyNumber : "");
+        opt.textContent = (num !== "" ? `${num} ` : "") + (p.name || "");
         propSelect.appendChild(opt);
       });
 
