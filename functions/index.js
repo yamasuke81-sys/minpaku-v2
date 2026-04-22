@@ -292,6 +292,12 @@ exports.onBookingChange = onDocumentWritten(
   require("./triggers/onBookingChange")
 );
 
+// 宿泊者名簿 作成時→propertyId 未設定なら bookings から推論して補完
+exports.onGuestRegistrationCreate = onDocumentCreated(
+  { document: "guestRegistrations/{guestId}", region: "asia-northeast1" },
+  require("./triggers/onGuestRegistrationCreate")
+);
+
 // シフト作成時→物件テンプレートをスナップショットしてチェックリスト自動生成
 exports.onShiftCreated = onDocumentCreated(
   "shifts/{shiftId}",
