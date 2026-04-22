@@ -107,7 +107,7 @@ const PropertiesPage = {
         <div class="card h-100 ${p.active ? "" : "border-secondary opacity-50"}">
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-start mb-1">
-              <h5 class="card-title mb-0">${this.escapeHtml(p.name)}</h5>
+              <h5 class="card-title mb-0">${renderPropertyNumberBadge(p)}${this.escapeHtml(p.name)}</h5>
               <div>
                 <span class="badge bg-${typeColor[p.type] || "secondary"} me-1">${typeLabel[p.type] || "不明"}</span>
                 <span class="badge ${p.active ? "bg-success" : "bg-secondary"}">${p.active ? "有効" : "無効"}</span>

@@ -165,6 +165,7 @@ const InvoicesPage = {
           <thead class="table-light">
             <tr>
               <th>スタッフ</th>
+              <th>対象物件</th>
               <th class="text-end">清掃回数</th>
               <th class="text-end">基本報酬</th>
               <th class="text-end">ランドリー</th>
@@ -180,6 +181,7 @@ const InvoicesPage = {
           <tfoot class="table-light">
             <tr>
               <th>合計</th>
+              <th></th>
               <th class="text-end">${filteredInvoices.reduce((s, i) => s + (i.details?.shiftCount || 0), 0)}回</th>
               <th class="text-end">${formatCurrency(filteredInvoices.reduce((s, i) => s + (i.basePayment || 0), 0))}</th>
               <th class="text-end">${formatCurrency(filteredInvoices.reduce((s, i) => s + (i.laundryFee || 0), 0))}</th>
@@ -229,9 +231,18 @@ const InvoicesPage = {
 
     const shiftCount = inv.details?.shiftCount || inv.details?.shifts?.length || 0;
 
+    // 対象物件バッジ (byProperty から物件IDを抽出して番号バッジ表示)
+    const byProperty = inv.byProperty || {};
+    const propBadges = Object.keys(byProperty).map(pid => {
+      const p = (this.properties || []).find(pp => pp.id === pid);
+      if (!p) return `<span class="badge bg-secondary me-1" title="${this.esc(byProperty[pid]?.propertyName || pid)}">?</span>`;
+      return `<span class="badge me-1" style="background:${p._color || "#6c757d"};color:#fff;min-width:22px;" title="${this.esc(p.name)}">${p._num || "-"}</span>`;
+    }).join("") || '<span class="text-muted small">-</span>';
+
     return `
       <tr>
         <td><strong>${this.esc(inv.staffName || inv.staffId)}</strong></td>
+        <td>${propBadges}</td>
         <td class="text-end">${shiftCount}回</td>
         <td class="text-end">${formatCurrency(inv.basePayment || 0)}</td>
         <td class="text-end">${formatCurrency(inv.laundryFee || 0)}</td>
@@ -315,15 +326,21 @@ const InvoicesPage = {
           <tr><th>物件</th><th class="text-end">清掃回数</th><th class="text-end">清掃報酬</th><th class="text-end">ランドリー</th><th class="text-end fw-bold">小計</th></tr>
         </thead>
         <tbody>
-          ${byPropertyEntries.map(([pid, bp]) => `
+          ${byPropertyEntries.map(([pid, bp]) => {
+            const p = (this.properties || []).find(pp => pp.id === pid);
+            const label = p
+              ? `${renderPropertyNumberBadge(p)}${this.esc(p.name)}`
+              : this.esc(bp.propertyName || pid);
+            return `
             <tr>
-              <td>${this.esc(bp.propertyName || pid)}</td>
+              <td>${label}</td>
               <td class="text-end">${bp.shiftCount || 0}回</td>
               <td class="text-end">${formatCurrency(bp.shiftAmount || 0)}</td>
               <td class="text-end">${formatCurrency(bp.laundryAmount || 0)}</td>
               <td class="text-end fw-bold">${formatCurrency(bp.total || 0)}</td>
             </tr>
-          `).join("")}
+          `;
+          }).join("")}
         </tbody>
       </table>
     ` : "";
@@ -367,10 +384,14 @@ const InvoicesPage = {
               } else if (s.guestCount > 1) {
                 detail = `<small class="text-muted"> (ゲスト${s.guestCount}名)</small>`;
               }
+              const sp = (this.properties || []).find(pp => pp.id === s.propertyId);
+              const sLabel = sp
+                ? `${renderPropertyNumberBadge(sp)}${this.esc(sp.name)}`
+                : this.esc(s.propertyName || "-");
               return `
               <tr>
                 <td>${this.esc(fmtDate(s.date))}</td>
-                <td>${this.esc(s.propertyName || "-")}${detail}</td>
+                <td>${sLabel}${detail}</td>
                 <td><span class="badge bg-secondary">${typeLabel}</span>${s.isTimee ? ' <span class="badge bg-info text-dark">タイミー</span>' : ""}</td>
                 <td class="text-end">${formatCurrency(s.amount || 0)}</td>
               </tr>`;

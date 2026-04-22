@@ -360,7 +360,7 @@ const PrepaidCardsPage = {
     const depotOpts = `<option value="">-- 選択 --</option>` +
       this.depots.map(d => `<option value="${d.id || d.name}">${this._esc(d.name)}</option>`).join("");
     const propertyChecksFor = (selected, idx) => this.properties.map(p =>
-      `<label class="form-check form-check-inline mb-0 small"><input type="checkbox" class="form-check-input c-property" value="${p.id}" ${(selected || []).includes(p.id) ? "checked" : ""} ${!this.canEdit ? "disabled" : ""}> ${this._esc(p.name)}</label>`
+      `<label class="form-check form-check-inline mb-0 small"><input type="checkbox" class="form-check-input c-property" value="${p.id}" ${(selected || []).includes(p.id) ? "checked" : ""} ${!this.canEdit ? "disabled" : ""}> ${renderPropertyNumberBadge(p)}${this._esc(p.name)}</label>`
     ).join("");
 
     wrap.innerHTML = Object.entries(grouped).map(([depotId, list]) => {
@@ -465,7 +465,7 @@ const PrepaidCardsPage = {
     // 物件チェックボックス
     const propWrap = document.getElementById("newPrepaidProperties");
     propWrap.innerHTML = this.properties.map(p =>
-      `<label class="form-check form-check-inline mb-0 small"><input type="checkbox" class="form-check-input new-prepaid-property" value="${p.id}"> ${this._esc(p.name)}</label>`
+      `<label class="form-check form-check-inline mb-0 small"><input type="checkbox" class="form-check-input new-prepaid-property" value="${p.id}"> ${renderPropertyNumberBadge(p)}${this._esc(p.name)}</label>`
     ).join("") || `<div class="text-muted small">利用可能な物件がありません</div>`;
     // 初期値リセット
     const prefixInput = document.getElementById("newPrepaidPrefix");

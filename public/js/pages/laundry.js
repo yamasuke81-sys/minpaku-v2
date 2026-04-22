@@ -416,13 +416,16 @@ const LaundryPage = {
       return;
     }
     const staffMap = Object.fromEntries(this.staffList.map(s => [s.id, s.name]));
-    const propMap = Object.fromEntries(this.propertyList.map(p => [p.id, p.name]));
+    const propObjMap = Object.fromEntries(this.propertyList.map(p => [p.id, p]));
+    const escHtml = (s) => { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; };
     tbody.innerHTML = filtered.map(r => {
       const d = r.date && r.date.toDate ? r.date.toDate() : new Date(r.date);
+      const p = propObjMap[r.propertyId];
+      const propCell = p ? `${renderPropertyNumberBadge(p)}${escHtml(p.name)}` : "-";
       return `<tr>
         <td>${d.getMonth()+1}/${d.getDate()}</td>
         <td>${staffMap[r.staffId] || "-"}</td>
-        <td class="small">${propMap[r.propertyId] || "-"}</td>
+        <td class="small">${propCell}</td>
         <td class="small">${this._label("depot", r.depot) + (r.depotOther ? ` (${r.depotOther})` : "")}</td>
         <td class="small">${this._label("payment", r.paymentMethod)}</td>
         <td class="text-end fw-bold">${formatCurrency(r.amount)}</td>
@@ -442,7 +445,7 @@ const LaundryPage = {
     const propSel = document.getElementById("laundryPropertyId");
     if (propSel) {
       propSel.innerHTML = `<option value="">-- 選択 --</option>` +
-        (this.propertyList || []).map(p => `<option value="${p.id}">${p.name}</option>`).join("");
+        (this.propertyList || []).map(p => `<option value="${p.id}">${typeof p._num === "number" ? p._num + ". " : ""}${p.name}</option>`).join("");
     }
     bootstrap.Modal.getOrCreateInstance(document.getElementById("laundryModal")).show();
   },

@@ -21,7 +21,6 @@ const RatesPage = {
       <div class="page-header">
         <h2><i class="bi bi-currency-yen"></i> 報酬単価設定</h2>
         <div class="d-flex align-items-center gap-2 flex-wrap">
-          <select class="form-select" id="ratesPropertySel" style="min-width:200px;"></select>
           <button class="btn btn-outline-primary" id="ratesBtnImport">
             <i class="bi bi-box-arrow-in-down"></i> 他施設からインポート
           </button>
@@ -34,6 +33,9 @@ const RatesPage = {
         </div>
       </div>
 
+      <!-- 物件選定 (清掃フローと同じボタン群方式) -->
+      <div id="ratesPropertySelector" class="mb-3"></div>
+
       <div class="alert alert-info small py-2">
         <i class="bi bi-info-circle"></i>
         「共通単価」はスタッフ個別単価が未設定の場合に使用されます。タイミー用の時給は別枠です。
@@ -43,23 +45,6 @@ const RatesPage = {
         <div class="text-center text-muted py-5"><div class="spinner-border"></div></div>
       </div>
     `;
-
-    document.getElementById("ratesPropertySel").addEventListener("change", async (e) => {
-      if (this.dirty) {
-        const ok = await this.showConfirmDialog({
-          title: "未保存の変更",
-          message: "未保存の変更があります。物件を切り替えますか？",
-          confirmLabel: "切り替える",
-          danger: false,
-        });
-        if (!ok) {
-          e.target.value = this.currentPropertyId;
-          return;
-        }
-      }
-      this.currentPropertyId = e.target.value;
-      this.loadWorkItems();
-    });
 
     document.getElementById("ratesBtnAdd").addEventListener("click", () => this.addWorkItem());
     document.getElementById("ratesBtnSave").addEventListener("click", () => this.save());
@@ -77,14 +62,11 @@ const RatesPage = {
       this.properties = minpaku;
       this.staffList = staff.sort((a, b) => (a.displayOrder||0) - (b.displayOrder||0));
 
-      const sel = document.getElementById("ratesPropertySel");
       if (this.properties.length === 0) {
         document.getElementById("ratesBody").innerHTML =
           `<div class="alert alert-warning">有効な民泊物件がありません。物件管理で有効化してください。</div>`;
         return;
       }
-      sel.innerHTML = this.properties.map(p =>
-        `<option value="${p.id}">${p._num}. ${this.esc(p.name)}</option>`).join("");
 
       // URL パラメータ ?propertyId=xxx があれば初期選択に使用
       const hashParts = location.hash.split("?");
@@ -93,13 +75,52 @@ const RatesPage = {
       const matched = targetPropertyId && this.properties.find(p => p.id === targetPropertyId);
 
       this.currentPropertyId = matched ? matched.id : this.properties[0].id;
-      sel.value = this.currentPropertyId;
+      this.renderPropertySelector();
       await this.loadWorkItems();
     } catch (e) {
       console.error(e);
       document.getElementById("ratesBody").innerHTML =
         `<div class="alert alert-danger">読み込み失敗: ${this.esc(e.message)}</div>`;
     }
+  },
+
+  // 物件選定 UI を清掃フロー (cleaning-flow.js の _renderPropertySelector) と同じ番号バッジ付きボタン群方式で描画
+  renderPropertySelector() {
+    const wrap = document.getElementById("ratesPropertySelector");
+    if (!wrap) return;
+    if (!this.properties.length) { wrap.innerHTML = ""; return; }
+
+    wrap.innerHTML = `
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <label class="form-label mb-0 small fw-semibold">物件:</label>
+        ${this.properties.map(p => `
+          <button class="btn btn-sm ${p.id === this.currentPropertyId ? "btn-primary" : "btn-outline-secondary"} rates-prop-btn"
+            data-pid="${p.id}" style="font-size:0.78rem;">
+            <span class="badge me-1" style="background:${p._color || "#6c757d"};color:#fff;min-width:22px;">${p._num || "-"}</span>
+            ${this.esc(p.name)}
+          </button>
+        `).join("")}
+      </div>
+    `;
+
+    wrap.querySelectorAll(".rates-prop-btn").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const pid = btn.dataset.pid;
+        if (pid === this.currentPropertyId) return;
+        if (this.dirty) {
+          const ok = await this.showConfirmDialog({
+            title: "未保存の変更",
+            message: "未保存の変更があります。物件を切り替えますか？",
+            confirmLabel: "切り替える",
+            danger: false,
+          });
+          if (!ok) return;
+        }
+        this.currentPropertyId = pid;
+        this.renderPropertySelector();
+        this.loadWorkItems();
+      });
+    });
   },
 
   async loadWorkItems() {

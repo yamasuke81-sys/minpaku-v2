@@ -237,6 +237,9 @@ const RecruitmentPage = {
     const statusBadge = this.getStatusBadge(r.status);
     const checkoutStr = r.checkoutDate || "-";
     const propertyName = r.propertyName || "";
+    // 物件番号バッジ (listMinpakuNumbered で取得した _num/_color を使用)
+    const propObj = (this.properties || []).find(p => p.id === r.propertyId);
+    const propBadge = propObj ? renderPropertyNumberBadge(propObj) : "";
 
     // 回答サマリーバー
     const responseSummary = totalResponded > 0
@@ -265,7 +268,7 @@ const RecruitmentPage = {
                 ${workTypeBadge}
                 <i class="bi bi-calendar-event ms-1"></i>
                 ${this.escapeHtml(checkoutStr)}
-                ${propertyName ? `<small class="text-muted ms-2">${this.escapeHtml(propertyName)}</small>` : ""}
+                ${propertyName ? `<small class="ms-2">${propBadge}${this.escapeHtml(propertyName)}</small>` : ""}
               </h5>
               ${statusBadge}
               ${responseSummary}

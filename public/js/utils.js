@@ -54,6 +54,25 @@ window.formatTimeShort = function(val) {
   return `${mo}/${da} ${hh}:${mm}`;
 };
 
+// 物件番号バッジ HTML を生成 (物件名の左に付ける丸バッジ)
+// p は _num/_color を持つ listMinpakuNumbered() 戻り値、または propertyNumber/color を持つ物件ドキュメント
+window.renderPropertyNumberBadge = function(p) {
+  if (!p) return "";
+  const num = (typeof p._num === "number") ? p._num
+    : (typeof p.propertyNumber === "number" ? p.propertyNumber : null);
+  const color = p._color || p.color || "#6c757d";
+  if (num == null) return "";
+  return `<span class="badge me-1" style="background:${color};color:#fff;min-width:22px;">${num}</span>`;
+};
+
+// 物件名 + 番号バッジを一括で描画 (XSS 対策で name は escape 済みを期待)
+// escFn を渡せば内部でエスケープ、省略時は name をそのまま出力
+window.renderPropertyLabel = function(p, escFn) {
+  if (!p) return "";
+  const name = escFn ? escFn(p.name || "") : (p.name || "");
+  return `${window.renderPropertyNumberBadge(p)}${name}`;
+};
+
 // BBQ などの三値 (true/false/未設定) を記号 ◎ / × / - に変換
 // 許容入力: true/false 真偽値、"true"/"false"/"yes"/"no"/"有"/"無"/"◎"/"×" 文字列、数値
 window.bbqToSymbol = function(val) {

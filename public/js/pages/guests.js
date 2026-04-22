@@ -60,6 +60,7 @@ const GuestsPage = {
           <thead class="table-light">
             <tr>
               <th>チェックイン</th>
+              <th>物件</th>
               <th>代表者氏名</th>
               <th class="d-none d-md-table-cell">国籍</th>
               <th>人数</th>
@@ -69,7 +70,7 @@ const GuestsPage = {
             </tr>
           </thead>
           <tbody id="guestTableBody">
-            <tr><td colspan="7" class="text-center py-4">読み込み中...</td></tr>
+            <tr><td colspan="8" class="text-center py-4">読み込み中...</td></tr>
           </tbody>
         </table>
       </div>
@@ -182,7 +183,7 @@ const GuestsPage = {
 
     if (!filtered.length) {
       tbody.innerHTML = `
-        <tr><td colspan="7">
+        <tr><td colspan="8">
           <div class="empty-state">
             <i class="bi bi-person-vcard"></i>
             <p>宿泊者情報がありません</p>
@@ -191,6 +192,9 @@ const GuestsPage = {
       `;
       return;
     }
+
+    // 物件ID→物件情報マップ (番号バッジ表示用)
+    const propMap = Object.fromEntries((this.properties || []).map(p => [p.id, p]));
 
     tbody.innerHTML = filtered.map(g => {
       const totalGuests = g.guestCount || 0;
@@ -201,9 +205,14 @@ const GuestsPage = {
       const submittedBadge = isSubmitted
         ? `<span class="badge bg-success ms-1" title="ゲストがフォーム提出済み"><i class="bi bi-check-circle-fill"></i> 提出済</span>`
         : `<span class="badge bg-secondary ms-1" title="ゲスト未提出 (手動/インポート)"><i class="bi bi-circle"></i> 未提出</span>`;
+      const prop = propMap[g.propertyId];
+      const propCell = prop
+        ? `${renderPropertyNumberBadge(prop)}<span class="small">${this.escapeHtml(prop.name)}</span>`
+        : (g.propertyName ? `<span class="small text-muted">${this.escapeHtml(g.propertyName)}</span>` : `<span class="text-muted small">-</span>`);
       return `
         <tr data-id="${g.id}" class="guest-row ${g._coMismatch ? "table-warning" : ""}">
           <td>${formatDate(g.checkIn)}${g.checkInTime ? `<br><small class="text-muted">${this.escapeHtml(g.checkInTime)}</small>` : ""}</td>
+          <td>${propCell}</td>
           <td>
             <strong>${this.escapeHtml(g.guestName || "-")}</strong>${submittedBadge}
             ${companionCount > 0 ? `<br><small class="text-muted">他${companionCount}名</small>` : ""}
