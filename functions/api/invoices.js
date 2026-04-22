@@ -52,7 +52,10 @@ function fmtDate(val) {
  * @param {Firestore} db
  * @param {string|null} propertyId
  * @param {Object} client - 既に取得済みの settings/clientInfo (fallback 用)
- * @returns {Promise<{companyName:string, address:string, zipCode:string, name:string, source:string}>}
+ * @returns {Promise<{companyName:string, address:string, zipCode:string, name:string, isPersonal:boolean, source:string}>}
+ *
+ * isPersonal: 法人 (会社名あり) は false、個人名義 (屋号/会社名なし) は true。
+ * PDF 宛先で「御中」/「様」を切替するために使用する。
  */
 async function resolveInvoiceRecipient_(db, propertyId, client) {
   // fallback: settings/clientInfo → 既定 (合同会社八朔)
@@ -61,6 +64,7 @@ async function resolveInvoiceRecipient_(db, propertyId, client) {
     address: client?.address || "広島県安芸郡海田町上市4-23-12",
     zipCode: client?.zipCode || "736-0061",
     name: client?.name || "",
+    isPersonal: !(client?.companyName && client.companyName.trim()),
     source: "settings",
   };
   if (!propertyId) return fallback;
@@ -87,22 +91,26 @@ async function resolveInvoiceRecipient_(db, propertyId, client) {
     }
 
     if (picked) {
+      const hasCompany = !!(picked.companyName && String(picked.companyName).trim());
       return {
         companyName: picked.companyName || s.name || "",
         address: picked.address || "",
         zipCode: picked.zipCode || "",
         name: s.name || "",
+        isPersonal: !hasCompany,
         source: "ownerStaffBillingProfile",
       };
     }
 
     // 3. 旧データ互換: profiles が無い / 選択不能なら staff 直下の旧フィールドを使う
     if (s.companyName || s.address || s.zipCode) {
+      const hasCompanyLegacy = !!(s.companyName && String(s.companyName).trim());
       return {
         companyName: s.companyName || s.name || "",
         address: s.address || "",
         zipCode: s.zipCode || "",
         name: s.name || "",
+        isPersonal: !hasCompanyLegacy,
         source: "ownerStaffLegacy",
       };
     }
@@ -189,7 +197,7 @@ async function renderInvoicePdfBuffer(invoice, staff, client, propertyMap) {
     pdfDoc.text(`〒${client.zipCode || ""}`, leftX, topY);
     pdfDoc.text(client.address || "", leftX, topY + 14);
     setFont(12);
-    pdfDoc.text(`${client.companyName || ""}  御中`, leftX, topY + 28, { underline: true });
+    pdfDoc.text(`${client.companyName || ""}  ${client.isPersonal ? "様" : "御中"}`, leftX, topY + 28, { underline: true });
 
     setFont(9);
     pdfDoc.text(staff.address || staff.memo || "", rightX, topY, { width: 210, align: "right" });
@@ -399,7 +407,7 @@ async function generateInvoicePdf_(db, invoiceId) {
     pdfDoc.text(`〒${client.zipCode || ""}`, leftX, topY);
     pdfDoc.text(client.address || "", leftX, topY + 14);
     setFont(12);
-    pdfDoc.text(`${client.companyName || ""}  御中`, leftX, topY + 28, { underline: true });
+    pdfDoc.text(`${client.companyName || ""}  ${client.isPersonal ? "様" : "御中"}`, leftX, topY + 28, { underline: true });
 
     setFont(9);
     pdfDoc.text(staff.address || staff.memo || "", rightX, topY, { width: 210, align: "right" });
