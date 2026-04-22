@@ -589,7 +589,7 @@ const MyChecklistPage = {
         <li class="nav-item">
           <a class="nav-link ${isActive ? "active" : ""}" href="#" data-area-id="${a.id}"
              style="${isActive
-               ? 'background:#0d6efd;border:1px solid #0d6efd;color:#fff;'
+               ? 'background:#0d6efd !important;border:1px solid #0d6efd !important;color:#fff !important;'
                : `background:${allDone ? '#d1f5d6' : '#f1f3f5'};border:1px solid ${allDone ? '#74c786' : '#ced4da'};color:${allDone ? '#0b5d24' : '#495057'};`}font-weight:600;">
             ${this.escapeHtml(a.name)}
             <span class="badge ${isActive ? 'bg-light text-dark' : (allDone ? 'bg-success' : 'bg-secondary')} ms-1">${done}/${total}</span>
@@ -1074,8 +1074,8 @@ const MyChecklistPage = {
       const allDone = total > 0 && done === total;
       const isActive = n.classList.contains("active");
       if (isActive) {
-        // アクティブタブは Bootstrap の .nav-link.active に依存せず明示的に青を設定
-        n.setAttribute("style", "background:#0d6efd;border:1px solid #0d6efd;color:#fff;font-weight:600;");
+        // アクティブタブは Bootstrap の .nav-link.active に依存せず明示的に青を設定 (!important で上書き確保)
+        n.setAttribute("style", "background:#0d6efd !important;border:1px solid #0d6efd !important;color:#fff !important;font-weight:600;");
       } else {
         n.setAttribute("style", `background:${allDone ? '#d1f5d6' : '#f1f3f5'};border:1px solid ${allDone ? '#74c786' : '#ced4da'};color:${allDone ? '#0b5d24' : '#495057'};font-weight:600;`);
       }
@@ -1247,7 +1247,7 @@ const MyChecklistPage = {
       : `
         <div class="card ${allDone ? 'border-success' : ''}">
           <div class="card-body">
-            <h6 class="card-title"><i class="bi bi-flag-fill text-success"></i> 清掃完了</h6>
+            <div style="background:#fff3cd;color:#664d03;padding:8px 12px;border-radius:6px;margin-bottom:10px;font-weight:600;"><i class="bi bi-flag-fill"></i> 清掃完了</div>
             ${allDone ? `
               <div class="alert alert-success py-2 small mb-2">
                 <i class="bi bi-check-circle"></i> 全項目チェック済み (${done}/${total})。完了処理を行えます。
@@ -2270,7 +2270,7 @@ const MyChecklistPage = {
         const newVal = !cb.checked;
         cb.checked = newVal;
         this.updateItemState(itemId, { checked: newVal });
-        if (newVal) this.playJumperAnimation();
+        // キャラクター演出は削除済み
       });
     });
 
@@ -2281,82 +2281,6 @@ const MyChecklistPage = {
         this.updateItemState(itemId, { needsRestock: cb.checked });
       });
     });
-  },
-
-  // チェック時にドット絵キャラが画面下から飛び出すアニメ(3段ジャンプ→4つめで1段目に戻る)
-  playJumperAnimation() {
-    this._jumpStep = ((this._jumpStep || 0) % 3) + 1; // 1→2→3→1...
-    const step = this._jumpStep;
-    // SVG ドット絵マリオ風キャラ 右向きジャンプポーズ(SMB1 Jumping Small Mario 再現)
-    // 右腕を前上方に突き出し, 左腕を後方に, 両足を曲げた飛行姿勢
-    const svg = `
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="64" height="64" shape-rendering="crispEdges">
-        <g>
-          <!-- 帽子 -->
-          <rect x="5" y="1" width="4" height="1" fill="#d72c00"/>
-          <rect x="4" y="2" width="7" height="1" fill="#d72c00"/>
-          <!-- 顔: 左=髪/後頭部, 右=顔前 -->
-          <rect x="3" y="3" width="2" height="1" fill="#7a3b10"/>
-          <rect x="5" y="3" width="3" height="1" fill="#f7c89a"/>
-          <rect x="8" y="3" width="1" height="1" fill="#d72c00"/>
-          <rect x="3" y="4" width="1" height="1" fill="#7a3b10"/>
-          <rect x="4" y="4" width="1" height="1" fill="#f7c89a"/>
-          <rect x="5" y="4" width="1" height="1" fill="#000000"/>
-          <rect x="6" y="4" width="3" height="1" fill="#f7c89a"/>
-          <rect x="3" y="5" width="2" height="1" fill="#7a3b10"/>
-          <rect x="5" y="5" width="4" height="1" fill="#f7c89a"/>
-          <!-- 口ひげ -->
-          <rect x="4" y="6" width="1" height="1" fill="#7a3b10"/>
-          <rect x="5" y="6" width="1" height="1" fill="#f7c89a"/>
-          <rect x="6" y="6" width="2" height="1" fill="#7a3b10"/>
-          <rect x="8" y="6" width="1" height="1" fill="#f7c89a"/>
-          <!-- 顎下 & 前方に挙げた右腕先端 -->
-          <rect x="4" y="7" width="4" height="1" fill="#f7c89a"/>
-          <rect x="11" y="7" width="1" height="1" fill="#f7c89a"/>
-          <!-- 肩・赤シャツ・右腕(前方やや上) -->
-          <rect x="2" y="8" width="1" height="1" fill="#d72c00"/>
-          <rect x="3" y="8" width="2" height="1" fill="#1f5fd8"/>
-          <rect x="5" y="8" width="4" height="1" fill="#d72c00"/>
-          <rect x="9" y="8" width="2" height="1" fill="#f7c89a"/>
-          <rect x="10" y="8" width="2" height="1" fill="#d72c00"/>
-          <!-- 胸上+オーバーオール紐 -->
-          <rect x="1" y="9" width="1" height="1" fill="#d72c00"/>
-          <rect x="2" y="9" width="1" height="1" fill="#f7c89a"/>
-          <rect x="3" y="9" width="1" height="1" fill="#1f5fd8"/>
-          <rect x="4" y="9" width="1" height="1" fill="#d72c00"/>
-          <rect x="5" y="9" width="1" height="1" fill="#1f5fd8"/>
-          <rect x="6" y="9" width="2" height="1" fill="#f1c40f"/>
-          <rect x="8" y="9" width="1" height="1" fill="#1f5fd8"/>
-          <rect x="9" y="9" width="1" height="1" fill="#d72c00"/>
-          <rect x="10" y="9" width="1" height="1" fill="#d72c00"/>
-          <!-- 胴体(オーバーオール本体) & 左腕後方に伸びる -->
-          <rect x="1" y="10" width="1" height="1" fill="#f7c89a"/>
-          <rect x="2" y="10" width="1" height="1" fill="#f7c89a"/>
-          <rect x="3" y="10" width="1" height="1" fill="#1f5fd8"/>
-          <rect x="4" y="10" width="1" height="1" fill="#d72c00"/>
-          <rect x="5" y="10" width="3" height="1" fill="#1f5fd8"/>
-          <rect x="8" y="10" width="1" height="1" fill="#f1c40f"/>
-          <rect x="9" y="10" width="1" height="1" fill="#1f5fd8"/>
-          <!-- オーバーオール下部 -->
-          <rect x="4" y="11" width="6" height="1" fill="#1f5fd8"/>
-          <rect x="4" y="12" width="6" height="1" fill="#1f5fd8"/>
-          <!-- 両足を曲げた飛行ポーズ -->
-          <rect x="3" y="13" width="3" height="1" fill="#1f5fd8"/>
-          <rect x="7" y="13" width="3" height="1" fill="#1f5fd8"/>
-          <!-- 靴(後ろ足は下, 前足は斜め上) -->
-          <rect x="2" y="14" width="3" height="1" fill="#3b1f00"/>
-          <rect x="8" y="14" width="3" height="1" fill="#3b1f00"/>
-          <rect x="1" y="15" width="3" height="1" fill="#3b1f00"/>
-          <rect x="9" y="15" width="3" height="1" fill="#3b1f00"/>
-        </g>
-      </svg>`;
-    const el = document.createElement("div");
-    el.className = `mcl-jumper jump${step}`;
-    el.innerHTML = svg;
-    document.body.appendChild(el);
-    el.addEventListener("animationend", () => el.remove(), { once: true });
-    // 念のためタイムアウトで確実に除去
-    setTimeout(() => { if (el.isConnected) el.remove(); }, 2000);
   },
 
   async updateItemState(itemId, patch) {
@@ -2776,9 +2700,9 @@ const MyChecklistPage = {
 
     el.innerHTML = `
       <div class="card">
-        <div class="card-header py-2">
+        <div class="card-header py-2" style="background:#fff3cd;color:#664d03;border-color:#ffe69c;">
           <span class="fw-bold"><i class="bi bi-chat-left-text"></i> メモ</span>
-          <span class="badge bg-secondary ms-1">${notes.length}</span>
+          <span class="badge bg-warning text-dark ms-1">${notes.length}</span>
         </div>
         <div class="card-body pb-2">
           ${noteCards || `<div class="text-muted small mb-2">まだメモはありません</div>`}

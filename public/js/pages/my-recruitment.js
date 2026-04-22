@@ -1055,7 +1055,9 @@ const MyRecruitmentPage = {
           }
           if (confirmed) anyConfirmed = true;
 
-          const clickable = (recruit.status === "スタッフ確定済み") ? (isOwner || (isMe && confirmed)) : (isMe || isOwner);
+          // 確定済み: オーナー or 自分の行 (確定されていなくても詳細閲覧は可能) → 常にクリック可能
+          // 募集中/選定済: 自分の行 or オーナー → クリック可能
+          const clickable = isMe || isOwner;
           const clickMode = (recruit.status === "スタッフ確定済み") ? "detail" : "respond";
           if (clickable && !cellClickTarget) {
             cellClickTarget = { recruitId: recruit.id, propId: prop ? prop.id : "", propName: prop ? prop.name : "", clickMode };
