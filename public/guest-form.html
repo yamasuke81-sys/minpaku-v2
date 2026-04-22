@@ -1521,31 +1521,32 @@
     }
 
     // カスタムフィールドを動的生成してアンケートセクションの後ろに挿入
-    function renderCustomFields(fields) {
-      // 既存コンテナがあれば削除（再描画対応）
-      const existing = document.getElementById(CUSTOM_FIELDS_CONTAINER_ID);
-      if (existing) existing.remove();
+    // 1 つのカスタム項目から入力要素 (<div class="mb-3">...) を生成
+    function buildCustomFieldWrap(f) {
+      if (f.hidden === true) return null;
+      const label = (currentLang === "en" && f.labelEn) ? f.labelEn : (f.label || "");
+      const placeholder = (currentLang === "en" && f.placeholderEn) ? f.placeholderEn : (f.placeholder || "");
+      const reqMark = f.required ? '<span class="required-mark">*</span>' : "";
+      const wrap = document.createElement("div");
+      wrap.className = "mb-3";
+      wrap.dataset.customFieldId = f.id;
+      const inputId = "cf_" + f.id;
+      let inputHtml = "";
+      // type 別の入力生成は後段 renderFieldInput に委譲
+      const generated = renderFieldInput(f, inputId, placeholder, label, reqMark);
+      if (generated === null) return null;
+      if (generated.useInnerHTML) {
+        wrap.innerHTML = generated.html;
+      } else {
+        wrap.innerHTML = `<label class="form-label" for="${inputId}">${label} ${reqMark}</label>${generated.html}`;
+      }
+      return wrap;
+    }
 
-      const container = document.createElement("div");
-      container.id = CUSTOM_FIELDS_CONTAINER_ID;
-
-      const t = i18n[currentLang];
-
-      fields.forEach(f => {
-        if (f.hidden === true) return; // hidden フィールドはスキップ
-
-        const label = (currentLang === "en" && f.labelEn) ? f.labelEn : (f.label || "");
-        const placeholder = (currentLang === "en" && f.placeholderEn) ? f.placeholderEn : (f.placeholder || "");
-        const reqMark = f.required ? '<span class="required-mark">*</span>' : "";
-
-        const wrap = document.createElement("div");
-        wrap.className = "mb-3";
-        wrap.dataset.customFieldId = f.id;
-
-        let inputHtml = "";
-        const inputId = "cf_" + f.id;
-
-        switch (f.type) {
+    // type 別の input HTML を返す (checkbox-single は label 内包のため useInnerHTML=true)
+    function renderFieldInput(f, inputId, placeholder, label, reqMark) {
+      let inputHtml = "";
+      switch (f.type) {
           case "text":
           case "tel":
           case "email":
@@ -1588,30 +1589,69 @@
               <label class="form-check-label" for="${inputId}">${label} ${reqMark}</label>
             </div>`;
             // checkbox-single はラベルをチェックボックスに内包するため外側のlabelは不要
-            wrap.innerHTML = inputHtml;
-            container.appendChild(wrap);
-            return;
+            return { html: inputHtml, useInnerHTML: true };
 
           default:
             inputHtml = `<input type="text" class="form-control" id="${inputId}"
               ${f.required ? "required" : ""}
               ${placeholder ? `placeholder="${esc(placeholder)}"` : ""}>`;
         }
+        return { html: inputHtml, useInnerHTML: false };
+    }
 
-        wrap.innerHTML = `<label class="form-label" for="${inputId}">${label} ${reqMark}</label>${inputHtml}`;
-        container.appendChild(wrap);
+    // カスタム項目一覧をセクション別に見出し付きで描画し、フォーム内に挿入する
+    function renderCustomFields(fields) {
+      const existing = document.getElementById(CUSTOM_FIELDS_CONTAINER_ID);
+      if (existing) existing.remove();
+
+      const container = document.createElement("div");
+      container.id = CUSTOM_FIELDS_CONTAINER_ID;
+
+      // セクション表示名 (多言語対応)
+      const SECTION_TITLES = currentLang === "en"
+        ? { representative: "Primary Guest", stay: "Stay Details", guests: "Guest Information",
+            facility: "Facility Usage", survey: "Survey", emergency: "Emergency Contact",
+            other: "Other", agreement: "Agreement" }
+        : { representative: "代表者情報", stay: "宿泊情報", guests: "宿泊者情報",
+            facility: "施設利用情報", survey: "アンケート", emergency: "緊急連絡先",
+            other: "その他", agreement: "同意事項" };
+
+      // セクション別にグループ化
+      const bySection = {};
+      fields.forEach(f => {
+        if (f.hidden === true) return;
+        const sec = f.section || "other";
+        (bySection[sec] = bySection[sec] || []).push(f);
       });
 
-      // アンケートセクション（sec_survey の h6）の後ろに挿入
-      const surveySection = document.getElementById("sec_survey");
-      if (surveySection) {
-        // アンケートセクションの兄弟要素の末尾（緊急連絡先セクションの前）を探す
-        const emergencySection = document.getElementById("sec_emergency");
-        if (emergencySection) {
-          emergencySection.parentNode.insertBefore(container, emergencySection);
-        } else {
-          surveySection.parentNode.appendChild(container);
-        }
+      // 表示順
+      const SECTION_ORDER = ["representative", "stay", "guests", "facility", "survey", "emergency", "other", "agreement"];
+
+      SECTION_ORDER.forEach(secId => {
+        const secFields = bySection[secId];
+        if (!secFields || !secFields.length) return;
+
+        // セクション見出し (h6 + sec_* と同じ見た目)
+        const h6 = document.createElement("h6");
+        h6.className = "section-title custom-section-title";
+        h6.dataset.customSection = secId;
+        h6.textContent = SECTION_TITLES[secId] || secId;
+        container.appendChild(h6);
+
+        // 各項目を描画
+        secFields.forEach(f => {
+          const wrap = buildCustomFieldWrap(f);
+          if (wrap) container.appendChild(wrap);
+        });
+      });
+
+      // 緊急連絡先セクション (sec_emergency) の直前に挿入
+      const emergencySection = document.getElementById("sec_emergency");
+      if (emergencySection) {
+        emergencySection.parentNode.insertBefore(container, emergencySection);
+      } else {
+        const survey = document.getElementById("sec_survey");
+        if (survey && survey.parentNode) survey.parentNode.appendChild(container);
       }
     }
 
