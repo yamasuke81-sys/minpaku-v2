@@ -468,12 +468,22 @@ const MyChecklistPage = {
         if (templateChanged) {
           this.renderTree();
         } else {
-          // 差分更新
+          // 差分更新時は innerHTML 置き換えでスクロール位置がリセットされることが
+          // あるため、前後で window.scrollY を保持・復元する (チェック操作で画面が
+          // 勝手に先頭へ飛ぶのを防止)
+          const prevScrollY = window.scrollY;
+          const mainEl = document.querySelector(".app-main");
+          const prevMainScroll = mainEl ? mainEl.scrollTop : 0;
           this._updateHeaderStatus();
           this._updateTabBadges();
           this.renderActiveArea();
           this.renderPhotoSection();
           this.renderFooter();
+          // レイアウト確定後に復元 (requestAnimationFrame で次フレーム)
+          requestAnimationFrame(() => {
+            window.scrollTo({ top: prevScrollY, behavior: "instant" });
+            if (mainEl) mainEl.scrollTop = prevMainScroll;
+          });
         }
       }, err => {
         console.error("onSnapshot error:", err);
