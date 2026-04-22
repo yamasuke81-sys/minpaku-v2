@@ -160,6 +160,11 @@ const PropertiesPage = {
   async loadProperties() {
     try {
       this.propertyList = await API.properties.list(false);
+      // impersonation 中 (メインオーナーがサブオーナー代理閲覧): 所有物件のみ表示
+      if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
+        const owned = App.impersonatingData.ownedPropertyIds || [];
+        this.propertyList = this.propertyList.filter(p => owned.includes(p.id));
+      }
       // オーナー候補 (isOwner or isSubOwner の staff) を取得
       await this._loadOwnerStaffOptions();
       this.renderCards();

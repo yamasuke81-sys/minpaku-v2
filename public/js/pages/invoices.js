@@ -84,6 +84,22 @@ const InvoicesPage = {
   async loadInvoices() {
     try {
       this.invoices = await API.invoices.list({ yearMonth: this.selectedMonth });
+      // impersonation 中: サブオーナー所有物件に該当する請求書のみ表示
+      if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
+        const owned = new Set(App.impersonatingData.ownedPropertyIds || []);
+        this.invoices = this.invoices.filter(inv => {
+          // トップレベル propertyId
+          if (inv.propertyId && owned.has(inv.propertyId)) return true;
+          // byProperty[*].propertyId
+          const byProp = Array.isArray(inv.byProperty) ? inv.byProperty : [];
+          if (byProp.some(bp => bp && owned.has(bp.propertyId))) return true;
+          // details / items から推定 (後方互換)
+          const details = inv.details || {};
+          const shifts = Array.isArray(details.shifts) ? details.shifts : [];
+          if (shifts.some(s => s && owned.has(s.propertyId))) return true;
+          return false;
+        });
+      }
       this.renderSummary();
       this.renderList();
     } catch (e) {

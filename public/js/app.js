@@ -117,8 +117,18 @@ const App = {
     }
   },
 
+  /** impersonation 中は不要なスタッフ視点ナビを隠す */
+  _applyImpersonateNavVisibility() {
+    const hide = !!(this.impersonating && this.impersonatingData);
+    ["ownerNavMyRecruitment", "ownerNavMyChecklist"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle("d-none", hide);
+    });
+  },
+
   /** 代理閲覧バナーを表示 */
   _showImpersonateBanner(subOwner) {
+    this._applyImpersonateNavVisibility();
     let banner = document.getElementById("impersonateBanner");
     if (!banner) {
       banner = document.createElement("div");

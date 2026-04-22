@@ -420,10 +420,35 @@ const MyRecruitmentPage = {
       db.collection("staff").where("active", "==", true).get(),
     ]);
 
+    // impersonation (メインオーナーがサブオーナー代理閲覧中) の絞り込み
+    // A = 自分(サブオーナー)が owned の物件
+    // X = A のいずれかを担当するスタッフ
+    // B = X が担当している別の物件 (A に含まれない物件も含む)
+    // 表示物件 = A ∪ B、表示スタッフ = X
+    let impersonatedAllowedProps = null;
+    let impersonatedAllowedStaff = null;
+    if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
+      const ownedA = new Set(App.impersonatingData.ownedPropertyIds || []);
+      // 全 active staff から X を抽出
+      const allActiveStaff = (await db.collection("staff").where("active", "==", true).get())
+        .docs.map(d => ({ id: d.id, ...d.data() }));
+      const staffX = allActiveStaff.filter(s => {
+        const assigned = Array.isArray(s.assignedPropertyIds) ? s.assignedPropertyIds : [];
+        return assigned.some(pid => ownedA.has(pid));
+      });
+      impersonatedAllowedStaff = new Set(staffX.map(s => s.id));
+      // B = X が担当している全ての物件 ID の和集合
+      const unionB = new Set(ownedA);
+      staffX.forEach(s => (s.assignedPropertyIds || []).forEach(pid => unionB.add(pid)));
+      impersonatedAllowedProps = unionB;
+    }
+
     // 物件リスト初期化
-    this.minpakuProperties = minpakuProps;
+    this.minpakuProperties = impersonatedAllowedProps
+      ? minpakuProps.filter(p => impersonatedAllowedProps.has(p.id))
+      : minpakuProps;
     this.propertyMap = {};
-    minpakuProps.forEach(p => { this.propertyMap[p.id] = p; });
+    this.minpakuProperties.forEach(p => { this.propertyMap[p.id] = p; });
 
     // 通知既読状態を取得 (ユーザー別 userNotificationStatus/{uid})
     await this._loadReadIds();
@@ -433,12 +458,16 @@ const MyRecruitmentPage = {
 
     // 物件表示フラグ（初回は全部表示、以降は localStorage の値を維持）
     if (!this._propertyVisibility) this._propertyVisibility = {};
-    minpakuProps.forEach(p => {
+    this.minpakuProperties.forEach(p => {
       if (this._propertyVisibility[p.id] === undefined) this._propertyVisibility[p.id] = true;
     });
 
     // スタッフ並び: displayOrder 昇順、オーナー(isOwner=true)は最下部に移動
-    const allStaff = staffSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    let allStaff = staffSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // impersonation: 対象スタッフ X のみに絞り込み
+    if (impersonatedAllowedStaff) {
+      allStaff = allStaff.filter(s => impersonatedAllowedStaff.has(s.id));
+    }
     const nonOwner = allStaff.filter(s => !s.isOwner).sort((a,b) => (a.displayOrder||0) - (b.displayOrder||0));
     const owner = allStaff.filter(s => s.isOwner).sort((a,b) => (a.displayOrder||0) - (b.displayOrder||0));
     this.staffList = [...nonOwner, ...owner];
@@ -468,6 +497,11 @@ const MyRecruitmentPage = {
         const coDate = this._normalizeDate(raw.checkoutDate || raw.checkOutDate || raw.checkOutdate);
         return { id: d.id, ...raw, checkoutDate: coDate };
       }).filter(r => r.checkoutDate);
+      // impersonation: 表示物件セットに含まれるもののみ
+      if (impersonatedAllowedProps) {
+        this._rawRecruitmentsAll = this._rawRecruitmentsAll.filter(r => impersonatedAllowedProps.has(r.propertyId));
+        this.recruitments = this.recruitments.filter(r => impersonatedAllowedProps.has(r.propertyId));
+      }
 
       this._loadedFlags.recruitments = true;
       this._tryRenderCalendar();
@@ -489,6 +523,10 @@ const MyRecruitmentPage = {
         const s = String(b.status || "").toLowerCase();
         return !s.includes("cancel") && b.status !== "キャンセル" && b.status !== "キャンセル済み";
       });
+      // impersonation: 表示物件セットに含まれるもののみ
+      if (impersonatedAllowedProps) {
+        this._rawBookings = this._rawBookings.filter(b => impersonatedAllowedProps.has(b.propertyId));
+      }
       this._mergeBookingSources();
 
       this._loadedFlags.bookings = true;
@@ -532,6 +570,10 @@ const MyRecruitmentPage = {
           bookingSite: g.bookingSite || "", source: g.source || "",
         };
       });
+      // impersonation: 表示物件セットに含まれるもののみ
+      if (impersonatedAllowedProps) {
+        this._rawGuestRegs = this._rawGuestRegs.filter(g => impersonatedAllowedProps.has(g.propertyId));
+      }
 
       // guestMap 構築 (画面表示用)
       this.guestMap = {};

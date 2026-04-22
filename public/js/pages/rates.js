@@ -60,6 +60,11 @@ const RatesPage = {
         API.staff.list(true),
       ]);
       this.properties = minpaku;
+      // impersonation 中: サブオーナー所有物件のみ物件セレクタに表示
+      if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
+        const owned = App.impersonatingData.ownedPropertyIds || [];
+        this.properties = this.properties.filter(p => owned.includes(p.id));
+      }
       this.staffList = staff.sort((a, b) => (a.displayOrder||0) - (b.displayOrder||0));
 
       if (this.properties.length === 0) {

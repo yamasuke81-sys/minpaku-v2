@@ -42,6 +42,18 @@ const MyInvoiceCreatePage = {
     if (this.isOwner) {
       const snap = await db.collection("staff").orderBy("displayOrder", "asc").get();
       this.staffOptions = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(s => s.name);
+      // impersonation 中: サブオーナーが担当する物件の担当スタッフのみ表示
+      if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
+        const ownedA = new Set(App.impersonatingData.ownedPropertyIds || []);
+        this.staffOptions = this.staffOptions.filter(s => {
+          const assigned = Array.isArray(s.assignedPropertyIds) ? s.assignedPropertyIds : [];
+          return assigned.some(pid => ownedA.has(pid));
+        });
+        // 現在の staffId が候補外ならリセット
+        if (this.staffId && !this.staffOptions.find(s => s.id === this.staffId)) {
+          this.staffId = null;
+        }
+      }
       if (!this.staffId && this.staffOptions.length) this.staffId = this.staffOptions[0].id;
       const opts = this.staffOptions.map(s =>
         `<option value="${s.id}" ${s.id === this.staffId ? "selected" : ""}>${s.name}${s.active === false ? " (無効)" : ""}</option>`
@@ -257,7 +269,12 @@ const MyInvoiceCreatePage = {
       }
     }
     const assigned = Array.isArray(this.staffDoc?.assignedPropertyIds) ? this.staffDoc.assignedPropertyIds : [];
-    const targetIds = assigned.filter(id => this.propertyMap[id]);
+    let targetIds = assigned.filter(id => this.propertyMap[id]);
+    // impersonation 中: サブオーナー所有物件のみに絞り込み
+    if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
+      const ownedA = new Set(App.impersonatingData.ownedPropertyIds || []);
+      targetIds = targetIds.filter(id => ownedA.has(id));
+    }
     const opts = [`<option value="">物件を選択</option>`].concat(
       targetIds.map(id => {
         const p = this.propertyMap[id];
@@ -878,6 +895,18 @@ const MyInvoiceCreatePage = {
       // オーナーモードで staffId 絞り込み
       if (this.isOwner && this.staffId) {
         invoices = invoices.filter(inv => inv.staffId === this.staffId);
+      }
+      // impersonation 中: サブオーナー所有物件が対象の請求書のみ
+      if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
+        const ownedA = new Set(App.impersonatingData.ownedPropertyIds || []);
+        invoices = invoices.filter(inv => {
+          if (inv.propertyId && ownedA.has(inv.propertyId)) return true;
+          const byProp = Array.isArray(inv.byProperty) ? inv.byProperty : [];
+          if (byProp.some(bp => bp && ownedA.has(bp.propertyId))) return true;
+          const shifts = Array.isArray(inv.details?.shifts) ? inv.details.shifts : [];
+          if (shifts.some(s => s && ownedA.has(s.propertyId))) return true;
+          return false;
+        });
       }
       if (!invoices.length) {
         listEl.innerHTML = `<div class="text-muted small">過去の請求書はまだありません。</div>`;

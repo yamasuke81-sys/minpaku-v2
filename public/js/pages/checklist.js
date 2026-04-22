@@ -118,6 +118,11 @@ const ChecklistPage = {
         db.collection("checklists").get(),
       ]);
       this.properties = props || [];
+      // impersonation 中: サブオーナー所有物件のみに絞り込み (マスタ編集+履歴一覧ともに)
+      if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
+        const owned = App.impersonatingData.ownedPropertyIds || [];
+        this.properties = this.properties.filter(p => owned.includes(p.id));
+      }
       this.templates = {};
       tmplSnap.docs.forEach(d => { this.templates[d.id] = d.data(); });
 
