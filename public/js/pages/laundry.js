@@ -48,7 +48,7 @@ const LaundryPage = {
       </div>
 
       <!-- 物件フィルタ -->
-      <div id="propertyFilterHost-laundry"></div>
+      <div id="propEyeFilterHost-laundry"></div>
 
       <div class="d-flex align-items-center gap-2 mb-3">
         <button class="btn btn-sm btn-outline-secondary" id="laundryPrevMonth"><i class="bi bi-chevron-left"></i></button>
@@ -148,12 +148,12 @@ const LaundryPage = {
     await this.loadData();
 
     // 物件フィルタ初期化 (loadData後に propertyList が揃っているので後ろで初期化)
-    PropertyFilter.render({
-      containerId: "propertyFilterHost-laundry",
+    this._propEyeCtrl = PropertyEyeFilter.render({
+      containerId: "propEyeFilterHost-laundry",
       tabKey: "laundry",
       properties: this.propertyList,
-      onChange: (ids) => {
-        this.selectedPropertyIds = ids;
+      onChange: (visibleIds) => {
+        this.selectedPropertyIds = visibleIds;
         this.renderSummary();
         this.renderBreakdowns();
         this.renderTable();
@@ -340,7 +340,7 @@ const LaundryPage = {
       this.propertyList = propertyList;
       // フィルタ未設定の場合は全物件ONで初期化
       if (!this.selectedPropertyIds || this.selectedPropertyIds.length === 0) {
-        this.selectedPropertyIds = PropertyFilter.getSelectedIds("laundry", propertyList);
+        this.selectedPropertyIds = propertyList.map(p => p.id);
       }
       this.renderSummary();
       this.renderBreakdowns();

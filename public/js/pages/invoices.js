@@ -26,7 +26,7 @@ const InvoicesPage = {
       </div>
 
       <!-- 物件フィルタ -->
-      <div id="propertyFilterHost-invoices"></div>
+      <div id="propEyeFilterHost-invoices"></div>
 
       <!-- サマリーカード -->
       <div class="row g-3 mb-3" id="invoiceSummary"></div>
@@ -61,15 +61,15 @@ const InvoicesPage = {
       ]);
       this.staffList = staffList;
       this.properties = properties;
-      this.selectedPropertyIds = PropertyFilter.getSelectedIds("invoices", properties);
+      this.selectedPropertyIds = properties.map(p => p.id);
 
-      // 物件フィルタ描画
-      PropertyFilter.render({
-        containerId: "propertyFilterHost-invoices",
+      // 物件フィルタ描画 (目アイコン型で統一)
+      this._propEyeCtrl = PropertyEyeFilter.render({
+        containerId: "propEyeFilterHost-invoices",
         tabKey: "invoices",
         properties: properties,
-        onChange: (ids) => {
-          this.selectedPropertyIds = ids;
+        onChange: (visibleIds) => {
+          this.selectedPropertyIds = visibleIds;
           this.renderSummary();
           this.renderList();
         },

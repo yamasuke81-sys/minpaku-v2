@@ -31,7 +31,7 @@ const StaffPage = {
       </div>
 
       <!-- 物件フィルタ -->
-      <div id="propertyFilterHost-staff"></div>
+      <div id="propEyeFilterHost-staff"></div>
 
       <div class="table-responsive">
         <table class="table table-hover align-middle mb-0" id="staffTable">
@@ -79,15 +79,15 @@ const StaffPage = {
       this.properties = minpaku;
       this._propMap = {};
       minpaku.forEach(p => { this._propMap[p.id] = p; });
-      this.selectedPropertyIds = PropertyFilter.getSelectedIds("staff", minpaku);
+      this.selectedPropertyIds = minpaku.map(p => p.id);
 
-      // 物件フィルタ描画
-      PropertyFilter.render({
-        containerId: "propertyFilterHost-staff",
+      // 物件フィルタ描画 (目アイコン型で統一)
+      this._propEyeCtrl = PropertyEyeFilter.render({
+        containerId: "propEyeFilterHost-staff",
         tabKey: "staff",
         properties: minpaku,
-        onChange: (ids) => {
-          this.selectedPropertyIds = ids;
+        onChange: (visibleIds) => {
+          this.selectedPropertyIds = visibleIds;
           this.renderTable();
         },
       });

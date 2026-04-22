@@ -25,6 +25,9 @@ const ReportsPage = {
         </a>
       </div>
 
+      <!-- 物件フィルタ (目アイコン型) — 現状は UI のみ。集計は全物件を対象 -->
+      <div id="propEyeFilterHost-reports"></div>
+
       <!-- 期限リマインダー -->
       <div id="reportReminder" class="d-none"></div>
 
@@ -78,6 +81,19 @@ const ReportsPage = {
     this.bindEvents();
     await this.loadTodokideNumber();
     await this.loadPeriods();
+
+    // 物件フィルタ (目アイコン型で UI 統一) — 現行 aggregate API は全物件集計のため
+    // 実際の絞り込みには未使用。API 側で propertyId 対応後に有効化予定
+    try {
+      const props = (API.properties && typeof API.properties.listMinpakuNumbered === "function")
+        ? await API.properties.listMinpakuNumbered() : [];
+      PropertyEyeFilter.render({
+        containerId: "propEyeFilterHost-reports",
+        tabKey: "reports",
+        properties: props,
+        onChange: () => {}, // 現状は再描画不要
+      });
+    } catch (_) {}
   },
 
   bindEvents() {

@@ -29,7 +29,7 @@ const GuestsPage = {
       </div>
 
       <!-- 物件フィルタ -->
-      <div id="propertyFilterHost-guests"></div>
+      <div id="propEyeFilterHost-guests"></div>
 
       <!-- 検索・フィルタ -->
       <div class="row g-2 mb-3">
@@ -81,13 +81,13 @@ const GuestsPage = {
 
     // 物件フィルタ初期化
     this.properties = await API.properties.listMinpakuNumbered();
-    this.selectedPropertyIds = PropertyFilter.getSelectedIds("guests", this.properties);
-    PropertyFilter.render({
-      containerId: "propertyFilterHost-guests",
+    this.selectedPropertyIds = this.properties.map(p => p.id);
+    this._propEyeCtrl = PropertyEyeFilter.render({
+      containerId: "propEyeFilterHost-guests",
       tabKey: "guests",
       properties: this.properties,
-      onChange: (ids) => {
-        this.selectedPropertyIds = ids;
+      onChange: (visibleIds) => {
+        this.selectedPropertyIds = visibleIds;
         this.loadGuests();
       },
     });

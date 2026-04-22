@@ -474,6 +474,8 @@ const CleaningFlowPage = {
           <li class="nav-item"><a class="nav-link" href="#" data-lane="branch">🔴 分岐</a></li>
         </ul>
       </div>
+      <!-- 物件フィルタ (目アイコン型) -->
+      <div id="propEyeFilterHost-cleaningFlow"></div>
       <!-- 物件セレクタ (スイムレーン用) -->
       <div id="cfPropertySelector" class="mb-3"></div>
       <!-- メインスイムレーン -->
@@ -517,6 +519,19 @@ const CleaningFlowPage = {
       console.warn("notifications 取得失敗:", e.message);
       this.notifChannels = {};
     }
+
+    // 物件フィルタ (目アイコン型で統一)
+    this.selectedPropertyIds = this.properties.map(p => p.id);
+    this._propEyeCtrl = PropertyEyeFilter.render({
+      containerId: "propEyeFilterHost-cleaningFlow",
+      tabKey: "cleaningFlow",
+      properties: this.properties,
+      onChange: (visibleIds) => {
+        this.selectedPropertyIds = visibleIds;
+        this._renderPropertySelector();
+        this._renderSwimLane();
+      },
+    });
 
     this._renderPropertySelector();
     this._renderSwimLane();

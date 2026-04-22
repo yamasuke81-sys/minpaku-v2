@@ -660,6 +660,8 @@ const ReservationFlowPage = {
         各カードを展開すると通知設定（文言・タイミング・送信先）を直接編集できます。
       </p>
       ${this._renderStyles()}
+      <!-- 物件フィルタ (目アイコン型) -->
+      <div id="propEyeFilterHost-reservationFlow"></div>
       <!-- 物件セレクタ (1物件フォーカス) -->
       <div id="rfPropertySelector" class="mb-2"></div>
       <!-- モバイルタブ -->
@@ -713,6 +715,19 @@ const ReservationFlowPage = {
       console.warn("notifications 取得失敗:", e.message);
       this.notifChannels = {};
     }
+
+    // 物件フィルタ (目アイコン型で統一)
+    this.selectedPropertyIds = this.properties.map(p => p.id);
+    this._propEyeCtrl = PropertyEyeFilter.render({
+      containerId: "propEyeFilterHost-reservationFlow",
+      tabKey: "reservationFlow",
+      properties: this.properties,
+      onChange: (visibleIds) => {
+        this.selectedPropertyIds = visibleIds;
+        this._renderPropertySelector();
+        this._renderSwimLane();
+      },
+    });
 
     this._renderPropertySelector();
     this._renderSwimLane();

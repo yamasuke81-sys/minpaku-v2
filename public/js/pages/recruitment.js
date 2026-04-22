@@ -22,7 +22,7 @@ const RecruitmentPage = {
       </div>
 
       <!-- 物件フィルタ -->
-      <div id="propertyFilterHost-recruitment"></div>
+      <div id="propEyeFilterHost-recruitment"></div>
 
       <!-- ステータスフィルター + 日付ソート -->
       <div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
@@ -60,12 +60,12 @@ const RecruitmentPage = {
     await this.loadData();
 
     // 物件フィルタ初期化 (loadData後に物件一覧が揃っているので後ろで初期化)
-    PropertyFilter.render({
-      containerId: "propertyFilterHost-recruitment",
+    this._propEyeCtrl = PropertyEyeFilter.render({
+      containerId: "propEyeFilterHost-recruitment",
       tabKey: "recruitment",
       properties: this.properties,
-      onChange: (ids) => {
-        this.selectedPropertyIds = ids;
+      onChange: (visibleIds) => {
+        this.selectedPropertyIds = visibleIds;
         this.renderList();
       },
     });
@@ -143,7 +143,10 @@ const RecruitmentPage = {
       this.recruitments = recruitments;
       this.staffList = staff;
       this.properties = properties;
-      this.selectedPropertyIds = PropertyFilter.getSelectedIds("recruitment", properties);
+      // 初期値は全表示 (目アイコンフィルタの onChange で上書きされる)
+      if (!this.selectedPropertyIds || this.selectedPropertyIds.length === 0) {
+        this.selectedPropertyIds = properties.map(p => p.id);
+      }
       this.renderList();
     } catch (e) {
       showToast("エラー", `データ読み込み失敗: ${e.message}`, "error");

@@ -66,13 +66,9 @@ const PrepaidCardsPage = {
         </div>
       </div>` : ''}
 
+      <!-- 物件フィルタ (目アイコン型) -->
+      <div id="propEyeFilterHost-prepaidCards"></div>
       <div class="row g-2 align-items-end mb-3">
-        <div class="col-md-4">
-          <label class="form-label small mb-1">物件フィルタ</label>
-          <select class="form-select form-select-sm" id="prepaidPropertyFilter">
-            <option value="">-- すべての物件 --</option>
-          </select>
-        </div>
         <div class="col-md-4">
           <div class="form-check form-switch">
             <input class="form-check-input" type="checkbox" id="showUsedCards">
@@ -154,7 +150,6 @@ const PrepaidCardsPage = {
       document.getElementById("btnSaveChargeRules")?.addEventListener("click", () => this.saveChargeRules());
     }
     document.getElementById("showUsedCards").addEventListener("change", () => this.renderList());
-    document.getElementById("prepaidPropertyFilter").addEventListener("change", () => this.renderList());
     await this.load();
   },
 
@@ -196,10 +191,17 @@ const PrepaidCardsPage = {
       } catch (_) { this.staffList = []; }
     }
 
-    // 物件フィルタセレクトを構築
-    const sel = document.getElementById("prepaidPropertyFilter");
-    sel.innerHTML = `<option value="">-- すべての物件 --</option>` +
-      this.properties.map(p => `<option value="${p.id}">${this._esc(p.name)}</option>`).join("");
+    // 物件フィルタ (目アイコン型で統一)
+    this._visiblePropIds = this.properties.map(p => p.id);
+    this._propEyeCtrl = PropertyEyeFilter.render({
+      containerId: "propEyeFilterHost-prepaidCards",
+      tabKey: "prepaidCards",
+      properties: this.properties,
+      onChange: (visibleIds) => {
+        this._visiblePropIds = visibleIds;
+        this.renderList();
+      },
+    });
 
     this.renderChargeRules();
     this.renderList();
@@ -305,7 +307,7 @@ const PrepaidCardsPage = {
 
   _filteredCards() {
     const showUsed = document.getElementById("showUsedCards")?.checked || false;
-    const propertyFilter = document.getElementById("prepaidPropertyFilter")?.value || "";
+    const visibleSet = new Set(this._visiblePropIds || this.properties.map(p => p.id));
     return this.cards
       .map((c, _idx) => ({ c, _idx }))
       .filter(({ c }) => showUsed || (Number(c.balance) || 0) > 0)
@@ -317,7 +319,12 @@ const PrepaidCardsPage = {
         }
         return true;
       })
-      .filter(({ c }) => !propertyFilter || (c.propertyIds || []).includes(propertyFilter))
+      .filter(({ c }) => {
+        // propertyIds が空のカードは常に表示、それ以外は可視物件と交差するもののみ
+        const pids = c.propertyIds || [];
+        if (pids.length === 0) return true;
+        return pids.some(pid => visibleSet.has(pid));
+      })
       .sort((a, b) => {
         // 紐付け提出先 → カード番号
         const ao = this.depots.findIndex(d => (d.id || d.name) === a.c.depotId);
