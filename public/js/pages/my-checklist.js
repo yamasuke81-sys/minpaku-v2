@@ -583,35 +583,36 @@ const MyChecklistPage = {
 
     // 上位タブ定義
     const topTabs = [
-      { id: "schedule", icon: "bi-calendar-event",     label: "次回予約情報" },
-      { id: "checklist", icon: "bi-clipboard-check",  label: "清掃チェックリスト" },
-      { id: "photos",    icon: "bi-camera",            label: "写真撮影" },
-      { id: "laundry",   icon: "bi-basket3",           label: "ランドリー" },
-      { id: "restock",   icon: "bi-exclamation-triangle", label: "要補充リスト" },
+      { id: "schedule",  icon: "bi-calendar-event",  label: "次回予約情報" },
+      { id: "checklist", icon: "bi-check2-square",   label: "清掃チェックリスト" },
+      { id: "photos",    icon: "bi-camera",           label: "写真撮影" },
+      { id: "laundry",   icon: "bi-basket3",          label: "ランドリー" },
+      { id: "restock",   icon: "bi-box-seam",         label: "要補充リスト" },
     ];
+    // アイコン大型タブ (等幅・アイコンのみ)
+    const inactiveStyle = "flex:1;background:#fff;border:1px solid #dee2e6;color:#6c757d;padding:14px 0;border-radius:8px;font-size:28px;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s,border-color .15s;position:relative;";
+    const activeStyle   = "flex:1;background:#2c3e50;border:1px solid #2c3e50;color:#fff;padding:14px 0;border-radius:8px;font-size:28px;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s,border-color .15s;position:relative;";
     const topTabsHtml = topTabs.map(t => {
       const isActive = t.id === this.activeTopTab;
       let badge = "";
       if (t.id === "restock" && restockCount > 0) {
-        badge = `<span class="badge bg-warning text-dark ms-1">${restockCount}</span>`;
+        badge = `<span class="badge bg-warning text-dark" style="position:absolute;top:4px;right:4px;font-size:10px;">${restockCount}</span>`;
       }
       if (t.id === "checklist") {
-        badge = `<span class="badge ${isActive ? 'bg-light text-dark' : 'bg-secondary'} ms-1">${doneItems}/${totalItems}</span>`;
+        const badgeBg = isActive ? "bg-light text-dark" : "bg-secondary";
+        badge = `<span class="badge ${badgeBg}" style="position:absolute;top:4px;right:4px;font-size:10px;">${doneItems}/${totalItems}</span>`;
       }
-      return `
-        <li class="nav-item">
-          <a class="nav-link mcl-top-tab ${isActive ? "active" : ""}" href="#" data-top-tab="${t.id}"
-             style="${isActive ? 'font-weight:600;' : 'background:#f1f3f5;border:1px solid #ced4da;color:#495057;font-weight:600;'}">
-            <i class="bi ${t.icon}"></i> ${t.label}${badge}
-          </a>
-        </li>`;
+      return `<button type="button" class="mcl-top-tab" data-top-tab="${t.id}"
+        title="${t.label}" style="${isActive ? activeStyle : inactiveStyle}">
+        <i class="bi ${t.icon}"></i>${badge}
+      </button>`;
     }).join("");
 
     body.innerHTML = `
-      <div class="mcl-tabs-wrap" style="background:#fff;border-bottom:1px solid #dee2e6;padding:4px 4px;">
-        <ul class="nav nav-pills flex-nowrap overflow-auto mb-0" style="white-space:nowrap;gap:6px;">
+      <div class="mcl-tabs-wrap" style="background:#fff;border-bottom:1px solid #dee2e6;padding:8px 8px 0;">
+        <div style="display:flex;gap:6px;">
           ${topTabsHtml}
-        </ul>
+        </div>
       </div>
       <div class="mcl-area-tabs-wrap" style="background:#f8f9fa;border-bottom:1px solid #dee2e6;padding:4px 4px;${this.activeTopTab === 'checklist' ? '' : 'display:none;'}">
         <ul class="nav nav-pills flex-nowrap overflow-auto mb-0" style="white-space:nowrap;gap:8px;">
@@ -663,22 +664,22 @@ const MyChecklistPage = {
     const doneItems = this.countDone(areas, c?.itemStates || {});
     const restockCount = this._countRestockItems(areas, c?.itemStates || {});
 
+    const inactiveTabStyle = "flex:1;background:#fff;border:1px solid #dee2e6;color:#6c757d;padding:14px 0;border-radius:8px;font-size:28px;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s,border-color .15s;position:relative;";
+    const activeTabStyle   = "flex:1;background:#2c3e50;border:1px solid #2c3e50;color:#fff;padding:14px 0;border-radius:8px;font-size:28px;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s,border-color .15s;position:relative;";
     body.querySelectorAll(".mcl-top-tab").forEach(n => {
       const tid = n.dataset.topTab;
       const isActive = tid === this.activeTopTab;
-      n.classList.toggle("active", isActive);
-      n.setAttribute("style", isActive
-        ? "font-weight:600;"
-        : "background:#f1f3f5;border:1px solid #ced4da;color:#495057;font-weight:600;");
+      n.setAttribute("style", isActive ? activeTabStyle : inactiveTabStyle);
       // バッジ更新
       let badge = n.querySelector(".badge");
       if (tid === "restock") {
         if (!badge) {
           badge = document.createElement("span");
+          badge.style.cssText = "position:absolute;top:4px;right:4px;font-size:10px;";
           n.appendChild(badge);
         }
         if (restockCount > 0) {
-          badge.className = "badge bg-warning text-dark ms-1";
+          badge.className = "badge bg-warning text-dark";
           badge.textContent = restockCount;
           badge.style.display = "";
         } else {
@@ -687,9 +688,10 @@ const MyChecklistPage = {
       } else if (tid === "checklist") {
         if (!badge) {
           badge = document.createElement("span");
+          badge.style.cssText = "position:absolute;top:4px;right:4px;font-size:10px;";
           n.appendChild(badge);
         }
-        badge.className = `badge ${isActive ? 'bg-light text-dark' : 'bg-secondary'} ms-1`;
+        badge.className = `badge ${isActive ? 'bg-light text-dark' : 'bg-secondary'}`;
         badge.textContent = `${doneItems}/${totalItems}`;
       }
     });
@@ -1111,17 +1113,7 @@ const MyChecklistPage = {
     window.addEventListener("resize", applyLayout, { passive: true });
     requestAnimationFrame(applyLayout);
 
-    // 上位タブクリック時にそのタブを左端へスクロール
-    const topList = topWrap.querySelector(".nav-pills");
-    if (topList) {
-      topWrap.querySelectorAll(".mcl-top-tab").forEach(el => {
-        el.addEventListener("click", () => {
-          setTimeout(() => {
-            topList.scrollTo({ left: Math.max(0, el.offsetLeft - 4), behavior: "smooth" });
-          }, 0);
-        });
-      });
-    }
+    // アイコン大型タブは等幅・横スクロール不要のためスクロール処理なし
     // 大カテゴリタブクリック時にそのタブを左端へスクロール
     if (areaWrap) {
       const areaList = areaWrap.querySelector(".nav-pills");
