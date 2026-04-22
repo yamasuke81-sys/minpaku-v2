@@ -1229,75 +1229,15 @@ const GuestsPage = {
   // ================================================================
 
   /**
-   * 標準項目とカスタム項目を1つのリストとして描画する。
-   * - 標準項目 (core:true): STANDARD_FORM_FIELDS から生成、鍵アイコン表示
-   * - カスタム項目: this.formFields から生成（既存）
-   * 並び順は標準→カスタムの順にセクション別で表示。
-   * sortOrder オーバーライドは Phase 2 で対応予定。
+   * 物件ごとに完全に独立したフォーム定義 (customFormFields) を描画する。
+   * - マスタ (STANDARD_FORM_FIELDS) は初期化時のコピー元としてのみ使用
+   * - 編集画面ではマスタ併記はせず、customFormFields のみ表示
+   * - 過去実装で追加された f.core フラグ付き項目もそのまま1つの項目として表示
    */
   renderUnifiedFormFields() {
-    const container = document.getElementById("formFieldList");
-    if (!container) return;
-
-    // STANDARD_FORM_FIELDS が読み込まれていない場合は既存 renderFormFields にフォールバック
-    const stdFields = (typeof STANDARD_FORM_FIELDS !== "undefined") ? STANDARD_FORM_FIELDS : null;
-    if (!stdFields) {
-      this.renderFormFields();
-      return;
-    }
-
-    const overrides = this._formFieldOverrides || {};
-
-    // セクション別にまとめる（標準→カスタムの順）
-    const sectionOrder = this.DEFAULT_SECTIONS.map(s => s.id);
-    let html = "";
-    let lastSection = "";
-
-    // 全項目リストを構築: 標準項目を先に、その後カスタム項目
-    const allItems = [];
-
-    // 標準項目
-    stdFields.forEach(f => {
-      allItems.push({ kind: "standard", field: f });
-    });
-
-    // カスタム項目（this.formFields から、core:true でないもの）
-    this.formFields.forEach((f, i) => {
-      if (f.core) return; // 標準項目は除外
-      allItems.push({ kind: "custom", field: f, idx: i });
-    });
-
-    // セクション順でソート
-    allItems.sort((a, b) => {
-      const aOrder = sectionOrder.indexOf(a.field.section);
-      const bOrder = sectionOrder.indexOf(b.field.section);
-      if (aOrder !== bOrder) return aOrder - bOrder;
-      // 同セクション内では standard → custom の順
-      if (a.kind !== b.kind) return a.kind === "standard" ? -1 : 1;
-      return 0;
-    });
-
-    if (allItems.length === 0) {
-      container.innerHTML = '<div class="text-center text-muted py-3">項目がありません。</div>';
-      return;
-    }
-
-    allItems.forEach((item) => {
-      const secId = item.field.section;
-      if (secId !== lastSection) {
-        lastSection = secId;
-        html += `<div class="ff-section-sep"><i class="bi bi-folder2-open"></i> ${this.esc(this.getSectionLabel(secId))}</div>`;
-      }
-
-      if (item.kind === "standard") {
-        html += this._renderStandardFieldCard(item.field);
-      } else {
-        html += this._renderCustomFieldCard(item.field, item.idx);
-      }
-    });
-
-    container.innerHTML = html;
-    this.bindUnifiedCardEvents(container);
+    // 物件ごとに独立したフォーム定義にする方針のため、標準項目の併記描画は廃止。
+    // 従来の renderFormFields (customFormFields のみ描画) に委譲する。
+    this.renderFormFields();
   },
 
   /**
