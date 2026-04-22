@@ -967,20 +967,6 @@ const DashboardPage = {
       }
     }
 
-    // 次の予約情報（同じ物件のCI >= 現在のCO）
-    let nextBookingHtml = "";
-    if (co) {
-      const nextBooking = bookings.find(nb =>
-        nb.id !== b.id && this.toDateStr(nb.checkIn) === co
-      );
-      if (nextBooking) {
-        nextBookingHtml = `
-          <div class="alert alert-info py-2 mt-2 small">
-            <strong>次の予約:</strong> ${this.esc(nextBooking.guestName || "-")} / CI: ${this.esc(this.toDateStr(nextBooking.checkIn))} / ${nextBooking.guestCount || "?"}名
-          </div>`;
-      }
-    }
-
     // 照合メール情報 (オーナー限定 + viewMode=staff では更に非表示)
     // クリックでモーダルを閉じ、アプリ内「メール照合」画面の該当行にフォーカス遷移
     const isOwnerView = (typeof Auth !== "undefined") && Auth?.isOwner?.();
@@ -1078,48 +1064,7 @@ const DashboardPage = {
         </a>`).join("")}
       </div>` : "";
 
-    // 次の予約情報: 同物件の CO 日以降の未来予約のうち最も近い 1 件 (連泊つなぎだけでなく離れた将来も対象)
-    let nextBookingBlock = "";
-    if (co) {
-      const nextBooking = bookings
-        .filter(nb => {
-          if (nb.id === b.id) return false;
-          if (nb.propertyId !== b.propertyId) return false;
-          const s = String(nb.status || "").toLowerCase();
-          if (s.includes("cancel") || nb.status === "キャンセル" || nb.status === "キャンセル済み") return false;
-          const nbCi = this.toDateStr(nb.checkIn);
-          return nbCi && nbCi >= co;
-        })
-        .sort((a, c) => {
-          const aCi = this.toDateStr(a.checkIn) || "";
-          const cCi = this.toDateStr(c.checkIn) || "";
-          return aCi < cCi ? -1 : aCi > cCi ? 1 : 0;
-        })[0];
-      if (nextBooking) {
-        const nk1 = nextBooking.propertyId && nextBooking.checkIn ? `${nextBooking.propertyId}_${this.toDateStr(nextBooking.checkIn)}` : null;
-        const nextGuest = (nk1 && guestMap[nk1]) || guestMap[this.toDateStr(nextBooking.checkIn)] || {};
-        nextBookingBlock = `
-          <hr>
-          <h6 class="mb-2"><i class="bi bi-arrow-right-circle"></i> 次の予約</h6>
-          <table class="table table-sm table-borderless mb-0">
-            ${isStaffView ? "" : `<tr><th width="110" class="text-muted">ゲスト名</th><td>${v(nextBooking.guestName)}</td></tr>`}
-            <tr><th width="110" class="text-muted">チェックイン</th><td>${vd(this.toDateStr(nextBooking.checkIn))} <strong>${this.esc(nextGuest.checkInTime || "--:--")}</strong></td></tr>
-            <tr><th class="text-muted">宿泊人数</th><td>${nextBooking.guestCount ? this.esc(String(nextBooking.guestCount)) + "名" : "-"}</td></tr>
-            <tr><th class="text-muted">BBQ</th><td>${vb(nextGuest.bbq)}</td></tr>
-            <tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${v(nextGuest.bedChoice)}</td></tr>
-            <tr><th class="text-muted">交通手段</th><td>${v(nextGuest.transport)}</td></tr>
-            <tr><th class="text-muted">車台数</th><td>${nextGuest.carCount ? this.esc(String(nextGuest.carCount)) + "台" : "-"}</td></tr>
-            <tr><th class="text-muted">有料駐車場</th><td>${v(nextGuest.paidParking)}</td></tr>
-          </table>`;
-      } else {
-        nextBookingBlock = `
-          <hr>
-          <h6 class="mb-2"><i class="bi bi-arrow-right-circle"></i> 次の予約</h6>
-          <div class="text-muted small">予約なし</div>`;
-      }
-    }
-    // 既存 nextBookingHtml は使わない (新 nextBookingBlock に統合)
-    nextBookingHtml = "";
+    // nextBookingBlock は募集詳細モーダルに移植したため予約詳細モーダルでは表示しない
 
     // 物件名バッジ: b.propertyName → 未設定なら propertyMap 系から逆引き、それも無ければ空
     const propNameForTitle =
@@ -1212,7 +1157,6 @@ const DashboardPage = {
         ${cleaningHtml}
         ${recruit ? `<button class="btn btn-sm btn-outline-primary ms-2" id="calBtnOpenRecruit"><i class="bi bi-megaphone"></i> 募集詳細</button>` : ""}
       </div>
-      ${nextBookingBlock}
       ${(() => {
         // 手動予約の削除ボタン (オーナー視点のみ)
         const isManualBk = b.manualOverride === true || /manual/i.test(String(b.source || ""));

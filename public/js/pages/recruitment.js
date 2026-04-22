@@ -406,6 +406,8 @@ const RecruitmentPage = {
     this.renderMyResponseArea(r);
     // A5: 右カラムのチェックリスト (読み取り専用) を描画
     this.renderChecklistSidebar(r);
+    // 次の予約セクションを非同期描画
+    this._renderNextBookingArea(r);
 
     this.detailModal.show();
   },
@@ -660,6 +662,107 @@ const RecruitmentPage = {
       console.warn("チェックリストボタン設定エラー:", e);
       btn.disabled = true;
       btn.title = "読み込みエラー";
+    }
+  },
+
+  // 募集詳細モーダルに「次の予約」セクションを描画
+  // 同物件の CI が checkoutDate 以降で最も近い 1 件を表示
+  async _renderNextBookingArea(recruitment) {
+    const el = document.getElementById("detailNextBookingArea");
+    if (!el) return;
+    el.innerHTML = "";
+
+    const isStaffView = this._viewMode === "staff";
+    const r = recruitment;
+    const coStr = r.checkoutDate || "";
+
+    // Timestamp/Date/文字列を YYYY-MM-DD に正規化するヘルパ
+    const toDateStr = (v) => {
+      if (!v) return "";
+      if (typeof v === "string") return v.length >= 10 ? v.slice(0, 10) : v;
+      const d = v.toDate ? v.toDate() : (v instanceof Date ? v : new Date(v));
+      if (isNaN(d.getTime())) return "";
+      const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+      return jst.toISOString().slice(0, 10);
+    };
+
+    try {
+      const [bkSnap, grSnap] = await Promise.all([
+        db.collection("bookings").where("propertyId", "==", r.propertyId).get(),
+        db.collection("guestRegistrations").where("propertyId", "==", r.propertyId).limit(60).get(),
+      ]);
+
+      // 同物件 × 異なる bookingId × キャンセル除外 × CI >= checkoutDate で昇順先頭
+      const allBookings = bkSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const nextBooking = allBookings
+        .filter(nb => {
+          if (nb.id === r.bookingId) return false;
+          const s = String(nb.status || "").toLowerCase();
+          if (s.includes("cancel") || nb.status === "キャンセル" || nb.status === "キャンセル済み") return false;
+          const nbCi = toDateStr(nb.checkIn);
+          return nbCi && coStr && nbCi >= coStr;
+        })
+        .sort((a, b) => {
+          const aCi = toDateStr(a.checkIn) || "";
+          const bCi = toDateStr(b.checkIn) || "";
+          return aCi < bCi ? -1 : aCi > bCi ? 1 : 0;
+        })[0] || null;
+
+      // guestMap 構築
+      const guestMap = {};
+      grSnap.docs.forEach(d => {
+        const g = d.data();
+        const ci = toDateStr(g.checkIn);
+        if (!ci) return;
+        const key = g.propertyId ? `${g.propertyId}_${ci}` : ci;
+        guestMap[key] = g;
+      });
+
+      let nextGuest = {};
+      if (nextBooking) {
+        const nbCiStr = toDateStr(nextBooking.checkIn);
+        const gk = nextBooking.propertyId && nbCiStr ? `${nextBooking.propertyId}_${nbCiStr}` : null;
+        nextGuest = (gk && guestMap[gk]) || (nbCiStr && guestMap[nbCiStr]) || {};
+      }
+
+      // 値表示ヘルパ
+      const v = (val) => this.escapeHtml(val || "-");
+      const vd = (dateStr) => {
+        if (!dateStr) return "-";
+        const [y, m, d] = dateStr.split("-").map(Number);
+        const days = ["日","月","火","水","木","金","土"];
+        const dow = days[new Date(y, m - 1, d).getDay()];
+        return `${y}年${m}月${d}日(${dow})`;
+      };
+      const vb = (val) => {
+        if (val === true || val === "Yes" || val === "あり" || val === "◎") return "◎";
+        if (val === false || val === "No" || val === "なし" || val === "×") return "×";
+        return "-";
+      };
+
+      if (nextBooking) {
+        const nbCiStr = toDateStr(nextBooking.checkIn);
+        el.innerHTML = `
+          <hr>
+          <h6 class="mb-2"><i class="bi bi-arrow-right-circle"></i> 次の予約</h6>
+          <table class="table table-sm table-borderless mb-0">
+            ${isStaffView ? "" : `<tr><th width="110" class="text-muted">ゲスト名</th><td>${v(nextBooking.guestName)}</td></tr>`}
+            <tr><th width="110" class="text-muted">チェックイン</th><td>${vd(nbCiStr)} <strong>${this.escapeHtml(nextGuest.checkInTime || "--:--")}</strong></td></tr>
+            <tr><th class="text-muted">宿泊人数</th><td>${nextBooking.guestCount ? this.escapeHtml(String(nextBooking.guestCount)) + "名" : "-"}</td></tr>
+            <tr><th class="text-muted">BBQ</th><td>${vb(nextGuest.bbq)}</td></tr>
+            <tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${v(nextGuest.bedChoice)}</td></tr>
+            <tr><th class="text-muted">交通手段</th><td>${v(nextGuest.transport)}</td></tr>
+            <tr><th class="text-muted">車台数</th><td>${nextGuest.carCount ? this.escapeHtml(String(nextGuest.carCount)) + "台" : "-"}</td></tr>
+            <tr><th class="text-muted">有料駐車場</th><td>${v(nextGuest.paidParking)}</td></tr>
+          </table>`;
+      } else {
+        el.innerHTML = `
+          <hr>
+          <h6 class="mb-2"><i class="bi bi-arrow-right-circle"></i> 次の予約</h6>
+          <div class="text-muted small">予約なし</div>`;
+      }
+    } catch (e) {
+      console.warn("次の予約取得エラー:", e);
     }
   },
 

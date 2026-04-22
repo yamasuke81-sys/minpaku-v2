@@ -749,64 +749,120 @@ const MyChecklistPage = {
         }
       } catch (_) {}
 
-      // 次回予約を取得 (同物件 × CI >= checkoutDate で最も近い未来の予約)
+      // Timestamp/Date/文字列を YYYY-MM-DD に正規化するヘルパ
+      const toDateStr = (v) => {
+        if (!v) return "";
+        if (typeof v === "string") return v.length >= 10 ? v.slice(0, 10) : v;
+        const d = v.toDate ? v.toDate() : (v instanceof Date ? v : new Date(v));
+        if (isNaN(d.getTime())) return "";
+        // JSTで日付取得（タイムゾーンずれ防止）
+        const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+        return jst.toISOString().slice(0, 10);
+      };
+
+      const coDateStr = toDateStr(c.checkoutDate);
+
+      // 次回予約を全件取得して in-memory フィルタ (Timestamp型不一致回避)
       let nextBooking = null;
+      let nextGuest = {};
       try {
-        const nbSnap = await db.collection("bookings")
-          .where("propertyId", "==", c.propertyId)
-          .orderBy("checkIn")
-          .startAt(c.checkoutDate)
-          .limit(10)
-          .get();
-        nextBooking = nbSnap.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          .find(b => {
-            const s = String(b.status || "").toLowerCase();
-            return !s.includes("cancel") && b.status !== "キャンセル";
-          }) || null;
+        const [bkSnap, grSnap] = await Promise.all([
+          db.collection("bookings").where("propertyId", "==", c.propertyId).get(),
+          db.collection("guestRegistrations").where("propertyId", "==", c.propertyId).limit(60).get(),
+        ]);
+
+        // 次の予約: 同物件 × 異なる bookingId × キャンセル除外 × CI >= checkoutDate で昇順先頭
+        const allBookings = bkSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        nextBooking = allBookings
+          .filter(nb => {
+            if (nb.id === c.bookingId) return false;
+            const s = String(nb.status || "").toLowerCase();
+            if (s.includes("cancel") || nb.status === "キャンセル" || nb.status === "キャンセル済み") return false;
+            const nbCi = toDateStr(nb.checkIn);
+            return nbCi && coDateStr && nbCi >= coDateStr;
+          })
+          .sort((a, b) => {
+            const aci = toDateStr(a.checkIn) || "";
+            const bci = toDateStr(b.checkIn) || "";
+            return aci < bci ? -1 : aci > bci ? 1 : 0;
+          })[0] || null;
+
+        // guestMap 構築: {propertyId}_{CI日} → 名簿データ
+        const guestMap = {};
+        grSnap.docs.forEach(d => {
+          const g = d.data();
+          const ci = toDateStr(g.checkIn);
+          if (!ci) return;
+          const key = g.propertyId ? `${g.propertyId}_${ci}` : ci;
+          guestMap[key] = g;
+        });
+
+        if (nextBooking) {
+          const nbCiStr = toDateStr(nextBooking.checkIn);
+          const gk = nextBooking.propertyId && nbCiStr ? `${nextBooking.propertyId}_${nbCiStr}` : null;
+          nextGuest = (gk && guestMap[gk]) || (nbCiStr && guestMap[nbCiStr]) || {};
+        }
       } catch (_) {}
 
       this._nextBooking = nextBooking;
       this._todayStaffNames = staffNames;
 
-      const fmtTs = (ts) => {
-        if (!ts) return "-";
-        const d = ts.toDate ? ts.toDate() : new Date(ts);
+      // チェックイン日付を「YYYY年M月D日(曜)」形式に整形
+      const fmtDateFull = (v) => {
+        if (!v) return "-";
+        const dateStr = toDateStr(v);
+        if (!dateStr) return "-";
+        const [y, m, d] = dateStr.split("-").map(Number);
         const days = ["日","月","火","水","木","金","土"];
-        return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}(${days[d.getDay()]}) ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+        const dow = days[new Date(y, m - 1, d).getDay()];
+        return `${y}年${m}月${d}日(${dow})`;
       };
 
       const staffHtml = staffNames.length > 0
         ? `<div class="alert alert-info py-2 small mb-3"><i class="bi bi-person-check"></i> 本日の清掃担当: <strong>${staffNames.map(n => this.escapeHtml(n)).join("、")}</strong></div>`
         : "";
 
+      // BBQ表示ヘルパ
+      const vb = (val) => {
+        if (val === true || val === "Yes" || val === "あり" || val === "◎") return "◎";
+        if (val === false || val === "No" || val === "なし" || val === "×") return "×";
+        return "-";
+      };
+
+      const propName = c.propertyName || "";
+      const src = nextBooking ? (nextBooking.source || nextBooking.bookingSite || "") : "";
+      const srcBadge = src.toLowerCase().includes("airbnb")
+        ? '<span class="badge" style="background:#FF5A5F;color:#fff">Airbnb</span>'
+        : src.toLowerCase().includes("booking")
+          ? '<span class="badge" style="background:#003580;color:#fff">Booking.com</span>'
+          : src ? `<span class="badge bg-secondary">${this.escapeHtml(src)}</span>` : "";
+      const propBadge = propName
+        ? `<span class="badge bg-light text-dark border">${this.escapeHtml(propName)}</span>`
+        : "";
+
       let nextHtml = "";
       if (nextBooking) {
         const nb = nextBooking;
-        const src = (nb.source || nb.bookingSite || "");
-        const srcBadge = src.toLowerCase().includes("airbnb")
-          ? '<span class="badge" style="background:#FF5A5F;color:#fff">Airbnb</span>'
-          : src.toLowerCase().includes("booking")
-            ? '<span class="badge" style="background:#003580;color:#fff">Booking.com</span>'
-            : src ? `<span class="badge bg-secondary">${this.escapeHtml(src)}</span>` : "";
-        const ciStr = fmtTs(nb.checkIn);
-        const coStr = fmtTs(nb.checkOut);
-        const bbq = nb.bbq === true || nb.bbq === "Yes" ? "あり" : (nb.bbq === false || nb.bbq === "No" ? "なし" : "-");
-        const parking = nb.parking === true || nb.parking === "Yes" ? "あり" : (nb.parking === false || nb.parking === "No" ? "なし" : "-");
+        const nbCiDate = fmtDateFull(nb.checkIn);
+        const ciDisplay = nextGuest.checkInTime
+          ? `${nbCiDate} <strong>${this.escapeHtml(nextGuest.checkInTime)}</strong>`
+          : nbCiDate;
         nextHtml = `
           <div class="card">
             <div class="card-body">
-              <div class="d-flex align-items-center gap-2 mb-2">
+              <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
                 <h6 class="card-title mb-0"><i class="bi bi-arrow-right-circle text-primary"></i> 次の予約</h6>
+                ${propBadge}
                 ${srcBadge}
               </div>
               <table class="table table-sm table-borderless mb-0">
-                <tr><th class="text-muted" style="width:110px;">チェックイン</th><td>${this.escapeHtml(ciStr)}</td></tr>
-                <tr><th class="text-muted">チェックアウト</th><td>${this.escapeHtml(coStr)}</td></tr>
+                <tr><th class="text-muted" style="width:130px;">チェックイン</th><td>${ciDisplay}</td></tr>
                 <tr><th class="text-muted">宿泊人数</th><td>${nb.guestCount ? this.escapeHtml(String(nb.guestCount)) + "名" : "-"}</td></tr>
-                <tr><th class="text-muted">BBQ</th><td>${this.escapeHtml(bbq)}</td></tr>
-                <tr><th class="text-muted">駐車</th><td>${this.escapeHtml(parking)}</td></tr>
-                ${nb.notes ? `<tr><th class="text-muted">特記事項</th><td>${this.escapeHtml(nb.notes)}</td></tr>` : ""}
+                <tr><th class="text-muted">BBQ</th><td>${vb(nextGuest.bbq)}</td></tr>
+                <tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${nextGuest.bedChoice ? this.escapeHtml(String(nextGuest.bedChoice)) : "-"}</td></tr>
+                <tr><th class="text-muted">交通手段</th><td>${nextGuest.transport ? this.escapeHtml(nextGuest.transport) : "-"}</td></tr>
+                <tr><th class="text-muted">車台数</th><td>${nextGuest.carCount ? this.escapeHtml(String(nextGuest.carCount)) + "台" : "-"}</td></tr>
+                <tr><th class="text-muted">有料駐車場</th><td>${nextGuest.paidParking ? this.escapeHtml(nextGuest.paidParking) : "-"}</td></tr>
               </table>
             </div>
           </div>`;
