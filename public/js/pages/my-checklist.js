@@ -588,7 +588,9 @@ const MyChecklistPage = {
       return `
         <li class="nav-item">
           <a class="nav-link ${isActive ? "active" : ""}" href="#" data-area-id="${a.id}"
-             style="${isActive ? '' : `background:${allDone ? '#d1f5d6' : '#f1f3f5'};border:1px solid ${allDone ? '#74c786' : '#ced4da'};color:${allDone ? '#0b5d24' : '#495057'};`}font-weight:600;">
+             style="${isActive
+               ? 'background:#0d6efd;border:1px solid #0d6efd;color:#fff;'
+               : `background:${allDone ? '#d1f5d6' : '#f1f3f5'};border:1px solid ${allDone ? '#74c786' : '#ced4da'};color:${allDone ? '#0b5d24' : '#495057'};`}font-weight:600;">
             ${this.escapeHtml(a.name)}
             <span class="badge ${isActive ? 'bg-light text-dark' : (allDone ? 'bg-success' : 'bg-secondary')} ms-1">${done}/${total}</span>
           </a>
@@ -1071,7 +1073,10 @@ const MyChecklistPage = {
       const total = this.countItems([area]);
       const allDone = total > 0 && done === total;
       const isActive = n.classList.contains("active");
-      if (!isActive) {
+      if (isActive) {
+        // アクティブタブは Bootstrap の .nav-link.active に依存せず明示的に青を設定
+        n.setAttribute("style", "background:#0d6efd;border:1px solid #0d6efd;color:#fff;font-weight:600;");
+      } else {
         n.setAttribute("style", `background:${allDone ? '#d1f5d6' : '#f1f3f5'};border:1px solid ${allDone ? '#74c786' : '#ced4da'};color:${allDone ? '#0b5d24' : '#495057'};font-weight:600;`);
       }
       const badge = n.querySelector(".badge");
@@ -2507,11 +2512,18 @@ const MyChecklistPage = {
                 <span class="badge bg-secondary ms-1">${count}/${this.MAX_PHOTOS}</span>
               </h6>
               ${canAdd ? `
-                <label class="btn btn-sm btn-outline-primary mb-0" style="cursor:pointer;">
-                  <i class="bi bi-plus-lg"></i> 写真を追加
-                  <input type="file" accept="image/*" multiple
-                         class="d-none mcl-photo-input" data-kind="${kind}">
-                </label>
+                <div class="d-flex gap-1">
+                  <label class="btn btn-sm btn-outline-primary mb-0" style="cursor:pointer;" title="カメラで撮影">
+                    <i class="bi bi-camera-fill"></i>
+                    <input type="file" accept="image/*" capture="environment"
+                           class="d-none mcl-photo-input" data-kind="${kind}">
+                  </label>
+                  <label class="btn btn-sm btn-outline-secondary mb-0" style="cursor:pointer;" title="ギャラリーから選択">
+                    <i class="bi bi-images"></i>
+                    <input type="file" accept="image/*" multiple
+                           class="d-none mcl-photo-input" data-kind="${kind}">
+                  </label>
+                </div>
               ` : (!isCompleted ? `<span class="small text-muted">最大${this.MAX_PHOTOS}枚</span>` : "")}
             </div>
             <div class="d-flex gap-2 flex-wrap">
@@ -2633,11 +2645,12 @@ const MyChecklistPage = {
     const url = await storageRef.getDownloadURL();
 
     // Firestore の配列に追加
+    // serverTimestamp() は arrayUnion 内では使用不可 → Timestamp.now() (クライアント時刻) を使用
     const field = kind === "before" ? "beforePhotos" : "afterPhotos";
     await firebase.firestore().collection("checklists").doc(this.checklistId).update({
       [field]: firebase.firestore.FieldValue.arrayUnion({
         url,
-        uploadedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        uploadedAt: firebase.firestore.Timestamp.now(),
         uploadedBy: user?.uid || "",
         kind,
         path,
