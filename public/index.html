@@ -198,7 +198,7 @@
             </div>
 
             <!-- 銀行口座情報 (スキルの直下に配置) -->
-            <div class="col-12"><hr><h6>銀行口座情報</h6></div>
+            <div class="col-12"><hr><h6>銀行口座情報（報酬受取用）</h6></div>
             <div class="col-md-4">
               <label class="form-label">銀行名</label>
               <input type="text" class="form-control" id="staffBankName">
@@ -223,25 +223,8 @@
               <input type="text" class="form-control" id="staffAccountHolder">
             </div>
 
-            <!-- 請求書表示内容 (銀行口座情報の直下に配置) -->
             <div class="col-12">
-              <hr><h6><i class="bi bi-receipt"></i> 請求書表示内容</h6>
-              <div class="small text-muted mb-2">
-                このスタッフが物件オーナーに指定された場合に請求書の宛名として使われます。
-                個人名義と法人名義など、複数の名義を登録し、物件ごとに使用する名義を切り替えられます。
-              </div>
-              <div id="staffBillingProfilesList"></div>
-              <button type="button" class="btn btn-outline-primary btn-sm mt-2" id="btnAddBillingProfile">
-                <i class="bi bi-plus-lg"></i> 名義を追加
-              </button>
-              <!-- 旧フィールド: 非表示で保持 (後方互換ミラー用。UIには出さない) -->
-              <input type="hidden" id="staffZipCode">
-              <input type="hidden" id="staffAddress">
-              <input type="hidden" id="staffCompanyName">
-            </div>
-
-            <div class="col-12">
-              <label class="form-label">担当物件 <small class="text-muted">(清掃できる民泊物件。デフォルトはすべて外れ)</small></label>
+              <label class="form-label">清掃担当物件 <small class="text-muted">(清掃できる民泊物件。デフォルトはすべて外れ)</small></label>
               <div id="staffProperties" class="d-flex flex-wrap gap-3 border rounded p-2"></div>
             </div>
             <div class="col-12">
@@ -258,7 +241,7 @@
                     <input class="form-check-input" type="checkbox" id="staffIsSubOwner" role="switch">
                     <label class="form-check-label" for="staffIsSubOwner">
                       <strong>サブオーナーとして扱う</strong>
-                      <small class="text-muted d-block">ONにすると物件フィルタが自動適用され、LINE/メール個別通知が送られます</small>
+                      <small class="text-muted d-block">ONにすると物件フィルタが自動適用されます (LINE/メール通知は基本情報側のものを使用)</small>
                     </label>
                   </div>
                 </div>
@@ -268,15 +251,25 @@
                       <label class="form-label">所有物件 <small class="text-muted">(サブオーナーが管理する物件)</small></label>
                       <div id="staffOwnedProperties" class="d-flex flex-wrap gap-3 border rounded p-2"></div>
                     </div>
-                    <div class="col-md-6">
-                      <label class="form-label">個別通知先 LINE User ID</label>
-                      <input type="text" class="form-control" id="staffSubOwnerLineUserId" placeholder="Uxxxxxx...">
-                      <div class="form-text">サブオーナー宛の個別LINE通知先</div>
+                    <!-- 請求書宛名表示内容 (サブオーナー設定の下部に配置) -->
+                    <div class="col-12">
+                      <hr class="my-2"><h6 class="mb-1"><i class="bi bi-receipt"></i> 請求書宛名表示内容</h6>
+                      <div class="small text-muted mb-2">
+                        このスタッフが物件オーナーに指定された場合に請求書の宛名として使われます。
+                        個人名義と法人名義など、複数の名義を登録し、物件ごとに使用する名義を切り替えられます。
+                      </div>
+                      <div id="staffBillingProfilesList"></div>
+                      <button type="button" class="btn btn-outline-primary btn-sm mt-2" id="btnAddBillingProfile">
+                        <i class="bi bi-plus-lg"></i> 名義を追加
+                      </button>
+                      <!-- 旧フィールド: 非表示で保持 (後方互換ミラー用。UIには出さない) -->
+                      <input type="hidden" id="staffZipCode">
+                      <input type="hidden" id="staffAddress">
+                      <input type="hidden" id="staffCompanyName">
                     </div>
-                    <div class="col-md-6">
-                      <label class="form-label">個別通知先メール</label>
-                      <input type="email" class="form-control" id="staffSubOwnerEmail" placeholder="subowner@example.com">
-                    </div>
+                    <!-- 個別通知先 LINE/メール は削除 (LINE 連携セクションの LINE User ID と基本情報のメールで兼用) -->
+                    <input type="hidden" id="staffSubOwnerLineUserId">
+                    <input type="hidden" id="staffSubOwnerEmail">
                   </div>
                 </div>
               </div>
