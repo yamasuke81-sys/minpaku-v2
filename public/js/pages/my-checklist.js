@@ -14,10 +14,15 @@ const MyChecklistPage = {
   checklistId: null,
   checklist: null,
   activeAreaId: null,
+  // 上位タブ: schedule / checklist / photos / laundry / restock
+  activeTopTab: "checklist",
   unsubscribe: null,
   saveTimers: {},
   presenceTimer: null,
   editingField: null,
+  // キャッシュ: 次回予約・本日のシフトスタッフ
+  _nextBooking: null,
+  _todayStaffNames: [],
 
   async render(container, pathParams) {
     this.shiftId = (pathParams || [])[0];
@@ -55,17 +60,20 @@ const MyChecklistPage = {
     const rect = mainEl ? mainEl.getBoundingClientRect() : { left: 0, width: window.innerWidth };
     header.style.left = rect.left + "px";
     header.style.width = rect.width + "px";
-    // app-topbar の高さを計算し、その下に配置(topbar と重ならないようにする)
     const topbar = document.querySelector(".app-topbar");
     const topbarH = topbar ? topbar.getBoundingClientRect().height : 0;
     header.style.top = topbarH + "px";
     // fixed 化後の実レイアウト高さで spacer 計算
     requestAnimationFrame(() => {
       const headerH = header.getBoundingClientRect().height;
-      const tabsWrap = document.querySelector(".mcl-tabs-wrap");
-      const tabsH = tabsWrap ? tabsWrap.getBoundingClientRect().height : 0;
+      // 上位タブ + 大カテゴリタブ (表示中のみ) の高さを合算
+      const topTabsWrap = document.querySelector(".mcl-tabs-wrap");
+      const topTabsH = topTabsWrap ? topTabsWrap.getBoundingClientRect().height : 0;
+      const areaTabsWrap = document.querySelector(".mcl-area-tabs-wrap");
+      const areaTabsH = (areaTabsWrap && areaTabsWrap.style.display !== "none")
+        ? areaTabsWrap.getBoundingClientRect().height : 0;
       const spacer = document.querySelector(".mcl-page-header-spacer");
-      if (spacer) spacer.style.height = (topbarH + headerH + tabsH) + "px";
+      if (spacer) spacer.style.height = (topbarH + headerH + topTabsH + areaTabsH) + "px";
     });
   },
 
@@ -476,9 +484,8 @@ const MyChecklistPage = {
           const prevMainScroll = mainEl ? mainEl.scrollTop : 0;
           this._updateHeaderStatus();
           this._updateTabBadges();
-          this.renderActiveArea();
-          this.renderPhotoSection();
-          this.renderFooter();
+          // アクティブな上位タブの内容のみ再描画
+          this._renderActiveTopTab();
           // レイアウト確定後に復元 (requestAnimationFrame で次フレーム)
           requestAnimationFrame(() => {
             window.scrollTo({ top: prevScrollY, behavior: "instant" });
@@ -502,12 +509,14 @@ const MyChecklistPage = {
   detach() {
     if (this.unsubscribe) { this.unsubscribe(); this.unsubscribe = null; }
     if (this.presenceTimer) { clearInterval(this.presenceTimer); this.presenceTimer = null; }
-    // resize リスナーを確実に解除（メモリリーク防止）
     if (this._headerResizeHandler) {
       window.removeEventListener("resize", this._headerResizeHandler);
       this._headerResizeHandler = null;
     }
-    // hashchange リスナーを確実に解除（{ once: true } はタブ閉じ時に発火しないため）
+    if (this._tabsResizeHandler) {
+      window.removeEventListener("resize", this._tabsResizeHandler);
+      this._tabsResizeHandler = null;
+    }
     if (this._hashHandler) {
       window.removeEventListener("hashchange", this._hashHandler);
       this._hashHandler = null;
@@ -516,6 +525,10 @@ const MyChecklistPage = {
     this.checklistId = null;
     this.checklist = null;
     this.activeAreaId = null;
+    this.activeTopTab = "checklist";
+    this._nextBooking = null;
+    this._todayStaffNames = [];
+    this._noteSelectedFiles = [];
   },
 
   async resolveChecklistId() {
@@ -533,9 +546,9 @@ const MyChecklistPage = {
     const c = this.checklist;
     const areas = c.templateSnapshot || [];
 
-    // タブ横スクロール位置を保存(body再構築で失われるのを防ぐ)
+    // 大カテゴリタブの横スクロール位置を保存
     const _prevBody = document.getElementById("mclBody");
-    const _prevNav = _prevBody?.querySelector(".mcl-tabs-wrap .nav-pills");
+    const _prevNav = _prevBody?.querySelector(".mcl-area-tabs-wrap .nav-pills");
     const _prevTabScroll = _prevNav?.scrollLeft || 0;
 
     document.getElementById("mclHeader").textContent =
@@ -546,8 +559,13 @@ const MyChecklistPage = {
     statusEl.textContent = `${doneItems}/${totalItems}`;
     statusEl.className = `badge ${totalItems > 0 && doneItems === totalItems ? "bg-success" : "bg-secondary"} small`;
 
+    // 要補充件数バッジ用
+    const restockCount = this._countRestockItems(areas, c.itemStates || {});
+
     const body = document.getElementById("mclBody");
-    const tabs = areas.map(a => {
+
+    // 大カテゴリタブ HTML (清掃チェックリストタブ内でのみ表示)
+    const areaTabs = areas.map(a => {
       const isActive = a.id === this.activeAreaId;
       const done = this.countItemsDone(a, c.itemStates || {});
       const total = this.countItems([a]);
@@ -563,65 +581,379 @@ const MyChecklistPage = {
       `;
     }).join("");
 
-    // タブを IntersectionObserver で監視し、sentinel が viewport を越えたら fixed 化。
-    // IntersectionObserver は scroll event に依存せず動作するため、ページ内スクロールや
-    // 親要素の overflow コンテキストに左右されず確実に動く。
+    // 上位タブ定義
+    const topTabs = [
+      { id: "schedule", icon: "bi-calendar-event",     label: "次回予約情報" },
+      { id: "checklist", icon: "bi-clipboard-check",  label: "清掃チェックリスト" },
+      { id: "photos",    icon: "bi-camera",            label: "写真撮影" },
+      { id: "laundry",   icon: "bi-basket3",           label: "ランドリー" },
+      { id: "restock",   icon: "bi-exclamation-triangle", label: "要補充リスト" },
+    ];
+    const topTabsHtml = topTabs.map(t => {
+      const isActive = t.id === this.activeTopTab;
+      let badge = "";
+      if (t.id === "restock" && restockCount > 0) {
+        badge = `<span class="badge bg-warning text-dark ms-1">${restockCount}</span>`;
+      }
+      if (t.id === "checklist") {
+        badge = `<span class="badge ${isActive ? 'bg-light text-dark' : 'bg-secondary'} ms-1">${doneItems}/${totalItems}</span>`;
+      }
+      return `
+        <li class="nav-item">
+          <a class="nav-link mcl-top-tab ${isActive ? "active" : ""}" href="#" data-top-tab="${t.id}"
+             style="${isActive ? 'font-weight:600;' : 'background:#f1f3f5;border:1px solid #ced4da;color:#495057;font-weight:600;'}">
+            <i class="bi ${t.icon}"></i> ${t.label}${badge}
+          </a>
+        </li>`;
+    }).join("");
+
     body.innerHTML = `
       <div class="mcl-tabs-wrap" style="background:#fff;border-bottom:1px solid #dee2e6;padding:4px 4px;">
-        <ul class="nav nav-pills flex-nowrap overflow-auto mb-0" style="white-space:nowrap;gap:8px;">
-          ${tabs}
+        <ul class="nav nav-pills flex-nowrap overflow-auto mb-0" style="white-space:nowrap;gap:6px;">
+          ${topTabsHtml}
         </ul>
       </div>
-      <div id="mclAreaContent"></div>
-      <div id="mclPhotoSection" class="mt-4"></div>
-      <div id="mclFooter" class="mt-3"></div>
+      <div class="mcl-area-tabs-wrap" style="background:#f8f9fa;border-bottom:1px solid #dee2e6;padding:4px 4px;${this.activeTopTab === 'checklist' ? '' : 'display:none;'}">
+        <ul class="nav nav-pills flex-nowrap overflow-auto mb-0" style="white-space:nowrap;gap:8px;">
+          ${areaTabs}
+        </ul>
+      </div>
+      <div id="mclTopTabContent"></div>
     `;
 
-    this._setupTabStickyObserver(body);
-    // spacer 高さを header + tabs 分に揃える
+    this._setupTopTabStickyObserver(body);
     requestAnimationFrame(() => this._applyHeaderLayout());
 
-    // 再構築後にタブ横スクロール位置を復元
-    const _newNav = body.querySelector(".mcl-tabs-wrap .nav-pills");
+    // 大カテゴリタブの横スクロール位置を復元
+    const _newNav = body.querySelector(".mcl-area-tabs-wrap .nav-pills");
     if (_newNav && _prevTabScroll) {
       _newNav.scrollLeft = _prevTabScroll;
     }
 
-    // タブの active クラス + inline style を一括更新 (body 再構築は避ける = 横スクロール位置維持)
-    const updateTabStyles = () => {
-      body.querySelectorAll(".nav-link[data-area-id]").forEach(n => {
-        const aid = n.dataset.areaId;
-        const area = areas.find(a => a.id === aid);
-        if (!area) return;
-        const isActive = aid === this.activeAreaId;
-        const done = this.countItemsDone(area, c.itemStates || {});
-        const total = this.countItems([area]);
-        const allDone = total > 0 && done === total;
-        n.classList.toggle("active", isActive);
-        // active 時は inline style をクリアし Bootstrap の青ピルを優先させる
-        n.setAttribute("style", isActive
-          ? "font-weight:600;"
-          : `background:${allDone ? '#d1f5d6' : '#f1f3f5'};border:1px solid ${allDone ? '#74c786' : '#ced4da'};color:${allDone ? '#0b5d24' : '#495057'};font-weight:600;`);
-        const badge = n.querySelector(".badge");
-        if (badge) {
-          badge.className = `badge ${isActive ? 'bg-light text-dark' : (allDone ? 'bg-success' : 'bg-secondary')} ms-1`;
-          badge.textContent = `${done}/${total}`;
-        }
+    // 上位タブのクリックイベント
+    body.querySelectorAll(".mcl-top-tab").forEach(el => {
+      el.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        this.activeTopTab = el.dataset.topTab;
+        this._updateTopTabStyles();
+        this._renderActiveTopTab();
       });
-    };
+    });
 
+    // 大カテゴリタブのクリックイベント
     body.querySelectorAll("[data-area-id]").forEach(el => {
       el.addEventListener("click", (ev) => {
         ev.preventDefault();
         this.activeAreaId = el.dataset.areaId;
-        updateTabStyles();
-        this.renderActiveArea();
+        this._updateAreaTabStyles();
+        this.renderTabChecklist();
       });
     });
 
-    this.renderActiveArea();
-    this.renderPhotoSection();
+    this._renderActiveTopTab();
+  },
+
+  // 上位タブのスタイル更新
+  _updateTopTabStyles() {
+    const body = document.getElementById("mclBody");
+    if (!body) return;
+    const c = this.checklist;
+    const areas = c?.templateSnapshot || [];
+    const totalItems = this.countItems(areas);
+    const doneItems = this.countDone(areas, c?.itemStates || {});
+    const restockCount = this._countRestockItems(areas, c?.itemStates || {});
+
+    body.querySelectorAll(".mcl-top-tab").forEach(n => {
+      const tid = n.dataset.topTab;
+      const isActive = tid === this.activeTopTab;
+      n.classList.toggle("active", isActive);
+      n.setAttribute("style", isActive
+        ? "font-weight:600;"
+        : "background:#f1f3f5;border:1px solid #ced4da;color:#495057;font-weight:600;");
+      // バッジ更新
+      let badge = n.querySelector(".badge");
+      if (tid === "restock") {
+        if (!badge) {
+          badge = document.createElement("span");
+          n.appendChild(badge);
+        }
+        if (restockCount > 0) {
+          badge.className = "badge bg-warning text-dark ms-1";
+          badge.textContent = restockCount;
+          badge.style.display = "";
+        } else {
+          badge.style.display = "none";
+        }
+      } else if (tid === "checklist") {
+        if (!badge) {
+          badge = document.createElement("span");
+          n.appendChild(badge);
+        }
+        badge.className = `badge ${isActive ? 'bg-light text-dark' : 'bg-secondary'} ms-1`;
+        badge.textContent = `${doneItems}/${totalItems}`;
+      }
+    });
+
+    // 大カテゴリタブの表示/非表示
+    const areaTabsWrap = body.querySelector(".mcl-area-tabs-wrap");
+    if (areaTabsWrap) {
+      areaTabsWrap.style.display = this.activeTopTab === "checklist" ? "" : "none";
+    }
+    // spacer 再計算
+    requestAnimationFrame(() => this._applyHeaderLayout());
+  },
+
+  // アクティブな上位タブのコンテンツを描画
+  _renderActiveTopTab() {
+    switch (this.activeTopTab) {
+      case "schedule":  this.renderTabSchedule(); break;
+      case "checklist": this.renderTabChecklist(); break;
+      case "photos":    this.renderTabPhotos(); break;
+      case "laundry":   this.renderTabLaundry(); break;
+      case "restock":   this.renderTabRestock(); break;
+    }
+  },
+
+  // ===== タブ1: 次回予約情報 =====
+  async renderTabSchedule() {
+    const el = document.getElementById("mclTopTabContent");
+    if (!el) return;
+    el.innerHTML = `<div class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm"></div></div>`;
+
+    try {
+      const db = firebase.firestore();
+      const c = this.checklist;
+      if (!c) return;
+
+      // 同 checkoutDate × 同 propertyId のシフトを取得して清掃スタッフ名を取得
+      const checkoutDateStr = typeof c.checkoutDate === "string"
+        ? c.checkoutDate.slice(0, 10)
+        : (c.checkoutDate?.toDate ? c.checkoutDate.toDate().toLocaleDateString("sv-SE") : "");
+
+      let staffNames = [];
+      try {
+        const shiftsSnap = await db.collection("shifts")
+          .where("propertyId", "==", c.propertyId)
+          .where("date", "==", c.checkoutDate)
+          .get();
+        const staffIds = new Set();
+        shiftsSnap.docs.forEach(d => {
+          const s = d.data();
+          (s.selectedStaffIds || (s.staffId ? [s.staffId] : [])).forEach(id => staffIds.add(id));
+        });
+        if (staffIds.size > 0) {
+          const staffSnaps = await Promise.all(
+            Array.from(staffIds).map(id => db.collection("staff").doc(id).get())
+          );
+          staffNames = staffSnaps.filter(d => d.exists).map(d => d.data().name || "不明");
+        }
+      } catch (_) {}
+
+      // 次回予約を取得 (同物件 × CI >= checkoutDate で最も近い未来の予約)
+      let nextBooking = null;
+      try {
+        const nbSnap = await db.collection("bookings")
+          .where("propertyId", "==", c.propertyId)
+          .orderBy("checkIn")
+          .startAt(c.checkoutDate)
+          .limit(10)
+          .get();
+        nextBooking = nbSnap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .find(b => {
+            const s = String(b.status || "").toLowerCase();
+            return !s.includes("cancel") && b.status !== "キャンセル";
+          }) || null;
+      } catch (_) {}
+
+      this._nextBooking = nextBooking;
+      this._todayStaffNames = staffNames;
+
+      const fmtTs = (ts) => {
+        if (!ts) return "-";
+        const d = ts.toDate ? ts.toDate() : new Date(ts);
+        const days = ["日","月","火","水","木","金","土"];
+        return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}(${days[d.getDay()]}) ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+      };
+
+      const staffHtml = staffNames.length > 0
+        ? `<div class="alert alert-info py-2 small mb-3"><i class="bi bi-person-check"></i> 本日の清掃担当: <strong>${staffNames.map(n => this.escapeHtml(n)).join("、")}</strong></div>`
+        : "";
+
+      let nextHtml = "";
+      if (nextBooking) {
+        const nb = nextBooking;
+        const src = (nb.source || nb.bookingSite || "");
+        const srcBadge = src.toLowerCase().includes("airbnb")
+          ? '<span class="badge" style="background:#FF5A5F;color:#fff">Airbnb</span>'
+          : src.toLowerCase().includes("booking")
+            ? '<span class="badge" style="background:#003580;color:#fff">Booking.com</span>'
+            : src ? `<span class="badge bg-secondary">${this.escapeHtml(src)}</span>` : "";
+        const ciStr = fmtTs(nb.checkIn);
+        const coStr = fmtTs(nb.checkOut);
+        const bbq = nb.bbq === true || nb.bbq === "Yes" ? "あり" : (nb.bbq === false || nb.bbq === "No" ? "なし" : "-");
+        const parking = nb.parking === true || nb.parking === "Yes" ? "あり" : (nb.parking === false || nb.parking === "No" ? "なし" : "-");
+        nextHtml = `
+          <div class="card">
+            <div class="card-body">
+              <div class="d-flex align-items-center gap-2 mb-2">
+                <h6 class="card-title mb-0"><i class="bi bi-arrow-right-circle text-primary"></i> 次の予約</h6>
+                ${srcBadge}
+              </div>
+              <table class="table table-sm table-borderless mb-0">
+                <tr><th class="text-muted" style="width:110px;">チェックイン</th><td>${this.escapeHtml(ciStr)}</td></tr>
+                <tr><th class="text-muted">チェックアウト</th><td>${this.escapeHtml(coStr)}</td></tr>
+                <tr><th class="text-muted">宿泊人数</th><td>${nb.guestCount ? this.escapeHtml(String(nb.guestCount)) + "名" : "-"}</td></tr>
+                <tr><th class="text-muted">BBQ</th><td>${this.escapeHtml(bbq)}</td></tr>
+                <tr><th class="text-muted">駐車</th><td>${this.escapeHtml(parking)}</td></tr>
+                ${nb.notes ? `<tr><th class="text-muted">特記事項</th><td>${this.escapeHtml(nb.notes)}</td></tr>` : ""}
+              </table>
+            </div>
+          </div>`;
+      } else {
+        nextHtml = `<div class="alert alert-secondary">次の予約はまだ入っていません</div>`;
+      }
+
+      if (!el.isConnected || this.activeTopTab !== "schedule") return;
+      el.innerHTML = `
+        <div class="p-3">
+          ${staffHtml}
+          ${nextHtml}
+        </div>`;
+    } catch (e) {
+      if (el.isConnected) {
+        el.innerHTML = `<div class="alert alert-danger m-3">読み込みエラー: ${this.escapeHtml(e.message)}</div>`;
+      }
+    }
+  },
+
+  // ===== タブ2: 清掃チェックリスト =====
+  renderTabChecklist() {
+    const el = document.getElementById("mclTopTabContent");
+    if (!el || !this.checklist) return;
+    const areas = this.checklist.templateSnapshot || [];
+    const area = areas.find(a => a.id === this.activeAreaId);
+    if (!area) return;
+    const states = this.checklist.itemStates || {};
+    const total = this.countItems([area]);
+    const done = this.countItemsDone(area, states);
+    const allChecked = total > 0 && done === total;
+    el.innerHTML = `
+      <div id="mclAreaContent">
+        <div class="d-flex gap-2 mb-1 mt-1 flex-wrap">
+          <button type="button" class="btn btn-sm btn-outline-primary mcl-toggle-all-check" data-all-checked="${allChecked ? '1' : '0'}">
+            <i class="bi bi-check2-square"></i> ${allChecked ? '全チェック外し' : '全チェック'}
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary mcl-toggle-all-expand">
+            <i class="bi bi-arrows-expand"></i> 全展開/全折りたたみ
+          </button>
+          <span class="ms-auto small text-muted align-self-center">${done}/${total} チェック済</span>
+        </div>
+        ${this.renderChildren(area)}
+      </div>
+      <div id="mclChecklistNotes" class="mt-4 px-1"></div>
+      <div id="mclFooter" class="mt-3 px-1"></div>
+    `;
+    this.wireChildren(el);
+    el.querySelector(".mcl-toggle-all-check")?.addEventListener("click", () => this.toggleAllCheckInArea(area, allChecked));
+    el.querySelector(".mcl-toggle-all-expand")?.addEventListener("click", () => this.toggleAllExpandInArea(el));
+
+    this._renderChecklistNotes();
     this.renderFooter();
+  },
+
+  // ===== タブ3: 写真撮影 =====
+  renderTabPhotos() {
+    const el = document.getElementById("mclTopTabContent");
+    if (!el || !this.checklist) return;
+    el.innerHTML = `<div id="mclPhotoSection" class="mt-3 px-1"></div>`;
+    this.renderPhotoSection();
+  },
+
+  // ===== タブ4: ランドリー =====
+  renderTabLaundry() {
+    const el = document.getElementById("mclTopTabContent");
+    if (!el || !this.checklist) return;
+    el.innerHTML = `<div id="mclFooter" class="mt-3 px-1"></div>`;
+    this.renderFooter();
+  },
+
+  // ===== タブ5: 要補充リスト =====
+  renderTabRestock() {
+    const el = document.getElementById("mclTopTabContent");
+    if (!el || !this.checklist) return;
+    const c = this.checklist;
+    const areas = c.templateSnapshot || [];
+    const states = c.itemStates || {};
+
+    // supplyItem=true の全項目を収集 (物件内パス付き)
+    const supplyItems = [];
+    const walk = (node, path) => {
+      const items = [...(node.directItems || []), ...(node.items || [])];
+      items.forEach(it => {
+        if (it.supplyItem) {
+          supplyItems.push({ it, path: [...path, it.name] });
+        }
+      });
+      (node.taskTypes || []).forEach(c => walk(c, [...path, c.name]));
+      (node.subCategories || []).forEach(c => walk(c, [...path, c.name]));
+      (node.subSubCategories || []).forEach(c => walk(c, [...path, c.name]));
+    };
+    areas.forEach(a => walk(a, [a.name]));
+
+    if (!supplyItems.length) {
+      el.innerHTML = `<div class="alert alert-secondary m-3">要補充項目がありません</div>`;
+      return;
+    }
+
+    const rows = supplyItems.map(({ it, path }) => {
+      const checked = !!states[it.id]?.needsRestock;
+      const pathStr = path.slice(0, -1).join(" &rsaquo; ");
+      return `
+        <div class="card mb-2 ${checked ? 'border-warning' : ''}" style="cursor:pointer;" data-restock-item-id="${it.id}">
+          <div class="card-body py-2 px-3">
+            <div class="d-flex align-items-center gap-2">
+              <input class="form-check-input restock-tab-chk" type="checkbox" id="rst-${it.id}"
+                     ${checked ? "checked" : ""} style="width:20px;height:20px;flex-shrink:0;">
+              <div class="flex-grow-1">
+                <div style="font-size:15px;">${this.escapeHtml(it.name)}</div>
+                ${pathStr ? `<div class="small text-muted">${pathStr}</div>` : ""}
+              </div>
+            </div>
+          </div>
+        </div>`;
+    }).join("");
+
+    el.innerHTML = `
+      <div class="p-3">
+        <div class="d-flex align-items-center mb-3 gap-2">
+          <span class="fw-bold"><i class="bi bi-exclamation-triangle text-warning"></i> 要補充リスト</span>
+          <span class="badge bg-secondary">${supplyItems.length}項目</span>
+        </div>
+        ${rows}
+      </div>`;
+
+    // 双方向チェック同期
+    el.querySelectorAll(".restock-tab-chk").forEach(cb => {
+      cb.addEventListener("change", () => {
+        const itemId = cb.closest("[data-restock-item-id]").dataset.restockItemId;
+        this.updateItemState(itemId, { needsRestock: cb.checked });
+      });
+    });
+  },
+
+  // 要補充件数カウント
+  _countRestockItems(areas, states) {
+    let n = 0;
+    const walk = (node) => {
+      const items = [...(node.directItems || []), ...(node.items || [])];
+      items.forEach(it => { if (it.supplyItem && states[it.id]?.needsRestock) n++; });
+      (node.taskTypes || []).forEach(walk);
+      (node.subCategories || []).forEach(walk);
+      (node.subSubCategories || []).forEach(walk);
+    };
+    areas.forEach(walk);
+    return n;
   },
 
   // ヘッダーの物件名・進捗バッジ更新 (body 再構築なし)
@@ -639,8 +971,14 @@ const MyChecklistPage = {
     }
   },
 
-  // タブバッジ (N/M) とタブの完了色を更新 (タブ DOM 自体は再生成しない)
+  // 上位タブバッジ + 大カテゴリタブバッジを更新 (DOM 再生成なし)
   _updateTabBadges() {
+    this._updateTopTabStyles();
+    this._updateAreaTabStyles();
+  },
+
+  // 大カテゴリタブのスタイル更新
+  _updateAreaTabStyles() {
     const c = this.checklist;
     if (!c) return;
     const body = document.getElementById("mclBody");
@@ -654,7 +992,6 @@ const MyChecklistPage = {
       const total = this.countItems([area]);
       const allDone = total > 0 && done === total;
       const isActive = n.classList.contains("active");
-      // 非 active の inline style と badge のみ更新
       if (!isActive) {
         n.setAttribute("style", `background:${allDone ? '#d1f5d6' : '#f1f3f5'};border:1px solid ${allDone ? '#74c786' : '#ced4da'};color:${allDone ? '#0b5d24' : '#495057'};font-weight:600;`);
       }
@@ -666,12 +1003,12 @@ const MyChecklistPage = {
     });
   },
 
-  // タブ wrap を「常に画面上端固定」にする。scroll 監視や IntersectionObserver を使わず、
-  // 最初から position:fixed にすることで、親要素のスクロール context に依存せず確実に効く。
-  // ヘッダー (mcl-page-header) のすぐ下に配置する。
-  _setupTabStickyObserver(body) {
-    const wrap = body.querySelector(".mcl-tabs-wrap");
-    if (!wrap) return;
+  // 上位タブバー + 大カテゴリタブバーを fixed 化する
+  _setupTopTabStickyObserver(body) {
+    const topWrap = body.querySelector(".mcl-tabs-wrap");
+    const areaWrap = body.querySelector(".mcl-area-tabs-wrap");
+    if (!topWrap) return;
+
     const applyLayout = () => {
       const mainEl = document.querySelector(".app-main");
       const rect = mainEl ? mainEl.getBoundingClientRect() : { left: 0, width: window.innerWidth };
@@ -679,41 +1016,72 @@ const MyChecklistPage = {
       const topbarH = topbar ? topbar.getBoundingClientRect().height : 0;
       const header = document.querySelector(".mcl-page-header");
       const headerH = header ? header.getBoundingClientRect().height : 0;
-      wrap.style.position = "fixed";
-      wrap.style.top = (topbarH + headerH) + "px";
-      wrap.style.left = rect.left + "px";
-      wrap.style.width = rect.width + "px";
-      wrap.style.zIndex = "28";
-      wrap.style.background = "#fff";
-      wrap.style.boxShadow = "0 2px 6px rgba(0,0,0,0.06)";
-      // fixed 化後に rAF で実レイアウト高さを測って spacer 更新
+
+      // 上位タブバーを固定
+      topWrap.style.position = "fixed";
+      topWrap.style.top = (topbarH + headerH) + "px";
+      topWrap.style.left = rect.left + "px";
+      topWrap.style.width = rect.width + "px";
+      topWrap.style.zIndex = "28";
+      topWrap.style.background = "#fff";
+      topWrap.style.boxShadow = "0 1px 0 #dee2e6";
+
+      // 大カテゴリタブバーを上位タブの真下に固定
+      if (areaWrap) {
+        areaWrap.style.position = "fixed";
+        areaWrap.style.left = rect.left + "px";
+        areaWrap.style.width = rect.width + "px";
+        areaWrap.style.zIndex = "27";
+        areaWrap.style.background = "#f8f9fa";
+        areaWrap.style.boxShadow = "0 2px 6px rgba(0,0,0,0.06)";
+      }
+
       requestAnimationFrame(() => {
+        const topH = topWrap.getBoundingClientRect().height;
+        const areaH = (areaWrap && areaWrap.style.display !== "none")
+          ? areaWrap.getBoundingClientRect().height : 0;
+
+        if (areaWrap) {
+          areaWrap.style.top = (topbarH + headerH + topH) + "px";
+        }
+
         const spacer = document.querySelector(".mcl-page-header-spacer");
-        if (spacer) spacer.style.height = (topbarH + headerH + wrap.getBoundingClientRect().height) + "px";
+        if (spacer) spacer.style.height = (topbarH + headerH + topH + areaH) + "px";
       });
     };
-    // 旧 handler 解除
+
     if (this._tabsResizeHandler) window.removeEventListener("resize", this._tabsResizeHandler);
     this._tabsResizeHandler = applyLayout;
     window.addEventListener("resize", applyLayout, { passive: true });
     requestAnimationFrame(applyLayout);
 
-    // タブクリック時にそのタブを tab bar の左端へスクロール (要望)
-    const listEl = wrap.querySelector(".nav-pills");
-    if (listEl) {
-      wrap.querySelectorAll(".nav-link[data-area-id]").forEach(el => {
+    // 上位タブクリック時にそのタブを左端へスクロール
+    const topList = topWrap.querySelector(".nav-pills");
+    if (topList) {
+      topWrap.querySelectorAll(".mcl-top-tab").forEach(el => {
         el.addEventListener("click", () => {
-          // setTimeout で active 切替後にスクロール
           setTimeout(() => {
-            const left = el.offsetLeft;
-            listEl.scrollTo({ left: Math.max(0, left - 4), behavior: "smooth" });
+            topList.scrollTo({ left: Math.max(0, el.offsetLeft - 4), behavior: "smooth" });
           }, 0);
         });
       });
     }
+    // 大カテゴリタブクリック時にそのタブを左端へスクロール
+    if (areaWrap) {
+      const areaList = areaWrap.querySelector(".nav-pills");
+      if (areaList) {
+        areaWrap.querySelectorAll("[data-area-id]").forEach(el => {
+          el.addEventListener("click", () => {
+            setTimeout(() => {
+              areaList.scrollTo({ left: Math.max(0, el.offsetLeft - 4), behavior: "smooth" });
+            }, 0);
+          });
+        });
+      }
+    }
   },
 
-  // ===== フッター: ランドリー 3 ボタン + 清掃完了ボタン =====
+  // ===== フッター: タブ2では清掃完了のみ / タブ4ではランドリーのみ =====
   renderFooter() {
     const el = document.getElementById("mclFooter");
     if (!el || !this.checklist) return;
@@ -819,21 +1187,25 @@ const MyChecklistPage = {
           </div>
         </div>`;
 
-    // 清掃完了を上、ランドリーを下に配置 (完了後もランドリーは独立して記録可能)
-    el.innerHTML = completeSection + laundrySection;
+    // タブに応じて表示切替:
+    // タブ4 (ランドリー) → ランドリーのみ
+    // タブ2 (清掃チェックリスト) → 清掃完了のみ
+    // 旧構造互換 (どちらも取れる場合) → 両方
+    if (this.activeTopTab === "laundry") {
+      el.innerHTML = laundrySection || `<div class="alert alert-secondary">ランドリー設定がありません</div>`;
+    } else if (this.activeTopTab === "checklist") {
+      el.innerHTML = completeSection;
+    } else {
+      el.innerHTML = completeSection + laundrySection;
+    }
 
     // #/my-laundry エイリアス経由のスクロール復元
     if (sessionStorage.getItem("pclScrollToLaundry") === "1") {
       sessionStorage.removeItem("pclScrollToLaundry");
-      requestAnimationFrame(() => {
-        const sec = document.getElementById("laundrySection");
-        if (!sec) return;
-        sec.scrollIntoView({ behavior: "smooth", block: "start" });
-        // 一瞬ハイライト
-        sec.style.transition = "box-shadow 0.3s";
-        sec.style.boxShadow = "0 0 0 3px #0d6efd88";
-        setTimeout(() => { sec.style.boxShadow = ""; }, 1500);
-      });
+      // ランドリータブへ切替してスクロール
+      this.activeTopTab = "laundry";
+      this._updateTopTabStyles();
+      this.renderTabLaundry();
     }
 
     el.querySelectorAll('.mcl-laundry').forEach(b => {
@@ -1498,6 +1870,7 @@ const MyChecklistPage = {
 
   async completeChecklist(allDone, unchecked) {
     if (!this.checklistId) return;
+    // 1. 未チェック確認
     if (!allDone) {
       const ok = await showConfirm(
         `未チェックの項目が ${unchecked} 件あります。それでも清掃完了にしますか？`,
@@ -1505,7 +1878,7 @@ const MyChecklistPage = {
       );
       if (!ok) return;
     }
-    // 写真が1枚もない場合は警告
+    // 2. 写真ゼロ確認
     const c = this.checklist || {};
     const hasPhotos = (c.beforePhotos && c.beforePhotos.length > 0)
                    || (c.afterPhotos && c.afterPhotos.length > 0);
@@ -1516,32 +1889,140 @@ const MyChecklistPage = {
       );
       if (!okPhoto) return;
     }
+    // 3. ゲスト評価モーダル
+    const rating = await this._askGuestRating();
+    if (rating === null) return; // キャンセル
+
     const btn = document.getElementById('mclCompleteBtn');
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 処理中...'; }
     try {
       const user = firebase.auth().currentUser;
+      const staffId = Auth?.currentUser?.staffId || "";
+      const staffName = this.staffDoc?.name || user?.displayName || "";
+
+      // 評価を booking に保存
+      if (rating > 0 || rating === 0) {
+        try {
+          // bookingId は checklist.bookingId → shift.bookingId の順で取得
+          let bookingId = c.bookingId || null;
+          if (!bookingId && c.shiftId) {
+            const sDoc = await firebase.firestore().collection("shifts").doc(c.shiftId).get();
+            if (sDoc.exists) bookingId = sDoc.data().bookingId || null;
+          }
+          if (bookingId) {
+            await firebase.firestore().collection("bookings").doc(bookingId).update({
+              cleanlinessRating: rating,
+              cleanlinessRatedBy: staffId,
+              cleanlinessRatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            });
+          }
+        } catch (e) {
+          console.warn("[completeChecklist] 評価保存失敗 (続行):", e.message);
+        }
+      }
+
       await firebase.firestore().collection("checklists").doc(this.checklistId).update({
         status: "completed",
         completedAt: firebase.firestore.FieldValue.serverTimestamp(),
         completedBy: {
           uid: user?.uid || "",
-          name: this.staffDoc?.name || user?.displayName || "",
+          name: staffName,
         },
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
       showToast("清掃完了", "お疲れさまでした！ オーナーに通知しました。", "success");
-      // 自動遷移はしない (その場で完了済みカード表示に切り替わる: onSnapshot → renderFooter)
     } catch (e) {
       if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check2-circle"></i> 清掃完了にする'; }
       showToast("エラー", e.message, "error");
     }
   },
 
+  // ゲスト評価モーダル (Promise<number|null>: 0-5 or null=キャンセル)
+  _askGuestRating() {
+    return new Promise((resolve) => {
+      const existing = document.getElementById("mclGuestRatingModal");
+      if (existing) existing.remove();
+
+      let selectedRating = 0;
+      const labels = ["未評価", "とても汚い", "汚い", "普通", "綺麗", "とても綺麗"];
+
+      const modalEl = document.createElement("div");
+      modalEl.className = "modal fade";
+      modalEl.id = "mclGuestRatingModal";
+      modalEl.tabIndex = -1;
+      modalEl.innerHTML = `
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="bi bi-star-half"></i> ゲストの利用状態を評価してください</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+              <div class="mb-3" id="mclRatingStars" style="font-size:2.5rem;cursor:pointer;letter-spacing:4px;">
+                <span class="mcl-star" data-val="1">☆</span>
+                <span class="mcl-star" data-val="2">☆</span>
+                <span class="mcl-star" data-val="3">☆</span>
+                <span class="mcl-star" data-val="4">☆</span>
+                <span class="mcl-star" data-val="5">☆</span>
+              </div>
+              <div id="mclRatingLabel" class="fw-bold mb-2" style="min-height:1.5em;">未評価</div>
+              <div class="small text-muted mb-3">
+                1=とても汚い / 2=汚い / 3=普通 / 4=綺麗 / 5=とても綺麗 / 0=未評価
+              </div>
+              <div class="small text-muted">星を選択してから送信してください（未評価のまま送信も可）</div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+              <button type="button" class="btn btn-success" id="mclRatingSubmit">
+                <i class="bi bi-check2-circle"></i> 評価して完了送信
+              </button>
+            </div>
+          </div>
+        </div>`;
+      document.body.appendChild(modalEl);
+
+      const updateStars = (val) => {
+        modalEl.querySelectorAll(".mcl-star").forEach(s => {
+          s.textContent = Number(s.dataset.val) <= val ? "★" : "☆";
+          s.style.color = Number(s.dataset.val) <= val ? "#f4c430" : "#aaa";
+        });
+        const label = document.getElementById("mclRatingLabel");
+        if (label) label.textContent = labels[val] || "未評価";
+      };
+      updateStars(0);
+
+      modalEl.querySelectorAll(".mcl-star").forEach(s => {
+        s.addEventListener("click", () => {
+          const v = Number(s.dataset.val);
+          selectedRating = selectedRating === v ? 0 : v; // 同じ星をもう一度クリックで解除
+          updateStars(selectedRating);
+        });
+      });
+
+      let decided = false;
+      document.getElementById("mclRatingSubmit").addEventListener("click", () => {
+        decided = true;
+        modal.hide();
+        modalEl.addEventListener("hidden.bs.modal", () => { modalEl.remove(); resolve(selectedRating); }, { once: true });
+      });
+      modalEl.addEventListener("hidden.bs.modal", () => {
+        if (!decided) { modalEl.remove(); resolve(null); }
+      });
+
+      const modal = new bootstrap.Modal(modalEl);
+      modal.show();
+    });
+  },
+
+  // 後方互換: タブ2の大カテゴリエリア内容を更新
   renderActiveArea() {
+    // 新構造では renderTabChecklist() 経由で描画するが、
+    // 大カテゴリタブ切替時は mclAreaContent のみ差し替える
+    const el = document.getElementById("mclAreaContent");
+    if (!el || !this.checklist) return;
     const areas = this.checklist.templateSnapshot || [];
     const area = areas.find(a => a.id === this.activeAreaId);
     if (!area) return;
-    const el = document.getElementById("mclAreaContent");
     const states = this.checklist.itemStates || {};
     const total = this.countItems([area]);
     const done = this.countItemsDone(area, states);
@@ -1559,9 +2040,7 @@ const MyChecklistPage = {
       ${this.renderChildren(area)}
     `;
     this.wireChildren(el);
-    // 全チェック/全外し
     el.querySelector(".mcl-toggle-all-check")?.addEventListener("click", () => this.toggleAllCheckInArea(area, allChecked));
-    // 全展開/全折りたたみ
     el.querySelector(".mcl-toggle-all-expand")?.addEventListener("click", () => this.toggleAllExpandInArea(el));
   },
 
@@ -2173,6 +2652,197 @@ const MyChecklistPage = {
       img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("画像の読み込みに失敗しました")); };
       img.src = url;
     });
+  },
+
+  // ===== チェックリストメモ (タブ2の末尾) =====
+  _renderChecklistNotes() {
+    const el = document.getElementById("mclChecklistNotes");
+    if (!el || !this.checklist) return;
+    const c = this.checklist;
+    const notes = Array.isArray(c.notes) ? c.notes : [];
+
+    const fmtTs = (at) => {
+      if (!at) return "";
+      const d = typeof at === "number" ? new Date(at) : (at.toDate ? at.toDate() : new Date(at));
+      return d.toLocaleString("ja-JP", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    };
+
+    const noteCards = notes.map(n => `
+      <div class="card mb-2" data-note-id="${this.escapeHtml(n.id)}">
+        <div class="card-body py-2 px-3">
+          <div class="d-flex align-items-start gap-2">
+            <div class="flex-grow-1">
+              <div class="small text-muted mb-1">
+                <i class="bi bi-person-circle"></i> ${this.escapeHtml(n.by || "不明")}
+                <span class="ms-1">${this.escapeHtml(fmtTs(n.at))}</span>
+              </div>
+              ${n.text ? `<div style="white-space:pre-wrap;">${this.escapeHtml(n.text)}</div>` : ""}
+              ${(n.photoUrls || []).length > 0 ? `
+                <div class="d-flex flex-wrap gap-1 mt-2">
+                  ${n.photoUrls.map(u => `
+                    <img src="${this.escapeHtml(u)}" loading="lazy"
+                         style="width:80px;height:80px;object-fit:cover;border-radius:6px;cursor:pointer;"
+                         class="mcl-note-preview" data-url="${this.escapeHtml(u)}">
+                  `).join("")}
+                </div>` : ""}
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-danger mcl-note-del flex-shrink-0"
+                    data-note-id="${this.escapeHtml(n.id)}" style="padding:1px 6px;">×</button>
+          </div>
+        </div>
+      </div>`).join("");
+
+    el.innerHTML = `
+      <div class="card">
+        <div class="card-header py-2">
+          <span class="fw-bold"><i class="bi bi-chat-left-text"></i> メモ</span>
+          <span class="badge bg-secondary ms-1">${notes.length}</span>
+        </div>
+        <div class="card-body pb-2">
+          ${noteCards || `<div class="text-muted small mb-2">まだメモはありません</div>`}
+          <div class="border-top pt-2 mt-2">
+            <textarea class="form-control form-control-sm mb-2" id="mclNoteText" rows="2"
+                      placeholder="メモを入力..."></textarea>
+            <div class="d-flex gap-2 align-items-center">
+              <label class="btn btn-sm btn-outline-secondary mb-0" style="cursor:pointer;">
+                <i class="bi bi-image"></i> 写真
+                <input type="file" accept="image/*" multiple class="d-none" id="mclNotePhotoInput">
+              </label>
+              <span id="mclNotePhotoCount" class="small text-muted"></span>
+              <button type="button" class="btn btn-sm btn-primary ms-auto" id="mclNoteSubmit">
+                <i class="bi bi-send"></i> 登録
+              </button>
+            </div>
+            <div id="mclNotePhotoPreview" class="d-flex flex-wrap gap-1 mt-1"></div>
+          </div>
+        </div>
+      </div>`;
+
+    // 写真選択
+    this._noteSelectedFiles = [];
+    const photoInput = document.getElementById("mclNotePhotoInput");
+    if (photoInput) {
+      photoInput.addEventListener("change", (ev) => {
+        this._noteSelectedFiles = Array.from(ev.target.files || []);
+        const countEl = document.getElementById("mclNotePhotoCount");
+        if (countEl) countEl.textContent = this._noteSelectedFiles.length > 0
+          ? `${this._noteSelectedFiles.length}枚選択中` : "";
+        // サムネイルプレビュー
+        const preview = document.getElementById("mclNotePhotoPreview");
+        if (preview) {
+          preview.innerHTML = "";
+          this._noteSelectedFiles.forEach(f => {
+            const url = URL.createObjectURL(f);
+            const img = document.createElement("img");
+            img.src = url;
+            img.style.cssText = "width:60px;height:60px;object-fit:cover;border-radius:4px;";
+            img.addEventListener("load", () => URL.revokeObjectURL(url));
+            preview.appendChild(img);
+          });
+        }
+      });
+    }
+
+    // 登録ボタン
+    document.getElementById("mclNoteSubmit")?.addEventListener("click", () => this._submitChecklistNote());
+
+    // 削除ボタン
+    el.querySelectorAll(".mcl-note-del").forEach(btn => {
+      btn.addEventListener("click", () => this._deleteChecklistNote(btn.dataset.noteId));
+    });
+
+    // 写真プレビュー
+    el.querySelectorAll(".mcl-note-preview").forEach(img => {
+      img.addEventListener("click", () => this._previewPhotoUrl(img.dataset.url));
+    });
+  },
+
+  async _submitChecklistNote() {
+    const textEl = document.getElementById("mclNoteText");
+    const text = textEl?.value.trim() || "";
+    const files = this._noteSelectedFiles || [];
+    if (!text && !files.length) {
+      showToast("入力エラー", "テキストか写真を入力してください", "error");
+      return;
+    }
+    if (!this.checklistId || !this.checklist) return;
+
+    const submitBtn = document.getElementById("mclNoteSubmit");
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+
+    try {
+      const c = this.checklist;
+      const user = firebase.auth().currentUser;
+      const staffName = this.staffDoc?.name || user?.displayName || "スタッフ";
+      const staffId = Auth?.currentUser?.staffId || user?.uid || "";
+      const noteId = "note_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+
+      // 写真アップロード
+      const photoUrls = [];
+      for (const file of files) {
+        try {
+          const blob = await this._resizeImage(file, this.PHOTO_LONG_SIDE);
+          const ts = Date.now();
+          const rand = Math.random().toString(36).slice(2, 7);
+          const path = `checklist-photos/${c.propertyId}/${this.checklistId}/notes/${noteId}/${ts}_${rand}.jpg`;
+          const ref = firebase.storage().ref(path);
+          await ref.put(blob, { contentType: "image/jpeg" });
+          const url = await ref.getDownloadURL();
+          photoUrls.push(url);
+        } catch (e) {
+          console.warn("[メモ写真アップ失敗]", e.message);
+        }
+      }
+
+      const note = {
+        id: noteId,
+        text,
+        photoUrls,
+        by: staffName,
+        byId: staffId,
+        at: Date.now(), // serverTimestamp は配列内不可のため number
+      };
+
+      await firebase.firestore().collection("checklists").doc(this.checklistId).update({
+        notes: firebase.firestore.FieldValue.arrayUnion(note),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // 入力欄クリア
+      if (textEl) textEl.value = "";
+      this._noteSelectedFiles = [];
+      const countEl = document.getElementById("mclNotePhotoCount");
+      if (countEl) countEl.textContent = "";
+      const preview = document.getElementById("mclNotePhotoPreview");
+      if (preview) preview.innerHTML = "";
+      showToast("メモ登録", "メモを登録しました", "success");
+    } catch (e) {
+      showToast("エラー", e.message, "error");
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="bi bi-send"></i> 登録';
+      }
+    }
+  },
+
+  async _deleteChecklistNote(noteId) {
+    if (!noteId || !this.checklistId || !this.checklist) return;
+    const ok = await showConfirm("このメモを削除しますか？", { title: "メモの削除", okLabel: "削除", okClass: "btn-danger" });
+    if (!ok) return;
+
+    const notes = Array.isArray(this.checklist.notes) ? this.checklist.notes : [];
+    const note = notes.find(n => n.id === noteId);
+    if (!note) return;
+
+    try {
+      await firebase.firestore().collection("checklists").doc(this.checklistId).update({
+        notes: firebase.firestore.FieldValue.arrayRemove(note),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      showToast("エラー", e.message, "error");
+    }
   },
 
   /** 写真をフルスクリーンプレビュー */
