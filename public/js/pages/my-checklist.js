@@ -2488,7 +2488,7 @@ const MyChecklistPage = {
               ${canAdd ? `
                 <label class="btn btn-sm btn-outline-primary mb-0" style="cursor:pointer;">
                   <i class="bi bi-plus-lg"></i> 写真を追加
-                  <input type="file" accept="image/*" multiple capture="environment"
+                  <input type="file" accept="image/*" multiple
                          class="d-none mcl-photo-input" data-kind="${kind}">
                 </label>
               ` : (!isCompleted ? `<span class="small text-muted">最大${this.MAX_PHOTOS}枚</span>` : "")}
