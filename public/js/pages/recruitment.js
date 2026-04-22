@@ -631,24 +631,26 @@ const RecruitmentPage = {
     btn.title = "読み込み中...";
     btn.onclick = null;
     try {
-      if (!recruitment.bookingId) {
+      if (!recruitment.propertyId || !recruitment.checkoutDate) {
         btn.disabled = true;
-        btn.title = "予約未紐付けのためチェックリスト未生成";
+        btn.title = "物件/CO日が未設定でチェックリスト特定不可";
         return;
       }
-      const shiftSnap = await db.collection("shifts")
-        .where("bookingId", "==", recruitment.bookingId).limit(1).get();
-      if (shiftSnap.empty) {
-        btn.disabled = true;
-        btn.title = "対応するシフトがありません";
-        return;
-      }
-      const shiftId = shiftSnap.docs[0].id;
+      // checklists を propertyId + checkoutDate で直接 query
+      // (スタッフは shifts を staffId 不一致だと read 不可のため shifts 経由を回避)
       const clSnap = await db.collection("checklists")
-        .where("shiftId", "==", shiftId).limit(1).get();
+        .where("propertyId", "==", recruitment.propertyId)
+        .where("checkoutDate", "==", recruitment.checkoutDate)
+        .limit(1).get();
       if (clSnap.empty) {
         btn.disabled = true;
-        btn.title = "未生成";
+        btn.title = "チェックリスト未生成";
+        return;
+      }
+      const shiftId = clSnap.docs[0].data().shiftId;
+      if (!shiftId) {
+        btn.disabled = true;
+        btn.title = "シフトID未紐付け";
         return;
       }
       btn.disabled = false;

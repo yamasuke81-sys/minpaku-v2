@@ -978,13 +978,20 @@ const MyRecruitmentPage = {
     const myAssignedForStaff = Array.isArray(this.staffDoc?.assignedPropertyIds)
       ? this.staffDoc.assignedPropertyIds
       : [];
+    // 現在表示中(目アイコンで非表示にされていない) の物件のみで担当判定
+    const visiblePropIds = new Set(
+      displayProperties
+        .filter(p => this._propertyVisibility[p.id] !== false)
+        .map(p => p.id)
+    );
     const visibleStaffList = isOwner
       ? this.staffList
       : this.staffList.filter(s => {
           if (s.id === this.staffId) return true;     // 自分は必ず表示
           if (s.isOwner) return true;                   // メインオーナー行は残す
           const theirAssigned = Array.isArray(s.assignedPropertyIds) ? s.assignedPropertyIds : [];
-          return theirAssigned.some(pid => myAssignedForStaff.includes(pid));
+          // 表示中の物件のいずれかを担当しているスタッフのみ表示
+          return theirAssigned.some(pid => visiblePropIds.has(pid));
         });
     // 自分の行を一番上に固定: 自分を先頭に、それ以外は元の並び順を維持
     const orderedStaff = [
@@ -1238,27 +1245,7 @@ const MyRecruitmentPage = {
       const dateStr = td.dataset.date;
       if (!dateStr) return;
 
-      // セルに recruitId が直接付与されている場合はそれを優先 (担当物件フィルタのズレを回避)
-      const directRecruitId = td.dataset.recruitId;
-      if (directRecruitId) {
-        const recruit = this.recruitments.find(r => r.id === directRecruitId);
-        if (recruit && typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
-          try {
-            // 既に読み込み済みのデータを共有して権限エラー回避
-            if (typeof RecruitmentPage !== "undefined") {
-              if (Array.isArray(this.staffList) && this.staffList.length) RecruitmentPage.staffList = this.staffList;
-              if (Array.isArray(this.recruitments) && this.recruitments.length) RecruitmentPage.recruitments = this.recruitments;
-            }
-            await RecruitmentPage.ensureLoaded();
-            RecruitmentPage.openDetailModal(recruit, { viewMode: this.isOwnerView ? "owner" : "staff" });
-          } catch (e) {
-            showToast("ERROR", e.message || String(e), "error");
-          }
-          return;
-        }
-      }
-
-      // フォールバック: その日の募集を日付で絞り込む
+      // その日の募集を日付で絞り込む
       let candidates = this.recruitments.filter(r => this._toDateStr(r.checkoutDate) === dateStr);
 
       const isStaffView = !this.isOwnerView;
@@ -1271,25 +1258,37 @@ const MyRecruitmentPage = {
         if (filtered.length > 0) candidates = filtered;
       }
 
+      // フォールバック: 候補が空でセルに直接 recruitId が付いている場合はそれを採用
       if (candidates.length === 0) {
-        // オーナーのみ: 新規追加選択ダイアログを出す
-        if (this.isOwnerView) {
-          this._showAddPickerForDate(dateStr);
+        const directRecruitId = td.dataset.recruitId;
+        if (directRecruitId) {
+          const direct = this.recruitments.find(r => r.id === directRecruitId);
+          if (direct) candidates = [direct];
         }
+      }
+
+      if (candidates.length === 0) {
+        if (this.isOwnerView) this._showAddPickerForDate(dateStr);
         return;
       }
 
-      // スキップ条件: スタッフは件数1 かつ 単一物件担当 / オーナーは件数1 (ただしオーナーは中間モーダル経由で追加ボタンを出す)
-      const skipList = candidates.length === 1 && (
-        !isStaffView || myAssignedIds.length <= 1
-      ) && !this.isOwnerView;
+      // 既に読み込み済みのデータを共有して権限エラー回避
+      if (typeof RecruitmentPage !== "undefined") {
+        if (Array.isArray(this.staffList) && this.staffList.length) RecruitmentPage.staffList = this.staffList;
+        if (Array.isArray(this.recruitments) && this.recruitments.length) RecruitmentPage.recruitments = this.recruitments;
+      }
 
+      // 1件 → 直接モーダル / 2件以上 → 中間モーダル (物件選択)
       if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
-        await RecruitmentPage.ensureLoaded();
-        if (skipList) {
-          RecruitmentPage.openDetailModal(candidates[0], { viewMode: this.isOwnerView ? "owner" : "staff" });
-        } else {
-          this._showDayBookingsListModal(dateStr, candidates);
+        try {
+          await RecruitmentPage.ensureLoaded();
+          if (candidates.length === 1) {
+            RecruitmentPage.openDetailModal(candidates[0], { viewMode: this.isOwnerView ? "owner" : "staff" });
+          } else {
+            this._showDayBookingsListModal(dateStr, candidates);
+          }
+        } catch (e) {
+          showToast("ERROR", e.message || String(e), "error");
         }
       }
     };

@@ -44,19 +44,27 @@ const Auth = {
     if (reloadBtn) reloadBtn.addEventListener("click", async (ev) => {
       ev.preventDefault();
       try {
-        // Service Worker のキャッシュを全削除
+        // Service Worker キャッシュ + 登録解除 (ある場合のみ)
         if (typeof caches !== "undefined") {
           const keys = await caches.keys();
           await Promise.all(keys.map(k => caches.delete(k)));
         }
-        // Service Worker 自体も unregister
         if (navigator.serviceWorker) {
           const regs = await navigator.serviceWorker.getRegistrations();
           await Promise.all(regs.map(r => r.unregister()));
         }
       } catch (_) { /* 無視 */ }
-      // ハードリロード (ハッシュは維持)
-      window.location.reload();
+      // クエリパラメータにタイムスタンプを付与して再遷移
+      // → ブラウザが「新規 URL」とみなし HTTP キャッシュをバイパスして index.html 取り直し
+      // → 中の <script src="...?v=xxx"> も最新版が反映される
+      // ハッシュ (#/my-checklist 等) は維持
+      try {
+        const u = new URL(window.location.href);
+        u.searchParams.set("_cb", String(Date.now()));
+        window.location.replace(u.toString());
+      } catch (_) {
+        window.location.reload();
+      }
     });
 
     // URLパラメータチェック（LINE OAuthコールバック / 招待受諾後のリダイレクト）
