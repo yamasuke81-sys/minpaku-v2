@@ -1230,24 +1230,26 @@ const MyRecruitmentPage = {
     // オーナービュー: 全募集対象
     // 1件のみ (+スタッフ単一担当) の場合は中間モーダルをスキップして直接詳細
     const handleCellClick = async (td) => {
-      showToast("クリック検知", `inactive=${!!this._isInactive} / date=${td.dataset.date} / recruitId=${td.dataset.recruitId || "なし"}`, "info");
       // 非アクティブスタッフは回答UIを開かない
       if (this._isInactive) {
         showToast("非アクティブ", this.staffDoc?.inactiveReason || "直近15回の清掃募集について回答がなかったため、非アクティブとなりました。解除する場合はオーナーまでご連絡ください。", "warning");
         return;
       }
       const dateStr = td.dataset.date;
-      if (!dateStr) { showToast("中断", "dateStr 無し", "warning"); return; }
+      if (!dateStr) return;
 
       // セルに recruitId が直接付与されている場合はそれを優先 (担当物件フィルタのズレを回避)
       const directRecruitId = td.dataset.recruitId;
       if (directRecruitId) {
         const recruit = this.recruitments.find(r => r.id === directRecruitId);
-        showToast("Step1", `recruit found=${!!recruit} / RecruitmentPage=${typeof RecruitmentPage} / openDetailModal=${typeof RecruitmentPage !== "undefined" ? typeof RecruitmentPage.openDetailModal : "n/a"}`, "info");
         if (recruit && typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
           try {
+            // 既に読み込み済みのデータを共有して権限エラー回避
+            if (typeof RecruitmentPage !== "undefined") {
+              if (Array.isArray(this.staffList) && this.staffList.length) RecruitmentPage.staffList = this.staffList;
+              if (Array.isArray(this.recruitments) && this.recruitments.length) RecruitmentPage.recruitments = this.recruitments;
+            }
             await RecruitmentPage.ensureLoaded();
-            showToast("Step2", "ensureLoaded done, calling openDetailModal", "info");
             RecruitmentPage.openDetailModal(recruit, { viewMode: this.isOwnerView ? "owner" : "staff" });
           } catch (e) {
             showToast("ERROR", e.message || String(e), "error");
@@ -1302,8 +1304,6 @@ const MyRecruitmentPage = {
         handleCellClick(td);
       });
     }
-    // 一時デバッグ用 (発火しない時に状態確認)
-    showToast("セル数", `clickable cells: ${cellTds.length} / staffId=${this.staffId || "なし"} / view=${this.isOwnerView ? "owner" : "staff"}`, "info");
 
     // オーナー: 募集ゼロ日セルタップで手動追加ダイアログ
     if (this.isOwnerView) {

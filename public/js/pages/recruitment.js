@@ -118,10 +118,12 @@ const RecruitmentPage = {
       if (el) this.modal = new bootstrap.Modal(el);
     }
     if (!this.staffList || !this.staffList.length) {
-      this.staffList = await API.staff.list(true);
+      try { this.staffList = await API.staff.list(true); }
+      catch (_) { this.staffList = this.staffList || []; }
     }
     if (!this.recruitments || !this.recruitments.length) {
-      this.recruitments = await API.recruitments.list();
+      try { this.recruitments = await API.recruitments.list(); }
+      catch (_) { this.recruitments = this.recruitments || []; }
     }
     // bindEvents 一度も呼ばれていない場合、最低限 confirm/reopen ボタンをバインド
     if (!this._quickBound) {
