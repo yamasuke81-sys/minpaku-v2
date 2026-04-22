@@ -59,9 +59,9 @@ const MyRecruitmentPage = {
         <h2><i class="bi bi-calendar-check"></i> ${this._viewMode === "owner" ? "予約・清掃スケジュール" : "清掃スケジュール"}</h2>
         <div class="d-flex align-items-center gap-1 flex-wrap">
           <button class="btn btn-sm" id="btnGoLatestChecklist"
-            style="background:#ffc107;color:#000;font-weight:600;border:1px solid #ffc107;"
+            style="background:#ffc107;color:#000;font-weight:600;border:1px solid #ffc107;padding:4px 10px;"
             title="直近の清掃チェックリストを開く">
-            <i class="bi bi-clipboard-check"></i> 清掃チェックリスト
+            <i class="bi bi-clipboard-check"></i>
           </button>
           <button class="btn btn-sm btn-outline-secondary ms-2" id="btnMyCalPrev" title="前の月" style="min-width:36px;">◀</button>
           <input type="month" class="form-control form-control-sm" style="width:140px;" id="myCalMonth">
@@ -2547,25 +2547,24 @@ const MyRecruitmentPage = {
         return new Date(d).getTime();
       };
 
-      const snap = await db.collection("shifts")
+      // checklists を直接 query (スタッフは shifts を read 不可のため)
+      const clSnap = await db.collection("checklists")
         .where("propertyId", "==", propertyId).get();
-      // 本日以降のシフトに絞って最古 (= 最も近い未来) を選ぶ
-      const future = snap.docs
-        .map(d => ({ id: d.id, data: d.data(), _ms: toMs(d.data().date) }))
+      // 本日以降の checkoutDate に絞って最古 (= 最も近い未来) を選ぶ
+      const future = clSnap.docs
+        .map(d => ({ id: d.id, data: d.data(), _ms: toMs(d.data().checkoutDate) }))
         .filter(x => x._ms >= todayMs)
         .sort((a, b) => a._ms - b._ms);
 
-      const shiftDoc = future[0];
-      if (!shiftDoc) {
-        showToast("シフトなし", "本日以降のシフトが見つかりません", "warning");
+      const cl = future[0];
+      if (!cl) {
+        showToast("シフトなし", "本日以降のチェックリストが見つかりません", "warning");
         location.hash = `#/my-checklist`;
         return;
       }
-      const shiftId = shiftDoc.id;
-      const clSnap = await db.collection("checklists")
-        .where("shiftId", "==", shiftId).limit(1).get();
-      if (clSnap.empty) {
-        showToast("情報", "チェックリスト未生成。一覧へ遷移します", "info");
+      const shiftId = cl.data.shiftId;
+      if (!shiftId) {
+        showToast("情報", "シフトID未紐付け。一覧へ遷移します", "info");
         location.hash = `#/my-checklist`;
         return;
       }

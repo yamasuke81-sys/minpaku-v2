@@ -636,18 +636,25 @@ const RecruitmentPage = {
         btn.title = "物件/CO日が未設定でチェックリスト特定不可";
         return;
       }
-      // checklists を propertyId + checkoutDate で直接 query
-      // (スタッフは shifts を staffId 不一致だと read 不可のため shifts 経由を回避)
+      // checklists を propertyId で取得し、メモリ上で日付比較
+      // (recruitment.checkoutDate=string, checklist.checkoutDate=Timestamp で型不一致のため)
+      const toDateStr = (v) => {
+        if (!v) return "";
+        if (typeof v === "string") return v.length >= 10 ? v.slice(0, 10) : v;
+        const d = v.toDate ? v.toDate() : (v instanceof Date ? v : new Date(v));
+        if (isNaN(d.getTime())) return "";
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+      };
+      const targetDate = toDateStr(recruitment.checkoutDate);
       const clSnap = await db.collection("checklists")
-        .where("propertyId", "==", recruitment.propertyId)
-        .where("checkoutDate", "==", recruitment.checkoutDate)
-        .limit(1).get();
-      if (clSnap.empty) {
+        .where("propertyId", "==", recruitment.propertyId).get();
+      const cl = clSnap.docs.find(d => toDateStr(d.data().checkoutDate) === targetDate);
+      if (!cl) {
         btn.disabled = true;
         btn.title = "チェックリスト未生成";
         return;
       }
-      const shiftId = clSnap.docs[0].data().shiftId;
+      const shiftId = cl.data().shiftId;
       if (!shiftId) {
         btn.disabled = true;
         btn.title = "シフトID未紐付け";
@@ -746,24 +753,31 @@ const RecruitmentPage = {
 
       if (nextBooking) {
         const nbCiStr = toDateStr(nextBooking.checkIn);
+        const collapseId = "nextBookingCollapse";
         el.innerHTML = `
           <hr>
-          <h6 class="mb-2"><i class="bi bi-arrow-right-circle"></i> 次の予約</h6>
-          <table class="table table-sm table-borderless mb-0">
-            ${isStaffView ? "" : `<tr><th width="110" class="text-muted">ゲスト名</th><td>${v(nextBooking.guestName)}</td></tr>`}
-            <tr><th width="110" class="text-muted">チェックイン</th><td>${vd(nbCiStr)} <strong>${this.escapeHtml(nextGuest.checkInTime || "--:--")}</strong></td></tr>
-            <tr><th class="text-muted">宿泊人数</th><td>${nextBooking.guestCount ? this.escapeHtml(String(nextBooking.guestCount)) + "名" : "-"}</td></tr>
-            <tr><th class="text-muted">BBQ</th><td>${vb(nextGuest.bbq)}</td></tr>
-            <tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${v(nextGuest.bedChoice)}</td></tr>
-            <tr><th class="text-muted">交通手段</th><td>${v(nextGuest.transport)}</td></tr>
-            <tr><th class="text-muted">車台数</th><td>${nextGuest.carCount ? this.escapeHtml(String(nextGuest.carCount)) + "台" : "-"}</td></tr>
-            <tr><th class="text-muted">有料駐車場</th><td>${v(nextGuest.paidParking)}</td></tr>
-          </table>`;
+          <button class="btn btn-sm btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
+            type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}"
+            aria-expanded="false" aria-controls="${collapseId}">
+            <span><i class="bi bi-arrow-right-circle"></i> 次の予約 (${vd(nbCiStr)} 〜)</span>
+            <i class="bi bi-chevron-down"></i>
+          </button>
+          <div class="collapse mt-2" id="${collapseId}">
+            <table class="table table-sm table-borderless mb-0">
+              ${isStaffView ? "" : `<tr><th width="110" class="text-muted">ゲスト名</th><td>${v(nextBooking.guestName)}</td></tr>`}
+              <tr><th width="110" class="text-muted">チェックイン</th><td>${vd(nbCiStr)} <strong>${this.escapeHtml(nextGuest.checkInTime || "--:--")}</strong></td></tr>
+              <tr><th class="text-muted">宿泊人数</th><td>${nextBooking.guestCount ? this.escapeHtml(String(nextBooking.guestCount)) + "名" : "-"}</td></tr>
+              <tr><th class="text-muted">BBQ</th><td>${vb(nextGuest.bbq)}</td></tr>
+              <tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${v(nextGuest.bedChoice)}</td></tr>
+              <tr><th class="text-muted">交通手段</th><td>${v(nextGuest.transport)}</td></tr>
+              <tr><th class="text-muted">車台数</th><td>${nextGuest.carCount ? this.escapeHtml(String(nextGuest.carCount)) + "台" : "-"}</td></tr>
+              <tr><th class="text-muted">有料駐車場</th><td>${v(nextGuest.paidParking)}</td></tr>
+            </table>
+          </div>`;
       } else {
         el.innerHTML = `
           <hr>
-          <h6 class="mb-2"><i class="bi bi-arrow-right-circle"></i> 次の予約</h6>
-          <div class="text-muted small">予約なし</div>`;
+          <div class="small text-muted"><i class="bi bi-arrow-right-circle"></i> 次の予約: なし</div>`;
       }
     } catch (e) {
       console.warn("次の予約取得エラー:", e);
