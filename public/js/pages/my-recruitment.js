@@ -1284,12 +1284,19 @@ const MyRecruitmentPage = {
         }
       }
     };
-    container.querySelectorAll('td[data-cell-click="1"]').forEach(td => {
-      td.addEventListener("click", (ev) => {
+    // セルクリックは container 全体への delegation 一本に統一 (個別 listener より確実)
+    const cellTds = container.querySelectorAll('td[data-cell-click="1"]');
+    if (!container._cellDelegateBound) {
+      container._cellDelegateBound = true;
+      container.addEventListener("click", (ev) => {
+        const td = ev.target.closest('td[data-cell-click="1"]');
+        if (!td) return;
         ev.stopPropagation();
         handleCellClick(td);
       });
-    });
+    }
+    // 一時デバッグ用 (発火しない時に状態確認)
+    showToast("セル数", `clickable cells: ${cellTds.length} / staffId=${this.staffId || "なし"} / view=${this.isOwnerView ? "owner" : "staff"}`, "info");
 
     // オーナー: 募集ゼロ日セルタップで手動追加ダイアログ
     if (this.isOwnerView) {
