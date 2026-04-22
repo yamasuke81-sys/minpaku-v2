@@ -23,9 +23,16 @@ router.get("/guest-form-config/:propertyId", async (req, res) => {
 
     // 公開可能フィールドのみ whitelist 方式で抽出
     // 機密フィールド (lineChannelToken, monthlyFixedCost, purchasePrice 等) は含めない
+    // customFormFields を formFieldConfig に含める（フォーム画面側がここを参照する）
     const formFieldConfig = d.formFieldConfig && typeof d.formFieldConfig === "object"
-      ? { overrides: d.formFieldConfig.overrides || {} }
-      : { overrides: {} };
+      ? {
+          overrides: d.formFieldConfig.overrides || {},
+          customFormFields: Array.isArray(d.customFormFields) ? d.customFormFields : [],
+        }
+      : {
+          overrides: {},
+          customFormFields: Array.isArray(d.customFormFields) ? d.customFormFields : [],
+        };
 
     res.json({
       propertyId: pid,
