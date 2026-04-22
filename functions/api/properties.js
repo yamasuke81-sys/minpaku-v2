@@ -196,5 +196,53 @@ module.exports = function propertiesApi(db) {
     }
   });
 
+  // 物件の関連データ件数を返す (完全削除前の確認用)
+  router.get("/:id/related-count", async (req, res) => {
+    try {
+      if (req.user.role !== "owner") {
+        return res.status(403).json({ error: "オーナー権限が必要です" });
+      }
+      const pid = req.params.id;
+      const db = collection.firestore;
+      const counts = {};
+      const cols = ["bookings", "shifts", "recruitments", "checklists", "guestRegistrations", "laundry", "invoices"];
+      for (const c of cols) {
+        const snap = await db.collection(c).where("propertyId", "==", pid).get();
+        counts[c] = snap.size;
+      }
+      // checklistTemplates は doc id が propertyId
+      const tmplDoc = await db.collection("checklistTemplates").doc(pid).get();
+      counts.checklistTemplates = tmplDoc.exists ? 1 : 0;
+      res.json({ counts });
+    } catch (e) {
+      console.error("related-count エラー:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // 物件の完全削除 (ドキュメント自体を Firestore から削除)
+  // 関連データ (bookings/shifts/...) は残す (データ整合性維持・履歴保持のため)
+  router.delete("/:id/force", async (req, res) => {
+    try {
+      if (req.user.role !== "owner") {
+        return res.status(403).json({ error: "オーナー権限が必要です" });
+      }
+      const docRef = collection.doc(req.params.id);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        return res.status(404).json({ error: "物件が見つかりません" });
+      }
+      // 念のため無効化済みでないと削除させない (誤操作防止)
+      if (doc.data().active !== false) {
+        return res.status(400).json({ error: "先に物件を無効化してください" });
+      }
+      await docRef.delete();
+      res.json({ message: "物件を完全に削除しました" });
+    } catch (e) {
+      console.error("物件完全削除エラー:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   return router;
 };

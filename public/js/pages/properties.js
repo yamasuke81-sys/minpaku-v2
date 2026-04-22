@@ -244,8 +244,11 @@ const PropertiesPage = {
                 <i class="bi bi-trash"></i> 無効化
               </button>
             ` : `
-              <button class="btn btn-sm btn-success btn-activate-property float-end" data-id="${p.id}">
+              <button class="btn btn-sm btn-success btn-activate-property float-end ms-1" data-id="${p.id}">
                 <i class="bi bi-check2-circle"></i> 有効化
+              </button>
+              <button class="btn btn-sm btn-danger btn-force-delete-property float-end" data-id="${p.id}" title="Firestore からこの物件を完全に削除します (関連データは残ります)">
+                <i class="bi bi-trash-fill"></i> 完全削除
               </button>
             `}
           </div>
@@ -265,6 +268,13 @@ const PropertiesPage = {
       btn.addEventListener("click", () => {
         const prop = this.propertyList.find((p) => p.id === btn.dataset.id);
         if (prop) this.deleteProperty(prop);
+      });
+    });
+
+    container.querySelectorAll(".btn-force-delete-property").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const prop = this.propertyList.find((p) => p.id === btn.dataset.id);
+        if (prop) this.forceDeleteProperty(prop);
       });
     });
 
@@ -706,6 +716,43 @@ const PropertiesPage = {
       await this.loadProperties();
     } catch (e) {
       showToast("エラー", `無効化に失敗しました: ${e.message}`, "error");
+    }
+  },
+
+  // 物件を Firestore から完全削除 (active=false のものだけ対象)
+  // 関連データ (予約/シフト/募集/チェックリスト等) は残すが、物件自体が消えるので
+  // 物件名は表示されなくなる。誤操作しにくいように件数を先に表示して 2 段階確認する。
+  async forceDeleteProperty(property) {
+    try {
+      // 関連データ件数を先に取得
+      const counts = await API.properties.relatedCount(property.id);
+      const labels = {
+        bookings: "予約",
+        shifts: "シフト",
+        recruitments: "募集",
+        checklists: "チェックリスト",
+        checklistTemplates: "チェックリストマスタ",
+        guestRegistrations: "宿泊者名簿",
+        laundry: "ランドリー記録",
+        invoices: "請求書",
+      };
+      const lines = Object.entries(counts)
+        .filter(([, n]) => n > 0)
+        .map(([k, n]) => `・${labels[k] || k}: ${n} 件`);
+      const relatedMsg = lines.length
+        ? `以下の関連データが残っています (削除しません、履歴として保持):\n${lines.join("\n")}\n\n`
+        : "関連データはありません。\n\n";
+      const ok = await showConfirm(
+        `【完全削除】\n物件「${property.name}」を Firestore から完全に削除します。\n\n${relatedMsg}この操作は取り消せません。続行しますか？`,
+        "物件の完全削除"
+      );
+      if (!ok) return;
+
+      await API.properties.deleteForce(property.id);
+      showToast("完了", `${property.name} を完全に削除しました`, "success");
+      await this.loadProperties();
+    } catch (e) {
+      showToast("エラー", `完全削除に失敗しました: ${e.message}`, "error");
     }
   },
 

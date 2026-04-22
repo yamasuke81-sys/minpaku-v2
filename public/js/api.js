@@ -119,6 +119,31 @@ const API = {
       });
     },
 
+    // 完全削除前の関連データ件数確認
+    async relatedCount(id) {
+      const CF_BASE = "https://api-5qrfx7ujcq-an.a.run.app";
+      const token = await firebase.auth().currentUser.getIdToken();
+      const res = await fetch(`${CF_BASE}/properties/${id}/related-count`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "件数取得失敗");
+      return result.counts || {};
+    },
+
+    // 物件を Firestore から完全削除 (active=false の物件のみ)
+    async deleteForce(id) {
+      const CF_BASE = "https://api-5qrfx7ujcq-an.a.run.app";
+      const token = await firebase.auth().currentUser.getIdToken();
+      const res = await fetch(`${CF_BASE}/properties/${id}/force`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "完全削除失敗");
+      return result;
+    },
+
     /**
      * 民泊物件を番号+色付きで取得。
      * 番号・色は物件ドキュメントの propertyNumber / color フィールドに永続化されていれば優先使用。
