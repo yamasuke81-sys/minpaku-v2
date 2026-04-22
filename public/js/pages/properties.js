@@ -22,6 +22,11 @@ const PRESET_COLORS = [
   { value: "#0dcaf0", name: "シアン" },
 ];
 
+// ソート選択の localStorage キー
+const PROP_SORT_KEY_STORAGE = "propSortKey_v1";
+// 種別の並び順 (種類別ソート時に使用)
+const TYPE_ORDER = { minpaku: 0, rental: 1, other: 2 };
+
 const PropertiesPage = {
   propertyList: [],
   modal: null,
@@ -31,14 +36,35 @@ const PropertiesPage = {
   _lineChannels: [],
   // オーナー候補 (isOwner or isSubOwner の staff)
   _ownerStaffOptions: [],
+  // カード一覧のソートキー
+  sortKey: "manual",
+  // D&D 用 Sortable インスタンス
+  _cardSortable: null,
 
   async render(container) {
+    // 保存済みソートキーを復元
+    try {
+      const saved = localStorage.getItem(PROP_SORT_KEY_STORAGE);
+      if (saved) this.sortKey = saved;
+    } catch (e) {}
+
     container.innerHTML = `
       <div class="page-header">
         <h2><i class="bi bi-buildings"></i> 物件管理</h2>
-        <button class="btn btn-primary" id="btnAddProperty">
-          <i class="bi bi-plus-lg"></i> 物件登録
-        </button>
+        <div class="d-flex align-items-center gap-2">
+          <label class="small text-muted mb-0">並び順:</label>
+          <select id="propSortKey" class="form-select form-select-sm" style="width:auto;">
+            <option value="manual">手動並び順 (ドラッグ&ドロップ)</option>
+            <option value="number">物件番号順</option>
+            <option value="name">物件名順 (あいうえお)</option>
+            <option value="type">種類別 (民泊/賃貸/その他)</option>
+            <option value="createdAt-desc">登録日 (新しい順)</option>
+            <option value="createdAt-asc">登録日 (古い順)</option>
+          </select>
+          <button class="btn btn-primary" id="btnAddProperty">
+            <i class="bi bi-plus-lg"></i> 物件登録
+          </button>
+        </div>
       </div>
 
       <div class="row g-3" id="propertyCards">
@@ -46,7 +72,19 @@ const PropertiesPage = {
       </div>
     `;
 
+    // ソートキー初期値反映
+    const sortSel = document.getElementById("propSortKey");
+    if (sortSel) sortSel.value = this.sortKey;
+
     this.modal = new bootstrap.Modal(document.getElementById("propertyModal"));
+    // モーダル閉了時は編集中IDをクリア (重複判定の残存バグ防止)
+    const modalEl = document.getElementById("propertyModal");
+    if (modalEl && !modalEl.dataset.hiddenBound) {
+      modalEl.dataset.hiddenBound = "1";
+      modalEl.addEventListener("hidden.bs.modal", () => {
+        this.editingId = null;
+      });
+    }
     this.bindEvents();
     await this.loadProperties();
   },
@@ -59,6 +97,64 @@ const PropertiesPage = {
     document.getElementById("btnSaveProperty").addEventListener("click", () => {
       this.saveProperty();
     });
+
+    const sortSel = document.getElementById("propSortKey");
+    if (sortSel) {
+      sortSel.addEventListener("change", () => {
+        this.sortKey = sortSel.value;
+        try { localStorage.setItem(PROP_SORT_KEY_STORAGE, this.sortKey); } catch (e) {}
+        this.renderCards();
+      });
+    }
+  },
+
+  // 現在の sortKey に従って propertyList をソートした配列を返す (非破壊)
+  _sortedProperties() {
+    const arr = [...(this.propertyList || [])];
+    const byOrder = (a, b) => {
+      const av = a.displayOrder == null ? Infinity : Number(a.displayOrder);
+      const bv = b.displayOrder == null ? Infinity : Number(b.displayOrder);
+      return av - bv;
+    };
+    const toMs = (t) => {
+      if (!t) return 0;
+      if (typeof t.toDate === "function") return t.toDate().getTime();
+      if (t.seconds != null) return t.seconds * 1000;
+      if (t instanceof Date) return t.getTime();
+      const n = new Date(t).getTime();
+      return isNaN(n) ? 0 : n;
+    };
+    switch (this.sortKey) {
+      case "number":
+        arr.sort((a, b) => {
+          const av = a.propertyNumber == null ? Infinity : Number(a.propertyNumber);
+          const bv = b.propertyNumber == null ? Infinity : Number(b.propertyNumber);
+          return av - bv;
+        });
+        break;
+      case "name":
+        arr.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ja"));
+        break;
+      case "type":
+        arr.sort((a, b) => {
+          const at = TYPE_ORDER[a.type] ?? 99;
+          const bt = TYPE_ORDER[b.type] ?? 99;
+          if (at !== bt) return at - bt;
+          return byOrder(a, b);
+        });
+        break;
+      case "createdAt-desc":
+        arr.sort((a, b) => toMs(b.createdAt) - toMs(a.createdAt));
+        break;
+      case "createdAt-asc":
+        arr.sort((a, b) => toMs(a.createdAt) - toMs(b.createdAt));
+        break;
+      case "manual":
+      default:
+        arr.sort(byOrder);
+        break;
+    }
+    return arr;
   },
 
   async loadProperties() {
@@ -101,13 +197,18 @@ const PropertiesPage = {
 
     const typeLabel = { minpaku: "民泊", rental: "収益不動産", other: "その他" };
     const typeColor = { minpaku: "primary", rental: "info", other: "secondary" };
+    const sorted = this._sortedProperties();
+    const canDrag = this.sortKey === "manual";
 
-    container.innerHTML = this.propertyList.map((p) => `
-      <div class="col-md-6 col-lg-4">
+    container.innerHTML = sorted.map((p) => `
+      <div class="col-md-6 col-lg-4 prop-card-col" data-id="${p.id}">
         <div class="card h-100 ${p.active ? "" : "border-secondary opacity-50"}">
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-start mb-1">
-              <h5 class="card-title mb-0">${renderPropertyNumberBadge(p)}${this.escapeHtml(p.name)}</h5>
+              <h5 class="card-title mb-0">
+                ${canDrag ? '<i class="bi bi-grip-vertical text-muted me-1 prop-card-handle" style="cursor:grab;" title="ドラッグで並び替え"></i>' : ''}
+                ${renderPropertyNumberBadge(p)}${this.escapeHtml(p.name)}
+              </h5>
               <div>
                 <span class="badge bg-${typeColor[p.type] || "secondary"} me-1">${typeLabel[p.type] || "不明"}</span>
                 <span class="badge ${p.active ? "bg-success" : "bg-secondary"}">${p.active ? "有効" : "無効"}</span>
@@ -179,6 +280,43 @@ const PropertiesPage = {
           showToast("エラー", `有効化失敗: ${e.message}`, "error");
         }
       });
+    });
+
+    // D&D 並び替え (手動並び順表示時のみ有効)
+    this._initCardSortable(container, canDrag);
+  },
+
+  // 物件カードの Sortable 初期化
+  _initCardSortable(container, enabled) {
+    if (this._cardSortable) {
+      try { this._cardSortable.destroy(); } catch (e) {}
+      this._cardSortable = null;
+    }
+    if (!enabled || typeof Sortable === "undefined") return;
+    this._cardSortable = Sortable.create(container, {
+      handle: ".prop-card-handle",
+      draggable: ".prop-card-col",
+      animation: 150,
+      onEnd: async () => {
+        const ids = [...container.querySelectorAll(".prop-card-col")]
+          .map(el => el.dataset.id).filter(Boolean);
+        try {
+          // displayOrder を並び順で再採番して Firestore に一括更新
+          const updates = ids.map((id, i) =>
+            db.collection("properties").doc(id).update({ displayOrder: i + 1 })
+          );
+          await Promise.all(updates);
+          // ローカルも同期
+          this.propertyList.forEach(p => {
+            const idx = ids.indexOf(p.id);
+            if (idx >= 0) p.displayOrder = idx + 1;
+          });
+          this._showSavedToast();
+        } catch (e) {
+          showToast("エラー", `並び順保存失敗: ${e.message}`, "error");
+          await this.loadProperties();
+        }
+      },
     });
   },
 
@@ -426,6 +564,8 @@ const PropertiesPage = {
         await API.properties.create(data);
         showToast("完了", "物件を登録しました", "success");
       }
+      // 保存完了したら編集中 ID をクリア (次回 openModal で上書きされるが念のため)
+      this.editingId = null;
       this.modal.hide();
       await this.loadProperties();
     } catch (e) {
@@ -517,6 +657,16 @@ const PropertiesPage = {
 
     try {
       await API.properties.update(id, data);
+      // 自動保存は loadProperties() を呼ばないため、ローカルの propertyList を手動で同期する
+      // これをしないと「物件番号 5 → 10」に変更後も使用済み判定が旧番号 5 を残し続けるバグになる
+      const idx = (this.propertyList || []).findIndex(p => p.id === id);
+      if (idx >= 0) {
+        this.propertyList[idx] = { ...this.propertyList[idx], ...data };
+      }
+      // 現在モーダルに開いている物件の番号プルダウン / 色スウォッチも最新データで再描画
+      // (他フィールド変更でも呼ばれるが軽量なので問題なし)
+      this._renderPropertyNumberSelect(data.propertyNumber);
+      this._renderPropertyColorSwatches(data.color);
       this._showSavedToast();
     } catch (e) {
       console.warn("[物件自動保存] 失敗:", e.message);
