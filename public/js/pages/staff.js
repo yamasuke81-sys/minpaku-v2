@@ -380,7 +380,7 @@ const StaffPage = {
     return ids.map(id => {
       const p = propMap[id];
       if (!p) return `<span class="badge bg-secondary me-1">?</span>`;
-      return `<span class="badge me-1" style="background:${p._color};color:#fff;" title="${this.escapeHtml(p.name)}">${p._num} ${this.escapeHtml(p.name)}</span>`;
+      return `<span class="badge me-1" style="background:${p._color};color:#fff;min-width:24px;" title="${this.escapeHtml(p.name)}">${p._num}</span>`;
     }).join("");
   },
 
