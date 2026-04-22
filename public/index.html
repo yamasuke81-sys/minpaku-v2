@@ -83,8 +83,12 @@
       <a class="nav-link" href="#/my-invoice-create" data-page="my-invoice-create"><i class="bi bi-receipt"></i> 請求書</a>
       <a class="nav-link d-none" href="#/prepaid-cards" data-page="prepaid-cards" id="staffNavPrepaid"><i class="bi bi-credit-card-2-front"></i> プリカ管理</a>
     </nav>
-    <div class="sidebar-footer">
-      <a href="#" id="btnLogout"><i class="bi bi-box-arrow-right"></i> <span id="userName">オーナー</span></a>
+    <div class="sidebar-footer d-flex align-items-center gap-2">
+      <a href="#" id="btnLogout" class="flex-grow-1"><i class="bi bi-box-arrow-right"></i> <span id="userName">オーナー</span></a>
+      <button type="button" id="btnReloadCache" title="キャッシュ削除して再読み込み"
+        style="background:transparent;border:1px solid rgba(255,255,255,0.3);color:#fff;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:14px;">
+        <i class="bi bi-arrow-clockwise"></i>
+      </button>
     </div>
   </aside>
 
@@ -1268,7 +1272,7 @@
   <script src="js/utils.js?v=0421a"></script>
   <script src="js/liff-init.js?v=0419b"></script>
   <script src="js/fcm-client.js?v=0420d"></script>
-  <script src="js/auth.js?v=0415a"></script>
+  <script src="js/auth.js?v=0423a"></script>
   <script src="js/api.js?v=0421c"></script>
   <script src="js/pages/dashboard.js?v=0421f"></script>
   <script src="js/pages/staff.js?v=0423a"></script>

@@ -39,6 +39,26 @@ const Auth = {
     const logoutBtn = document.getElementById("btnLogout");
     if (logoutBtn) logoutBtn.addEventListener("click", () => this.logout());
 
+    // キャッシュ削除して再読み込みボタン
+    const reloadBtn = document.getElementById("btnReloadCache");
+    if (reloadBtn) reloadBtn.addEventListener("click", async (ev) => {
+      ev.preventDefault();
+      try {
+        // Service Worker のキャッシュを全削除
+        if (typeof caches !== "undefined") {
+          const keys = await caches.keys();
+          await Promise.all(keys.map(k => caches.delete(k)));
+        }
+        // Service Worker 自体も unregister
+        if (navigator.serviceWorker) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map(r => r.unregister()));
+        }
+      } catch (_) { /* 無視 */ }
+      // ハードリロード (ハッシュは維持)
+      window.location.reload();
+    });
+
     // URLパラメータチェック（LINE OAuthコールバック / 招待受諾後のリダイレクト）
     this.handleAuthCallback();
 
