@@ -88,10 +88,6 @@ const MyChecklistPage = {
           <option value="property">物件ごと</option>
           <option value="status">状態 (未完了 → 完了)</option>
         </select>
-        <label class="small text-muted mb-0 ms-2">物件:</label>
-        <select class="form-select form-select-sm" id="mclListProp" style="max-width:260px;">
-          <option value="">すべての物件</option>
-        </select>
         <div class="form-check ms-2">
           <input class="form-check-input" type="checkbox" id="mclListShowPast">
           <label class="form-check-label small" for="mclListShowPast">完了済も表示</label>
@@ -147,21 +143,7 @@ const MyChecklistPage = {
       const allowedIds = new Set((filteredProps || []).map(p => p.id));
       this._listData = rawList.filter(c => allowedIds.has(c.propertyId));
 
-      const propSelect = document.getElementById("mclListProp");
-      // 物件番号の昇順で並べる (番号未設定は末尾)
-      const propsSorted = [...filteredProps].sort((a, b) => {
-        const an = a._num != null ? a._num : (a.propertyNumber != null ? a.propertyNumber : 9999);
-        const bn = b._num != null ? b._num : (b.propertyNumber != null ? b.propertyNumber : 9999);
-        if (an !== bn) return an - bn;
-        return (a.displayOrder || 0) - (b.displayOrder || 0);
-      });
-      propsSorted.forEach(p => {
-        const opt = document.createElement("option");
-        opt.value = p.id;
-        const num = p._num != null ? p._num : (p.propertyNumber != null ? p.propertyNumber : "");
-        opt.textContent = (num !== "" ? `${num} ` : "") + (p.name || "");
-        propSelect.appendChild(opt);
-      });
+      // 物件ドロップダウンは目アイコン型フィルターに置き換えたため不要
 
       // 物件フィルター UI (目アイコン型トグル) - localStorage 永続化
       const visKey = `mclPropVisibility_${this.staffId || "anon"}`;
@@ -237,7 +219,7 @@ const MyChecklistPage = {
 
   _renderListBody() {
     const body = document.getElementById("mclListBody");
-    const pid = document.getElementById("mclListProp").value;
+    const pid = ""; // 単一物件選択ドロップダウンは廃止 (目アイコンフィルターに一本化)
     const showPast = document.getElementById("mclListShowPast").checked;
     const sortMode = document.getElementById("mclListSort").value || "date-desc";
     const today = new Date().toLocaleDateString("sv-SE");
@@ -357,8 +339,10 @@ const MyChecklistPage = {
 
   _jumpToToday() {
     const today = new Date().toLocaleDateString("sv-SE");
-    const pid = document.getElementById("mclListProp").value;
-    const todays = (this._listData || []).filter(c => c._dateStr === today && (!pid || c.propertyId === pid));
+    // 物件ドロップダウンは廃止、目アイコンの非表示状態を filter に反映
+    const vis = this._mclPropVisibility || {};
+    const hiddenIds = new Set(Object.entries(vis).filter(([, v]) => v === false).map(([k]) => k));
+    const todays = (this._listData || []).filter(c => c._dateStr === today && !hiddenIds.has(c.propertyId));
     if (todays.length === 0) {
       showToast("本日の清掃予定なし", "今日は清掃の予定が登録されていません。", "info");
       return;
