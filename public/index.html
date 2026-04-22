@@ -106,14 +106,22 @@
           <h5 class="modal-title"><i class="bi bi-house-door"></i> 民泊管理v2 ログイン</h5>
         </div>
         <div class="modal-body">
-          <div class="mb-3">
-            <label class="form-label">メールアドレス</label>
-            <input type="email" class="form-control" id="loginEmail" placeholder="email@example.com">
-          </div>
-          <div class="mb-3">
-            <label class="form-label">パスワード</label>
-            <input type="password" class="form-control" id="loginPassword" placeholder="パスワード">
-          </div>
+          <!-- パスワードマネージャ (Google パスマネージャ / Bitwarden / 1Password 等) の自動入力を
+               有効にするため、form 要素で包み name + autocomplete 属性を付与する。
+               JS 側で btnLogin の click ハンドラで認証するので onsubmit は return false で握りつぶす。
+               Enter キー押下時は送信せずに btnLogin を擬似クリックする。 -->
+          <form id="loginForm" autocomplete="on" onsubmit="event.preventDefault(); document.getElementById('btnLogin')?.click(); return false;">
+            <div class="mb-3">
+              <label class="form-label" for="loginEmail">メールアドレス</label>
+              <input type="email" class="form-control" id="loginEmail" name="email"
+                autocomplete="username" placeholder="email@example.com">
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="loginPassword">パスワード</label>
+              <input type="password" class="form-control" id="loginPassword" name="password"
+                autocomplete="current-password" placeholder="パスワード">
+            </div>
+          </form>
           <div class="alert alert-danger d-none" id="loginError"></div>
           <div class="alert alert-success d-none" id="loginResetSuccess"></div>
         </div>
