@@ -474,9 +474,7 @@ const CleaningFlowPage = {
           <li class="nav-item"><a class="nav-link" href="#" data-lane="branch">🔴 分岐</a></li>
         </ul>
       </div>
-      <!-- 物件フィルタ (目アイコン型) -->
-      <div id="propEyeFilterHost-cleaningFlow"></div>
-      <!-- 物件セレクタ (スイムレーン用) -->
+      <!-- 物件セレクタ (スイムレーン用: 1 物件フォーカス) -->
       <div id="cfPropertySelector" class="mb-3"></div>
       <!-- メインスイムレーン -->
       <div id="cfSwimLane"></div>
@@ -520,18 +518,9 @@ const CleaningFlowPage = {
       this.notifChannels = {};
     }
 
-    // 物件フィルタ (目アイコン型で統一)
+    // 目アイコン型の母集合フィルタは廃止 (1物件ずつ編集する性質のため、
+    // 既存の _renderPropertySelector の 1 物件選択 UI だけで運用)
     this.selectedPropertyIds = this.properties.map(p => p.id);
-    this._propEyeCtrl = PropertyEyeFilter.render({
-      containerId: "propEyeFilterHost-cleaningFlow",
-      tabKey: "cleaningFlow",
-      properties: this.properties,
-      onChange: (visibleIds) => {
-        this.selectedPropertyIds = visibleIds;
-        this._renderPropertySelector();
-        this._renderSwimLane();
-      },
-    });
 
     this._renderPropertySelector();
     this._renderSwimLane();
