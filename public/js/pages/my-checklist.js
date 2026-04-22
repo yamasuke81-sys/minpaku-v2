@@ -247,16 +247,30 @@ const MyChecklistPage = {
     });
 
     // カード HTML 生成ヘルパ (日付は出し入れで切替)
+    // 物件ID → 物件番号/色 マップ (_listProps から構築)
+    const propMeta = {};
+    (this._listProps || []).forEach(p => {
+      const num = p._num != null ? p._num : (p.propertyNumber != null ? p.propertyNumber : "");
+      propMeta[p.id] = { num, color: p._color || p.color || "#6c757d" };
+    });
+
     const card = (c, opts = {}) => {
       const pct = c._total > 0 ? Math.round(c._done / c._total * 100) : 0;
       const statusBadge = c._isCompleted
         ? `<span class="badge bg-success">完了</span>`
         : (c._isAllDone ? `<span class="badge bg-info">全項目済</span>` : `<span class="badge bg-warning text-dark">進行中</span>`);
+      // 日付は横カレンダー等と共通の「YYYY年M月D日(曜)」形式 (utils.js の formatDateFull)
+      const dateLabel = (typeof formatDateFull === "function") ? formatDateFull(c._dateStr) : this.fmtDate(c._dateStr);
       const dateHtml = opts.showDate
-        ? `<span class="small ${c._dateStr === today ? 'text-primary fw-bold' : (c._dateStr < today ? 'text-muted' : '')}">${this.fmtDate(c._dateStr)}${c._dateStr === today ? ' (今日)' : ''}</span>`
+        ? `<span class="small ${c._dateStr === today ? 'text-primary fw-bold' : (c._dateStr < today ? 'text-muted' : '')}">${this.escapeHtml(dateLabel)}${c._dateStr === today ? ' (今日)' : ''}</span>`
+        : "";
+      // 物件名の前に番号バッジ (横カレンダーと同じ見た目)
+      const meta = propMeta[c.propertyId] || {};
+      const numBadge = meta.num !== undefined && meta.num !== ""
+        ? `<span class="badge me-1" style="background:${this.escapeAttr ? this.escapeAttr(meta.color) : meta.color};color:#fff;min-width:22px;">${this.escapeHtml(String(meta.num))}</span>`
         : "";
       const propHtml = opts.showProp
-        ? `<strong>${this.escapeHtml(c.propertyName || "(物件不明)")}</strong>`
+        ? `${numBadge}<strong>${this.escapeHtml(c.propertyName || "(物件不明)")}</strong>`
         : "";
       return `
         <a href="#/my-checklist/${c.shiftId}" class="list-group-item list-group-item-action" data-checklist-id="${c.id}" data-date="${c._dateStr}">
