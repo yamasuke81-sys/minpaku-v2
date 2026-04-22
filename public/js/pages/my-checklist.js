@@ -471,8 +471,13 @@ const MyChecklistPage = {
         }
         // templateSnapshot (タブ構造) が変わっていなければ、body 全体を再構築せず
         // タブバッジ・エリア内容・フッターのみ更新 (ランドリー操作での微振動を回避)
+        // hasPendingWrites=true のローカル推定フェーズでは templateSnapshot の
+        // JSON 比較が不安定になる可能性があるため、サーバー確定後のみ全体再構築を許可
         const templateChanged = !old
-          || JSON.stringify(old.templateSnapshot || []) !== JSON.stringify(this.checklist.templateSnapshot || []);
+          || (
+            !snap.metadata.hasPendingWrites
+            && JSON.stringify(old.templateSnapshot || []) !== JSON.stringify(this.checklist.templateSnapshot || [])
+          );
         if (templateChanged) {
           this.renderTree();
         } else {
@@ -482,10 +487,20 @@ const MyChecklistPage = {
           const prevScrollY = window.scrollY;
           const mainEl = document.querySelector(".app-main");
           const prevMainScroll = mainEl ? mainEl.scrollTop : 0;
+          // activeTopTab を保持しておき、_renderActiveTopTab 内で誤って変更された
+          // 場合でも正しい値でスタイルを設定し直す
+          const savedActiveTopTab = this.activeTopTab;
           this._updateHeaderStatus();
           this._updateTabBadges();
           // アクティブな上位タブの内容のみ再描画
           this._renderActiveTopTab();
+          // _renderActiveTopTab 内 (renderFooter 等) で activeTopTab が変わっていたら元に戻す
+          if (this.activeTopTab !== savedActiveTopTab) {
+            this.activeTopTab = savedActiveTopTab;
+          }
+          // コンテンツ描画後に再度タブスタイルを確定させる (描画後に activeTopTab が
+          // 変わっていた場合でも濃紺アクティブが正しいタブに表示されることを保証)
+          this._updateTopTabStyles();
           // レイアウト確定後に復元 (requestAnimationFrame で次フレーム)
           requestAnimationFrame(() => {
             window.scrollTo({ top: prevScrollY, behavior: "instant" });
@@ -968,11 +983,11 @@ const MyChecklistPage = {
       const checked = !!states[it.id]?.needsRestock;
       const pathStr = path.slice(0, -1).join(" &rsaquo; ");
       return `
-        <div class="card mb-2 ${checked ? 'border-warning' : ''}" style="cursor:pointer;" data-restock-item-id="${it.id}">
+        <div class="card mb-2 ${checked ? 'border-warning' : ''} restock-card" style="cursor:pointer;" data-restock-item-id="${it.id}">
           <div class="card-body py-2 px-3">
             <div class="d-flex align-items-center gap-2">
               <input class="form-check-input restock-tab-chk" type="checkbox" id="rst-${it.id}"
-                     ${checked ? "checked" : ""} style="width:20px;height:20px;flex-shrink:0;">
+                     ${checked ? "checked" : ""} style="width:20px;height:20px;flex-shrink:0;pointer-events:none;">
               <div class="flex-grow-1">
                 <div style="font-size:15px;">${this.escapeHtml(it.name)}</div>
                 ${pathStr ? `<div class="small text-muted">${pathStr}</div>` : ""}
@@ -991,11 +1006,17 @@ const MyChecklistPage = {
         ${rows}
       </div>`;
 
-    // 双方向チェック同期
-    el.querySelectorAll(".restock-tab-chk").forEach(cb => {
-      cb.addEventListener("change", () => {
-        const itemId = cb.closest("[data-restock-item-id]").dataset.restockItemId;
-        this.updateItemState(itemId, { needsRestock: cb.checked });
+    // カード全体タップでチェック状態をトグル (checkbox は pointer-events:none で視覚表示のみ)
+    el.querySelectorAll(".restock-card").forEach(card => {
+      card.addEventListener("click", () => {
+        const itemId = card.dataset.restockItemId;
+        const cb = card.querySelector(".restock-tab-chk");
+        if (!cb) return;
+        const newVal = !cb.checked;
+        cb.checked = newVal;
+        // ボーダー色もリアルタイムに切り替え
+        card.classList.toggle("border-warning", newVal);
+        this.updateItemState(itemId, { needsRestock: newVal });
       });
     });
   },
