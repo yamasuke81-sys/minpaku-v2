@@ -13,6 +13,14 @@ module.exports = async (event) => {
   const shiftId = event.params.shiftId;
   if (!shift || !shift.propertyId) return;
 
+  // workType が清掃系以外 (特に laundry_xxx) はチェックリスト生成しない
+  // 清掃系: cleaning_by_count / cleaning / pre_inspection / 未設定 (デフォルト清掃)
+  const CLEANING_WORK_TYPES = ["cleaning_by_count", "cleaning", "pre_inspection", "", undefined, null];
+  if (!CLEANING_WORK_TYPES.includes(shift.workType)) {
+    console.log(`[onShiftCreated] workType=${shift.workType} は清掃系でないため checklist 生成をスキップ shift=${shiftId}`);
+    return;
+  }
+
   // 既存チェックあり？
   const existing = await db.collection("checklists")
     .where("shiftId", "==", shiftId).limit(1).get();
