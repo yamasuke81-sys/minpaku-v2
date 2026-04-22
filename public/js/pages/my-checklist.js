@@ -185,12 +185,12 @@ const MyChecklistPage = {
       renderPropFilterBar();
 
       // 端末ごとの設定を localStorage から復元 (staffId 別 key)
+      // 物件プルダウン (propId) は廃止、目アイコン型フィルターの状態は別 key で管理されている
       const lsKey = `mclList_${this.staffId || "anon"}`;
       try {
         const stored = JSON.parse(localStorage.getItem(lsKey) || "{}");
         if (stored.sort) document.getElementById("mclListSort").value = stored.sort;
         if (stored.showPast === true) document.getElementById("mclListShowPast").checked = true;
-        if (stored.propId) propSelect.value = stored.propId;
       } catch (_) { /* ignore */ }
 
       const persist = () => {
@@ -198,13 +198,11 @@ const MyChecklistPage = {
           localStorage.setItem(lsKey, JSON.stringify({
             sort: document.getElementById("mclListSort").value,
             showPast: document.getElementById("mclListShowPast").checked,
-            propId: propSelect.value,
           }));
         } catch (_) { /* ignore */ }
       };
 
       const refresh = () => { persist(); this._renderListBody(); };
-      propSelect.addEventListener("change", refresh);
       document.getElementById("mclListShowPast").addEventListener("change", refresh);
       document.getElementById("mclListSort").addEventListener("change", refresh);
       document.getElementById("mclListToday").addEventListener("click", () => this._jumpToToday());
