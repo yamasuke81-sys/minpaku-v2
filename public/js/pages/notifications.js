@@ -220,6 +220,14 @@ const NotificationsPage = {
         <span><i class="bi bi-discord" style="color:#8da0f8"></i> Discord(物件オーナー)</span>
       </div>
 
+      <!-- 送信元情報 (この通知がどこから届くか) -->
+      <div class="alert alert-light border mb-3" id="notifySenderInfoBox">
+        <div class="small fw-bold mb-1"><i class="bi bi-send-check"></i> 送信元（各通知がどのアカウント・Botから届くか）</div>
+        <div class="small" id="notifySenderInfoContent">
+          <div class="text-muted">読込中...</div>
+        </div>
+      </div>
+
       <h6 class="text-muted mb-2"><i class="bi bi-megaphone"></i> 募集関連</h6>
       <div id="notifyGroup_recruit" class="mb-4"></div>
       <h6 class="text-muted mb-2"><i class="bi bi-calendar-event"></i> 予約関連</h6>
@@ -302,6 +310,42 @@ const NotificationsPage = {
     const d2 = document.getElementById("discordSubOwnerWebhookUrl");
     if (d1) d1.value = this.settings.discordOwnerWebhookUrl || "";
     if (d2) d2.value = this.settings.discordSubOwnerWebhookUrl || "";
+
+    // 送信元情報ボックスを更新
+    try {
+      const box = document.getElementById("notifySenderInfoContent");
+      if (box) {
+        // 連携済み Gmail アカウント
+        const gmailTokens = await db.collection("settings").doc("gmailOAuth").collection("tokens").get();
+        const gmailList = gmailTokens.docs.map(d => d.data().email).filter(Boolean);
+        // LINE Bot (グローバル + 物件別)
+        const defaultBot = this.settings.ownerLineChannels?.[0]?.name || "(Bot 名未設定)";
+        const propSnap = await db.collection("properties").where("active", "==", true).get();
+        const propBots = [];
+        propSnap.docs.forEach(d => {
+          const p = d.data();
+          if (Array.isArray(p.lineChannels)) {
+            p.lineChannels.forEach(ch => {
+              if (ch.enabled && ch.name) propBots.push(`${p.name}: ${ch.name}`);
+            });
+          }
+        });
+        // Discord Webhook
+        const discOwner = this.settings.discordOwnerWebhookUrl ? "設定済" : "未設定";
+        const discSub = this.settings.discordSubOwnerWebhookUrl ? "設定済" : "未設定";
+        const esc = (s) => String(s || "").replace(/</g, "&lt;");
+        box.innerHTML = `
+          <div class="mb-1"><i class="bi bi-envelope text-warning"></i> <strong>メール送信元:</strong>
+            ${gmailList.length === 0 ? '<span class="text-danger">Gmail 未連携</span>' : gmailList.map(e => `<code>${esc(e)}</code>`).join(", ")}
+            <span class="text-muted">（宿泊者宛サンクスメールは該当物件の物件オーナーの Gmail を優先）</span></div>
+          <div class="mb-1"><i class="bi bi-line text-success"></i> <strong>LINE 送信元 (Bot):</strong>
+            <code>${esc(defaultBot)}</code> （Webアプリ管理者LINE / スタッフ個別 / 物件オーナー個別 共通）${propBots.length > 0 ? "<br>&nbsp;&nbsp;物件別グループLINE: " + propBots.map(b => `<code>${esc(b)}</code>`).join(", ") : ""}</div>
+          <div class="mb-0"><i class="bi bi-discord" style="color:#5865F2"></i> <strong>Discord 送信元:</strong>
+            Webアプリ管理者: <code>${discOwner}</code> / 物件オーナー: <code>${discSub}</code>
+            <span class="text-muted">（Webhook の Bot 名/アイコンは Discord 側で設定）</span></div>
+        `;
+      }
+    } catch (_) {}
 
     // 宿泊者宛サンクスメール テンプレート (settings/guestForm.emailTemplates.guestConfirmation)
     try {
@@ -476,41 +520,41 @@ const NotificationsPage = {
                 <div class="text-muted small mb-2">${n.desc}</div>
 
                 <div class="d-flex flex-wrap gap-3 mb-2">
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="宛先: settings/notifications.ownerEmail / ownerUserId (=Webアプリ管理者個人の LINE)">
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: settings/notifications.lineChannelToken の LINE Bot (Bot 名はこのページ上部「送信元」セクション参照)">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="ownerLine" ${ownerLine ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-person-circle text-success"></i> Webアプリ管理者LINE <span class="text-muted" style="font-size:0.75em;">(宛先: 管理者本人)</span></span>
+                    <span class="form-check-label small"><i class="bi bi-person-circle text-success"></i> Webアプリ管理者LINE <span class="text-muted" style="font-size:0.75em;">(送信元: LINE Bot)</span></span>
                   </label>
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="宛先: 該当物件の properties.lineChannels[] の Group LINE">
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: 該当物件の properties.lineChannels[].name の Bot (物件別)">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="groupLine" ${groupLine ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-people-fill text-primary"></i> グループLINE <span class="text-muted" style="font-size:0.75em;">(該当の物件のグループLINEのみ)</span></span>
+                    <span class="form-check-label small"><i class="bi bi-people-fill text-primary"></i> グループLINE <span class="text-muted" style="font-size:0.75em;">(送信元: 物件別 LINE Bot)</span></span>
                   </label>
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="宛先: 該当物件に割り当てられた各スタッフの staff.lineUserId">
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: 共通 LINE Bot (Webアプリ管理者と同じ)">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="staffLine" ${staffLine ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-person-lines-fill text-info"></i> スタッフ個別LINE <span class="text-muted" style="font-size:0.75em;">(宛先: 担当スタッフ各位)</span></span>
+                    <span class="form-check-label small"><i class="bi bi-person-lines-fill text-info"></i> スタッフ個別LINE <span class="text-muted" style="font-size:0.75em;">(送信元: LINE Bot)</span></span>
                   </label>
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="宛先: staff.isSubOwner=true & ownedPropertyIds に該当物件を含む staff の subOwnerLineUserId">
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: 共通 LINE Bot (Webアプリ管理者と同じ)">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="subOwnerLine" ${(ch.subOwnerLine) ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-person-badge text-success"></i> 物件オーナー個別LINE <span class="text-muted" style="font-size:0.75em;">(宛先: 物件オーナー各位)</span></span>
+                    <span class="form-check-label small"><i class="bi bi-person-badge text-success"></i> 物件オーナー個別LINE <span class="text-muted" style="font-size:0.75em;">(送信元: LINE Bot)</span></span>
                   </label>
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="宛先: settings/notifications.ownerEmail (または notifyEmails[])">
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: settings/gmailOAuth/tokens の先頭アカウント (連携済み Gmail)">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="ownerEmail" ${ownerEmail ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-envelope text-warning"></i> Webアプリ管理者メール <span class="text-muted" style="font-size:0.75em;">(宛先: 管理者本人)</span></span>
+                    <span class="form-check-label small"><i class="bi bi-envelope text-warning"></i> Webアプリ管理者メール <span class="text-muted" style="font-size:0.75em;">(送信元: 連携済み Gmail)</span></span>
                   </label>
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="宛先: 該当物件オーナー (staff) の subOwnerEmail / email">
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: 該当物件オーナーの Gmail (連携済み) / 未連携ならフォールバック">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="subOwnerEmail" ${(ch.subOwnerEmail) ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-envelope-at text-success"></i> 物件オーナー個別メール <span class="text-muted" style="font-size:0.75em;">(宛先: 物件オーナー各位)</span></span>
+                    <span class="form-check-label small"><i class="bi bi-envelope-at text-success"></i> 物件オーナー個別メール <span class="text-muted" style="font-size:0.75em;">(送信元: 物件オーナーの Gmail)</span></span>
                   </label>
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="宛先: 該当物件に割り当てられた各スタッフの staff.email">
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: 連携済み Gmail (Webアプリ管理者メールと同じ)">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="staffEmail" ${(ch.staffEmail) ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-envelope-fill text-info"></i> スタッフ個別メール <span class="text-muted" style="font-size:0.75em;">(宛先: 担当スタッフ各位)</span></span>
+                    <span class="form-check-label small"><i class="bi bi-envelope-fill text-info"></i> スタッフ個別メール <span class="text-muted" style="font-size:0.75em;">(送信元: 連携済み Gmail)</span></span>
                   </label>
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信先: settings/notifications.discordOwnerWebhookUrl (管理者の Discord Webhook)">
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: Discord Webhook の Bot (Discord 側で Bot 名/アイコン設定)">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="discordOwner" ${discordOwner ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-discord" style="color:#5865F2"></i> Discord(Webアプリ管理者) <span class="text-muted" style="font-size:0.75em;">(宛先: 管理者チャネル)</span></span>
+                    <span class="form-check-label small"><i class="bi bi-discord" style="color:#5865F2"></i> Discord(Webアプリ管理者) <span class="text-muted" style="font-size:0.75em;">(送信元: Discord Bot)</span></span>
                   </label>
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信先: settings/notifications.discordSubOwnerWebhookUrl (物件オーナー共有 Discord Webhook)">
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: Discord Webhook の Bot (Discord 側で Bot 名/アイコン設定)">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="discordSubOwner" ${discordSubOwner ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-discord" style="color:#8da0f8"></i> Discord(物件オーナー) <span class="text-muted" style="font-size:0.75em;">(宛先: 物件オーナー共有チャネル)</span></span>
+                    <span class="form-check-label small"><i class="bi bi-discord" style="color:#8da0f8"></i> Discord(物件オーナー) <span class="text-muted" style="font-size:0.75em;">(送信元: Discord Bot)</span></span>
                   </label>
                   <!-- FCM (Web Push) は将来再検討。現時点で iOS 制約により導入保留のため非表示。 -->
                   <label class="form-check form-check-inline mb-0 d-none" style="cursor:pointer;">
