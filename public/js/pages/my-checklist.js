@@ -85,8 +85,7 @@ const MyChecklistPage = {
       const areaTabsH = (areaTabsWrap && areaTabsWrap.style.display !== "none")
         ? areaTabsWrap.getBoundingClientRect().height : 0;
       const spacer = document.querySelector(".mcl-page-header-spacer");
-      // タブ周辺の padding 込みで実測値が膨らむため -8px 補正
-      if (spacer) spacer.style.height = Math.max(0, topbarH + headerH + topTabsH + areaTabsH - 8) + "px";
+      if (spacer) spacer.style.height = Math.max(0, topbarH + headerH + topTabsH + areaTabsH) + "px";
     });
   },
 
@@ -868,12 +867,8 @@ const MyChecklistPage = {
         : src.toLowerCase().includes("booking")
           ? '<span class="badge" style="background:#003580;color:#fff">Booking.com</span>'
           : src ? `<span class="badge bg-secondary">${this.escapeHtml(src)}</span>` : "";
-      const meta = this._propertyMeta || {};
-      const propBadge = propName
-        ? (meta.number
-          ? `<span class="badge" style="background:${meta.color || "#6c757d"};color:#fff;">#${this.escapeHtml(String(meta.number))} ${this.escapeHtml(propName)}</span>`
-          : `<span class="badge bg-light text-dark border">${this.escapeHtml(propName)}</span>`)
-        : "";
+      // 物件名はヘッダーで表示済みなのでここでは非表示
+      const propBadge = "";
 
       let nextHtml = "";
       if (nextBooking) {
@@ -1154,8 +1149,14 @@ const MyChecklistPage = {
         }
 
         const spacer = document.querySelector(".mcl-page-header-spacer");
-        // タブ周辺の padding 込みで実測値が膨らむため -8px 補正
-        if (spacer) spacer.style.height = Math.max(0, topbarH + headerH + topH + areaH - 8) + "px";
+        if (spacer) spacer.style.height = Math.max(0, topbarH + headerH + topH + areaH) + "px";
+        // デバッグ: 各高さを画面に表示 (原因特定用、後で削除)
+        if (!this._debugShown) {
+          this._debugShown = true;
+          showToast("Layout計測",
+            `topbar=${Math.round(topbarH)} header=${Math.round(headerH)} topTabs=${Math.round(topH)} areaTabs=${Math.round(areaH)} viewportH=${window.innerHeight}`,
+            "info");
+        }
       });
     };
 
