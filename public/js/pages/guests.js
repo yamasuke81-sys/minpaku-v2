@@ -1626,6 +1626,11 @@ const GuestsPage = {
                 <div class="progress fixed-parking-info-progress d-none mt-1" style="height:4px;"><div class="progress-bar bg-primary" style="width:0%;"></div></div>
                 <div class="small text-muted mt-1">5MB以下の画像 (JPEG/PNG 推奨)</div>
               </div>
+              <div class="col-12">
+                <label class="form-label small mb-1">Google マップ URL（任意）</label>
+                <input type="url" class="form-control form-control-sm fixed-parking-info-mapurl" value="${this.esc(info.mapUrl || "")}" placeholder="例: https://maps.google.com/?q=34.213105,132.622144">
+                <div class="small text-muted mt-1">住所・座標 (例: 34.213105,132.622144) や Google マップのシェア URL が使えます。宿泊者画面にマップとピンが表示されます。</div>
+              </div>
             </div>
           </div>
         </div>`;
@@ -1868,6 +1873,9 @@ const GuestsPage = {
     });
     container.querySelectorAll(".fixed-parking-info-body").forEach(el => {
       el.addEventListener("input", () => syncInfo("body", el.value));
+    });
+    container.querySelectorAll(".fixed-parking-info-mapurl").forEach(el => {
+      el.addEventListener("input", () => syncInfo("mapUrl", el.value.trim()));
     });
 
     // 駐車場案内 画像アップロード

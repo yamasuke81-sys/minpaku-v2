@@ -1379,6 +1379,35 @@
      *
      * 後方互換: fields 配列（旧形式）を渡された場合も動作するよう対応
      */
+    // Google マップ URL/住所/座標 を embed URL に変換
+    function buildMapEmbedUrl(input) {
+      const s = (input || "").trim();
+      if (!s) return "";
+      // URL から @lat,lng または q=lat,lng を抽出
+      const atMatch = s.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+      const qLL = s.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+      const rawLL = s.match(/^(-?\d+\.\d+),\s*(-?\d+\.\d+)$/);
+      let q = "";
+      if (atMatch)       q = `${atMatch[1]},${atMatch[2]}`;
+      else if (qLL)      q = `${qLL[1]},${qLL[2]}`;
+      else if (rawLL)    q = `${rawLL[1]},${rawLL[2]}`;
+      else               q = s; // 住所 or 場所名とみなす
+      return `https://maps.google.com/maps?q=${encodeURIComponent(q)}&output=embed`;
+    }
+
+    // 画像タップでフルスクリーン表示 (タップで閉じる)
+    function openImageLightbox(src) {
+      if (!src) return;
+      const prev = document.getElementById("__imgLightbox__");
+      if (prev) prev.remove();
+      const overlay = document.createElement("div");
+      overlay.id = "__imgLightbox__";
+      overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.88);display:flex;align-items:center;justify-content:center;z-index:9999;cursor:zoom-out;padding:16px;";
+      overlay.innerHTML = `<img src="${src.replace(/"/g, "&quot;")}" alt="" style="max-width:100%;max-height:100%;border-radius:4px;box-shadow:0 0 20px rgba(0,0,0,0.5);">`;
+      overlay.addEventListener("click", () => overlay.remove());
+      document.body.appendChild(overlay);
+    }
+
     // 固定セクション設定を適用: 施設利用情報の非表示/駐車場モード
     function applyFixedSectionConfig(cfg) {
       if (!cfg || typeof cfg !== "object") return;
@@ -1478,15 +1507,21 @@
         const title = (info.title || "").replace(/</g, "&lt;");
         const body = (info.body || "").replace(/</g, "&lt;").replace(/\n/g, "<br>");
         const img = info.imageUrl || "";
+        const mapEmbed = buildMapEmbedUrl(info.mapUrl || "");
         carSection.innerHTML = `
           <div class="card mb-3" style="border-color:#0d6efd;">
             ${title ? `<div class="card-header bg-primary bg-opacity-10 py-2"><span class="fw-bold"><i class="bi bi-p-circle me-1"></i>${title}</span></div>` : ""}
             <div class="card-body">
               ${body ? `<p class="mb-2 small" style="white-space:pre-wrap;">${body}</p>` : ""}
-              ${img ? `<div class="text-center"><img src="${img.replace(/"/g, "&quot;")}" alt="駐車場案内" style="max-width:100%; max-height:320px; border:1px solid #dee2e6; border-radius:4px;"></div>` : ""}
-              ${(!title && !body && !img) ? '<p class="text-muted small mb-0">駐車場のご案内は準備中です。</p>' : ""}
+              ${img ? `<div class="text-center mb-2"><img src="${img.replace(/"/g, "&quot;")}" alt="駐車場案内" class="parking-info-image" style="max-width:100%; max-height:320px; border:1px solid #dee2e6; border-radius:4px; cursor:zoom-in;"></div>` : ""}
+              ${mapEmbed ? `<div class="ratio ratio-4x3 mt-2" style="max-width:500px; margin:auto;"><iframe src="${mapEmbed}" style="border:0; border-radius:4px;" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe></div>
+              ${info.mapUrl ? `<div class="text-center mt-2"><a href="${String(info.mapUrl).replace(/"/g, "&quot;")}" target="_blank" rel="noopener" class="small"><i class="bi bi-map"></i> Google マップで開く</a></div>` : ""}` : ""}
+              ${(!title && !body && !img && !mapEmbed) ? '<p class="text-muted small mb-0">駐車場のご案内は準備中です。</p>' : ""}
             </div>
           </div>`;
+        // 画像タップで拡大表示
+        const imgEl = carSection.querySelector(".parking-info-image");
+        if (imgEl) imgEl.addEventListener("click", () => openImageLightbox(imgEl.src));
       }
     }
 
