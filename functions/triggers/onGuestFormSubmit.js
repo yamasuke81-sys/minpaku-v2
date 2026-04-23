@@ -44,7 +44,8 @@ module.exports = async function onGuestFormSubmit(event) {
 
   // === 2. メール送信 ===
   const summary = buildGuestSummaryText(data);
-  const editUrl = `${APP_URL}/guest-form.html?edit=${editToken}`;
+  // 編集URLに propertyId を付与 (non-表示設定を適用させるため)
+  const editUrl = `${APP_URL}/guest-form.html?edit=${editToken}${data.propertyId ? `&propertyId=${encodeURIComponent(data.propertyId)}` : ""}`;
   const confirmUrl = `${APP_URL}/#/guests`;
 
   const templates = await getTemplates(db);
@@ -88,6 +89,9 @@ module.exports = async function onGuestFormSubmit(event) {
   const pid = data.propertyId || "";
   const subOwners = [];
   const subOwnersNoEmail = [];
+  // staff.isOwner=true (物件オーナー、アプリ管理者ではない) - サブオーナー未登録時のフォールバック
+  let staffOwnerEmail = "";
+  let staffOwnerName = "";
   if (pid) {
     try {
       const staffSnap = await db.collection("staff").where("isSubOwner", "==", true).get();
@@ -102,11 +106,21 @@ module.exports = async function onGuestFormSubmit(event) {
       console.error("サブオーナー検索エラー:", e.message);
     }
   }
+  // staff.isOwner=true を探す (物件側のオーナー、アプリ管理者ではない)
+  try {
+    const ownerSnap = await db.collection("staff").where("isOwner", "==", true).limit(1).get();
+    if (!ownerSnap.empty) {
+      const o = ownerSnap.docs[0].data();
+      staffOwnerEmail = o.email || "";
+      staffOwnerName = o.name || "";
+    }
+  } catch (_) {}
 
-  // 物件担当者 (送信者) — サブオーナー最優先、なければオーナー
-  const senderEmail = (subOwners[0] && subOwners[0].email) || ownerEmail || "";
+  // 物件担当者 (送信者) — サブオーナー最優先、なければ staff.isOwner (アプリ管理者にはフォールバックしない)
+  const senderEmail = (subOwners[0] && subOwners[0].email) || staffOwnerEmail || "";
+  const senderName = (subOwners[0] && subOwners[0].name) || staffOwnerName || propertyName || "宿担当者";
   vars.senderEmail = senderEmail;
-  vars.senderName = (subOwners[0] && subOwners[0].name) || propertyName || "宿担当者";
+  vars.senderName = senderName;
 
   // 宿泊者宛メール件名を物件名入りで生成 (テンプレート変数 {propertyName} 経由)
   const guestSubjectOverride = propertyName
@@ -147,15 +161,20 @@ module.exports = async function onGuestFormSubmit(event) {
     console.error("オーナーメール処理エラー:", e.message);
   }
 
-  // 2b. 宿泊者へのメール (from = 物件担当者)
+  // 2b. 宿泊者へのメール (from = 物件担当者、アプリ管理者にはフォールバックしない)
   if (guestEmail) {
-    try {
-      const guestSubject = guestSubjectOverride || renderTemplate(templates.guestConfirmation.subject, vars);
-      const guestBody = renderTemplate(templates.guestConfirmation.body, vars);
-      await sendNotificationEmail_(guestEmail, guestSubject, guestBody, senderEmail);
-      console.log(`宿泊者メール送信成功: ${guestEmail} (from=${senderEmail || "default"})`);
-    } catch (e) {
-      console.error(`宿泊者メール送信失敗 (${guestEmail}):`, e.message);
+    if (!senderEmail) {
+      console.warn("物件担当者 (staff.isSubOwner / isOwner) のメールが未設定のため宿泊者宛メールをスキップ");
+    } else {
+      try {
+        const guestSubject = guestSubjectOverride || renderTemplate(templates.guestConfirmation.subject, vars);
+        const guestBody = renderTemplate(templates.guestConfirmation.body, vars);
+        // strictFrom: 担当者 Gmail が連携されていなければ送信しない (アプリ管理者から送らない)
+        await sendNotificationEmail_(guestEmail, guestSubject, guestBody, senderEmail, { strictFrom: true });
+        console.log(`宿泊者メール送信成功: ${guestEmail} (from=${senderEmail})`);
+      } catch (e) {
+        console.error(`宿泊者メール送信失敗 (${guestEmail}):`, e.message);
+      }
     }
   } else {
     console.warn("宿泊者のメールアドレスが未入力のためメール送信スキップ");

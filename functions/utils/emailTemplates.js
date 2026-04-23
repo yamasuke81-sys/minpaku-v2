@@ -67,13 +67,21 @@ function buildDiffText(previous, current) {
   return changes.join("\n");
 }
 
+// 日付文字列を「YYYY年M月D日」形式に統一
+function _formatJpDate(s) {
+  if (!s) return "?";
+  const m = String(s).match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (!m) return s;
+  return `${m[1]}年${parseInt(m[2], 10)}月${parseInt(m[3], 10)}日`;
+}
+
 // 宿泊者名簿の全データをテキストにまとめる
 function buildGuestSummaryText(data) {
   const lines = [];
   lines.push("━━━━━━━━━━━━━━━━━━━━");
   lines.push("【宿泊情報】");
-  lines.push(`チェックイン: ${data.checkIn || "?"} ${data.checkInTime || ""}`);
-  lines.push(`チェックアウト: ${data.checkOut || "?"} ${data.checkOutTime || ""}`);
+  lines.push(`チェックイン: ${_formatJpDate(data.checkIn)} ${data.checkInTime || ""}`);
+  lines.push(`チェックアウト: ${_formatJpDate(data.checkOut)} ${data.checkOutTime || ""}`);
   lines.push(`宿泊人数: ${data.guestCount || "?"}名${data.guestCountInfants ? `（乳幼児 ${data.guestCountInfants}名）` : ""}`);
   lines.push(`予約サイト: ${data.bookingSite || "?"}`);
   lines.push("");

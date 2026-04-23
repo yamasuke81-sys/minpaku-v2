@@ -768,7 +768,7 @@ function sendDiscord_(webhookUrl, content) {
  * @param {string} body 本文
  * @param {string} [fromEmail] 送信者として使いたい Gmail アドレス (OAuth 連携済みならそのトークンで送信、未連携なら先頭アカウントにフォールバック)
  */
-async function sendNotificationEmail_(to, subject, body, fromEmail) {
+async function sendNotificationEmail_(to, subject, body, fromEmail, opts) {
   if (IS_EMULATOR) {
     console.log("[EMULATOR] would send email:", { to, subject, body, fromEmail });
     return { ok: true, stub: true };
@@ -793,6 +793,10 @@ async function sendNotificationEmail_(to, subject, body, fromEmail) {
     } catch (_) {}
   }
   if (!tokenData) {
+    // strictFrom: fromEmail の Gmail 連携が必須 (アプリ管理者等にフォールバックしない)
+    if (fromEmail && opts && opts.strictFrom) {
+      throw new Error(`fromEmail=${fromEmail} の Gmail 連携が未登録のため送信をスキップ`);
+    }
     const tokensSnap = await db.collection("settings").doc("gmailOAuth").collection("tokens").limit(1).get();
     if (tokensSnap.empty) throw new Error("Gmail認証済みアカウントなし（設定画面でGmail連携してください）");
     tokenData = tokensSnap.docs[0].data();
@@ -807,9 +811,14 @@ async function sendNotificationEmail_(to, subject, body, fromEmail) {
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
   // RFC 2822形式のメール本文を作成
+  // fromEmail が指定され、かつ tokenData.email と違う場合は Gmail が Send As 設定済みなら
+  // 本物の from アドレスで届く (未設定なら Gmail が tokenData.email に書き換える)
+  const fromHeader = (fromEmail && (tokenData.email === fromEmail || (opts && opts.preferFromHeader)))
+    ? fromEmail
+    : (tokenData.email || "me");
   const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString("base64")}?=`;
   const messageParts = [
-    `From: ${tokenData.email || "me"}`,
+    `From: ${fromHeader}`,
     `To: ${to}`,
     `Subject: ${utf8Subject}`,
     "MIME-Version: 1.0",
