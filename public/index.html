@@ -1059,12 +1059,8 @@
                   <i class="bi bi-box-arrow-up-right"></i> 新しいタブ
                 </button>
               </div>
-              <div class="d-flex align-items-center gap-2 flex-wrap small">
-                <label class="form-check form-check-inline mb-0">
-                  <input class="form-check-input" type="checkbox" id="formMiniGamePropertyToggle">
-                  <span class="form-check-label">ミニゲーム（騒音確認）をこの物件で有効化</span>
-                </label>
-                <div class="dropdown ms-auto">
+              <div class="d-flex align-items-center justify-content-end">
+                <div class="dropdown">
                   <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="btnCopyFromOtherTop" data-bs-toggle="dropdown">
                     <i class="bi bi-box-seam"></i> 他物件からインポート
                   </button>
@@ -1073,18 +1069,11 @@
                   </ul>
                 </div>
               </div>
-              <details class="mt-2">
-                <summary class="small text-muted" style="cursor:pointer;">▸ 共通URL (物件未確定時の汎用URL) / カスタムURL</summary>
-                <div class="mt-2">
-                  <div class="input-group input-group-sm mb-2">
-                    <span class="input-group-text" style="min-width:100px;font-weight:600;background:#e7f5ee;">共通URL</span>
-                    <input type="text" class="form-control" id="guestFormCommonUrl" readonly>
-                    <button class="btn btn-outline-primary" type="button" data-copy-target="guestFormCommonUrl"><i class="bi bi-clipboard"></i></button>
-                    <button class="btn btn-outline-secondary" type="button" data-open-target="guestFormCommonUrl"><i class="bi bi-box-arrow-up-right"></i></button>
-                  </div>
-                  <div id="guestFormCustomArea" class="mt-2 small"></div>
-                </div>
-              </details>
+              <!-- 共通URL / カスタムURL (旧UI互換、非表示) -->
+              <input type="hidden" id="guestFormCommonUrl">
+              <div id="guestFormCustomArea" class="d-none"></div>
+              <!-- ミニゲームトグル (旧UI互換、UI からは撤去。下部②ミニゲームで編集) -->
+              <input type="hidden" id="formMiniGamePropertyToggle">
             </div>
 
             <!-- 以下: フォーム項目管理の内容 (従来タブ2の中身) -->

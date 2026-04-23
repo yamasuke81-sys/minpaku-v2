@@ -370,7 +370,13 @@ const GuestsPage = {
     const properties = propsSnap.docs
       .map(d => ({ id: d.id, ...d.data() }))
       .filter(p => p.type === "minpaku")
-      .sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999));
+      .sort((a, b) => {
+        // 物件番号昇順、未設定は末尾
+        const na = a.propertyNumber ?? 9999;
+        const nb = b.propertyNumber ?? 9999;
+        if (na !== nb) return na - nb;
+        return (a.displayOrder || 999) - (b.displayOrder || 999);
+      });
 
     this._propertiesCache = properties;
     // 物件一覧が取得できたらセレクタを更新
@@ -826,6 +832,30 @@ const GuestsPage = {
     return this.escapeHtml(str);
   },
 
+  // 物件色 (hex) を絵文字の色付き四角に変換 (native <option> では HTML/CSS が使えないため)
+  _colorToEmoji(hex) {
+    if (!hex) return "⬜";
+    const h = String(hex).replace("#", "").toLowerCase();
+    if (h.length < 3) return "⬜";
+    const r = parseInt(h.length === 3 ? h[0] + h[0] : h.slice(0, 2), 16);
+    const g = parseInt(h.length === 3 ? h[1] + h[1] : h.slice(2, 4), 16);
+    const b = parseInt(h.length === 3 ? h[2] + h[2] : h.slice(4, 6), 16);
+    if (isNaN(r) || isNaN(g) || isNaN(b)) return "⬜";
+    // HSL 風の簡易分類
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    if (max - min < 30) return max < 80 ? "⬛" : max > 200 ? "⬜" : "⬛";
+    if (r > g && r > b) {
+      if (g > 150) return "🟧"; // オレンジ
+      if (g > 100) return "🟫"; // 茶色
+      return "🟥"; // 赤
+    }
+    if (g > r && g > b) return "🟩"; // 緑
+    if (b > r && b > g) return r > 150 ? "🟪" : "🟦"; // 紫/青
+    if (r > 150 && g > 150 && b < 100) return "🟨"; // 黄
+    if (r > 150 && b > 150 && g < 100) return "🟪"; // マゼンタ/紫
+    return "⬜";
+  },
+
   // 編集対象セレクタのオプションを物件一覧から再構築する（全物件共通は廃止）
   _refreshFormTargetSelector() {
     const sel = document.getElementById("formTargetSelector");
@@ -840,7 +870,9 @@ const GuestsPage = {
     props.forEach(p => {
       const opt = document.createElement("option");
       opt.value = p.id;
-      opt.textContent = (p.propertyNumber ? `#${p.propertyNumber} ` : "") + (p.name || p.id);
+      const badge = this._colorToEmoji(p.color);
+      const num = p.propertyNumber ? `#${p.propertyNumber}` : "";
+      opt.textContent = `${badge} ${num} ${p.name || p.id}`.replace(/\s+/g, " ").trim();
       sel.appendChild(opt);
     });
 
