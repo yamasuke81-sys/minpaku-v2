@@ -272,6 +272,9 @@ const PropertyChecklistPage = {
             <button class="btn btn-sm btn-outline-primary" data-act="add-tt"><i class="bi bi-plus"></i> 掃除種類</button>
           </div>
         </div>
+        <div class="px-3 pt-2">
+          ${this.renderSampleImagesSection(area)}
+        </div>
         <div class="card-body" id="areaInner">
           ${this.renderChildrenContainer(area, "area")}
         </div>
@@ -285,6 +288,12 @@ const PropertyChecklistPage = {
     content.querySelector(`[data-act="toggle-expand-all"]`).addEventListener("click", () => this.toggleExpandAll(content));
 
     this.wireNodeHandlers(content);
+
+    // 見本写真: サムネイルプレビューイベントをバインド
+    content.querySelectorAll("[data-pcl-sample-preview]").forEach(img => {
+      img.addEventListener("click", () => this._previewSampleImage(img.dataset.pclSamplePreview));
+    });
+
     this.makeSortables();
   },
 
@@ -385,21 +394,26 @@ const PropertyChecklistPage = {
   // 項目行（list-group-item 相当）
   renderItemRow(it, parentType, parentId) {
     return `
-      <div class="pcl-row pcl-row-item list-group-item d-flex align-items-center mb-1"
+      <div class="pcl-row pcl-row-item list-group-item mb-1"
            data-kind="item"
            data-item-id="${it.id}"
            data-parent-type="${parentType}"
            data-parent-id="${parentId}">
-        <i class="bi bi-grip-vertical text-muted me-2 handle" style="cursor:grab;"></i>
-        <div class="flex-grow-1">
-          <div>${this.escapeHtml(it.name)}</div>
-          <div class="small text-muted">
-            ${it.supplyItem ? '<span class="badge bg-warning text-dark">要補充</span>' : ""}
-            ${it.memo ? `<span class="ms-2">メモ: ${this.escapeHtml(it.memo)}</span>` : ""}
+        <div class="d-flex align-items-center">
+          <i class="bi bi-grip-vertical text-muted me-2 handle" style="cursor:grab;"></i>
+          <div class="flex-grow-1">
+            <div>${this.escapeHtml(it.name)}</div>
+            <div class="small text-muted">
+              ${it.supplyItem ? '<span class="badge bg-warning text-dark">要補充</span>' : ""}
+              ${it.memo ? `<span class="ms-2">メモ: ${this.escapeHtml(it.memo)}</span>` : ""}
+            </div>
           </div>
+          <button class="btn btn-sm btn-link" data-act="edit-item"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-link text-danger" data-act="delete-item"><i class="bi bi-trash"></i></button>
         </div>
-        <button class="btn btn-sm btn-link" data-act="edit-item"><i class="bi bi-pencil"></i></button>
-        <button class="btn btn-sm btn-link text-danger" data-act="delete-item"><i class="bi bi-trash"></i></button>
+        <div class="ps-4 pb-1">
+          ${this.renderSampleImagesSection(it)}
+        </div>
       </div>
     `;
   },
@@ -446,6 +460,7 @@ const PropertyChecklistPage = {
                   ${l.addChild ? `<button class="btn btn-sm btn-outline-primary" data-act="${l.addChild}"><i class="bi bi-plus"></i> ${l.addChildLabel}</button>` : ""}
                 </div>
               </div>
+              ${this.renderSampleImagesSection(cat)}
               ${this.renderChildrenContainer(cat, level)}
             </div>
           </div>
@@ -483,6 +498,23 @@ const PropertyChecklistPage = {
         return;
       }
 
+      // 見本写真: 追加ボタン
+      if (act === "add-sample-image") {
+        const nodeId = btn.dataset.nodeId;
+        const node = this.findNodeById(nodeId, area);
+        if (node) this.addSampleImage(node);
+        return;
+      }
+
+      // 見本写真: 削除ボタン
+      if (act === "del-sample-image") {
+        const nodeId = btn.dataset.nodeId;
+        const imgIdx = parseInt(btn.dataset.imgIdx, 10);
+        const node = this.findNodeById(nodeId, area);
+        if (node) this.deleteSampleImage(node, imgIdx);
+        return;
+      }
+
       // カテゴリ行の操作: このカテゴリ自身を解決
       const catLevel = catRow?.dataset.catLevel;  // "tt"|"sc"|"ss"
       const catId = catRow?.dataset.catId;
@@ -502,6 +534,21 @@ const PropertyChecklistPage = {
       } else if (act === "add-ss") {
         this.addSubSubCategory(cat);
       }
+    });
+
+    // 見本写真: input[type=file] change イベント (委譲では動かないため直接バインド)
+    root.addEventListener("change", (ev) => {
+      const inp = ev.target.closest(".pcl-sample-img-input");
+      if (!inp) return;
+      const nodeId = inp.dataset.nodeId;
+      const files = Array.from(ev.target.files || []);
+      if (!files.length) return;
+      inp.value = "";
+      const area = this.template.areas.find(a => a.id === this.activeAreaId);
+      if (!area) return;
+      const node = this.findNodeById(nodeId, area);
+      if (!node) return;
+      this._handleSampleImageFiles(node, files);
     });
   },
 
@@ -685,7 +732,7 @@ const PropertyChecklistPage = {
     if (!r || !r.name) return;
     this.template.areas.push({
       id: this.genId("a"), name: r.name, sortOrder: this.template.areas.length + 1,
-      sampleImageUrl: "", directItems: [], taskTypes: []
+      sampleImageUrl: "", sampleImages: [], directItems: [], taskTypes: []
     });
     this.activeAreaId = this.template.areas[this.template.areas.length - 1].id;
     this.markDirty();
@@ -701,7 +748,7 @@ const PropertyChecklistPage = {
     if (!r || !r.name) return;
     (area.taskTypes = area.taskTypes || []).push({
       id: this.genId("t"), name: r.name, sortOrder: area.taskTypes.length + 1,
-      sampleImageUrl: "", directItems: [], subCategories: []
+      sampleImageUrl: "", sampleImages: [], directItems: [], subCategories: []
     });
     this.markDirty();
     this.renderAreaContent();
@@ -716,7 +763,7 @@ const PropertyChecklistPage = {
     if (!r || !r.name) return;
     (tt.subCategories = tt.subCategories || []).push({
       id: this.genId("s"), name: r.name, sortOrder: tt.subCategories.length + 1,
-      sampleImageUrl: "", directItems: [], subSubCategories: []
+      sampleImageUrl: "", sampleImages: [], directItems: [], subSubCategories: []
     });
     this.markDirty();
     this.renderAreaContent();
@@ -731,7 +778,7 @@ const PropertyChecklistPage = {
     if (!r || !r.name) return;
     (sc.subSubCategories = sc.subSubCategories || []).push({
       id: this.genId("ss"), name: r.name, sortOrder: sc.subSubCategories.length + 1,
-      sampleImageUrl: "", items: []
+      sampleImageUrl: "", sampleImages: [], items: []
     });
     this.markDirty();
     this.renderAreaContent();
@@ -1114,6 +1161,192 @@ const PropertyChecklistPage = {
       console.error(e);
       showToast("エラー", "コピー失敗: " + (e.message || ""), "error");
     }
+  },
+
+  // === 見本写真 ===
+
+  /** 見本写真セクション HTML を生成 (area/tt/sc/ss/item 共通) */
+  renderSampleImagesSection(node) {
+    const images = node.sampleImages || [];
+    // 後方互換: sampleImageUrl が存在し sampleImages が空なら表示のみ
+    const legacyUrl = (!images.length && node.sampleImageUrl) ? node.sampleImageUrl : null;
+    const thumbs = images.map((img, i) => `
+      <div style="position:relative;display:inline-block;margin:2px;">
+        <img src="${this.escapeHtml(img.url)}" alt="見本"
+             style="width:60px;height:60px;object-fit:cover;border-radius:4px;cursor:pointer;border:1px solid #dee2e6;"
+             data-pcl-sample-preview="${this.escapeHtml(img.url)}">
+        <button type="button" class="pcl-sample-del-btn" data-act="del-sample-image"
+                data-node-id="${this.escapeHtml(node.id)}" data-img-idx="${i}"
+                style="position:absolute;top:-4px;right:-4px;width:18px;height:18px;border-radius:50%;border:none;background:#dc3545;color:#fff;font-size:11px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;">
+          ×
+        </button>
+      </div>
+    `).join("");
+
+    const legacyThumb = legacyUrl ? `
+      <div style="position:relative;display:inline-block;margin:2px;">
+        <img src="${this.escapeHtml(legacyUrl)}" alt="見本(旧)"
+             style="width:60px;height:60px;object-fit:cover;border-radius:4px;border:1px solid #ffc107;cursor:pointer;"
+             title="旧フォーマット（読み取りのみ）"
+             data-pcl-sample-preview="${this.escapeHtml(legacyUrl)}">
+      </div>
+    ` : "";
+
+    return `
+      <div class="pcl-sample-section" style="margin-bottom:6px;">
+        <div class="d-flex align-items-center flex-wrap gap-1" style="min-height:28px;">
+          <span class="small text-muted" style="font-size:11px;"><i class="bi bi-camera"></i> 見本写真</span>
+          ${legacyThumb}${thumbs}
+          <label class="btn btn-sm btn-outline-secondary pcl-sample-add-btn mb-0"
+                 style="padding:1px 8px;font-size:12px;cursor:pointer;" title="見本写真を追加">
+            <i class="bi bi-plus"></i>
+            <input type="file" accept="image/*" multiple class="d-none pcl-sample-img-input"
+                   data-node-id="${this.escapeHtml(node.id)}">
+          </label>
+        </div>
+      </div>
+    `;
+  },
+
+  /** 見本写真: ファイル選択後のアップロード処理 */
+  async _handleSampleImageFiles(node, files) {
+    for (const file of files) {
+      try {
+        await this._uploadSampleImage(node, file);
+      } catch (e) {
+        console.error("[sample-image] アップロードエラー:", e);
+        showToast("エラー", "見本写真のアップロードに失敗しました: " + (e.message || ""), "error");
+      }
+    }
+    // アップロード完了後は保存を促す (自動保存はしない)
+    this.markDirty();
+    // 該当ノードのサムネイル部分だけ更新
+    this._refreshSampleSection(node);
+  },
+
+  /** Storage へアップロードして node.sampleImages に追加 */
+  async _uploadSampleImage(node, file) {
+    const ts = Date.now();
+    const rand = Math.random().toString(36).slice(2, 7);
+    const ext = file.name.split(".").pop().replace(/[^a-z0-9]/gi, "") || "jpg";
+    const path = `checklist-samples/${this.propertyId}/${node.id}/${ts}_${rand}.${ext}`;
+
+    const storageRef = firebase.storage().ref(path);
+    const user = firebase.auth().currentUser;
+    const metadata = {
+      contentType: file.type || "image/jpeg",
+      customMetadata: {
+        uploadedBy: user?.uid || "",
+        uploadedAt: new Date().toISOString(),
+        propertyId: this.propertyId,
+        nodeId: node.id,
+      },
+    };
+    await storageRef.put(file, metadata);
+    const url = await storageRef.getDownloadURL();
+
+    node.sampleImages = node.sampleImages || [];
+    node.sampleImages.push({ url, path, uploadedAt: new Date().toISOString() });
+  },
+
+  /** 見本写真を削除 (Storage + node.sampleImages) */
+  async deleteSampleImage(node, idx) {
+    const images = node.sampleImages || [];
+    const img = images[idx];
+    if (!img) return;
+
+    const ok = await this.showConfirmDialog({
+      title: "見本写真の削除",
+      message: "この見本写真を削除しますか？",
+      confirmLabel: "削除", danger: true
+    });
+    if (!ok) return;
+
+    // Storage から削除 (path がある場合のみ)
+    if (img.path) {
+      try {
+        await firebase.storage().ref(img.path).delete();
+      } catch (e) {
+        console.warn("[sample-image] Storage削除失敗:", e.message);
+        // Storage削除失敗でもFirestoreからは除去を続行
+      }
+    }
+
+    images.splice(idx, 1);
+    this.markDirty();
+    this._refreshSampleSection(node);
+  },
+
+  /** 見本写真セクションの DOM だけ再描画 (areaContent 全体を再構築しない) */
+  _refreshSampleSection(node) {
+    // data-node-id を持つ pcl-sample-section を特定して更新
+    const content = document.getElementById("areaContent");
+    if (!content) return;
+    // 全 pcl-sample-img-input の data-node-id で該当を探す
+    const inp = content.querySelector(`.pcl-sample-img-input[data-node-id="${node.id}"]`);
+    if (!inp) return;
+    const section = inp.closest(".pcl-sample-section");
+    if (!section) return;
+    const newHtml = this.renderSampleImagesSection(node);
+    const tmp = document.createElement("div");
+    tmp.innerHTML = newHtml;
+    const newSection = tmp.firstElementChild;
+    section.replaceWith(newSection);
+    // 新しい section にプレビューイベントを再バインド
+    newSection.querySelectorAll("[data-pcl-sample-preview]").forEach(img => {
+      img.addEventListener("click", () => this._previewSampleImage(img.dataset.pclSamplePreview));
+    });
+  },
+
+  /** 見本写真をフルスクリーンプレビュー（単一）*/
+  _previewSampleImage(url) {
+    const existing = document.getElementById("pclSamplePreviewModal");
+    if (existing) existing.remove();
+    const div = document.createElement("div");
+    div.id = "pclSamplePreviewModal";
+    div.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;";
+    div.innerHTML = `
+      <img src="${this.escapeHtml(url)}" style="max-width:95vw;max-height:90vh;border-radius:8px;">
+      <button style="position:absolute;top:12px;right:16px;background:none;border:none;color:#fff;font-size:2rem;line-height:1;cursor:pointer;">&times;</button>
+    `;
+    div.addEventListener("click", () => div.remove());
+    document.body.appendChild(div);
+  },
+
+  /** 全ノードから id でノードを検索 (area/tt/sc/ss/item 全対応) */
+  findNodeById(id, area) {
+    if (area.id === id) return area;
+    // item 含め再帰探索
+    return this._findNodeIn(id, area);
+  },
+
+  _findNodeIn(id, parent) {
+    // directItems / items
+    for (const list of [parent.directItems, parent.items].filter(Boolean)) {
+      const hit = list.find(x => x.id === id);
+      if (hit) return hit;
+    }
+    // 子カテゴリ
+    const subs = [].concat(
+      parent.taskTypes || [],
+      parent.subCategories || [],
+      parent.subSubCategories || []
+    );
+    for (const sub of subs) {
+      if (sub.id === id) return sub;
+      const hit = this._findNodeIn(id, sub);
+      if (hit) return hit;
+    }
+    return null;
+  },
+
+  /** addSampleImage: ファイル選択ダイアログを起動（＋ボタン以外からも呼べる） */
+  addSampleImage(node) {
+    // label[for] 経由で input を開く代わりに、プログラム的にクリック
+    const content = document.getElementById("areaContent");
+    if (!content) return;
+    const inp = content.querySelector(`.pcl-sample-img-input[data-node-id="${node.id}"]`);
+    if (inp) inp.click();
   },
 
   // === ユーティリティ ===

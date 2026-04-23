@@ -957,8 +957,199 @@ const MyChecklistPage = {
   renderTabPhotos() {
     const el = document.getElementById("mclTopTabContent");
     if (!el || !this.checklist) return;
-    el.innerHTML = `<div id="mclPhotoSection" class="pt-2"></div>`;
+    el.innerHTML = `
+      <div id="mclSamplePhotoSection" class="pt-2"></div>
+      <div id="mclPhotoSection" class="pt-2"></div>
+    `;
+    this.renderSamplePhotoSection();
     this.renderPhotoSection();
+  },
+
+  // ===== 見本写真セクション (スタッフ用・読み取り専用) =====
+  renderSamplePhotoSection() {
+    const el = document.getElementById("mclSamplePhotoSection");
+    if (!el || !this.checklist) return;
+    const areas = this.checklist.templateSnapshot || [];
+
+    // 全ノードから見本写真を再帰収集
+    const allSamples = [];  // { label, url }[]
+    const walk = (node, pathParts) => {
+      // sampleImages 配列 (複数枚対応)
+      const imgs = node.sampleImages || [];
+      // 後方互換: sampleImageUrl が存在し sampleImages が空なら使用
+      if (!imgs.length && node.sampleImageUrl) {
+        allSamples.push({ label: pathParts.join(" › "), url: node.sampleImageUrl });
+      }
+      imgs.forEach(img => {
+        allSamples.push({ label: pathParts.join(" › "), url: img.url });
+      });
+      // 再帰探索
+      (node.taskTypes || []).forEach(tt => walk(tt, [...pathParts, tt.name]));
+      (node.subCategories || []).forEach(sc => walk(sc, [...pathParts, sc.name]));
+      (node.subSubCategories || []).forEach(ss => walk(ss, [...pathParts, ss.name]));
+      // item の見本写真
+      [...(node.directItems || []), ...(node.items || [])].forEach(it => {
+        const itImgs = it.sampleImages || [];
+        if (!itImgs.length && it.sampleImageUrl) {
+          allSamples.push({ label: [...pathParts, it.name].join(" › "), url: it.sampleImageUrl });
+        }
+        itImgs.forEach(img => {
+          allSamples.push({ label: [...pathParts, it.name].join(" › "), url: img.url });
+        });
+      });
+    };
+    areas.forEach(a => walk(a, [a.name]));
+
+    if (!allSamples.length) {
+      // 見本写真がない場合は何も表示しない
+      el.innerHTML = "";
+      return;
+    }
+
+    // グループ化: 同一ラベルをまとめる
+    const grouped = [];
+    for (const s of allSamples) {
+      const last = grouped[grouped.length - 1];
+      if (last && last.label === s.label) {
+        last.urls.push(s.url);
+      } else {
+        grouped.push({ label: s.label, urls: [s.url] });
+      }
+    }
+
+    const rows = grouped.map(g => {
+      const thumbs = g.urls.map((u, i) => {
+        const absIdx = allSamples.findIndex(s => s.url === u);
+        return `
+          <img src="${this.escapeHtml(u)}" alt="見本" loading="lazy"
+               style="width:80px;height:80px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid #dee2e6;"
+               class="mcl-sample-thumb"
+               data-sample-url="${this.escapeHtml(u)}"
+               data-sample-label="${this.escapeHtml(g.label)}">
+        `;
+      }).join("");
+      return `
+        <div class="mb-2">
+          <div class="small text-muted mb-1" style="font-size:11px;">${this.escapeHtml(g.label)}</div>
+          <div class="d-flex flex-wrap gap-1">${thumbs}</div>
+        </div>
+      `;
+    }).join("");
+
+    el.innerHTML = `
+      <div class="card mb-3">
+        <div class="card-body pb-2">
+          <h6 class="card-title mb-2">
+            <i class="bi bi-camera"></i> 見本写真
+            <span class="badge bg-secondary ms-1">${allSamples.length}</span>
+          </h6>
+          ${rows}
+        </div>
+      </div>
+    `;
+
+    // サムネイルタップ → ライトボックス
+    el.querySelectorAll(".mcl-sample-thumb").forEach(img => {
+      img.addEventListener("click", () => {
+        // 全サムネイル URL リストを渡してスライドできるようにする
+        const thumbs = Array.from(el.querySelectorAll(".mcl-sample-thumb"));
+        const allUrls = thumbs.map(t => t.dataset.sampleUrl);
+        const allLabels = thumbs.map(t => t.dataset.sampleLabel);
+        const startIdx = thumbs.indexOf(img);
+        this._openSampleLightbox(allUrls, allLabels, startIdx);
+      });
+    });
+  },
+
+  /**
+   * 見本写真ライトボックス (複数枚スライド)
+   * allUrls: string[]  全画像URL
+   * allLabels: string[] 各画像のラベル
+   * startIdx: 最初に表示するインデックス
+   */
+  _openSampleLightbox(allUrls, allLabels, startIdx) {
+    const existing = document.getElementById("mclSampleLightbox");
+    if (existing) existing.remove();
+
+    let currentIdx = startIdx;
+    const total = allUrls.length;
+
+    const overlay = document.createElement("div");
+    overlay.id = "mclSampleLightbox";
+    overlay.style.cssText = [
+      "position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:9999;",
+      "display:flex;flex-direction:column;align-items:center;justify-content:center;",
+      "user-select:none;"
+    ].join("");
+
+    overlay.innerHTML = `
+      <button id="mclSampleLbClose"
+              style="position:absolute;top:12px;right:16px;background:none;border:none;color:#fff;font-size:2rem;line-height:1;cursor:pointer;">&times;</button>
+      <div id="mclSampleLbLabel"
+           style="color:#ccc;font-size:12px;margin-bottom:8px;max-width:90vw;text-align:center;"></div>
+      <img id="mclSampleLbImg"
+           style="max-width:95vw;max-height:75vh;border-radius:8px;object-fit:contain;">
+      <div style="display:flex;align-items:center;gap:16px;margin-top:12px;">
+        <button id="mclSampleLbPrev"
+                style="background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:1.6rem;border-radius:50%;width:44px;height:44px;cursor:pointer;display:flex;align-items:center;justify-content:center;">&lsaquo;</button>
+        <span id="mclSampleLbCounter" style="color:#fff;font-size:13px;min-width:50px;text-align:center;"></span>
+        <button id="mclSampleLbNext"
+                style="background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:1.6rem;border-radius:50%;width:44px;height:44px;cursor:pointer;display:flex;align-items:center;justify-content:center;">&rsaquo;</button>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const imgEl      = document.getElementById("mclSampleLbImg");
+    const labelEl    = document.getElementById("mclSampleLbLabel");
+    const counterEl  = document.getElementById("mclSampleLbCounter");
+    const prevBtn    = document.getElementById("mclSampleLbPrev");
+    const nextBtn    = document.getElementById("mclSampleLbNext");
+    const closeBtn   = document.getElementById("mclSampleLbClose");
+
+    const showSlide = (idx) => {
+      currentIdx = (idx + total) % total;
+      imgEl.src = allUrls[currentIdx];
+      labelEl.textContent = allLabels[currentIdx] || "";
+      counterEl.textContent = `${currentIdx + 1} / ${total}`;
+      // 1枚のみの場合は前後ボタンを薄く
+      prevBtn.style.opacity = total > 1 ? "1" : "0.3";
+      nextBtn.style.opacity = total > 1 ? "1" : "0.3";
+    };
+
+    showSlide(currentIdx);
+
+    prevBtn.addEventListener("click", (e) => { e.stopPropagation(); showSlide(currentIdx - 1); });
+    nextBtn.addEventListener("click", (e) => { e.stopPropagation(); showSlide(currentIdx + 1); });
+    closeBtn.addEventListener("click", () => overlay.remove());
+
+    // オーバーレイ背景タップで閉じる (ボタン以外)
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+
+    // キーボード操作
+    const onKey = (e) => {
+      if (e.key === "ArrowLeft")  { showSlide(currentIdx - 1); }
+      if (e.key === "ArrowRight") { showSlide(currentIdx + 1); }
+      if (e.key === "Escape")     { overlay.remove(); document.removeEventListener("keydown", onKey); }
+    };
+    document.addEventListener("keydown", onKey);
+    overlay.addEventListener("remove", () => document.removeEventListener("keydown", onKey));
+
+    // タッチスワイプ
+    let touchStartX = null;
+    overlay.addEventListener("touchstart", (e) => {
+      touchStartX = e.touches[0].clientX;
+    }, { passive: true });
+    overlay.addEventListener("touchend", (e) => {
+      if (touchStartX === null) return;
+      const deltaX = e.changedTouches[0].clientX - touchStartX;
+      touchStartX = null;
+      if (Math.abs(deltaX) < 40) return;
+      if (deltaX < 0) showSlide(currentIdx + 1);  // 左スワイプ → 次
+      else            showSlide(currentIdx - 1);  // 右スワイプ → 前
+    }, { passive: true });
   },
 
   // ===== タブ4: ランドリー =====
