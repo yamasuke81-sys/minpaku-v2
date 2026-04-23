@@ -2311,15 +2311,56 @@ const GuestsPage = {
     if (lastCard) lastCard.scrollIntoView({ behavior: "smooth", block: "center" });
   },
 
-  // 宿泊規約エディタにデータをロード
+  // 宿泊規約エディタのデフォルト値 (guest-form.html i18n と同期)
+  NOISE_RULE_DEFAULTS: {
+    title: "⚠ 宴会について — 非常に重要なお願い",
+    titleEn: "⚠ A Note About Quiet Hours — Very Important",
+    intro: "夜遅くまでにぎやかに過ごされたい場合は、トラブル防止のため他施設をご検討ください。<br><span class='text-muted'>※一般的な音量の会話であれば、夜間でも問題なくご利用いただけます。</span>",
+    introEn: "If you plan to stay up late and be loud, please consider other accommodations.<br><span class='text-muted'>* Normal conversation volume is perfectly fine, even at night.</span>",
+    quietHours: "騒音禁止　21:00 〜 翌8:00",
+    quietHoursEn: "Quiet Hours: 21:00 – 8:00",
+    rules: [
+      "21:00以降、屋外での通話・会話は禁止",
+      "1階キッチンは隣家へ音が響きやすい構造です",
+      "テレビ・音楽の音量にもご注意ください",
+      "宴会・イベント・パーティー　不可",
+    ],
+    rulesEn: [
+      "No talking or phone calls outdoors after 21:00",
+      "The 1F kitchen easily transmits sound to neighbors",
+      "Please keep TV and music volume low",
+      "Parties / Events: Not Allowed",
+    ],
+    eviction: "⚠ 近隣や警察から苦情が入った場合、時間帯を問わず即時退去（返金なし）",
+    evictionEn: "⚠ If a complaint is filed by neighbors or police, you must leave immediately (no refund)",
+    agreeLabel: "上記の騒音ルールを了承しました",
+    agreeLabelEn: "I acknowledge and agree to the above noise rules",
+    cancelLabel: "了承できないのでキャンセルする（予約後24時間以内はキャンセル無料）",
+    cancelLabelEn: "I cannot agree — cancel my booking (free cancellation within 24 hours)",
+    cancelMsg: "ご理解ありがとうございます。予約サイトからキャンセル手続きをお願いいたします。",
+    cancelMsgEn: "Thank you for your understanding. Please cancel through your booking platform.",
+  },
+
+  // 宿泊規約エディタにデータをロード (空欄はデフォルトで書き換え可能な状態にプレフィル)
   _loadNoiseRuleEditor() {
     const n = this._noiseRuleConfig || {};
+    const d = this.NOISE_RULE_DEFAULTS;
     const keys = ["title","titleEn","intro","introEn","quietHours","quietHoursEn","eviction","evictionEn","agreeLabel","agreeLabelEn","cancelLabel","cancelLabelEn","cancelMsg","cancelMsgEn"];
-    keys.forEach(k => { const el = document.getElementById("nrcfg_" + k); if (el) el.value = n[k] || ""; });
+    keys.forEach(k => {
+      const el = document.getElementById("nrcfg_" + k);
+      if (!el) return;
+      el.value = (n[k] != null && n[k] !== "") ? n[k] : (d[k] || "");
+    });
     const rulesEl = document.getElementById("nrcfg_rules");
     const rulesEnEl = document.getElementById("nrcfg_rulesEn");
-    if (rulesEl)   rulesEl.value   = Array.isArray(n.rules)   ? n.rules.join("\n")   : (n.rules   || "");
-    if (rulesEnEl) rulesEnEl.value = Array.isArray(n.rulesEn) ? n.rulesEn.join("\n") : (n.rulesEn || "");
+    if (rulesEl) {
+      const v = Array.isArray(n.rules) && n.rules.length ? n.rules : d.rules;
+      rulesEl.value = Array.isArray(v) ? v.join("\n") : (v || "");
+    }
+    if (rulesEnEl) {
+      const v = Array.isArray(n.rulesEn) && n.rulesEn.length ? n.rulesEn : d.rulesEn;
+      rulesEnEl.value = Array.isArray(v) ? v.join("\n") : (v || "");
+    }
   },
 
   // 宿泊規約の保存
