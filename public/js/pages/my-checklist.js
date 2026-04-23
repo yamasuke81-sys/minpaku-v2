@@ -15,7 +15,7 @@ const MyChecklistPage = {
   checklist: null,
   activeAreaId: null,
   // 上位タブ: schedule / checklist / photos / laundry / restock
-  activeTopTab: "checklist",
+  activeTopTab: "schedule",
   unsubscribe: null,
   saveTimers: {},
   presenceTimer: null,
@@ -531,7 +531,7 @@ const MyChecklistPage = {
     this.checklistId = null;
     this.checklist = null;
     this.activeAreaId = null;
-    this.activeTopTab = "checklist";
+    this.activeTopTab = "schedule";
     this._nextBooking = null;
     this._todayStaffNames = [];
     this._noteSelectedFiles = [];
