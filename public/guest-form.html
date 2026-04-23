@@ -887,8 +887,20 @@
 
     // ===== 交通手段 =====
     // ヘルパー: 要素が存在するときのみ classList 操作／value代入する
-    function _safeToggle(id, cls, force) { const el = document.getElementById(id); if (el) el.classList.toggle(cls, force); }
-    function _safeSet(id, prop, val) { const el = document.getElementById(id); if (el) el[prop] = val; }
+    function _safeToggle(id, cls, force) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      // 設定で強制非表示の要素は常に d-none のまま
+      if (el.dataset && el.dataset.forceHidden === "1") { el.classList.add("d-none"); return; }
+      el.classList.toggle(cls, force);
+    }
+    function _safeSet(id, prop, val) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      // 強制非表示時は required/disabled を有効化しない
+      if (el.dataset && el.dataset.forceHidden === "1" && (prop === "required" || prop === "disabled") && val === true) return;
+      el[prop] = val;
+    }
     function updateTransportUI() {
       const trEl = document.getElementById("f_transport");
       if (!trEl) return;
@@ -1438,6 +1450,8 @@
         if (!sel) return;
         const el = document.querySelector(sel);
         if (el) {
+          // updateTransportUI 等に上書きされないよう強制非表示フラグを付ける
+          el.dataset.forceHidden = "1";
           el.classList.add("d-none");
           el.querySelectorAll("input,select,textarea").forEach(x => { x.required = false; x.disabled = true; });
         }
