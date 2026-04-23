@@ -311,41 +311,88 @@ const NotificationsPage = {
     if (d1) d1.value = this.settings.discordOwnerWebhookUrl || "";
     if (d2) d2.value = this.settings.discordSubOwnerWebhookUrl || "";
 
-    // 送信元情報ボックスを更新
+    // 送信元情報ボックスを更新 (チャネル別に細分化)
     try {
       const box = document.getElementById("notifySenderInfoContent");
       if (box) {
-        // 連携済み Gmail アカウント
-        const gmailTokens = await db.collection("settings").doc("gmailOAuth").collection("tokens").get();
-        const gmailList = gmailTokens.docs.map(d => d.data().email).filter(Boolean);
-        // LINE Bot (グローバル + 物件別)
+        const esc = (s) => String(s || "").replace(/</g, "&lt;");
+        // データ収集
+        const [gmailTokens, propSnap, staffSnap] = await Promise.all([
+          db.collection("settings").doc("gmailOAuth").collection("tokens").get(),
+          db.collection("properties").where("active", "==", true).get(),
+          db.collection("staff").where("active", "==", true).get(),
+        ]);
+        const gmailList = gmailTokens.docs.map(d => ({ email: d.data().email })).filter(g => g.email);
+        const gmailAll = gmailList.map(g => g.email);
+        const gmailPrimary = gmailAll[0] || "";
         const defaultBot = this.settings.ownerLineChannels?.[0]?.name || "(Bot 名未設定)";
-        const propSnap = await db.collection("properties").where("active", "==", true).get();
+        const ownerUserId = this.settings.lineOwnerUserId || this.settings.lineOwnerId || "";
+        const ownerEmailGlobal = this.settings.ownerEmail || "";
+        // 物件別 LINE Bot
         const propBots = [];
         propSnap.docs.forEach(d => {
           const p = d.data();
           if (Array.isArray(p.lineChannels)) {
             p.lineChannels.forEach(ch => {
-              if (ch.enabled && ch.name) propBots.push(`${p.name}: ${ch.name}`);
+              if (ch.enabled && ch.name) propBots.push({ property: p.name, bot: ch.name, group: ch.groupId });
             });
           }
         });
-        // Discord Webhook
-        const discOwner = this.settings.discordOwnerWebhookUrl ? "設定済" : "未設定";
-        const discSub = this.settings.discordSubOwnerWebhookUrl ? "設定済" : "未設定";
-        const esc = (s) => String(s || "").replace(/</g, "&lt;");
+        const propWithLineCount = propBots.length;
+        // スタッフ LINE
+        const staffAll = staffSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const staffLineCount = staffAll.filter(s => s.lineUserId).length;
+        const staffEmailCount = staffAll.filter(s => s.email).length;
+        // 物件オーナー (サブオーナー)
+        const subOwners = staffAll.filter(s => s.isSubOwner);
+        const subOwnerLineCount = subOwners.filter(s => s.subOwnerLineUserId).length;
+        const subOwnerEmailCount = subOwners.filter(s => s.subOwnerEmail || s.email).length;
+        // Discord
+        const discOwner = this.settings.discordOwnerWebhookUrl ? `<code>${esc(this.settings.discordOwnerWebhookUrl.slice(0, 60))}...</code>` : '<span class="text-danger">未設定</span>';
+        const discSub = this.settings.discordSubOwnerWebhookUrl ? `<code>${esc(this.settings.discordSubOwnerWebhookUrl.slice(0, 60))}...</code>` : '<span class="text-danger">未設定</span>';
+
+        const row = (icon, label, detail) =>
+          `<div class="d-flex align-items-start gap-2 py-1 border-bottom" style="font-size:0.85em;">
+             <span style="min-width:240px;">${icon} <strong>${esc(label)}</strong></span>
+             <span class="flex-grow-1">${detail}</span>
+           </div>`;
+
         box.innerHTML = `
-          <div class="mb-1"><i class="bi bi-envelope text-warning"></i> <strong>メール送信元:</strong>
-            ${gmailList.length === 0 ? '<span class="text-danger">Gmail 未連携</span>' : gmailList.map(e => `<code>${esc(e)}</code>`).join(", ")}
-            <span class="text-muted">（宿泊者宛サンクスメールは該当物件の物件オーナーの Gmail を優先）</span></div>
-          <div class="mb-1"><i class="bi bi-line text-success"></i> <strong>LINE 送信元 (Bot):</strong>
-            <code>${esc(defaultBot)}</code> （Webアプリ管理者LINE / スタッフ個別 / 物件オーナー個別 共通）${propBots.length > 0 ? "<br>&nbsp;&nbsp;物件別グループLINE: " + propBots.map(b => `<code>${esc(b)}</code>`).join(", ") : ""}</div>
-          <div class="mb-0"><i class="bi bi-discord" style="color:#5865F2"></i> <strong>Discord 送信元:</strong>
-            Webアプリ管理者: <code>${discOwner}</code> / 物件オーナー: <code>${discSub}</code>
-            <span class="text-muted">（Webhook の Bot 名/アイコンは Discord 側で設定）</span></div>
+          ${row('<i class="bi bi-person-circle text-success"></i>', "Webアプリ管理者LINE", `
+            From Bot: <code>${esc(defaultBot)}</code><br>
+            To (宛先): User ID <code>${esc(ownerUserId || "未設定")}</code>`)}
+          ${row('<i class="bi bi-people-fill text-primary"></i>', "グループLINE (物件別)", propBots.length === 0
+            ? '<span class="text-danger">物件 LINE チャネル未登録</span>'
+            : propBots.map(b => `${esc(b.property)}: Bot <code>${esc(b.bot)}</code> / Group <code>${esc(String(b.group || "").slice(0, 20))}...</code>`).join("<br>"))}
+          ${row('<i class="bi bi-person-lines-fill text-info"></i>', "スタッフ個別LINE", `
+            From Bot: <code>${esc(defaultBot)}</code><br>
+            To: 対象スタッフ ${staffLineCount} 名 (staff.lineUserId あり)`)}
+          ${row('<i class="bi bi-person-badge text-success"></i>', "物件オーナー個別LINE", `
+            From Bot: <code>${esc(defaultBot)}</code><br>
+            To: 物件オーナー ${subOwnerLineCount} 名 (staff.subOwnerLineUserId あり)`)}
+          ${row('<i class="bi bi-envelope text-warning"></i>', "Webアプリ管理者メール", `
+            From: <code>${esc(gmailPrimary || "Gmail 未連携")}</code>${gmailAll.length > 1 ? ` (ほか ${gmailAll.length - 1} 連携)` : ""}<br>
+            To: <code>${esc(ownerEmailGlobal || "settings/notifications.ownerEmail 未設定")}</code>`)}
+          ${row('<i class="bi bi-envelope-at text-success"></i>', "物件オーナー個別メール", `
+            From: 物件オーナーの Gmail (未連携なら先頭 Gmail にフォールバック)<br>
+            To: 物件オーナー ${subOwnerEmailCount} 名 (subOwnerEmail または email)`)}
+          ${row('<i class="bi bi-envelope-fill text-info"></i>', "スタッフ個別メール", `
+            From: <code>${esc(gmailPrimary || "Gmail 未連携")}</code><br>
+            To: 対象スタッフ ${staffEmailCount} 名 (staff.email あり)`)}
+          ${row('<i class="bi bi-envelope-heart text-danger"></i>', "宿泊者宛サンクスメール", `
+            From: 該当物件の物件オーナー Gmail (isSubOwner > isOwner)<br>
+            To: 宿泊者が名簿で入力したメール (strict: 物件オーナー Gmail 未連携なら送信スキップ)`)}
+          ${row('<i class="bi bi-discord" style="color:#5865F2"></i>', "Discord (Webアプリ管理者)", `
+            From Bot: Discord Webhook の Bot (名前/アイコンは Discord 側)<br>
+            To: Webhook URL ${discOwner}`)}
+          ${row('<i class="bi bi-discord" style="color:#8da0f8"></i>', "Discord (物件オーナー)", `
+            From Bot: Discord Webhook の Bot (名前/アイコンは Discord 側)<br>
+            To: Webhook URL ${discSub}`)}
         `;
       }
-    } catch (_) {}
+    } catch (e) {
+      console.warn("送信元情報取得エラー:", e.message);
+    }
 
     // 宿泊者宛サンクスメール テンプレート (settings/guestForm.emailTemplates.guestConfirmation)
     try {
