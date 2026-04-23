@@ -54,4 +54,46 @@ router.get("/guest-form-config/:propertyId", async (req, res) => {
   }
 });
 
+// GET /public/guest-allocation/:token
+// 宿泊者ガイドページから読み出す、その宿泊者専用の駐車場割当など最小情報のみ返す
+// (editToken で認証。個人情報は一切返さない)
+router.get("/guest-allocation/:token", async (req, res) => {
+  try {
+    const token = req.params.token;
+    if (!token || token.length < 32) return res.status(400).json({ error: "token 必須" });
+
+    const snap = await admin.firestore().collection("guestRegistrations")
+      .where("editToken", "==", token).limit(1).get();
+    if (snap.empty) return res.status(404).json({ error: "該当データなし (token 期限切れ or 無効)" });
+
+    const d = snap.docs[0].data();
+
+    // 有効期限チェック
+    const exp = d.editTokenExpiresAt;
+    if (exp) {
+      const expMs = exp.toMillis ? exp.toMillis() : (exp._seconds ? exp._seconds * 1000 : 0);
+      if (expMs && expMs < Date.now()) return res.status(410).json({ error: "token 期限切れ" });
+    }
+
+    // 公開可能フィールドのみ (個人情報は一切含めない)
+    res.json({
+      propertyId: d.propertyId || null,
+      propertyName: d.propertyName || null,
+      checkIn: d.checkIn || null,
+      checkOut: d.checkOut || null,
+      guestCount: d.guestCount || null,
+      transport: d.transport || null,
+      carCount: d.carCount || null,
+      vehicleTypes: d.vehicleTypes || [],
+      parkingAllocation: d.parkingAllocation || null,
+      paidParking: d.paidParking || null,
+      bbq: d.bbq || null,
+      bedChoice: d.bedChoice || null,
+    });
+  } catch (e) {
+    console.error("[public/guest-allocation] エラー:", e);
+    res.status(500).json({ error: "取得失敗" });
+  }
+});
+
 module.exports = router;
