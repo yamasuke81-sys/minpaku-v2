@@ -1042,9 +1042,10 @@
             <!-- 物件セレクタ (上部) -->
             <div class="mb-3">
               <label class="form-label mb-1 fw-semibold"><i class="bi bi-buildings"></i> 物件を選択</label>
-              <select class="form-select" id="formTargetSelector">
-                <!-- 物件オプションはJSで動的描画 (頭に番号) -->
-              </select>
+              <!-- カード状の一覧。JS で描画。選択中はアクセント枠+チェック。 -->
+              <div id="formTargetSelectorList" class="d-flex flex-column gap-1"></div>
+              <!-- 旧 <select> 互換の隠しフィールド (既存コードが value を読むため残置) -->
+              <select id="formTargetSelector" class="d-none"></select>
             </div>
 
             <!-- 選択物件の URL + インポートボタン -->

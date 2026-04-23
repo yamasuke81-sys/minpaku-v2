@@ -857,32 +857,62 @@ const GuestsPage = {
   },
 
   // 編集対象セレクタのオプションを物件一覧から再構築する（全物件共通は廃止）
+  // - native select は隠しフィールドとして残し (既存コード互換)、UI はカード状リストで描画
   _refreshFormTargetSelector() {
     const sel = document.getElementById("formTargetSelector");
+    const list = document.getElementById("formTargetSelectorList");
     if (!sel) return;
     const props = this._propertiesCache || [];
 
     // 現在の選択値を保持（初回は最初の物件を選択）
     const currentVal = this._currentFormTarget || (props[0]?.id || "");
 
-    // オプションを再構築（物件のみ）
+    // 隠し select のオプションを再構築（value 参照用）
     sel.innerHTML = "";
     props.forEach(p => {
       const opt = document.createElement("option");
       opt.value = p.id;
-      const badge = this._colorToEmoji(p.color);
-      const num = p.propertyNumber ? `#${p.propertyNumber}` : "";
-      opt.textContent = `${badge} ${num} ${p.name || p.id}`.replace(/\s+/g, " ").trim();
+      opt.textContent = (p.propertyNumber ? `#${p.propertyNumber} ` : "") + (p.name || p.id);
       sel.appendChild(opt);
     });
-
-    // 選択値を復元
     sel.value = currentVal;
     if (!sel.value && props.length > 0) sel.value = props[0].id;
-
-    // _currentFormTarget を実際の選択値に同期
     if (sel.value && sel.value !== this._currentFormTarget) {
       this._currentFormTarget = sel.value;
+    }
+
+    // カード一覧を描画
+    if (list) {
+      if (props.length === 0) {
+        list.innerHTML = '<div class="text-muted small">アクティブな民泊物件がありません</div>';
+      } else {
+        const esc = (s) => this.escapeHtml(String(s || ""));
+        list.innerHTML = props.map(p => {
+          const isSelected = p.id === sel.value;
+          const color = p.color || "#6c757d";
+          const num = p.propertyNumber || "?";
+          return `
+            <button type="button" class="form-target-row btn btn-sm text-start d-flex align-items-center gap-2 ${isSelected ? "border-primary" : "border-secondary-subtle"}"
+              data-pid="${esc(p.id)}"
+              style="border:1px solid; background:${isSelected ? "#e7f1ff" : "#fff"}; padding:8px 12px;">
+              <span class="badge d-inline-flex align-items-center justify-content-center" style="background:${esc(color)}; color:#fff; width:28px; height:28px; border-radius:6px; font-weight:bold;">${esc(num)}</span>
+              <span class="flex-grow-1" style="font-weight:${isSelected ? "600" : "400"};">${esc(p.name || p.id)}</span>
+              ${isSelected ? '<i class="bi bi-check-circle-fill text-primary"></i>' : ""}
+            </button>
+          `;
+        }).join("");
+        // クリックハンドラ (既存 select の change イベントに移譲)
+        list.querySelectorAll(".form-target-row").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const pid = btn.dataset.pid;
+            if (!pid || pid === sel.value) return;
+            sel.value = pid;
+            sel.dispatchEvent(new Event("change", { bubbles: true }));
+            // 再描画 (ハイライト更新)
+            this._refreshFormTargetSelector();
+          });
+        });
+      }
     }
   },
 
