@@ -48,41 +48,77 @@ module.exports = async function onGuestFormSubmit(event) {
   const confirmUrl = `${APP_URL}/#/guests`;
 
   const templates = await getTemplates(db);
-  const guideUrl = `${APP_URL}/guest-guide.html`;
+
+  // 物件情報取得 (宿名/住所/ガイドURL/担当者メール)
+  let propertyName = "";
+  let propertyAddress = "";
+  let guideUrl = `${APP_URL}/guest-guide.html`;
+  if (data.propertyId) {
+    try {
+      const pDoc = await db.collection("properties").doc(data.propertyId).get();
+      if (pDoc.exists) {
+        const p = pDoc.data();
+        propertyName = p.name || "";
+        propertyAddress = p.address || "";
+        if (p.guideUrl) guideUrl = p.guideUrl;
+      }
+    } catch (e) { console.error("物件情報取得エラー:", e.message); }
+  }
+  if (!propertyName) propertyName = data.propertyName || "";
+
+  // 送信者アドレス: 物件担当者 (サブオーナー最優先、なければ settings/notifications.ownerEmail)
+  // onGuestFormSubmit は先に notifyEmails/subOwners を解決してから使うため、ここでは後続で決定する
   const vars = {
     guestName, checkIn, checkOut, guestCount,
     checkInTime: data.checkInTime || "",
     checkOutTime: data.checkOutTime || "",
     nationality: data.nationality || "日本",
+    propertyName,
+    propertyAddress,
     summary, editUrl, confirmUrl, guideUrl,
   };
 
   // 2a. オーナー + サブオーナーへのメール
-  try {
-    const ownerSubject = renderTemplate(templates.ownerNotification.subject, vars);
-    const ownerBody = renderTemplate(templates.ownerNotification.body, vars);
+  // 通知先 + 送信者 (sender) 解決
+  const notifDoc = await db.collection("settings").doc("notifications").get();
+  const notifyEmails = notifDoc.exists ? (notifDoc.data().notifyEmails || []) : [];
+  const ownerEmail = notifDoc.exists ? (notifDoc.data().ownerEmail || notifyEmails[0] || "") : (notifyEmails[0] || "");
 
-    const notifDoc = await db.collection("settings").doc("notifications").get();
-    const notifyEmails = notifDoc.exists ? (notifDoc.data().notifyEmails || []) : [];
-
-    // サブオーナー: staff コレクションから isSubOwner=true && ownedPropertyIds に pid 含むもの
-    const pid = data.propertyId || "";
-    const subOwners = [];
-    const subOwnersNoEmail = [];
-    if (pid) {
-      try {
-        const staffSnap = await db.collection("staff").where("isSubOwner", "==", true).get();
-        staffSnap.forEach((sDoc) => {
-          const s = sDoc.data();
-          const owned = Array.isArray(s.ownedPropertyIds) ? s.ownedPropertyIds : [];
-          if (!owned.includes(pid)) return;
-          if (s.email) subOwners.push({ name: s.name || "(無名)", email: s.email });
-          else         subOwnersNoEmail.push(s.name || "(無名)");
-        });
-      } catch (e) {
-        console.error("サブオーナー検索エラー:", e.message);
-      }
+  // サブオーナー: staff コレクションから isSubOwner=true && ownedPropertyIds に pid 含むもの
+  const pid = data.propertyId || "";
+  const subOwners = [];
+  const subOwnersNoEmail = [];
+  if (pid) {
+    try {
+      const staffSnap = await db.collection("staff").where("isSubOwner", "==", true).get();
+      staffSnap.forEach((sDoc) => {
+        const s = sDoc.data();
+        const owned = Array.isArray(s.ownedPropertyIds) ? s.ownedPropertyIds : [];
+        if (!owned.includes(pid)) return;
+        if (s.email) subOwners.push({ name: s.name || "(無名)", email: s.email });
+        else         subOwnersNoEmail.push(s.name || "(無名)");
+      });
+    } catch (e) {
+      console.error("サブオーナー検索エラー:", e.message);
     }
+  }
+
+  // 物件担当者 (送信者) — サブオーナー最優先、なければオーナー
+  const senderEmail = (subOwners[0] && subOwners[0].email) || ownerEmail || "";
+  vars.senderEmail = senderEmail;
+  vars.senderName = (subOwners[0] && subOwners[0].name) || propertyName || "宿担当者";
+
+  // 宿泊者宛メール件名を物件名入りで生成 (テンプレート変数 {propertyName} 経由)
+  const guestSubjectOverride = propertyName
+    ? `【${propertyName}】宿泊者名簿をお預かりしました／${guestName} 様`
+    : null;
+  const ownerSubjectOverride = propertyName
+    ? `【${propertyName}】宿泊者名簿が届きました（${guestName} / ${checkIn}〜${checkOut}）`
+    : null;
+
+  try {
+    const ownerSubject = ownerSubjectOverride || renderTemplate(templates.ownerNotification.subject, vars);
+    const ownerBody = renderTemplate(templates.ownerNotification.body, vars);
 
     // オーナー本文: サブオーナーでメール未設定者がいれば末尾に注記
     let ownerBodyExtra = ownerBody;
@@ -93,15 +129,15 @@ module.exports = async function onGuestFormSubmit(event) {
 
     for (const email of notifyEmails) {
       try {
-        await sendNotificationEmail_(email, ownerSubject, ownerBodyExtra);
-        console.log(`オーナーメール送信成功: ${email}`);
+        await sendNotificationEmail_(email, ownerSubject, ownerBodyExtra, senderEmail);
+        console.log(`オーナーメール送信成功: ${email} (from=${senderEmail || "default"})`);
       } catch (e) {
         console.error(`オーナーメール送信失敗 (${email}):`, e.message);
       }
     }
     for (const so of subOwners) {
       try {
-        await sendNotificationEmail_(so.email, ownerSubject, ownerBody);
+        await sendNotificationEmail_(so.email, ownerSubject, ownerBody, senderEmail);
         console.log(`サブオーナーメール送信成功: ${so.email}`);
       } catch (e) {
         console.error(`サブオーナーメール送信失敗 (${so.email}):`, e.message);
@@ -111,13 +147,13 @@ module.exports = async function onGuestFormSubmit(event) {
     console.error("オーナーメール処理エラー:", e.message);
   }
 
-  // 2b. 宿泊者へのメール
+  // 2b. 宿泊者へのメール (from = 物件担当者)
   if (guestEmail) {
     try {
-      const guestSubject = renderTemplate(templates.guestConfirmation.subject, vars);
+      const guestSubject = guestSubjectOverride || renderTemplate(templates.guestConfirmation.subject, vars);
       const guestBody = renderTemplate(templates.guestConfirmation.body, vars);
-      await sendNotificationEmail_(guestEmail, guestSubject, guestBody);
-      console.log(`宿泊者メール送信成功: ${guestEmail}`);
+      await sendNotificationEmail_(guestEmail, guestSubject, guestBody, senderEmail);
+      console.log(`宿泊者メール送信成功: ${guestEmail} (from=${senderEmail || "default"})`);
     } catch (e) {
       console.error(`宿泊者メール送信失敗 (${guestEmail}):`, e.message);
     }

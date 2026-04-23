@@ -763,10 +763,14 @@ function sendDiscord_(webhookUrl, content) {
 
 /**
  * Gmail APIでメール通知送信（OAuth2リフレッシュトークン方式）
+ * @param {string} to 宛先
+ * @param {string} subject 件名
+ * @param {string} body 本文
+ * @param {string} [fromEmail] 送信者として使いたい Gmail アドレス (OAuth 連携済みならそのトークンで送信、未連携なら先頭アカウントにフォールバック)
  */
-async function sendNotificationEmail_(to, subject, body) {
+async function sendNotificationEmail_(to, subject, body, fromEmail) {
   if (IS_EMULATOR) {
-    console.log("[EMULATOR] would send email:", { to, subject, body });
+    console.log("[EMULATOR] would send email:", { to, subject, body, fromEmail });
     return { ok: true, stub: true };
   }
   const { google } = require("googleapis");
@@ -779,10 +783,23 @@ async function sendNotificationEmail_(to, subject, body) {
   const { clientId, clientSecret } = oauthDoc.data();
   if (!clientId || !clientSecret) throw new Error("OAuth2クライアントID/シークレット未設定");
 
-  // 最初の認証済みアカウントのトークンを使用
-  const tokensSnap = await db.collection("settings").doc("gmailOAuth").collection("tokens").limit(1).get();
-  if (tokensSnap.empty) throw new Error("Gmail認証済みアカウントなし（設定画面でGmail連携してください）");
-  const tokenData = tokensSnap.docs[0].data();
+  // fromEmail 指定があれば対応トークンを優先探索、なければ先頭トークン
+  let tokenData = null;
+  if (fromEmail) {
+    try {
+      const byEmail = await db.collection("settings").doc("gmailOAuth").collection("tokens")
+        .where("email", "==", fromEmail).limit(1).get();
+      if (!byEmail.empty) tokenData = byEmail.docs[0].data();
+    } catch (_) {}
+  }
+  if (!tokenData) {
+    const tokensSnap = await db.collection("settings").doc("gmailOAuth").collection("tokens").limit(1).get();
+    if (tokensSnap.empty) throw new Error("Gmail認証済みアカウントなし（設定画面でGmail連携してください）");
+    tokenData = tokensSnap.docs[0].data();
+    if (fromEmail && tokenData.email !== fromEmail) {
+      console.log(`[sendNotificationEmail_] fromEmail=${fromEmail} の Gmail 連携が未登録のため ${tokenData.email} で送信`);
+    }
+  }
   if (!tokenData.refreshToken) throw new Error("リフレッシュトークンなし");
 
   const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
