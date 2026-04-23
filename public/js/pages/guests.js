@@ -1085,6 +1085,46 @@ const GuestsPage = {
 
   // ===== 宿泊者名簿フォーム管理（Googleフォーム風カードエディタ） =====
 
+  // ===== 固定項目（guest-form.html にハードコードされており、この画面からは編集不可）=====
+  // 読み取り専用で「固定項目」セクションに表示するためのマスタ
+  // guest-form.html L87-356 の実画面と同期
+  FIXED_FORM_FIELDS: [
+    // === 宿泊情報 ===
+    { id: "checkIn",           label: "チェックイン日",         labelEn: "Check-in Date",             type: "date",   required: true,  section: "stay" },
+    { id: "checkInTime",       label: "チェックイン時刻",       labelEn: "Check-in Time",             type: "select", required: true,  section: "stay" },
+    { id: "checkOut",          label: "チェックアウト日",       labelEn: "Check-out Date",            type: "date",   required: true,  section: "stay" },
+    { id: "checkOutTime",      label: "チェックアウト時刻",     labelEn: "Check-out Time",            type: "select", required: true,  section: "stay" },
+    { id: "guestCount",        label: "宿泊人数（大人）",       labelEn: "Adults",                    type: "number", required: true,  section: "stay" },
+    { id: "guestCountInfants", label: "3才以下の乳幼児",        labelEn: "Infants (under 3)",         type: "number", required: false, section: "stay" },
+    { id: "bookingSite",       label: "予約サイト",             labelEn: "Booking Site",              type: "select", required: true,  section: "stay" },
+    // === 宿泊者情報（人数分繰り返し、先頭が代表者）===
+    { id: "g-name",            label: "氏名（フルネーム）",     labelEn: "Full Name",                 type: "text",   required: true,  section: "guests" },
+    { id: "g-nationality",     label: "国籍",                   labelEn: "Nationality",               type: "text",   required: true,  section: "guests" },
+    { id: "g-address",         label: "住所",                   labelEn: "Address",                   type: "text",   required: true,  section: "guests" },
+    { id: "g-age",             label: "年齢",                   labelEn: "Age",                       type: "number", required: true,  section: "guests" },
+    { id: "g-phone",           label: "電話番号（代表者のみ）", labelEn: "Phone (primary only)",      type: "tel",    required: true,  section: "guests" },
+    { id: "g-email",           label: "メールアドレス（代表者のみ）", labelEn: "Email (primary only)", type: "email",  required: false, section: "guests" },
+    { id: "g-passport",        label: "旅券番号（外国籍のみ）", labelEn: "Passport No. (non-JP)",     type: "text",   required: false, section: "guests" },
+    { id: "g-passport-photo",  label: "パスポート写真（外国籍のみ）", labelEn: "Passport Photo (non-JP)", type: "image", required: false, section: "guests" },
+    // === 施設利用情報 ===
+    { id: "transport",         label: "交通手段",               labelEn: "Transportation",            type: "select", required: true,  section: "facility" },
+    { id: "taxiAgree",         label: "タクシー注意事項への同意（タクシー選択時）", labelEn: "Taxi warning agreement", type: "checkbox-single", required: false, section: "facility" },
+    { id: "carCount",          label: "車の台数（車選択時）",   labelEn: "Number of cars",            type: "select", required: false, section: "facility" },
+    { id: "vehicleTypes",      label: "車種（台数分繰り返し）", labelEn: "Vehicle types",             type: "select", required: false, section: "facility" },
+    { id: "neighborAgree",     label: "近隣駐車場注意事項への同意", labelEn: "Parking notes agreement", type: "checkbox-single", required: false, section: "facility" },
+    { id: "paidParking",       label: "有料駐車場の利用（必要時のみ表示）", labelEn: "Paid parking", type: "select", required: false, section: "facility" },
+    { id: "bbq",               label: "BBQ利用",                labelEn: "BBQ use",                   type: "select", required: true,  section: "facility" },
+    { id: "bbqRules",          label: "BBQルール同意（5項目、BBQ利用時）", labelEn: "BBQ rules agreement (5 items)", type: "checkbox-single", required: false, section: "facility" },
+    { id: "bedChoice",         label: "ベッドの希望（宿泊2名時のみ）", labelEn: "Bed preference (2 guests only)", type: "select", required: false, section: "facility" },
+    // === アンケート ===
+    { id: "purpose",           label: "旅の目的",               labelEn: "Purpose of visit",          type: "select", required: false, section: "survey" },
+    { id: "previousStay",      label: "前泊地",                 labelEn: "Previous stay",             type: "text",   required: false, section: "survey" },
+    { id: "nextStay",          label: "後泊地",                 labelEn: "Next stay",                 type: "text",   required: false, section: "survey" },
+    // === 緊急連絡先 ===
+    { id: "emergencyName",     label: "緊急連絡先 氏名",        labelEn: "Emergency Contact Name",    type: "text",   required: true,  section: "emergency" },
+    { id: "emergencyPhone",    label: "緊急連絡先 電話番号",    labelEn: "Emergency Contact Phone",   type: "tel",    required: true,  section: "emergency" },
+  ],
+
   // デフォルトフォーム定義（guest-form.html の実画面と同期済み、2026-04-19更新）
   // 代表者情報は「同行者リスト先頭 (guest-block)」として入力: g-name/g-nationality/g-address/g-age/g-passport/g-passport-photo
   DEFAULT_FORM_FIELDS: [
@@ -1436,15 +1476,54 @@ const GuestsPage = {
     this.bindCardEvents(container);
   },
 
+  // 固定項目カード（読み取り専用）
+  _renderFixedFieldCard(f, num) {
+    const typeBadge = this.TYPE_LABELS[f.type] || f.type;
+    return `
+      <div class="ff-card" style="opacity:0.85; background:#f8f9fa; border-style:dashed;">
+        <div class="ff-card-header" style="cursor:default;">
+          <span style="padding:2px 4px;"><i class="bi bi-lock-fill" style="color:#ffc107;"></i></span>
+          <span class="ff-card-num">${num}</span>
+          <div class="ff-card-title">
+            <div class="ff-card-label">${this.esc(f.label)}</div>
+            ${f.labelEn ? `<div class="ff-card-label-en">${this.esc(f.labelEn)}</div>` : ""}
+          </div>
+          <span class="badge bg-secondary ff-badge-type">${typeBadge}</span>
+          ${f.required ? '<span class="badge bg-danger ff-badge-req">必須</span>' : ""}
+          <span class="badge bg-warning text-dark" title="HTMLに固定実装されており、この画面からは変更できません" style="font-size:0.7em;"><i class="bi bi-lock-fill me-1"></i>固定</span>
+        </div>
+      </div>`;
+  },
+
   renderFormFields() {
     const container = document.getElementById("formFieldList");
     if (!container) return;
+
+    let html = '';
+
+    // === 固定項目（HTML ハードコード・編集不可）===
+    html += `<div class="ff-section-sep" style="color:#856404; border-bottom-color:#ffc107;"><i class="bi bi-lock-fill"></i> 固定項目（guest-form.html に実装済み・編集不可）</div>`;
+    html += `<div class="text-muted small mb-2" style="padding:0 4px;">以下はフォームHTMLに固定実装されており、この画面では並び替え・編集・削除できません。下の「カスタム追加項目」と重複するとフォーム上で二重に表示されるのでご注意ください。</div>`;
+    let lastFixedSec = '';
+    let fixedNum = 0;
+    this.FIXED_FORM_FIELDS.forEach((f) => {
+      fixedNum++;
+      if (f.section !== lastFixedSec) {
+        lastFixedSec = f.section;
+        html += `<div class="ff-section-sep" style="opacity:0.75; font-size:0.75rem;"><i class="bi bi-folder2"></i> ${this.esc(this.getSectionLabel(f.section))}</div>`;
+      }
+      html += this._renderFixedFieldCard(f, fixedNum);
+    });
+
+    // === カスタム追加項目（編集可能）===
+    html += `<div class="ff-section-sep mt-3" style="color:#0d6efd;"><i class="bi bi-plus-circle"></i> カスタム追加項目（編集可能）</div>`;
+
     if (!this.formFields.length) {
-      container.innerHTML = '<div class="text-center text-muted py-3">項目がありません。「デフォルト読み込み」または「項目追加」で開始してください。</div>';
+      html += '<div class="text-center text-muted py-3 small">カスタム項目はまだありません。「項目追加」で追加できます。</div>';
+      container.innerHTML = html;
       return;
     }
 
-    let html = '';
     let lastSection = '';
 
     this.formFields.forEach((f, i) => {
