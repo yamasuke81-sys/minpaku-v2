@@ -2109,6 +2109,10 @@
       // === 固定セクション設定 (facility 非表示 / 駐車場モード) ===
       applyFixedSectionConfig(_propertyConfig && _propertyConfig.formSectionConfig);
 
+      // 物件別 noiseRuleConfig を反映させるため applyLang を再実行
+      // (最初の applyLang は _propertyConfig 取得前に走るため、上書き文言が適用されていない)
+      try { applyLang(); } catch (e) { console.warn("applyLang re-run failed:", e); }
+
       // === 騒音ルール同意フロー制御 ===
       const noiseSection = document.getElementById("noiseRuleSection");
       const formBody = document.getElementById("formBody");
