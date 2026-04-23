@@ -38,7 +38,7 @@ const MyChecklistPage = {
           <a href="#/my-checklist" class="btn btn-sm btn-outline-secondary me-2" title="一覧に戻る">
             <i class="bi bi-arrow-left"></i>
           </a>
-          <h6 class="mb-0 flex-grow-1" id="mclHeader" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">チェックリスト</h6>
+          <h6 class="mb-0 flex-grow-1" id="mclHeader" style="display:flex;align-items:center;min-width:0;font-size:14px;">チェックリスト</h6>
           <span id="mclStatus" class="badge bg-secondary small"></span>
         </div>
       </div>
@@ -51,6 +51,18 @@ const MyChecklistPage = {
     window.addEventListener("resize", this._headerResizeHandler, { passive: true });
 
     await this.attach();
+  },
+
+  // ヘッダー HTML: 「日付 [#番号] 物件名」 (日付フル表示優先、物件名は番号付きで見切れ可)
+  _buildHeaderHtml(c) {
+    const dateStr = this.fmtDate(c.checkoutDate);
+    const propName = c.propertyName || "";
+    const meta = this._propertyMeta || {};
+    const numBadge = meta.number
+      ? `<span class="badge" style="background:${meta.color || "#6c757d"};color:#fff;min-width:22px;font-size:11px;">#${this.escapeHtml(String(meta.number))}</span>`
+      : "";
+    return `<span style="white-space:nowrap;flex-shrink:0;margin-right:8px;">${this.escapeHtml(dateStr)}</span>`
+      + `<span style="display:inline-flex;align-items:center;gap:4px;overflow:hidden;text-overflow:ellipsis;min-width:0;">${numBadge}<span style="overflow:hidden;text-overflow:ellipsis;">${this.escapeHtml(propName)}</span></span>`;
   },
 
   _applyHeaderLayout() {
@@ -73,7 +85,8 @@ const MyChecklistPage = {
       const areaTabsH = (areaTabsWrap && areaTabsWrap.style.display !== "none")
         ? areaTabsWrap.getBoundingClientRect().height : 0;
       const spacer = document.querySelector(".mcl-page-header-spacer");
-      if (spacer) spacer.style.height = (topbarH + headerH + topTabsH + areaTabsH) + "px";
+      // タブ周辺の padding 込みで実測値が膨らむため -8px 補正
+      if (spacer) spacer.style.height = Math.max(0, topbarH + headerH + topTabsH + areaTabsH - 8) + "px";
     });
   },
 
@@ -455,6 +468,9 @@ const MyChecklistPage = {
       if (pid) {
         const p = await db.collection("properties").doc(pid).get();
         this._propertyCleaningFlow = (p.exists && p.data().cleaningFlow) || {};
+        this._propertyMeta = p.exists
+          ? { number: p.data().propertyNumber || "", color: p.data().color || "#6c757d" }
+          : { number: "", color: "#6c757d" };
       }
       const d = await db.collection("settings").doc("laundryDepots").get();
       this._depotMasterCache = (d.exists && Array.isArray(d.data().items)) ? d.data().items : [];
@@ -557,8 +573,7 @@ const MyChecklistPage = {
     const _prevNav = _prevBody?.querySelector(".mcl-area-tabs-wrap .nav-pills");
     const _prevTabScroll = _prevNav?.scrollLeft || 0;
 
-    document.getElementById("mclHeader").textContent =
-      `${c.propertyName || ""}  ${this.fmtDate(c.checkoutDate)}`;
+    document.getElementById("mclHeader").innerHTML = this._buildHeaderHtml(c);
     const totalItems = this.countItems(areas);
     const doneItems = this.countDone(areas, c.itemStates || {});
     const statusEl = document.getElementById("mclStatus");
@@ -614,10 +629,7 @@ const MyChecklistPage = {
       if (t.id === "restock" && restockCount > 0) {
         badge = `<span class="badge bg-warning text-dark" style="position:absolute;top:4px;right:4px;font-size:10px;">${restockCount}</span>`;
       }
-      if (t.id === "checklist") {
-        const badgeBg = isActive ? "bg-light text-dark" : "bg-secondary";
-        badge = `<span class="badge ${badgeBg}" style="position:absolute;top:4px;right:4px;font-size:10px;">${doneItems}/${totalItems}</span>`;
-      }
+      // checklist タブのカウンターは見出し側にあるので非表示
       return `<button type="button" class="mcl-top-tab" data-top-tab="${t.id}"
         title="${t.label}" style="${isActive ? activeStyle : inactiveStyle}">
         <i class="bi ${t.icon}"></i>${badge}
@@ -856,8 +868,11 @@ const MyChecklistPage = {
         : src.toLowerCase().includes("booking")
           ? '<span class="badge" style="background:#003580;color:#fff">Booking.com</span>'
           : src ? `<span class="badge bg-secondary">${this.escapeHtml(src)}</span>` : "";
+      const meta = this._propertyMeta || {};
       const propBadge = propName
-        ? `<span class="badge bg-light text-dark border">${this.escapeHtml(propName)}</span>`
+        ? (meta.number
+          ? `<span class="badge" style="background:${meta.color || "#6c757d"};color:#fff;">#${this.escapeHtml(String(meta.number))} ${this.escapeHtml(propName)}</span>`
+          : `<span class="badge bg-light text-dark border">${this.escapeHtml(propName)}</span>`)
         : "";
 
       let nextHtml = "";
@@ -1043,7 +1058,7 @@ const MyChecklistPage = {
     const c = this.checklist;
     if (!c) return;
     const headerEl = document.getElementById("mclHeader");
-    if (headerEl) headerEl.textContent = `${c.propertyName || ""}  ${this.fmtDate(c.checkoutDate)}`;
+    if (headerEl) headerEl.innerHTML = this._buildHeaderHtml(c);
     const total = this.countItems(c.templateSnapshot || []);
     const done = this.countDone(c.templateSnapshot || [], c.itemStates || {});
     const statusEl = document.getElementById("mclStatus");
@@ -1139,7 +1154,8 @@ const MyChecklistPage = {
         }
 
         const spacer = document.querySelector(".mcl-page-header-spacer");
-        if (spacer) spacer.style.height = (topbarH + headerH + topH + areaH) + "px";
+        // タブ周辺の padding 込みで実測値が膨らむため -8px 補正
+        if (spacer) spacer.style.height = Math.max(0, topbarH + headerH + topH + areaH - 8) + "px";
       });
     };
 
