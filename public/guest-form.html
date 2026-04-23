@@ -1388,6 +1388,30 @@
         return; // 非表示なら駐車場モードは不要
       }
 
+      // --- 施設利用情報の個別項目非表示 ---
+      const facilityFieldHidden = (cfg.facility && cfg.facility.fieldHidden) || {};
+      const facilitySelectorMap = {
+        transport: '[data-field-id="transport"]',
+        taxiAgree: '#taxiWarn',
+        carCount: '[data-field-id="carCount"]',
+        vehicleTypes: '[data-field-id="vehicleTypes"]',
+        neighborAgree: '#parkingNotes',
+        paidParking: '[data-field-id="paidParking"]',
+        bbq: '[data-field-id="bbq"]',
+        bbqRules: '#bbqRules',
+        bedChoice: '#bedChoiceSection',
+      };
+      Object.keys(facilityFieldHidden).forEach(fid => {
+        if (!facilityFieldHidden[fid]) return;
+        const sel = facilitySelectorMap[fid];
+        if (!sel) return;
+        const el = document.querySelector(sel);
+        if (el) {
+          el.classList.add("d-none");
+          el.querySelectorAll("input,select,textarea").forEach(x => { x.required = false; x.disabled = true; });
+        }
+      });
+
       // --- 駐車場モード切替 ---
       const mode = (cfg.facility && cfg.facility.parkingMode) || "terrace";
       const message = (cfg.facility && cfg.facility.parkingMessage) || "";

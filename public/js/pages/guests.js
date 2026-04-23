@@ -1479,7 +1479,19 @@ const GuestsPage = {
   // 固定項目カード（読み取り専用）
   _renderFixedFieldCard(f, num, secHidden) {
     const typeBadge = this.TYPE_LABELS[f.type] || f.type;
-    const dimStyle = secHidden ? "opacity:0.4;" : "opacity:0.85;";
+    // facility のみ個別非表示トグル可能
+    const canHideIndividually = f.section === "facility";
+    const fieldHiddenMap = (this._formSectionConfig[f.section]?.fieldHidden) || {};
+    const fieldHidden = fieldHiddenMap[f.id] === true;
+    const effectivelyHidden = secHidden || fieldHidden;
+    const dimStyle = effectivelyHidden ? "opacity:0.4;" : "opacity:0.85;";
+
+    const hideBtn = canHideIndividually
+      ? `<button type="button" class="btn btn-sm ${fieldHidden ? "btn-outline-success" : "btn-outline-secondary"} fixed-field-hide-btn" data-sec="${f.section}" data-fid="${this.esc(f.id)}" title="${fieldHidden ? "表示する" : "この項目を非表示にする"}" style="padding:2px 6px;" onclick="event.stopPropagation();">
+          <i class="bi bi-${fieldHidden ? "eye" : "eye-slash"}"></i>
+        </button>`
+      : "";
+
     return `
       <div class="ff-card" style="${dimStyle} background:#f8f9fa; border-style:dashed;">
         <div class="ff-card-header" style="cursor:default;">
@@ -1493,6 +1505,8 @@ const GuestsPage = {
           ${f.required ? '<span class="badge bg-danger ff-badge-req">必須</span>' : ""}
           <span class="badge bg-warning text-dark" title="HTMLに固定実装されており、この画面からは変更できません" style="font-size:0.7em;"><i class="bi bi-lock-fill me-1"></i>固定</span>
           ${secHidden ? '<span class="badge bg-secondary" style="font-size:0.7em;"><i class="bi bi-eye-slash"></i> セクション非表示中</span>' : ""}
+          ${fieldHidden && !secHidden ? '<span class="badge bg-secondary" style="font-size:0.7em;"><i class="bi bi-eye-slash"></i> 非表示</span>' : ""}
+          ${hideBtn}
         </div>
       </div>`;
   },
@@ -1616,6 +1630,23 @@ const GuestsPage = {
   },
 
   _bindFixedSectionEvents(container) {
+    // 個別フィールド非表示トグル (facility の各項目)
+    container.querySelectorAll(".fixed-field-hide-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const sec = btn.dataset.sec;
+        const fid = btn.dataset.fid;
+        if (!sec || !fid) return;
+        if (!this._formSectionConfig[sec]) this._formSectionConfig[sec] = {};
+        if (!this._formSectionConfig[sec].fieldHidden) this._formSectionConfig[sec].fieldHidden = {};
+        const cur = this._formSectionConfig[sec].fieldHidden[fid] === true;
+        if (cur) delete this._formSectionConfig[sec].fieldHidden[fid];
+        else this._formSectionConfig[sec].fieldHidden[fid] = true;
+        this.renderFormFields();
+        showToast("", `${fid} を${!cur ? "非表示" : "表示"}に変更 (保存で確定)`, "info");
+      });
+    });
+
     // セクション非表示トグル
     container.querySelectorAll(".fixed-sec-hide-btn").forEach(btn => {
       btn.addEventListener("click", (e) => {
