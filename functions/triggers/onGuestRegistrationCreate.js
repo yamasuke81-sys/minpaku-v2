@@ -124,12 +124,13 @@ function inferPropertyId(guest, bookings) {
 }
 
 // ==============================
-// メール送信
+// メール送信 (onGuestFormSubmit 側で行うためこの関数は廃止)
 // ==============================
 const DEFAULT_GUIDE_URL = "https://yado-komachi-guide.web.app/";
 const APP_URL = "https://minpaku-v2.web.app";
 
-async function sendRegistrationEmails(db, guestData, guestId) {
+// eslint-disable-next-line no-unused-vars
+async function _sendRegistrationEmails_deprecated(db, guestData, guestId) {
   if (guestData.emailsSentAt) {
     console.log(`[onGuestRegistrationCreate] emailsSentAt 済 guest=${guestId}, skip`);
     return;
@@ -310,15 +311,7 @@ async function handler(event) {
     }
   }
 
-  // メール送信 (propertyId が無くても宿泊者宛サンクスは送る)
-  try {
-    await sendRegistrationEmails(db, guest, guestId);
-    await event.data.ref.update({
-      emailsSentAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-  } catch (e) {
-    console.error(`[onGuestRegistrationCreate] メール送信エラー guest=${guestId}:`, e.message);
-  }
+  // メール送信は onGuestFormSubmit トリガー側で行う (重複送信防止のため当トリガーからは撤去)
 }
 
 module.exports = handler;

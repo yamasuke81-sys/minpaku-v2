@@ -57,20 +57,54 @@ module.exports = async function onGuestFormSubmit(event) {
     summary, editUrl, confirmUrl, guideUrl,
   };
 
-  // 2a. オーナーへのメール
+  // 2a. オーナー + サブオーナーへのメール
   try {
     const ownerSubject = renderTemplate(templates.ownerNotification.subject, vars);
     const ownerBody = renderTemplate(templates.ownerNotification.body, vars);
 
-    // settings/notifications の notifyEmails に送信
     const notifDoc = await db.collection("settings").doc("notifications").get();
     const notifyEmails = notifDoc.exists ? (notifDoc.data().notifyEmails || []) : [];
+
+    // サブオーナー: staff コレクションから isSubOwner=true && ownedPropertyIds に pid 含むもの
+    const pid = data.propertyId || "";
+    const subOwners = [];
+    const subOwnersNoEmail = [];
+    if (pid) {
+      try {
+        const staffSnap = await db.collection("staff").where("isSubOwner", "==", true).get();
+        staffSnap.forEach((sDoc) => {
+          const s = sDoc.data();
+          const owned = Array.isArray(s.ownedPropertyIds) ? s.ownedPropertyIds : [];
+          if (!owned.includes(pid)) return;
+          if (s.email) subOwners.push({ name: s.name || "(無名)", email: s.email });
+          else         subOwnersNoEmail.push(s.name || "(無名)");
+        });
+      } catch (e) {
+        console.error("サブオーナー検索エラー:", e.message);
+      }
+    }
+
+    // オーナー本文: サブオーナーでメール未設定者がいれば末尾に注記
+    let ownerBodyExtra = ownerBody;
+    if (subOwnersNoEmail.length > 0) {
+      ownerBodyExtra += `\n\n※ 以下のサブオーナーはメールアドレス未設定のため通知されていません:\n` +
+        subOwnersNoEmail.map((n) => `  - ${n}`).join("\n");
+    }
+
     for (const email of notifyEmails) {
       try {
-        await sendNotificationEmail_(email, ownerSubject, ownerBody);
+        await sendNotificationEmail_(email, ownerSubject, ownerBodyExtra);
         console.log(`オーナーメール送信成功: ${email}`);
       } catch (e) {
         console.error(`オーナーメール送信失敗 (${email}):`, e.message);
+      }
+    }
+    for (const so of subOwners) {
+      try {
+        await sendNotificationEmail_(so.email, ownerSubject, ownerBody);
+        console.log(`サブオーナーメール送信成功: ${so.email}`);
+      } catch (e) {
+        console.error(`サブオーナーメール送信失敗 (${so.email}):`, e.message);
       }
     }
   } catch (e) {

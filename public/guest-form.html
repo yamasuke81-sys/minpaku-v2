@@ -1331,25 +1331,47 @@
         if (d.emergencyName)  { const el = document.getElementById("f_emergencyName");  if (el) el.value = d.emergencyName; }
         if (d.emergencyPhone) { const el = document.getElementById("f_emergencyPhone"); if (el) el.value = d.emergencyPhone; }
 
-        // 代表者情報（renderGuestInputs 後に設定）
+        // 全宿泊者情報のプリフィル（代表者 + 同行者）
+        // 保存形式:
+        //   - 代表者情報は top-level (guestName/nationality/address/phone/email/passportNumber/passportPhotoUrl)
+        //   - 代表者の年齢 + 同行者全情報は allGuests[] (全員の配列)、または guests[] (同行者のみの配列)
         setTimeout(() => {
-          const firstBlock = document.querySelector(".guest-block");
-          if (firstBlock && d.guestName) {
-            const ne = firstBlock.querySelector(".g-name"); if (ne) ne.value = d.guestName;
+          const blocks = document.querySelectorAll(".guest-block");
+          if (!blocks.length) return;
+
+          // 全員ぶんの配列を構築
+          let all = [];
+          if (Array.isArray(d.allGuests) && d.allGuests.length > 0) {
+            all = d.allGuests;
+          } else {
+            const rep = {
+              name: d.guestName || "",
+              nationality: d.nationality || "",
+              address: d.address || "",
+              age: (d.guests && d.guests[0] && d.guests[0].age) || d.age || "",
+              phone: d.phone || "",
+              email: d.email || "",
+              passportNumber: d.passportNumber || "",
+              passportPhotoUrl: d.passportPhotoUrl || "",
+            };
+            const companions = Array.isArray(d.guests) ? d.guests : [];
+            all = [rep, ...companions];
           }
-          if (firstBlock && d.nationality) {
-            const nat = firstBlock.querySelector(".g-nationality"); if (nat) { nat.value = d.nationality; nat.dispatchEvent(new Event("input")); }
-          }
-          if (firstBlock && d.address) {
-            const addr = firstBlock.querySelector(".g-address"); if (addr) addr.value = d.address;
-          }
-          if (firstBlock && d.phone) {
-            const ph = firstBlock.querySelector(".g-phone"); if (ph) ph.value = d.phone;
-          }
-          if (firstBlock && d.email) {
-            const em = firstBlock.querySelector(".g-email"); if (em) em.value = d.email;
-          }
-        }, 150);
+
+          blocks.forEach((block, i) => {
+            const g = all[i] || {};
+            const setVal = (sel, v) => { const el = block.querySelector(sel); if (el && v != null) { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); } };
+            setVal(".g-name", g.name || "");
+            setVal(".g-nationality", g.nationality || (i === 0 ? (d.nationality || "日本") : "日本"));
+            setVal(".g-address", g.address || (i === 0 ? (d.address || "") : ""));
+            setVal(".g-age", g.age || "");
+            if (i === 0) {
+              setVal(".g-phone", g.phone || d.phone || "");
+              setVal(".g-email", g.email || d.email || "");
+            }
+            if (g.passportNumber) setVal(".g-passport", g.passportNumber);
+          });
+        }, 200);
 
         // 予約情報バナー
         if (d.checkIn || d.checkOut) {
@@ -2021,14 +2043,7 @@
           }
         } else {
           // === 新規登録: Firestore 直書き ===
-          // editToken 生成 (32文字+: メール内の修正リンクに使用)
-          const tokenBytes = new Uint8Array(24);
-          (window.crypto || window.msCrypto).getRandomValues(tokenBytes);
-          const editToken = Array.from(tokenBytes).map(b => b.toString(16).padStart(2, "0")).join("");
-          // 有効期限: 30日後
-          const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-          data.editToken = editToken;
-          data.editTokenExpiresAt = firebase.firestore.Timestamp.fromDate(expiresAt);
+          // (editToken・editTokenExpiresAt は onGuestFormSubmit トリガー側で生成される)
           await db.collection("guestRegistrations").add(data);
         }
         // successView のガイドリンクを物件別 guideUrl に差し替え (未設定なら yado-komachi-guide)
