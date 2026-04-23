@@ -904,7 +904,16 @@
     function updateBedChoiceVisibility() {
       const c = parseInt(document.getElementById("f_guestCount").value) || 1;
       const sec = document.getElementById("bedChoiceSection");
-      if (c === 2) sec.classList.remove("d-none"); else { sec.classList.add("d-none"); document.getElementById("f_bedChoice").value = ""; }
+      if (!sec) return;
+      // 設定で非表示指定がある場合は常に d-none のまま (人数に関わらず表示しない)
+      if (sec.dataset && sec.dataset.forceHidden === "1") {
+        sec.classList.add("d-none");
+        const sel = document.getElementById("f_bedChoice");
+        if (sel) sel.value = "";
+        return;
+      }
+      if (c === 2) sec.classList.remove("d-none");
+      else { sec.classList.add("d-none"); const sel = document.getElementById("f_bedChoice"); if (sel) sel.value = ""; }
     }
 
     // ===== 隣家駐車場チェックボックスのrequired連動 =====
