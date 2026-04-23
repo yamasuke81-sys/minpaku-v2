@@ -1130,8 +1130,97 @@
                     </label>
                   </div>
                   <span id="formNoiseSaveStatus" class="small d-block mt-1"></span>
-                  <div class="form-text text-muted">
+                  <div class="form-text text-muted mb-2">
                     OFF にすると、ゲストは同意チェックなしで直接フォームに進みます (騒音が問題になりにくい物件向け)
+                  </div>
+
+                  <!-- 宿泊規約 (黄色カード) の文言編集 -->
+                  <div class="card mt-2" id="noiseRuleEditorCard">
+                    <div class="card-header bg-warning bg-opacity-25 py-2" style="cursor:pointer;" id="noiseRuleEditorToggle">
+                      <span class="fw-bold"><i class="bi bi-chevron-down me-1" id="noiseRuleEditorChevron"></i> The Terrace Nagahama Style 宿泊規約（文言編集）</span>
+                    </div>
+                    <div class="card-body" id="noiseRuleEditorBody" style="display:none;">
+                      <div class="small text-muted mb-2">
+                        黄色カード（冒頭の騒音ルール同意画面）の各文言を物件ごとにカスタマイズできます。空欄ならデフォルト（The Terrace 長浜スタイル）を使用します。
+                      </div>
+                      <div class="row g-2">
+                        <div class="col-md-6">
+                          <label class="form-label small">見出し（日本語）</label>
+                          <input type="text" class="form-control form-control-sm" id="nrcfg_title" placeholder="⚠ 宴会について — 非常に重要なお願い">
+                        </div>
+                        <div class="col-md-6">
+                          <label class="form-label small">見出し（英語）</label>
+                          <input type="text" class="form-control form-control-sm" id="nrcfg_titleEn" placeholder="⚠ A Note About Quiet Hours — Very Important">
+                        </div>
+
+                        <div class="col-md-6">
+                          <label class="form-label small">導入文（日本語）<small class="text-muted">HTML可</small></label>
+                          <textarea class="form-control form-control-sm" id="nrcfg_intro" rows="2" placeholder="夜遅くまでにぎやかに過ごされたい場合は..."></textarea>
+                        </div>
+                        <div class="col-md-6">
+                          <label class="form-label small">導入文（英語）<small class="text-muted">HTML可</small></label>
+                          <textarea class="form-control form-control-sm" id="nrcfg_introEn" rows="2" placeholder="If you plan to stay up late..."></textarea>
+                        </div>
+
+                        <div class="col-md-6">
+                          <label class="form-label small">静音時間ラベル（日本語）</label>
+                          <input type="text" class="form-control form-control-sm" id="nrcfg_quietHours" placeholder="騒音禁止　21:00 〜 翌8:00">
+                        </div>
+                        <div class="col-md-6">
+                          <label class="form-label small">静音時間ラベル（英語）</label>
+                          <input type="text" class="form-control form-control-sm" id="nrcfg_quietHoursEn" placeholder="Quiet Hours: 21:00 – 8:00">
+                        </div>
+
+                        <div class="col-12">
+                          <label class="form-label small mb-1">ルール箇条書き（各行=1項目、日本語）</label>
+                          <textarea class="form-control form-control-sm" id="nrcfg_rules" rows="5" placeholder="21:00以降、屋外での通話・会話は禁止&#10;1階キッチンは隣家へ音が響きやすい構造です&#10;テレビ・音楽の音量にもご注意ください&#10;宴会・イベント・パーティー　不可"></textarea>
+                        </div>
+                        <div class="col-12">
+                          <label class="form-label small mb-1">ルール箇条書き（各行=1項目、英語）</label>
+                          <textarea class="form-control form-control-sm" id="nrcfg_rulesEn" rows="5" placeholder="No talking or phone calls outdoors after 21:00&#10;The 1F kitchen easily transmits sound to neighbors&#10;..."></textarea>
+                        </div>
+
+                        <div class="col-md-6">
+                          <label class="form-label small">即時退去警告（日本語）</label>
+                          <input type="text" class="form-control form-control-sm" id="nrcfg_eviction" placeholder="⚠ 近隣や警察から苦情が入った場合、時間帯を問わず即時退去（返金なし）">
+                        </div>
+                        <div class="col-md-6">
+                          <label class="form-label small">即時退去警告（英語）</label>
+                          <input type="text" class="form-control form-control-sm" id="nrcfg_evictionEn" placeholder="⚠ If a complaint is filed...">
+                        </div>
+
+                        <div class="col-md-6">
+                          <label class="form-label small">了承ラジオ文言（日本語）</label>
+                          <input type="text" class="form-control form-control-sm" id="nrcfg_agreeLabel" placeholder="上記の騒音ルールを了承しました">
+                        </div>
+                        <div class="col-md-6">
+                          <label class="form-label small">了承ラジオ文言（英語）</label>
+                          <input type="text" class="form-control form-control-sm" id="nrcfg_agreeLabelEn" placeholder="I acknowledge and agree to the above noise rules">
+                        </div>
+
+                        <div class="col-md-6">
+                          <label class="form-label small">キャンセル選択肢（日本語）</label>
+                          <input type="text" class="form-control form-control-sm" id="nrcfg_cancelLabel" placeholder="了承できないのでキャンセルする（予約後24時間以内はキャンセル無料）">
+                        </div>
+                        <div class="col-md-6">
+                          <label class="form-label small">キャンセル選択肢（英語）</label>
+                          <input type="text" class="form-control form-control-sm" id="nrcfg_cancelLabelEn" placeholder="I cannot agree — cancel my booking">
+                        </div>
+
+                        <div class="col-md-6">
+                          <label class="form-label small">キャンセル時メッセージ（日本語）</label>
+                          <input type="text" class="form-control form-control-sm" id="nrcfg_cancelMsg" placeholder="ご理解ありがとうございます。予約サイトからキャンセル手続きをお願いいたします。">
+                        </div>
+                        <div class="col-md-6">
+                          <label class="form-label small">キャンセル時メッセージ（英語）</label>
+                          <input type="text" class="form-control form-control-sm" id="nrcfg_cancelMsgEn" placeholder="Thank you for your understanding...">
+                        </div>
+                      </div>
+                      <div class="mt-3">
+                        <button class="btn btn-sm btn-success" id="btnSaveNoiseRuleConfig"><i class="bi bi-check-lg"></i> 宿泊規約を保存</button>
+                        <span id="noiseRuleSaveStatus" class="small ms-2"></span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 

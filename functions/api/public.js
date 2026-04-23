@@ -44,6 +44,7 @@ router.get("/guest-form-config/:propertyId", async (req, res) => {
       customFormSections: Array.isArray(d.customFormSections) ? d.customFormSections : [],
       formFieldConfig,  // Phase 1 追加: 標準項目のオーバーライド設定
       formSectionConfig: (d.formSectionConfig && typeof d.formSectionConfig === "object") ? d.formSectionConfig : {},
+      noiseRuleConfig: (d.noiseRuleConfig && typeof d.noiseRuleConfig === "object") ? d.noiseRuleConfig : {},
     });
   } catch (e) {
     console.error("[public/guest-form-config] エラー:", e);

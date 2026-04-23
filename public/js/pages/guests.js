@@ -1041,6 +1041,17 @@ const GuestsPage = {
       document.getElementById("btnPreviewForm")?.addEventListener("click", () => this.showFormPreview());
       document.getElementById("btnTranslateAll")?.addEventListener("click", () => this.translateAllWithGemini());
 
+      // 宿泊規約エディタ 開閉トグル
+      document.getElementById("noiseRuleEditorToggle")?.addEventListener("click", () => {
+        const body = document.getElementById("noiseRuleEditorBody");
+        const chev = document.getElementById("noiseRuleEditorChevron");
+        if (!body) return;
+        const open = body.style.display === "none";
+        body.style.display = open ? "" : "none";
+        if (chev) chev.className = open ? "bi bi-chevron-up me-1" : "bi bi-chevron-down me-1";
+      });
+      document.getElementById("btnSaveNoiseRuleConfig")?.addEventListener("click", () => this.saveNoiseRuleConfig());
+
       // 「この物件の独自設定を削除」ボタン
       document.getElementById("btnClearCustomForm")?.addEventListener("click", async () => {
         const pid = this._currentFormTarget;
@@ -1220,6 +1231,10 @@ const GuestsPage = {
 
       // 固定セクション設定 (facility の非表示/駐車場モード)
       this._formSectionConfig = pd.formSectionConfig || {};
+
+      // 宿泊規約 (黄色カード) 文言カスタマイズ
+      this._noiseRuleConfig = pd.noiseRuleConfig || {};
+      this._loadNoiseRuleEditor();
 
       if (pd.customFormEnabled === true && pd.customFormFields?.length > 0) {
         // 独自設定あり → 編集UIを表示
@@ -1585,6 +1600,65 @@ const GuestsPage = {
     return "";
   },
 
+  // 駐車場案内ブロック (交通手段カード直下に挿入するモード切替+文言編集)
+  _renderParkingModeBlock() {
+    const cfg = this._formSectionConfig.facility || {};
+    const mode = cfg.parkingMode || "terrace";
+    const messageDefault = cfg.parkingMessage || "";
+    const info = cfg.parkingInfo || {};
+    return `
+      <div class="p-2 mb-2 border rounded bg-white" style="margin-left:32px;" data-block="parking-mode">
+        <div class="small fw-bold mb-1"><i class="bi bi-car-front"></i> 交通手段「車」選択時の駐車場案内</div>
+        <div class="form-check form-check-inline">
+          <input class="form-check-input fixed-sec-parking-mode" type="radio" name="parkingMode_facility" value="terrace" id="pm_terrace" ${mode === "terrace" ? "checked" : ""}>
+          <label class="form-check-label small" for="pm_terrace">ザ・テラス長浜スタイル（現状の複雑な割当）</label>
+        </div>
+        <div class="form-check form-check-inline">
+          <input class="form-check-input fixed-sec-parking-mode" type="radio" name="parkingMode_facility" value="message" id="pm_message" ${mode === "message" ? "checked" : ""}>
+          <label class="form-check-label small" for="pm_message">メッセージのみ（駐車場なし告知）</label>
+        </div>
+        <div class="form-check form-check-inline">
+          <input class="form-check-input fixed-sec-parking-mode" type="radio" name="parkingMode_facility" value="freetext" id="pm_freetext" ${mode === "freetext" ? "checked" : ""}>
+          <label class="form-check-label small" for="pm_freetext">管理者が案内を記入（タイトル+本文+画像）</label>
+        </div>
+
+        <div class="mt-2 ${mode === "message" ? "" : "d-none"}" data-pm-field="message">
+          <label class="form-label small mb-1">表示メッセージ（日本語）</label>
+          <input type="text" class="form-control form-control-sm fixed-sec-parking-message" value="${this.esc(messageDefault)}" placeholder="例: 専用駐車場はありません。周辺コインパーキングをご利用ください。">
+          <label class="form-label small mb-1 mt-2">表示メッセージ（英語）</label>
+          <input type="text" class="form-control form-control-sm fixed-sec-parking-message-en" value="${this.esc(cfg.parkingMessageEn || "")}" placeholder="e.g. No private parking. Please use nearby coin parking.">
+        </div>
+
+        <div class="mt-2 ${mode === "freetext" ? "" : "d-none"}" data-pm-field="info">
+          <div class="row g-2">
+            <div class="col-12">
+              <label class="form-label small mb-1">タイトル</label>
+              <input type="text" class="form-control form-control-sm fixed-parking-info-title" value="${this.esc(info.title || "")}" placeholder="例: 専用駐車場のご案内">
+            </div>
+            <div class="col-12">
+              <label class="form-label small mb-1">本文</label>
+              <textarea class="form-control form-control-sm fixed-parking-info-body" rows="3" placeholder="例: 専用駐車場が建物裏手にございます。番号○番をご利用ください。">${this.esc(info.body || "")}</textarea>
+            </div>
+            <div class="col-12">
+              <label class="form-label small mb-1">画像（任意）</label>
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                <input type="file" class="form-control form-control-sm fixed-parking-info-image" accept="image/*" style="max-width:280px; font-size:0.75rem;">
+                ${info.imageUrl ? `<img src="${this.esc(info.imageUrl)}" alt="駐車場案内" style="max-height:60px; border:1px solid #dee2e6; border-radius:4px;">
+                <button type="button" class="btn btn-sm btn-outline-danger fixed-parking-info-image-del" title="画像を削除"><i class="bi bi-x"></i></button>` : ""}
+              </div>
+              <div class="progress fixed-parking-info-progress d-none mt-1" style="height:4px;"><div class="progress-bar bg-primary" style="width:0%;"></div></div>
+              <div class="small text-muted mt-1">5MB以下の画像 (JPEG/PNG 推奨)</div>
+            </div>
+            <div class="col-12">
+              <label class="form-label small mb-1">Google マップ URL（任意）</label>
+              <input type="url" class="form-control form-control-sm fixed-parking-info-mapurl" value="${this.esc(info.mapUrl || "")}" placeholder="例: https://maps.google.com/?q=34.213105,132.622144">
+              <div class="small text-muted mt-1">住所・座標 (例: 34.213105,132.622144) や Google マップのシェア URL が使えます。宿泊者画面にマップとピンが表示されます。</div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  },
+
   // 固定セクションの見出し（facility のみ非表示トグル + 駐車場モード切替 UI を含む）
   _renderFixedSectionHeader(secId) {
     const secLabel = this.esc(this.getSectionLabel(secId));
@@ -1593,64 +1667,11 @@ const GuestsPage = {
 
     let controls = "";
     if (secId === "facility") {
-      const mode = cfg.parkingMode || "terrace";
-      const messageDefault = cfg.parkingMessage || "";
-      const info = cfg.parkingInfo || {};
       controls = `
         <div class="ms-auto d-flex align-items-center gap-2">
           <button type="button" class="btn btn-sm ${hidden ? "btn-outline-success" : "btn-outline-secondary"} fixed-sec-hide-btn" data-sec="${secId}" title="${hidden ? "表示する" : "セクションごと非表示にする"}" style="padding:2px 8px;">
             <i class="bi bi-${hidden ? "eye" : "eye-slash"}"></i> ${hidden ? "表示" : "非表示"}
           </button>
-        </div>
-        <div class="w-100 mt-2 p-2 border rounded bg-white" style="font-weight:normal;">
-          <div class="small fw-bold mb-1"><i class="bi bi-car-front"></i> 交通手段「車」選択時の駐車場案内</div>
-          <div class="form-check form-check-inline">
-            <input class="form-check-input fixed-sec-parking-mode" type="radio" name="parkingMode_${secId}" value="terrace" id="pm_terrace" ${mode === "terrace" ? "checked" : ""}>
-            <label class="form-check-label small" for="pm_terrace">ザ・テラス長浜スタイル（現状の複雑な割当）</label>
-          </div>
-          <div class="form-check form-check-inline">
-            <input class="form-check-input fixed-sec-parking-mode" type="radio" name="parkingMode_${secId}" value="message" id="pm_message" ${mode === "message" ? "checked" : ""}>
-            <label class="form-check-label small" for="pm_message">メッセージのみ（駐車場なし告知）</label>
-          </div>
-          <div class="form-check form-check-inline">
-            <input class="form-check-input fixed-sec-parking-mode" type="radio" name="parkingMode_${secId}" value="freetext" id="pm_freetext" ${mode === "freetext" ? "checked" : ""}>
-            <label class="form-check-label small" for="pm_freetext">管理者が案内を記入（タイトル+本文+画像）</label>
-          </div>
-
-          <div class="mt-2 ${mode === "message" ? "" : "d-none"}" data-pm-field="message">
-            <label class="form-label small mb-1">表示メッセージ（日本語）</label>
-            <input type="text" class="form-control form-control-sm fixed-sec-parking-message" value="${this.esc(messageDefault)}" placeholder="例: 専用駐車場はありません。周辺コインパーキングをご利用ください。">
-            <label class="form-label small mb-1 mt-2">表示メッセージ（英語）</label>
-            <input type="text" class="form-control form-control-sm fixed-sec-parking-message-en" value="${this.esc(cfg.parkingMessageEn || "")}" placeholder="e.g. No private parking. Please use nearby coin parking.">
-          </div>
-
-          <div class="mt-2 ${mode === "freetext" ? "" : "d-none"}" data-pm-field="info">
-            <div class="row g-2">
-              <div class="col-12">
-                <label class="form-label small mb-1">タイトル</label>
-                <input type="text" class="form-control form-control-sm fixed-parking-info-title" value="${this.esc(info.title || "")}" placeholder="例: 専用駐車場のご案内">
-              </div>
-              <div class="col-12">
-                <label class="form-label small mb-1">本文</label>
-                <textarea class="form-control form-control-sm fixed-parking-info-body" rows="3" placeholder="例: 専用駐車場が建物裏手にございます。番号○番をご利用ください。">${this.esc(info.body || "")}</textarea>
-              </div>
-              <div class="col-12">
-                <label class="form-label small mb-1">画像（任意）</label>
-                <div class="d-flex align-items-center gap-2 flex-wrap">
-                  <input type="file" class="form-control form-control-sm fixed-parking-info-image" accept="image/*" style="max-width:280px; font-size:0.75rem;">
-                  ${info.imageUrl ? `<img src="${this.esc(info.imageUrl)}" alt="駐車場案内" style="max-height:60px; border:1px solid #dee2e6; border-radius:4px;">
-                  <button type="button" class="btn btn-sm btn-outline-danger fixed-parking-info-image-del" title="画像を削除"><i class="bi bi-x"></i></button>` : ""}
-                </div>
-                <div class="progress fixed-parking-info-progress d-none mt-1" style="height:4px;"><div class="progress-bar bg-primary" style="width:0%;"></div></div>
-                <div class="small text-muted mt-1">5MB以下の画像 (JPEG/PNG 推奨)</div>
-              </div>
-              <div class="col-12">
-                <label class="form-label small mb-1">Google マップ URL（任意）</label>
-                <input type="url" class="form-control form-control-sm fixed-parking-info-mapurl" value="${this.esc(info.mapUrl || "")}" placeholder="例: https://maps.google.com/?q=34.213105,132.622144">
-                <div class="small text-muted mt-1">住所・座標 (例: 34.213105,132.622144) や Google マップのシェア URL が使えます。宿泊者画面にマップとピンが表示されます。</div>
-              </div>
-            </div>
-          </div>
         </div>`;
     } else if (secId === "guests" || secId === "survey" || secId === "emergency") {
       controls = `<span class="ms-auto small text-muted"><i class="bi bi-shield-lock"></i> 完全固定（非表示不可）</span>`;
@@ -1683,6 +1704,10 @@ const GuestsPage = {
       // セクションが非表示ならカードもグレーアウト
       const secHidden = this._formSectionConfig[f.section]?.hidden === true;
       html += this._renderFixedFieldCard(f, fixedNum, secHidden);
+      // 交通手段カードの直下に駐車場案内ブロックを挿入
+      if (f.id === "transport") {
+        html += this._renderParkingModeBlock();
+      }
     });
 
     // === カスタム追加項目（編集可能）===
@@ -2284,6 +2309,48 @@ const GuestsPage = {
     // 最後のカードにスクロール
     const lastCard = document.querySelector("#formFieldList .ff-card:last-child");
     if (lastCard) lastCard.scrollIntoView({ behavior: "smooth", block: "center" });
+  },
+
+  // 宿泊規約エディタにデータをロード
+  _loadNoiseRuleEditor() {
+    const n = this._noiseRuleConfig || {};
+    const keys = ["title","titleEn","intro","introEn","quietHours","quietHoursEn","eviction","evictionEn","agreeLabel","agreeLabelEn","cancelLabel","cancelLabelEn","cancelMsg","cancelMsgEn"];
+    keys.forEach(k => { const el = document.getElementById("nrcfg_" + k); if (el) el.value = n[k] || ""; });
+    const rulesEl = document.getElementById("nrcfg_rules");
+    const rulesEnEl = document.getElementById("nrcfg_rulesEn");
+    if (rulesEl)   rulesEl.value   = Array.isArray(n.rules)   ? n.rules.join("\n")   : (n.rules   || "");
+    if (rulesEnEl) rulesEnEl.value = Array.isArray(n.rulesEn) ? n.rulesEn.join("\n") : (n.rulesEn || "");
+  },
+
+  // 宿泊規約の保存
+  async saveNoiseRuleConfig() {
+    const pid = this._currentFormTarget;
+    if (!pid) { showToast("", "物件が選択されていません", "error"); return; }
+    const statusEl = document.getElementById("noiseRuleSaveStatus");
+    if (statusEl) statusEl.innerHTML = '<span class="text-muted">保存中...</span>';
+    const val = id => document.getElementById(id)?.value?.trim() || "";
+    const cfg = {
+      title: val("nrcfg_title"),            titleEn: val("nrcfg_titleEn"),
+      intro: val("nrcfg_intro"),            introEn: val("nrcfg_introEn"),
+      quietHours: val("nrcfg_quietHours"),  quietHoursEn: val("nrcfg_quietHoursEn"),
+      rules: val("nrcfg_rules").split(/\n+/).map(s => s.trim()).filter(Boolean),
+      rulesEn: val("nrcfg_rulesEn").split(/\n+/).map(s => s.trim()).filter(Boolean),
+      eviction: val("nrcfg_eviction"),      evictionEn: val("nrcfg_evictionEn"),
+      agreeLabel: val("nrcfg_agreeLabel"),  agreeLabelEn: val("nrcfg_agreeLabelEn"),
+      cancelLabel: val("nrcfg_cancelLabel"),cancelLabelEn: val("nrcfg_cancelLabelEn"),
+      cancelMsg: val("nrcfg_cancelMsg"),    cancelMsgEn: val("nrcfg_cancelMsgEn"),
+    };
+    try {
+      await db.collection("properties").doc(pid).update({
+        noiseRuleConfig: cfg,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      this._noiseRuleConfig = cfg;
+      if (statusEl) statusEl.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> 保存しました</span>';
+      showToast("完了", "宿泊規約を保存しました", "success");
+    } catch (e) {
+      if (statusEl) statusEl.innerHTML = `<span class="text-danger">保存失敗: ${e.message}</span>`;
+    }
   },
 
   async saveFormConfig() {

@@ -53,7 +53,8 @@
       <form id="guestForm" novalidate>
 
         <!-- === 0. 騒音ルール同意（黄色カード、物件別 showNoiseAgreement で表示制御） === -->
-        <div class="alert alert-warning mb-3" id="noiseRuleSection">
+        <!-- 初期は d-none: 物件設定の読込完了後に showNoiseAgreement=true なら表示する (フラッシュ防止) -->
+        <div class="alert alert-warning mb-3 d-none" id="noiseRuleSection">
           <h6 class="fw-bold mb-2" id="lbl_noiseTitle"></h6>
           <p class="small mb-2" id="lbl_noiseIntro"></p>
           <div class="small mb-2 ps-2" id="noiseRuleDetail" style="border-left: 3px solid #e65100;">
@@ -732,6 +733,27 @@
       const setHtml = (id, val) => { const el = document.getElementById(id); if (el) el.innerHTML = val; };
       const setAttr = (id, attr, val) => { const el = document.getElementById(id); if (el) el[attr] = val; };
       document.documentElement.lang = currentLang;
+      // 宿泊規約 (黄色カード) の文言上書き (物件別カスタマイズ) を currentLang に合わせて t に被せる
+      try {
+        const nrc = (typeof _propertyConfig !== "undefined" && _propertyConfig && _propertyConfig.noiseRuleConfig) || null;
+        if (nrc) {
+          const en = currentLang === "en";
+          const pick = (jp, ep) => (en ? (nrc[ep] || nrc[jp] || null) : (nrc[jp] || null));
+          const set = (k, v) => { if (v) t[k] = v; };
+          set("noiseTitle",       pick("title", "titleEn"));
+          set("noiseIntro",       pick("intro", "introEn"));
+          set("noiseQuietHours",  pick("quietHours", "quietHoursEn"));
+          set("noiseEviction",    pick("eviction", "evictionEn"));
+          set("noiseAgreeRadio",  pick("agreeLabel", "agreeLabelEn"));
+          set("noiseCancelRadio", pick("cancelLabel", "cancelLabelEn"));
+          set("noiseCancelMsg",   pick("cancelMsg", "cancelMsgEn"));
+          const rules = en ? (Array.isArray(nrc.rulesEn) && nrc.rulesEn.length ? nrc.rulesEn : nrc.rules)
+                           : nrc.rules;
+          if (Array.isArray(rules)) {
+            for (let i = 1; i <= 4; i++) t["noiseRule" + i] = rules[i - 1] || "";
+          }
+        }
+      } catch (_) {}
       setText("formTitle", t.formTitle);
       setText("formSubtitle", t.formSubtitle);
       setText("lbl_bookingInfo", t.bookingInfo);
@@ -2093,6 +2115,7 @@
         }
       } else {
         // 初回アクセス → 黄色カードのみ表示
+        noiseSection.classList.remove("d-none");
         formBody.classList.add("d-none");
         document.getElementById("noiseAgree").addEventListener("change", () => {
           document.getElementById("noiseNextBtn").classList.remove("d-none");
