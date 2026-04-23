@@ -362,7 +362,10 @@ const RecruitmentPage = {
     // A1: チェックアウト日を「YYYY年M月D日(曜)」形式に統一
     document.getElementById("detailCheckoutDate").textContent =
       (typeof formatDateFull === "function") ? formatDateFull(r.checkoutDate) : (r.checkoutDate || "-");
-    document.getElementById("detailProperty").textContent = r.propertyName || "-";
+    // 物件名 (番号バッジ + 物件名)
+    this._renderDetailPropertyName(r);
+    // CO 時間 (booking から非同期取得)
+    this._renderDetailCheckoutTime(r);
     // workType バッジを detailStatus の前に表示
     const workTypeBadgeEl = document.getElementById("detailWorkTypeBadge");
     if (workTypeBadgeEl) workTypeBadgeEl.innerHTML = this.getWorkTypeBadge(r.workType);
@@ -619,6 +622,41 @@ const RecruitmentPage = {
     });
   },
 
+  // 物件名の描画 (番号バッジ + 物件名)
+  _renderDetailPropertyName(recruitment) {
+    const el = document.getElementById("detailProperty");
+    if (!el) return;
+    const propId = recruitment.propertyId;
+    const props = Array.isArray(this.properties) ? this.properties : [];
+    const p = props.find(x => x.id === propId);
+    const name = recruitment.propertyName || (p && p.name) || "-";
+    if (p && (p._num !== undefined && p._color)) {
+      el.innerHTML = `<span class="badge me-2" style="background:${p._color};color:#fff;min-width:24px;">${p._num}</span>${this.escapeHtml(name)}`;
+    } else {
+      el.textContent = name;
+    }
+  },
+
+  // CO 時間 (bookings.checkOut の HH:MM)
+  async _renderDetailCheckoutTime(recruitment) {
+    const el = document.getElementById("detailCheckoutTime");
+    if (!el) return;
+    el.textContent = "--:--";
+    if (!recruitment.bookingId) return;
+    try {
+      const snap = await db.collection("bookings").doc(recruitment.bookingId).get();
+      if (!snap.exists) return;
+      const co = snap.data().checkOut;
+      if (!co) return;
+      const d = co.toDate ? co.toDate() : (co instanceof Date ? co : new Date(co));
+      if (isNaN(d.getTime())) return;
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mm = String(d.getMinutes()).padStart(2, "0");
+      // 00:00 (時刻情報なし) の場合は「終日」表記にフォールバック
+      el.textContent = (hh === "00" && mm === "00") ? "終日" : `${hh}:${mm}`;
+    } catch (_) { /* 権限/ネットワーク失敗時は --:-- のまま */ }
+  },
+
   // A5: モーダル見出しの「チェックリストを開く」ボタンを設定
   // - checklist ドキュメントが存在する場合: 有効化 + クリックで #/my-checklist/{id} へ遷移
   // - 未生成の場合: disabled + title に理由
@@ -857,7 +895,13 @@ const RecruitmentPage = {
     });
 
     // 最新のアクティブスタッフ全員(オーナー含む)
-    const rawStaff = (await API.staff.list(true)).sort((a, b) => (a.displayOrder||0) - (b.displayOrder||0));
+    // 既に取得済みの this.staffList を優先利用 (スタッフ権限で API.staff.list が失敗するのを回避)
+    let baseStaff = Array.isArray(this.staffList) && this.staffList.length ? this.staffList : null;
+    if (!baseStaff) {
+      try { baseStaff = await API.staff.list(true); }
+      catch (_) { baseStaff = []; }
+    }
+    const rawStaff = baseStaff.slice().sort((a, b) => (a.displayOrder||0) - (b.displayOrder||0));
 
     // その物件の担当者のみに絞り込み (オーナーは常に含む、既に回答履歴がある staff は担当外でも残す)
     // サブオーナーの場合は ownedPropertyIds で判定、通常スタッフは assignedPropertyIds

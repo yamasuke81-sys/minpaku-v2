@@ -834,27 +834,19 @@
           <div class="row g-3">
             <!-- 1 カラムレイアウト -->
             <div class="col-12">
-              <!-- 募集概要 -->
-              <div class="row mb-3">
-                <div class="col-md-6">
-                  <strong>チェックアウト日</strong><br>
-                  <span id="detailCheckoutDate">-</span>
-                </div>
-                <div class="col-md-6">
-                  <strong>物件</strong><br>
-                  <span id="detailProperty">-</span>
-                </div>
+              <!-- 物件名 (番号バッジ + 物件名) -->
+              <div class="mb-2 fw-bold" id="detailProperty" style="font-size:16px;">-</div>
+              <!-- CO日 + CO時間 -->
+              <div class="mb-3 small text-muted">
+                <i class="bi bi-calendar-x"></i> <span id="detailCheckoutDate">-</span>
+                <span class="ms-2"><i class="bi bi-clock"></i> CO時間: <span id="detailCheckoutTime">--:--</span></span>
               </div>
-              <div class="row mb-3">
-                <div class="col-md-6">
-                  <strong>ステータス</strong><br>
-                  <span id="detailWorkTypeBadge" class="me-1"></span><span id="detailStatus"></span>
-                </div>
-                <div class="col-md-6">
-                  <strong>選定スタッフ</strong><br>
-                  <span id="detailSelectedStaff" class="text-muted">未選定</span>
-                </div>
+              <!-- ステータス -->
+              <div class="mb-3">
+                <strong>ステータス</strong>
+                <span id="detailWorkTypeBadge" class="ms-2"></span><span id="detailStatus"></span>
               </div>
+              <!-- メモ -->
               <div class="mb-3">
                 <strong>メモ</strong><br>
                 <span id="detailMemo" class="text-muted">-</span>
@@ -862,6 +854,12 @@
 
               <!-- 自分の回答ボタン (A4: 募集中かつ自分が対象スタッフのとき表示) -->
               <div id="detailMyResponseArea" class="mb-3 d-none"></div>
+
+              <!-- 選定スタッフ (回答ボタンの下) -->
+              <div class="mb-3">
+                <strong>選定スタッフ</strong><br>
+                <span id="detailSelectedStaff" class="text-muted">未選定</span>
+              </div>
 
               <hr>
               <!-- スタッフ回答 + 選定 統合テーブル -->
@@ -1277,7 +1275,7 @@
   <script src="js/pages/dashboard.js?v=0421f"></script>
   <script src="js/pages/staff.js?v=0423a"></script>
   <script src="js/pages/properties.js?v=0421n"></script>
-  <script src="js/pages/recruitment.js?v=0423c"></script>
+  <script src="js/pages/recruitment.js?v=0423d"></script>
   <script src="js/shared/form-schema.js?v=0419b"></script>
   <script src="js/pages/guests.js?v=0421f"></script>
   <script src="js/pages/shifts.js?v=0415a"></script>
@@ -1301,7 +1299,7 @@
   <script src="js/pages/settings.js?v=0418b"></script>
   <!-- スタッフ用ページ -->
   <script src="js/pages/my-dashboard.js?v=0417a"></script>
-  <script src="js/pages/my-recruitment.js?v=0423i"></script>
+  <script src="js/pages/my-recruitment.js?v=0423j"></script>
   <script src="js/pages/my-checklist.js?v=0423b"></script>
   <script src="js/pages/my-invoice.js?v=0421d"></script>
   <script src="js/pages/my-invoice-create.js?v=0421n"></script>

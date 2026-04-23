@@ -1276,6 +1276,7 @@ const MyRecruitmentPage = {
       if (typeof RecruitmentPage !== "undefined") {
         if (Array.isArray(this.staffList) && this.staffList.length) RecruitmentPage.staffList = this.staffList;
         if (Array.isArray(this.recruitments) && this.recruitments.length) RecruitmentPage.recruitments = this.recruitments;
+        if (Array.isArray(this.minpakuProperties) && this.minpakuProperties.length) RecruitmentPage.properties = this.minpakuProperties;
       }
 
       // 1件 → 直接モーダル / 2件以上 → 中間モーダル (物件選択)
