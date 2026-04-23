@@ -87,7 +87,8 @@ const MyChecklistPage = {
       const areaTabsH = (areaTabsWrap && areaTabsWrap.style.display !== "none")
         ? areaTabsWrap.getBoundingClientRect().height : 0;
       const spacer = document.querySelector(".mcl-page-header-spacer");
-      if (spacer) spacer.style.height = Math.max(0, topbarH + headerH + topTabsH + areaTabsH) + "px";
+      // spacer は flow 内 (= topbar の後ろから start)、topbarH は二重計上になるので除外
+      if (spacer) spacer.style.height = Math.max(0, headerH + topTabsH + areaTabsH) + "px";
     });
   },
 
@@ -1153,24 +1154,8 @@ const MyChecklistPage = {
         }
 
         const spacer = document.querySelector(".mcl-page-header-spacer");
-        if (spacer) spacer.style.height = Math.max(0, topbarH + headerH + topH + areaH) + "px";
-        // デバッグ: 各要素の実際の位置を計測 (原因特定用)
-        if (!this._debugShown) {
-          this._debugShown = true;
-          const mainEl2 = document.querySelector(".app-main");
-          const pageContainer = document.getElementById("pageContainer");
-          const mclBody = document.getElementById("mclBody");
-          const tabContent = document.getElementById("mclTopTabContent");
-          const mainPadTop = mainEl2 ? parseFloat(getComputedStyle(mainEl2).paddingTop) : 0;
-          const pcPadTop = pageContainer ? parseFloat(getComputedStyle(pageContainer).paddingTop) : 0;
-          const spacerTop = spacer ? spacer.getBoundingClientRect().top : -1;
-          const spacerH = spacer ? spacer.getBoundingClientRect().height : -1;
-          const bodyTop = mclBody ? mclBody.getBoundingClientRect().top : -1;
-          const tcTop = tabContent ? tabContent.getBoundingClientRect().top : -1;
-          showToast("位置計測",
-            `mainPad=${Math.round(mainPadTop)} pcPad=${Math.round(pcPadTop)} spacer=top${Math.round(spacerTop)}/h${Math.round(spacerH)} mclBodyTop=${Math.round(bodyTop)} contentTop=${Math.round(tcTop)} 期待値=${Math.round(topbarH+headerH+topH+areaH)}`,
-            "info");
-        }
+        // spacer は flow 内 (= topbar の後ろから start)、topbarH は二重計上になるので除外
+        if (spacer) spacer.style.height = Math.max(0, headerH + topH + areaH) + "px";
       });
     };
 
