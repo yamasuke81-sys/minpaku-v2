@@ -230,6 +230,44 @@ const NotificationsPage = {
       <div id="notifyGroup_invoice" class="mb-4"></div>
       <h6 class="text-muted mb-2"><i class="bi bi-clipboard-check"></i> 清掃関連</h6>
       <div id="notifyGroup_cleaning" class="mb-4"></div>
+
+      <!-- 宿泊者宛 サンクスメール (名簿入力完了後、宿泊者へ自動送信) -->
+      <h6 class="text-muted mb-2"><i class="bi bi-envelope-heart"></i> 宿泊者宛メール</h6>
+      <div class="card mb-4">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <i class="bi bi-person-heart text-danger"></i>
+            <strong>宿泊者名簿 入力完了 サンクスメール</strong>
+          </div>
+          <div class="text-muted small mb-3">
+            宿泊者が名簿を送信した直後に、宿泊者本人のメールアドレス宛に自動送信されるメール。
+            送信者は該当物件の物件オーナー (staff.isSubOwner=true。未設定時は staff.isOwner=true)。
+            宛先: 宿泊者が名簿で入力したメールアドレス。
+          </div>
+          <div class="row g-2">
+            <div class="col-12">
+              <label class="form-label small mb-1">件名（{propertyName}, {guestName}, {checkIn}, {checkOut} 等の変数使用可）</label>
+              <input type="text" class="form-control form-control-sm" id="guestConfirmationSubject" placeholder="【{propertyName}】宿泊者名簿をお預かりしました／{guestName} 様">
+            </div>
+            <div class="col-12">
+              <label class="form-label small mb-1">本文</label>
+              <textarea class="form-control form-control-sm" id="guestConfirmationBody" rows="12" placeholder="{guestName} 様&#10;&#10;宿泊者名簿のご記入ありがとうございます。&#10;以下の内容で受け付けました。&#10;&#10;{summary}&#10;..."></textarea>
+            </div>
+            <div class="col-12">
+              <div class="small text-muted">
+                利用可能変数:
+                <code>{guestName}</code> <code>{propertyName}</code> <code>{propertyAddress}</code>
+                <code>{checkIn}</code> <code>{checkOut}</code> <code>{checkInTime}</code> <code>{checkOutTime}</code>
+                <code>{guestCount}</code> <code>{summary}</code> <code>{editUrl}</code> <code>{guideUrl}</code>
+              </div>
+            </div>
+          </div>
+          <div class="mt-2">
+            <button class="btn btn-sm btn-success" id="btnSaveGuestConfirmation"><i class="bi bi-check-lg"></i> 宿泊者宛メールを保存</button>
+            <span id="guestConfirmationSaveStatus" class="small ms-2"></span>
+          </div>
+        </div>
+      </div>
     `;
 
     await this.loadSettings();
@@ -264,6 +302,38 @@ const NotificationsPage = {
     const d2 = document.getElementById("discordSubOwnerWebhookUrl");
     if (d1) d1.value = this.settings.discordOwnerWebhookUrl || "";
     if (d2) d2.value = this.settings.discordSubOwnerWebhookUrl || "";
+
+    // 宿泊者宛サンクスメール テンプレート (settings/guestForm.emailTemplates.guestConfirmation)
+    try {
+      const gfDoc = await db.collection("settings").doc("guestForm").get();
+      const tpl = (gfDoc.exists && gfDoc.data().emailTemplates?.guestConfirmation) || {};
+      const subjEl = document.getElementById("guestConfirmationSubject");
+      const bodyEl = document.getElementById("guestConfirmationBody");
+      if (subjEl) subjEl.value = tpl.subject || "";
+      if (bodyEl) bodyEl.value = tpl.body || "";
+    } catch (_) {}
+
+    // 保存ボタン (1度だけバインド)
+    const saveBtn = document.getElementById("btnSaveGuestConfirmation");
+    if (saveBtn && !saveBtn._bound) {
+      saveBtn._bound = true;
+      saveBtn.addEventListener("click", async () => {
+        const subject = document.getElementById("guestConfirmationSubject")?.value?.trim() || "";
+        const body = document.getElementById("guestConfirmationBody")?.value || "";
+        const status = document.getElementById("guestConfirmationSaveStatus");
+        if (status) status.innerHTML = '<span class="text-muted">保存中...</span>';
+        try {
+          await db.collection("settings").doc("guestForm").set({
+            emailTemplates: { guestConfirmation: { subject, body } },
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          }, { merge: true });
+          if (status) status.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> 保存しました</span>';
+          showToast("完了", "宿泊者宛メールを保存しました", "success");
+        } catch (e) {
+          if (status) status.innerHTML = `<span class="text-danger">保存失敗: ${e.message}</span>`;
+        }
+      });
+    }
 
     // ownerLineChannels の読み込みと描画
     this._renderOwnerLineChannels(this.settings.ownerLineChannels || []);
