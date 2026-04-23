@@ -1476,7 +1476,7 @@ const GuestsPage = {
     this.bindCardEvents(container);
   },
 
-  // 固定項目カード（読み取り専用）
+  // 固定項目カード（読み取り専用。taxiAgree と purpose のみ編集可能な展開部を持つ）
   _renderFixedFieldCard(f, num, secHidden) {
     const typeBadge = this.TYPE_LABELS[f.type] || f.type;
     // facility のみ個別非表示トグル可能
@@ -1486,14 +1486,25 @@ const GuestsPage = {
     const effectivelyHidden = secHidden || fieldHidden;
     const dimStyle = effectivelyHidden ? "opacity:0.4;" : "opacity:0.85;";
 
+    // 編集可能な固定項目 (taxiAgree の文言 / purpose の選択肢)
+    const hasEditor = f.id === "taxiAgree" || f.id === "purpose";
+    if (!this._fixedExpandedCards) this._fixedExpandedCards = new Set();
+    const isExpanded = this._fixedExpandedCards.has(f.id);
+
     const hideBtn = canHideIndividually
       ? `<button type="button" class="btn btn-sm ${fieldHidden ? "btn-outline-success" : "btn-outline-secondary"} fixed-field-hide-btn" data-sec="${f.section}" data-fid="${this.esc(f.id)}" title="${fieldHidden ? "表示する" : "この項目を非表示にする"}" style="padding:2px 6px;" onclick="event.stopPropagation();">
           <i class="bi bi-${fieldHidden ? "eye" : "eye-slash"}"></i>
         </button>`
       : "";
 
+    const chevron = hasEditor
+      ? `<i class="bi bi-chevron-${isExpanded ? "up" : "down"} ff-chevron fixed-field-toggle" data-fid="${this.esc(f.id)}" style="cursor:pointer;"></i>`
+      : "";
+
+    const body = (hasEditor && isExpanded) ? this._renderFixedFieldEditor(f) : "";
+
     return `
-      <div class="ff-card" style="${dimStyle} background:#f8f9fa; border-style:dashed;">
+      <div class="ff-card${isExpanded ? " expanded" : ""}" style="${dimStyle} background:#f8f9fa; border-style:dashed;">
         <div class="ff-card-header" style="cursor:default;">
           <span style="padding:2px 4px;"><i class="bi bi-lock-fill" style="color:#ffc107;"></i></span>
           <span class="ff-card-num">${num}</span>
@@ -1503,12 +1514,59 @@ const GuestsPage = {
           </div>
           <span class="badge bg-secondary ff-badge-type">${typeBadge}</span>
           ${f.required ? '<span class="badge bg-danger ff-badge-req">必須</span>' : ""}
-          <span class="badge bg-warning text-dark" title="HTMLに固定実装されており、この画面からは変更できません" style="font-size:0.7em;"><i class="bi bi-lock-fill me-1"></i>固定</span>
+          <span class="badge bg-warning text-dark" title="HTMLに固定実装" style="font-size:0.7em;"><i class="bi bi-lock-fill me-1"></i>固定</span>
+          ${hasEditor ? '<span class="badge bg-primary" style="font-size:0.7em;"><i class="bi bi-pencil"></i> 編集可</span>' : ""}
           ${secHidden ? '<span class="badge bg-secondary" style="font-size:0.7em;"><i class="bi bi-eye-slash"></i> セクション非表示中</span>' : ""}
           ${fieldHidden && !secHidden ? '<span class="badge bg-secondary" style="font-size:0.7em;"><i class="bi bi-eye-slash"></i> 非表示</span>' : ""}
           ${hideBtn}
+          ${chevron}
         </div>
+        ${body}
       </div>`;
+  },
+
+  // 編集可能固定項目のエディタ (taxiAgree / purpose)
+  _renderFixedFieldEditor(f) {
+    if (f.id === "taxiAgree") {
+      const cfg = this._formSectionConfig.facility || {};
+      const msgJp = cfg.taxiWarnMessage || "";
+      const msgEn = cfg.taxiWarnMessageEn || "";
+      return `
+        <div class="ff-card-body">
+          <div class="small text-muted mb-2"><i class="bi bi-info-circle"></i> 交通手段で「タクシー」を選んだ時に出るピンク枠の警告文です。空欄ならデフォルト文言が表示されます。</div>
+          <div class="mb-2">
+            <label class="form-label small">警告文（日本語）</label>
+            <textarea class="form-control form-control-sm fixed-taxi-msg-jp" rows="3" placeholder="例: タクシーでお越しの場合、運転手さんに以下をお伝えください: 「宿の駐車場や転回場への進入は問題ありませんが、近隣住民の家の駐車場には絶対に入らないでください。」">${this.esc(msgJp)}</textarea>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">警告文（英語）</label>
+            <textarea class="form-control form-control-sm fixed-taxi-msg-en" rows="3" placeholder="Please inform your taxi driver...">${this.esc(msgEn)}</textarea>
+          </div>
+        </div>`;
+    }
+    if (f.id === "purpose") {
+      const cfg = this._formSectionConfig.survey || {};
+      const opts = Array.isArray(cfg.purposeOptions) ? cfg.purposeOptions : [];
+      const rows = opts.map((o, i) => `
+        <div class="ff-opt-row" data-oi="${i}">
+          <span class="ff-opt-num">${i + 1}.</span>
+          <input type="text" class="form-control form-control-sm purpose-opt-jp" value="${this.esc(o.label || "")}" placeholder="日本語">
+          <input type="text" class="form-control form-control-sm purpose-opt-en" value="${this.esc(o.labelEn || "")}" placeholder="English">
+          <button class="btn btn-sm btn-outline-danger purpose-opt-del" data-oi="${i}" title="削除"><i class="bi bi-x"></i></button>
+        </div>`).join("");
+      return `
+        <div class="ff-card-body">
+          <div class="small text-muted mb-2"><i class="bi bi-info-circle"></i> 「旅の目的」プルダウンの選択肢。空欄ならデフォルト（広島エリア向け）を表示します。</div>
+          <div class="ff-options-section">
+            <div class="ff-options-list">
+              ${rows || '<div class="text-muted small">選択肢がありません。下のボタンから追加してください。</div>'}
+            </div>
+            <button class="btn btn-sm btn-outline-primary mt-2 purpose-opt-add"><i class="bi bi-plus"></i> 選択肢を追加</button>
+            <button class="btn btn-sm btn-outline-secondary mt-2 purpose-opt-reset"><i class="bi bi-arrow-counterclockwise"></i> 広島デフォルトに戻す</button>
+          </div>
+        </div>`;
+    }
+    return "";
   },
 
   // 固定セクションの見出し（facility のみ非表示トグル + 駐車場モード切替 UI を含む）
@@ -1591,10 +1649,15 @@ const GuestsPage = {
     let lastSection = '';
 
     this.formFields.forEach((f, i) => {
-      // セクション区切り
+      // セクション区切り (一括削除ボタン付き)
       if (f.section !== lastSection) {
         lastSection = f.section;
-        html += `<div class="ff-section-sep"><i class="bi bi-folder2-open"></i> ${this.esc(this.getSectionLabel(f.section))}</div>`;
+        html += `<div class="ff-section-sep" style="display:flex; align-items:center; gap:8px;">
+          <i class="bi bi-folder2-open"></i> ${this.esc(this.getSectionLabel(f.section))}
+          <button type="button" class="btn btn-sm btn-outline-danger ms-auto custom-sec-delete-btn" data-sec="${this.esc(f.section)}" style="padding:2px 8px; font-size:0.75rem; font-weight:normal;" title="このセクションのカスタム項目をすべて削除">
+            <i class="bi bi-trash"></i> セクション一括削除
+          </button>
+        </div>`;
       }
 
       const isExpanded = this.expandedCards.has(i);
@@ -1630,6 +1693,93 @@ const GuestsPage = {
   },
 
   _bindFixedSectionEvents(container) {
+    // 固定項目の展開/折り畳み (taxiAgree / purpose)
+    container.querySelectorAll(".fixed-field-toggle").forEach(el => {
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const fid = el.dataset.fid;
+        if (!fid) return;
+        if (!this._fixedExpandedCards) this._fixedExpandedCards = new Set();
+        if (this._fixedExpandedCards.has(fid)) this._fixedExpandedCards.delete(fid);
+        else this._fixedExpandedCards.add(fid);
+        this.renderFormFields();
+      });
+    });
+
+    // タクシー警告文言 (jp/en)
+    container.querySelectorAll(".fixed-taxi-msg-jp, .fixed-taxi-msg-en").forEach(el => {
+      el.addEventListener("input", () => {
+        if (!this._formSectionConfig.facility) this._formSectionConfig.facility = {};
+        if (el.classList.contains("fixed-taxi-msg-jp")) this._formSectionConfig.facility.taxiWarnMessage = el.value;
+        else this._formSectionConfig.facility.taxiWarnMessageEn = el.value;
+      });
+    });
+
+    // 旅の目的 選択肢編集
+    const purposeSyncFromDom = () => {
+      const list = container.querySelector(".ff-options-list");
+      if (!list) return;
+      const rows = list.querySelectorAll(".ff-opt-row");
+      const opts = Array.from(rows).map(r => ({
+        label: r.querySelector(".purpose-opt-jp")?.value || "",
+        labelEn: r.querySelector(".purpose-opt-en")?.value || "",
+      })).filter(o => o.label || o.labelEn);
+      if (!this._formSectionConfig.survey) this._formSectionConfig.survey = {};
+      this._formSectionConfig.survey.purposeOptions = opts;
+    };
+    container.querySelectorAll(".purpose-opt-jp, .purpose-opt-en").forEach(el => {
+      el.addEventListener("input", purposeSyncFromDom);
+    });
+    container.querySelectorAll(".purpose-opt-del").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const oi = Number(btn.dataset.oi);
+        if (!this._formSectionConfig.survey) this._formSectionConfig.survey = {};
+        const opts = this._formSectionConfig.survey.purposeOptions || [];
+        opts.splice(oi, 1);
+        this._formSectionConfig.survey.purposeOptions = opts;
+        this.renderFormFields();
+      });
+    });
+    container.querySelectorAll(".purpose-opt-add").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!this._formSectionConfig.survey) this._formSectionConfig.survey = {};
+        const opts = this._formSectionConfig.survey.purposeOptions || [];
+        opts.push({ label: "", labelEn: "" });
+        this._formSectionConfig.survey.purposeOptions = opts;
+        this.renderFormFields();
+      });
+    });
+    container.querySelectorAll(".purpose-opt-reset").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const ok = await showConfirm("広島エリアのデフォルト選択肢に戻します。よろしいですか？", { title: "デフォルトに戻す" });
+        if (!ok) return;
+        if (!this._formSectionConfig.survey) this._formSectionConfig.survey = {};
+        delete this._formSectionConfig.survey.purposeOptions;
+        this.renderFormFields();
+      });
+    });
+
+    // カスタム項目のセクション一括削除
+    container.querySelectorAll(".custom-sec-delete-btn").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const sec = btn.dataset.sec;
+        if (!sec) return;
+        const count = this.formFields.filter(f => f.section === sec).length;
+        if (count === 0) return;
+        const secLabel = this.getSectionLabel(sec);
+        const ok = await showConfirm(`「${secLabel}」セクションのカスタム項目 ${count} 件をすべて削除します。よろしいですか？`, { title: "セクション一括削除", okClass: "btn-danger", okLabel: "削除" });
+        if (!ok) return;
+        this.formFields = this.formFields.filter(f => f.section !== sec);
+        this.expandedCards.clear();
+        this.renderFormFields();
+        showToast("完了", `${count} 件を削除しました。「保存」で確定してください。`, "info");
+      });
+    });
+
     // 個別フィールド非表示トグル (facility の各項目)
     container.querySelectorAll(".fixed-field-hide-btn").forEach(btn => {
       btn.addEventListener("click", (e) => {

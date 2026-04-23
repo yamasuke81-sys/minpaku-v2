@@ -1388,6 +1388,37 @@
         return; // 非表示なら駐車場モードは不要
       }
 
+      // --- タクシー警告文言の差し替え ---
+      if (cfg.facility && (cfg.facility.taxiWarnMessage || cfg.facility.taxiWarnMessageEn)) {
+        const msg = (currentLang === "en" && cfg.facility.taxiWarnMessageEn)
+          ? cfg.facility.taxiWarnMessageEn
+          : (cfg.facility.taxiWarnMessage || "");
+        const lbl = document.getElementById("lbl_taxiWarn");
+        if (lbl && msg) lbl.textContent = msg;
+      }
+
+      // --- 旅の目的 選択肢の差し替え ---
+      if (cfg.survey && Array.isArray(cfg.survey.purposeOptions) && cfg.survey.purposeOptions.length > 0) {
+        const sel = document.getElementById("f_purpose");
+        if (sel) {
+          // 既存 option をすべて削除 (placeholder "--" は残す)
+          while (sel.options.length > 1) sel.remove(1);
+          cfg.survey.purposeOptions.forEach(o => {
+            const opt = document.createElement("option");
+            const lbl = (currentLang === "en" && o.labelEn) ? o.labelEn : (o.label || "");
+            opt.value = o.label || o.labelEn || "";
+            opt.textContent = lbl;
+            sel.appendChild(opt);
+          });
+          // 「その他」固定追加
+          const other = document.createElement("option");
+          other.value = "その他";
+          other.id = "opt_purpOther";
+          other.textContent = currentLang === "en" ? "Other" : "その他";
+          sel.appendChild(other);
+        }
+      }
+
       // --- 施設利用情報の個別項目非表示 ---
       const facilityFieldHidden = (cfg.facility && cfg.facility.fieldHidden) || {};
       const facilitySelectorMap = {
