@@ -1051,6 +1051,7 @@ const GuestsPage = {
         if (chev) chev.className = open ? "bi bi-chevron-up me-1" : "bi bi-chevron-down me-1";
       });
       document.getElementById("btnSaveNoiseRuleConfig")?.addEventListener("click", () => this.saveNoiseRuleConfig());
+      document.getElementById("btnSaveGuideUrl")?.addEventListener("click", () => this.saveGuideUrl());
 
       // 「この物件の独自設定を削除」ボタン
       document.getElementById("btnClearCustomForm")?.addEventListener("click", async () => {
@@ -1235,6 +1236,11 @@ const GuestsPage = {
       // 宿泊規約 (黄色カード) 文言カスタマイズ
       this._noiseRuleConfig = pd.noiseRuleConfig || {};
       this._loadNoiseRuleEditor();
+
+      // 宿ガイドページ URL
+      this._guideUrl = pd.guideUrl || "";
+      const guideUrlEl = document.getElementById("formGuideUrl");
+      if (guideUrlEl) guideUrlEl.value = this._guideUrl;
 
       if (pd.customFormEnabled === true && pd.customFormFields?.length > 0) {
         // 独自設定あり → 編集UIを表示
@@ -2309,6 +2315,31 @@ const GuestsPage = {
     // 最後のカードにスクロール
     const lastCard = document.querySelector("#formFieldList .ff-card:last-child");
     if (lastCard) lastCard.scrollIntoView({ behavior: "smooth", block: "center" });
+  },
+
+  // 宿ガイドページ URL を保存
+  async saveGuideUrl() {
+    const pid = this._currentFormTarget;
+    if (!pid) { showToast("", "物件が選択されていません", "error"); return; }
+    const el = document.getElementById("formGuideUrl");
+    const url = (el?.value || "").trim();
+    const statusEl = document.getElementById("guideUrlSaveStatus");
+    if (url && !/^https?:\/\//.test(url)) {
+      if (statusEl) statusEl.innerHTML = '<span class="text-danger">http(s):// から始まる URL を入力してください</span>';
+      return;
+    }
+    if (statusEl) statusEl.innerHTML = '<span class="text-muted">保存中...</span>';
+    try {
+      await db.collection("properties").doc(pid).update({
+        guideUrl: url,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      this._guideUrl = url;
+      if (statusEl) statusEl.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> 保存しました</span>';
+      showToast("完了", "ガイド URL を保存しました", "success");
+    } catch (e) {
+      if (statusEl) statusEl.innerHTML = `<span class="text-danger">保存失敗: ${e.message}</span>`;
+    }
   },
 
   // 宿泊規約エディタのデフォルト値 (guest-form.html i18n と同期)

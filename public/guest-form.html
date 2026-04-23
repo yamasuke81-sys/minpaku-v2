@@ -878,7 +878,7 @@
           <div class="col-md-3 mt-1"><label class="form-label small">${t.g_age} <span class="required-mark">*</span></label><input type="number" class="form-control form-control-sm g-age" min="0" max="120" required value="${esc(s.age || "")}"></div>`;
         if (isRep) {
           html += `<div class="col-md-5 mt-1"><label class="form-label small">${t.g_phone} <span class="required-mark">*</span></label><input type="tel" class="form-control form-control-sm g-phone" required value="${esc(s.phone || "")}"></div>
-          <div class="col-md-6 mt-1"><label class="form-label small">${t.g_email} <span class="required-mark">*</span></label><input type="email" class="form-control form-control-sm g-email" required value="${esc(s.email || "")}"></div>`;
+          <div class="col-md-6 mt-1"><label class="form-label small">${t.g_email} <span class="required-mark">*</span></label><input type="email" class="form-control form-control-sm g-email" required value="${esc(s.email || "")}" placeholder="${currentLang === "en" ? "Required — guide and edit link will be sent here" : "必須 — ガイド・編集リンクを送信します"}"></div>`;
         }
         html += `<div class="col-12 mt-1 passport-section" style="${showPP ? '' : 'display:none'}">
           <div class="alert alert-info py-1 px-2 small mb-1">${t.g_passportRequired}</div>
@@ -2007,10 +2007,29 @@
           }
         } else {
           // === 新規登録: Firestore 直書き ===
+          // editToken 生成 (32文字+: メール内の修正リンクに使用)
+          const tokenBytes = new Uint8Array(24);
+          (window.crypto || window.msCrypto).getRandomValues(tokenBytes);
+          const editToken = Array.from(tokenBytes).map(b => b.toString(16).padStart(2, "0")).join("");
+          // 有効期限: 30日後
+          const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+          data.editToken = editToken;
+          data.editTokenExpiresAt = firebase.firestore.Timestamp.fromDate(expiresAt);
           await db.collection("guestRegistrations").add(data);
         }
+        // successView のガイドリンクを物件別 guideUrl に差し替え (未設定なら yado-komachi-guide)
+        try {
+          const link = document.getElementById("lbl_successGuideLink");
+          if (link) {
+            const url = (_propertyConfig && _propertyConfig.guideUrl) || "https://yado-komachi-guide.web.app/";
+            link.setAttribute("href", url);
+            link.setAttribute("target", "_blank");
+            link.setAttribute("rel", "noopener");
+          }
+        } catch (_) {}
         document.getElementById("formView").classList.add("d-none");
         document.getElementById("successView").classList.remove("d-none");
+        window.scrollTo({ top: 0, behavior: "smooth" });
       } catch (err) {
         console.error("送信エラー:", err);
         showFormError(err.message || t.submitError);

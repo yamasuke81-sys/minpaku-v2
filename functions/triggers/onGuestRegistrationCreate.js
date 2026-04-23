@@ -124,6 +124,155 @@ function inferPropertyId(guest, bookings) {
 }
 
 // ==============================
+// メール送信
+// ==============================
+const DEFAULT_GUIDE_URL = "https://yado-komachi-guide.web.app/";
+const APP_URL = "https://minpaku-v2.web.app";
+
+async function sendRegistrationEmails(db, guestData, guestId) {
+  if (guestData.emailsSentAt) {
+    console.log(`[onGuestRegistrationCreate] emailsSentAt 済 guest=${guestId}, skip`);
+    return;
+  }
+  // guest_form 由来のみ送信 (手動登録は除外)
+  if (guestData.source !== "guest_form") {
+    console.log(`[onGuestRegistrationCreate] source=${guestData.source} 非対象 guest=${guestId}`);
+    return;
+  }
+
+  // 物件情報取得
+  const pid = guestData.propertyId || "";
+  let propData = null;
+  if (pid) {
+    const pDoc = await db.collection("properties").doc(pid).get();
+    if (pDoc.exists) propData = pDoc.data();
+  }
+  const propName = (propData && propData.name) || "(物件未特定)";
+  const propAddress = (propData && propData.address) || "";
+  const guideUrl = (propData && propData.guideUrl) || DEFAULT_GUIDE_URL;
+
+  const guestName = guestData.guestName || "お客様";
+  const guestEmail = guestData.email || "";
+  const editToken = guestData.editToken || "";
+  const editUrl = editToken ? `${APP_URL}/guest-form.html?edit=${encodeURIComponent(editToken)}` : "";
+  const checkIn = typeof guestData.checkIn === "string" ? guestData.checkIn : toDateStr(guestData.checkIn) || "";
+  const checkOut = typeof guestData.checkOut === "string" ? guestData.checkOut : toDateStr(guestData.checkOut) || "";
+
+  const { sendNotificationEmail_ } = require("../utils/lineNotify");
+
+  // --- 1. 宿泊者宛サンクスメール ---
+  if (guestEmail) {
+    const subject = `【${propName}】宿泊者名簿のご記入ありがとうございました`;
+    const body = [
+      `${guestName} 様`,
+      ``,
+      `宿泊者名簿のご記入、誠にありがとうございました。`,
+      ``,
+      `■ 宿情報`,
+      `  宿名: ${propName}`,
+      propAddress ? `  住所: ${propAddress}` : null,
+      ``,
+      `■ チェックイン / チェックアウト`,
+      `  ${checkIn} 〜 ${checkOut}`,
+      ``,
+      `■ ご入力内容の確認・修正`,
+      editUrl ? `  以下のリンクから、ご入力内容の確認・修正が可能です（30日間有効）:` : null,
+      editUrl ? `  ${editUrl}` : null,
+      ``,
+      `■ 宿泊者向けガイドページ`,
+      `  ${guideUrl}`,
+      ``,
+      `ご不明点がございましたらご連絡ください。`,
+      `ご宿泊を心よりお待ちしております。`,
+    ].filter(Boolean).join("\n");
+    try {
+      await sendNotificationEmail_(guestEmail, subject, body);
+      console.log(`[onGuestRegistrationCreate] 宿泊者メール送信 ${guestEmail}`);
+    } catch (e) {
+      console.error(`[onGuestRegistrationCreate] 宿泊者メール失敗 ${guestEmail}:`, e.message);
+    }
+  } else {
+    console.log(`[onGuestRegistrationCreate] 宿泊者メールアドレスなし guest=${guestId}`);
+  }
+
+  // --- 2. オーナー/サブオーナー通知メール ---
+  // オーナーアドレス: settings/notifications の ownerEmail / notifyEmails
+  let ownerEmail = "";
+  try {
+    const notifDoc = await db.collection("settings").doc("notifications").get();
+    if (notifDoc.exists) {
+      const nd = notifDoc.data();
+      ownerEmail = nd.ownerEmail || (Array.isArray(nd.notifyEmails) ? nd.notifyEmails[0] : "") || "";
+    }
+  } catch (_) {}
+
+  // サブオーナー: staff コレクションから isSubOwner=true && ownedPropertyIds に pid 含むもの
+  const subOwners = [];
+  const subOwnersNoEmail = [];
+  if (pid) {
+    try {
+      const staffSnap = await db.collection("staff")
+        .where("isSubOwner", "==", true)
+        .get();
+      staffSnap.forEach((doc) => {
+        const s = doc.data();
+        const owned = Array.isArray(s.ownedPropertyIds) ? s.ownedPropertyIds : [];
+        if (!owned.includes(pid)) return;
+        if (s.email) subOwners.push({ name: s.name || "(無名)", email: s.email });
+        else         subOwnersNoEmail.push(s.name || "(無名)");
+      });
+    } catch (e) {
+      console.error("[onGuestRegistrationCreate] サブオーナー検索エラー:", e.message);
+    }
+  }
+
+  const guestDetailUrl = `${APP_URL}/#/guests`;
+  const notifSubject = `【${propName}】宿泊者名簿が入力されました (${guestName})`;
+  const notifBodyBase = [
+    `宿泊者名簿が入力されました。`,
+    ``,
+    `■ 宿`,
+    `  ${propName}`,
+    propAddress ? `  ${propAddress}` : null,
+    ``,
+    `■ 宿泊者`,
+    `  氏名: ${guestName}`,
+    guestEmail ? `  メール: ${guestEmail}` : null,
+    `  チェックイン: ${checkIn}`,
+    `  チェックアウト: ${checkOut}`,
+    `  宿泊人数: ${guestData.guestCount || "-"}名`,
+    ``,
+    `■ 宿泊者名簿 (管理画面)`,
+    `  ${guestDetailUrl}`,
+  ].filter(Boolean).join("\n");
+
+  // 送信タスク
+  const sendTasks = [];
+  if (ownerEmail) {
+    let ownerBody = notifBodyBase;
+    if (subOwnersNoEmail.length > 0) {
+      ownerBody += `\n\n※ 以下のサブオーナーにはメールアドレスが未設定のため通知されていません:\n` +
+        subOwnersNoEmail.map((n) => `  - ${n}`).join("\n");
+    }
+    sendTasks.push(
+      sendNotificationEmail_(ownerEmail, notifSubject, ownerBody)
+        .then(() => console.log(`[onGuestRegistrationCreate] オーナーメール送信 ${ownerEmail}`))
+        .catch((e) => console.error(`[onGuestRegistrationCreate] オーナーメール失敗 ${ownerEmail}:`, e.message))
+    );
+  } else {
+    console.log(`[onGuestRegistrationCreate] ownerEmail 未設定`);
+  }
+  for (const so of subOwners) {
+    sendTasks.push(
+      sendNotificationEmail_(so.email, notifSubject, notifBodyBase)
+        .then(() => console.log(`[onGuestRegistrationCreate] サブオーナーメール送信 ${so.email}`))
+        .catch((e) => console.error(`[onGuestRegistrationCreate] サブオーナーメール失敗 ${so.email}:`, e.message))
+    );
+  }
+  await Promise.allSettled(sendTasks);
+}
+
+// ==============================
 // トリガー本体
 // ==============================
 async function handler(event) {
@@ -132,43 +281,44 @@ async function handler(event) {
   const guestId = event.params?.guestId;
   if (!guest) return;
 
-  // 既に propertyId があれば何もしない (冪等)
-  if (guest.propertyId) {
-    console.log(`[onGuestRegistrationCreate] propertyId 既設定 guest=${guestId}, skip`);
-    return;
+  // propertyId 補完 (既に設定済みならスキップ)
+  if (!guest.propertyId) {
+    const gCi = toDateStr(guest.checkIn);
+    const gCo = toDateStr(guest.checkOut);
+    if (!gCi) {
+      console.log(`[onGuestRegistrationCreate] checkIn 未設定 guest=${guestId}, 推論不可`);
+    } else {
+      const snap = await db.collection("bookings")
+        .where("status", "in", ["confirmed", "completed", "active"])
+        .get()
+        .catch(async () => db.collection("bookings").get());
+      const bookings = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const result = inferPropertyId(guest, bookings);
+      if (result) {
+        await event.data.ref.update({
+          propertyId: result.propertyId,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        guest.propertyId = result.propertyId;
+        console.log(
+          `[onGuestRegistrationCreate] propertyId 補完成功 guest=${guestId} → ${result.propertyId} ` +
+          `(level=${result.level}, fromBooking=${result.bookingId})`
+        );
+      } else {
+        console.log(`[onGuestRegistrationCreate] 推論不可 guest=${guestId} ci=${gCi} co=${gCo} 候補数=${bookings.length}`);
+      }
+    }
   }
 
-  const gCi = toDateStr(guest.checkIn);
-  const gCo = toDateStr(guest.checkOut);
-  if (!gCi) {
-    console.log(`[onGuestRegistrationCreate] checkIn 未設定 guest=${guestId}, 推論不可`);
-    return;
+  // メール送信 (propertyId が無くても宿泊者宛サンクスは送る)
+  try {
+    await sendRegistrationEmails(db, guest, guestId);
+    await event.data.ref.update({
+      emailsSentAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (e) {
+    console.error(`[onGuestRegistrationCreate] メール送信エラー guest=${guestId}:`, e.message);
   }
-
-  // 候補を bookings から絞り込み: checkIn が guest.checkIn ± 2日程度を含む範囲
-  // Firestore は OR/範囲の複合クエリに制約があるため、checkIn ベースで広めに取る
-  // 実データ量が少ないので全件走査でも問題ないが、範囲で絞ったほうがコスト低
-  const snap = await db.collection("bookings")
-    .where("status", "in", ["confirmed", "completed", "active"])
-    .get()
-    .catch(async () => db.collection("bookings").get()); // status フィールドが無い/違う値の場合は全件
-
-  const bookings = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  const result = inferPropertyId(guest, bookings);
-
-  if (!result) {
-    console.log(`[onGuestRegistrationCreate] 推論不可 guest=${guestId} ci=${gCi} co=${gCo} 候補数=${bookings.length}`);
-    return;
-  }
-
-  await event.data.ref.update({
-    propertyId: result.propertyId,
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
-  console.log(
-    `[onGuestRegistrationCreate] 補完成功 guest=${guestId} → propertyId=${result.propertyId} ` +
-    `(level=${result.level}, fromBooking=${result.bookingId})`
-  );
 }
 
 module.exports = handler;
