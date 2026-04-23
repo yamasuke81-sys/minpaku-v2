@@ -576,14 +576,22 @@ const MyChecklistPage = {
       const done = this.countItemsDone(a, c.itemStates || {});
       const total = this.countItems([a]);
       const allDone = total > 0 && done === total;
+      const inProgress = done > 0 && done < total;
+      const tabStyle = isActive
+        ? 'background:#0d6efd !important;border:1px solid #0d6efd !important;color:#fff !important;'
+        : (allDone
+          ? 'background:#d1f5d6;border:1px solid #74c786;color:#0b5d24;'
+          : (inProgress
+            ? 'background:#fff3cd;border:1px solid #ffc107;color:#664d03;'
+            : 'background:#f1f3f5;border:1px solid #ced4da;color:#495057;'));
+      const badgeCls = isActive ? 'bg-light text-dark'
+        : (allDone ? 'bg-success' : (inProgress ? 'bg-warning text-dark' : 'bg-secondary'));
       return `
         <li class="nav-item">
           <a class="nav-link ${isActive ? "active" : ""}" href="#" data-area-id="${a.id}"
-             style="${isActive
-               ? 'background:#0d6efd !important;border:1px solid #0d6efd !important;color:#fff !important;'
-               : `background:${allDone ? '#d1f5d6' : '#f1f3f5'};border:1px solid ${allDone ? '#74c786' : '#ced4da'};color:${allDone ? '#0b5d24' : '#495057'};`}font-weight:600;">
+             style="${tabStyle}font-weight:600;">
             ${this.escapeHtml(a.name)}
-            <span class="badge ${isActive ? 'bg-light text-dark' : (allDone ? 'bg-success' : 'bg-secondary')} ms-1">${done}/${total}</span>
+            <span class="badge ${badgeCls} ms-1">${done}/${total}</span>
           </a>
         </li>
       `;
@@ -1065,14 +1073,24 @@ const MyChecklistPage = {
       const done = this.countItemsDone(area, c.itemStates || {});
       const total = this.countItems([area]);
       const allDone = total > 0 && done === total;
-      const isActive = n.classList.contains("active");
+      const inProgress = done > 0 && done < total;
+      // active クラスを activeAreaId と同期させる
+      const isActive = aid === this.activeAreaId;
+      n.classList.toggle("active", isActive);
+      // active=青 / 完了=緑 / 進行中=黄 / 未着手=灰
       const newAreaStyle = isActive
         ? "background:#0d6efd !important;border:1px solid #0d6efd !important;color:#fff !important;font-weight:600;"
-        : `background:${allDone ? '#d1f5d6' : '#f1f3f5'};border:1px solid ${allDone ? '#74c786' : '#ced4da'};color:${allDone ? '#0b5d24' : '#495057'};font-weight:600;`;
+        : (allDone
+          ? "background:#d1f5d6;border:1px solid #74c786;color:#0b5d24;font-weight:600;"
+          : (inProgress
+            ? "background:#fff3cd;border:1px solid #ffc107;color:#664d03;font-weight:600;"
+            : "background:#f1f3f5;border:1px solid #ced4da;color:#495057;font-weight:600;"));
       if (n.getAttribute("style") !== newAreaStyle) n.setAttribute("style", newAreaStyle);
       const badge = n.querySelector(".badge");
       if (badge) {
-        badge.className = `badge ${isActive ? 'bg-light text-dark' : (allDone ? 'bg-success' : 'bg-secondary')} ms-1`;
+        const badgeCls = isActive ? "bg-light text-dark"
+          : (allDone ? "bg-success" : (inProgress ? "bg-warning text-dark" : "bg-secondary"));
+        badge.className = `badge ${badgeCls} ms-1`;
         badge.textContent = `${done}/${total}`;
       }
     });
