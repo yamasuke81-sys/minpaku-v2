@@ -395,7 +395,9 @@ const PropertiesPage = {
     document.getElementById("propertyKeyboxNumber").value = property?.keyboxNumber || "";
     document.getElementById("propertyNotes").value = property?.notes || "";
 
-    // Webアプリ管理者 (請求書宛名) プルダウンを構築 + 名義 / 編集リンク
+    // 物件オーナー (請求書宛名) プルダウンを構築 + 名義 / 編集リンク
+    // 絞り込みのため現在編集中の物件 ID を保持
+    this._currentEditingPropertyId = property?.id || "";
     this._renderOwnerStaffSelect(property?.ownerStaffId || "");
     this._renderOwnerBillingProfileSelect(
       property?.ownerStaffId || "",
@@ -491,6 +493,13 @@ const PropertiesPage = {
       return;
     }
 
+    // 物件オーナー (請求書宛名) 必須チェック
+    const ownerStaffId = document.getElementById("propertyOwnerStaffId")?.value || "";
+    if (!ownerStaffId) {
+      showToast("入力エラー", "物件オーナーは必須です。スタッフ管理画面で「物件オーナー設定」が ON のスタッフを登録し、所有物件にこの物件をチェックしてください。", "error");
+      return;
+    }
+
     // 物件番号 / 色の他物件重複チェック
     const numRaw = document.getElementById("propertyNumber").value;
     const numVal = numRaw === "" ? null : Number(numRaw);
@@ -572,12 +581,34 @@ const PropertiesPage = {
     }
 
     try {
+      let finalId = id;
       if (id) {
         await API.properties.update(id, data);
         showToast("完了", "物件情報を更新しました", "success");
       } else {
-        await API.properties.create(data);
+        const created = await API.properties.create(data);
+        finalId = created?.id || created?.propertyId || id;
         showToast("完了", "物件を登録しました", "success");
+      }
+      // 物件オーナー (staff) の ownedPropertyIds に当該物件を同期追加 (物件オーナー設定と整合)
+      try {
+        if (finalId && ownerStaffId) {
+          const sRef = db.collection("staff").doc(ownerStaffId);
+          const sDoc = await sRef.get();
+          if (sDoc.exists) {
+            const owned = Array.isArray(sDoc.data().ownedPropertyIds) ? sDoc.data().ownedPropertyIds : [];
+            if (!owned.includes(finalId)) {
+              owned.push(finalId);
+              await sRef.update({
+                ownedPropertyIds: owned,
+                isSubOwner: true, // 明示的に物件オーナー設定を ON
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+              });
+            }
+          }
+        }
+      } catch (syncErr) {
+        console.warn("物件オーナー設定の同期に失敗:", syncErr.message);
       }
       // 保存完了したら編集中 ID をクリア (次回 openModal で上書きされるが念のため)
       this.editingId = null;
@@ -783,18 +814,42 @@ const PropertiesPage = {
     document.getElementById("inspectionPeriodRecur")?.classList.toggle("d-none", !recur);
   },
 
-  // Webアプリ管理者 (請求書宛名) プルダウンを描画
+  // 物件オーナー (請求書宛名) プルダウンを描画
+  // - isSubOwner=true かつ ownedPropertyIds に現在の物件を含むスタッフのみ表示 (物件オーナー設定と同期)
+  // - 現在編集中の物件 ID は this._currentEditingPropertyId に保持
   _renderOwnerStaffSelect(selectedId) {
     const sel = document.getElementById("propertyOwnerStaffId");
     if (!sel) return;
     const escape = (s) => this.escapeHtml(String(s || ""));
-    const opts = [`<option value="">(未設定 / 既定宛先を使用)</option>`].concat(
-      this._ownerStaffOptions.map(s => {
-        const flag = s.isOwner ? "Webアプリ管理者" : "物件オーナー";
-        return `<option value="${escape(s.id)}" ${s.id === selectedId ? "selected" : ""}>${escape(s.name)} (${flag})</option>`;
-      })
+    const pid = this._currentEditingPropertyId || "";
+    // 対象スタッフ: isSubOwner=true かつ ownedPropertyIds に pid を含む
+    // 新規作成時 (pid なし) は全物件オーナーを表示
+    const candidates = (this._ownerStaffOptions || []).filter(s => {
+      if (!s.isSubOwner) return false;
+      if (!pid) return true; // 新規物件: まだ紐付いていないので全員候補
+      const owned = Array.isArray(s.ownedPropertyIds) ? s.ownedPropertyIds : [];
+      return owned.includes(pid);
+    });
+    const opts = [`<option value="">-- 選択してください --</option>`].concat(
+      candidates.map(s =>
+        `<option value="${escape(s.id)}" ${s.id === selectedId ? "selected" : ""}>${escape(s.name)} (物件オーナー)</option>`
+      )
     ).join("");
     sel.innerHTML = opts;
+    // 該当物件オーナーが居ない場合の注意書き
+    const hintId = "propertyOwnerStaffHint";
+    let hint = document.getElementById(hintId);
+    if (candidates.length === 0) {
+      if (!hint) {
+        hint = document.createElement("div");
+        hint.id = hintId;
+        hint.className = "form-text text-danger mt-1";
+        sel.parentNode.insertBefore(hint, sel.nextSibling);
+      }
+      hint.textContent = "この物件に紐づく物件オーナーが未登録です。スタッフ管理画面で「物件オーナー設定」を ON にし、所有物件にこの物件をチェックしてください。";
+    } else if (hint) {
+      hint.remove();
+    }
   },
 
   // 選択スタッフの billingProfiles[] から名義プルダウンを描画

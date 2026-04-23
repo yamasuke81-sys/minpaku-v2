@@ -164,6 +164,46 @@ module.exports = function notificationsApi(db) {
       }
     }
 
+    // 物件オーナー個別 LINE / メール (物件別: ownedPropertyIds でフィルタ、テスト時は全物件オーナー対象)
+    if (targets.subOwnerLine || targets.subOwnerEmail) {
+      try {
+        const staffSnap = await db.collection("staff").where("isSubOwner", "==", true).get();
+        let soLine = 0, soMail = 0, soFail = 0;
+        for (const sDoc of staffSnap.docs) {
+          const s = sDoc.data();
+          if (s.active === false) continue;
+          if (targets.subOwnerLine && s.subOwnerLineUserId && channelToken) {
+            try {
+              const { sendLineMessage } = require("../utils/lineNotify");
+              const r = await sendLineMessage(channelToken, s.subOwnerLineUserId, body);
+              if (r.success) soLine++; else soFail++;
+            } catch (e) { soFail++; }
+          }
+          if (targets.subOwnerEmail && s.subOwnerEmail) {
+            try { await sendNotificationEmail_(s.subOwnerEmail, title, body); soMail++; }
+            catch (e) { soFail++; }
+          } else if (targets.subOwnerEmail && s.email) {
+            // subOwnerEmail 未設定なら staff.email を代替
+            try { await sendNotificationEmail_(s.email, title, body); soMail++; }
+            catch (e) { soFail++; }
+          }
+        }
+        if (targets.subOwnerLine) {
+          results.push({ target: "subOwnerLine", success: soLine > 0, sent: soLine, failed: soFail });
+          sentCount += soLine;
+        }
+        if (targets.subOwnerEmail) {
+          results.push({ target: "subOwnerEmail", success: soMail > 0, sent: soMail });
+          sentCount += soMail;
+        }
+      } catch (e) {
+        console.error("物件オーナー個別通知エラー:", e);
+        if (targets.subOwnerLine) results.push({ target: "subOwnerLine", success: false, error: e.message });
+        if (targets.subOwnerEmail) results.push({ target: "subOwnerEmail", success: false, error: e.message });
+        failCount++;
+      }
+    }
+
     // FCM Web Push (スタッフ)
     if (targets.fcmStaff) {
       try {

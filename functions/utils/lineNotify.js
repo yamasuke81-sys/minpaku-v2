@@ -325,12 +325,13 @@ function resolveNotifyTargets(settings, notifyType, propertyOverrides = {}) {
   // enabled の判定（物件別 > グローバル > デフォルト true）
   const resolvedEnabled = pick("enabled", true);
   if (resolvedEnabled === false) {
-    return { enabled: false, ownerLine: false, groupLine: false, staffLine: false, ownerEmail: false, discordOwner: false, discordSubOwner: false, fcmStaff: false, fcmOwner: false, sendToGroup: false, sendToIndividual: false };
+    return { enabled: false, ownerLine: false, groupLine: false, staffLine: false, ownerEmail: false, subOwnerLine: false, subOwnerEmail: false, discordOwner: false, discordSubOwner: false, fcmStaff: false, fcmOwner: false, sendToGroup: false, sendToIndividual: false };
   }
 
-  // 新形式: ownerLine / groupLine / staffLine / ownerEmail / discordOwner / discordSubOwner / fcmStaff / fcmOwner
+  // 新形式: ownerLine / groupLine / staffLine / ownerEmail / subOwnerLine / subOwnerEmail / discordOwner / discordSubOwner / fcmStaff / fcmOwner
   const hasNewFormat = ch.ownerLine !== undefined || ch.groupLine !== undefined || ch.staffLine !== undefined
-    || ch.ownerEmail !== undefined || ch.discordOwner !== undefined || ch.discordSubOwner !== undefined
+    || ch.ownerEmail !== undefined || ch.subOwnerLine !== undefined || ch.subOwnerEmail !== undefined
+    || ch.discordOwner !== undefined || ch.discordSubOwner !== undefined
     || ch.fcmStaff !== undefined || ch.fcmOwner !== undefined
     || ov.ownerLine !== undefined || ov.groupLine !== undefined || ov.staffLine !== undefined
     || ov.ownerEmail !== undefined;
@@ -340,6 +341,8 @@ function resolveNotifyTargets(settings, notifyType, propertyOverrides = {}) {
     const groupLine = !!pick("groupLine", false);
     const staffLine = !!pick("staffLine", false);
     const ownerEmail = !!pick("ownerEmail", false);
+    const subOwnerLine = !!pick("subOwnerLine", false);
+    const subOwnerEmail = !!pick("subOwnerEmail", false);
     const discordOwner = !!pick("discordOwner", false);
     const discordSubOwner = !!pick("discordSubOwner", false);
     // FCMチャネル（Web Push）
@@ -351,6 +354,8 @@ function resolveNotifyTargets(settings, notifyType, propertyOverrides = {}) {
       groupLine,
       staffLine,
       ownerEmail,
+      subOwnerLine,
+      subOwnerEmail,
       discordOwner,
       discordSubOwner,
       fcmStaff,

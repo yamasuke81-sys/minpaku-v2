@@ -412,15 +412,23 @@ const NotificationsPage = {
                   </label>
                   <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="groupLine" ${groupLine ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-people-fill text-primary"></i> グループLINE</span>
+                    <span class="form-check-label small"><i class="bi bi-people-fill text-primary"></i> グループLINE（該当の物件のグループLINEのみ）</span>
                   </label>
                   <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="staffLine" ${staffLine ? "checked" : ""}>
                     <span class="form-check-label small"><i class="bi bi-person-lines-fill text-info"></i> スタッフ個別LINE</span>
                   </label>
                   <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
+                    <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="subOwnerLine" ${(ch.subOwnerLine) ? "checked" : ""}>
+                    <span class="form-check-label small"><i class="bi bi-person-badge text-success"></i> 物件オーナー個別LINE</span>
+                  </label>
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="ownerEmail" ${ownerEmail ? "checked" : ""}>
                     <span class="form-check-label small"><i class="bi bi-envelope text-warning"></i> Webアプリ管理者メール</span>
+                  </label>
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
+                    <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="subOwnerEmail" ${(ch.subOwnerEmail) ? "checked" : ""}>
+                    <span class="form-check-label small"><i class="bi bi-envelope-at text-success"></i> 物件オーナー個別メール</span>
                   </label>
                   <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="discordOwner" ${discordOwner ? "checked" : ""}>
@@ -688,13 +696,15 @@ const NotificationsPage = {
       groupLine: get("groupLine"),
       staffLine: get("staffLine"),
       ownerEmail: get("ownerEmail"),
+      subOwnerLine: get("subOwnerLine"),
+      subOwnerEmail: get("subOwnerEmail"),
       discordOwner: get("discordOwner"),
       discordSubOwner: get("discordSubOwner"),
       fcmStaff: get("fcmStaff"),
       fcmOwner: get("fcmOwner"),
     };
 
-    if (!targets.ownerLine && !targets.groupLine && !targets.staffLine && !targets.ownerEmail && !targets.discordOwner && !targets.discordSubOwner && !targets.fcmStaff && !targets.fcmOwner) {
+    if (!targets.ownerLine && !targets.groupLine && !targets.staffLine && !targets.ownerEmail && !targets.subOwnerLine && !targets.subOwnerEmail && !targets.discordOwner && !targets.discordSubOwner && !targets.fcmStaff && !targets.fcmOwner) {
       showToast("エラー", "送信先を1つ以上チェックしてください", "error");
       return;
     }
@@ -715,7 +725,7 @@ const NotificationsPage = {
         // チャネル別に成功/失敗を集計
         const successes = [];  // ラベル(例: Webアプリ管理者LINE)
         const errs = [];       // { label, reason }
-        const labelMap = { ownerLine: "Webアプリ管理者LINE", groupLine: "グループLINE", staffLine: "スタッフ個別LINE", ownerEmail: "Webアプリ管理者メール", discordOwner: "Discord(Webアプリ管理者)", discordSubOwner: "Discord(物件オーナー)", fcmStaff: "Web Push(スタッフ)", fcmOwner: "Web Push(Webアプリ管理者)" };
+        const labelMap = { ownerLine: "Webアプリ管理者LINE", groupLine: "グループLINE", staffLine: "スタッフ個別LINE", ownerEmail: "Webアプリ管理者メール", subOwnerLine: "物件オーナー個別LINE", subOwnerEmail: "物件オーナー個別メール", discordOwner: "Discord(Webアプリ管理者)", discordSubOwner: "Discord(物件オーナー)", fcmStaff: "Web Push(スタッフ)", fcmOwner: "Web Push(Webアプリ管理者)" };
         for (const r of (data.results || [])) {
           const label = labelMap[r.target] || r.target;
           if (Array.isArray(r.staffResults)) {
@@ -797,6 +807,10 @@ const NotificationsPage = {
           groupLine: get("groupLine"),
           staffLine: get("staffLine"),
           ownerEmail: get("ownerEmail"),
+          subOwnerLine: get("subOwnerLine"),
+          subOwnerEmail: get("subOwnerEmail"),
+          discordOwner: get("discordOwner"),
+          discordSubOwner: get("discordSubOwner"),
           // FCM (Web Push) チャネル
           fcmStaff: get("fcmStaff"),
           fcmOwner: get("fcmOwner"),
