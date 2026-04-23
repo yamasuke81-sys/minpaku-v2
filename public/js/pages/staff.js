@@ -80,6 +80,7 @@ const StaffPage = {
       this._propMap = {};
       minpaku.forEach(p => { this._propMap[p.id] = p; });
       this.selectedPropertyIds = minpaku.map(p => p.id);
+      this._allActivePropertyIds = minpaku.map(p => p.id); // 孤児 ID 判定用 (フィルタ ON/OFF と独立)
 
       // 物件フィルタ描画 (目アイコン型で統一)
       this._propEyeCtrl = PropertyEyeFilter.render({
@@ -222,11 +223,18 @@ const StaffPage = {
     const tbody = document.getElementById("staffTableBody");
     // assignedPropertyIds にフィルタ対象物件が含まれるスタッフのみ表示
     // (担当物件未設定のスタッフは全物件担当として常に表示)
+    // 孤児 ID (削除済み物件) のみ持つスタッフも「担当なし扱い」で常に表示
+    const activeIdSet = new Set(this.selectedPropertyIds || []);
+    // 全アクティブ民泊物件 ID (存在確認用)。selectedPropertyIds は表示 ON/OFF 状態のため別途保持
+    const knownPropertyIds = new Set((this._allActivePropertyIds || this.selectedPropertyIds || []));
     const sorted = this.getSortedList().filter(s => {
       if (!this.selectedPropertyIds || this.selectedPropertyIds.length === 0) return false;
       const assigned = Array.isArray(s.assignedPropertyIds) ? s.assignedPropertyIds : [];
       if (assigned.length === 0) return true; // 担当物件未設定 = 常に表示
-      return assigned.some(pid => this.selectedPropertyIds.includes(pid));
+      // 存在する物件 ID のみで再判定 (孤児 ID を無視)
+      const validAssigned = assigned.filter(pid => knownPropertyIds.has(pid));
+      if (validAssigned.length === 0) return true; // 有効な担当が 0 件 = 担当なし扱いで表示
+      return validAssigned.some(pid => activeIdSet.has(pid));
     });
 
     if (!sorted.length) {

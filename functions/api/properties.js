@@ -227,7 +227,8 @@ module.exports = function propertiesApi(db) {
       if (req.user.role !== "owner") {
         return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
-      const docRef = collection.doc(req.params.id);
+      const pid = req.params.id;
+      const docRef = collection.doc(pid);
       const doc = await docRef.get();
       if (!doc.exists) {
         return res.status(404).json({ error: "物件が見つかりません" });
@@ -236,8 +237,29 @@ module.exports = function propertiesApi(db) {
       if (doc.data().active !== false) {
         return res.status(400).json({ error: "先に物件を無効化してください" });
       }
+
+      // スタッフの assignedPropertyIds / ownedPropertyIds から当該 ID を除去
+      // (残しておくとスタッフ一覧の物件フィルタからスタッフが見えなくなる等の副作用あり)
+      const db = collection.firestore;
+      const staffSnap = await db.collection("staff").get();
+      const batch = db.batch();
+      let cleanupCount = 0;
+      for (const sDoc of staffSnap.docs) {
+        const s = sDoc.data();
+        const updates = {};
+        const assigned = Array.isArray(s.assignedPropertyIds) ? s.assignedPropertyIds : [];
+        const owned = Array.isArray(s.ownedPropertyIds) ? s.ownedPropertyIds : [];
+        if (assigned.includes(pid)) updates.assignedPropertyIds = assigned.filter(x => x !== pid);
+        if (owned.includes(pid))    updates.ownedPropertyIds    = owned.filter(x => x !== pid);
+        if (Object.keys(updates).length > 0) {
+          batch.update(sDoc.ref, { ...updates, updatedAt: FieldValue.serverTimestamp() });
+          cleanupCount++;
+        }
+      }
+      if (cleanupCount > 0) await batch.commit();
+
       await docRef.delete();
-      res.json({ message: "物件を完全に削除しました" });
+      res.json({ message: `物件を完全に削除しました (関連スタッフ ${cleanupCount}件を更新)` });
     } catch (e) {
       console.error("物件完全削除エラー:", e);
       res.status(500).json({ error: e.message });
