@@ -84,11 +84,13 @@
 
         <!-- === フォーム本体（agreed=true 時に表示） === -->
         <!-- オーナー用: 必須項目自動入力ボタン (初期非表示、Firebase Auth で role=owner の場合のみ表示) -->
-        <div id="ownerAutofillBar" class="d-none mb-3">
+        <div id="ownerAutofillBar" class="d-none mb-3 d-flex align-items-center gap-2 flex-wrap">
+          <label class="small mb-0">人数:</label>
+          <input type="number" id="ownerAutofillCount" class="form-control form-control-sm" value="1" min="1" max="20" style="width:70px;">
           <button type="button" class="btn btn-sm btn-outline-dark" id="btnOwnerAutofill">
             <i class="bi bi-magic"></i> 必須項目を自動入力（オーナー用）
           </button>
-          <span class="small text-muted ms-2">テスト送信用。すべての必須項目にダミー値を入れます</span>
+          <span class="small text-muted">テスト送信用。ダミー値を一括入力します</span>
         </div>
 
         <div id="formBody" class="d-none">
@@ -2257,29 +2259,38 @@
         const tomorrow = new Date(today.getTime() + 86400000);
         const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
         const setVal = (id, v) => { const el = document.getElementById(id); if (el && !el.disabled) { el.value = v; el.dispatchEvent(new Event("change", { bubbles: true })); el.dispatchEvent(new Event("input", { bubbles: true })); } };
-        const setCheck = (id) => { const el = document.getElementById(id); if (el && !el.disabled) { el.checked = true; el.dispatchEvent(new Event("change", { bubbles: true })); } };
+
+        const countInput = document.getElementById("ownerAutofillCount");
+        let count = parseInt(countInput?.value || "1", 10);
+        if (!count || count < 1) count = 1;
+        if (count > 20) count = 20;
 
         // 宿泊情報
         setVal("f_checkIn", fmt(today));
         setVal("f_checkOut", fmt(tomorrow));
         setVal("f_checkInTime", "15:00");
         setVal("f_checkOutTime", "10:00");
-        setVal("f_guestCount", "1");
+        setVal("f_guestCount", String(count));
         setVal("f_guestCountInfants", "0");
         setVal("f_bookingSite", "直接予約");
 
-        // 代表者情報 (renderGuestInputs 後に生成される)
+        // 宿泊者情報 (renderGuestInputs が人数分のブロックを生成)
+        if (typeof renderGuestInputs === "function") renderGuestInputs();
+
         setTimeout(() => {
-          const setFirstGuestField = (sel, v) => {
-            const el = document.querySelector(`.guest-block ${sel}`);
-            if (el) { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); }
-          };
-          setFirstGuestField(".g-name", "テスト 太郎");
-          setFirstGuestField(".g-nationality", "日本");
-          setFirstGuestField(".g-address", "広島県広島市中区テスト町1-2-3");
-          setFirstGuestField(".g-age", "30");
-          setFirstGuestField(".g-phone", "09000000000");
-          setFirstGuestField(".g-email", "test@example.com");
+          const blocks = document.querySelectorAll(".guest-block");
+          blocks.forEach((block, i) => {
+            const setField = (sel, v) => { const el = block.querySelector(sel); if (el) { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); } };
+            const suffix = i === 0 ? "（代表）" : `${i + 1}`;
+            setField(".g-name", `テスト 太郎${suffix}`);
+            setField(".g-nationality", "日本");
+            setField(".g-address", "広島県広島市中区テスト町1-2-3");
+            setField(".g-age", String(30 + i));
+            if (i === 0) {
+              setField(".g-phone", "09000000000");
+              setField(".g-email", "test@example.com");
+            }
+          });
         }, 100);
 
         // 施設利用情報
@@ -2294,7 +2305,8 @@
         try { if (typeof updateTransportUI === "function") updateTransportUI(); } catch (_) {}
         try { if (typeof updateBbqUI === "function") updateBbqUI(); } catch (_) {}
 
-        alert("必須項目にダミー値を入力しました。送信ボタンを押してテストしてください。");
+        showToast ? showToast("", `必須項目を ${count} 名分ダミー入力しました`, "info")
+                  : alert(`必須項目を ${count} 名分ダミー入力しました。送信ボタンで送信してください。`);
       });
 
       // 全requiredセレクトの「--」を選択後に戻れなくする
