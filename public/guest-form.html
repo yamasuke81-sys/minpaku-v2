@@ -2202,10 +2202,12 @@
           coEl.min = "";
         }
       });
-      document.getElementById("f_transport").addEventListener("change", updateTransportUI);
-      document.getElementById("f_carCount").addEventListener("change", updateCarUI);
-      document.getElementById("f_bbq").addEventListener("change", updateBbqUI);
-      document.getElementById("f_emergencyPhone").addEventListener("input", checkEmergencyPhone);
+      // 駐車場モードで carSection 差し替え時や非表示設定時は一部要素が存在しないため null ガード
+      const _bind = (id, evt, fn) => { const el = document.getElementById(id); if (el) el.addEventListener(evt, fn); };
+      _bind("f_transport", "change", updateTransportUI);
+      _bind("f_carCount", "change", updateCarUI);
+      _bind("f_bbq", "change", updateBbqUI);
+      _bind("f_emergencyPhone", "input", checkEmergencyPhone);
       if (params.edit) {
         // === 修正モード: ?edit=TOKEN ===
         _editToken = params.edit;
