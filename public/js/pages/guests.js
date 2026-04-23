@@ -2317,7 +2317,27 @@ const GuestsPage = {
     }
   },
 
-  showFormPreview() {
+  async showFormPreview() {
+    const pid = this._currentFormTarget;
+    if (!pid) {
+      showToast("", "物件が選択されていません", "error");
+      return;
+    }
+    // 現在の編集内容を Firestore に保存してからプレビューを開く
+    const ok = await showConfirm("プレビューを表示するため現在の内容を保存してから実際のゲストフォームを開きます。よろしいですか？", { title: "プレビュー", okLabel: "保存して開く" });
+    if (!ok) return;
+    try {
+      await this.saveFormConfig();
+    } catch (e) {
+      showToast("エラー", `保存失敗: ${e.message}`, "error");
+      return;
+    }
+    // 実際のゲストフォーム (guest-form.html) を別タブで開く
+    const url = `/guest-form.html?propertyId=${encodeURIComponent(pid)}&preview=1`;
+    window.open(url, "_blank", "noopener");
+  },
+
+  _legacyFormPreview_unused() {
     const body = document.getElementById("formPreviewBody");
     if (!body) return;
 
@@ -2496,13 +2516,33 @@ const GuestsPage = {
     const cfg = await this.getGeminiConfig();
     if (!cfg) return;
 
-    // 英語ラベルが空の項目のみ翻訳対象
-    const targets = this.formFields
+    // カスタム項目: 英語ラベルが空のものを翻訳対象に
+    const fieldTargets = this.formFields
       .map((f, i) => ({ f, i }))
       .filter(({ f }) => f.label && !f.labelEn);
 
-    if (!targets.length) {
-      showToast("情報", "全項目に英語ラベルが設定済みです。空の項目のみ翻訳対象です。", "info");
+    // 固定セクション設定（管理者入力の文言）
+    const fsc = this._formSectionConfig || {};
+    const facility = fsc.facility || {};
+    const survey = fsc.survey || {};
+    const sectionReq = [];
+    if (facility.parkingInfo) {
+      const pi = facility.parkingInfo;
+      if (pi.title && !pi.titleEn) sectionReq.push({ key: "parking_title", text: pi.title });
+      if (pi.body && !pi.bodyEn)   sectionReq.push({ key: "parking_body",  text: pi.body });
+    }
+    if (facility.taxiWarnMessage && !facility.taxiWarnMessageEn) {
+      sectionReq.push({ key: "taxi_msg", text: facility.taxiWarnMessage });
+    }
+    const purposeTargets = [];
+    if (Array.isArray(survey.purposeOptions)) {
+      survey.purposeOptions.forEach((o, i) => {
+        if (o.label && !o.labelEn) purposeTargets.push({ idx: i, label: o.label });
+      });
+    }
+
+    if (!fieldTargets.length && !sectionReq.length && !purposeTargets.length) {
+      showToast("情報", "翻訳対象がありません。英語ラベル/翻訳が未設定の項目のみ対象です。", "info");
       return;
     }
 
@@ -2512,36 +2552,68 @@ const GuestsPage = {
     btn.disabled = true;
 
     try {
-      const reqArray = targets.map(({ f, i }) => {
+      const fieldsReq = fieldTargets.map(({ f, i }) => {
         const obj = { idx: i, label: f.label };
         if (f.options?.length) obj.options = f.options;
         if (f.placeholder) obj.placeholder = f.placeholder;
         return obj;
       });
 
-      const prompt = `以下のフォーム項目を自然な英語に翻訳してください。宿泊者名簿（Guest Registration Form）の文脈です。
-JSON配列で返してください。コードブロックは不要です。
+      const payload = {
+        customFields: fieldsReq,
+        purposeOptions: purposeTargets,
+        adminTexts: sectionReq,
+      };
+
+      const prompt = `以下の日本語テキストを自然な英語に翻訳してください。宿泊者名簿（Guest Registration Form）の文脈です。
+JSON で返してください。コードブロックは不要です。
+- customFields: ラベル・選択肢・placeholder を翻訳（idx を保持）
+- purposeOptions: 「旅の目的」の選択肢ラベルを翻訳（idx を保持）
+- adminTexts: 管理者が入力した文言（タイトル・本文・警告文）を翻訳（key を保持、textEn を返す）
 
 入力:
-${JSON.stringify(reqArray, null, 2)}
+${JSON.stringify(payload, null, 2)}
 
-出力形式: [{"idx":0,"label":"...","options":["..."],"placeholder":"..."}, ...]
-idxはそのまま返してください。optionsとplaceholderは入力にある場合のみ返してください。`;
+出力形式:
+{
+  "customFields": [{"idx":0,"label":"...","options":["..."],"placeholder":"..."}],
+  "purposeOptions": [{"idx":0,"label":"..."}],
+  "adminTexts": [{"key":"parking_title","textEn":"..."}]
+}`;
 
       const raw = await this.callGeminiTranslate(cfg.apiKey, cfg.model, prompt);
-      const results = JSON.parse(raw.replace(/```json?\n?/g, "").replace(/```/g, "").trim());
+      const cleaned = raw.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
+      const results = JSON.parse(cleaned);
 
       let count = 0;
-      for (const r of results) {
+      // カスタムフィールド
+      (results.customFields || []).forEach(r => {
         const f = this.formFields[r.idx];
-        if (!f) continue;
+        if (!f) return;
         if (r.label) { f.labelEn = r.label; count++; }
         if (r.options?.length) f.optionsEn = r.options;
         if (r.placeholder) f.placeholderEn = r.placeholder;
+      });
+      // 旅の目的 選択肢
+      (results.purposeOptions || []).forEach(r => {
+        const o = survey.purposeOptions?.[r.idx];
+        if (o && r.label) { o.labelEn = r.label; count++; }
+      });
+      // 管理者入力文言
+      (results.adminTexts || []).forEach(r => {
+        if (!r.textEn) return;
+        if (r.key === "parking_title" && facility.parkingInfo) { facility.parkingInfo.titleEn = r.textEn; count++; }
+        if (r.key === "parking_body"  && facility.parkingInfo) { facility.parkingInfo.bodyEn  = r.textEn; count++; }
+        if (r.key === "taxi_msg")                               { facility.taxiWarnMessageEn  = r.textEn; count++; }
+      });
+      // 反映
+      if (results.purposeOptions || results.adminTexts) {
+        this._formSectionConfig.survey = survey;
+        this._formSectionConfig.facility = facility;
       }
 
       this.renderFormFields();
-      showToast("完了", `${count}件の項目を英語翻訳しました。「保存」を押して反映してください。`, "success");
+      showToast("完了", `${count}件を英語翻訳しました。「保存」で確定してください。`, "success");
     } catch (e) {
       showToast("エラー", `一括翻訳失敗: ${e.message}`, "error");
     } finally {

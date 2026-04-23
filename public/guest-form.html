@@ -800,6 +800,12 @@
       renderGuestInputs();
       renderVehicleTypes();
       runParkingAllocation();
+      // 固定セクション設定 (駐車場案内カード/タクシー警告/旅の目的プルダウン) も言語切替に合わせて再適用
+      try {
+        if (typeof applyFixedSectionConfig === "function" && typeof _propertyConfig !== "undefined" && _propertyConfig) {
+          applyFixedSectionConfig(_propertyConfig.formSectionConfig);
+        }
+      } catch (_) {}
     }
 
     // ===== 宿泊者情報 =====
@@ -1504,8 +1510,10 @@
           </div>`;
       } else if (mode === "freetext") {
         const info = (cfg.facility && cfg.facility.parkingInfo) || {};
-        const title = (info.title || "").replace(/</g, "&lt;");
-        const body = (info.body || "").replace(/</g, "&lt;").replace(/\n/g, "<br>");
+        const titleRaw = (currentLang === "en" && info.titleEn) ? info.titleEn : (info.title || "");
+        const bodyRaw  = (currentLang === "en" && info.bodyEn)  ? info.bodyEn  : (info.body  || "");
+        const title = titleRaw.replace(/</g, "&lt;");
+        const body = bodyRaw.replace(/</g, "&lt;").replace(/\n/g, "<br>");
         const img = info.imageUrl || "";
         const mapEmbed = buildMapEmbedUrl(info.mapUrl || "");
         carSection.innerHTML = `
