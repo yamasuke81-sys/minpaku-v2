@@ -598,8 +598,8 @@ const MyChecklistPage = {
       { id: "restock",   icon: "bi-box-seam",         label: "要補充リスト" },
     ];
     // アイコン大型タブ (等幅・アイコンのみ)
-    const inactiveStyle = "flex:1;background:#fff;border:1px solid #dee2e6;color:#6c757d;padding:14px 0;border-radius:8px;font-size:28px;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s,border-color .15s;position:relative;";
-    const activeStyle   = "flex:1;background:#2c3e50;border:1px solid #2c3e50;color:#fff;padding:14px 0;border-radius:8px;font-size:28px;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s,border-color .15s;position:relative;";
+    const inactiveStyle = "flex:1;background:#fff;border:1px solid #dee2e6;color:#6c757d;padding:5px 0;border-radius:8px;font-size:22px;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s,border-color .15s;position:relative;";
+    const activeStyle   = "flex:1;background:#2c3e50;border:1px solid #2c3e50;color:#fff;padding:5px 0;border-radius:8px;font-size:22px;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s,border-color .15s;position:relative;";
     const topTabsHtml = topTabs.map(t => {
       const isActive = t.id === this.activeTopTab;
       let badge = "";
@@ -672,8 +672,8 @@ const MyChecklistPage = {
     const doneItems = this.countDone(areas, c?.itemStates || {});
     const restockCount = this._countRestockItems(areas, c?.itemStates || {});
 
-    const inactiveTabStyle = "flex:1;background:#fff;border:1px solid #dee2e6;color:#6c757d;padding:14px 0;border-radius:8px;font-size:28px;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s,border-color .15s;position:relative;";
-    const activeTabStyle   = "flex:1;background:#2c3e50;border:1px solid #2c3e50;color:#fff;padding:14px 0;border-radius:8px;font-size:28px;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s,border-color .15s;position:relative;";
+    const inactiveTabStyle = "flex:1;background:#fff;border:1px solid #dee2e6;color:#6c757d;padding:5px 0;border-radius:8px;font-size:22px;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s,border-color .15s;position:relative;";
+    const activeTabStyle   = "flex:1;background:#2c3e50;border:1px solid #2c3e50;color:#fff;padding:5px 0;border-radius:8px;font-size:22px;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s,border-color .15s;position:relative;";
     body.querySelectorAll(".mcl-top-tab").forEach(n => {
       const tid = n.dataset.topTab;
       const isActive = tid === this.activeTopTab;
