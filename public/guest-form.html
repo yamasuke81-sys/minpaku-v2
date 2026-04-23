@@ -1495,22 +1495,6 @@
 
       // --- 駐車場モード切替 ---
       const mode = (cfg.facility && cfg.facility.parkingMode) || "terrace";
-
-      // terrace 以外のモードでは 17-21 (taxiAgree/carCount/vehicleTypes/neighborAgree/paidParking)
-      // を強制非表示にする (ザ・テラス長浜スタイル固有の複雑な駐車場ロジック)
-      if (mode !== "terrace") {
-        ["taxiAgree", "carCount", "vehicleTypes", "neighborAgree", "paidParking"].forEach(fid => {
-          const sel = facilitySelectorMap[fid];
-          if (!sel) return;
-          const el = document.querySelector(sel);
-          if (el) {
-            el.dataset.forceHidden = "1";
-            el.classList.add("d-none");
-            el.querySelectorAll("input,select,textarea").forEach(x => { x.required = false; x.disabled = true; });
-          }
-        });
-      }
-
       if (mode === "terrace") return; // 現状維持
 
       const carSection = document.getElementById("carSection");

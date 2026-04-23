@@ -1849,16 +1849,25 @@ const GuestsPage = {
       });
     });
 
-    // 駐車場モード切替
+    // 駐車場モード切替: モード変更時に 17-21 の fieldHidden を自動連動
+    // (terrace → 表示に戻す / message|freetext → 非表示にする。手動上書きは可能)
     container.querySelectorAll(".fixed-sec-parking-mode").forEach(r => {
       r.addEventListener("change", () => {
         if (!r.checked) return;
         if (!this._formSectionConfig.facility) this._formSectionConfig.facility = {};
         this._formSectionConfig.facility.parkingMode = r.value;
-        const msgField = container.querySelector('[data-pm-field="message"]');
-        const infoField = container.querySelector('[data-pm-field="info"]');
-        if (msgField) msgField.classList.toggle("d-none", r.value !== "message");
-        if (infoField) infoField.classList.toggle("d-none", r.value !== "freetext");
+
+        // terrace 専用の駐車場 5項目を自動連動
+        const AUTO_TOGGLE_FIELDS = ["taxiAgree", "carCount", "vehicleTypes", "neighborAgree", "paidParking"];
+        if (!this._formSectionConfig.facility.fieldHidden) this._formSectionConfig.facility.fieldHidden = {};
+        const fh = this._formSectionConfig.facility.fieldHidden;
+        if (r.value === "terrace") {
+          AUTO_TOGGLE_FIELDS.forEach(fid => { delete fh[fid]; });
+        } else {
+          AUTO_TOGGLE_FIELDS.forEach(fid => { fh[fid] = true; });
+        }
+        this.renderFormFields();
+        showToast("", `駐車場モードを変更し、関連項目の表示設定を自動更新しました（保存で確定）`, "info");
       });
     });
 
