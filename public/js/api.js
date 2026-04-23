@@ -327,7 +327,7 @@ const API = {
     },
 
     async update(id, data) {
-      // Cloud Functions 経由で更新（オーナー認証 + allowed fields 検証）
+      // Cloud Functions 経由で更新（Webアプリ管理者認証 + allowed fields 検証）
       const CF_BASE = "https://api-5qrfx7ujcq-an.a.run.app";
       const token = await firebase.auth().currentUser.getIdToken();
       const res = await fetch(`${CF_BASE}/invoices/${id}`, {

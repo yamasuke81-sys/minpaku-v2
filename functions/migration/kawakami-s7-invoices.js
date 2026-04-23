@@ -39,8 +39,8 @@ const PID = "tsZybhDMcPrxqgcRy7wp";
   console.log(`\n--- PDF URL ---`);
   console.log(`  生成済: ${withPdf}件 / 未生成: ${withoutPdf}件`);
 
-  // shift集計ベースの今月分テスト計算 (オーナー)
-  console.log(`\n--- 計算可能性検査 (オーナー 2026-04) ---`);
+  // shift集計ベースの今月分テスト計算 (Webアプリ管理者)
+  console.log(`\n--- 計算可能性検査 (Webアプリ管理者 2026-04) ---`);
   const { computeInvoiceDetails } = require("../api/invoices");
   const OWNER_STAFF_ID = "ziTig6tefnj5NvkgN4fG";
   const result = await computeInvoiceDetails(db, OWNER_STAFF_ID, "2026-04", []);

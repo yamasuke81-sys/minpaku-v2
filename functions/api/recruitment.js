@@ -59,7 +59,7 @@ module.exports = function recruitmentApi(db) {
   router.post("/", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const data = validateRecruitmentData(req.body);
       if (data.error) {
@@ -95,7 +95,7 @@ module.exports = function recruitmentApi(db) {
             memo: data.memo || "",
           };
 
-          // オーナーLINEに送信
+          // Webアプリ管理者LINEに送信
           if (targets.ownerLine) {
             await notifyOwner(db, "recruit_start", title,
               `🧹 清掃スタッフ募集\n${data.checkoutDate} ${data.propertyName || ""}\n回答: ${recruitUrl}`,
@@ -132,7 +132,7 @@ module.exports = function recruitmentApi(db) {
   router.put("/:id", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const docRef = collection.doc(req.params.id);
       const doc = await docRef.get();
@@ -156,7 +156,7 @@ module.exports = function recruitmentApi(db) {
   router.delete("/:id", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const docRef = collection.doc(req.params.id);
       const doc = await docRef.get();
@@ -204,7 +204,7 @@ module.exports = function recruitmentApi(db) {
           if (sDoc.exists && sDoc.data().active === false) {
             return res.status(403).json({
               error: sDoc.data().inactiveReason ||
-                "直近15回の清掃募集について回答がなかったため、非アクティブとなりました。解除する場合はオーナーまでご連絡ください。",
+                "直近15回の清掃募集について回答がなかったため、非アクティブとなりました。解除する場合はWebアプリ管理者までご連絡ください。",
               inactive: true,
             });
           }
@@ -265,11 +265,11 @@ module.exports = function recruitmentApi(db) {
     }
   });
 
-  // スタッフ選定（オーナーのみ）
+  // スタッフ選定（Webアプリ管理者のみ）
   router.put("/:id/select", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const docRef = collection.doc(req.params.id);
       const doc = await docRef.get();
@@ -290,11 +290,11 @@ module.exports = function recruitmentApi(db) {
     }
   });
 
-  // 募集確定（オーナーのみ）
+  // 募集確定（Webアプリ管理者のみ）
   router.put("/:id/confirm", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const docRef = collection.doc(req.params.id);
       const doc = await docRef.get();
@@ -419,7 +419,7 @@ module.exports = function recruitmentApi(db) {
   router.put("/:id/reopen", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const docRef = collection.doc(req.params.id);
       const doc = await docRef.get();

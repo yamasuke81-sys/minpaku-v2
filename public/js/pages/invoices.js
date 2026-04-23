@@ -84,7 +84,7 @@ const InvoicesPage = {
   async loadInvoices() {
     try {
       this.invoices = await API.invoices.list({ yearMonth: this.selectedMonth });
-      // impersonation 中: サブオーナー所有物件に該当する請求書のみ表示
+      // impersonation 中: 物件オーナー所有物件に該当する請求書のみ表示
       if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
         const owned = new Set(App.impersonatingData.ownedPropertyIds || []);
         this.invoices = this.invoices.filter(inv => {
@@ -515,7 +515,7 @@ const InvoicesPage = {
       </table>
 
       ${isOwner && ["draft", "submitted"].includes(inv.status) ? `
-        <!-- 記録情報（オーナーのみ編集可） -->
+        <!-- 記録情報（Webアプリ管理者のみ編集可） -->
         <hr>
         <h6><i class="bi bi-pencil-square"></i> 記録情報</h6>
         <div class="row g-2 mb-2">

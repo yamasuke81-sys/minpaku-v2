@@ -26,13 +26,13 @@ const MyRecruitmentPage = {
     const _hash = (location.hash || "").split("?")[0];
     const isScheduleRoute = _hash === "#/schedule" || _hash.startsWith("#/schedule/");
     this._viewMode = isScheduleRoute ? "owner" : "staff";
-    // オーナー機能表示の判定はこれ一本。スタッフログイン時は自動で false
+    // Webアプリ管理者機能表示の判定はこれ一本。スタッフログイン時は自動で false
     this.isOwnerView = this._viewMode === "owner" && authIsOwner;
     // 既存コード互換 (staffId 解決/非アクティブ判定など) 用のローカル変数
     const isOwner = authIsOwner;
     this.staffId = Auth.currentUser?.staffId;
 
-    // オーナーの場合: カスタムクレームに staffId が無くても、
+    // Webアプリ管理者の場合: カスタムクレームに staffId が無くても、
     // authUid で staff コレクションから対応するドキュメントIDを解決
     if (isOwner && !this.staffId) {
       try {
@@ -205,14 +205,14 @@ const MyRecruitmentPage = {
     try {
       const staffSnap = await db.collection("staff").doc(this.staffId).get();
       this.staffDoc = staffSnap.exists ? staffSnap.data() : (isOwner
-        ? { name: Auth.currentUser.displayName || "オーナー", email: Auth.currentUser.email || "" }
+        ? { name: Auth.currentUser.displayName || "Webアプリ管理者", email: Auth.currentUser.email || "" }
         : {});
 
       // E: 非アクティブスタッフは回答操作不可、メッセージを最上部に表示
       this._isInactive = !isOwner && this.staffDoc && this.staffDoc.active === false;
       if (this._isInactive) {
         const msg = this.staffDoc.inactiveReason ||
-          "直近15回の清掃募集について回答がなかったため、非アクティブとなりました。解除する場合はオーナーまでご連絡ください。";
+          "直近15回の清掃募集について回答がなかったため、非アクティブとなりました。解除する場合はWebアプリ管理者までご連絡ください。";
         const banner = document.createElement("div");
         banner.className = "alert alert-warning mb-3";
         banner.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i> <strong>非アクティブ状態です</strong><br>${msg.replace(/\n/g, "<br>")}`;
@@ -420,8 +420,8 @@ const MyRecruitmentPage = {
       db.collection("staff").where("active", "==", true).get(),
     ]);
 
-    // impersonation (メインオーナーがサブオーナー代理閲覧中) の絞り込み
-    // A = 自分(サブオーナー)が owned の物件
+    // impersonation (メインWebアプリ管理者が物件オーナー代理閲覧中) の絞り込み
+    // A = 自分(物件オーナー)が owned の物件
     // X = A のいずれかを担当するスタッフ
     // B = X が担当している別の物件 (A に含まれない物件も含む)
     // 表示物件 = A ∪ B、表示スタッフ = X
@@ -462,7 +462,7 @@ const MyRecruitmentPage = {
       if (this._propertyVisibility[p.id] === undefined) this._propertyVisibility[p.id] = true;
     });
 
-    // スタッフ並び: displayOrder 昇順、オーナー(isOwner=true)は最下部に移動
+    // スタッフ並び: displayOrder 昇順、Webアプリ管理者(isOwner=true)は最下部に移動
     let allStaff = staffSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     // impersonation: 対象スタッフ X のみに絞り込み
     if (impersonatedAllowedStaff) {
@@ -549,7 +549,7 @@ const MyRecruitmentPage = {
     }
     const unsubGuest = guestQuery.onSnapshot(snap => {
       const isOwnerView = this.isOwnerView;
-      // 生データ保持 (マージ用): オーナー時のみ PII 含む、スタッフ時は最小限フィールド
+      // 生データ保持 (マージ用): Webアプリ管理者時のみ PII 含む、スタッフ時は最小限フィールド
       this._rawGuestRegs = snap.docs.map(d => {
         const g = d.data();
         if (isOwnerView) {
@@ -592,7 +592,7 @@ const MyRecruitmentPage = {
           parking: g.parking || "", transport: g.transport || "",
           vehicleTypes: g.vehicleTypes || [],
         };
-        // オーナー時は予約詳細モーダルで使う PII も含める
+        // Webアプリ管理者時は予約詳細モーダルで使う PII も含める
         if (isOwnerView) {
           Object.assign(entry, {
             guestName: g.guestName || "",
@@ -774,7 +774,7 @@ const MyRecruitmentPage = {
     };
 
     // スタッフビューでは assignedPropertyIds に含まれる物件のみを閲覧対象にする。
-    // オーナービュー (#/schedule) では全民泊物件を対象。
+    // Webアプリ管理者ビュー (#/schedule) では全民泊物件を対象。
     const myAssigned = Array.isArray(this.staffDoc?.assignedPropertyIds)
       ? this.staffDoc.assignedPropertyIds
       : [];
@@ -973,8 +973,8 @@ const MyRecruitmentPage = {
 
     // ===== スタッフ行 =====
     const isOwner = this.isOwnerView === true;
-    // スタッフビューでは「自分と担当物件が重なる他スタッフ」+「自分自身」+「メインオーナー」のみ表示。
-    // オーナービューでは全スタッフを表示。
+    // スタッフビューでは「自分と担当物件が重なる他スタッフ」+「自分自身」+「メインWebアプリ管理者」のみ表示。
+    // Webアプリ管理者ビューでは全スタッフを表示。
     const myAssignedForStaff = Array.isArray(this.staffDoc?.assignedPropertyIds)
       ? this.staffDoc.assignedPropertyIds
       : [];
@@ -988,7 +988,7 @@ const MyRecruitmentPage = {
       ? this.staffList
       : this.staffList.filter(s => {
           if (s.id === this.staffId) return true;     // 自分は必ず表示
-          if (s.isOwner) return true;                   // メインオーナー行は残す
+          if (s.isOwner) return true;                   // メインWebアプリ管理者行は残す
           const theirAssigned = Array.isArray(s.assignedPropertyIds) ? s.assignedPropertyIds : [];
           // 表示中の物件のいずれかを担当しているスタッフのみ表示
           return theirAssigned.some(pid => visiblePropIds.has(pid));
@@ -1012,7 +1012,7 @@ const MyRecruitmentPage = {
       allDates.forEach(dd => {
         const isToday = dd.dateStr === todayStr;
         // このスタッフが対象にしうる物件ID群
-        // - 担当物件が設定されていればそれで絞る (isOwner=true のオーナー/代理スタッフも含む)
+        // - 担当物件が設定されていればそれで絞る (isOwner=true のWebアプリ管理者/代理スタッフも含む)
         // - 未設定の場合は全物件 (新規スタッフなど)
         const targetPropIds = hasAssignments
           ? assigned
@@ -1029,7 +1029,7 @@ const MyRecruitmentPage = {
 
         if (cellRecruits.length === 0) {
           const bg = isToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : "#f9f9f9");
-          // オーナーは募集ゼロ日でもセルタップで手動追加ダイアログを開けるように data-owner-add="1" 付与
+          // Webアプリ管理者は募集ゼロ日でもセルタップで手動追加ダイアログを開けるように data-owner-add="1" 付与
           const ownerAddAttr = isOwner
             ? ` data-owner-add="1" data-date="${dd.dateStr}" style="background:${bg};color:#adb5bd;height:${cellH};vertical-align:middle;cursor:pointer;"`
             : ` style="background:${bg};color:#adb5bd;height:${cellH};vertical-align:middle;"`;
@@ -1062,8 +1062,8 @@ const MyRecruitmentPage = {
           }
           if (confirmed) anyConfirmed = true;
 
-          // 確定済み: オーナー or 自分の行 (確定されていなくても詳細閲覧は可能) → 常にクリック可能
-          // 募集中/選定済: 自分の行 or オーナー → クリック可能
+          // 確定済み: Webアプリ管理者 or 自分の行 (確定されていなくても詳細閲覧は可能) → 常にクリック可能
+          // 募集中/選定済: 自分の行 or Webアプリ管理者 → クリック可能
           const clickable = isMe || isOwner;
           const clickMode = (recruit.status === "スタッフ確定済み") ? "detail" : "respond";
           if (clickable && !cellClickTarget) {
@@ -1234,12 +1234,12 @@ const MyRecruitmentPage = {
 
     // セル全体タップ (td) → その日の募集物件リスト中間モーダル or 詳細モーダル
     // スタッフビュー: 自分の assignedPropertyIds で絞り込み
-    // オーナービュー: 全募集対象
+    // Webアプリ管理者ビュー: 全募集対象
     // 1件のみ (+スタッフ単一担当) の場合は中間モーダルをスキップして直接詳細
     const handleCellClick = async (td) => {
       // 非アクティブスタッフは回答UIを開かない
       if (this._isInactive) {
-        showToast("非アクティブ", this.staffDoc?.inactiveReason || "直近15回の清掃募集について回答がなかったため、非アクティブとなりました。解除する場合はオーナーまでご連絡ください。", "warning");
+        showToast("非アクティブ", this.staffDoc?.inactiveReason || "直近15回の清掃募集について回答がなかったため、非アクティブとなりました。解除する場合はWebアプリ管理者までご連絡ください。", "warning");
         return;
       }
       const dateStr = td.dataset.date;
@@ -1305,7 +1305,7 @@ const MyRecruitmentPage = {
       });
     }
 
-    // オーナー: 募集ゼロ日セルタップで手動追加ダイアログ
+    // Webアプリ管理者: 募集ゼロ日セルタップで手動追加ダイアログ
     if (this.isOwnerView) {
       container.querySelectorAll('td[data-owner-add="1"]').forEach(td => {
         td.addEventListener("click", (ev) => {
@@ -1364,14 +1364,14 @@ const MyRecruitmentPage = {
         }
         cancelBtn.parentElement.style.display = existing ? "" : "none";
 
-        // オーナー操作ボタン (オーナー権限がある場合のみ表示)
-        // 「スタッフ確定」「募集再開」「募集削除」等のオーナー操作へ切替
+        // Webアプリ管理者操作ボタン (Webアプリ管理者権限がある場合のみ表示)
+        // 「スタッフ確定」「募集再開」「募集削除」等のWebアプリ管理者操作へ切替
         let ownerWrap = document.getElementById("ownerOpsFromResponseWrap");
         if (!ownerWrap) {
           const modalBody = document.querySelector("#responseModal .modal-body");
           modalBody.insertAdjacentHTML("beforeend", `
             <div class="text-center mt-3 border-top pt-3" id="ownerOpsFromResponseWrap">
-              <div class="small text-muted mb-2">オーナー操作</div>
+              <div class="small text-muted mb-2">Webアプリ管理者操作</div>
               <button type="button" id="btnOwnerOpsFromResponse" class="btn btn-outline-primary btn-sm">
                 <i class="bi bi-person-gear"></i> スタッフ確定・募集再開などへ
               </button>
@@ -1456,8 +1456,8 @@ const MyRecruitmentPage = {
   },
 
   /**
-   * 画面上部の要対応リスト (オーナー向け) + お知らせ (全員向け) を描画
-   * - オーナー向け: 3日以内の募集中(回答状況)、選定済(要確定)、回答なし警告
+   * 画面上部の要対応リスト (Webアプリ管理者向け) + お知らせ (全員向け) を描画
+   * - Webアプリ管理者向け: 3日以内の募集中(回答状況)、選定済(要確定)、回答なし警告
    * - 全員向け: 新規募集 / スタッフ確定 / 清掃消滅 の 24h 以内のお知らせ
    */
   renderToActions_() {
@@ -1472,7 +1472,7 @@ const MyRecruitmentPage = {
     const now = Date.now();
     const H24 = 24 * 3600 * 1000;
 
-    // --- A. オーナー向け要対応 ---
+    // --- A. Webアプリ管理者向け要対応 ---
     const ownerItems = [];
     if (isOwner) {
       this.recruitments.forEach(r => {
@@ -2035,7 +2035,7 @@ const MyRecruitmentPage = {
         </button>`;
     }).join("");
 
-    // オーナー向け追加ボタン
+    // Webアプリ管理者向け追加ボタン
     const ownerAddHtml = this.isOwnerView ? `
       <hr>
       <div class="d-grid gap-2">
@@ -2086,7 +2086,7 @@ const MyRecruitmentPage = {
         }, 180);
       });
     });
-    // オーナー: 予約/募集 手動追加
+    // Webアプリ管理者: 予約/募集 手動追加
     if (this.isOwnerView) {
       modalEl.querySelector("#btnAddBooking")?.addEventListener("click", () => {
         modal.hide();
@@ -2101,7 +2101,7 @@ const MyRecruitmentPage = {
     modal.show();
   },
 
-  // 既存募集なし日のオーナー向け選択ダイアログ
+  // 既存募集なし日のWebアプリ管理者向け選択ダイアログ
   _showAddPickerForDate(dateStr) {
     const title = (typeof formatDateFull === "function" ? formatDateFull(dateStr) : dateStr) + " に追加しますか?";
     const modalId = "addPickerModal_" + Date.now().toString(36);
@@ -2458,7 +2458,7 @@ const MyRecruitmentPage = {
   },
 
   // D: 物件選択モーダルを開き、選択物件の直近確定済シフトの checklist を開く
-  //   - オーナービュー: 民泊全物件
+  //   - Webアプリ管理者ビュー: 民泊全物件
   //   - スタッフビュー: 自分の担当物件 (staff.assignedPropertyIds) のみ
   async _openPropertyPickerForChecklist() {
     try {

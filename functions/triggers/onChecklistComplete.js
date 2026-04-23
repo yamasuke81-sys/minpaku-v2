@@ -2,7 +2,7 @@
  * チェックリスト完了トリガー
  * status が "completed" に変わった瞬間だけ実行される
  * 処理A: 紐付くシフトを completed に更新
- * 処理B: オーナーに清掃完了LINE通知 (通知 type: cleaning_done)
+ * 処理B: Webアプリ管理者に清掃完了LINE通知 (通知 type: cleaning_done)
  * 処理C: スタッフにランドリー入力リマインドLINE通知 (通知 type: laundry_reminder)
  */
 const { notifyOwner, notifyStaff, getNotificationSettings_ } = require("../utils/lineNotify");
@@ -82,7 +82,7 @@ module.exports = async function onChecklistComplete(event) {
     }
   }
 
-  // ---- 処理B: オーナーに清掃完了通知 (type: cleaning_done) ----
+  // ---- 処理B: Webアプリ管理者に清掃完了通知 (type: cleaning_done) ----
   try {
     const vars = {
       date: dateStr,
@@ -94,7 +94,7 @@ module.exports = async function onChecklistComplete(event) {
     const ownerMsg = `✨ 清掃完了\n\n${dateStr} ${propertyName || ""}\n${staffName || "スタッフ"}さんが${timeStr}に清掃を完了しました。\n詳細: ${checklistUrl}`;
     await notifyOwner(db, "cleaning_done", "清掃完了", ownerMsg, vars, propertyOverrides);
   } catch (e) {
-    console.error("オーナー通知エラー:", e);
+    console.error("Webアプリ管理者通知エラー:", e);
     try {
       await db.collection("error_logs").add({
         type: "onChecklistComplete_ownerNotify",

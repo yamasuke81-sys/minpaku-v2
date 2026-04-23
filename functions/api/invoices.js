@@ -46,7 +46,7 @@ function fmtDate(val) {
 
 /**
  * 請求書宛名を解決する
- * 物件 (ownerStaffId) に紐付いたオーナー staff 情報を優先、無ければ settings/clientInfo、
+ * 物件 (ownerStaffId) に紐付いたWebアプリ管理者 staff 情報を優先、無ければ settings/clientInfo、
  * さらに無ければ合同会社八朔 (既定) を使用する。
  *
  * @param {Firestore} db
@@ -361,7 +361,7 @@ async function generateInvoicePdf_(db, invoiceId) {
     const cDoc = await db.collection("settings").doc("clientInfo").get();
     if (cDoc.exists) clientBase = cDoc.data();
   } catch (_) {}
-  // 物件のオーナー (ownerStaffId) → staff 情報を優先し、なければ clientInfo/既定
+  // 物件のWebアプリ管理者 (ownerStaffId) → staff 情報を優先し、なければ clientInfo/既定
   const client = await resolveInvoiceRecipient_(db, invoice.propertyId || null, clientBase);
 
   const propertyIds = [...new Set((invoice.details?.shifts || []).map((s) => s.propertyId).filter(Boolean))];
@@ -746,9 +746,9 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
   const laundryAll = laundrySnap.docs.map(d => ({ id: d.id, ...d.data() }));
   // ランドリー立替の請求書計上対象:
   //   - 現金 (cash) のみ対象 (スタッフが自分のお金で立替)
-  //   - クレジットカード (credit): 削除 (オーナー支払い or 個人カード、立替対象外)
+  //   - クレジットカード (credit): 削除 (Webアプリ管理者支払い or 個人カード、立替対象外)
   //   - プリペイドカード (prepaid): 別途 prepaidDetails (新規購入) で計上
-  //   - 店舗請求 (shop_bill): オーナーが後で直接店舗に払うため立替対象外
+  //   - 店舗請求 (shop_bill): Webアプリ管理者が後で直接店舗に払うため立替対象外
   const reimbursableLaundry = laundryAll.filter(l => {
     const pm = l.paymentMethod || (l.isReimbursable ? "cash" : null);
     return pm === "cash";
@@ -1186,7 +1186,7 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
   //   prepaid → プリカ新規購入が同日・同 depot にある場合のみ行を出す
   //             note="物件名 / 提出先 / プリカ新規購入" / unitPrice=0
   //             (実費は別途プリカ購入行で計上されるため二重計上回避)
-  //   shop_bill → 行を出さない (オーナーが店舗直接支払)
+  //   shop_bill → 行を出さない (Webアプリ管理者が店舗直接支払)
   for (const l of laundryAll.filter(x => !x.sourceShiftId)) {
     const pm = l.paymentMethod || (l.isReimbursable ? "cash" : null);
     if (pm !== "cash" && pm !== "prepaid") continue;
@@ -1306,7 +1306,7 @@ module.exports = function invoicesApi(db) {
 
   // ドライラン: Firestoreに書き込まずプレビュー金額を返す
   // POST /invoices/compute-preview  body: { staffId?, yearMonth }
-  // スタッフは自分のみ可、オーナーは任意スタッフ可
+  // スタッフは自分のみ可、Webアプリ管理者は任意スタッフ可
   router.post("/compute-preview", async (req, res) => {
     try {
       const { yearMonth, staffId: reqStaffId } = req.body || {};
@@ -1317,10 +1317,10 @@ module.exports = function invoicesApi(db) {
       // 対象 staffId の決定
       let targetStaffId = null;
       if (req.user.role === "owner") {
-        // オーナーは任意スタッフを指定可
+        // Webアプリ管理者は任意スタッフを指定可
         targetStaffId = reqStaffId || req.user.staffId;
         if (!targetStaffId) {
-          // オーナー自身の staffId をフォールバック検索
+          // Webアプリ管理者自身の staffId をフォールバック検索
           const snap = await db.collection("staff").where("authUid", "==", req.user.uid).limit(1).get();
           if (!snap.empty) targetStaffId = snap.docs[0].id;
         }
@@ -1429,7 +1429,7 @@ module.exports = function invoicesApi(db) {
   });
 
   // 請求書プレビュー PDF を生成して Buffer で返す (Storage 保存なし)
-  // POST /invoices/my-preview-pdf  body: { yearMonth, propertyId, manualItems?, invoiceMemo?, asStaffId? (オーナー専用代理) }
+  // POST /invoices/my-preview-pdf  body: { yearMonth, propertyId, manualItems?, invoiceMemo?, asStaffId? (Webアプリ管理者専用代理) }
   router.post("/my-preview-pdf", async (req, res) => {
     try {
       const { yearMonth, propertyId, manualItems = [], invoiceMemo = "", asStaffId } = req.body || {};
@@ -1463,7 +1463,7 @@ module.exports = function invoicesApi(db) {
       const details = await computeInvoiceDetails(db, staffDoc.id, yearMonth, manualItems, propertyId);
 
       // 宛先(client)情報: まず settings/clientInfo を取得し、
-      // 物件のオーナー (ownerStaffId) があれば staff 情報で上書きする
+      // 物件のWebアプリ管理者 (ownerStaffId) があれば staff 情報で上書きする
       let clientBase = {};
       try {
         const cDoc = await db.collection("settings").doc("clientInfo").get();
@@ -1533,7 +1533,7 @@ module.exports = function invoicesApi(db) {
       }
       const uid = req.user.uid;
       const reqStaffId = req.user.staffId;
-      // オーナーが asStaffId を指定した場合: そのスタッフの請求書を代理作成 (テスト用)
+      // Webアプリ管理者が asStaffId を指定した場合: そのスタッフの請求書を代理作成 (テスト用)
       let staffDoc = null;
       if (asStaffId && req.user.role === "owner") {
         const d = await db.collection("staff").doc(asStaffId).get();
@@ -1607,7 +1607,7 @@ module.exports = function invoicesApi(db) {
         },
         // 除外行 (PDF 再生成でも除外が維持されるよう invoice ドキュメントに保存)
         excludedRows: computed.excludedRows || [],
-        // オーナーへのメッセージ (毎月可変、staff へは保存しない)
+        // Webアプリ管理者へのメッセージ (毎月可変、staff へは保存しない)
         invoiceMemo: String(invoiceMemo || ""),
         submittedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
@@ -1619,7 +1619,7 @@ module.exports = function invoicesApi(db) {
         // submitted / paid は再送信不可 (409 Conflict)
         if (existingStatus === "submitted" || existingStatus === "paid") {
           return res.status(409).json({
-            error: "この月の請求書は既に送信済みです。修正はオーナーに連絡してください",
+            error: "この月の請求書は既に送信済みです。修正はWebアプリ管理者に連絡してください",
           });
         }
       } else {
@@ -1650,20 +1650,20 @@ module.exports = function invoicesApi(db) {
           const title = `請求書提出: ${staffDoc.name} ${yearMonth}`;
           const ownerBody = `📨 請求書が提出されました\n\n${staffDoc.name} さんから ${m}月分の請求書が届きました。\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}${linkLine}\n確認: ${confirmUrl}`;
 
-          // オーナーLINE
+          // Webアプリ管理者LINE
           if (targets.ownerLine) {
-            await notifyOwner(db, "invoice_submitted", title, ownerBody).catch((e) => console.error("オーナーLINE送信失敗:", e.message));
+            await notifyOwner(db, "invoice_submitted", title, ownerBody).catch((e) => console.error("Webアプリ管理者LINE送信失敗:", e.message));
           }
           // グループLINE
           if (targets.groupLine) {
             await notifyGroup(db, "invoice_submitted", title, ownerBody).catch((e) => console.error("グループLINE送信失敗:", e.message));
           }
-          // オーナーメール
+          // Webアプリ管理者メール
           if (targets.ownerEmail) {
             const ownerEmail = settings && (settings.ownerEmail || (settings.notifyEmails && settings.notifyEmails[0]));
             if (ownerEmail) {
               sendNotificationEmail_(ownerEmail, `【請求書提出】${staffDoc.name} ${yearMonth}`, ownerBody)
-                .catch((e) => console.error("オーナーへの請求書通知メール失敗:", e.message));
+                .catch((e) => console.error("Webアプリ管理者への請求書通知メール失敗:", e.message));
             }
           }
         }
@@ -1685,11 +1685,11 @@ module.exports = function invoicesApi(db) {
     }
   });
 
-  // 請求書生成（月次集計）— オーナーが手動実行 or 定期ジョブ
+  // 請求書生成（月次集計）— Webアプリ管理者が手動実行 or 定期ジョブ
   router.post("/generate", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
       const { yearMonth, propertyId: genPropertyId } = req.body;
@@ -1770,11 +1770,11 @@ module.exports = function invoicesApi(db) {
     }
   });
 
-  // 手動明細項目を追加（オーナーのみ）
+  // 手動明細項目を追加（Webアプリ管理者のみ）
   router.post("/:id/items", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const { label, amount, memo } = req.body;
       if (!label || amount === undefined) {
@@ -1805,11 +1805,11 @@ module.exports = function invoicesApi(db) {
     }
   });
 
-  // 手動明細項目を削除（オーナーのみ）
+  // 手動明細項目を削除（Webアプリ管理者のみ）
   router.delete("/:id/items/:index", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const index = parseInt(req.params.index, 10);
       const docRef = collection.doc(req.params.id);
@@ -1840,12 +1840,12 @@ module.exports = function invoicesApi(db) {
     }
   });
 
-  // 記録情報更新（オーナーのみ・draft/submitted のみ）
+  // 記録情報更新（Webアプリ管理者のみ・draft/submitted のみ）
   // PUT /invoices/:id  body: { remarks?, memo?, transportationFee?, manualItems? }
   router.put("/:id", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const docRef = collection.doc(req.params.id);
       const doc = await docRef.get();
@@ -1893,11 +1893,11 @@ module.exports = function invoicesApi(db) {
     }
   });
 
-  // 支払済みマーク（オーナーのみ）
+  // 支払済みマーク（Webアプリ管理者のみ）
   router.put("/:id/markPaid", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const docRef = collection.doc(req.params.id);
       const doc = await docRef.get();
@@ -1916,11 +1916,11 @@ module.exports = function invoicesApi(db) {
     }
   });
 
-  // 請求書削除（オーナーのみ・draftのみ）
+  // 請求書削除（Webアプリ管理者のみ・draftのみ）
   router.delete("/:id", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const docRef = collection.doc(req.params.id);
       const doc = await docRef.get();
@@ -1938,11 +1938,11 @@ module.exports = function invoicesApi(db) {
     }
   });
 
-  // 請求書再計算 (オーナー限定・draft/submitted のみ)
+  // 請求書再計算 (Webアプリ管理者限定・draft/submitted のみ)
   router.post("/:id/recalculate", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const docRef = collection.doc(req.params.id);
       const doc = await docRef.get();
@@ -2047,7 +2047,7 @@ module.exports = function invoicesApi(db) {
         confirmedAt: FieldValue.serverTimestamp(),
       });
 
-      // オーナー通知: LINE はオーナー本人のみ、メールは ownerEmail 1件
+      // Webアプリ管理者通知: LINE はWebアプリ管理者本人のみ、メールは ownerEmail 1件
       try {
         const [, m] = String(data.yearMonth || "").split("-");
         const total = Number(data.total || 0);
@@ -2059,7 +2059,7 @@ module.exports = function invoicesApi(db) {
           `合計: ¥${total.toLocaleString()}\n` +
           `確認: ${invoiceUrl}`;
 
-        // LINE: オーナー UserID にのみ送信
+        // LINE: Webアプリ管理者 UserID にのみ送信
         if (channelToken && ownerUserId) {
           sendLineMessage(channelToken, ownerUserId, body).catch((e) => console.error("LINE送信失敗:", e.message));
         }
@@ -2068,7 +2068,7 @@ module.exports = function invoicesApi(db) {
         const ownerEmail = settings && (settings.ownerEmail || (settings.notifyEmails && settings.notifyEmails[0]));
         if (ownerEmail) {
           sendNotificationEmail_(ownerEmail, `【請求書確定】${data.staffName || ""} ${data.yearMonth}`, body)
-            .catch((e) => console.error("オーナーへの確定通知メール失敗:", e.message));
+            .catch((e) => console.error("Webアプリ管理者への確定通知メール失敗:", e.message));
         }
       } catch (notifyErr) {
         console.error("請求書提出通知エラー（無視）:", notifyErr);

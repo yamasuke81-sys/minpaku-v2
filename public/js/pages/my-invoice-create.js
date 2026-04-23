@@ -1,5 +1,5 @@
 /**
- * 請求書作成ページ (スタッフ + オーナー両用) — 2026-04-21 リファクタ版
+ * 請求書作成ページ (スタッフ + Webアプリ管理者両用) — 2026-04-21 リファクタ版
  *   - 過去の請求書一覧 (my-invoice を統合)
  *   - 月指定 → 自動集計を縦テーブル (日付/項目/単価/備考) で表示
  *   - 追加明細: 日付/項目/金額/メモ の 4 列
@@ -13,7 +13,7 @@ const MyInvoiceCreatePage = {
   staffId: null,
   staffDoc: null,
   isOwner: false,
-  staffOptions: [],    // オーナー用スタッフ一覧
+  staffOptions: [],    // Webアプリ管理者用スタッフ一覧
   workItemOptions: [], // { key, label, amount } 報酬プルダウン用
   _summaryRows: [],    // 集計行キャッシュ (縦テーブル表示用)
   propertyId: null,    // 選択中の物件ID (物件別請求書)
@@ -37,12 +37,12 @@ const MyInvoiceCreatePage = {
     const today = new Date();
     const defaultYM = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0");
 
-    // スタッフ一覧 (オーナーの場合セレクタを出す)
+    // スタッフ一覧 (Webアプリ管理者の場合セレクタを出す)
     let staffSelectorHtml = "";
     if (this.isOwner) {
       const snap = await db.collection("staff").orderBy("displayOrder", "asc").get();
       this.staffOptions = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(s => s.name);
-      // impersonation 中: サブオーナーが担当する物件の担当スタッフのみ表示
+      // impersonation 中: 物件オーナーが担当する物件の担当スタッフのみ表示
       if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
         const ownedA = new Set(App.impersonatingData.ownedPropertyIds || []);
         this.staffOptions = this.staffOptions.filter(s => {
@@ -66,7 +66,7 @@ const MyInvoiceCreatePage = {
 
     container.innerHTML = `
       <div class="page-header">
-        <h2><i class="bi bi-receipt"></i> 請求書${this.isOwner ? ' <small class="text-muted">(オーナーテスト)</small>' : ''}</h2>
+        <h2><i class="bi bi-receipt"></i> 請求書${this.isOwner ? ' <small class="text-muted">(Webアプリ管理者テスト)</small>' : ''}</h2>
         <div class="d-flex align-items-center gap-2 flex-wrap">
           ${staffSelectorHtml}
           <input type="month" class="form-control form-control-sm" id="invMonth" value="${defaultYM}" style="width:160px;">
@@ -136,7 +136,7 @@ const MyInvoiceCreatePage = {
         </div>
       </div>
 
-      <!-- メモ (スタッフ→オーナー) — 毎月内容を変えて OK、staff には保存しない -->
+      <!-- メモ (スタッフ→Webアプリ管理者) — 毎月内容を変えて OK、staff には保存しない -->
       <div class="card mb-3">
         <div class="card-body">
           <label class="form-label mb-1" for="invoiceMemoText">
@@ -155,7 +155,7 @@ const MyInvoiceCreatePage = {
             <div class="fs-3 fw-bold" id="invTotal">¥0</div>
           </div>
           <button class="btn btn-primary btn-lg" id="btnSubmitInvoice">
-            <i class="bi bi-send"></i> オーナーへ送信
+            <i class="bi bi-send"></i> Webアプリ管理者へ送信
           </button>
         </div>
       </div>
@@ -255,7 +255,7 @@ const MyInvoiceCreatePage = {
   },
 
   // 物件プルダウンを担当物件のみで再構築
-  // スタッフ: 自分の assignedPropertyIds、オーナー: 選択中スタッフの assignedPropertyIds
+  // スタッフ: 自分の assignedPropertyIds、Webアプリ管理者: 選択中スタッフの assignedPropertyIds
   async rebuildPropertySelect() {
     const sel = document.getElementById("invPropertySel");
     if (!sel) return;
@@ -270,7 +270,7 @@ const MyInvoiceCreatePage = {
     }
     const assigned = Array.isArray(this.staffDoc?.assignedPropertyIds) ? this.staffDoc.assignedPropertyIds : [];
     let targetIds = assigned.filter(id => this.propertyMap[id]);
-    // impersonation 中: サブオーナー所有物件のみに絞り込み
+    // impersonation 中: 物件オーナー所有物件のみに絞り込み
     if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
       const ownedA = new Set(App.impersonatingData.ownedPropertyIds || []);
       targetIds = targetIds.filter(id => ownedA.has(id));
@@ -775,7 +775,7 @@ const MyInvoiceCreatePage = {
       };
     }).filter(i => i.label || i.amount);
 
-    const ok = await showConfirm(`${ym} の請求書をオーナーへ送信します。よろしいですか？`, { title: "送信確認" });
+    const ok = await showConfirm(`${ym} の請求書をWebアプリ管理者へ送信します。よろしいですか？`, { title: "送信確認" });
     if (!ok) return;
 
     const btn = document.getElementById("btnSubmitInvoice");
@@ -784,7 +784,7 @@ const MyInvoiceCreatePage = {
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 送信中...';
     try {
       const token = await firebase.auth().currentUser.getIdToken();
-      // オーナーへのメッセージ (請求書メモ) — 毎月可変
+      // Webアプリ管理者へのメッセージ (請求書メモ) — 毎月可変
       const invoiceMemo = document.getElementById("invoiceMemoText")?.value || "";
       const body = { yearMonth: ym, propertyId: this.propertyId, manualItems, invoiceMemo };
       if (this.isOwner && this.staffId) body.asStaffId = this.staffId;
@@ -800,7 +800,7 @@ const MyInvoiceCreatePage = {
           <i class="bi bi-check-circle"></i> 請求書 <strong>${data.id}</strong> を送信しました（合計 ¥${(data.total||0).toLocaleString()}）
         </div>
       `;
-      showToast("送信完了", "オーナーへ請求書を送信しました", "success");
+      showToast("送信完了", "Webアプリ管理者へ請求書を送信しました", "success");
       // 送信成功後は折りたたみを閉じる
       this.toggleStaffInfo(false);
       // 過去一覧をリフレッシュ
@@ -846,7 +846,7 @@ const MyInvoiceCreatePage = {
 
     try {
       const token = await firebase.auth().currentUser.getIdToken();
-      // オーナーへのメッセージ (請求書メモ)
+      // Webアプリ管理者へのメッセージ (請求書メモ)
       const invoiceMemo = document.getElementById("invoiceMemoText")?.value || "";
       const body = { yearMonth: ym, propertyId: this.propertyId, manualItems, invoiceMemo };
       if (this.isOwner && this.staffId) body.asStaffId = this.staffId;
@@ -892,11 +892,11 @@ const MyInvoiceCreatePage = {
         throw new Error(data.error || `HTTP ${res.status}`);
       }
       let invoices = await res.json();
-      // オーナーモードで staffId 絞り込み
+      // Webアプリ管理者モードで staffId 絞り込み
       if (this.isOwner && this.staffId) {
         invoices = invoices.filter(inv => inv.staffId === this.staffId);
       }
-      // impersonation 中: サブオーナー所有物件が対象の請求書のみ
+      // impersonation 中: 物件オーナー所有物件が対象の請求書のみ
       if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
         const ownedA = new Set(App.impersonatingData.ownedPropertyIds || []);
         invoices = invoices.filter(inv => {

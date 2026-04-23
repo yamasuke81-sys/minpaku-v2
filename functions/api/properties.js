@@ -60,7 +60,7 @@ module.exports = function propertiesApi(db) {
   router.post("/", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
       const { body } = req;
@@ -116,7 +116,7 @@ module.exports = function propertiesApi(db) {
   router.put("/:id", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
       const docRef = collection.doc(req.params.id);
@@ -176,7 +176,7 @@ module.exports = function propertiesApi(db) {
   router.delete("/:id", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
       const docRef = collection.doc(req.params.id);
@@ -200,7 +200,7 @@ module.exports = function propertiesApi(db) {
   router.get("/:id/related-count", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const pid = req.params.id;
       const db = collection.firestore;
@@ -225,7 +225,7 @@ module.exports = function propertiesApi(db) {
   router.delete("/:id/force", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const docRef = collection.doc(req.params.id);
       const doc = await docRef.get();

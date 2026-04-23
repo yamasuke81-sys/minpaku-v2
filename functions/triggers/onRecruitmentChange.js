@@ -1,6 +1,6 @@
 /**
  * 募集変更トリガー
- * - 回答が追加された → オーナーにLINE通知 (通知タイプ: recruit_response)
+ * - 回答が追加された → Webアプリ管理者にLINE通知 (通知タイプ: recruit_response)
  * - 物件の selectionMethod が "firstCome" で新規◎回答 → 即自動確定
  */
 const { notifyOwner, resolveNotifyTargets, getNotificationSettings_ } = require("../utils/lineNotify");

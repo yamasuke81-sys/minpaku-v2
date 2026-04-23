@@ -44,7 +44,7 @@ module.exports = function staffApi(db) {
   router.post("/", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
       const data = validateStaffData(req.body);
@@ -67,7 +67,7 @@ module.exports = function staffApi(db) {
   router.put("/:id", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
       const docRef = collection.doc(req.params.id);
@@ -94,7 +94,7 @@ module.exports = function staffApi(db) {
   router.post("/:id/fcm-token", async (req, res) => {
     try {
       const targetStaffId = req.params.id;
-      // オーナーは全員分更新可。スタッフは自分のみ
+      // Webアプリ管理者は全員分更新可。スタッフは自分のみ
       if (req.user.role !== "owner" && req.user.staffId !== targetStaffId) {
         return res.status(403).json({ error: "自分のトークンのみ登録できます" });
       }
@@ -123,7 +123,7 @@ module.exports = function staffApi(db) {
     }
   });
 
-  // FCMトークン削除（本人またはオーナー）
+  // FCMトークン削除（本人またはWebアプリ管理者）
   router.delete("/:id/fcm-token", async (req, res) => {
     try {
       const targetStaffId = req.params.id;
@@ -152,7 +152,7 @@ module.exports = function staffApi(db) {
   router.post("/:id/reactivate", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const ref = collection.doc(req.params.id);
       const d = await ref.get();
@@ -176,7 +176,7 @@ module.exports = function staffApi(db) {
   router.delete("/:id", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
       const docRef = collection.doc(req.params.id);

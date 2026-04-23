@@ -116,7 +116,7 @@ const Auth = {
   },
 
   /**
-   * メール/パスワードログイン（オーナー用）
+   * メール/パスワードログイン（Webアプリ管理者用）
    */
   async login() {
     const email = document.getElementById("loginEmail").value.trim();
@@ -168,7 +168,7 @@ const Auth = {
       // → firebase-config.jsにLINE_LOGIN_CHANNEL_IDを定義する方式
       const channelId = window.LINE_LOGIN_CHANNEL_ID;
       if (!channelId) {
-        errorEl.textContent = "LINE Login設定が未完了です。オーナーに確認してください。";
+        errorEl.textContent = "LINE Login設定が未完了です。Webアプリ管理者に確認してください。";
         errorEl.classList.remove("d-none");
         return;
       }

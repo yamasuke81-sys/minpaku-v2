@@ -1,6 +1,6 @@
 /**
  * 直前予約リマインド（毎朝10:00 JST）
- * 今日 or 明日 checkIn の confirmed 予約で名簿未提出の場合にオーナーへ緊急通知
+ * 今日 or 明日 checkIn の confirmed 予約で名簿未提出の場合にWebアプリ管理者へ緊急通知
  */
 const admin = require("firebase-admin");
 const {

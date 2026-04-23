@@ -69,15 +69,15 @@ const NotificationsPage = {
 
   // 通知種別ごとに使えるグループを紐付け
   notifications: [
-    { key: "recruit_response", label: "スタッフ回答通知", desc: "スタッフが募集に回答(◎/△/×)した時にオーナーへ通知", icon: "bi-reply", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
+    { key: "recruit_response", label: "スタッフ回答通知", desc: "スタッフが募集に回答(◎/△/×)した時にWebアプリ管理者へ通知", icon: "bi-reply", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
       defaultMsg: "📋 募集に回答がありました\n\n日付: {date} ({property})\n{staff}: {response}\n候補: {count}名" },
     { key: "recruit_start", label: "作業スタッフ募集", desc: "新しい清掃/直前点検に対してスタッフへ募集通知を送信", icon: "bi-megaphone", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
       defaultMsg: "🧹 {work}スタッフ募集\n\n{date} {property}\n{work}スタッフを募集しています。\n回答をお願いします（◎OK / △微妙 / ×NG）\n\n回答: {url}" },
     { key: "recruit_remind", label: "募集リマインド", desc: "回答が集まらない場合にリマインド送信", icon: "bi-alarm", group: "recruit", varGroup: "recruit", defaultTiming: "evening",
       defaultMsg: "📋 {work}募集 回答のお願い\n\n{date} {property}\nまだ回答が届いていません（現在{count}件）。\n回答: {url}" },
-    { key: "staff_confirm", label: "スタッフ確定通知", desc: "スタッフ確定時に本人とオーナーに通知", icon: "bi-person-check", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
+    { key: "staff_confirm", label: "スタッフ確定通知", desc: "スタッフ確定時に本人とWebアプリ管理者に通知", icon: "bi-person-check", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
       defaultMsg: "✅ {work}担当が確定しました\n\n{date} {property}\n担当: {staff}\nよろしくお願いします。" },
-    { key: "staff_undecided", label: "スタッフ未決定リマインド", desc: "作業日が近いのにスタッフ未確定の場合にオーナーへ通知", icon: "bi-exclamation-triangle", group: "recruit", varGroup: "recruit", defaultTiming: "morning",
+    { key: "staff_undecided", label: "スタッフ未決定リマインド", desc: "作業日が近いのにスタッフ未確定の場合にWebアプリ管理者へ通知", icon: "bi-exclamation-triangle", group: "recruit", varGroup: "recruit", defaultTiming: "morning",
       defaultMsg: "⚠️ {work}スタッフ未確定\n\n{date} {property}\n作業日が近づいていますが、まだスタッフが確定していません。\n回答状況: {count}件" },
     { key: "urgent_remind", label: "直前予約リマインド", desc: "直前予約に対する緊急リマインド", icon: "bi-lightning", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
       defaultMsg: "🔴 緊急: 直前予約の{work}手配\n\n{date} {property}\n直前予約が入りました。至急スタッフの手配をお願いします。" },
@@ -85,32 +85,32 @@ const NotificationsPage = {
       defaultMsg: "❌ 予約キャンセル\n\n{checkin}〜{date} {property}\nゲスト: {guest}（{site}）\n予約がキャンセルされました。" },
     { key: "booking_change", label: "予約変更通知", desc: "予約日程が変更された場合に通知", icon: "bi-arrow-repeat", group: "booking", varGroup: "booking", defaultTiming: "immediate",
       defaultMsg: "🔄 予約変更\n\n{property}\n新しい日程: {checkin}〜{date}（{nights}泊）\nゲスト: {guest}" },
-    { key: "cancel_request", label: "出勤キャンセル要望", desc: "スタッフからの出勤キャンセル要望をオーナーに通知", icon: "bi-person-dash", group: "staff", varGroup: "staff", defaultTiming: "immediate",
+    { key: "cancel_request", label: "出勤キャンセル要望", desc: "スタッフからの出勤キャンセル要望をWebアプリ管理者に通知", icon: "bi-person-dash", group: "staff", varGroup: "staff", defaultTiming: "immediate",
       defaultMsg: "🙋 出勤キャンセル要望\n\n{staff}さんから{date} {property}の出勤キャンセル要望がありました。" },
     { key: "cancel_approve", label: "キャンセル承認通知", desc: "出勤キャンセルを承認した場合にスタッフに通知", icon: "bi-check-circle", group: "staff", varGroup: "staff", defaultTiming: "immediate",
       defaultMsg: "✅ キャンセル承認\n\n{date} {property}の出勤キャンセルが承認されました。" },
     { key: "cancel_reject", label: "キャンセル却下通知", desc: "出勤キャンセルを却下した場合にスタッフに通知", icon: "bi-dash-circle", group: "staff", varGroup: "staff", defaultTiming: "immediate",
       defaultMsg: "❌ キャンセル不可\n\n{date} {property}の出勤キャンセルは対応できませんでした。出勤をお願いします。" },
-    { key: "staff_inactive", label: "スタッフ非アクティブ化通知", desc: "直近15回の募集に無回答のスタッフを非アクティブ化した時にオーナーへ通知", icon: "bi-person-slash", group: "staff", varGroup: "staff", defaultTiming: "immediate",
+    { key: "staff_inactive", label: "スタッフ非アクティブ化通知", desc: "直近15回の募集に無回答のスタッフを非アクティブ化した時にWebアプリ管理者へ通知", icon: "bi-person-slash", group: "staff", varGroup: "staff", defaultTiming: "immediate",
       defaultMsg: "⚠️ スタッフ非アクティブ化\n\n{staff} さんを非アクティブに変更しました。\n理由: {reason}\n解除はスタッフ管理から行えます。" },
     { key: "roster_remind", label: "名簿未入力リマインド", desc: "宿泊者名簿が未入力の予約についてリマインド", icon: "bi-person-vcard", group: "booking", varGroup: "booking", defaultTiming: "morning",
       defaultMsg: "📝 名簿入力のお願い\n\n{checkin} {property}\nゲスト: {guest}\n宿泊者名簿がまだ届いていません。" },
-    { key: "roster_received", label: "宿泊者名簿 受信通知", desc: "宿泊者名簿のフォーム回答が届いた時にオーナー等へ通知", icon: "bi-envelope-check", group: "booking", varGroup: "booking", defaultTiming: "immediate",
+    { key: "roster_received", label: "宿泊者名簿 受信通知", desc: "宿泊者名簿のフォーム回答が届いた時にWebアプリ管理者等へ通知", icon: "bi-envelope-check", group: "booking", varGroup: "booking", defaultTiming: "immediate",
       defaultMsg: "📨 宿泊者名簿が届きました\n\n{checkin} {property}\nゲスト: {guest}\n詳細: {url}" },
     { key: "invoice_request", label: "請求書要請", desc: "月末にスタッフへ請求書の提出を依頼（URLは請求書作成ページ）", icon: "bi-receipt", group: "invoice", varGroup: "invoice", defaultTiming: "morning",
       defaultMsg: "💰 {month}月分の請求書作成をお願いします\n\n作業明細をご確認の上、請求書の送信をお願いします。\n作成ページ: {url}" },
-    { key: "invoice_submitted", label: "請求書提出通知", desc: "スタッフが請求書を送信した時にオーナーへ通知", icon: "bi-send-check", group: "invoice", varGroup: "invoice", defaultTiming: "immediate",
+    { key: "invoice_submitted", label: "請求書提出通知", desc: "スタッフが請求書を送信した時にWebアプリ管理者へ通知", icon: "bi-send-check", group: "invoice", varGroup: "invoice", defaultTiming: "immediate",
       defaultMsg: "📨 請求書が提出されました\n\n{staff} さんから {month}月分の請求書が届きました。\n合計: {total}\n確認: {url}" },
-    { key: "cleaning_done", label: "清掃完了通知", desc: "清掃チェックリスト完了時にオーナーに通知", icon: "bi-clipboard-check", group: "cleaning", varGroup: "cleaning", defaultTiming: "immediate",
+    { key: "cleaning_done", label: "清掃完了通知", desc: "清掃チェックリスト完了時にWebアプリ管理者に通知", icon: "bi-clipboard-check", group: "cleaning", varGroup: "cleaning", defaultTiming: "immediate",
       defaultMsg: "✨ 清掃完了\n\n{date} {property}\n{staff}さんが{time}に清掃を完了しました。\n詳細: {url}" },
-    { key: "laundry_put_out", label: "ランドリー 出した", desc: "スタッフが「洗濯物を出した」ボタンを押した時にオーナー等へ通知", icon: "bi-arrow-up-circle", group: "cleaning", varGroup: "laundry", defaultTiming: "immediate",
+    { key: "laundry_put_out", label: "ランドリー 出した", desc: "スタッフが「洗濯物を出した」ボタンを押した時にWebアプリ管理者等へ通知", icon: "bi-arrow-up-circle", group: "cleaning", varGroup: "laundry", defaultTiming: "immediate",
       defaultMsg: "🧺 ランドリー 出した\n\n{date} {property}\n{staff}さんが{time}に洗濯物を出しました。\n詳細: {url}" },
-    { key: "laundry_collected", label: "ランドリー 回収した", desc: "スタッフが「洗濯物を回収した」ボタンを押した時にオーナー等へ通知", icon: "bi-arrow-down-circle", group: "cleaning", varGroup: "laundry", defaultTiming: "immediate",
+    { key: "laundry_collected", label: "ランドリー 回収した", desc: "スタッフが「洗濯物を回収した」ボタンを押した時にWebアプリ管理者等へ通知", icon: "bi-arrow-down-circle", group: "cleaning", varGroup: "laundry", defaultTiming: "immediate",
       defaultMsg: "🧺 ランドリー 回収した\n\n{date} {property}\n{staff}さんが{time}に洗濯物を回収しました。\n詳細: {url}" },
-    { key: "laundry_stored", label: "ランドリー 収納した", desc: "スタッフが「洗濯物を収納した」ボタンを押した時にオーナー等へ通知", icon: "bi-check2-circle", group: "cleaning", varGroup: "laundry", defaultTiming: "immediate",
+    { key: "laundry_stored", label: "ランドリー 収納した", desc: "スタッフが「洗濯物を収納した」ボタンを押した時にWebアプリ管理者等へ通知", icon: "bi-check2-circle", group: "cleaning", varGroup: "laundry", defaultTiming: "immediate",
       defaultMsg: "🧺 ランドリー 収納した\n\n{date} {property}\n{staff}さんが{time}に洗濯物を収納しました。\n詳細: {url}" },
-    // D-3: ダブルブッキング検知通知（デフォルト: オーナーLINE+グループLINE有効、スタッフ無効）
-    { key: "double_booking", label: "ダブルブッキング検知", desc: "同物件・同日程に複数予約が重複した際にオーナーへ緊急通知", icon: "bi-exclamation-triangle-fill", group: "booking", varGroup: "booking", defaultTiming: "immediate",
+    // D-3: ダブルブッキング検知通知（デフォルト: Webアプリ管理者LINE+グループLINE有効、スタッフ無効）
+    { key: "double_booking", label: "ダブルブッキング検知", desc: "同物件・同日程に複数予約が重複した際にWebアプリ管理者へ緊急通知", icon: "bi-exclamation-triangle-fill", group: "booking", varGroup: "booking", defaultTiming: "immediate",
       defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: true, defaultStaffLine: false, defaultEmail: false,
       defaultMsg: "【⚠️ ダブルブッキング警告】\n物件: {property}\n日程: {checkin} 〜 {date}\n\n衝突予約が検出されました。至急確認してください。\n確認: {url}" },
   ],
@@ -143,20 +143,20 @@ const NotificationsPage = {
         </div>
       </div>
 
-      <!-- オーナー個別通知先 -->
+      <!-- Webアプリ管理者個別通知先 -->
       <div class="card mb-4">
         <div class="card-header">
-          <h6 class="mb-0"><i class="bi bi-person-gear"></i> オーナー個別通知先</h6>
+          <h6 class="mb-0"><i class="bi bi-person-gear"></i> Webアプリ管理者個別通知先</h6>
         </div>
         <div class="card-body">
           <div class="row g-3">
             <div class="col-md-6">
-              <label class="form-label">オーナーLINE User ID</label>
+              <label class="form-label">Webアプリ管理者LINE User ID</label>
               <input type="text" class="form-control" id="lineOwnerUserId" placeholder="Uxxxxxx...">
-              <div class="form-text">オーナー宛の個別通知に使用 (物件LINEの Bot を友達追加すると自動取得)</div>
+              <div class="form-text">Webアプリ管理者宛の個別通知に使用 (物件LINEの Bot を友達追加すると自動取得)</div>
             </div>
             <div class="col-md-6">
-              <label class="form-label">オーナーメールアドレス</label>
+              <label class="form-label">Webアプリ管理者メールアドレス</label>
               <div class="input-group">
                 <input type="email" class="form-control" id="ownerEmail" placeholder="owner@example.com">
                 <button class="btn btn-outline-warning" type="button" id="btnGmailReauth" title="Gmail OAuth 再接続">
@@ -166,26 +166,26 @@ const NotificationsPage = {
               <div class="form-text">メール通知の送信先。送信時 invalid_grant エラーが出たら「Gmail再接続」を押してください。</div>
             </div>
             <div class="col-md-6">
-              <label class="form-label">Discord (オーナー) Webhook URL</label>
+              <label class="form-label">Discord (Webアプリ管理者) Webhook URL</label>
               <input type="url" class="form-control" id="discordOwnerWebhookUrl" placeholder="https://discord.com/api/webhooks/...">
               <div class="form-text">Discord サーバー → チャンネル設定 → 連携サービス → Webhook で作成</div>
             </div>
             <div class="col-md-6">
-              <label class="form-label">Discord (サブオーナー) Webhook URL</label>
+              <label class="form-label">Discord (物件オーナー) Webhook URL</label>
               <input type="url" class="form-control" id="discordSubOwnerWebhookUrl" placeholder="https://discord.com/api/webhooks/...">
-              <div class="form-text">サブオーナー共有チャンネルの Webhook URL</div>
+              <div class="form-text">物件オーナー共有チャンネルの Webhook URL</div>
             </div>
           </div>
-          <!-- オーナーLINE通知 Bot リスト -->
+          <!-- Webアプリ管理者LINE通知 Bot リスト -->
           <div class="col-12 mt-3">
             <hr class="my-2">
             <div class="d-flex align-items-center justify-content-between mb-2">
-              <label class="form-label mb-0"><i class="bi bi-robot"></i> オーナーLINE通知 Bot リスト</label>
+              <label class="form-label mb-0"><i class="bi bi-robot"></i> Webアプリ管理者LINE通知 Bot リスト</label>
               <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddOwnerLineChannel">
                 <i class="bi bi-plus-circle"></i> Bot を追加
               </button>
             </div>
-            <div class="form-text mb-2">オーナー宛通知専用の Bot を複数登録できます。fallback 戦略では無料枠切れ時に次の Bot へ自動切替します（最大3つ）。</div>
+            <div class="form-text mb-2">Webアプリ管理者宛通知専用の Bot を複数登録できます。fallback 戦略では無料枠切れ時に次の Bot へ自動切替します（最大3つ）。</div>
             <div id="ownerLineChannelsList"></div>
             <div class="mt-2">
               <label class="form-label small text-muted mb-1"><i class="bi bi-shuffle"></i> 配信戦略</label>
@@ -212,12 +212,12 @@ const NotificationsPage = {
       <p class="text-muted small mb-3">各通知の有効/無効と送り先を設定します。送り先は複数選択可能です。</p>
 
       <div class="d-flex flex-wrap gap-3 mb-3 small text-muted">
-        <span><i class="bi bi-person-circle text-success"></i> オーナーLINE</span>
+        <span><i class="bi bi-person-circle text-success"></i> Webアプリ管理者LINE</span>
         <span><i class="bi bi-people-fill text-primary"></i> グループLINE</span>
         <span><i class="bi bi-person-lines-fill text-info"></i> スタッフ個別LINE</span>
-        <span><i class="bi bi-envelope text-warning"></i> オーナーメール</span>
-        <span><i class="bi bi-discord" style="color:#5865F2"></i> Discord(オーナー)</span>
-        <span><i class="bi bi-discord" style="color:#8da0f8"></i> Discord(サブオーナー)</span>
+        <span><i class="bi bi-envelope text-warning"></i> Webアプリ管理者メール</span>
+        <span><i class="bi bi-discord" style="color:#5865F2"></i> Discord(Webアプリ管理者)</span>
+        <span><i class="bi bi-discord" style="color:#8da0f8"></i> Discord(物件オーナー)</span>
       </div>
 
       <h6 class="text-muted mb-2"><i class="bi bi-megaphone"></i> 募集関連</h6>
@@ -240,7 +240,7 @@ const NotificationsPage = {
     document.getElementById("btnGmailReauth").addEventListener("click", () => {
       const email = (document.getElementById("ownerEmail").value || "").trim();
       if (!email) {
-        showToast("エラー", "先にオーナーメールアドレスを入力してください", "error");
+        showToast("エラー", "先にWebアプリ管理者メールアドレスを入力してください", "error");
         return;
       }
       const url = `https://api-5qrfx7ujcq-an.a.run.app/gmail-auth/start?email=${encodeURIComponent(email)}`;
@@ -317,7 +317,7 @@ const NotificationsPage = {
           <input type="password" class="form-control form-control-sm owner-line-ch-token" placeholder="チャネルアクセストークン" value="${this._escapeAttr(ch.token || "")}">
         </div>
         <div class="col-md-4">
-          <label class="form-label small mb-1">オーナー LINE User ID</label>
+          <label class="form-label small mb-1">Webアプリ管理者 LINE User ID</label>
           <input type="text" class="form-control form-control-sm owner-line-ch-userId" placeholder="Uxxxxxxxxxx" value="${this._escapeAttr(ch.userId || "")}">
         </div>
       </div>
@@ -408,7 +408,7 @@ const NotificationsPage = {
                 <div class="d-flex flex-wrap gap-3 mb-2">
                   <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="ownerLine" ${ownerLine ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-person-circle text-success"></i> オーナーLINE</span>
+                    <span class="form-check-label small"><i class="bi bi-person-circle text-success"></i> Webアプリ管理者LINE</span>
                   </label>
                   <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="groupLine" ${groupLine ? "checked" : ""}>
@@ -420,15 +420,15 @@ const NotificationsPage = {
                   </label>
                   <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="ownerEmail" ${ownerEmail ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-envelope text-warning"></i> オーナーメール</span>
+                    <span class="form-check-label small"><i class="bi bi-envelope text-warning"></i> Webアプリ管理者メール</span>
                   </label>
                   <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="discordOwner" ${discordOwner ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-discord" style="color:#5865F2"></i> Discord(オーナー)</span>
+                    <span class="form-check-label small"><i class="bi bi-discord" style="color:#5865F2"></i> Discord(Webアプリ管理者)</span>
                   </label>
                   <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="discordSubOwner" ${discordSubOwner ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-discord" style="color:#8da0f8"></i> Discord(サブオーナー)</span>
+                    <span class="form-check-label small"><i class="bi bi-discord" style="color:#8da0f8"></i> Discord(物件オーナー)</span>
                   </label>
                   <!-- FCM (Web Push) は将来再検討。現時点で iOS 制約により導入保留のため非表示。 -->
                   <label class="form-check form-check-inline mb-0 d-none" style="cursor:pointer;">
@@ -437,7 +437,7 @@ const NotificationsPage = {
                   </label>
                   <label class="form-check form-check-inline mb-0 d-none" style="cursor:pointer;">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="fcmOwner" ${fcmOwner ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-bell text-success"></i> Web Push(オーナー)</span>
+                    <span class="form-check-label small"><i class="bi bi-bell text-success"></i> Web Push(Webアプリ管理者)</span>
                   </label>
                 </div>
 
@@ -713,9 +713,9 @@ const NotificationsPage = {
       const data = await res.json();
       if (res.ok) {
         // チャネル別に成功/失敗を集計
-        const successes = [];  // ラベル(例: オーナーLINE)
+        const successes = [];  // ラベル(例: Webアプリ管理者LINE)
         const errs = [];       // { label, reason }
-        const labelMap = { ownerLine: "オーナーLINE", groupLine: "グループLINE", staffLine: "スタッフ個別LINE", ownerEmail: "オーナーメール", discordOwner: "Discord(オーナー)", discordSubOwner: "Discord(サブオーナー)", fcmStaff: "Web Push(スタッフ)", fcmOwner: "Web Push(オーナー)" };
+        const labelMap = { ownerLine: "Webアプリ管理者LINE", groupLine: "グループLINE", staffLine: "スタッフ個別LINE", ownerEmail: "Webアプリ管理者メール", discordOwner: "Discord(Webアプリ管理者)", discordSubOwner: "Discord(物件オーナー)", fcmStaff: "Web Push(スタッフ)", fcmOwner: "Web Push(Webアプリ管理者)" };
         for (const r of (data.results || [])) {
           const label = labelMap[r.target] || r.target;
           if (Array.isArray(r.staffResults)) {
@@ -891,10 +891,10 @@ const NotificationsPage = {
     if (/invalid_grant/.test(s)) return "Gmail認証失効 → Gmail再接続ボタンを押してください";
     if (/Gmail OAuth/i.test(s) || /gmailOAuth/.test(s)) return "Gmail未設定";
     if (/LINEチャネルトークン未設定/.test(s)) return "LINE設定未入力(チャネルトークン)";
-    if (/\u30aa\u30fc\u30ca\u30fcLINE User ID\u672a\u8a2d\u5b9a/.test(s) || /Owner.*User ID/i.test(s)) return "オーナーLINE User ID 未設定";
+    if (/\u30aa\u30fc\u30ca\u30fcLINE User ID\u672a\u8a2d\u5b9a/.test(s) || /Owner.*User ID/i.test(s)) return "Webアプリ管理者LINE User ID 未設定";
     if (/LINE\u30b0\u30eb\u30fc\u30d7ID \u672a\u8a2d\u5b9a/.test(s)) return "LINEグループID未設定";
     if (/LINE\u672a\u9023\u643a/.test(s)) return "このスタッフはLINE未連携";
-    if (/\u30aa\u30fc\u30ca\u30fc\u30e1\u30fc\u30eb\u30a2\u30c9\u30ec\u30b9\u672a\u8a2d\u5b9a/.test(s)) return "オーナーメールアドレス未入力";
+    if (/\u30aa\u30fc\u30ca\u30fc\u30e1\u30fc\u30eb\u30a2\u30c9\u30ec\u30b9\u672a\u8a2d\u5b9a/.test(s)) return "Webアプリ管理者メールアドレス未入力";
     if (/401|Unauthorized/.test(s)) return "認証エラー(ログインし直してください)";
     if (/fetch|network|ENOTFOUND/i.test(s)) return "ネットワークエラー";
     return s.slice(0, 160);

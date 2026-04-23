@@ -1,5 +1,5 @@
 /**
- * オーナー用 チェックリスト管理ページ (#/checklist)
+ * Webアプリ管理者用 チェックリスト管理ページ (#/checklist)
  *
  * 構成:
  *  A. 上部: マスタ編集エリア (物件選択 + マスタを開く + 他物件からインポート)
@@ -118,7 +118,7 @@ const ChecklistPage = {
         db.collection("checklists").get(),
       ]);
       this.properties = props || [];
-      // impersonation 中: サブオーナー所有物件のみに絞り込み (マスタ編集+履歴一覧ともに)
+      // impersonation 中: 物件オーナー所有物件のみに絞り込み (マスタ編集+履歴一覧ともに)
       if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
         const owned = App.impersonatingData.ownedPropertyIds || [];
         this.properties = this.properties.filter(p => owned.includes(p.id));

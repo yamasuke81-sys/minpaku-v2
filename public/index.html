@@ -84,7 +84,7 @@
       <a class="nav-link d-none" href="#/prepaid-cards" data-page="prepaid-cards" id="staffNavPrepaid"><i class="bi bi-credit-card-2-front"></i> プリカ管理</a>
     </nav>
     <div class="sidebar-footer d-flex align-items-center gap-2">
-      <a href="#" id="btnLogout" class="flex-grow-1"><i class="bi bi-box-arrow-right"></i> <span id="userName">オーナー</span></a>
+      <a href="#" id="btnLogout" class="flex-grow-1"><i class="bi bi-box-arrow-right"></i> <span id="userName">Webアプリ管理者</span></a>
       <button type="button" id="btnReloadCache" title="キャッシュ削除して再読み込み"
         style="background:transparent;border:1px solid rgba(255,255,255,0.3);color:#fff;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:14px;">
         <i class="bi bi-arrow-clockwise"></i>
@@ -236,15 +236,15 @@
               <textarea class="form-control" id="staffMemo" rows="2"></textarea>
             </div>
 
-            <!-- サブオーナー設定（編集時のみ表示） -->
+            <!-- 物件オーナー設定（編集時のみ表示） -->
             <div class="col-12 d-none" id="staffSubOwnerSection">
-              <hr><h6><i class="bi bi-person-badge"></i> サブオーナー設定</h6>
+              <hr><h6><i class="bi bi-person-badge"></i> 物件オーナー設定</h6>
               <div class="row g-2">
                 <div class="col-12">
                   <div class="form-check form-switch">
                     <input class="form-check-input" type="checkbox" id="staffIsSubOwner" role="switch">
                     <label class="form-check-label" for="staffIsSubOwner">
-                      <strong>サブオーナーとして扱う</strong>
+                      <strong>物件オーナーとして扱う</strong>
                       <small class="text-muted d-block">ONにすると物件フィルタが自動適用されます (LINE/メール通知は基本情報側のものを使用)</small>
                     </label>
                   </div>
@@ -252,10 +252,10 @@
                 <div id="subOwnerDetails" class="col-12 d-none">
                   <div class="row g-2 mt-1">
                     <div class="col-12">
-                      <label class="form-label">所有物件 <small class="text-muted">(サブオーナーが管理する物件)</small></label>
+                      <label class="form-label">所有物件 <small class="text-muted">(物件オーナーが管理する物件)</small></label>
                       <div id="staffOwnedProperties" class="d-flex flex-wrap gap-3 border rounded p-2"></div>
                     </div>
-                    <!-- 請求書宛名表示内容 (サブオーナー設定の下部に配置) -->
+                    <!-- 請求書宛名表示内容 (物件オーナー設定の下部に配置) -->
                     <div class="col-12">
                       <hr class="my-2"><h6 class="mb-1"><i class="bi bi-receipt"></i> 請求書宛名表示内容</h6>
                       <div class="small text-muted mb-2">
@@ -381,12 +381,12 @@
               <input type="text" class="form-control" id="propertyAddress">
             </div>
             <div class="col-md-6">
-              <label class="form-label">オーナー (請求書宛名)</label>
+              <label class="form-label">Webアプリ管理者 (請求書宛名)</label>
               <select class="form-select" id="propertyOwnerStaffId">
                 <option value="">(未設定 / 既定宛先を使用)</option>
               </select>
               <div class="form-text">請求書の宛名として使用。未設定時は共通設定の宛先が使われます。</div>
-              <!-- 名義選択 (オーナー選択後に表示) -->
+              <!-- 名義選択 (Webアプリ管理者選択後に表示) -->
               <div id="propertyOwnerBillingProfileWrap" class="mt-2 d-none">
                 <label class="form-label mb-1 small">名義 (請求書表示内容)</label>
                 <select class="form-select form-select-sm" id="propertyOwnerBillingProfileId">
@@ -436,7 +436,7 @@
             <div class="col-md-6">
               <label class="form-label">スタッフ選定方式</label>
               <select class="form-select" id="propertySelectionMethod">
-                <option value="ownerConfirm">オーナーが確定（デフォルト）</option>
+                <option value="ownerConfirm">Webアプリ管理者が確定（デフォルト）</option>
                 <option value="firstCome">早い者勝ち（◎回答順に自動確定）</option>
               </select>
             </div>
@@ -710,9 +710,9 @@
 
                     <p class="mb-1"><strong>方法B: 自分の User ID で代用 (簡単)</strong></p>
                     <ol class="ps-3 mb-3 small">
-                      <li>Group ID を取得せず、<strong>オーナー自身の LINE User ID</strong> を使う</li>
+                      <li>Group ID を取得せず、<strong>Webアプリ管理者自身の LINE User ID</strong> を使う</li>
                       <li>「Messaging API設定」の <strong>「あなたのユーザーID」</strong> (U で始まる文字列) をコピー</li>
-                      <li>これをフォームの「グループ ID」欄に貼る → オーナーだけに通知が来る (暫定)</li>
+                      <li>これをフォームの「グループ ID」欄に貼る → Webアプリ管理者だけに通知が来る (暫定)</li>
                       <li>後日、方法A で本当の Group ID に差し替えるか、運用的にこれで OK ならそのまま</li>
                     </ol>
 
@@ -883,7 +883,7 @@
               <!-- 次の予約セクション (募集詳細モーダル) -->
               <div id="detailNextBookingArea" class="mt-3"></div>
 
-              <!-- オーナー限定: 情報登録履歴 (iCal 取得日 / Gmail 照合日 等) -->
+              <!-- Webアプリ管理者限定: 情報登録履歴 (iCal 取得日 / Gmail 照合日 等) -->
               <div id="ownerInfoLog" class="d-none"></div>
             </div>
           </div>

@@ -1,5 +1,5 @@
 /**
- * オーナーをスタッフの1人として登録
+ * Webアプリ管理者をスタッフの1人として登録
  * settings/notifications.ownerEmail と Auth の表示名を参考にして
  * staff/{owner-uid} ドキュメントを作成/更新する。既に同一 authUid のスタッフがあれば更新だけ。
  *
@@ -28,7 +28,7 @@ if (!ownerUid) {
     const s = await db.collection("settings").doc("notifications").get();
     if (s.exists) email = s.data().ownerEmail || "";
   }
-  if (!name) name = email ? email.split("@")[0] : "オーナー";
+  if (!name) name = email ? email.split("@")[0] : "Webアプリ管理者";
 
   // 既存 staff で authUid が一致するものを検索
   const existingSnap = await db.collection("staff").where("authUid", "==", ownerUid).limit(1).get();
@@ -39,9 +39,9 @@ if (!ownerUid) {
     role: "owner",
     isOwner: true,                  // UI識別用フラグ
     active: true,
-    assignedPropertyIds: [],         // オーナーも担当物件を選ぶ
+    assignedPropertyIds: [],         // Webアプリ管理者も担当物件を選ぶ
     skills: [],
-    displayOrder: 0,                 // オーナーを最上段に表示
+    displayOrder: 0,                 // Webアプリ管理者を最上段に表示
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
 

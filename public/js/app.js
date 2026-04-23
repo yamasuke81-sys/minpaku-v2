@@ -5,7 +5,7 @@
 const App = {
   currentPage: null,
 
-  // オーナー用ページ
+  // Webアプリ管理者用ページ
   pages: {
     staff: StaffPage,
     properties: PropertiesPage,
@@ -28,7 +28,7 @@ const App = {
     "tax-docs": TaxDocsPage,
     "email-verification": EmailVerificationPage,
     settings: SettingsPage,
-    // 予約・清掃スケジュール (オーナー用フル機能ビュー) — MyRecruitmentPage を view mode で分岐
+    // 予約・清掃スケジュール (Webアプリ管理者用フル機能ビュー) — MyRecruitmentPage を view mode で分岐
     "schedule": MyRecruitmentPage,
   },
 
@@ -79,13 +79,13 @@ const App = {
 
   // ========== Impersonation (代理閲覧) ==========
 
-  /** 代理閲覧中のサブオーナーStaffId (null = 通常モード) */
+  /** 代理閲覧中の物件オーナーStaffId (null = 通常モード) */
   impersonating: null,
   impersonatingData: null,
 
   /**
    * 起動時に impersonateAs を読み込む
-   * メインオーナーが特定サブオーナーの視点でアプリを閲覧するための機構
+   * メインWebアプリ管理者が特定物件オーナーの視点でアプリを閲覧するための機構
    */
   async initImpersonation() {
     const impersonateAs = localStorage.getItem("impersonateAs");
@@ -94,10 +94,10 @@ const App = {
       this.impersonatingData = null;
       return;
     }
-    // 実際のロールがオーナーの場合のみ有効
+    // 実際のロールがWebアプリ管理者の場合のみ有効
     const role = Auth.currentUser?.role || "owner";
     if (role !== "owner" && role !== null && role !== undefined) {
-      // オーナー以外は impersonation 不可
+      // Webアプリ管理者以外は impersonation 不可
       localStorage.removeItem("impersonateAs");
       return;
     }
@@ -185,7 +185,7 @@ const App = {
     // スタッフ側のプリカ管理タブ: 担当物件に紐づくカードがある場合のみ表示
     if (role === "staff") this._maybeShowStaffPrepaidNav();
 
-    // impersonation 初期化（オーナーのみ）
+    // impersonation 初期化（Webアプリ管理者のみ）
     this.initImpersonation().then(() => this.route());
   },
 
@@ -222,7 +222,7 @@ const App = {
     }
 
     // #/dashboard または #/ (ルート) → ロールに応じてリダイレクト
-    // オーナー/サブオーナー → #/schedule (フル機能)、スタッフ → #/my-recruitment (スタッフビュー)
+    // Webアプリ管理者/物件オーナー → #/schedule (フル機能)、スタッフ → #/my-recruitment (スタッフビュー)
     if (location.hash === "#/dashboard" || location.hash === "#/" || location.hash === "") {
       const currentRole = Auth?.currentUser?.role || "owner";
       location.hash = currentRole === "staff" ? "#/my-recruitment" : "#/schedule";
@@ -239,12 +239,12 @@ const App = {
     const defaultPage = role === "staff" ? "my-recruitment" : "schedule";
     const pageName = path[0] || defaultPage;
 
-    // ロール別ページマップ選択（オーナー/サブオーナーはスタッフページにもアクセス可能）
+    // ロール別ページマップ選択（Webアプリ管理者/物件オーナーはスタッフページにもアクセス可能）
     const availablePages = role === "staff"
       ? this.staffPages
       : { ...this.pages, ...this.staffPages };
 
-    // サイドバーのアクティブ状態更新（サブオーナーはオーナーナビを使用）
+    // サイドバーのアクティブ状態更新（物件オーナーはWebアプリ管理者ナビを使用）
     const navId = role === "staff" ? "#staffNav" : "#ownerNav";
     document.querySelectorAll(`${navId} .nav-link`).forEach((el) => {
       el.classList.toggle("active", el.getAttribute("data-page") === pageName);
@@ -261,7 +261,7 @@ const App = {
         if (mainEl) mainEl.scrollTop = 0;
       } catch (_) {}
     } else {
-      // スタッフがオーナーページにアクセスしようとした場合など
+      // スタッフがWebアプリ管理者ページにアクセスしようとした場合など
       const backPage = role === "staff" ? "my-recruitment" : "dashboard";
       const backLabel = role === "staff" ? "清掃スケジュール" : "ダッシュボード";
       document.getElementById("pageContainer").innerHTML = `

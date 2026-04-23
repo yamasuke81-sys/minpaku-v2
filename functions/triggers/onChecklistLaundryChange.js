@@ -446,7 +446,7 @@ module.exports = async (event) => {
         continue;
       }
 
-      // オーナーLINE
+      // Webアプリ管理者LINE
       if (targets.ownerLine) {
         await notifyOwner(db, type, title, body, vars, propertyOverrides);
       }

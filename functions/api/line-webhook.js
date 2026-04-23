@@ -98,7 +98,7 @@ async function processEvent_(db, event) {
       }
       break;
     case "follow":
-      // Bot友達追加 → オーナーUserIDを自動記録
+      // Bot友達追加 → Webアプリ管理者UserIDを自動記録
       await handleFollow_(db, event);
       break;
     default:
@@ -220,11 +220,11 @@ async function handleTextMessage_(db, event) {
   const text = event.message.text.trim();
   const userId = event.source.userId;
 
-  // オーナーのUserIDか確認
+  // Webアプリ管理者のUserIDか確認
   const settingsDoc = await db.collection("settings").doc("notifications").get();
   const ownerUserId = settingsDoc.exists ? settingsDoc.data().lineOwnerUserId : null;
   if (userId !== ownerUserId) {
-    console.log("オーナー以外からのメッセージを無視:", userId);
+    console.log("Webアプリ管理者以外からのメッセージを無視:", userId);
     return;
   }
 
@@ -332,7 +332,7 @@ async function handleFollow_(db, event) {
     await db.collection("settings").doc("notifications").update({
       lineOwnerUserId: userId,
     });
-    console.log("オーナーUserIDを自動登録:", userId);
+    console.log("Webアプリ管理者UserIDを自動登録:", userId);
   }
 }
 

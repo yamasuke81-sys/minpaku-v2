@@ -22,7 +22,7 @@ const DRY = !process.argv.includes("--execute");
   for (const d of staffSnap.docs) {
     const s = d.data();
     if (s.name) nameToId[s.name] = d.id;
-    // オーナーの別名対応 (例: 西山管理者 / 西山恭介)
+    // Webアプリ管理者の別名対応 (例: 西山管理者 / 西山恭介)
     if (s.name === "西山管理者") nameToId["西山恭介"] = d.id;
   }
   console.log(`スタッフ名→ID マップ: ${Object.keys(nameToId).length}件\n`);

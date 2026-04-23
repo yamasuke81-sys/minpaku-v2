@@ -14,7 +14,7 @@
  * localStorage key: propEyeFilter_${tabKey}
  *   値: { [propertyId]: false }  // false のみ保存 (未記載は visible)
  *
- * サブオーナー / impersonation 対応:
+ * 物件オーナー / impersonation 対応:
  *   ownedPropertyIds で事前に properties を絞り込む (呼び出し側の責務にはせず内部で対応)
  */
 const PropertyEyeFilter = {
@@ -23,7 +23,7 @@ const PropertyEyeFilter = {
     const container = document.getElementById(containerId);
     if (!container) return this._emptyController();
 
-    // サブオーナー / impersonation 強制フィルタ
+    // 物件オーナー / impersonation 強制フィルタ
     const owned = this._getForcedIds(properties);
     const effectiveProps = owned === null
       ? [...(properties || [])]
@@ -115,7 +115,7 @@ const PropertyEyeFilter = {
     };
   },
 
-  /** サブオーナー / impersonation の強制フィルタ ID 配列 (対象外は null) */
+  /** 物件オーナー / impersonation の強制フィルタ ID 配列 (対象外は null) */
   _getForcedIds(properties) {
     if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
       const owned = App.impersonatingData.ownedPropertyIds || [];

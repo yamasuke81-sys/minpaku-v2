@@ -1,7 +1,7 @@
 /**
  * エラーログ作成時のAI翻訳+LINE通知トリガー
  * Cloud Functionsでエラーが発生→error_logsに書き込み→
- * このトリガーがAIでログを解析し、日本語で原因と対処法をオーナーに通知
+ * このトリガーがAIでログを解析し、日本語で原因と対処法をWebアプリ管理者に通知
  */
 const { notifyOwner } = require("../utils/lineNotify");
 

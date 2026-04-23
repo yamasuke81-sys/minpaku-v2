@@ -83,7 +83,7 @@ module.exports = function scanSorterApi(db) {
         try {
           const meta = await drive.files.get({ fileId: testFolderId, fields: "id,name,owners", supportsAllDrives: true });
           const owners = (meta.data.owners || []).map(o => o.emailAddress).join(", ");
-          folderTest = `OK: 「${meta.data.name}」(オーナー: ${owners})`;
+          folderTest = `OK: 「${meta.data.name}」(Webアプリ管理者: ${owners})`;
         } catch (e) {
           folderTest = `エラー: ${e.message}`;
         }
@@ -1478,7 +1478,7 @@ module.exports = function scanSorterApi(db) {
               folderId,
               serviceAccount: saEmail,
               driveError: e.message,
-              hint: `サービスアカウント「${saEmail}」に対象フォルダの共有（編集者）が必要です。フォルダのオーナーアカウントから直接共有してください。`,
+              hint: `サービスアカウント「${saEmail}」に対象フォルダの共有（編集者）が必要です。フォルダのWebアプリ管理者アカウントから直接共有してください。`,
             },
           });
         }
@@ -2975,15 +2975,15 @@ async function analyzeWithGemini_(pdfBase64, apiKey, feedbackHistory, renameHist
  * 移動先1が指定されている場合に使用
  */
 /**
- * ファイルコピー + オーナー移譲
+ * ファイルコピー + Webアプリ管理者移譲
  * サービスアカウントはストレージクォータがないため、
- * コピー後にコピー先フォルダのオーナーにファイル所有権を移譲する
+ * コピー後にコピー先フォルダのWebアプリ管理者にファイル所有権を移譲する
  */
 /**
  * ファイルコピー（ダウンロード→アップロード方式）
  * files.copyはサービスアカウントのストレージクォータエラーになるため、
  * PDFバイナリをダウンロードして新規ファイルとしてアップロードする。
- * アップロード先フォルダのオーナーがファイル所有者になるためクォータ問題なし。
+ * アップロード先フォルダのWebアプリ管理者がファイル所有者になるためクォータ問題なし。
  */
 async function copyFileWithOwnerTransfer_(drive, sourceFileId, newName, destFolderId) {
   // 1. 元ファイルのバイナリをダウンロード
@@ -3005,7 +3005,7 @@ async function copyFileWithOwnerTransfer_(drive, sourceFileId, newName, destFold
   const metaRes = await drive.files.get({ fileId: sourceFileId, fields: "mimeType", supportsAllDrives: true });
   const mimeType = metaRes.data.mimeType || "application/pdf";
 
-  // 3. 新規ファイルとしてアップロード（宛先フォルダのオーナーがファイル所有者になる）
+  // 3. 新規ファイルとしてアップロード（宛先フォルダのWebアプリ管理者がファイル所有者になる）
   const { Readable } = require("stream");
   const uploadRes = await drive.files.create({
     requestBody: {
@@ -3188,7 +3188,7 @@ async function getOrCreateSubfolder_(drive, parentId, name) {
     fields: "id,name",
   });
 
-  // 親フォルダのオーナーを取得して、作成したフォルダのオーナーを移譲
+  // 親フォルダのWebアプリ管理者を取得して、作成したフォルダのWebアプリ管理者を移譲
   try {
     const parentMeta = await drive.files.get({ fileId: parentId, fields: "owners", supportsAllDrives: true });
     const parentOwner = (parentMeta.data.owners || [])[0];
@@ -3201,8 +3201,8 @@ async function getOrCreateSubfolder_(drive, parentId, name) {
       });
     }
   } catch (ownerErr) {
-    // オーナー移譲に失敗しても、フォルダ自体は使える
-    console.error("フォルダオーナー移譲エラー（無視可）:", ownerErr.message);
+    // Webアプリ管理者移譲に失敗しても、フォルダ自体は使える
+    console.error("フォルダWebアプリ管理者移譲エラー（無視可）:", ownerErr.message);
   }
 
   return created.data;

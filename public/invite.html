@@ -74,7 +74,7 @@
           </div>
           <h5 class="text-danger">招待リンクが無効です</h5>
           <p class="text-muted" id="invalidReason">有効期限が切れたか、既に使用されています。</p>
-          <p class="text-muted small">オーナーに新しい招待リンクの発行を依頼してください。</p>
+          <p class="text-muted small">Webアプリ管理者に新しい招待リンクの発行を依頼してください。</p>
         </div>
 
         <!-- 成功 -->
@@ -247,7 +247,7 @@
           const channelId = window.LINE_LOGIN_CHANNEL_ID;
           if (!channelId) {
             const errorEl = document.getElementById("acceptError");
-            errorEl.textContent = "LINE Login設定が未完了です。オーナーに確認してください。";
+            errorEl.textContent = "LINE Login設定が未完了です。Webアプリ管理者に確認してください。";
             errorEl.classList.remove("d-none");
             return;
           }

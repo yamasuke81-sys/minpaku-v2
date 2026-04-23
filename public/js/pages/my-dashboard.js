@@ -1,7 +1,7 @@
 /**
  * スタッフ用マイダッシュボード
  * 今日のシフト、今後の予定、未回答募集件数を表示
- * オーナーがアクセスした場合は全データを表示
+ * Webアプリ管理者がアクセスした場合は全データを表示
  *
  * onSnapshot でリアルタイム更新。複数リスナーは _unsubs[] に積み、
  * detach() で確実に全解除する。
@@ -19,7 +19,7 @@ const MyDashboardPage = {
   async render(container) {
     const isOwner = Auth.isOwner();
     const staffId = Auth.currentUser?.staffId;
-    const displayName = Auth.currentUser?.displayName || Auth.currentUser?.email?.split("@")[0] || "オーナー";
+    const displayName = Auth.currentUser?.displayName || Auth.currentUser?.email?.split("@")[0] || "Webアプリ管理者";
 
     if (!isOwner && !staffId) {
       container.innerHTML = '<div class="alert alert-warning m-3">スタッフ情報が取得できません。再ログインしてください。</div>';
@@ -112,7 +112,7 @@ const MyDashboardPage = {
    * 未回答募集を onSnapshot で監視。
    * スタッフの場合は assignedPropertyIds に絞り込み。
    * Firestore の `in` 演算子は最大10件のため、10件超は全件取得フォールバック。
-   * オーナー / assignedPropertyIds 未設定の場合も全件取得。
+   * Webアプリ管理者 / assignedPropertyIds 未設定の場合も全件取得。
    */
   _subscribePending(staffId, isOwner) {
     const isOwnerFlag = isOwner;
@@ -238,7 +238,7 @@ const MyDashboardPage = {
          </a>`
       : "";
 
-    // オーナー表示時はスタッフ名も表示
+    // Webアプリ管理者表示時はスタッフ名も表示
     const staffLabel = Auth.isOwner() && staffName ? `<span class="text-muted small ms-2">担当: ${staffName}</span>` : "";
 
     // 今後の予定 (未来) カードはクリックでチェックリスト詳細へ遷移 (事前確認用)

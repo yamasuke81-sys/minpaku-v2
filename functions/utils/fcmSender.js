@@ -74,7 +74,7 @@ async function sendFCM(tokens, title, body, data = {}) {
 /**
  * 無効なFCMトークンをFirestoreから削除
  * @param {FirebaseFirestore.Firestore} db
- * @param {string} staffId - スタッフID（nullの場合はオーナートークンから削除）
+ * @param {string} staffId - スタッフID（nullの場合はWebアプリ管理者トークンから削除）
  * @param {string[]} invalidTokens
  */
 async function cleanupInvalidTokens(db, staffId, invalidTokens) {
@@ -90,12 +90,12 @@ async function cleanupInvalidTokens(db, staffId, invalidTokens) {
       });
       console.log(`[FCM] スタッフ ${staffId} の無効トークン ${invalidTokens.length}件 削除`);
     } else {
-      // オーナー設定から削除
+      // Webアプリ管理者設定から削除
       const settingsRef = db.collection("settings").doc("fcmTokens");
       await settingsRef.update({
         ownerTokens: admin.firestore.FieldValue.arrayRemove(...invalidTokens),
       });
-      console.log(`[FCM] オーナーの無効トークン ${invalidTokens.length}件 削除`);
+      console.log(`[FCM] Webアプリ管理者の無効トークン ${invalidTokens.length}件 削除`);
     }
   } catch (e) {
     console.error("[FCM] 無効トークン削除失敗:", e);
@@ -147,7 +147,7 @@ async function notifyAllStaffFCM(db, title, body, data = {}) {
 }
 
 /**
- * オーナーのFCMトークンを取得して送信
+ * Webアプリ管理者のFCMトークンを取得して送信
  * @param {FirebaseFirestore.Firestore} db
  * @param {string} title
  * @param {string} body
@@ -155,10 +155,10 @@ async function notifyAllStaffFCM(db, title, body, data = {}) {
  */
 async function notifyOwnerFCM(db, title, body, data = {}) {
   const doc = await db.collection("settings").doc("fcmTokens").get();
-  if (!doc.exists) return { success: false, note: "オーナーFCMトークンなし" };
+  if (!doc.exists) return { success: false, note: "Webアプリ管理者FCMトークンなし" };
 
   const tokens = doc.data().ownerTokens || [];
-  if (tokens.length === 0) return { success: false, note: "オーナーFCMトークンなし" };
+  if (tokens.length === 0) return { success: false, note: "Webアプリ管理者FCMトークンなし" };
 
   const result = await sendFCM(tokens, title, body, data);
 

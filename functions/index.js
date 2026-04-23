@@ -63,10 +63,10 @@ async function authenticate(req, res, next) {
   }
 }
 
-// オーナー権限チェック
+// Webアプリ管理者権限チェック
 function requireOwner(req, res, next) {
   if (req.user.role !== "owner") {
-    return res.status(403).json({ error: "オーナー権限が必要です" });
+    return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
   }
   next();
 }

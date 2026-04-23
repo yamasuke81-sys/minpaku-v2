@@ -249,7 +249,7 @@ const StaffPage = {
           ${canDrag ? '<i class="bi bi-grip-vertical text-muted me-1 staff-handle" style="cursor:grab;"></i>' : ''}
           <strong>${this.escapeHtml(s.name)}</strong>
           ${s.isTimee ? '<span class="badge bg-warning text-dark ms-1" title="タイミー">T</span>' : ""}
-          ${s.isSubOwner ? '<span class="badge bg-purple ms-1" style="background:#7c3aed;color:#fff;" title="サブオーナー">SO</span>' : ""}
+          ${s.isSubOwner ? '<span class="badge bg-purple ms-1" style="background:#7c3aed;color:#fff;" title="物件オーナー">SO</span>' : ""}
           ${s.skills && s.skills.length ? `<br><small class="text-muted">${s.skills.join(", ")}</small>` : ""}
         </td>
         <td class="d-none d-md-table-cell">${this.escapeHtml(s.email || "-")}</td>
@@ -298,12 +298,12 @@ const StaffPage = {
       });
     });
 
-    // 代理ログインボタン（オーナーのみ表示）
+    // 代理ログインボタン（Webアプリ管理者のみ表示）
     tbody.querySelectorAll(".btn-impersonate").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         const staffId = btn.dataset.staffId;
         const staffName = btn.dataset.staffName;
-        const ok = await showConfirm(`${staffName} のサブオーナー視点で代理閲覧しますか？\n\n画面上部にバナーが表示されます。「解除」ボタンで元の表示に戻ります。`, "代理閲覧");
+        const ok = await showConfirm(`${staffName} の物件オーナー視点で代理閲覧しますか？\n\n画面上部にバナーが表示されます。「解除」ボタンで元の表示に戻ります。`, "代理閲覧");
         if (!ok) return;
         localStorage.setItem("impersonateAs", staffId);
         window.location.reload();
@@ -644,7 +644,7 @@ const StaffPage = {
     return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
   },
 
-  // 所有物件チェックボックス (サブオーナー用)
+  // 所有物件チェックボックス (物件オーナー用)
   async renderOwnedPropertyCheckboxes(ownedIds) {
     const el = document.getElementById("staffOwnedProperties");
     if (!el) return;
@@ -799,7 +799,7 @@ const StaffPage = {
     // 担当物件チェックボックス(民泊物件のみ、デフォルト外れ)
     this.renderPropertyCheckboxes(staff?.assignedPropertyIds || []);
 
-    // サブオーナーセクション（編集時のみ表示）
+    // 物件オーナーセクション（編集時のみ表示）
     const subOwnerSection = document.getElementById("staffSubOwnerSection");
     if (isEdit) {
       subOwnerSection.classList.remove("d-none");
@@ -809,7 +809,7 @@ const StaffPage = {
       this.renderOwnedPropertyCheckboxes(staff?.ownedPropertyIds || []);
       document.getElementById("staffSubOwnerLineUserId").value = staff?.subOwnerLineUserId || "";
       document.getElementById("staffSubOwnerEmail").value = staff?.subOwnerEmail || "";
-      // サブオーナーON/OFFで詳細を表示切替
+      // 物件オーナーON/OFFで詳細を表示切替
       const subOwnerDetails = document.getElementById("subOwnerDetails");
       subOwnerDetails.classList.toggle("d-none", !isSubOwnerEl.checked);
       isSubOwnerEl.onchange = () => {
@@ -926,7 +926,7 @@ const StaffPage = {
         data.lineUserId = lineUserId || null;
       }
 
-      // サブオーナー設定
+      // 物件オーナー設定
       const isSubOwnerEl = document.getElementById("staffIsSubOwner");
       if (isSubOwnerEl) {
         data.isSubOwner = isSubOwnerEl.checked;

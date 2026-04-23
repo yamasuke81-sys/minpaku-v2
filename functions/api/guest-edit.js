@@ -40,10 +40,10 @@ module.exports = function guestEditApi(db) {
         return res.status(404).json({ error: "登録が見つかりません。リンクが無効か、期限切れの可能性があります。" });
       }
       if (isExpired(result.data)) {
-        return res.status(410).json({ error: "修正リンクの有効期限(30日)が切れています。オーナーにお問い合わせください。" });
+        return res.status(410).json({ error: "修正リンクの有効期限(30日)が切れています。Webアプリ管理者にお問い合わせください。" });
       }
       if (result.data.status === "confirmed") {
-        return res.status(403).json({ error: "この名簿はオーナーにより確認済みのため、修正できません。" });
+        return res.status(403).json({ error: "この名簿はWebアプリ管理者により確認済みのため、修正できません。" });
       }
       // editTokenは返さない
       const { editToken, previousData, ...safeData } = result.data;
@@ -67,7 +67,7 @@ module.exports = function guestEditApi(db) {
         return res.status(404).json({ error: "登録が見つかりません。" });
       }
       if (isExpired(result.data)) {
-        return res.status(410).json({ error: "修正リンクの有効期限(30日)が切れています。オーナーにお問い合わせください。" });
+        return res.status(410).json({ error: "修正リンクの有効期限(30日)が切れています。Webアプリ管理者にお問い合わせください。" });
       }
       if (result.data.status === "confirmed") {
         return res.status(403).json({ error: "確認済みのため修正できません。" });
@@ -128,7 +128,7 @@ module.exports = function guestEditApi(db) {
         summary, editUrl, confirmUrl,
       };
 
-      // オーナーにメール（変更点付き）
+      // Webアプリ管理者にメール（変更点付き）
       try {
         const notifDoc = await db.collection("settings").doc("notifications").get();
         const notifyEmails = notifDoc.exists ? (notifDoc.data().notifyEmails || []) : [];
@@ -138,11 +138,11 @@ module.exports = function guestEditApi(db) {
           try {
             await sendNotificationEmail_(email, ownerSubject, ownerBody);
           } catch (e) {
-            console.error(`オーナーメール送信失敗 (${email}):`, e.message);
+            console.error(`Webアプリ管理者メール送信失敗 (${email}):`, e.message);
           }
         }
       } catch (e) {
-        console.error("オーナーメール処理エラー:", e.message);
+        console.error("Webアプリ管理者メール処理エラー:", e.message);
       }
 
       // 宿泊者にメール（修正確認）

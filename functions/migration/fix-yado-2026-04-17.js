@@ -9,7 +9,7 @@ const db = admin.firestore();
 const FV = admin.firestore.FieldValue;
 
 const REC_ID = "Age99LWawy68Eh87OINW";
-const STAFF_ID = "ziTig6tefnj5NvkgN4fG"; // 西山管理者（オーナー）
+const STAFF_ID = "ziTig6tefnj5NvkgN4fG"; // 西山管理者（Webアプリ管理者）
 
 async function main() {
   // --- 1. recruitment 取得 ---

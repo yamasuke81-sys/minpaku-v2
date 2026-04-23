@@ -68,7 +68,7 @@ async function cancelCleaningForDate_(db, propertyId, dateStr, excludeBookingId)
 // ========== D-1: ダブルブッキング検知 ==========
 
 /**
- * 同物件・日程重複の予約を検出してオーナーに通知する
+ * 同物件・日程重複の予約を検出してWebアプリ管理者に通知する
  * 重複条件: new.checkIn < existing.checkOut && existing.checkIn < new.checkOut
  * @param {FirebaseFirestore.Firestore} db
  * @param {string} bookingId
@@ -558,7 +558,7 @@ module.exports = async function onBookingChange(event) {
       memo: memo || "",
     };
 
-    // オーナーLINE通知
+    // Webアプリ管理者LINE通知
     if (targets.ownerLine) {
       await notifyOwner(
         db,

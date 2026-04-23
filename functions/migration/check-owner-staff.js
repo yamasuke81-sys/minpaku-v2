@@ -4,7 +4,7 @@ const db = admin.firestore();
 
 (async () => {
   const ownerDoc = await db.collection("staff").doc("ziTig6tefnj5NvkgN4fG").get();
-  console.log("オーナースタッフドキュメント:");
+  console.log("Webアプリ管理者スタッフドキュメント:");
   if (ownerDoc.exists) {
     const d = ownerDoc.data();
     console.log(JSON.stringify({

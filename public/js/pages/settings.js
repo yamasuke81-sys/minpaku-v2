@@ -650,13 +650,13 @@ const SettingsPage = {
       "仕事内容マスタ": "jobTypes",
       "特別料金": "specialRates",
       "募集設定": "settings_recruit",
-      "設定_オーナー": "settings_owner",
+      "設定_Webアプリ管理者": "settings_owner",
       "設定_連携": "syncSettings",
       "通知履歴": "notifications",
       "キャンセル申請": "cancelRequests",
       "スタッフ共有用": "staffShare",
       "ベッド数マスタ": "bedCounts",
-      "サブオーナー": "subOwners",
+      "物件オーナー": "subOwners",
     };
 
     // チェックリストの主要シート

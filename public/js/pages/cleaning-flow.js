@@ -1,7 +1,7 @@
 /**
  * 清掃フロー構成画面 (v2 再実装 2026-04-20)
  *
- * 3レーンスイムレーン (ゲスト / オーナー / スタッフ) + 19ステップ + 通知統合
+ * 3レーンスイムレーン (ゲスト / Webアプリ管理者 / スタッフ) + 19ステップ + 通知統合
  *
  * データ格納先:
  *   - propertyField 系  : properties/{pid}.*
@@ -459,7 +459,7 @@ const CleaningFlowPage = {
         <span id="cfSaveStatus" class="small text-muted"></span>
       </div>
       <p class="text-muted small mb-3">
-        オーナー / スタッフの3レーンで募集〜月末請求までの清掃フローを管理します。
+        Webアプリ管理者 / スタッフの3レーンで募集〜月末請求までの清掃フローを管理します。
         🌐 バッジのステップは通知設定タブ・予約フロー画面と共有データです。
         各カードを展開すると通知設定（文言・タイミング・送信先）を直接編集できます。
       </p>
@@ -469,7 +469,7 @@ const CleaningFlowPage = {
         <ul class="nav nav-pills nav-fill rf-lane-tabs">
           <li class="nav-item"><a class="nav-link active" href="#" data-lane="all">すべて</a></li>
           <li class="nav-item"><a class="nav-link" href="#" data-lane="guest">👤 ゲスト</a></li>
-          <li class="nav-item"><a class="nav-link" href="#" data-lane="owner">🏠 オーナー</a></li>
+          <li class="nav-item"><a class="nav-link" href="#" data-lane="owner">🏠 Webアプリ管理者</a></li>
           <li class="nav-item"><a class="nav-link" href="#" data-lane="staff">🧹 スタッフ</a></li>
           <li class="nav-item"><a class="nav-link" href="#" data-lane="branch">🔴 分岐</a></li>
         </ul>
@@ -611,7 +611,7 @@ const CleaningFlowPage = {
     html += `
       <div class="rf-swimlane-grid rf-swimlane-header">
         <div class="rf-lane-header rf-lane-guest">👤 ゲスト</div>
-        <div class="rf-lane-header rf-lane-owner">🏠 オーナー</div>
+        <div class="rf-lane-header rf-lane-owner">🏠 Webアプリ管理者</div>
         <div class="rf-lane-header rf-lane-staff">🧹 スタッフ</div>
       </div>
     `;
@@ -809,10 +809,10 @@ const CleaningFlowPage = {
     // ---- ブール型フィールド ----
     const boolFields = [
       { field: "enabled",    label: "有効/無効",        icon: "bi-power",             globalVal: globalCh.enabled !== false },
-      { field: "ownerLine",  label: "オーナーLINE",     icon: "bi-person-circle",     globalVal: globalCh.ownerLine !== false },
+      { field: "ownerLine",  label: "Webアプリ管理者LINE",     icon: "bi-person-circle",     globalVal: globalCh.ownerLine !== false },
       { field: "groupLine",  label: "グループLINE",     icon: "bi-people-fill",       globalVal: !!globalCh.groupLine },
       { field: "staffLine",  label: "スタッフLINE",     icon: "bi-person-lines-fill", globalVal: !!globalCh.staffLine },
-      { field: "ownerEmail", label: "オーナーメール",   icon: "bi-envelope",          globalVal: !!globalCh.ownerEmail },
+      { field: "ownerEmail", label: "Webアプリ管理者メール",   icon: "bi-envelope",          globalVal: !!globalCh.ownerEmail },
     ];
 
     const boolRows = boolFields.map(({ field, label, icon, globalVal }) => {
@@ -965,7 +965,7 @@ const CleaningFlowPage = {
           <div class="d-flex flex-wrap gap-2">
             <label class="form-check form-check-inline mb-0 small">
               <input class="form-check-input rf-notif-field" type="checkbox" data-notif-key="${key}" data-field="ownerLine" ${ownerLine ? "checked" : ""}>
-              <span><i class="bi bi-person-circle text-success"></i> オーナーLINE</span>
+              <span><i class="bi bi-person-circle text-success"></i> Webアプリ管理者LINE</span>
             </label>
             <label class="form-check form-check-inline mb-0 small">
               <input class="form-check-input rf-notif-field" type="checkbox" data-notif-key="${key}" data-field="groupLine" ${groupLine ? "checked" : ""}>
@@ -977,11 +977,11 @@ const CleaningFlowPage = {
             </label>
             <label class="form-check form-check-inline mb-0 small">
               <input class="form-check-input rf-notif-field" type="checkbox" data-notif-key="${key}" data-field="ownerEmail" ${ownerEmail ? "checked" : ""}>
-              <span><i class="bi bi-envelope text-warning"></i> オーナーメール</span>
+              <span><i class="bi bi-envelope text-warning"></i> Webアプリ管理者メール</span>
             </label>
             <label class="form-check form-check-inline mb-0 small">
               <input class="form-check-input rf-notif-field" type="checkbox" data-notif-key="${key}" data-field="discordOwner" ${discordOwner ? "checked" : ""}>
-              <span><i class="bi bi-discord" style="color:#5865F2"></i> Discord(オーナー)</span>
+              <span><i class="bi bi-discord" style="color:#5865F2"></i> Discord(Webアプリ管理者)</span>
             </label>
             <label class="form-check form-check-inline mb-0 small">
               <input class="form-check-input rf-notif-field" type="checkbox" data-notif-key="${key}" data-field="discordSubOwner" ${discordSubOwner ? "checked" : ""}>

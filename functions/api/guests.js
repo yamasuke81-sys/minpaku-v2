@@ -107,7 +107,7 @@ module.exports = function guestsApi(db) {
   router.put("/:id", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const docRef = collection.doc(req.params.id);
       const doc = await docRef.get();
@@ -131,7 +131,7 @@ module.exports = function guestsApi(db) {
   router.delete("/:id", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       await collection.doc(req.params.id).delete();
       res.json({ message: "宿泊者情報を削除しました" });
@@ -145,7 +145,7 @@ module.exports = function guestsApi(db) {
   router.post("/import", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const { records } = req.body;
       if (!Array.isArray(records) || !records.length) {
@@ -176,7 +176,7 @@ module.exports = function guestsApi(db) {
     }
   });
 
-  // 宿泊者名簿 確認（オーナーが「確認済み」にする）
+  // 宿泊者名簿 確認（Webアプリ管理者が「確認済み」にする）
   router.put("/:id/confirm", async (req, res) => {
     try {
       const docRef = collection.doc(req.params.id);

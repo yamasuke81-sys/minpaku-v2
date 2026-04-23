@@ -85,7 +85,7 @@ exports.generateInvoices = onSchedule({
   for (const g of generated) console.log(`  ✓ ${g.invoiceId} ${g.staff} ¥${g.total}`);
   for (const s of skipped) console.log(`  - skip staff=${s.staffId} reason=${s.reason}`);
 
-  // オーナーサマリ通知
+  // Webアプリ管理者サマリ通知
   if (generated.length > 0) {
     try {
       const totalAmount = generated.reduce((s, g) => s + g.total, 0);

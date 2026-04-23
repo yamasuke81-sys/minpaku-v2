@@ -35,11 +35,11 @@ module.exports = function checklistApi(db) {
     }
   });
 
-  // 物件テンプレート(ツリー)保存 ※オーナーのみ、areas全体を差し替える想定
+  // 物件テンプレート(ツリー)保存 ※Webアプリ管理者のみ、areas全体を差し替える想定
   router.put("/templates/:propertyId/tree", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const { propertyId } = req.params;
       const { areas, _meta } = req.body;
@@ -61,14 +61,14 @@ module.exports = function checklistApi(db) {
     }
   });
 
-  // 未完了チェックリストを原紙の最新版で再生成 ※オーナーのみ (方針C)
+  // 未完了チェックリストを原紙の最新版で再生成 ※Webアプリ管理者のみ (方針C)
   // - 対象: 該当物件の status !== "completed" の checklist
   // - 完了済みは保護、進行中は itemStates を smart merge (ID 一致のみ保持)
   // - body: { alsoInProgress?: boolean } — デフォルト false (進行中は触らない)
   router.post("/templates/:propertyId/regenerate", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const { propertyId } = req.params;
       const alsoInProgress = !!req.body.alsoInProgress;
@@ -135,12 +135,12 @@ module.exports = function checklistApi(db) {
     }
   });
 
-  // 別物件 or マスタからコピー ※オーナーのみ
+  // 別物件 or マスタからコピー ※Webアプリ管理者のみ
   // body: { sourceType: "master" | "template", sourcePropertyId?: string }
   router.post("/templates/:propertyId/copyFrom", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const { propertyId } = req.params;
       const { sourceType, sourcePropertyId } = req.body;
@@ -190,11 +190,11 @@ module.exports = function checklistApi(db) {
     }
   });
 
-  // テンプレート作成/更新（オーナーのみ）
+  // テンプレート作成/更新（Webアプリ管理者のみ）
   router.post("/templates", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
       const { body } = req;

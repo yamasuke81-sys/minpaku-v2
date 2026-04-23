@@ -1,11 +1,11 @@
 /**
  * メール照合機能 API
  *
- * POST /api/email-verification/run    オーナー手動で巡回を実行
+ * POST /api/email-verification/run    Webアプリ管理者手動で巡回を実行
  * GET  /api/email-verification/list   照合結果一覧 (Step 5 UI 用)
  *
  * index.js で authenticate ミドルウェアが適用された後にマウントされる想定。
- * ここではオーナー権限チェックのみ追加で行う。
+ * ここではWebアプリ管理者権限チェックのみ追加で行う。
  */
 const { Router } = require("express");
 const { emailVerificationCore } = require("../scheduled/emailVerification");
@@ -15,7 +15,7 @@ module.exports = function emailVerificationApi(db) {
 
   function requireOwner_(req, res, next) {
     if (!req.user || req.user.role !== "owner") {
-      return res.status(403).json({ error: "オーナー権限が必要です" });
+      return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
     }
     next();
   }

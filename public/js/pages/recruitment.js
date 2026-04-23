@@ -405,7 +405,7 @@ const RecruitmentPage = {
       reopenBtn.classList.add("d-none");
     }
 
-    // オーナー限定: 情報履歴 (iCal 取得日 / Gmail 照合日 等) を非同期で描画
+    // Webアプリ管理者限定: 情報履歴 (iCal 取得日 / Gmail 照合日 等) を非同期で描画
     // スタッフビュー時は常に非表示
     const ownerInfoEl = document.getElementById("ownerInfoLog");
     if (ownerInfoEl) {
@@ -450,7 +450,7 @@ const RecruitmentPage = {
       return;
     }
 
-    // 自分の staffId / name / email を特定 (オーナーも自分の staff ドキュメント扱い)
+    // 自分の staffId / name / email を特定 (Webアプリ管理者も自分の staff ドキュメント扱い)
     let myStaffId = Auth.currentUser.staffId;
     let myStaff = null;
     if (!this.staffList || !this.staffList.length) {
@@ -459,7 +459,7 @@ const RecruitmentPage = {
     if (myStaffId) {
       myStaff = this.staffList.find(s => s.id === myStaffId);
     }
-    // オーナーで staffId クレームが無い場合、authUid で staff コレクションから解決
+    // Webアプリ管理者で staffId クレームが無い場合、authUid で staff コレクションから解決
     if (!myStaff && Auth.isOwner && Auth.isOwner() && Auth.currentUser.uid) {
       myStaff = this.staffList.find(s => s.authUid === Auth.currentUser.uid);
       if (myStaff) myStaffId = myStaff.id;
@@ -606,7 +606,7 @@ const RecruitmentPage = {
 
     area.innerHTML = `
       <div class="border rounded p-2 bg-light">
-        <div class="small text-muted mb-2">体調不良など、やむを得ず確定後に回答を変更したい場合はオーナーに変更要望を送信できます</div>
+        <div class="small text-muted mb-2">体調不良など、やむを得ず確定後に回答を変更したい場合はWebアプリ管理者に変更要望を送信できます</div>
         <button type="button" class="btn btn-outline-warning btn-sm" id="btnRequestChange">
           <i class="bi bi-arrow-repeat"></i> 回答変更要望を出す
         </button>
@@ -626,7 +626,7 @@ const RecruitmentPage = {
           }),
           updatedAt: FV.serverTimestamp(),
         });
-        showToast("送信完了", "回答変更要望をオーナーに送信しました", "success");
+        showToast("送信完了", "回答変更要望をWebアプリ管理者に送信しました", "success");
         const updated = await API.recruitments.get(recruitment.id);
         const idx = this.recruitments.findIndex(r => r.id === recruitment.id);
         if (idx >= 0) this.recruitments[idx] = updated;
@@ -837,7 +837,7 @@ const RecruitmentPage = {
     }
   },
 
-  // オーナー限定: 募集詳細モーダル最下部に「情報履歴」を描画
+  // Webアプリ管理者限定: 募集詳細モーダル最下部に「情報履歴」を描画
   // データソース: bookings ドキュメント
   //   - iCal 取得日 = bookings.createdAt
   //   - 最終同期日 = bookings.updatedAt
@@ -880,7 +880,7 @@ const RecruitmentPage = {
         <hr>
         <details>
           <summary class="small text-muted" style="cursor:pointer;">
-            <i class="bi bi-shield-lock"></i> 情報履歴 (オーナーのみ)
+            <i class="bi bi-shield-lock"></i> 情報履歴 (Webアプリ管理者のみ)
           </summary>
           <div class="small text-muted mt-2" style="line-height:1.7;">
             ${lines.join("")}
@@ -909,7 +909,7 @@ const RecruitmentPage = {
       if (r.staffName) respByName[r.staffName] = r;
     });
 
-    // 最新のアクティブスタッフ全員(オーナー含む)
+    // 最新のアクティブスタッフ全員(Webアプリ管理者含む)
     // 既に取得済みの this.staffList を優先利用 (スタッフ権限で API.staff.list が失敗するのを回避)
     let baseStaff = Array.isArray(this.staffList) && this.staffList.length ? this.staffList : null;
     if (!baseStaff) {
@@ -918,8 +918,8 @@ const RecruitmentPage = {
     }
     const rawStaff = baseStaff.slice().sort((a, b) => (a.displayOrder||0) - (b.displayOrder||0));
 
-    // その物件の担当者のみに絞り込み (オーナーは常に含む、既に回答履歴がある staff は担当外でも残す)
-    // サブオーナーの場合は ownedPropertyIds で判定、通常スタッフは assignedPropertyIds
+    // その物件の担当者のみに絞り込み (Webアプリ管理者は常に含む、既に回答履歴がある staff は担当外でも残す)
+    // 物件オーナーの場合は ownedPropertyIds で判定、通常スタッフは assignedPropertyIds
     const propId = recruitment.propertyId;
     const respondedIds = new Set();
     const respondedNames = new Set();
@@ -930,7 +930,7 @@ const RecruitmentPage = {
       if (rr.staffEmail) respondedEmails.add(String(rr.staffEmail).toLowerCase());
     });
     const allStaff = rawStaff.filter(s => {
-      if (s.isOwner === true) return true; // オーナーは担当物件制限の対象外
+      if (s.isOwner === true) return true; // Webアプリ管理者は担当物件制限の対象外
       // 既に回答履歴がある場合は担当外でも残す (履歴保持)
       if (s.id && respondedIds.has(s.id)) return true;
       if (s.name && respondedNames.has(s.name)) return true;
@@ -985,7 +985,7 @@ const RecruitmentPage = {
             : (row.respondedAt.toDate ? row.respondedAt.toDate().toLocaleString("ja-JP") : String(row.respondedAt)))
         : "";
       // A4 で自分の回答はモーダル上部に集約したので、テーブル内の自分行の回答ボタンは非表示にする
-      // オーナービュー時は他スタッフへの代理回答のみ可 (自分の行は上部で操作)
+      // Webアプリ管理者ビュー時は他スタッフへの代理回答のみ可 (自分の行は上部で操作)
       const isMeRow = myStaffId && s.id === myStaffId;
       const canRespond = !confirmed && !isStaffView && !isMeRow;
       const selectCell = isStaffView ? "" : `
@@ -1014,7 +1014,7 @@ const RecruitmentPage = {
           ${selectCell}
           <td>
             ${this.escapeHtml(s.name)}
-            ${s.isOwner ? '<span class="badge bg-info ms-1" title="オーナー">OWN</span>' : ""}
+            ${s.isOwner ? '<span class="badge bg-info ms-1" title="Webアプリ管理者">OWN</span>' : ""}
           </td>
           <td>${respBadge(row.response)}</td>
           <td class="small text-muted d-none d-md-table-cell">${respondedStr}</td>

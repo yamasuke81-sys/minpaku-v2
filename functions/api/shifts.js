@@ -44,7 +44,7 @@ module.exports = function shiftsApi(db) {
   router.post("/", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
       const { body } = req;
@@ -78,7 +78,7 @@ module.exports = function shiftsApi(db) {
   router.put("/:id", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
       const docRef = collection.doc(req.params.id);
@@ -114,7 +114,7 @@ module.exports = function shiftsApi(db) {
   router.delete("/:id", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
       await collection.doc(req.params.id).delete();

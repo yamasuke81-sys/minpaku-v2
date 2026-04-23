@@ -9,11 +9,11 @@ const syncIcal = require("../scheduled/syncIcal");
 module.exports = function (db) {
   const router = express.Router();
 
-  // オーナー権限チェック
+  // Webアプリ管理者権限チェック
   function requireOwner(req, res, next) {
     // role が未定義またはowner の場合に許可
     if (req.user.role !== undefined && req.user.role !== "owner") {
-      return res.status(403).json({ error: "オーナー権限が必要です" });
+      return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
     }
     next();
   }

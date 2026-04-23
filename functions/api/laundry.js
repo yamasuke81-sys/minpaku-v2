@@ -66,11 +66,11 @@ module.exports = function laundryApi(db) {
     }
   });
 
-  // 記録削除（オーナーのみ）
+  // 記録削除（Webアプリ管理者のみ）
   router.delete("/:id", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
       await collection.doc(req.params.id).delete();

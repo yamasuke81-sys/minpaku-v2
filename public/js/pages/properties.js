@@ -34,7 +34,7 @@ const PropertiesPage = {
   _autoSaveTimer: null,  // 自動保存デバウンスタイマー
   // 現在モーダルに表示している LINE チャネル配列（保存済みトークンを保持するため）
   _lineChannels: [],
-  // オーナー候補 (isOwner or isSubOwner の staff)
+  // Webアプリ管理者候補 (isOwner or isSubOwner の staff)
   _ownerStaffOptions: [],
   // カード一覧のソートキー
   sortKey: "manual",
@@ -160,12 +160,12 @@ const PropertiesPage = {
   async loadProperties() {
     try {
       this.propertyList = await API.properties.list(false);
-      // impersonation 中 (メインオーナーがサブオーナー代理閲覧): 所有物件のみ表示
+      // impersonation 中 (メインWebアプリ管理者が物件オーナー代理閲覧): 所有物件のみ表示
       if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
         const owned = App.impersonatingData.ownedPropertyIds || [];
         this.propertyList = this.propertyList.filter(p => owned.includes(p.id));
       }
-      // オーナー候補 (isOwner or isSubOwner の staff) を取得
+      // Webアプリ管理者候補 (isOwner or isSubOwner の staff) を取得
       await this._loadOwnerStaffOptions();
       this.renderCards();
     } catch (e) {
@@ -173,7 +173,7 @@ const PropertiesPage = {
     }
   },
 
-  // オーナー候補 (請求書宛名用) を staff から取得
+  // Webアプリ管理者候補 (請求書宛名用) を staff から取得
   async _loadOwnerStaffOptions() {
     try {
       const snap = await db.collection("staff").orderBy("displayOrder", "asc").get();
@@ -181,7 +181,7 @@ const PropertiesPage = {
         .map(d => ({ id: d.id, ...d.data() }))
         .filter(s => s.isOwner === true || s.isSubOwner === true);
     } catch (e) {
-      console.warn("オーナー候補読込失敗:", e.message);
+      console.warn("Webアプリ管理者候補読込失敗:", e.message);
       this._ownerStaffOptions = [];
     }
   },
@@ -395,7 +395,7 @@ const PropertiesPage = {
     document.getElementById("propertyKeyboxNumber").value = property?.keyboxNumber || "";
     document.getElementById("propertyNotes").value = property?.notes || "";
 
-    // オーナー (請求書宛名) プルダウンを構築 + 名義 / 編集リンク
+    // Webアプリ管理者 (請求書宛名) プルダウンを構築 + 名義 / 編集リンク
     this._renderOwnerStaffSelect(property?.ownerStaffId || "");
     this._renderOwnerBillingProfileSelect(
       property?.ownerStaffId || "",
@@ -552,7 +552,7 @@ const PropertiesPage = {
       })(),
       keyboxNumber: document.getElementById("propertyKeyboxNumber").value.trim() || null,
       notes: document.getElementById("propertyNotes").value.trim(),
-      // オーナー (請求書宛名用 staff ID) + 名義 (billingProfile ID)
+      // Webアプリ管理者 (請求書宛名用 staff ID) + 名義 (billingProfile ID)
       ownerStaffId: document.getElementById("propertyOwnerStaffId")?.value || null,
       ownerBillingProfileId: document.getElementById("propertyOwnerBillingProfileId")?.value || null,
       // LINE 連携フィールド
@@ -652,7 +652,7 @@ const PropertiesPage = {
       })(),
       keyboxNumber: document.getElementById("propertyKeyboxNumber").value.trim() || null,
       notes: document.getElementById("propertyNotes").value.trim(),
-      // オーナー (請求書宛名用 staff ID) + 名義 (billingProfile ID)
+      // Webアプリ管理者 (請求書宛名用 staff ID) + 名義 (billingProfile ID)
       ownerStaffId: document.getElementById("propertyOwnerStaffId")?.value || null,
       ownerBillingProfileId: document.getElementById("propertyOwnerBillingProfileId")?.value || null,
       lineEnabled: document.getElementById("propertyLineEnabled").checked,
@@ -783,14 +783,14 @@ const PropertiesPage = {
     document.getElementById("inspectionPeriodRecur")?.classList.toggle("d-none", !recur);
   },
 
-  // オーナー (請求書宛名) プルダウンを描画
+  // Webアプリ管理者 (請求書宛名) プルダウンを描画
   _renderOwnerStaffSelect(selectedId) {
     const sel = document.getElementById("propertyOwnerStaffId");
     if (!sel) return;
     const escape = (s) => this.escapeHtml(String(s || ""));
     const opts = [`<option value="">(未設定 / 既定宛先を使用)</option>`].concat(
       this._ownerStaffOptions.map(s => {
-        const flag = s.isOwner ? "オーナー" : "サブオーナー";
+        const flag = s.isOwner ? "Webアプリ管理者" : "物件オーナー";
         return `<option value="${escape(s.id)}" ${s.id === selectedId ? "selected" : ""}>${escape(s.name)} (${flag})</option>`;
       })
     ).join("");
@@ -874,13 +874,13 @@ const PropertiesPage = {
     }
   },
 
-  // オーナースタッフ変更 / 編集リンクのイベント紐付け (1 回だけ)
+  // Webアプリ管理者スタッフ変更 / 編集リンクのイベント紐付け (1 回だけ)
   _bindOwnerStaffChange() {
     const sel = document.getElementById("propertyOwnerStaffId");
     if (sel && !sel.dataset.ownerChangeBound) {
       sel.dataset.ownerChangeBound = "1";
       sel.addEventListener("change", () => {
-        // オーナー変更時は名義選択をリセットして再描画
+        // Webアプリ管理者変更時は名義選択をリセットして再描画
         this._renderOwnerBillingProfileSelect(sel.value || "", "");
       });
     }

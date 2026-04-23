@@ -2,7 +2,7 @@
  * 宿泊者名簿受信トリガー
  * source=guest_form の場合:
  *   1. editToken生成・ステータス設定
- *   2. オーナーにメール（入力内容全文）
+ *   2. Webアプリ管理者にメール（入力内容全文）
  *   3. 宿泊者にメール（入力内容全文 + 修正リンク）
  *   4. LINE通知（既存）
  */
@@ -67,7 +67,7 @@ module.exports = async function onGuestFormSubmit(event) {
   }
   if (!propertyName) propertyName = data.propertyName || "";
 
-  // 送信者アドレス: 物件担当者 (サブオーナー最優先、なければ settings/notifications.ownerEmail)
+  // 送信者アドレス: 物件担当者 (物件オーナー最優先、なければ settings/notifications.ownerEmail)
   // onGuestFormSubmit は先に notifyEmails/subOwners を解決してから使うため、ここでは後続で決定する
   const vars = {
     guestName, checkIn, checkOut, guestCount,
@@ -79,17 +79,17 @@ module.exports = async function onGuestFormSubmit(event) {
     summary, editUrl, confirmUrl, guideUrl,
   };
 
-  // 2a. オーナー + サブオーナーへのメール
+  // 2a. Webアプリ管理者 + 物件オーナーへのメール
   // 通知先 + 送信者 (sender) 解決
   const notifDoc = await db.collection("settings").doc("notifications").get();
   const notifyEmails = notifDoc.exists ? (notifDoc.data().notifyEmails || []) : [];
   const ownerEmail = notifDoc.exists ? (notifDoc.data().ownerEmail || notifyEmails[0] || "") : (notifyEmails[0] || "");
 
-  // サブオーナー: staff コレクションから isSubOwner=true && ownedPropertyIds に pid 含むもの
+  // 物件オーナー: staff コレクションから isSubOwner=true && ownedPropertyIds に pid 含むもの
   const pid = data.propertyId || "";
   const subOwners = [];
   const subOwnersNoEmail = [];
-  // staff.isOwner=true (物件オーナー、アプリ管理者ではない) - サブオーナー未登録時のフォールバック
+  // staff.isOwner=true (物件オーナー、アプリ管理者ではない) - 物件オーナー未登録時のフォールバック
   let staffOwnerEmail = "";
   let staffOwnerName = "";
   if (pid) {
@@ -103,10 +103,10 @@ module.exports = async function onGuestFormSubmit(event) {
         else         subOwnersNoEmail.push(s.name || "(無名)");
       });
     } catch (e) {
-      console.error("サブオーナー検索エラー:", e.message);
+      console.error("物件オーナー検索エラー:", e.message);
     }
   }
-  // staff.isOwner=true を探す (物件側のオーナー、アプリ管理者ではない)
+  // staff.isOwner=true を探す (物件側のWebアプリ管理者、アプリ管理者ではない)
   try {
     const ownerSnap = await db.collection("staff").where("isOwner", "==", true).limit(1).get();
     if (!ownerSnap.empty) {
@@ -116,7 +116,7 @@ module.exports = async function onGuestFormSubmit(event) {
     }
   } catch (_) {}
 
-  // 物件担当者 (送信者) — サブオーナー最優先、なければ staff.isOwner (アプリ管理者にはフォールバックしない)
+  // 物件担当者 (送信者) — 物件オーナー最優先、なければ staff.isOwner (アプリ管理者にはフォールバックしない)
   const senderEmail = (subOwners[0] && subOwners[0].email) || staffOwnerEmail || "";
   const senderName = (subOwners[0] && subOwners[0].name) || staffOwnerName || propertyName || "宿担当者";
   vars.senderEmail = senderEmail;
@@ -134,31 +134,31 @@ module.exports = async function onGuestFormSubmit(event) {
     const ownerSubject = ownerSubjectOverride || renderTemplate(templates.ownerNotification.subject, vars);
     const ownerBody = renderTemplate(templates.ownerNotification.body, vars);
 
-    // オーナー本文: サブオーナーでメール未設定者がいれば末尾に注記
+    // Webアプリ管理者本文: 物件オーナーでメール未設定者がいれば末尾に注記
     let ownerBodyExtra = ownerBody;
     if (subOwnersNoEmail.length > 0) {
-      ownerBodyExtra += `\n\n※ 以下のサブオーナーはメールアドレス未設定のため通知されていません:\n` +
+      ownerBodyExtra += `\n\n※ 以下の物件オーナーはメールアドレス未設定のため通知されていません:\n` +
         subOwnersNoEmail.map((n) => `  - ${n}`).join("\n");
     }
 
     for (const email of notifyEmails) {
       try {
         await sendNotificationEmail_(email, ownerSubject, ownerBodyExtra, senderEmail);
-        console.log(`オーナーメール送信成功: ${email} (from=${senderEmail || "default"})`);
+        console.log(`Webアプリ管理者メール送信成功: ${email} (from=${senderEmail || "default"})`);
       } catch (e) {
-        console.error(`オーナーメール送信失敗 (${email}):`, e.message);
+        console.error(`Webアプリ管理者メール送信失敗 (${email}):`, e.message);
       }
     }
     for (const so of subOwners) {
       try {
         await sendNotificationEmail_(so.email, ownerSubject, ownerBody, senderEmail);
-        console.log(`サブオーナーメール送信成功: ${so.email}`);
+        console.log(`物件オーナーメール送信成功: ${so.email}`);
       } catch (e) {
-        console.error(`サブオーナーメール送信失敗 (${so.email}):`, e.message);
+        console.error(`物件オーナーメール送信失敗 (${so.email}):`, e.message);
       }
     }
   } catch (e) {
-    console.error("オーナーメール処理エラー:", e.message);
+    console.error("Webアプリ管理者メール処理エラー:", e.message);
   }
 
   // 2b. 宿泊者へのメール (from = 物件担当者、アプリ管理者にはフォールバックしない)

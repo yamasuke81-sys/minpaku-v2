@@ -12,13 +12,13 @@
  * スタッフ表示:
  *   - currentUser.role === "staff" | "sub_owner" の場合、自分 staff.assignedPropertyIds と
  *     交差する propertyIds を持つカードのみ表示
- *   - 編集/追加/削除はオーナー・サブオーナーのみ (スタッフは閲覧のみ)
+ *   - 編集/追加/削除はWebアプリ管理者・物件オーナーのみ (スタッフは閲覧のみ)
  */
 const PrepaidCardsPage = {
   cards: [],
   depots: [],
   properties: [],
-  staffList: [],   // 購入者プルダウン用 (オーナー時のみ取得)
+  staffList: [],   // 購入者プルダウン用 (Webアプリ管理者時のみ取得)
   staffDoc: null,  // スタッフ側表示時の自分情報
   canEdit: false,
 
@@ -28,7 +28,7 @@ const PrepaidCardsPage = {
     this.canEdit = role === "owner" || role === "sub_owner" || role === "staff";
     this.isOwnerLevel = role === "owner" || role === "sub_owner";
 
-    // スタッフ/サブオーナー時は自身の担当物件を取得
+    // スタッフ/物件オーナー時は自身の担当物件を取得
     if (!this.canEdit || role === "sub_owner") {
       try {
         const staffId = Auth.currentUser.staffId;
@@ -50,7 +50,7 @@ const PrepaidCardsPage = {
       </div>
       <p class="text-muted small">${this.canEdit
         ? 'コインランドリー店舗ごとに頭文字を設定し、番号は自動で3桁連番が付与されます。残高は洗濯物を出した時に自動減算されます。'
-        : '閲覧のみ。変更はオーナーにお問い合わせください。'}</p>
+        : '閲覧のみ。変更はWebアプリ管理者にお問い合わせください。'}</p>
 
       <!-- チャージ額 → 残高 ルール (店舗別、プリカ購入時に適用) -->
       ${this.isOwnerLevel ? `
@@ -116,7 +116,7 @@ const PrepaidCardsPage = {
                   <input type="number" class="form-control" id="newPrepaidBalance" min="0" value="2200">
                 </div>
               </div>
-              <!-- 購入者選択 (オーナーのみ表示。スタッフ/サブオーナーは自動で自分) -->
+              <!-- 購入者選択 (Webアプリ管理者のみ表示。スタッフ/物件オーナーは自動で自分) -->
               <div class="mb-3 d-none" id="newPrepaidPurchaserWrap">
                 <label class="form-label">購入者 <span class="text-danger">*</span></label>
                 <select class="form-select" id="newPrepaidPurchaser">
@@ -182,7 +182,7 @@ const PrepaidCardsPage = {
       this.properties = this.properties.filter(p => assigned.has(p.id));
     }
 
-    // オーナー時のみスタッフ一覧を取得 (購入者プルダウン用)
+    // Webアプリ管理者時のみスタッフ一覧を取得 (購入者プルダウン用)
     if (this.isOwnerLevel) {
       try {
         const snap = await db.collection("staff").orderBy("displayOrder", "asc").get();
@@ -479,26 +479,26 @@ const PrepaidCardsPage = {
     balanceInput.value = this._resolveBalance(2000, depotSel.value);
     memoInput.value = "";
 
-    // 購入者プルダウン: オーナーのみ表示、スタッフ/サブオーナーは非表示で自動決定
+    // 購入者プルダウン: Webアプリ管理者のみ表示、スタッフ/物件オーナーは非表示で自動決定
     const purchaserWrap = document.getElementById("newPrepaidPurchaserWrap");
     const purchaserSel = document.getElementById("newPrepaidPurchaser");
     const role = (Auth.currentUser && Auth.currentUser.role) || "owner";
     const myStaffId = Auth.currentUser?.staffId || "";
     const myName = Auth.currentUser?.displayName || Auth.currentUser?.name || "";
     if (role === "owner") {
-      // オーナーはスタッフ一覧+自分を選択可 (デフォルト自分)
+      // Webアプリ管理者はスタッフ一覧+自分を選択可 (デフォルト自分)
       purchaserWrap.classList.remove("d-none");
       const opts = this.staffList.map(s =>
-        `<option value="${s.id}" data-name="${this._esc(s.name)}" ${s.id === myStaffId ? "selected" : ""}>${this._esc(s.name)}${s.isOwner ? " (オーナー)" : ""}</option>`
+        `<option value="${s.id}" data-name="${this._esc(s.name)}" ${s.id === myStaffId ? "selected" : ""}>${this._esc(s.name)}${s.isOwner ? " (Webアプリ管理者)" : ""}</option>`
       ).join("");
       purchaserSel.innerHTML = `<option value="">-- 選択 --</option>` + opts;
-      // staffList に自分が含まれていない場合 (オーナーが staff 化されていない等) のフォールバック
+      // staffList に自分が含まれていない場合 (Webアプリ管理者が staff 化されていない等) のフォールバック
       if (myStaffId && !this.staffList.some(s => s.id === myStaffId)) {
         purchaserSel.insertAdjacentHTML("beforeend",
           `<option value="${myStaffId}" data-name="${this._esc(myName)}" selected>${this._esc(myName)} (自分)</option>`);
       }
     } else {
-      // スタッフ/サブオーナーは UI 非表示、自分に自動設定
+      // スタッフ/物件オーナーは UI 非表示、自分に自動設定
       purchaserWrap.classList.add("d-none");
       purchaserSel.innerHTML = `<option value="${myStaffId}" data-name="${this._esc(myName)}" selected>${this._esc(myName)}</option>`;
     }
@@ -554,7 +554,7 @@ const PrepaidCardsPage = {
       if (!depotId) { showToast("入力エラー", "提出先を選択してください", "error"); return; }
       if (!prefix) { showToast("入力エラー", "カード番号の頭文字を入力してください", "error"); return; }
       if (!cardNumber) { showToast("入力エラー", "カード番号が採番できませんでした", "error"); return; }
-      // 購入者情報を取得 (オーナー時はプルダウン、スタッフ時は自分)
+      // 購入者情報を取得 (Webアプリ管理者時はプルダウン、スタッフ時は自分)
       const purchaserStaffId = purchaserSel.value || "";
       const purchaserOpt = purchaserSel.options[purchaserSel.selectedIndex];
       const purchaserStaffName = purchaserOpt?.dataset?.name || purchaserOpt?.text || "";

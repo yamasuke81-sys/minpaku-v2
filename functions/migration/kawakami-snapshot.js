@@ -4,7 +4,7 @@
  * the Terrace 長浜 (propertyId=tsZybhDMcPrxqgcRy7wp) を主対象に
  * S1 iCal同期 / S1 bookings / S2 recruitments / S2 shifts /
  * S5 checklists / S6 laundry / S7 invoices / S5 cleaningPhotos /
- * サブオーナー / 通知設定 を全部 console.log に出す。
+ * 物件オーナー / 通知設定 を全部 console.log に出す。
  *
  * 書き込みは一切しない。
  *
@@ -328,7 +328,7 @@ async function runSection(tag, fn) {
     return docs.length;
   });
 
-  // 9. サブオーナー
+  // 9. 物件オーナー
   await runSection("[SubOwner] staff where isSubOwner == true", async () => {
     const snap = await db.collection("staff").where("isSubOwner", "==", true).get();
     console.log(`total: ${snap.size}`);

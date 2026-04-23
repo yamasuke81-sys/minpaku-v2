@@ -64,7 +64,7 @@ const LiffClient = {
         // エラーをログインモーダルに表示（loginModal は Auth.init() で作られる前の可能性があるためDOM直接操作）
         const errorEl = document.getElementById("loginError");
         if (errorEl) {
-          errorEl.textContent = data.error || "LIFFログインに失敗しました。オーナーに招待を依頼してください。";
+          errorEl.textContent = data.error || "LIFFログインに失敗しました。Webアプリ管理者に招待を依頼してください。";
           errorEl.classList.remove("d-none");
         }
       }

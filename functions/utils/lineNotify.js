@@ -145,7 +145,7 @@ function buildApprovalFlex(approvalId, title, summary, options = {}) {
 /**
  * GOサイン待ちの承認依頼を送信
  * 1. Firestore secretary/approvals に記録
- * 2. LINE FlexメッセージをオーナーにPush
+ * 2. LINE FlexメッセージをWebアプリ管理者にPush
  * @param {FirebaseFirestore.Firestore} db
  * @param {object} params - { type, title, summary, details, buttons }
  * @returns {Promise<{success: boolean, approvalId?: string, error?: string}>}
@@ -237,7 +237,7 @@ async function getNotificationSettings_(db) {
 }
 
 /**
- * オーナーLINE通知を送信する（ownerLineChannels 対応）
+ * Webアプリ管理者LINE通知を送信する（ownerLineChannels 対応）
  * ownerLineChannels[] があれば戦略に従い複数 Bot でフォールバック送信。
  * なければ従来の単一チャネル（channelToken / ownerUserId）にフォールバック。
  *
@@ -292,7 +292,7 @@ async function _sendOwnerLine_(settings, fallbackToken, fallbackUserId, text) {
   if (fallbackToken && fallbackUserId) {
     return sendLineMessage(fallbackToken, fallbackUserId, text);
   }
-  return { success: false, error: "オーナーLINE User ID 未設定（lineOwnerUserId）" };
+  return { success: false, error: "Webアプリ管理者LINE User ID 未設定（lineOwnerUserId）" };
 }
 
 /**
@@ -660,7 +660,7 @@ async function notifyOwner(db, type, title, body, vars, propertyOverrides) {
 }
 
 /**
- * 指定物件のサブオーナーに個別通知を送信する
+ * 指定物件の物件オーナーに個別通知を送信する
  * notifyOwner の補助として呼び出す（既存の notifyOwner 経路に追加する形）
  * @param {FirebaseFirestore.Firestore} db
  * @param {string} propertyId - 対象物件ID
@@ -682,7 +682,7 @@ async function notifySubOwners(db, propertyId, title, body) {
       const sData = s.data();
       if (!sData.active) continue;
 
-      // サブオーナー専用 LINE User ID に個別送信
+      // 物件オーナー専用 LINE User ID に個別送信
       if (sData.subOwnerLineUserId && channelToken) {
         const result = await sendLineMessage(channelToken, sData.subOwnerLineUserId, body);
         if (result.success) sentCount++;
@@ -703,18 +703,18 @@ async function notifySubOwners(db, propertyId, title, body) {
         } catch (e) { console.error("通知ログ記録エラー:", e); }
       }
 
-      // サブオーナー専用メールに送信
+      // 物件オーナー専用メールに送信
       if (sData.subOwnerEmail) {
         try {
           await sendNotificationEmail_(sData.subOwnerEmail, title, body);
           sentCount++;
         } catch (e) {
-          console.error(`サブオーナー(${sData.name}) メール通知エラー:`, e.message);
+          console.error(`物件オーナー(${sData.name}) メール通知エラー:`, e.message);
         }
       }
     }
   } catch (e) {
-    console.error("サブオーナー通知エラー:", e.message);
+    console.error("物件オーナー通知エラー:", e.message);
     return { success: false, sent: sentCount };
   }
   return { success: sentCount > 0, sent: sentCount };

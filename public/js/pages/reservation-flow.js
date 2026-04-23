@@ -1,7 +1,7 @@
 /**
  * 予約フロー構成画面 (v2 再実装 2026-04-20)
  *
- * 3レーンスイムレーン (ゲスト / オーナー / スタッフ) + 全30ステップ + 全22通知統合
+ * 3レーンスイムレーン (ゲスト / Webアプリ管理者 / スタッフ) + 全30ステップ + 全22通知統合
  *
  * データ格納先:
  *   - propertyField 系  : properties/{pid}.*
@@ -212,7 +212,7 @@ const ReservationFlowPage = {
     },
     {
       key: "form_complete_mail",
-      label: "名簿入力完了メール (宿泊者・オーナー)",
+      label: "名簿入力完了メール (宿泊者・Webアプリ管理者)",
       icon: "bi-envelope-check",
       lane: "owner",
       phase: 2,
@@ -656,7 +656,7 @@ const ReservationFlowPage = {
         <span id="rfSaveStatus" class="small text-muted"></span>
       </div>
       <p class="text-muted small mb-3">
-        ゲスト / オーナー / スタッフの3レーンで予約〜月末請求までのフローを管理します。
+        ゲスト / Webアプリ管理者 / スタッフの3レーンで予約〜月末請求までのフローを管理します。
         各カードを展開すると通知設定（文言・タイミング・送信先）を直接編集できます。
       </p>
       ${this._renderStyles()}
@@ -667,7 +667,7 @@ const ReservationFlowPage = {
         <ul class="nav nav-pills nav-fill rf-lane-tabs">
           <li class="nav-item"><a class="nav-link active" href="#" data-lane="all">すべて</a></li>
           <li class="nav-item"><a class="nav-link" href="#" data-lane="guest">👤 ゲスト</a></li>
-          <li class="nav-item"><a class="nav-link" href="#" data-lane="owner">🏠 オーナー</a></li>
+          <li class="nav-item"><a class="nav-link" href="#" data-lane="owner">🏠 Webアプリ管理者</a></li>
           <li class="nav-item"><a class="nav-link" href="#" data-lane="staff">🧹 スタッフ</a></li>
           <li class="nav-item"><a class="nav-link" href="#" data-lane="branch">🔴 分岐</a></li>
         </ul>
@@ -812,7 +812,7 @@ const ReservationFlowPage = {
     html += `
       <div class="rf-swimlane-grid rf-swimlane-header">
         <div class="rf-lane-header rf-lane-guest">👤 ゲスト</div>
-        <div class="rf-lane-header rf-lane-owner">🏠 オーナー</div>
+        <div class="rf-lane-header rf-lane-owner">🏠 Webアプリ管理者</div>
         <div class="rf-lane-header rf-lane-staff">🧹 スタッフ</div>
       </div>
     `;
@@ -1075,10 +1075,10 @@ const ReservationFlowPage = {
     // ---- ブール型フィールド (enabled / 送信先) ----
     const boolFields = [
       { field: "enabled",    label: "有効/無効",        icon: "bi-power",             globalVal: globalCh.enabled !== false },
-      { field: "ownerLine",  label: "オーナーLINE",     icon: "bi-person-circle",     globalVal: globalCh.ownerLine !== false },
+      { field: "ownerLine",  label: "Webアプリ管理者LINE",     icon: "bi-person-circle",     globalVal: globalCh.ownerLine !== false },
       { field: "groupLine",  label: "グループLINE",     icon: "bi-people-fill",       globalVal: !!globalCh.groupLine },
       { field: "staffLine",  label: "スタッフLINE",     icon: "bi-person-lines-fill", globalVal: !!globalCh.staffLine },
-      { field: "ownerEmail", label: "オーナーメール",   icon: "bi-envelope",          globalVal: !!globalCh.ownerEmail },
+      { field: "ownerEmail", label: "Webアプリ管理者メール",   icon: "bi-envelope",          globalVal: !!globalCh.ownerEmail },
     ];
 
     const boolRows = boolFields.map(({ field, label, icon, globalVal }) => {
@@ -1232,7 +1232,7 @@ const ReservationFlowPage = {
           <div class="d-flex flex-wrap gap-2">
             <label class="form-check form-check-inline mb-0 small">
               <input class="form-check-input rf-notif-field" type="checkbox" data-notif-key="${key}" data-field="ownerLine" ${ownerLine ? "checked" : ""}>
-              <span><i class="bi bi-person-circle text-success"></i> オーナーLINE</span>
+              <span><i class="bi bi-person-circle text-success"></i> Webアプリ管理者LINE</span>
             </label>
             <label class="form-check form-check-inline mb-0 small">
               <input class="form-check-input rf-notif-field" type="checkbox" data-notif-key="${key}" data-field="groupLine" ${groupLine ? "checked" : ""}>
@@ -1244,11 +1244,11 @@ const ReservationFlowPage = {
             </label>
             <label class="form-check form-check-inline mb-0 small">
               <input class="form-check-input rf-notif-field" type="checkbox" data-notif-key="${key}" data-field="ownerEmail" ${ownerEmail ? "checked" : ""}>
-              <span><i class="bi bi-envelope text-warning"></i> オーナーメール</span>
+              <span><i class="bi bi-envelope text-warning"></i> Webアプリ管理者メール</span>
             </label>
             <label class="form-check form-check-inline mb-0 small">
               <input class="form-check-input rf-notif-field" type="checkbox" data-notif-key="${key}" data-field="discordOwner" ${discordOwner ? "checked" : ""}>
-              <span><i class="bi bi-discord" style="color:#5865F2"></i> Discord(オーナー)</span>
+              <span><i class="bi bi-discord" style="color:#5865F2"></i> Discord(Webアプリ管理者)</span>
             </label>
             <label class="form-check form-check-inline mb-0 small">
               <input class="form-check-input rf-notif-field" type="checkbox" data-notif-key="${key}" data-field="discordSubOwner" ${discordSubOwner ? "checked" : ""}>

@@ -6,7 +6,7 @@
  *  - スタッフが ◎/△/× いずれかの回答を送った時、該当IDを pendingRecruitmentIds から削除する
  *  - pendingRecruitmentIds の件数が THRESHOLD(15) を超えた時点で active=false に変更、
  *    inactiveReason と inactivatedAt をセットし、staff_inactive 通知を発信する
- *  - 非アクティブ解除はスタッフ管理画面からオーナーが手動で行う(pendingRecruitmentIds もクリア)
+ *  - 非アクティブ解除はスタッフ管理画面からWebアプリ管理者が手動で行う(pendingRecruitmentIds もクリア)
  */
 const { FieldValue } = require("firebase-admin/firestore");
 const INACTIVE_THRESHOLD = 15;
@@ -26,7 +26,7 @@ async function addRecruitmentToActiveStaff(db, recruitmentId) {
 
   for (const doc of staffSnap.docs) {
     const data = doc.data();
-    // オーナー本人は対象外
+    // Webアプリ管理者本人は対象外
     if (data.isOwner) continue;
     const list = Array.isArray(data.pendingRecruitmentIds) ? data.pendingRecruitmentIds : [];
     if (list.includes(recruitmentId)) continue;

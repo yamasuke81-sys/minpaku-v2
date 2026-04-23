@@ -112,7 +112,7 @@ const DashboardPage = {
   },
 
   /**
-   * FCM初期化 + オーナー向け通知許可バナー表示
+   * FCM初期化 + Webアプリ管理者向け通知許可バナー表示
    * FCM は現時点で導入保留 (iOS PWA制約で導入負担大)。将来再有効化可能なようコードは残す。
    */
   async _initFCMBanner() {
@@ -967,7 +967,7 @@ const DashboardPage = {
       }
     }
 
-    // 照合メール情報 (オーナー限定 + viewMode=staff では更に非表示)
+    // 照合メール情報 (Webアプリ管理者限定 + viewMode=staff では更に非表示)
     // クリックでモーダルを閉じ、アプリ内「メール照合」画面の該当行にフォーカス遷移
     const isOwnerView = (typeof Auth !== "undefined") && Auth?.isOwner?.();
     let gmailRow = "";
@@ -1158,7 +1158,7 @@ const DashboardPage = {
         ${recruit ? `<button class="btn btn-sm btn-outline-primary ms-2" id="calBtnOpenRecruit"><i class="bi bi-megaphone"></i> 募集詳細</button>` : ""}
       </div>
       ${(() => {
-        // 手動予約の削除ボタン (オーナー視点のみ)
+        // 手動予約の削除ボタン (Webアプリ管理者視点のみ)
         const isManualBk = b.manualOverride === true || /manual/i.test(String(b.source || ""));
         if (!isManualBk || isStaffView) return "";
         return `

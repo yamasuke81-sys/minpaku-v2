@@ -60,7 +60,7 @@ const RatesPage = {
         API.staff.list(true),
       ]);
       this.properties = minpaku;
-      // impersonation 中: サブオーナー所有物件のみ物件セレクタに表示
+      // impersonation 中: 物件オーナー所有物件のみ物件セレクタに表示
       if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
         const owned = App.impersonatingData.ownedPropertyIds || [];
         this.properties = this.properties.filter(p => owned.includes(p.id));
@@ -547,7 +547,7 @@ const RatesPage = {
                   <tbody>
                     ${this.staffList.filter(s => !s.isTimee).filter(s => {
                       // 該当物件を担当するスタッフのみ表示 (assignedPropertyIds に currentPropertyId を含む)
-                      // オーナー (isOwner=true) は常に表示
+                      // Webアプリ管理者 (isOwner=true) は常に表示
                       if (s.isOwner) return true;
                       const assigned = Array.isArray(s.assignedPropertyIds) ? s.assignedPropertyIds : [];
                       return assigned.includes(this.currentPropertyId);

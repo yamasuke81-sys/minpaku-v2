@@ -23,7 +23,7 @@ module.exports = function notificationsApi(db) {
   function requireOwner(req, res, next) {
     const role = req.user && req.user.role;
     if (role !== undefined && role !== "owner") {
-      return res.status(403).json({ error: "オーナー権限が必要です" });
+      return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
     }
     next();
   }
@@ -66,13 +66,13 @@ module.exports = function notificationsApi(db) {
       });
     }
 
-    // オーナーLINE
+    // Webアプリ管理者LINE
     if (targets.ownerLine) {
       if (!channelToken) {
         results.push({ target: "ownerLine", success: false, error: "LINEチャネルトークン未設定" });
         failCount++;
       } else if (!ownerUserId) {
-        results.push({ target: "ownerLine", success: false, error: "オーナーLINE User ID 未設定" });
+        results.push({ target: "ownerLine", success: false, error: "Webアプリ管理者LINE User ID 未設定" });
         failCount++;
       } else {
         const r = await pushMessages_(channelToken, ownerUserId, [{ type: "text", text: body.slice(0, 5000) }]);
@@ -122,10 +122,10 @@ module.exports = function notificationsApi(db) {
       }
     }
 
-    // Discord (オーナー)
+    // Discord (Webアプリ管理者)
     if (targets.discordOwner) {
       if (!discordOwnerUrl) {
-        results.push({ target: "discordOwner", success: false, error: "Discord(オーナー)Webhook URL 未設定" });
+        results.push({ target: "discordOwner", success: false, error: "Discord(Webアプリ管理者)Webhook URL 未設定" });
         failCount++;
       } else {
         const r = await sendDiscord_(discordOwnerUrl, body);
@@ -134,10 +134,10 @@ module.exports = function notificationsApi(db) {
       }
     }
 
-    // Discord (サブオーナー)
+    // Discord (物件オーナー)
     if (targets.discordSubOwner) {
       if (!discordSubOwnerUrl) {
-        results.push({ target: "discordSubOwner", success: false, error: "Discord(サブオーナー)Webhook URL 未設定" });
+        results.push({ target: "discordSubOwner", success: false, error: "Discord(物件オーナー)Webhook URL 未設定" });
         failCount++;
       } else {
         const r = await sendDiscord_(discordSubOwnerUrl, body);
@@ -146,10 +146,10 @@ module.exports = function notificationsApi(db) {
       }
     }
 
-    // オーナーメール
+    // Webアプリ管理者メール
     if (targets.ownerEmail) {
       if (!ownerEmail) {
-        results.push({ target: "ownerEmail", success: false, error: "オーナーメールアドレス未設定" });
+        results.push({ target: "ownerEmail", success: false, error: "Webアプリ管理者メールアドレス未設定" });
         failCount++;
       } else {
         try {
@@ -157,7 +157,7 @@ module.exports = function notificationsApi(db) {
           sentCount++;
           results.push({ target: "ownerEmail", success: true, to: ownerEmail });
         } catch (e) {
-          console.error("オーナーメール送信エラー:", e);
+          console.error("Webアプリ管理者メール送信エラー:", e);
           results.push({ target: "ownerEmail", success: false, error: e.message });
           failCount++;
         }
@@ -177,14 +177,14 @@ module.exports = function notificationsApi(db) {
       }
     }
 
-    // FCM Web Push (オーナー)
+    // FCM Web Push (Webアプリ管理者)
     if (targets.fcmOwner) {
       try {
         const r = await notifyOwnerFCM(db, title, body, { url: "/index.html" });
         if (r.success) sentCount++; else failCount++;
         results.push({ target: "fcmOwner", ...r });
       } catch (e) {
-        console.error("FCMオーナー送信エラー:", e);
+        console.error("FCMWebアプリ管理者送信エラー:", e);
         results.push({ target: "fcmOwner", success: false, error: e.message });
         failCount++;
       }

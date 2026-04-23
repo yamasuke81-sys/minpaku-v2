@@ -196,8 +196,8 @@ async function _sendRegistrationEmails_deprecated(db, guestData, guestId) {
     console.log(`[onGuestRegistrationCreate] 宿泊者メールアドレスなし guest=${guestId}`);
   }
 
-  // --- 2. オーナー/サブオーナー通知メール ---
-  // オーナーアドレス: settings/notifications の ownerEmail / notifyEmails
+  // --- 2. Webアプリ管理者/物件オーナー通知メール ---
+  // Webアプリ管理者アドレス: settings/notifications の ownerEmail / notifyEmails
   let ownerEmail = "";
   try {
     const notifDoc = await db.collection("settings").doc("notifications").get();
@@ -207,7 +207,7 @@ async function _sendRegistrationEmails_deprecated(db, guestData, guestId) {
     }
   } catch (_) {}
 
-  // サブオーナー: staff コレクションから isSubOwner=true && ownedPropertyIds に pid 含むもの
+  // 物件オーナー: staff コレクションから isSubOwner=true && ownedPropertyIds に pid 含むもの
   const subOwners = [];
   const subOwnersNoEmail = [];
   if (pid) {
@@ -223,7 +223,7 @@ async function _sendRegistrationEmails_deprecated(db, guestData, guestId) {
         else         subOwnersNoEmail.push(s.name || "(無名)");
       });
     } catch (e) {
-      console.error("[onGuestRegistrationCreate] サブオーナー検索エラー:", e.message);
+      console.error("[onGuestRegistrationCreate] 物件オーナー検索エラー:", e.message);
     }
   }
 
@@ -252,13 +252,13 @@ async function _sendRegistrationEmails_deprecated(db, guestData, guestId) {
   if (ownerEmail) {
     let ownerBody = notifBodyBase;
     if (subOwnersNoEmail.length > 0) {
-      ownerBody += `\n\n※ 以下のサブオーナーにはメールアドレスが未設定のため通知されていません:\n` +
+      ownerBody += `\n\n※ 以下の物件オーナーにはメールアドレスが未設定のため通知されていません:\n` +
         subOwnersNoEmail.map((n) => `  - ${n}`).join("\n");
     }
     sendTasks.push(
       sendNotificationEmail_(ownerEmail, notifSubject, ownerBody)
-        .then(() => console.log(`[onGuestRegistrationCreate] オーナーメール送信 ${ownerEmail}`))
-        .catch((e) => console.error(`[onGuestRegistrationCreate] オーナーメール失敗 ${ownerEmail}:`, e.message))
+        .then(() => console.log(`[onGuestRegistrationCreate] Webアプリ管理者メール送信 ${ownerEmail}`))
+        .catch((e) => console.error(`[onGuestRegistrationCreate] Webアプリ管理者メール失敗 ${ownerEmail}:`, e.message))
     );
   } else {
     console.log(`[onGuestRegistrationCreate] ownerEmail 未設定`);
@@ -266,8 +266,8 @@ async function _sendRegistrationEmails_deprecated(db, guestData, guestId) {
   for (const so of subOwners) {
     sendTasks.push(
       sendNotificationEmail_(so.email, notifSubject, notifBodyBase)
-        .then(() => console.log(`[onGuestRegistrationCreate] サブオーナーメール送信 ${so.email}`))
-        .catch((e) => console.error(`[onGuestRegistrationCreate] サブオーナーメール失敗 ${so.email}:`, e.message))
+        .then(() => console.log(`[onGuestRegistrationCreate] 物件オーナーメール送信 ${so.email}`))
+        .catch((e) => console.error(`[onGuestRegistrationCreate] 物件オーナーメール失敗 ${so.email}:`, e.message))
     );
   }
   await Promise.allSettled(sendTasks);

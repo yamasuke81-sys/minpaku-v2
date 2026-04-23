@@ -32,7 +32,7 @@ const PropertyFilter = {
       return;
     }
 
-    // サブオーナー / impersonation 時は選択肢を強制制限
+    // 物件オーナー / impersonation 時は選択肢を強制制限
     const forcedIds = this._getForcedIds(properties);
     const isForcedMode = forcedIds !== null;
 
@@ -46,7 +46,7 @@ const PropertyFilter = {
 
   /**
    * 現在の選択済みIDを取得する (外部から参照用)
-   * サブオーナーまたは impersonation 中は ownedPropertyIds に強制制限
+   * 物件オーナーまたは impersonation 中は ownedPropertyIds に強制制限
    * @param {string} tabKey
    * @param {Array}  properties
    * @returns {string[]}
@@ -58,16 +58,16 @@ const PropertyFilter = {
   },
 
   /**
-   * サブオーナー / impersonation 時の強制フィルタIDを返す
+   * 物件オーナー / impersonation 時の強制フィルタIDを返す
    * 対象外の場合は null を返す
    */
   _getForcedIds(properties) {
-    // impersonation (オーナーがサブオーナー代理閲覧中)
+    // impersonation (Webアプリ管理者が物件オーナー代理閲覧中)
     if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
       const owned = App.impersonatingData.ownedPropertyIds || [];
       return properties.filter(p => owned.includes(p.id)).map(p => p.id);
     }
-    // サブオーナー本人のログイン
+    // 物件オーナー本人のログイン
     if (typeof Auth !== "undefined" && Auth.currentUser?.role === "sub_owner") {
       const owned = Auth.currentUser.ownedPropertyIds || [];
       return properties.filter(p => owned.includes(p.id)).map(p => p.id);
@@ -142,7 +142,7 @@ const PropertyFilter = {
       `;
     }).join("");
 
-    // サブオーナー / impersonation 時は操作UI を非表示にして「フィルタ固定」バッジだけ表示
+    // 物件オーナー / impersonation 時は操作UI を非表示にして「フィルタ固定」バッジだけ表示
     const controlsHtml = isForcedMode
       ? `<span class="badge bg-warning text-dark ms-2"><i class="bi bi-lock-fill"></i> 物件フィルタ固定中</span>`
       : `
@@ -167,7 +167,7 @@ const PropertyFilter = {
 
   /** イベントバインド */
   _bindEvents(container, tabKey, properties, initialSelectedIds, onChange, isForcedMode = false) {
-    // サブオーナー強制モードでは変更不可（初期値のみで onChange を一度呼ぶ）
+    // 物件オーナー強制モードでは変更不可（初期値のみで onChange を一度呼ぶ）
     if (isForcedMode) {
       setTimeout(() => onChange && onChange([...initialSelectedIds]), 0);
       return;

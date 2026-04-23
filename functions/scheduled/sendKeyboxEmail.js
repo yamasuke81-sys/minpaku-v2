@@ -70,7 +70,7 @@ module.exports = async function sendKeyboxEmail() {
   const templates = await getTemplates(db);
   let sentCount = 0;
   let skipCount = 0;
-  const ownerAlertDocs = []; // submitted 状態のゲスト（オーナー確認促進）
+  const ownerAlertDocs = []; // submitted 状態のゲスト（Webアプリ管理者確認促進）
 
   for (const doc of allDocs) {
     const data = doc.data();
@@ -102,7 +102,7 @@ module.exports = async function sendKeyboxEmail() {
       continue;
     }
 
-    // submitted 状態はオーナー確認用リストに追加
+    // submitted 状態はWebアプリ管理者確認用リストに追加
     if (data.status === "submitted") {
       ownerAlertDocs.push({ id: doc.id, data });
     }
@@ -142,7 +142,7 @@ module.exports = async function sendKeyboxEmail() {
     }
   }
 
-  // submitted 状態のゲストがいた場合、オーナーに確認メールを送信
+  // submitted 状態のゲストがいた場合、Webアプリ管理者に確認メールを送信
   if (ownerAlertDocs.length > 0) {
     try {
       const notifDoc = await db.collection("settings").doc("notifications").get();
@@ -157,14 +157,14 @@ module.exports = async function sendKeyboxEmail() {
           try {
             await sendNotificationEmail_(email, alertSubject, alertBody);
           } catch (e) {
-            console.error(`オーナー確認メール送信失敗 (${email}):`, e.message);
+            console.error(`Webアプリ管理者確認メール送信失敗 (${email}):`, e.message);
           }
         }
       }
     } catch (e) {
-      console.error("オーナー確認メール処理エラー:", e.message);
+      console.error("Webアプリ管理者確認メール処理エラー:", e.message);
     }
   }
 
-  console.log(`キーボックスメール完了: 送信${sentCount}件, スキップ${skipCount}件, オーナー要確認${ownerAlertDocs.length}件`);
+  console.log(`キーボックスメール完了: 送信${sentCount}件, スキップ${skipCount}件, Webアプリ管理者要確認${ownerAlertDocs.length}件`);
 };

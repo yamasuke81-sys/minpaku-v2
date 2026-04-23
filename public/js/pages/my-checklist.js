@@ -140,7 +140,7 @@ const MyChecklistPage = {
         return { ...c, _dateStr: ds };
       }).filter(c => c._dateStr);
 
-      // 担当物件フィルタ: ロール問わず staff ドキュメントの assignedPropertyIds (サブオーナーは
+      // 担当物件フィルタ: ロール問わず staff ドキュメントの assignedPropertyIds (物件オーナーは
       // ownedPropertyIds も考慮) で絞り込む。設定が無い場合のみフォールバックで全民泊物件を表示。
       let filteredProps = propSnap;
       try {
@@ -1472,7 +1472,7 @@ const MyChecklistPage = {
               <i class="bi bi-check2-circle"></i> 清掃完了にする
             </button>
             <div class="small text-muted mt-2">
-              完了するとオーナーに清掃完了通知、ランドリー入力のリマインドが送信されます。
+              完了するとWebアプリ管理者に清掃完了通知、ランドリー入力のリマインドが送信されます。
             </div>
           </div>
         </div>`;
@@ -1546,12 +1546,12 @@ const MyChecklistPage = {
     };
     const patch = { updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
     if (current) {
-      // 解除権限: ボタンを押した本人 / オーナー / サブオーナーのみ可
+      // 解除権限: ボタンを押した本人 / Webアプリ管理者 / 物件オーナーのみ可
       const role = (Auth.currentUser && Auth.currentUser.role) || "staff";
       const isPrivileged = role === "owner" || role === "sub_owner";
       const isAuthor = current?.by?.uid && current.by.uid === user?.uid;
       if (!isAuthor && !isPrivileged) {
-        showToast("解除不可", `この記録は「${current?.by?.name || "前のスタッフ"}」のものです。本人かオーナー/サブオーナーのみ解除できます。`, "error");
+        showToast("解除不可", `この記録は「${current?.by?.name || "前のスタッフ"}」のものです。本人かWebアプリ管理者/物件オーナーのみ解除できます。`, "error");
         return;
       }
       // 取消: この key 以降 (putOut → collected → stored の順) も連動クリア
@@ -1694,7 +1694,7 @@ const MyChecklistPage = {
         } catch (e) { console.warn("プリカ残高/購入処理失敗:", e.message); }
       }
       // laundry コレクションにも記録 (請求書自動集計用)
-      // 立替金フラグ: cash/credit はスタッフ立替、prepaid/invoice はオーナー支払(請求書除外)
+      // 立替金フラグ: cash/credit はスタッフ立替、prepaid/invoice はWebアプリ管理者支払(請求書除外)
       const isReimbursable = info.paymentMethod === "cash" || info.paymentMethod === "credit";
       try {
         await firebase.firestore().collection("laundry").add({
@@ -2220,7 +2220,7 @@ const MyChecklistPage = {
         },
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
-      showToast("清掃完了", "お疲れさまでした！ オーナーに通知しました。", "success");
+      showToast("清掃完了", "お疲れさまでした！ Webアプリ管理者に通知しました。", "success");
     } catch (e) {
       if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check2-circle"></i> 清掃完了にする'; }
       showToast("エラー", e.message, "error");

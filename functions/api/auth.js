@@ -8,8 +8,8 @@ const crypto = require("crypto");
 const admin = require("firebase-admin");
 
 /**
- * 対象 uid が「オーナー」staff ドキュメントに紐付くか判定
- * オーナー = staff.isOwner === true
+ * 対象 uid が「Webアプリ管理者」staff ドキュメントに紐付くか判定
+ * Webアプリ管理者 = staff.isOwner === true
  * @returns {Promise<{isOwner: boolean, staffId?: string, staffName?: string}>}
  */
 async function checkIfOwnerUid(db, uid) {
@@ -76,7 +76,7 @@ module.exports = function authApi(db) {
 
       if (staffSnap.empty) {
         return res.status(403).json({
-          error: "このLINEアカウントに紐付くスタッフが見つかりません。オーナーに招待を依頼してください。",
+          error: "このLINEアカウントに紐付くスタッフが見つかりません。Webアプリ管理者に招待を依頼してください。",
           lineUserId,
           displayName,
         });
@@ -112,13 +112,13 @@ module.exports = function authApi(db) {
         await staffDoc.ref.update({ authUid: uid, updatedAt: new Date() });
       }
 
-      // カスタムクレーム設定（サブオーナー対応 + オーナー降格防止）
+      // カスタムクレーム設定（物件オーナー対応 + Webアプリ管理者降格防止）
       const ownerCheckCallback = await checkIfOwnerUid(db, uid);
       let staffClaims;
       if (ownerCheckCallback.isOwner) {
-        // オーナー uid は降格しない
+        // Webアプリ管理者 uid は降格しない
         staffClaims = { role: "owner", staffId: ownerCheckCallback.staffId };
-        console.log(`[line-callback] オーナー uid ${uid} を owner role 維持`);
+        console.log(`[line-callback] Webアプリ管理者 uid ${uid} を owner role 維持`);
       } else {
         staffClaims = staffData.isSubOwner
           ? { role: "sub_owner", staffId, ownedPropertyIds: staffData.ownedPropertyIds || [] }
@@ -223,13 +223,13 @@ module.exports = function authApi(db) {
         updatedAt: new Date(),
       });
 
-      // カスタムクレーム設定（サブオーナー対応 + オーナー降格防止）
+      // カスタムクレーム設定（物件オーナー対応 + Webアプリ管理者降格防止）
       const ownerCheckInviteLine = await checkIfOwnerUid(db, uid);
       let inviteLineClaims;
       if (ownerCheckInviteLine.isOwner) {
-        // オーナー uid は降格しない
+        // Webアプリ管理者 uid は降格しない
         inviteLineClaims = { role: "owner", staffId: ownerCheckInviteLine.staffId };
-        console.log(`[accept-invite-line] オーナー uid ${uid} を owner role 維持`);
+        console.log(`[accept-invite-line] Webアプリ管理者 uid ${uid} を owner role 維持`);
       } else {
         inviteLineClaims = staffData.isSubOwner
           ? { role: "sub_owner", staffId, ownedPropertyIds: staffData.ownedPropertyIds || [] }
@@ -316,12 +316,12 @@ module.exports = function authApi(db) {
         await staffDoc.ref.update({ authUid: uid, updatedAt: new Date() });
       }
 
-      // カスタムクレーム設定（オーナー降格防止）
+      // カスタムクレーム設定（Webアプリ管理者降格防止）
       const ownerCheckInvite = await checkIfOwnerUid(db, uid);
       if (ownerCheckInvite.isOwner) {
-        // オーナー uid は降格しない
+        // Webアプリ管理者 uid は降格しない
         await admin.auth().setCustomUserClaims(uid, { role: "owner", staffId: ownerCheckInvite.staffId });
-        console.log(`[accept-invite] オーナー uid ${uid} を owner role 維持`);
+        console.log(`[accept-invite] Webアプリ管理者 uid ${uid} を owner role 維持`);
       } else {
         await admin.auth().setCustomUserClaims(uid, { role: "staff", staffId });
       }
@@ -381,12 +381,12 @@ module.exports = function authApi(db) {
       const staffId = invite.staffId;
       const uid = user.uid;
 
-      // カスタムクレーム設定（role: staff + staffId、オーナー降格防止）
+      // カスタムクレーム設定（role: staff + staffId、Webアプリ管理者降格防止）
       const ownerCheckEmail = await checkIfOwnerUid(db, uid);
       if (ownerCheckEmail.isOwner) {
-        // オーナー uid は降格しない
+        // Webアプリ管理者 uid は降格しない
         await admin.auth().setCustomUserClaims(uid, { role: "owner", staffId: ownerCheckEmail.staffId });
-        console.log(`[accept-invite-email] オーナー uid ${uid} を owner role 維持`);
+        console.log(`[accept-invite-email] Webアプリ管理者 uid ${uid} を owner role 維持`);
       } else {
         await admin.auth().setCustomUserClaims(uid, { role: "staff", staffId });
       }
@@ -473,7 +473,7 @@ module.exports = function authApi(db) {
 
       if (staffSnap.empty) {
         return res.status(404).json({
-          error: "このLINEアカウントに紐づくスタッフが見つかりません。オーナーから招待リンクを受け取ってください。",
+          error: "このLINEアカウントに紐づくスタッフが見つかりません。Webアプリ管理者から招待リンクを受け取ってください。",
         });
       }
 
@@ -498,13 +498,13 @@ module.exports = function authApi(db) {
         }
       }
 
-      // カスタムクレーム設定（role: sub_owner / staff + staffId、オーナー降格防止）
+      // カスタムクレーム設定（role: sub_owner / staff + staffId、Webアプリ管理者降格防止）
       const ownerCheckLiff = await checkIfOwnerUid(db, uid);
       let claims;
       if (ownerCheckLiff.isOwner) {
-        // オーナー uid は降格しない
+        // Webアプリ管理者 uid は降格しない
         claims = { role: "owner", staffId: ownerCheckLiff.staffId };
-        console.log(`[liff-login] オーナー uid ${uid} を owner role 維持`);
+        console.log(`[liff-login] Webアプリ管理者 uid ${uid} を owner role 維持`);
       } else {
         claims = staffData.isSubOwner
           ? { role: "sub_owner", staffId, ownedPropertyIds: staffData.ownedPropertyIds || [] }
@@ -531,7 +531,7 @@ module.exports = function authApi(db) {
 
   /**
    * POST /auth/invite
-   * スタッフ招待リンク発行（オーナー限定）
+   * スタッフ招待リンク発行（Webアプリ管理者限定）
    * リクエスト: { staffId: string }
    */
   router.post("/invite", async (req, res) => {
@@ -541,9 +541,9 @@ module.exports = function authApi(db) {
       if (!user) {
         return res.status(401).json({ error: "認証が必要です" });
       }
-      // オーナー権限チェック: role=="owner" OR roleが未設定（既存オーナー互換）
+      // Webアプリ管理者権限チェック: role=="owner" OR roleが未設定（既存Webアプリ管理者互換）
       if (user.role && user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
       const { staffId } = req.body;
@@ -583,7 +583,7 @@ module.exports = function authApi(db) {
 
   /**
    * POST /auth/set-role
-   * カスタムクレーム手動設定（オーナー限定、管理用）
+   * カスタムクレーム手動設定（Webアプリ管理者限定、管理用）
    * リクエスト: { uid: string, role: "owner"|"staff", staffId?: string }
    */
   router.post("/set-role", async (req, res) => {
@@ -592,9 +592,9 @@ module.exports = function authApi(db) {
       if (!user) {
         return res.status(401).json({ error: "認証が必要です" });
       }
-      // オーナー権限チェック: role=="owner" OR roleが未設定（既存オーナー互換）
+      // Webアプリ管理者権限チェック: role=="owner" OR roleが未設定（既存Webアプリ管理者互換）
       if (user.role && user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
       const { uid, role, staffId } = req.body;
@@ -605,12 +605,12 @@ module.exports = function authApi(db) {
         return res.status(400).json({ error: "role は 'owner' / 'sub_owner' / 'staff' のみ" });
       }
 
-      // オーナー uid への staff/sub_owner 降格を拒否
+      // Webアプリ管理者 uid への staff/sub_owner 降格を拒否
       if (role !== "owner") {
         const ownerCheckSetRole = await checkIfOwnerUid(db, uid);
         if (ownerCheckSetRole.isOwner) {
           return res.status(400).json({
-            error: `この UID (${ownerCheckSetRole.staffName}) はオーナーのため staff/sub_owner に降格できません`,
+            error: `この UID (${ownerCheckSetRole.staffName}) はWebアプリ管理者のため staff/sub_owner に降格できません`,
           });
         }
       }
@@ -638,7 +638,7 @@ module.exports = function authApi(db) {
 
   /**
    * POST /auth/set-sub-owner
-   * スタッフをサブオーナーに昇格 / 解除（オーナー限定）
+   * スタッフを物件オーナーに昇格 / 解除（Webアプリ管理者限定）
    * リクエスト: { staffId: string, isSubOwner: boolean, ownedPropertyIds?: string[], subOwnerLineUserId?: string, subOwnerEmail?: string }
    */
   router.post("/set-sub-owner", async (req, res) => {
@@ -648,7 +648,7 @@ module.exports = function authApi(db) {
         return res.status(401).json({ error: "認証が必要です" });
       }
       if (user.role && user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
       const { staffId, isSubOwner, ownedPropertyIds = [], subOwnerLineUserId, subOwnerEmail } = req.body;
@@ -661,9 +661,9 @@ module.exports = function authApi(db) {
         return res.status(404).json({ error: "スタッフが見つかりません" });
       }
 
-      // オーナー本人をサブオーナー化しようとした場合は拒否
+      // Webアプリ管理者本人を物件オーナー化しようとした場合は拒否
       if (staffDoc.data()?.isOwner) {
-        return res.status(400).json({ error: "オーナー本人をサブオーナー化することはできません" });
+        return res.status(400).json({ error: "Webアプリ管理者本人を物件オーナー化することはできません" });
       }
 
       // Firestoreのスタッフドキュメント更新
@@ -683,8 +683,8 @@ module.exports = function authApi(db) {
       if (staffData.authUid) {
         const ownerCheckSubOwner = await checkIfOwnerUid(db, staffData.authUid);
         if (ownerCheckSubOwner.isOwner) {
-          // オーナー uid は降格しない（到達しないはずだが安全弁として）
-          console.log(`[set-sub-owner] オーナー uid ${staffData.authUid} を owner role 維持`);
+          // Webアプリ管理者 uid は降格しない（到達しないはずだが安全弁として）
+          console.log(`[set-sub-owner] Webアプリ管理者 uid ${staffData.authUid} を owner role 維持`);
         } else {
           const newRole = isSubOwner ? "sub_owner" : "staff";
           const claimsSubOwner = { role: newRole, staffId };
@@ -697,14 +697,14 @@ module.exports = function authApi(db) {
 
       res.json({ success: true, staffId, isSubOwner: !!isSubOwner });
     } catch (e) {
-      console.error("サブオーナー設定エラー:", e);
+      console.error("物件オーナー設定エラー:", e);
       res.status(500).json({ error: `サーバーエラー: ${e.message}` });
     }
   });
 
   /**
    * POST /auth/link-line
-   * スタッフにLINE User IDを紐付ける（オーナー限定）
+   * スタッフにLINE User IDを紐付ける（Webアプリ管理者限定）
    * リクエスト: { staffId: string, lineUserId: string }
    */
   router.post("/link-line", async (req, res) => {
@@ -714,7 +714,7 @@ module.exports = function authApi(db) {
         return res.status(401).json({ error: "認証が必要です" });
       }
       if (user.role && user.role !== "owner") {
-        return res.status(403).json({ error: "オーナー権限が必要です" });
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
       const { staffId, lineUserId } = req.body;

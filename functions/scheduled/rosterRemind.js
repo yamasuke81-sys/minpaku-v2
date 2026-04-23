@@ -1,6 +1,6 @@
 /**
  * 名簿未入力リマインド（毎朝9:00 JST）
- * 今日より未来の confirmed 予約で宿泊者名簿が未提出の予約ごとにオーナーLINE通知
+ * 今日より未来の confirmed 予約で宿泊者名簿が未提出の予約ごとにWebアプリ管理者LINE通知
  */
 const admin = require("firebase-admin");
 const {
