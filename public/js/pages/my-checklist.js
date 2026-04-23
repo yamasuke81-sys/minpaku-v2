@@ -892,7 +892,7 @@ const MyChecklistPage = {
 
       if (!el.isConnected || this.activeTopTab !== "schedule") return;
       el.innerHTML = `
-        <div class="p-3">
+        <div class="pt-2">
           ${staffHtml}
           ${nextHtml}
         </div>`;
@@ -942,7 +942,7 @@ const MyChecklistPage = {
   renderTabPhotos() {
     const el = document.getElementById("mclTopTabContent");
     if (!el || !this.checklist) return;
-    el.innerHTML = `<div id="mclPhotoSection" class="mt-3 px-1"></div>`;
+    el.innerHTML = `<div id="mclPhotoSection" class="pt-2"></div>`;
     this.renderPhotoSection();
   },
 
@@ -950,7 +950,7 @@ const MyChecklistPage = {
   renderTabLaundry() {
     const el = document.getElementById("mclTopTabContent");
     if (!el || !this.checklist) return;
-    el.innerHTML = `<div id="mclFooter" class="mt-3 px-1"></div>`;
+    el.innerHTML = `<div id="mclFooter" class="pt-2"></div>`;
     this.renderFooter();
   },
 
@@ -978,7 +978,7 @@ const MyChecklistPage = {
     areas.forEach(a => walk(a, [a.name]));
 
     if (!supplyItems.length) {
-      el.innerHTML = `<div class="alert alert-secondary m-3">要補充項目がありません</div>`;
+      el.innerHTML = `<div class="alert alert-secondary mt-2">要補充項目がありません</div>`;
       return;
     }
 
@@ -1001,7 +1001,7 @@ const MyChecklistPage = {
     }).join("");
 
     el.innerHTML = `
-      <div class="p-3">
+      <div class="pt-2">
         <div class="d-flex align-items-center mb-3 gap-2">
           <span class="fw-bold"><i class="bi bi-exclamation-triangle text-warning"></i> 要補充リスト</span>
           <span class="badge bg-secondary">${supplyItems.length}項目</span>
