@@ -66,6 +66,10 @@ body { background: var(--bg); margin: 0; padding: 0; font-family: -apple-system,
   transition: margin-left 0.2s ease;
 }
 
+/* チェックリスト画面では .app-main の上下 padding を無効化
+   (ヘッダー fixed + spacer で位置調整しているため不要) */
+body.mcl-shift-active .app-main { padding-top: 0; padding-bottom: 0; }
+
 /* サイドバー折りたたみ（PC・モバイル共通） */
 .app-sidebar.collapsed { width: 0; overflow: hidden; }
 .app-sidebar.collapsed + .app-main,

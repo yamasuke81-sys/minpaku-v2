@@ -32,6 +32,8 @@ const MyChecklistPage = {
       return;
     }
 
+    // .app-main の上下 padding を無効化 (チェックリスト画面はヘッダー fixed のため不要)
+    document.body.classList.add("mcl-shift-active");
     container.innerHTML = `
       <div class="mcl-page-header" style="position:fixed;top:0;z-index:29;background:#fff;padding:8px 12px;box-shadow:0 1px 0 #eee;">
         <div class="d-flex align-items-center">
@@ -39,7 +41,7 @@ const MyChecklistPage = {
             <i class="bi bi-arrow-left"></i>
           </a>
           <h6 class="mb-0 flex-grow-1" id="mclHeader" style="display:flex;align-items:center;min-width:0;font-size:14px;">チェックリスト</h6>
-          <span id="mclStatus" class="badge bg-secondary small"></span>
+          <span id="mclStatus" class="badge bg-secondary small d-none"></span>
         </div>
       </div>
       <div class="mcl-page-header-spacer"></div>
@@ -543,6 +545,8 @@ const MyChecklistPage = {
       this._hashHandler = null;
     }
     this.clearEditingMark();
+    document.body.classList.remove("mcl-shift-active");
+    this._debugShown = false;
     this.checklistId = null;
     this.checklist = null;
     this.activeAreaId = null;
