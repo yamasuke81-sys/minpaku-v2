@@ -94,7 +94,7 @@ module.exports = async function rosterRemind(event) {
         results.push(r);
       }
       if (tgt.groupLine) {
-        const r = await notifyGroup(db, NOTIFY_TYPE, title, defaultMsg, vars, overrides);
+        const r = await notifyGroup(db, NOTIFY_TYPE, title, defaultMsg, vars, overrides, b.propertyId);
         results.push(r);
       }
 

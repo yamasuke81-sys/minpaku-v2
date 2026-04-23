@@ -100,7 +100,7 @@ module.exports = async function urgentRemind(event) {
         results.push(r);
       }
       if (tgt.groupLine) {
-        const r = await notifyGroup(db, NOTIFY_TYPE, title, defaultMsg, vars, overrides);
+        const r = await notifyGroup(db, NOTIFY_TYPE, title, defaultMsg, vars, overrides, guest.propertyId);
         results.push(r);
       }
 

@@ -101,9 +101,9 @@ module.exports = function recruitmentApi(db) {
               `🧹 清掃スタッフ募集\n${data.checkoutDate} ${data.propertyName || ""}\n回答: ${recruitUrl}`,
               baseVars);
           }
-          // グループLINEに送信
+          // グループLINEに送信 (該当物件の LINE のみ)
           if (targets.groupLine) {
-            await notifyGroup(db, "recruit_start", title, flex, baseVars);
+            await notifyGroup(db, "recruit_start", title, flex, baseVars, undefined, data.propertyId);
           }
           // スタッフ個別LINEに送信
           if (targets.staffLine) {

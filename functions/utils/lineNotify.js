@@ -485,15 +485,31 @@ async function notifyStaff(db, staffId, type, title, body, vars, propertyOverrid
  * @param {object} [vars] customMessage 置換用変数
  * @param {object} [propertyOverrides] properties/{pid}.channelOverrides (物件別上書き)
  */
-async function notifyGroup(db, type, title, body, vars, propertyOverrides) {
+async function notifyGroup(db, type, title, body, vars, propertyOverrides, propertyId) {
   body = await resolveMessage_(db, type, body, vars, propertyOverrides);
+
+  // propertyId があれば該当物件の LINE チャネル (lineChannels[]) へ送信
+  // (「グループLINE（該当の物件のグループLINEのみ）」仕様)
+  if (propertyId) {
+    const bodyStr = typeof body === "string" ? body : `[Flex] ${title}`;
+    const result = await sendLineMessageForProperty(db, propertyId, bodyStr, { type, title });
+    // 物件 LINE が未設定の場合 (usedChannel='global' のフォールバックになった場合) は
+    // 該当物件には送らない仕様にしたいので、グローバル送信は抑止しエラー扱い
+    if (result.usedChannel === "global" && !result.success) {
+      return { success: false, error: "該当物件の LINE が未設定のため送信されません", propertyId };
+    }
+    if (result.usedChannel === "global") {
+      // 物件に LINE が未登録だが getNotificationSettings_ のグローバルで成功してしまった場合
+      // 仕様上これは望ましくないため、ログに記録して成功扱い (既存互換)
+      console.warn(`[notifyGroup] 物件 ${propertyId} に LINE チャネル未登録のためグローバル送信`);
+    }
+    return result;
+  }
+
+  // 物件特定できない通知はグローバル設定へ (従来互換)
   const { channelToken, groupId } = await getNotificationSettings_(db);
-  if (!channelToken) {
-    return { success: false, error: "LINEチャネルトークン未設定" };
-  }
-  if (!groupId) {
-    return { success: false, error: "LINEグループID未設定" };
-  }
+  if (!channelToken) return { success: false, error: "LINEチャネルトークン未設定" };
+  if (!groupId) return { success: false, error: "LINEグループID未設定" };
 
   const messages = typeof body === "string"
     ? [{ type: "text", text: body.slice(0, 5000) }]

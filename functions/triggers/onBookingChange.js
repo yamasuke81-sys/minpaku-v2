@@ -183,7 +183,7 @@ async function detectDoubleBooking(db, bookingId, after) {
           await notifyOwner(db, "double_booking", title, body, {}, propertyOverrides);
         }
         if (targets.groupLine) {
-          await notifyGroup(db, "double_booking", title, body, {}, propertyOverrides);
+          await notifyGroup(db, "double_booking", title, body, {}, propertyOverrides, after.propertyId);
         }
       }
     } catch (e) {
@@ -570,7 +570,7 @@ module.exports = async function onBookingChange(event) {
       );
     }
 
-    // グループLINE通知
+    // グループLINE通知 (該当物件の LINE のみ)
     if (targets.groupLine) {
       await notifyGroup(
         db,
@@ -578,7 +578,8 @@ module.exports = async function onBookingChange(event) {
         `清掃スタッフ募集: ${checkOut}`,
         flexMessage,
         baseVars,
-        propertyOverrides
+        propertyOverrides,
+        booking.propertyId
       );
     }
 
@@ -706,7 +707,7 @@ module.exports = async function onBookingChange(event) {
           `【直前点検スタッフ募集】\n${checkIn} ${propertyName}\n${memo2}\n回答: ${recruitUrl2}`, baseVars2, propOv2);
       }
       if (tgt2.groupLine) {
-        await notifyGroup(db, "recruit_start", `直前点検スタッフ募集: ${checkIn}`, flex2, baseVars2, propOv2);
+        await notifyGroup(db, "recruit_start", `直前点検スタッフ募集: ${checkIn}`, flex2, baseVars2, propOv2, booking.propertyId);
       }
       if (tgt2.staffLine) {
         const staffSnap2 = await db.collection("staff").where("active", "==", true).get();

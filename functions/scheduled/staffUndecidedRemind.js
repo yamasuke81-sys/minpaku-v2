@@ -92,7 +92,7 @@ module.exports = async function staffUndecidedRemind(event) {
         results.push(res);
       }
       if (tgt.groupLine) {
-        const res = await notifyGroup(db, NOTIFY_TYPE, title, defaultMsg, vars, overrides);
+        const res = await notifyGroup(db, NOTIFY_TYPE, title, defaultMsg, vars, overrides, r.propertyId);
         results.push(res);
       }
 

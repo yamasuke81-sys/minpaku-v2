@@ -450,9 +450,9 @@ module.exports = async (event) => {
       if (targets.ownerLine) {
         await notifyOwner(db, type, title, body, vars, propertyOverrides);
       }
-      // グループLINE
+      // グループLINE (該当物件の LINE のみ)
       if (targets.groupLine) {
-        await notifyGroup(db, type, title, body, vars, propertyOverrides);
+        await notifyGroup(db, type, title, body, vars, propertyOverrides, after.propertyId);
       }
       // スタッフ個別LINE (割当済みスタッフ全員)
       if (targets.staffLine) {
