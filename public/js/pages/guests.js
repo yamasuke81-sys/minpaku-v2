@@ -207,8 +207,8 @@ const GuestsPage = {
         : `<span class="badge bg-secondary ms-1" title="ゲスト未提出 (手動/インポート)"><i class="bi bi-circle"></i> 未提出</span>`;
       const prop = propMap[g.propertyId];
       const propCell = prop
-        ? `${renderPropertyNumberBadge(prop)}<span class="small">${this.escapeHtml(prop.name)}</span>`
-        : (g.propertyName ? `<span class="small text-muted">${this.escapeHtml(g.propertyName)}</span>` : `<span class="text-muted small">-</span>`);
+        ? renderPropertyNumberBadge(prop)
+        : `<span class="text-muted small">-</span>`;
       return `
         <tr data-id="${g.id}" class="guest-row ${g._coMismatch ? "table-warning" : ""}">
           <td>${formatDate(g.checkIn)}${g.checkInTime ? `<br><small class="text-muted">${this.escapeHtml(g.checkInTime)}</small>` : ""}</td>
@@ -801,19 +801,15 @@ const GuestsPage = {
 
   async deleteGuest(id) {
     const guest = this.guestList.find(g => g.id === id);
-    await showConfirm(
-      "宿泊者情報削除",
-      `${guest?.guestName || ""} の宿泊者情報を削除しますか？`,
-      async () => {
-        try {
-          await API.guests.delete(id);
-          showToast("完了", "宿泊者情報を削除しました", "success");
-          await this.loadGuests();
-        } catch (e) {
-          showToast("エラー", `削除失敗: ${e.message}`, "error");
-        }
-      }
-    );
+    const ok = await showConfirm(`${guest?.guestName || ""} の宿泊者情報を削除しますか？`, { title: "宿泊者情報削除", okClass: "btn-danger", okLabel: "削除" });
+    if (!ok) return;
+    try {
+      await API.guests.delete(id);
+      showToast("完了", "宿泊者情報を削除しました", "success");
+      await this.loadGuests();
+    } catch (e) {
+      showToast("エラー", `削除失敗: ${e.message}`, "error");
+    }
   },
 
   escapeHtml(str) {
@@ -1050,28 +1046,27 @@ const GuestsPage = {
         const pid = this._currentFormTarget;
         if (!pid) return;
         const prop = (this._propertiesCache || []).find(p => p.id === pid);
-        await showConfirm(
-          "独自設定を削除",
+        const ok = await showConfirm(
           `「${prop?.name || "この物件"}」の独自フォーム設定をすべて削除します。よろしいですか？`,
-          async () => {
-            try {
-              await db.collection("properties").doc(pid).update({
-                customFormEnabled: false,
-                customFormFields: firebase.firestore.FieldValue.delete(),
-                customFormSections: firebase.firestore.FieldValue.delete(),
-                showNoiseAgreement: firebase.firestore.FieldValue.delete(),
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-              });
-              const idx = (this._propertiesCache || []).findIndex(p => p.id === pid);
-              if (idx >= 0) this._propertiesCache[idx].customFormEnabled = false;
-              this.expandedCards.clear();
-              await this.loadFormConfig();
-              showToast("完了", "独自設定を削除しました", "success");
-            } catch (e) {
-              showToast("エラー", `削除失敗: ${e.message}`, "error");
-            }
-          }
+          { title: "独自設定を削除", okClass: "btn-danger", okLabel: "削除" }
         );
+        if (!ok) return;
+        try {
+          await db.collection("properties").doc(pid).update({
+            customFormEnabled: false,
+            customFormFields: firebase.firestore.FieldValue.delete(),
+            customFormSections: firebase.firestore.FieldValue.delete(),
+            showNoiseAgreement: firebase.firestore.FieldValue.delete(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+          const idx = (this._propertiesCache || []).findIndex(p => p.id === pid);
+          if (idx >= 0) this._propertiesCache[idx].customFormEnabled = false;
+          this.expandedCards.clear();
+          await this.loadFormConfig();
+          showToast("完了", "独自設定を削除しました", "success");
+        } catch (e) {
+          showToast("エラー", `削除失敗: ${e.message}`, "error");
+        }
       });
 
       this._formBtnsBound = true;
@@ -1189,6 +1184,8 @@ const GuestsPage = {
   _formFieldOverrides: {},
   // Phase 1: 統一リスト用の展開状態（標準項目はフィールドid、カスタムはインデックス文字列）
   _unifiedExpandedCards: new Set(),
+  // 固定項目セクション設定: { facility: { hidden: boolean, parkingMode: "terrace"|"message"|"freetext", parkingMessage: string } }
+  _formSectionConfig: {},
 
   async loadFormConfig() {
     const pid = this._currentFormTarget;
@@ -1207,6 +1204,9 @@ const GuestsPage = {
 
       // formFieldConfig.overrides を取得 (Phase 1 新規フィールド)
       this._formFieldOverrides = (pd.formFieldConfig && pd.formFieldConfig.overrides) ? pd.formFieldConfig.overrides : {};
+
+      // 固定セクション設定 (facility の非表示/駐車場モード)
+      this._formSectionConfig = pd.formSectionConfig || {};
 
       if (pd.customFormEnabled === true && pd.customFormFields?.length > 0) {
         // 独自設定あり → 編集UIを表示
@@ -1254,14 +1254,14 @@ const GuestsPage = {
     this.renderUnifiedFormFields();
   },
 
-  loadFormDefaults() {
-    showConfirm("デフォルト読み込み", "デフォルト項目を読み込みます。現在の設定は上書きされます。よろしいですか？", () => {
-      this.formFields = JSON.parse(JSON.stringify(this.DEFAULT_FORM_FIELDS));
-      this.expandedCards.clear();
-      this._unifiedExpandedCards.clear();
-      this.renderUnifiedFormFields();
-      showToast("完了", "デフォルト項目を読み込みました。「保存」を押して反映してください。", "success");
-    });
+  async loadFormDefaults() {
+    const ok = await showConfirm("デフォルト項目を読み込みます。現在の設定は上書きされます。よろしいですか？", { title: "デフォルト読み込み" });
+    if (!ok) return;
+    this.formFields = JSON.parse(JSON.stringify(this.DEFAULT_FORM_FIELDS));
+    this.expandedCards.clear();
+    this._unifiedExpandedCards.clear();
+    this.renderUnifiedFormFields();
+    showToast("完了", "デフォルト項目を読み込みました。「保存」を押して反映してください。", "success");
   },
 
   getSectionLabel(secId) {
@@ -1460,15 +1460,15 @@ const GuestsPage = {
 
     // --- 標準項目: オーバーライドリセット ---
     container.querySelectorAll(".ufld-std-reset").forEach(btn => {
-      btn.addEventListener("click", () => {
+      btn.addEventListener("click", async () => {
         const fid = btn.dataset.fid;
         if (!fid) return;
-        showConfirm("リセット", `「${fid}」のオーバーライドをリセットしますか？デフォルト設定に戻ります。`, () => {
-          delete this._formFieldOverrides[fid];
-          this._unifiedExpandedCards.delete("std_" + fid);
-          this.renderUnifiedFormFields();
-          showToast("完了", "リセットしました（保存で確定）", "info");
-        });
+        const ok = await showConfirm(`「${fid}」のオーバーライドをリセットしますか？デフォルト設定に戻ります。`, { title: "リセット" });
+        if (!ok) return;
+        delete this._formFieldOverrides[fid];
+        this._unifiedExpandedCards.delete("std_" + fid);
+        this.renderUnifiedFormFields();
+        showToast("完了", "リセットしました（保存で確定）", "info");
       });
     });
 
@@ -1477,10 +1477,11 @@ const GuestsPage = {
   },
 
   // 固定項目カード（読み取り専用）
-  _renderFixedFieldCard(f, num) {
+  _renderFixedFieldCard(f, num, secHidden) {
     const typeBadge = this.TYPE_LABELS[f.type] || f.type;
+    const dimStyle = secHidden ? "opacity:0.4;" : "opacity:0.85;";
     return `
-      <div class="ff-card" style="opacity:0.85; background:#f8f9fa; border-style:dashed;">
+      <div class="ff-card" style="${dimStyle} background:#f8f9fa; border-style:dashed;">
         <div class="ff-card-header" style="cursor:default;">
           <span style="padding:2px 4px;"><i class="bi bi-lock-fill" style="color:#ffc107;"></i></span>
           <span class="ff-card-num">${num}</span>
@@ -1491,7 +1492,54 @@ const GuestsPage = {
           <span class="badge bg-secondary ff-badge-type">${typeBadge}</span>
           ${f.required ? '<span class="badge bg-danger ff-badge-req">必須</span>' : ""}
           <span class="badge bg-warning text-dark" title="HTMLに固定実装されており、この画面からは変更できません" style="font-size:0.7em;"><i class="bi bi-lock-fill me-1"></i>固定</span>
+          ${secHidden ? '<span class="badge bg-secondary" style="font-size:0.7em;"><i class="bi bi-eye-slash"></i> セクション非表示中</span>' : ""}
         </div>
+      </div>`;
+  },
+
+  // 固定セクションの見出し（facility のみ非表示トグル + 駐車場モード切替 UI を含む）
+  _renderFixedSectionHeader(secId) {
+    const secLabel = this.esc(this.getSectionLabel(secId));
+    const cfg = this._formSectionConfig[secId] || {};
+    const hidden = cfg.hidden === true;
+
+    let controls = "";
+    if (secId === "facility") {
+      const mode = cfg.parkingMode || "terrace";
+      const freetextDefault = cfg.parkingMessage || "";
+      controls = `
+        <div class="ms-auto d-flex align-items-center gap-2">
+          <button type="button" class="btn btn-sm ${hidden ? "btn-outline-success" : "btn-outline-secondary"} fixed-sec-hide-btn" data-sec="${secId}" title="${hidden ? "表示する" : "セクションごと非表示にする"}" style="padding:2px 8px;">
+            <i class="bi bi-${hidden ? "eye" : "eye-slash"}"></i> ${hidden ? "表示" : "非表示"}
+          </button>
+        </div>
+        <div class="w-100 mt-2 p-2 border rounded bg-white" style="font-weight:normal;">
+          <div class="small fw-bold mb-1"><i class="bi bi-car-front"></i> 交通手段「車」選択時の駐車場案内</div>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input fixed-sec-parking-mode" type="radio" name="parkingMode_${secId}" value="terrace" id="pm_terrace" ${mode === "terrace" ? "checked" : ""}>
+            <label class="form-check-label small" for="pm_terrace">ザ・テラス長浜スタイル（現状の複雑な割当）</label>
+          </div>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input fixed-sec-parking-mode" type="radio" name="parkingMode_${secId}" value="message" id="pm_message" ${mode === "message" ? "checked" : ""}>
+            <label class="form-check-label small" for="pm_message">メッセージのみ（駐車場なし告知）</label>
+          </div>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input fixed-sec-parking-mode" type="radio" name="parkingMode_${secId}" value="freetext" id="pm_freetext" ${mode === "freetext" ? "checked" : ""}>
+            <label class="form-check-label small" for="pm_freetext">自由記述（ゲストが手入力）</label>
+          </div>
+          <div class="mt-2 ${mode === "message" ? "" : "d-none"}" data-pm-field="message">
+            <label class="form-label small mb-1">表示メッセージ（日本語）</label>
+            <input type="text" class="form-control form-control-sm fixed-sec-parking-message" value="${this.esc(freetextDefault)}" placeholder="例: 専用駐車場はありません。周辺コインパーキングをご利用ください。">
+          </div>
+        </div>`;
+    } else if (secId === "guests" || secId === "survey" || secId === "emergency") {
+      controls = `<span class="ms-auto small text-muted"><i class="bi bi-shield-lock"></i> 完全固定（非表示不可）</span>`;
+    }
+
+    return `
+      <div class="ff-section-sep" style="opacity:0.85; font-size:0.8rem; flex-wrap:wrap;">
+        <i class="bi bi-folder2"></i> <span>${secLabel}</span>
+        ${controls}
       </div>`;
   },
 
@@ -1510,9 +1558,11 @@ const GuestsPage = {
       fixedNum++;
       if (f.section !== lastFixedSec) {
         lastFixedSec = f.section;
-        html += `<div class="ff-section-sep" style="opacity:0.75; font-size:0.75rem;"><i class="bi bi-folder2"></i> ${this.esc(this.getSectionLabel(f.section))}</div>`;
+        html += this._renderFixedSectionHeader(f.section);
       }
-      html += this._renderFixedFieldCard(f, fixedNum);
+      // セクションが非表示ならカードもグレーアウト
+      const secHidden = this._formSectionConfig[f.section]?.hidden === true;
+      html += this._renderFixedFieldCard(f, fixedNum, secHidden);
     });
 
     // === カスタム追加項目（編集可能）===
@@ -1562,6 +1612,43 @@ const GuestsPage = {
 
     container.innerHTML = html;
     this.bindCardEvents(container);
+    this._bindFixedSectionEvents(container);
+  },
+
+  _bindFixedSectionEvents(container) {
+    // セクション非表示トグル
+    container.querySelectorAll(".fixed-sec-hide-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const sec = btn.dataset.sec;
+        if (!sec) return;
+        if (!this._formSectionConfig[sec]) this._formSectionConfig[sec] = {};
+        this._formSectionConfig[sec].hidden = !this._formSectionConfig[sec].hidden;
+        this.renderFormFields();
+        const now = this._formSectionConfig[sec].hidden;
+        showToast("", `${this.getSectionLabel(sec)} を${now ? "非表示" : "表示"}に変更 (保存で確定)`, "info");
+      });
+    });
+
+    // 駐車場モード切替
+    container.querySelectorAll(".fixed-sec-parking-mode").forEach(r => {
+      r.addEventListener("change", () => {
+        if (!r.checked) return;
+        if (!this._formSectionConfig.facility) this._formSectionConfig.facility = {};
+        this._formSectionConfig.facility.parkingMode = r.value;
+        // message 入力欄の表示切替
+        const msgField = container.querySelector('[data-pm-field="message"]');
+        if (msgField) msgField.classList.toggle("d-none", r.value !== "message");
+      });
+    });
+
+    // メッセージ文言
+    container.querySelectorAll(".fixed-sec-parking-message").forEach(inp => {
+      inp.addEventListener("input", () => {
+        if (!this._formSectionConfig.facility) this._formSectionConfig.facility = {};
+        this._formSectionConfig.facility.parkingMessage = inp.value;
+      });
+    });
   },
 
   renderFieldCardBody(f, idx) {
@@ -1814,13 +1901,14 @@ const GuestsPage = {
 
     // フィールド削除
     container.querySelectorAll(".ff-action-del").forEach(btn => {
-      btn.addEventListener("click", () => {
+      btn.addEventListener("click", async () => {
         const idx = Number(btn.dataset.idx);
-        showConfirm("項目削除", `「${this.formFields[idx].label || ""}」を削除しますか？`, () => {
-          this.formFields.splice(idx, 1);
-          this.expandedCards.clear();
-          this.renderFormFields();
-        });
+        const ok = await showConfirm(`「${this.formFields[idx].label || ""}」を削除しますか？`, { title: "項目削除", okClass: "btn-danger", okLabel: "削除" });
+        if (!ok) return;
+        this.formFields.splice(idx, 1);
+        this.expandedCards.clear();
+        this.renderFormFields();
+        showToast("完了", "項目を削除しました。「保存」で確定してください。", "info");
       });
     });
 
@@ -1930,6 +2018,7 @@ const GuestsPage = {
         customFormFields: fields,
         customFormSections: this.DEFAULT_SECTIONS,
         "formFieldConfig.overrides": overrides,
+        formSectionConfig: this._formSectionConfig || {},
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
       this.formFields = fields;

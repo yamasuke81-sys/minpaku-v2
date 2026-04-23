@@ -43,6 +43,7 @@ router.get("/guest-form-config/:propertyId", async (req, res) => {
       customFormFields: Array.isArray(d.customFormFields) ? d.customFormFields : [],
       customFormSections: Array.isArray(d.customFormSections) ? d.customFormSections : [],
       formFieldConfig,  // Phase 1 追加: 標準項目のオーバーライド設定
+      formSectionConfig: (d.formSectionConfig && typeof d.formSectionConfig === "object") ? d.formSectionConfig : {},
     });
   } catch (e) {
     console.error("[public/guest-form-config] エラー:", e);

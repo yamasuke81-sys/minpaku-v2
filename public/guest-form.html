@@ -886,28 +886,34 @@
     }
 
     // ===== 交通手段 =====
+    // ヘルパー: 要素が存在するときのみ classList 操作／value代入する
+    function _safeToggle(id, cls, force) { const el = document.getElementById(id); if (el) el.classList.toggle(cls, force); }
+    function _safeSet(id, prop, val) { const el = document.getElementById(id); if (el) el[prop] = val; }
     function updateTransportUI() {
-      const tr = document.getElementById("f_transport").value;
+      const trEl = document.getElementById("f_transport");
+      if (!trEl) return;
+      const tr = trEl.value;
       const isCar = tr === "車" || tr === "Car";
       const isTaxi = tr === "タクシー" || tr === "Taxi";
       const isOther = tr === "その他" || tr === "Other";
-      document.getElementById("carSection").classList.toggle("d-none", !isCar);
-      document.getElementById("taxiWarn").classList.toggle("d-none", !isTaxi);
-      document.getElementById("f_transportOther").classList.toggle("show", isOther);
+      _safeToggle("carSection", "d-none", !isCar);
+      _safeToggle("taxiWarn", "d-none", !isTaxi);
+      _safeToggle("f_transportOther", "show", isOther);
       // タクシー: チェックボックス必須
-      document.getElementById("f_taxiAgree").required = isTaxi;
-      if (!isTaxi) document.getElementById("f_taxiAgree").checked = false;
-      document.getElementById("f_carCount").required = isCar;
-      document.getElementById("f_paidParking").required = false; // 車種確定時にrunParkingAllocationで再設定
+      _safeSet("f_taxiAgree", "required", isTaxi);
+      if (!isTaxi) _safeSet("f_taxiAgree", "checked", false);
+      _safeSet("f_carCount", "required", isCar);
+      _safeSet("f_paidParking", "required", false);
       if (!isCar) {
-        document.getElementById("f_carCount").value = "";
-        document.getElementById("f_paidParking").value = "";
-        document.getElementById("vehicleTypeList").innerHTML = "";
-        document.getElementById("parkingAllocation").classList.add("d-none");
-        document.getElementById("parkingNotes").classList.add("d-none"); updateNeighborAgreeRequired(false);
-        document.getElementById("paidParkingGuide").classList.add("d-none"); document.getElementById("paidParkingSelect").classList.add("d-none"); document.getElementById("f_paidParking").required = false;
-        document.getElementById("paidParkingSelect").classList.add("d-none");
-        document.getElementById("carOverError").classList.add("d-none");
+        _safeSet("f_carCount", "value", "");
+        _safeSet("f_paidParking", "value", "");
+        const vtl = document.getElementById("vehicleTypeList"); if (vtl) vtl.innerHTML = "";
+        _safeToggle("parkingAllocation", "d-none", true);
+        _safeToggle("parkingNotes", "d-none", true); if (typeof updateNeighborAgreeRequired === "function") updateNeighborAgreeRequired(false);
+        _safeToggle("paidParkingGuide", "d-none", true);
+        _safeToggle("paidParkingSelect", "d-none", true);
+        _safeSet("f_paidParking", "required", false);
+        _safeToggle("carOverError", "d-none", true);
       }
     }
 
@@ -1361,6 +1367,52 @@
      *
      * 後方互換: fields 配列（旧形式）を渡された場合も動作するよう対応
      */
+    // 固定セクション設定を適用: 施設利用情報の非表示/駐車場モード
+    function applyFixedSectionConfig(cfg) {
+      if (!cfg || typeof cfg !== "object") return;
+
+      // --- 施設利用情報の非表示 ---
+      if (cfg.facility && cfg.facility.hidden === true) {
+        const secStart = document.getElementById("sec_facility");
+        const secEnd = document.getElementById("sec_survey");
+        if (secStart) {
+          let el = secStart;
+          while (el && el !== secEnd) {
+            const next = el.nextElementSibling;
+            el.classList.add("d-none");
+            // required を解除
+            el.querySelectorAll("input,select,textarea").forEach(x => { x.required = false; x.disabled = true; });
+            el = next;
+          }
+        }
+        return; // 非表示なら駐車場モードは不要
+      }
+
+      // --- 駐車場モード切替 ---
+      const mode = (cfg.facility && cfg.facility.parkingMode) || "terrace";
+      const message = (cfg.facility && cfg.facility.parkingMessage) || "";
+      if (mode === "terrace") return; // 現状維持
+
+      const carSection = document.getElementById("carSection");
+      if (!carSection) return;
+
+      // 既存の複雑UIを丸ごと入れ替え
+      if (mode === "message") {
+        const msg = message || "専用駐車場はありませんので、周辺のコインパーキング等をご利用ください。";
+        carSection.innerHTML = `
+          <div class="alert alert-warning mb-3">
+            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+            ${msg.replace(/</g, "&lt;")}
+          </div>`;
+      } else if (mode === "freetext") {
+        carSection.innerHTML = `
+          <div class="mb-3">
+            <label class="form-label fw-bold" for="f_parkingFreeText">駐車場のご利用について、わかる範囲でご記入ください</label>
+            <textarea class="form-control" id="f_parkingFreeText" rows="3" placeholder="例: コインパーキング利用予定 / 近隣施設にて駐車予定 など"></textarea>
+          </div>`;
+      }
+    }
+
     function applyFormConfig(formFieldConfig) {
       _customFormFields = [];
       _hiddenFieldIds = new Set();
@@ -1660,8 +1712,8 @@
       e.preventDefault();
       const form = document.getElementById("guestForm"), t = i18n[currentLang];
 
-      if (document.getElementById("f_carCount").value === "over") {
-        document.getElementById("carOverError").scrollIntoView({ behavior: "smooth", block: "center" }); return;
+      if (document.getElementById("f_carCount")?.value === "over") {
+        document.getElementById("carOverError")?.scrollIntoView({ behavior: "smooth", block: "center" }); return;
       }
 
       // 割り当て不可チェック
@@ -1733,10 +1785,11 @@
           passportNumber: rep.passportNumber||"", passportPhotoUrl: rep.passportPhotoUrl||"",
           guests: companions,
           transport:        fieldVal("transport",        transport),
-          carCount:         fieldVal("carCount",         parseInt(document.getElementById("f_carCount").value)||0),
+          carCount:         fieldVal("carCount",         parseInt(document.getElementById("f_carCount")?.value)||0),
           vehicleTypes:     fieldVal("vehicleTypes",     vehicleTypes),
           parkingAllocation:fieldVal("vehicleTypes",     parkingAllocation),
-          paidParking:      fieldVal("paidParking",      document.getElementById("f_paidParking").value || ""),
+          paidParking:      fieldVal("paidParking",      document.getElementById("f_paidParking")?.value || ""),
+          parkingFreeText:  (document.getElementById("f_parkingFreeText")?.value || "").trim() || undefined,
           bbq:              fieldVal("bbq",              document.getElementById("f_bbq").value),
           bedChoice:        fieldVal("bedChoice",        document.getElementById("f_bedChoice").value),
           purpose:          fieldVal("purpose",          purpose),
@@ -1877,6 +1930,9 @@
           applyFormConfig(_resolvedFormFields);
         }
       }
+
+      // === 固定セクション設定 (facility 非表示 / 駐車場モード) ===
+      applyFixedSectionConfig(_propertyConfig && _propertyConfig.formSectionConfig);
 
       // === 騒音ルール同意フロー制御 ===
       const noiseSection = document.getElementById("noiseRuleSection");
