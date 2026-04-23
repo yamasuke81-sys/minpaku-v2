@@ -798,15 +798,15 @@
         "opt_purp1","opt_purp2","opt_purp3","opt_purp4","opt_purp5","opt_purp6","opt_purp7","opt_purp8","opt_purpOther"];
       optIds.forEach(id => { const el = document.getElementById(id); if (el && t[id]) el.textContent = t[id]; });
       document.querySelectorAll(".lang-switch .btn").forEach(btn => btn.classList.toggle("active", btn.dataset.lang === currentLang));
-      renderGuestInputs();
-      renderVehicleTypes();
-      runParkingAllocation();
+      try { renderGuestInputs(); } catch (e) { console.warn("renderGuestInputs failed:", e); }
+      try { renderVehicleTypes(); } catch (_) {} // carSection 差し替え時などで要素が無い場合があるので無視
+      try { runParkingAllocation(); } catch (_) {}
       // 固定セクション設定 (駐車場案内カード/タクシー警告/旅の目的プルダウン) も言語切替に合わせて再適用
       try {
         if (typeof applyFixedSectionConfig === "function" && typeof _propertyConfig !== "undefined" && _propertyConfig) {
           applyFixedSectionConfig(_propertyConfig.formSectionConfig);
         }
-      } catch (_) {}
+      } catch (e) { console.warn("applyFixedSectionConfig failed:", e); }
     }
 
     // ===== 宿泊者情報 =====
@@ -1495,7 +1495,6 @@
 
       // --- 駐車場モード切替 ---
       const mode = (cfg.facility && cfg.facility.parkingMode) || "terrace";
-      const message = (cfg.facility && cfg.facility.parkingMessage) || "";
       if (mode === "terrace") return; // 現状維持
 
       const carSection = document.getElementById("carSection");
@@ -1503,7 +1502,13 @@
 
       // 既存の複雑UIを丸ごと入れ替え
       if (mode === "message") {
-        const msg = message || "専用駐車場はありませんので、周辺のコインパーキング等をご利用ください。";
+        const jp = cfg.facility && cfg.facility.parkingMessage;
+        const en = cfg.facility && cfg.facility.parkingMessageEn;
+        const fallbackJp = "専用駐車場はありませんので、周辺のコインパーキング等をご利用ください。";
+        const fallbackEn = "There is no private parking. Please use nearby coin parking.";
+        let msg = "";
+        if (currentLang === "en") msg = en || jp || fallbackEn;
+        else                       msg = jp || en || fallbackJp;
         carSection.innerHTML = `
           <div class="alert alert-warning mb-3">
             <i class="bi bi-exclamation-triangle-fill me-1"></i>

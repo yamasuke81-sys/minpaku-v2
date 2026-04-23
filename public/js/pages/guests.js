@@ -1620,6 +1620,8 @@ const GuestsPage = {
           <div class="mt-2 ${mode === "message" ? "" : "d-none"}" data-pm-field="message">
             <label class="form-label small mb-1">表示メッセージ（日本語）</label>
             <input type="text" class="form-control form-control-sm fixed-sec-parking-message" value="${this.esc(messageDefault)}" placeholder="例: 専用駐車場はありません。周辺コインパーキングをご利用ください。">
+            <label class="form-label small mb-1 mt-2">表示メッセージ（英語）</label>
+            <input type="text" class="form-control form-control-sm fixed-sec-parking-message-en" value="${this.esc(cfg.parkingMessageEn || "")}" placeholder="e.g. No private parking. Please use nearby coin parking.">
           </div>
 
           <div class="mt-2 ${mode === "freetext" ? "" : "d-none"}" data-pm-field="info">
@@ -1860,11 +1862,18 @@ const GuestsPage = {
       });
     });
 
-    // メッセージ文言
+    // メッセージ文言 (日本語)
     container.querySelectorAll(".fixed-sec-parking-message").forEach(inp => {
       inp.addEventListener("input", () => {
         if (!this._formSectionConfig.facility) this._formSectionConfig.facility = {};
         this._formSectionConfig.facility.parkingMessage = inp.value;
+      });
+    });
+    // メッセージ文言 (英語)
+    container.querySelectorAll(".fixed-sec-parking-message-en").forEach(inp => {
+      inp.addEventListener("input", () => {
+        if (!this._formSectionConfig.facility) this._formSectionConfig.facility = {};
+        this._formSectionConfig.facility.parkingMessageEn = inp.value;
       });
     });
 
@@ -2534,6 +2543,9 @@ const GuestsPage = {
     if (facility.taxiWarnMessage && !facility.taxiWarnMessageEn) {
       sectionReq.push({ key: "taxi_msg", text: facility.taxiWarnMessage });
     }
+    if (facility.parkingMessage && !facility.parkingMessageEn) {
+      sectionReq.push({ key: "parking_message", text: facility.parkingMessage });
+    }
     const purposeTargets = [];
     if (Array.isArray(survey.purposeOptions)) {
       survey.purposeOptions.forEach((o, i) => {
@@ -2605,6 +2617,7 @@ ${JSON.stringify(payload, null, 2)}
         if (r.key === "parking_title" && facility.parkingInfo) { facility.parkingInfo.titleEn = r.textEn; count++; }
         if (r.key === "parking_body"  && facility.parkingInfo) { facility.parkingInfo.bodyEn  = r.textEn; count++; }
         if (r.key === "taxi_msg")                               { facility.taxiWarnMessageEn  = r.textEn; count++; }
+        if (r.key === "parking_message")                        { facility.parkingMessageEn   = r.textEn; count++; }
       });
       // 反映
       if (results.purposeOptions || results.adminTexts) {
