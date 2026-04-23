@@ -370,7 +370,22 @@ const RecruitmentPage = {
     const workTypeBadgeEl = document.getElementById("detailWorkTypeBadge");
     if (workTypeBadgeEl) workTypeBadgeEl.innerHTML = this.getWorkTypeBadge(r.workType);
     document.getElementById("detailStatus").innerHTML = this.getStatusBadge(r.status);
-    document.getElementById("detailMemo").textContent = r.memo || "-";
+    // メモ: スタッフ視点では「ゲスト: 名前 (ソース)」形式の自動生成部分を除去
+    // (個人情報保護のためゲスト名はスタッフに見せない)
+    let memoText = r.memo || "";
+    if (isStaffView && memoText) {
+      memoText = memoText.replace(/ゲスト[:：]\s*[^(（\n]*[(（][^)）]*[)）]/g, "").trim();
+    }
+    const memoEl = document.getElementById("detailMemo");
+    const memoWrap = memoEl ? memoEl.closest(".mb-3") : null;
+    if (!memoText) {
+      // メモが空 (またはゲスト名部分のみだった場合) はメモブロック自体を非表示
+      if (memoWrap) memoWrap.classList.add("d-none");
+      memoEl.textContent = "";
+    } else {
+      if (memoWrap) memoWrap.classList.remove("d-none");
+      memoEl.textContent = memoText;
+    }
 
     // 選定済みスタッフ表示
     document.getElementById("detailSelectedStaff").textContent = r.selectedStaff || "未選定";
