@@ -1038,61 +1038,57 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body p-0">
-          <!-- タブナビ -->
-          <ul class="nav nav-tabs px-3 pt-2" id="guestSettingsTabs" role="tablist">
-            <li class="nav-item" role="presentation">
-              <button class="nav-link active" id="tab-form-url" data-bs-toggle="tab" data-bs-target="#tabPaneFormUrl" type="button" role="tab">
-                <i class="bi bi-link-45deg"></i> フォームURL
-              </button>
-            </li>
-            <li class="nav-item" role="presentation">
-              <button class="nav-link" id="tab-form-fields" data-bs-toggle="tab" data-bs-target="#tabPaneFormFields" type="button" role="tab">
-                <i class="bi bi-ui-checks"></i> フォーム項目管理
-              </button>
-            </li>
-          </ul>
-          <div class="tab-content p-3">
-            <!-- タブ1: フォームURL -->
-            <div class="tab-pane fade show active" id="tabPaneFormUrl" role="tabpanel">
-              <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
-                <strong class="text-success"><i class="bi bi-link-45deg"></i> 宿泊者名簿 フォームURL</strong>
-                <span class="text-muted small">Airbnb/Booking.com の自動メッセージに貼り付けて利用</span>
-              </div>
-              <!-- 共通URL -->
-              <div class="input-group input-group-sm mb-2" style="max-width:780px;">
-                <span class="input-group-text" style="min-width:130px;font-weight:600;background:#e7f5ee;">共通URL</span>
-                <input type="text" class="form-control" id="guestFormCommonUrl" readonly>
-                <button class="btn btn-outline-primary" type="button" data-copy-target="guestFormCommonUrl" title="URLをコピー">
+          <div class="p-3">
+            <!-- 物件セレクタ (上部) -->
+            <div class="mb-3">
+              <label class="form-label mb-1 fw-semibold"><i class="bi bi-buildings"></i> 物件を選択</label>
+              <select class="form-select" id="formTargetSelector">
+                <!-- 物件オプションはJSで動的描画 (頭に番号) -->
+              </select>
+            </div>
+
+            <!-- 選択物件の URL + インポートボタン -->
+            <div id="guestSettingsPropertyUrlBox" class="mb-3 d-none">
+              <label class="form-label small fw-semibold mb-1"><i class="bi bi-link-45deg text-success"></i> この物件のフォーム URL</label>
+              <div class="input-group input-group-sm mb-2">
+                <input type="text" class="form-control" id="guestFormPropertyUrl" readonly>
+                <button class="btn btn-outline-primary" type="button" data-copy-target="guestFormPropertyUrl" title="URLをコピー">
                   <i class="bi bi-clipboard"></i> コピー
                 </button>
-                <button class="btn btn-outline-secondary" type="button" data-open-target="guestFormCommonUrl" title="新しいタブで開く">
+                <button class="btn btn-outline-secondary" type="button" data-open-target="guestFormPropertyUrl" title="新しいタブで開く">
                   <i class="bi bi-box-arrow-up-right"></i> 新しいタブ
                 </button>
               </div>
-              <div class="small text-muted mb-3" style="font-size:11px;">
-                共通URL: 物件が未確定でも使える汎用URL (宿泊客がチェックイン日を入力すれば自動で日別フォーム表示)
+              <div class="d-flex align-items-center gap-2 flex-wrap small">
+                <label class="form-check form-check-inline mb-0">
+                  <input class="form-check-input" type="checkbox" id="formMiniGamePropertyToggle">
+                  <span class="form-check-label">ミニゲーム（騒音確認）をこの物件で有効化</span>
+                </label>
+                <div class="dropdown ms-auto">
+                  <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="btnCopyFromOtherTop" data-bs-toggle="dropdown">
+                    <i class="bi bi-box-seam"></i> 他物件からインポート
+                  </button>
+                  <ul class="dropdown-menu small" id="copyFromOtherMenuTop">
+                    <!-- 他物件リストはJSで追加 -->
+                  </ul>
+                </div>
               </div>
-              <!-- 物件別URL + ミニゲーム設定 -->
-              <div class="mb-2">
-                <strong class="small"><i class="bi bi-buildings"></i> 物件別URL + ミニゲーム設定</strong>
-                <div class="small text-muted" style="font-size:11px;">物件が確定している場合に使うと、フォーム画面で物件が自動選択されます。ミニゲームは物件別に ON/OFF 可能</div>
-              </div>
-              <div id="guestFormPropertyList" class="mb-2"></div>
-              <!-- 詳細オプション: カスタムURL生成 -->
               <details class="mt-2">
-                <summary class="small text-muted" style="cursor:pointer;">▸ 特定のチェックイン日を指定したカスタムURL</summary>
-                <div id="guestFormCustomArea" class="mt-2 small"></div>
+                <summary class="small text-muted" style="cursor:pointer;">▸ 共通URL (物件未確定時の汎用URL) / カスタムURL</summary>
+                <div class="mt-2">
+                  <div class="input-group input-group-sm mb-2">
+                    <span class="input-group-text" style="min-width:100px;font-weight:600;background:#e7f5ee;">共通URL</span>
+                    <input type="text" class="form-control" id="guestFormCommonUrl" readonly>
+                    <button class="btn btn-outline-primary" type="button" data-copy-target="guestFormCommonUrl"><i class="bi bi-clipboard"></i></button>
+                    <button class="btn btn-outline-secondary" type="button" data-open-target="guestFormCommonUrl"><i class="bi bi-box-arrow-up-right"></i></button>
+                  </div>
+                  <div id="guestFormCustomArea" class="mt-2 small"></div>
+                </div>
               </details>
             </div>
-            <!-- タブ2: フォーム項目管理 -->
-            <div class="tab-pane fade" id="tabPaneFormFields" role="tabpanel">
-              <!-- 物件セレクタ（全物件共通は廃止、物件のみ） -->
-              <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-                <label class="form-label mb-0 fw-semibold small">物件を選択:</label>
-                <select class="form-select form-select-sm" id="formTargetSelector" style="max-width:300px;">
-                  <!-- 物件オプションはJSで動的描画 -->
-                </select>
-              </div>
+
+            <!-- 以下: フォーム項目管理の内容 (従来タブ2の中身) -->
+            <div id="tabPaneFormFields"><!-- この wrapper は JS からの要素参照互換のために残置 -->
 
               <!-- 未初期化時: 初期化UI -->
               <div id="formInitArea" class="d-none">

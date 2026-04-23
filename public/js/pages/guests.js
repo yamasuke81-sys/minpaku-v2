@@ -851,22 +851,37 @@ const GuestsPage = {
     }
   },
 
-  // 「他物件から流用」メニューのオプションを再構築する
+  // 「他物件から流用」メニューのオプションを再構築する (上部ドロップダウン含む)
   _refreshCopyFromOtherMenu() {
-    const menu = document.getElementById("copyFromOtherMenu");
-    if (!menu) return;
     const props = this._propertiesCache || [];
     const target = this._currentFormTarget;
-
     // customFormEnabled=true の他物件のみ列挙
     const sources = props.filter(p => p.id !== target && p.customFormEnabled === true);
-    if (sources.length === 0) {
-      menu.innerHTML = `<li><span class="dropdown-item disabled small text-muted">設定済みの他物件がありません</span></li>`;
-    } else {
-      menu.innerHTML = sources.map(p =>
-        `<li><button class="dropdown-item small" type="button" data-copy-from="${p.id}">${this.esc((p.propertyNumber ? `#${p.propertyNumber} ` : "") + p.name)} の設定を流用</button></li>`
-      ).join("");
-    }
+    const html = sources.length === 0
+      ? `<li><span class="dropdown-item disabled small text-muted">設定済みの他物件がありません</span></li>`
+      : sources.map(p =>
+          `<li><button class="dropdown-item small" type="button" data-copy-from="${p.id}">${this.esc((p.propertyNumber ? `#${p.propertyNumber} ` : "") + p.name)} の設定を流用</button></li>`
+        ).join("");
+    const menu1 = document.getElementById("copyFromOtherMenu");
+    const menu2 = document.getElementById("copyFromOtherMenuTop");
+    if (menu1) menu1.innerHTML = html;
+    if (menu2) menu2.innerHTML = html;
+  },
+
+  // 選択中の物件に応じて URL ボックスを更新 (新 UI)
+  _updatePropertyUrlBox() {
+    const pid = this._currentFormTarget;
+    const box = document.getElementById("guestSettingsPropertyUrlBox");
+    if (!box) return;
+    if (!pid) { box.classList.add("d-none"); return; }
+    box.classList.remove("d-none");
+    const baseUrl = location.origin + "/form/";
+    const urlInput = document.getElementById("guestFormPropertyUrl");
+    if (urlInput) urlInput.value = `${baseUrl}?propertyId=${encodeURIComponent(pid)}`;
+    // ミニゲーム トグル
+    const prop = (this._propertiesCache || []).find(p => p.id === pid);
+    const miniGameToggle = document.getElementById("formMiniGamePropertyToggle");
+    if (miniGameToggle) miniGameToggle.checked = prop?.miniGameEnabled !== false;
   },
 
   // ===== 宿泊者名簿設定モーダル =====
@@ -915,6 +930,9 @@ const GuestsPage = {
     // カスタムURL生成 (details 内)
     this._renderCustomUrlArea();
 
+    // 選択物件の URL ボックスを更新 (新 UI)
+    this._updatePropertyUrlBox();
+
     // フォーム項目管理の初期化 (モーダルを開くたびに現在の物件設定を再ロード)
     if (!this._formBtnsBound) {
       // ボタンバインド前の初回のみセレクタ同期が先に走るよう遅延
@@ -929,7 +947,65 @@ const GuestsPage = {
       document.getElementById("formTargetSelector")?.addEventListener("change", async (e) => {
         this._currentFormTarget = e.target.value;
         this.expandedCards.clear();
+        this._updatePropertyUrlBox();
         await this.loadFormConfig();
+      });
+
+      // 上部「他物件からインポート」メニュー: イベント委譲 (既存ロジックを再利用)
+      document.getElementById("copyFromOtherMenuTop")?.addEventListener("click", async (e) => {
+        const btn = e.target.closest("[data-copy-from]");
+        if (!btn) return;
+        const menu = document.getElementById("copyFromOtherMenu");
+        if (!menu) return;
+        // 同じ data-copy-from を持つボタンがあればクリックして既存ロジックを発火させる
+        const proxy = menu.querySelector(`[data-copy-from="${btn.dataset.copyFrom}"]`);
+        if (proxy) proxy.click();
+        else {
+          // 初期化 UI が表示されていない状態からの呼び出し: 直接ロジックを実行
+          const srcId = btn.dataset.copyFrom;
+          const dstId = this._currentFormTarget;
+          if (!dstId) return;
+          try {
+            const srcDoc = await db.collection("properties").doc(srcId).get();
+            if (!srcDoc.exists || !srcDoc.data().customFormEnabled) {
+              showToast("エラー", "流用元物件に独自設定がありません", "error");
+              return;
+            }
+            const srcData = srcDoc.data();
+            await db.collection("properties").doc(dstId).update({
+              customFormEnabled: true,
+              customFormFields: srcData.customFormFields || [],
+              customFormSections: srcData.customFormSections || this.DEFAULT_SECTIONS,
+              formSectionConfig: srcData.formSectionConfig || {},
+              noiseRuleConfig: srcData.noiseRuleConfig || {},
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            });
+            const idx = (this._propertiesCache || []).findIndex(p => p.id === dstId);
+            if (idx >= 0) this._propertiesCache[idx].customFormEnabled = true;
+            this.expandedCards.clear();
+            await this.loadFormConfig();
+            showToast("完了", "他物件から流用しました", "success");
+          } catch (err) {
+            showToast("エラー", `流用失敗: ${err.message}`, "error");
+          }
+        }
+      });
+
+      // 上部 ミニゲームトグル (この物件のみに反映)
+      document.getElementById("formMiniGamePropertyToggle")?.addEventListener("change", async (e) => {
+        const pid = this._currentFormTarget;
+        if (!pid) return;
+        try {
+          await db.collection("properties").doc(pid).update({
+            miniGameEnabled: !!e.target.checked,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+          const idx = (this._propertiesCache || []).findIndex(p => p.id === pid);
+          if (idx >= 0) this._propertiesCache[idx].miniGameEnabled = !!e.target.checked;
+          showToast("完了", `ミニゲームを${e.target.checked ? "有効" : "無効"}にしました`, "success");
+        } catch (err) {
+          showToast("エラー", `保存失敗: ${err.message}`, "error");
+        }
       });
 
       // 「デフォルトを流用して作成」ボタン

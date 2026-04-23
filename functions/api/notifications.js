@@ -164,6 +164,25 @@ module.exports = function notificationsApi(db) {
       }
     }
 
+    // スタッフ個別メール (テスト時は active スタッフ全員)
+    if (targets.staffEmail) {
+      try {
+        const sSnap = await db.collection("staff").where("active", "==", true).get();
+        let cnt = 0, fail = 0;
+        for (const sDoc of sSnap.docs) {
+          const s = sDoc.data();
+          if (!s.email) continue;
+          try { await sendNotificationEmail_(s.email, title, body); cnt++; }
+          catch (e) { fail++; }
+        }
+        results.push({ target: "staffEmail", success: cnt > 0, sent: cnt, failed: fail });
+        sentCount += cnt;
+      } catch (e) {
+        results.push({ target: "staffEmail", success: false, error: e.message });
+        failCount++;
+      }
+    }
+
     // 物件オーナー個別 LINE / メール (物件別: ownedPropertyIds でフィルタ、テスト時は全物件オーナー対象)
     if (targets.subOwnerLine || targets.subOwnerEmail) {
       try {

@@ -406,37 +406,41 @@ const NotificationsPage = {
                 <div class="text-muted small mb-2">${n.desc}</div>
 
                 <div class="d-flex flex-wrap gap-3 mb-2">
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="宛先: settings/notifications.ownerEmail / ownerUserId (=Webアプリ管理者個人の LINE)">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="ownerLine" ${ownerLine ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-person-circle text-success"></i> Webアプリ管理者LINE</span>
+                    <span class="form-check-label small"><i class="bi bi-person-circle text-success"></i> Webアプリ管理者LINE <span class="text-muted" style="font-size:0.75em;">(宛先: 管理者本人)</span></span>
                   </label>
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="宛先: 該当物件の properties.lineChannels[] の Group LINE">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="groupLine" ${groupLine ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-people-fill text-primary"></i> グループLINE（該当の物件のグループLINEのみ）</span>
+                    <span class="form-check-label small"><i class="bi bi-people-fill text-primary"></i> グループLINE <span class="text-muted" style="font-size:0.75em;">(該当の物件のグループLINEのみ)</span></span>
                   </label>
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="宛先: 該当物件に割り当てられた各スタッフの staff.lineUserId">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="staffLine" ${staffLine ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-person-lines-fill text-info"></i> スタッフ個別LINE</span>
+                    <span class="form-check-label small"><i class="bi bi-person-lines-fill text-info"></i> スタッフ個別LINE <span class="text-muted" style="font-size:0.75em;">(宛先: 担当スタッフ各位)</span></span>
                   </label>
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="宛先: staff.isSubOwner=true & ownedPropertyIds に該当物件を含む staff の subOwnerLineUserId">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="subOwnerLine" ${(ch.subOwnerLine) ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-person-badge text-success"></i> 物件オーナー個別LINE</span>
+                    <span class="form-check-label small"><i class="bi bi-person-badge text-success"></i> 物件オーナー個別LINE <span class="text-muted" style="font-size:0.75em;">(宛先: 物件オーナー各位)</span></span>
                   </label>
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="宛先: settings/notifications.ownerEmail (または notifyEmails[])">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="ownerEmail" ${ownerEmail ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-envelope text-warning"></i> Webアプリ管理者メール</span>
+                    <span class="form-check-label small"><i class="bi bi-envelope text-warning"></i> Webアプリ管理者メール <span class="text-muted" style="font-size:0.75em;">(宛先: 管理者本人)</span></span>
                   </label>
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="宛先: 該当物件オーナー (staff) の subOwnerEmail / email">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="subOwnerEmail" ${(ch.subOwnerEmail) ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-envelope-at text-success"></i> 物件オーナー個別メール</span>
+                    <span class="form-check-label small"><i class="bi bi-envelope-at text-success"></i> 物件オーナー個別メール <span class="text-muted" style="font-size:0.75em;">(宛先: 物件オーナー各位)</span></span>
                   </label>
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="宛先: 該当物件に割り当てられた各スタッフの staff.email">
+                    <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="staffEmail" ${(ch.staffEmail) ? "checked" : ""}>
+                    <span class="form-check-label small"><i class="bi bi-envelope-fill text-info"></i> スタッフ個別メール <span class="text-muted" style="font-size:0.75em;">(宛先: 担当スタッフ各位)</span></span>
+                  </label>
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信先: settings/notifications.discordOwnerWebhookUrl (管理者の Discord Webhook)">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="discordOwner" ${discordOwner ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-discord" style="color:#5865F2"></i> Discord(Webアプリ管理者)</span>
+                    <span class="form-check-label small"><i class="bi bi-discord" style="color:#5865F2"></i> Discord(Webアプリ管理者) <span class="text-muted" style="font-size:0.75em;">(宛先: 管理者チャネル)</span></span>
                   </label>
-                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;">
+                  <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信先: settings/notifications.discordSubOwnerWebhookUrl (物件オーナー共有 Discord Webhook)">
                     <input class="form-check-input" type="checkbox" data-key="${n.key}" data-field="discordSubOwner" ${discordSubOwner ? "checked" : ""}>
-                    <span class="form-check-label small"><i class="bi bi-discord" style="color:#8da0f8"></i> Discord(物件オーナー)</span>
+                    <span class="form-check-label small"><i class="bi bi-discord" style="color:#8da0f8"></i> Discord(物件オーナー) <span class="text-muted" style="font-size:0.75em;">(宛先: 物件オーナー共有チャネル)</span></span>
                   </label>
                   <!-- FCM (Web Push) は将来再検討。現時点で iOS 制約により導入保留のため非表示。 -->
                   <label class="form-check form-check-inline mb-0 d-none" style="cursor:pointer;">
@@ -695,6 +699,7 @@ const NotificationsPage = {
       ownerLine: get("ownerLine"),
       groupLine: get("groupLine"),
       staffLine: get("staffLine"),
+      staffEmail: get("staffEmail"),
       ownerEmail: get("ownerEmail"),
       subOwnerLine: get("subOwnerLine"),
       subOwnerEmail: get("subOwnerEmail"),
@@ -704,7 +709,7 @@ const NotificationsPage = {
       fcmOwner: get("fcmOwner"),
     };
 
-    if (!targets.ownerLine && !targets.groupLine && !targets.staffLine && !targets.ownerEmail && !targets.subOwnerLine && !targets.subOwnerEmail && !targets.discordOwner && !targets.discordSubOwner && !targets.fcmStaff && !targets.fcmOwner) {
+    if (!targets.ownerLine && !targets.groupLine && !targets.staffLine && !targets.staffEmail && !targets.ownerEmail && !targets.subOwnerLine && !targets.subOwnerEmail && !targets.discordOwner && !targets.discordSubOwner && !targets.fcmStaff && !targets.fcmOwner) {
       showToast("エラー", "送信先を1つ以上チェックしてください", "error");
       return;
     }
@@ -725,7 +730,7 @@ const NotificationsPage = {
         // チャネル別に成功/失敗を集計
         const successes = [];  // ラベル(例: Webアプリ管理者LINE)
         const errs = [];       // { label, reason }
-        const labelMap = { ownerLine: "Webアプリ管理者LINE", groupLine: "グループLINE", staffLine: "スタッフ個別LINE", ownerEmail: "Webアプリ管理者メール", subOwnerLine: "物件オーナー個別LINE", subOwnerEmail: "物件オーナー個別メール", discordOwner: "Discord(Webアプリ管理者)", discordSubOwner: "Discord(物件オーナー)", fcmStaff: "Web Push(スタッフ)", fcmOwner: "Web Push(Webアプリ管理者)" };
+        const labelMap = { ownerLine: "Webアプリ管理者LINE", groupLine: "グループLINE", staffLine: "スタッフ個別LINE", staffEmail: "スタッフ個別メール", ownerEmail: "Webアプリ管理者メール", subOwnerLine: "物件オーナー個別LINE", subOwnerEmail: "物件オーナー個別メール", discordOwner: "Discord(Webアプリ管理者)", discordSubOwner: "Discord(物件オーナー)", fcmStaff: "Web Push(スタッフ)", fcmOwner: "Web Push(Webアプリ管理者)" };
         for (const r of (data.results || [])) {
           const label = labelMap[r.target] || r.target;
           if (Array.isArray(r.staffResults)) {
@@ -806,6 +811,7 @@ const NotificationsPage = {
           ownerLine: get("ownerLine"),
           groupLine: get("groupLine"),
           staffLine: get("staffLine"),
+          staffEmail: get("staffEmail"),
           ownerEmail: get("ownerEmail"),
           subOwnerLine: get("subOwnerLine"),
           subOwnerEmail: get("subOwnerEmail"),
