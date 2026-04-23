@@ -1474,10 +1474,18 @@
             ${msg.replace(/</g, "&lt;")}
           </div>`;
       } else if (mode === "freetext") {
+        const info = (cfg.facility && cfg.facility.parkingInfo) || {};
+        const title = (info.title || "").replace(/</g, "&lt;");
+        const body = (info.body || "").replace(/</g, "&lt;").replace(/\n/g, "<br>");
+        const img = info.imageUrl || "";
         carSection.innerHTML = `
-          <div class="mb-3">
-            <label class="form-label fw-bold" for="f_parkingFreeText">駐車場のご利用について、わかる範囲でご記入ください</label>
-            <textarea class="form-control" id="f_parkingFreeText" rows="3" placeholder="例: コインパーキング利用予定 / 近隣施設にて駐車予定 など"></textarea>
+          <div class="card mb-3" style="border-color:#0d6efd;">
+            ${title ? `<div class="card-header bg-primary bg-opacity-10 py-2"><span class="fw-bold"><i class="bi bi-p-circle me-1"></i>${title}</span></div>` : ""}
+            <div class="card-body">
+              ${body ? `<p class="mb-2 small" style="white-space:pre-wrap;">${body}</p>` : ""}
+              ${img ? `<div class="text-center"><img src="${img.replace(/"/g, "&quot;")}" alt="駐車場案内" style="max-width:100%; max-height:320px; border:1px solid #dee2e6; border-radius:4px;"></div>` : ""}
+              ${(!title && !body && !img) ? '<p class="text-muted small mb-0">駐車場のご案内は準備中です。</p>' : ""}
+            </div>
           </div>`;
       }
     }
@@ -1858,7 +1866,6 @@
           vehicleTypes:     fieldVal("vehicleTypes",     vehicleTypes),
           parkingAllocation:fieldVal("vehicleTypes",     parkingAllocation),
           paidParking:      fieldVal("paidParking",      document.getElementById("f_paidParking")?.value || ""),
-          parkingFreeText:  (document.getElementById("f_parkingFreeText")?.value || "").trim() || undefined,
           bbq:              fieldVal("bbq",              document.getElementById("f_bbq").value),
           bedChoice:        fieldVal("bedChoice",        document.getElementById("f_bedChoice").value),
           purpose:          fieldVal("purpose",          purpose),

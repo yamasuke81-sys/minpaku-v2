@@ -1578,7 +1578,8 @@ const GuestsPage = {
     let controls = "";
     if (secId === "facility") {
       const mode = cfg.parkingMode || "terrace";
-      const freetextDefault = cfg.parkingMessage || "";
+      const messageDefault = cfg.parkingMessage || "";
+      const info = cfg.parkingInfo || {};
       controls = `
         <div class="ms-auto d-flex align-items-center gap-2">
           <button type="button" class="btn btn-sm ${hidden ? "btn-outline-success" : "btn-outline-secondary"} fixed-sec-hide-btn" data-sec="${secId}" title="${hidden ? "表示する" : "セクションごと非表示にする"}" style="padding:2px 8px;">
@@ -1597,11 +1598,35 @@ const GuestsPage = {
           </div>
           <div class="form-check form-check-inline">
             <input class="form-check-input fixed-sec-parking-mode" type="radio" name="parkingMode_${secId}" value="freetext" id="pm_freetext" ${mode === "freetext" ? "checked" : ""}>
-            <label class="form-check-label small" for="pm_freetext">自由記述（ゲストが手入力）</label>
+            <label class="form-check-label small" for="pm_freetext">管理者が案内を記入（タイトル+本文+画像）</label>
           </div>
+
           <div class="mt-2 ${mode === "message" ? "" : "d-none"}" data-pm-field="message">
             <label class="form-label small mb-1">表示メッセージ（日本語）</label>
-            <input type="text" class="form-control form-control-sm fixed-sec-parking-message" value="${this.esc(freetextDefault)}" placeholder="例: 専用駐車場はありません。周辺コインパーキングをご利用ください。">
+            <input type="text" class="form-control form-control-sm fixed-sec-parking-message" value="${this.esc(messageDefault)}" placeholder="例: 専用駐車場はありません。周辺コインパーキングをご利用ください。">
+          </div>
+
+          <div class="mt-2 ${mode === "freetext" ? "" : "d-none"}" data-pm-field="info">
+            <div class="row g-2">
+              <div class="col-12">
+                <label class="form-label small mb-1">タイトル</label>
+                <input type="text" class="form-control form-control-sm fixed-parking-info-title" value="${this.esc(info.title || "")}" placeholder="例: 専用駐車場のご案内">
+              </div>
+              <div class="col-12">
+                <label class="form-label small mb-1">本文</label>
+                <textarea class="form-control form-control-sm fixed-parking-info-body" rows="3" placeholder="例: 専用駐車場が建物裏手にございます。番号○番をご利用ください。">${this.esc(info.body || "")}</textarea>
+              </div>
+              <div class="col-12">
+                <label class="form-label small mb-1">画像（任意）</label>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                  <input type="file" class="form-control form-control-sm fixed-parking-info-image" accept="image/*" style="max-width:280px; font-size:0.75rem;">
+                  ${info.imageUrl ? `<img src="${this.esc(info.imageUrl)}" alt="駐車場案内" style="max-height:60px; border:1px solid #dee2e6; border-radius:4px;">
+                  <button type="button" class="btn btn-sm btn-outline-danger fixed-parking-info-image-del" title="画像を削除"><i class="bi bi-x"></i></button>` : ""}
+                </div>
+                <div class="progress fixed-parking-info-progress d-none mt-1" style="height:4px;"><div class="progress-bar bg-primary" style="width:0%;"></div></div>
+                <div class="small text-muted mt-1">5MB以下の画像 (JPEG/PNG 推奨)</div>
+              </div>
+            </div>
           </div>
         </div>`;
     } else if (secId === "guests" || secId === "survey" || secId === "emergency") {
@@ -1817,9 +1842,10 @@ const GuestsPage = {
         if (!r.checked) return;
         if (!this._formSectionConfig.facility) this._formSectionConfig.facility = {};
         this._formSectionConfig.facility.parkingMode = r.value;
-        // message 入力欄の表示切替
         const msgField = container.querySelector('[data-pm-field="message"]');
+        const infoField = container.querySelector('[data-pm-field="info"]');
         if (msgField) msgField.classList.toggle("d-none", r.value !== "message");
+        if (infoField) infoField.classList.toggle("d-none", r.value !== "freetext");
       });
     });
 
@@ -1828,6 +1854,71 @@ const GuestsPage = {
       inp.addEventListener("input", () => {
         if (!this._formSectionConfig.facility) this._formSectionConfig.facility = {};
         this._formSectionConfig.facility.parkingMessage = inp.value;
+      });
+    });
+
+    // 駐車場案内 (管理者入力): タイトル/本文
+    const syncInfo = (key, val) => {
+      if (!this._formSectionConfig.facility) this._formSectionConfig.facility = {};
+      if (!this._formSectionConfig.facility.parkingInfo) this._formSectionConfig.facility.parkingInfo = {};
+      this._formSectionConfig.facility.parkingInfo[key] = val;
+    };
+    container.querySelectorAll(".fixed-parking-info-title").forEach(el => {
+      el.addEventListener("input", () => syncInfo("title", el.value));
+    });
+    container.querySelectorAll(".fixed-parking-info-body").forEach(el => {
+      el.addEventListener("input", () => syncInfo("body", el.value));
+    });
+
+    // 駐車場案内 画像アップロード
+    container.querySelectorAll(".fixed-parking-info-image").forEach(inp => {
+      inp.addEventListener("change", async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        if (!file.type.startsWith("image/")) {
+          showToast("エラー", "画像ファイルを選択してください", "error");
+          return;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+          showToast("エラー", "5MB以下の画像を選択してください", "error");
+          return;
+        }
+        const progressEl = container.querySelector(".fixed-parking-info-progress");
+        const progressBar = progressEl?.querySelector(".progress-bar");
+        if (progressEl) progressEl.classList.remove("d-none");
+        try {
+          const storage = firebase.storage();
+          const ext = file.name.split(".").pop() || "jpg";
+          const path = `parking-info/${this._currentFormTarget || "unknown"}/${Date.now()}.${ext}`;
+          const ref = storage.ref(path);
+          const task = ref.put(file);
+          task.on("state_changed", (snap) => {
+            const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
+            if (progressBar) progressBar.style.width = pct + "%";
+          }, (err) => {
+            if (progressEl) progressEl.classList.add("d-none");
+            showToast("エラー", `アップロード失敗: ${err.message}`, "error");
+          }, async () => {
+            const url = await ref.getDownloadURL();
+            syncInfo("imageUrl", url);
+            if (progressEl) progressEl.classList.add("d-none");
+            showToast("完了", "画像をアップロードしました。「保存」で確定してください。", "success");
+            this.renderFormFields();
+          });
+        } catch (err) {
+          if (progressEl) progressEl.classList.add("d-none");
+          showToast("エラー", `アップロード失敗: ${err.message}`, "error");
+        }
+      });
+    });
+
+    // 駐車場案内 画像削除
+    container.querySelectorAll(".fixed-parking-info-image-del").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const ok = await showConfirm("添付画像を削除しますか？", { title: "画像削除", okClass: "btn-danger", okLabel: "削除" });
+        if (!ok) return;
+        syncInfo("imageUrl", "");
+        this.renderFormFields();
       });
     });
   },
