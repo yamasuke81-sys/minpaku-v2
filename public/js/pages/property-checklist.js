@@ -21,6 +21,9 @@ const PropertyChecklistPage = {
       return;
     }
 
+    // .app-main の上下 padding を無効化 (固定ヘッダー + spacer で位置調整するため不要)
+    document.body.classList.add("mcl-shift-active");
+
     container.innerHTML = `
       <div class="pcl-page-header" style="position:fixed;top:0;z-index:29;background:#fff;padding:6px 10px;box-shadow:0 1px 0 #eee;">
         <div class="d-flex align-items-center flex-wrap gap-1">
@@ -62,6 +65,15 @@ const PropertyChecklistPage = {
     this._headerResizeHandler = () => this._applyHeaderLayout();
     window.addEventListener("resize", this._headerResizeHandler, { passive: true });
 
+    // 画面離脱時に body class を解除 (.app-main padding を復元)
+    if (this._hashHandler) window.removeEventListener("hashchange", this._hashHandler);
+    this._hashHandler = () => {
+      document.body.classList.remove("mcl-shift-active");
+      window.removeEventListener("hashchange", this._hashHandler);
+      this._hashHandler = null;
+    };
+    window.addEventListener("hashchange", this._hashHandler, { once: true });
+
     await this.loadData();
   },
 
@@ -81,7 +93,8 @@ const PropertyChecklistPage = {
       const tabsWrap = document.querySelector(".pcl-tabs-wrap");
       const tabsH = tabsWrap ? tabsWrap.getBoundingClientRect().height : 0;
       const spacer = document.querySelector(".pcl-page-header-spacer");
-      if (spacer) spacer.style.height = (topbarH + headerH + tabsH) + "px";
+      // spacer は flow 内 (= topbar の後ろから start)、topbarH は二重計上になるので除外
+      if (spacer) spacer.style.height = Math.max(0, headerH + tabsH) + "px";
     });
   },
 
@@ -317,7 +330,8 @@ const PropertyChecklistPage = {
       wrap.style.boxShadow = "0 2px 6px rgba(0,0,0,0.06)";
       requestAnimationFrame(() => {
         const spacer = document.querySelector(".pcl-page-header-spacer");
-        if (spacer) spacer.style.height = (topbarH + headerH + wrap.getBoundingClientRect().height) + "px";
+        // spacer は flow 内 (= topbar の後ろから start)、topbarH は二重計上になるので除外
+        if (spacer) spacer.style.height = Math.max(0, headerH + wrap.getBoundingClientRect().height) + "px";
       });
     };
     // 旧 observer / handler クリーンアップ
