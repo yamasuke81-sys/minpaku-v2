@@ -1080,6 +1080,19 @@ const GuestsPage = {
 
   // ===== 宿泊者名簿フォーム管理（Googleフォーム風カードエディタ） =====
 
+  // 旅の目的: 現在 guest-form.html にハードコードされている選択肢の初期値
+  // (初回展開時の種データ。編集・削除・追加可能)
+  PURPOSE_SEED_OPTIONS: [
+    { label: "出張",             labelEn: "Business" },
+    { label: "宮島",             labelEn: "Miyajima" },
+    { label: "原爆ドーム",       labelEn: "A-bomb Dome" },
+    { label: "広島市内観光",     labelEn: "Hiroshima sightseeing" },
+    { label: "呉観光",           labelEn: "Kure sightseeing" },
+    { label: "大和ミュージアム", labelEn: "Yamato Museum" },
+    { label: "中国地方観光",     labelEn: "Chugoku region" },
+    { label: "中四国観光",       labelEn: "Shikoku region" },
+  ],
+
   // ===== 固定項目（guest-form.html にハードコードされており、この画面からは編集不可）=====
   // 読み取り専用で「固定項目」セクションに表示するためのマスタ
   // guest-form.html L87-356 の実画面と同期
@@ -1545,8 +1558,12 @@ const GuestsPage = {
         </div>`;
     }
     if (f.id === "purpose") {
-      const cfg = this._formSectionConfig.survey || {};
-      const opts = Array.isArray(cfg.purposeOptions) ? cfg.purposeOptions : [];
+      if (!this._formSectionConfig.survey) this._formSectionConfig.survey = {};
+      // 未設定なら現在の「その他」以外の選択肢を種として初期化 (後続編集用)
+      if (!Array.isArray(this._formSectionConfig.survey.purposeOptions)) {
+        this._formSectionConfig.survey.purposeOptions = this.PURPOSE_SEED_OPTIONS.map(o => ({ ...o }));
+      }
+      const opts = this._formSectionConfig.survey.purposeOptions;
       const rows = opts.map((o, i) => `
         <div class="ff-opt-row" data-oi="${i}">
           <span class="ff-opt-num">${i + 1}.</span>
@@ -1556,13 +1573,12 @@ const GuestsPage = {
         </div>`).join("");
       return `
         <div class="ff-card-body">
-          <div class="small text-muted mb-2"><i class="bi bi-info-circle"></i> 「旅の目的」プルダウンの選択肢。空欄ならデフォルト（広島エリア向け）を表示します。</div>
+          <div class="small text-muted mb-2"><i class="bi bi-info-circle"></i> 「旅の目的」プルダウンの選択肢を編集できます（「その他」は自動で末尾に付きます）。</div>
           <div class="ff-options-section">
             <div class="ff-options-list">
               ${rows || '<div class="text-muted small">選択肢がありません。下のボタンから追加してください。</div>'}
             </div>
             <button class="btn btn-sm btn-outline-primary mt-2 purpose-opt-add"><i class="bi bi-plus"></i> 選択肢を追加</button>
-            <button class="btn btn-sm btn-outline-secondary mt-2 purpose-opt-reset"><i class="bi bi-arrow-counterclockwise"></i> 広島デフォルトに戻す</button>
           </div>
         </div>`;
     }
@@ -1778,16 +1794,6 @@ const GuestsPage = {
         const opts = this._formSectionConfig.survey.purposeOptions || [];
         opts.push({ label: "", labelEn: "" });
         this._formSectionConfig.survey.purposeOptions = opts;
-        this.renderFormFields();
-      });
-    });
-    container.querySelectorAll(".purpose-opt-reset").forEach(btn => {
-      btn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        const ok = await showConfirm("広島エリアのデフォルト選択肢に戻します。よろしいですか？", { title: "デフォルトに戻す" });
-        if (!ok) return;
-        if (!this._formSectionConfig.survey) this._formSectionConfig.survey = {};
-        delete this._formSectionConfig.survey.purposeOptions;
         this.renderFormFields();
       });
     });
