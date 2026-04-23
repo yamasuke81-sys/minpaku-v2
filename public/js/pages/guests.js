@@ -359,7 +359,6 @@ const GuestsPage = {
   // === 物件別 フォームURL + ミニゲーム設定セクション描画 ===
   async _renderPropertyFormSection() {
     const container = document.getElementById("guestFormPropertyList");
-    if (!container) return;
     const baseUrl = location.origin + "/form/";
 
     // 物件一覧 + グローバルミニゲームデフォルト取得
@@ -376,6 +375,10 @@ const GuestsPage = {
     this._propertiesCache = properties;
     // 物件一覧が取得できたらセレクタを更新
     this._refreshFormTargetSelector();
+    this._updatePropertyUrlBox?.();
+
+    // 旧 guestFormPropertyList カードリストはタブ統合で廃止。container が無ければここで終了
+    if (!container) return;
 
     if (properties.length === 0) {
       container.innerHTML = '<div class="text-muted small">アクティブな民泊物件がありません</div>';
