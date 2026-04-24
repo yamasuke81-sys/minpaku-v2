@@ -84,8 +84,10 @@ const GuestGuidesPage = {
   async loadProperties() {
     try {
       const list = await API.properties.list(false);
+      // 民泊物件のみ対象（type === "minpaku"、未設定は民泊扱いで互換維持）
+      const minpakuOnly = list.filter(p => !p.type || p.type === "minpaku");
       // propertyNumber 昇順
-      this.propertyList = list.slice().sort((a, b) => {
+      this.propertyList = minpakuOnly.slice().sort((a, b) => {
         const av = a.propertyNumber == null ? Infinity : Number(a.propertyNumber);
         const bv = b.propertyNumber == null ? Infinity : Number(b.propertyNumber);
         return av - bv;
