@@ -22,9 +22,8 @@ const GUIDE_MAP_BY_NUMBER = {
 const GuestGuidesPage = {
   propertyList: [],
 
-  async render() {
-    const app = document.getElementById("app");
-    app.innerHTML = `
+  async render(container) {
+    container.innerHTML = `
       <div class="container-fluid py-3">
         <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
           <h1 class="h4 mb-0"><i class="bi bi-book me-2"></i>ゲスト案内</h1>
