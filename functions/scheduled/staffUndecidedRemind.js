@@ -63,7 +63,7 @@ module.exports = async function staffUndecidedRemind(event) {
       const tgt = resolveNotifyTargets(settings, NOTIFY_TYPE, overrides);
       if (!tgt.enabled) continue;
 
-      const propertyName = r.propertyName || r.propertyId || "";
+      const propertyName = r.propertyName || (propDoc?.exists ? propDoc.data().name : "") || r.propertyId || "";
       const date = r.checkoutDate || "";
       const recruitUrl = `${APP_URL}/#/recruitment`;
 

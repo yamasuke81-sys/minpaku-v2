@@ -64,7 +64,7 @@ module.exports = async function urgentRemind(event) {
       const tgt = resolveNotifyTargets(settings, NOTIFY_TYPE, overrides);
       if (!tgt.enabled) continue;
 
-      const propertyName = b.propertyName || b.propertyId || "";
+      const propertyName = b.propertyName || (propDoc?.exists ? propDoc.data().name : "") || b.propertyId || "";
       const guestName = b.guestName || "名前未設定";
       const checkin = b.checkIn || "";
       const isToday = checkin === todayStr;

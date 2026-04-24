@@ -60,7 +60,7 @@ module.exports = async function rosterRemind(event) {
       const tgt = resolveNotifyTargets(settings, NOTIFY_TYPE, overrides);
       if (!tgt.enabled) continue;
 
-      const propertyName = b.propertyName || b.propertyId || "";
+      const propertyName = b.propertyName || (propDoc?.exists ? propDoc.data().name : "") || b.propertyId || "";
       const guestName = b.guestName || "名前未設定";
       const checkin = b.checkIn || "";
       const formUrl = b.propertyId

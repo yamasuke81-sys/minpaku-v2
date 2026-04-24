@@ -171,14 +171,19 @@ async function detectDoubleBooking(db, bookingId, after) {
     try {
       const { settings } = await getNotificationSettings_(db);
       let propertyOverrides = {};
+      let propertyDocName = "";
       if (after.propertyId) {
         const propDoc = await db.collection("properties").doc(after.propertyId).get();
-        if (propDoc.exists) propertyOverrides = propDoc.data().channelOverrides || {};
+        if (propDoc.exists) {
+          propertyOverrides = propDoc.data().channelOverrides || {};
+          propertyDocName = propDoc.data().name || "";
+        }
       }
       const targets = resolveNotifyTargets(settings, "double_booking", propertyOverrides);
       if (targets.enabled) {
+        const resolvedPropName = after.propertyName || propertyDocName || after.propertyId;
         const title = `ダブルブッキング検出: ${after.checkIn}〜${after.checkOut}`;
-        const body = `【⚠️ ダブルブッキング警告】\n物件: ${after.propertyName || after.propertyId}\n日程: ${after.checkIn} 〜 ${after.checkOut}\n衝突件数: ${conflicts.length}件\n\n確認: https://minpaku-v2.web.app/#/schedule`;
+        const body = `【⚠️ ダブルブッキング警告】\n物件: ${resolvedPropName}\n日程: ${after.checkIn} 〜 ${after.checkOut}\n衝突件数: ${conflicts.length}件\n\n確認: https://minpaku-v2.web.app/#/schedule`;
         if (targets.ownerLine) {
           await notifyOwner(db, "double_booking", title, body, {}, propertyOverrides);
         }

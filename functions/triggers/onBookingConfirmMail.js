@@ -42,7 +42,7 @@ module.exports = async function onBookingConfirmMail(event) {
     const guestName = b.guestName || "ゲスト";
     const checkIn = b.checkIn || "";
     const checkOut = b.checkOut || "";
-    const propertyName = b.propertyName || b.propertyId || "";
+    const propertyName = b.propertyName || (propDoc?.exists ? propDoc.data().name : "") || b.propertyId || "";
     const formUrl = b.propertyId
       ? `${APP_URL}/form/?propertyId=${b.propertyId}`
       : `${APP_URL}/form/`;
