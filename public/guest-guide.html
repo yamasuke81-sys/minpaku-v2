@@ -97,6 +97,54 @@
     .video-container { position: relative; width: 100%; }
     .video-container iframe { display: block; border: none; border-radius: 8px; }
 
+    /* 専用駐車場割当カード（動的表示） */
+    #allocationCard {
+      display: none;
+      margin: 0 0 1rem;
+      padding: 1rem 1.1rem;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #fff7ed, #ffedd5);
+      border: 2px solid #f59e0b;
+      box-shadow: 0 3px 12px rgba(245,158,11,0.18);
+    }
+    #allocationCard.show { display: block; }
+    #allocationCard h3 {
+      margin: 0 0 0.5rem;
+      font-size: 1rem;
+      color: #b45309;
+      font-weight: 700;
+    }
+    #allocationCard .alloc-meta {
+      font-size: 0.8rem;
+      color: #78350f;
+      margin-bottom: 0.6rem;
+    }
+    #allocationCard ul {
+      list-style: none; padding: 0; margin: 0;
+      display: grid; gap: 0.4rem;
+    }
+    #allocationCard li {
+      padding: 0.55rem 0.8rem;
+      background: #fff;
+      border-radius: 8px;
+      border: 1px solid #fed7aa;
+      display: flex; flex-direction: column; gap: 0.15rem;
+      font-size: 0.88rem;
+    }
+    #allocationCard .spot-name {
+      font-weight: 700; color: #b45309; font-size: 0.95rem;
+    }
+    #allocationCard .spot-label { color: #374151; font-size: 0.85rem; }
+    #allocationExtras {
+      margin-top: 0.6rem;
+      display: flex; flex-wrap: wrap; gap: 0.4rem;
+    }
+    #allocationExtras .badge.alloc {
+      background: #10b981; color: #fff;
+      padding: 0.3rem 0.7rem; border-radius: 999px;
+      font-size: 0.75rem; font-weight: 600;
+    }
+
     /* 駐車場テーブル */
     .parking-table { width: 100%; font-size: 0.9rem; }
     .parking-table td { padding: 0.35rem 0.5rem; vertical-align: top; }
@@ -378,6 +426,14 @@
     <!-- ==================== -->
     <div id="parking">
       <h2 class="section-title">🚗 駐車場</h2>
+
+      <!-- 予約者専用の駐車場割当カード（?guest=TOKEN が有効な場合のみ表示） -->
+      <div id="allocationCard" aria-hidden="true">
+        <h3 id="allocationTitle">🅿️ あなた専用の駐車場割当</h3>
+        <div class="alloc-meta" id="allocationMeta"></div>
+        <ul id="allocationList"></ul>
+        <div id="allocationExtras"></div>
+      </div>
 
       <h3 class="h6 fw-bold mb-2">無料駐車場</h3>
       <table class="parking-table table table-sm table-bordered mb-3">
@@ -996,6 +1052,106 @@
     const inst = bootstrap.Collapse.getOrCreateInstance(el, { toggle: false });
     cb.checked ? inst.show() : inst.hide();
   }
+
+  /* ===== 予約者専用: 駐車場割当カード動的表示 =====
+     ?guest=TOKEN を読み、/api/public/guest-allocation/:token を fetch。
+     propertyName === "the Terrace 長浜" のときだけ描画。
+     日英切替に対応（setLang 経由で再描画）。 */
+  let __allocationData = null;
+
+  const SPOT_NAMES = {
+    spot1:  { ja: '1番',             en: 'Spot 1' },
+    spot5:  { ja: '5番',             en: 'Spot 5' },
+    unpaved:{ ja: '未舗装駐車場',    en: 'Unpaved lot' },
+    paid:   { ja: '有料駐車場（カフェ）', en: 'Paid parking (Cafe)' }
+  };
+
+  const ALLOC_I18N = {
+    title:       { ja: '🅿️ あなた専用の駐車場割当',     en: '🅿️ Your Assigned Parking' },
+    noCar:       { ja: '駐車場のご利用予定はありません（車以外でお越しの場合）',
+                   en: 'No parking reserved (if arriving without a car)' },
+    guestsUnit:  { ja: (n) => `${n}名様`,                   en: (n) => `${n} guest${n===1?'':'s'}` },
+    bbq:         { ja: '✅ BBQ ご予約済み',                  en: '✅ BBQ reserved' },
+    paidParking: { ja: '✅ 有料駐車場（カフェ）利用予定',    en: '✅ Paid parking (Cafe) reserved' },
+    bedChoice:   { ja: (c) => `✅ ベッド希望: ${c}`,          en: (c) => `✅ Bed preference: ${c}` }
+  };
+
+  function renderAllocationCard() {
+    const data = __allocationData;
+    const card = document.getElementById('allocationCard');
+    if (!card || !data) return;
+    const lang = (typeof currentLang !== 'undefined' && currentLang === 'en') ? 'en' : 'ja';
+
+    document.getElementById('allocationTitle').textContent = ALLOC_I18N.title[lang];
+
+    const meta = document.getElementById('allocationMeta');
+    const checkIn = data.checkIn || '';
+    const checkOut = data.checkOut || '';
+    const guests = data.guestCount ? ALLOC_I18N.guestsUnit[lang](data.guestCount) : '';
+    meta.textContent = [data.propertyName, `${checkIn} → ${checkOut}`, guests].filter(Boolean).join(' / ');
+
+    const list = document.getElementById('allocationList');
+    list.innerHTML = '';
+    const alloc = Array.isArray(data.parkingAllocation) ? data.parkingAllocation : [];
+    if (alloc.length === 0) {
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="spot-label"></span>`;
+      li.querySelector('.spot-label').textContent = ALLOC_I18N.noCar[lang];
+      list.appendChild(li);
+    } else {
+      alloc.forEach(a => {
+        const li = document.createElement('li');
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'spot-name';
+        nameSpan.textContent = (SPOT_NAMES[a.spot] && SPOT_NAMES[a.spot][lang]) || a.spot;
+        const labelSpan = document.createElement('span');
+        labelSpan.className = 'spot-label';
+        labelSpan.textContent = a.label || '';
+        li.appendChild(nameSpan);
+        li.appendChild(labelSpan);
+        list.appendChild(li);
+      });
+    }
+
+    const extras = document.getElementById('allocationExtras');
+    extras.innerHTML = '';
+    const addBadge = (text) => {
+      const b = document.createElement('span');
+      b.className = 'badge alloc';
+      b.textContent = text;
+      extras.appendChild(b);
+    };
+    if (data.paidParking === '利用する') addBadge(ALLOC_I18N.paidParking[lang]);
+    if (data.bbq === '利用する') addBadge(ALLOC_I18N.bbq[lang]);
+    if (data.bedChoice) addBadge(ALLOC_I18N.bedChoice[lang](data.bedChoice));
+
+    card.classList.add('show');
+    card.setAttribute('aria-hidden', 'false');
+  }
+
+  /* setLang をラップして日英切替時に再描画 */
+  (function wrapSetLang() {
+    const orig = window.setLang;
+    window.setLang = function(lang) {
+      if (typeof orig === 'function') orig(lang);
+      if (__allocationData) renderAllocationCard();
+    };
+  })();
+
+  (async () => {
+    try {
+      const token = new URLSearchParams(location.search).get('guest');
+      if (!token || !/^[a-f0-9]{32,}$/i.test(token)) return;
+      const res = await fetch(`/api/public/guest-allocation/${encodeURIComponent(token)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data || data.propertyName !== 'the Terrace 長浜') return;
+      __allocationData = data;
+      renderAllocationCard();
+    } catch (e) {
+      console.warn('guest allocation fetch failed', e);
+    }
+  })();
 
   /* クイックナビ：スムーズスクロール */
   document.querySelectorAll('#quickNav a[href^="#"]').forEach(link => {
