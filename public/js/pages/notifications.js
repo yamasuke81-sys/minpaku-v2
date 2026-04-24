@@ -351,44 +351,93 @@ const NotificationsPage = {
         const discOwner = this.settings.discordOwnerWebhookUrl ? `<code>${esc(this.settings.discordOwnerWebhookUrl.slice(0, 60))}...</code>` : '<span class="text-danger">未設定</span>';
         const discSub = this.settings.discordSubOwnerWebhookUrl ? `<code>${esc(this.settings.discordSubOwnerWebhookUrl.slice(0, 60))}...</code>` : '<span class="text-danger">未設定</span>';
 
-        const row = (icon, label, detail) =>
+        // 編集画面へのリンクを生成
+        // href: SPA ルート (#/xxx) または 同ページ内アンカー (data-scroll-to="要素ID")
+        const editLink = (opts) => {
+          const label = opts.label || "編集";
+          if (opts.scrollTo) {
+            return `<a href="javascript:void(0)" class="btn btn-sm btn-outline-secondary py-0 px-2 sender-edit-link"
+                      data-scroll-to="${opts.scrollTo}" title="${esc(opts.title || "この設定を編集")}"
+                      style="font-size:0.75em; white-space:nowrap;">
+                      <i class="bi bi-pencil-square"></i> ${esc(label)}
+                    </a>`;
+          }
+          return `<a href="${opts.href}" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                    title="${esc(opts.title || "この設定を編集")}"
+                    style="font-size:0.75em; white-space:nowrap;">
+                    <i class="bi bi-pencil-square"></i> ${esc(label)}
+                  </a>`;
+        };
+
+        const row = (icon, label, detail, editHtml) =>
           `<div class="d-flex align-items-start gap-2 py-1 border-bottom" style="font-size:0.85em;">
              <span style="min-width:240px;">${icon} <strong>${esc(label)}</strong></span>
              <span class="flex-grow-1">${detail}</span>
+             <span class="flex-shrink-0">${editHtml || ""}</span>
            </div>`;
 
         box.innerHTML = `
           ${row('<i class="bi bi-person-circle text-success"></i>', "Webアプリ管理者LINE", `
             From Bot: <code>${esc(defaultBot)}</code><br>
-            To (宛先): User ID <code>${esc(ownerUserId || "未設定")}</code>`)}
+            To (宛先): User ID <code>${esc(ownerUserId || "未設定")}</code>`,
+            editLink({ scrollTo: "ownerLineChannelsList", label: "Bot/User ID を編集", title: "Webアプリ管理者の LINE Bot・User ID 設定へ" }))}
           ${row('<i class="bi bi-people-fill text-primary"></i>', "グループLINE (物件別)", propBots.length === 0
             ? '<span class="text-danger">物件 LINE チャネル未登録</span>'
-            : propBots.map(b => `${esc(b.property)}: Bot <code>${esc(b.bot)}</code> / Group <code>${esc(String(b.group || "").slice(0, 20))}...</code>`).join("<br>"))}
+            : propBots.map(b => `${esc(b.property)}: Bot <code>${esc(b.bot)}</code> / Group <code>${esc(String(b.group || "").slice(0, 20))}...</code>`).join("<br>"),
+            editLink({ href: "#/properties", label: "物件管理で編集", title: "物件ごとの LINE チャネル設定へ" }))}
           ${row('<i class="bi bi-person-lines-fill text-info"></i>', "スタッフ個別LINE", `
             From Bot: <code>${esc(defaultBot)}</code><br>
-            To: 対象スタッフ ${staffLineCount} 名 (staff.lineUserId あり)`)}
+            To: 対象スタッフ ${staffLineCount} 名 (staff.lineUserId あり)`,
+            editLink({ href: "#/staff", label: "スタッフ管理で編集", title: "各スタッフの LINE User ID 設定へ" }))}
           ${row('<i class="bi bi-person-badge text-success"></i>', "物件オーナー個別LINE", `
             From Bot: <code>${esc(defaultBot)}</code><br>
-            To: 物件オーナー ${subOwnerLineCount} 名 (staff.subOwnerLineUserId あり)`)}
+            To: 物件オーナー ${subOwnerLineCount} 名 (staff.subOwnerLineUserId あり)`,
+            editLink({ href: "#/staff", label: "スタッフ管理で編集", title: "物件オーナー(サブオーナー)の LINE User ID 設定へ" }))}
           ${row('<i class="bi bi-envelope text-warning"></i>', "Webアプリ管理者メール", `
             From: <code>${esc(gmailPrimary || "Gmail 未連携")}</code>${gmailAll.length > 1 ? ` (ほか ${gmailAll.length - 1} 連携)` : ""}<br>
-            To: <code>${esc(ownerEmailGlobal || "settings/notifications.ownerEmail 未設定")}</code>`)}
+            To: <code>${esc(ownerEmailGlobal || "settings/notifications.ownerEmail 未設定")}</code>`,
+            editLink({ scrollTo: "ownerEmail", label: "宛先/Gmail 再接続", title: "宛先メール編集・Gmail 再認証へ" }))}
           ${row('<i class="bi bi-envelope-at text-success"></i>', "物件オーナー個別メール", `
             From: 物件オーナーの Gmail (未連携なら先頭 Gmail にフォールバック)<br>
-            To: 物件オーナー ${subOwnerEmailCount} 名 (subOwnerEmail または email)`)}
+            To: 物件オーナー ${subOwnerEmailCount} 名 (subOwnerEmail または email)`,
+            editLink({ href: "#/staff", label: "スタッフ管理で編集", title: "物件オーナー(サブオーナー)のメール設定へ" }))}
           ${row('<i class="bi bi-envelope-fill text-info"></i>', "スタッフ個別メール", `
             From: <code>${esc(gmailPrimary || "Gmail 未連携")}</code><br>
-            To: 対象スタッフ ${staffEmailCount} 名 (staff.email あり)`)}
+            To: 対象スタッフ ${staffEmailCount} 名 (staff.email あり)`,
+            editLink({ href: "#/staff", label: "スタッフ管理で編集", title: "各スタッフのメール設定へ" }))}
           ${row('<i class="bi bi-envelope-heart text-danger"></i>', "宿泊者宛サンクスメール", `
             From: 該当物件の物件オーナー Gmail (isSubOwner > isOwner)<br>
-            To: 宿泊者が名簿で入力したメール (strict: 物件オーナー Gmail 未連携なら送信スキップ)`)}
+            To: 宿泊者が名簿で入力したメール (strict: 物件オーナー Gmail 未連携なら送信スキップ)`,
+            editLink({ scrollTo: "btnSaveGuestConfirmation", label: "本文を編集", title: "宿泊者宛サンクスメール本文の編集欄へ" }))}
           ${row('<i class="bi bi-discord" style="color:#5865F2"></i>', "Discord (Webアプリ管理者)", `
             From Bot: Discord Webhook の Bot (名前/アイコンは Discord 側)<br>
-            To: Webhook URL ${discOwner}`)}
+            To: Webhook URL ${discOwner}`,
+            editLink({ scrollTo: "discordOwnerWebhookUrl", label: "Webhook URL を編集", title: "Webアプリ管理者 Discord Webhook URL 入力欄へ" }))}
           ${row('<i class="bi bi-discord" style="color:#8da0f8"></i>', "Discord (物件オーナー)", `
             From Bot: Discord Webhook の Bot (名前/アイコンは Discord 側)<br>
-            To: Webhook URL ${discSub}`)}
+            To: Webhook URL ${discSub}`,
+            editLink({ scrollTo: "discordSubOwnerWebhookUrl", label: "Webhook URL を編集", title: "物件オーナー Discord Webhook URL 入力欄へ" }))}
         `;
+
+        // 同ページ内スクロール用ハンドラ
+        box.querySelectorAll(".sender-edit-link[data-scroll-to]").forEach(a => {
+          a.addEventListener("click", (e) => {
+            e.preventDefault();
+            const id = a.dataset.scrollTo;
+            const target = document.getElementById(id);
+            if (!target) return;
+            target.scrollIntoView({ behavior: "smooth", block: "center" });
+            // 一時ハイライトで視認性 UP
+            target.style.transition = "box-shadow 0.3s";
+            const prev = target.style.boxShadow;
+            target.style.boxShadow = "0 0 0 3px #ffc107";
+            setTimeout(() => { target.style.boxShadow = prev; }, 1600);
+            // 入力要素なら focus
+            if (target.matches && target.matches("input, textarea, select")) {
+              setTimeout(() => target.focus(), 300);
+            }
+          });
+        });
       }
     } catch (e) {
       console.warn("送信元情報取得エラー:", e.message);
