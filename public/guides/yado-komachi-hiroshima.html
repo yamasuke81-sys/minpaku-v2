@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YADO KOMACHI Hiroshima — ご宿泊者様へ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&family=Roboto+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --beige: #faf3e4;
+      --beige-2: #f3e6c4;
+      --yellow: #f4cf3a;
+      --yellow-deep: #e8b923;
+      --ink: #3d3426;
+      --ink-2: #6b5e47;
+      --line: #e6d9b8;
+      --accent: #c9a227;
+      --marker: #d97706;
+      --marker-glow: rgba(217,119,6,0.35);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: "Noto Sans JP", -apple-system, system-ui, sans-serif;
+      color: var(--ink);
+      font-size: 17px;
+      line-height: 1.85;
+      background:
+        radial-gradient(ellipse at 95% 5%, rgba(255,255,255,0.6), transparent 55%),
+        linear-gradient(225deg, #faf3e4 0%, #f6e9c2 45%, #f4cf3a 100%);
+      background-attachment: fixed;
+      min-height: 100vh;
+    }
+    .page { max-width: 780px; margin: 0 auto; padding: 0 20px 80px; }
+
+    /* ===== ヘッダー ===== */
+    .hero { text-align: center; padding: 56px 16px 40px; }
+    .hero .brand-mark {
+      display: inline-block;
+      font-size: 11px;
+      letter-spacing: 0.32em;
+      color: var(--accent);
+      padding: 6px 14px;
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      margin-bottom: 80px;
+    }
+    .hero h1 {
+      font-family: "Playfair Display", serif;
+      font-size: clamp(28px, 6vw, 42px);
+      margin: 0;
+      letter-spacing: 0.04em;
+      line-height: 1;
+    }
+    .hero .sub { margin-top: 10px; font-size: 28px; font-weight: 600; color: var(--ink-2); letter-spacing: 0.15em; font-family: "Playfair Display", serif; line-height: 1.1; }
+    .hero .room-no {
+      display: inline-block;
+      margin-top: 80px;
+      padding: 4px 18px;
+      background: linear-gradient(135deg, var(--yellow), var(--yellow-deep));
+      color: var(--ink);
+      font-weight: 700;
+      border-radius: 999px;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+    }
+    .hero h2 { font-size: 16px; font-weight: 500; margin-top: 18px; color: var(--ink-2); }
+
+    /* ===== 言語切替 ===== */
+    .lang-switch {
+      position: fixed; top: 14px; right: 14px; z-index: 100;
+      background: rgba(255,255,255,0.85); backdrop-filter: blur(8px);
+      border: 1px solid var(--line); border-radius: 999px;
+      padding: 4px; display: flex; gap: 2px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    }
+    .lang-switch button {
+      border: none; background: transparent;
+      padding: 6px 14px; border-radius: 999px;
+      font-size: 12px; font-weight: 500; cursor: pointer; color: var(--ink-2);
+    }
+    .lang-switch button.active { background: var(--ink); color: #fff; }
+
+    /* ===== 目次 ===== */
+    .toc {
+      background: rgba(255,255,255,0.7); backdrop-filter: blur(10px);
+      border: 1px solid var(--line); border-radius: 14px;
+      padding: 14px 18px; margin: 20px 0 40px; font-size: 13px;
+    }
+    .toc-title { font-size: 11px; letter-spacing: 0.2em; color: var(--accent); margin-bottom: 8px; }
+    .toc ul {
+      list-style: none; padding: 0; margin: 0;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 4px 14px;
+    }
+    .toc a {
+      color: var(--ink); text-decoration: none;
+      display: flex; align-items: center; gap: 6px; padding: 4px 0;
+    }
+    .toc a:hover { color: var(--accent); }
+
+    /* ===== セクション ===== */
+    section {
+      background: rgba(255,255,255,0.82); backdrop-filter: blur(8px);
+      border: 1px solid var(--line); border-radius: 18px;
+      padding: 28px 26px; margin-bottom: 24px;
+      box-shadow: 0 4px 24px rgba(180, 140, 60, 0.08);
+    }
+    .section-head {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 20px; padding-bottom: 14px;
+      border-bottom: 2px solid var(--line);
+    }
+    .section-head .icon {
+      width: 40px; height: 40px; border-radius: 12px;
+      background: linear-gradient(135deg, var(--yellow) 0%, var(--yellow-deep) 100%);
+      display: grid; place-items: center; color: var(--ink);
+      font-size: 20px; flex-shrink: 0;
+    }
+    .section-head h2 { margin: 0; font-size: 20px; font-weight: 700; }
+    .section-head .en { font-size: 12px; color: var(--ink-2); letter-spacing: 0.12em; margin-top: 2px; }
+    .section-head .time-badge {
+      margin-left: auto;
+      padding: 5px 12px;
+      background: linear-gradient(135deg, var(--yellow), var(--yellow-deep));
+      color: var(--ink);
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+
+    /* ===== ステップ ===== */
+    .step {
+      display: grid; grid-template-columns: 48px 1fr; gap: 14px;
+      padding: 14px 0; border-bottom: 1px dashed var(--line);
+    }
+    .step:last-child { border-bottom: none; }
+    .step-num {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--beige-2), var(--yellow));
+      color: var(--ink); font-weight: 700;
+      display: grid; place-items: center; font-size: 16px;
+      border: 2px solid #fff; box-shadow: 0 2px 6px rgba(200,150,30,0.25);
+    }
+    .step-body p { margin: 0 0 6px; }
+    .step-body .note {
+      font-size: 12px; color: var(--ink-2);
+      background: rgba(244,207,58,0.15);
+      border-left: 3px solid var(--yellow);
+      padding: 6px 10px; border-radius: 4px; margin-top: 6px;
+    }
+
+    /* ===== 画像 ===== */
+    .img-grid { display: grid; gap: 8px; margin-top: 10px; }
+    .img-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+    .img-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+    .img-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+    .photo {
+      position: relative; border-radius: 10px; overflow: hidden;
+      border: 1px solid var(--line); background: #fff;
+      aspect-ratio: 4/3;
+    }
+    .photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .photo img.rot-cw { transform: rotate(90deg) scale(2); object-fit: contain; }
+    .photo.tall { aspect-ratio: 3/4; }
+    .photo.wide { aspect-ratio: 21/9; }
+    .photo.bare { background: transparent; }
+    .photo.bare img { object-fit: contain; }
+
+    .room-placeholder {
+      display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(135deg, var(--beige-2), var(--yellow));
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      aspect-ratio: 4/3;
+      font-family: "Playfair Display", serif;
+      font-size: clamp(48px, 10vw, 72px);
+      font-weight: 700;
+      color: var(--ink);
+      letter-spacing: 0.05em;
+      line-height: 0.85;
+      padding-bottom: 0.18em;
+    }
+
+    /* step7 大きめ表示 */
+    .grid-room {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .grid-room > .photo, .grid-room > .room-placeholder {
+      aspect-ratio: 1 / 1;
+    }
+
+    /* スピンダイヤルマーカー */
+    .marker.spin::before, .marker.spin::after {
+      content: ""; position: absolute;
+      inset: -8px; border: 2px solid var(--marker);
+      border-radius: 50%; border-style: dashed;
+      opacity: 0.7;
+    }
+    .marker.spin::after { inset: -16px; opacity: 0.4; }
+
+    /* アクセス */
+    .address-box {
+      display: block;
+      background: rgba(255,255,255,0.65);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px 18px;
+      margin-bottom: 14px;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .address-box:hover {
+      background: rgba(255,255,255,0.9);
+      border-color: var(--accent);
+    }
+    .address-label {
+      font-size: 11px; letter-spacing: 0.2em;
+      color: var(--accent);
+      margin-bottom: 6px;
+    }
+    .address-text {
+      font-size: 15px; font-weight: 500;
+      color: var(--ink); line-height: 1.6;
+    }
+    .map-embed {
+      border-radius: 12px; overflow: hidden;
+      border: 1px solid var(--line);
+      background: #fff;
+      line-height: 0;
+    }
+
+    /* Wi-Fi */
+    .wifi-box {
+      background: linear-gradient(135deg, rgba(244,207,58,0.12), rgba(255,255,255,0.6));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 10px 16px;
+    }
+    .wifi-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 0;
+    }
+    .wifi-row + .wifi-row { border-top: 1px dashed var(--line); }
+    .wifi-label {
+      font-size: 12px; letter-spacing: 0.15em;
+      color: var(--ink-2); min-width: 72px;
+      text-transform: uppercase;
+    }
+    .wifi-value {
+      font-family: "Roboto Mono", ui-monospace, Consolas, monospace;
+      font-size: 18px; font-weight: 600;
+      letter-spacing: 0.04em; line-height: 1.4;
+      font-variant-numeric: tabular-nums;
+      flex: 1; color: var(--ink);
+      word-break: break-all;
+    }
+    .btn-copy {
+      border: 1px solid var(--line);
+      background: #fff; color: var(--ink);
+      padding: 6px 10px; border-radius: 8px;
+      font-size: 14px; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-copy:hover { background: var(--yellow); border-color: var(--yellow-deep); }
+    .btn-copy.copied { background: var(--ink); color: var(--yellow); border-color: var(--ink); }
+    .wifi-pending {
+      text-align: center; padding: 26px 16px;
+    }
+    .wifi-pending-text {
+      font-size: 18px; font-weight: 700;
+      color: var(--ink-2); letter-spacing: 0.2em;
+    }
+    .wifi-note {
+      margin: 10px 4px 0;
+      font-size: 12px; color: #9a9082;
+      line-height: 1.5;
+    }
+
+    /* 写真ラベル */
+    .photo-label {
+      font-size: 13px; font-weight: 700;
+      color: var(--ink);
+      margin-bottom: 6px;
+      padding-left: 2px;
+      line-height: 1.4;
+      min-height: calc(1.4em * 2);
+    }
+    .photo-label .letter {
+      display: inline-grid; place-items: center;
+      width: 22px; height: 22px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--ink), #5a4c34);
+      color: var(--yellow);
+      font-family: "Playfair Display", serif;
+      font-size: 13px; margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    /* 矩形マーカー */
+    .box-marker {
+      position: absolute; pointer-events: none;
+      border: 3px solid var(--marker);
+      border-radius: 6px;
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.9), 0 2px 10px var(--marker-glow);
+    }
+
+    .img-single { margin-top: 10px; }
+    .img-single .photo { max-width: 440px; aspect-ratio: 4/3; }
+    .img-single .photo.wide { aspect-ratio: 21/9; max-width: 640px; }
+
+    .photo img { cursor: zoom-in; }
+
+    /* ===== Lightbox ===== */
+    .lightbox {
+      position: fixed; inset: 0;
+      background: rgba(20,15,5,0.92);
+      display: none; z-index: 1000;
+      padding: 20px;
+      cursor: zoom-out;
+    }
+    .lightbox.open { display: flex; align-items: center; justify-content: center; }
+    .lightbox img {
+      max-width: 100%; max-height: 100%;
+      object-fit: contain; border-radius: 8px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .lightbox img.rot-cw {
+      transform: rotate(90deg);
+      max-width: 90vh;
+      max-height: 90vw;
+    }
+    .lightbox .lb-close {
+      position: absolute; top: 16px; right: 16px;
+      width: 40px; height: 40px; border-radius: 50%;
+      background: rgba(255,255,255,0.15); border: none;
+      color: #fff; font-size: 22px; cursor: pointer;
+      backdrop-filter: blur(8px);
+    }
+
+    /* ===== マーカー (円) ===== */
+    .marker {
+      position: absolute;
+      width: 14%; aspect-ratio: 1;
+      border: 3px solid var(--marker);
+      border-radius: 50%;
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.9), 0 2px 10px var(--marker-glow);
+      pointer-events: none;
+    }
+    .marker.lg { width: 22%; }
+    .marker.sm { width: 10%; }
+
+    /* ===== 矢印 ===== */
+    .arrow {
+      position: absolute;
+      pointer-events: none;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+    }
+    .arrow svg { width: 100%; height: 100%; overflow: visible; }
+
+    /* ===== ラベル (A/B/C/D) ===== */
+    .letter-badge {
+      position: absolute;
+      top: 8px; left: 8px;
+      width: 34px; height: 34px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--ink), #5a4c34);
+      color: var(--yellow);
+      display: grid; place-items: center;
+      font-family: "Playfair Display", serif;
+      font-size: 18px; font-weight: 700;
+      border: 2px solid #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      z-index: 3;
+    }
+
+    /* ===== 駐車場マップ ===== */
+    .map-wrap {
+      position: relative;
+      margin-top: 14px;
+      border-radius: 12px; overflow: hidden;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+    .map-wrap img { width: 100%; display: block; }
+    .map-pin {
+      position: absolute;
+      width: 32px; height: 32px; border-radius: 50%;
+      background: linear-gradient(135deg, #d97706, #b45309);
+      color: #fff;
+      display: grid; place-items: center;
+      font-family: "Playfair Display", serif;
+      font-size: 16px; font-weight: 700;
+      border: 3px solid #fff;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+      transform: translate(-50%, -50%);
+    }
+    .map-legend {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 8px; margin-top: 12px;
+      font-size: 13px;
+    }
+    .map-legend .leg {
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(255,255,255,0.7);
+      border: 1px solid var(--line);
+      padding: 8px 12px; border-radius: 10px;
+    }
+    .map-legend .leg .dot {
+      width: 24px; height: 24px; border-radius: 50%;
+      background: linear-gradient(135deg, #d97706, #b45309);
+      color: #fff; font-weight: 700;
+      display: grid; place-items: center; font-size: 12px;
+      font-family: "Playfair Display", serif;
+    }
+
+    /* ===== ルール一覧 ===== */
+    .rule-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+    .rule {
+      background: rgba(255,255,255,0.6);
+      border: 1px solid var(--line);
+      border-radius: 12px; padding: 14px 16px;
+    }
+    .rule-title {
+      font-weight: 700; font-size: 15.5px; margin-bottom: 8px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .rule-title .badge-icon {
+      width: 26px; height: 26px; border-radius: 8px;
+      background: var(--yellow); color: var(--ink);
+      display: grid; place-items: center; font-size: 13px;
+    }
+    .rule p { margin: 0 0 6px; font-size: 15px; }
+    .rule.fine { border-color: var(--accent); background: rgba(244,207,58,0.12); }
+
+    /* ===== お問合せ ===== */
+    .contact {
+      text-align: center; padding: 30px 20px;
+      background: linear-gradient(135deg, var(--ink) 0%, #5a4c34 100%);
+      color: #fff; border-radius: 18px; margin-top: 30px;
+    }
+    .contact .label { font-size: 11px; letter-spacing: 0.2em; color: var(--yellow); margin-bottom: 6px; }
+    .contact .tel {
+      font-family: "Playfair Display", serif;
+      font-size: 26px; color: #fff;
+      text-decoration: none; letter-spacing: 0.05em;
+    }
+    .contact .tel:hover { color: var(--yellow); }
+
+    footer.bottom {
+      text-align: center; margin-top: 30px;
+      font-size: 11px; color: var(--ink-2); letter-spacing: 0.15em;
+    }
+
+    /* ===== 言語切替動作 ===== */
+    body.lang-en .jp { display: none; }
+    body:not(.lang-en) .en-only { display: none; }
+
+    @media (max-width: 560px) {
+      section { padding: 20px 16px; }
+      .hero { padding: 40px 10px 30px; }
+      .step { grid-template-columns: 36px 1fr; gap: 10px; }
+      .step-num { width: 32px; height: 32px; font-size: 14px; }
+      .img-grid.cols-3, .img-grid.cols-4 { grid-template-columns: repeat(2, 1fr); }
+      .letter-badge { width: 28px; height: 28px; font-size: 14px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="lightbox" id="lightbox">
+  <button class="lb-close" aria-label="閉じる"><i class="bi bi-x-lg"></i></button>
+  <img src="" alt="">
+</div>
+
+<div class="lang-switch">
+  <button class="active" data-lang="ja">日本語</button>
+  <button data-lang="en">EN</button>
+</div>
+
+<div class="page">
+
+  <!-- ヘッダー -->
+  <header class="hero">
+    <span class="brand-mark">HIROSHIMA · KOMACHI</span>
+    <h1>YADO KOMACHI</h1>
+    <div class="sub">Hiroshima</div>
+    <div class="room-no">Room 704 / 704号室</div>
+    <h2 class="jp">ご宿泊者様へ ─ ご案内</h2>
+    <h2 class="en-only">Guest Information</h2>
+  </header>
+
+  <!-- 目次 -->
+  <nav class="toc">
+    <div class="toc-title">CONTENTS</div>
+    <ul>
+      <li><a href="#access"><i class="bi bi-geo-alt"></i><span class="jp">アクセス</span><span class="en-only">Access</span></a></li>
+      <li><a href="#parking"><i class="bi bi-p-square"></i><span class="jp">駐車場</span><span class="en-only">Parking</span></a></li>
+      <li><a href="#checkin"><i class="bi bi-key"></i><span class="jp">チェックイン</span><span class="en-only">Check-in</span></a></li>
+      <li><a href="#wifi"><i class="bi bi-wifi"></i><span class="jp">Wi-Fi</span><span class="en-only">Wi-Fi</span></a></li>
+      <li><a href="#checkout"><i class="bi bi-box-arrow-right"></i><span class="jp">チェックアウト</span><span class="en-only">Check-out</span></a></li>
+      <li><a href="#trash"><i class="bi bi-trash3"></i><span class="jp">ゴミについて</span><span class="en-only">Trash</span></a></li>
+      <li><a href="#rules"><i class="bi bi-exclamation-circle"></i><span class="jp">ご注意事項</span><span class="en-only">House Rules</span></a></li>
+      <li><a href="#contact"><i class="bi bi-telephone"></i><span class="jp">お問合せ</span><span class="en-only">Contact</span></a></li>
+    </ul>
+  </nav>
+
+  <!-- アクセス -->
+  <section id="access">
+    <div class="section-head">
+      <div class="icon"><i class="bi bi-geo-alt-fill"></i></div>
+      <div>
+        <h2 class="jp">アクセス</h2>
+        <h2 class="en-only">Access</h2>
+      </div>
+    </div>
+    <a class="address-box" href="https://www.google.com/maps/search/?api=1&query=広島県広島市中区小町9-39+エクセリア小町" target="_blank" rel="noopener">
+      <div class="address-label"><span class="jp">所在地（タップで地図を開く）</span><span class="en-only">Address (tap to open map)</span></div>
+      <div class="address-text">広島県広島市中区小町9-39 エクセリア小町 704</div>
+      <div class="address-text en-only">Excellia Komachi 704, 9-39 Komachi, Naka-ku, Hiroshima, Japan</div>
+    </a>
+    <div class="map-embed">
+      <iframe
+        src="https://maps.google.com/maps?q=%E5%BA%83%E5%B3%B6%E7%9C%8C%E5%BA%83%E5%B3%B6%E5%B8%82%E4%B8%AD%E5%8C%BA%E5%B0%8F%E7%94%BA9-39+%E3%82%A8%E3%82%AF%E3%82%BB%E3%83%AA%E3%82%A2%E5%B0%8F%E7%94%BA&hl=ja&z=17&output=embed"
+        width="100%" height="360" style="border:0; border-radius:12px;"
+        loading="lazy"
+        referrerpolicy="no-referrer-when-downgrade"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </section>
+
+  <!-- 駐車場 -->
+  <section id="parking">
+    <div class="section-head">
+      <div class="icon"><i class="bi bi-p-square-fill"></i></div>
+      <div>
+        <h2 class="jp">駐車場のご案内</h2>
+        <h2 class="en-only">Parking Information</h2>
+      </div>
+    </div>
+    <p class="jp">専用駐車場はございません。下記マップ内の近隣コインパーキングをご利用ください。</p>
+    <p class="en-only">There is no designated parking. Please use the nearby coin-operated parking lots shown on the map below.</p>
+
+    <!-- Google Map + ピン（矢印先端位置） -->
+    <div class="map-wrap">
+      <img src="img/image1.png" alt="周辺駐車場マップ">
+      <div class="map-pin" style="left: 14%; top: 30%;">A</div>
+      <div class="map-pin" style="left: 34%; top: 21%;">B</div>
+      <div class="map-pin" style="left: 39%; top: 46%;">C</div>
+      <div class="map-pin" style="left: 53%; top: 63%;">D</div>
+    </div>
+    <div class="img-grid cols-2" style="margin-top: 20px;">
+      <div>
+        <div class="photo-label"><span class="letter">A</span>穴吹パーク小町</div>
+        <div class="photo"><img src="img/image4.png" alt="駐車場A"></div>
+      </div>
+      <div>
+        <div class="photo-label"><span class="letter">B</span>三井のリパーク 広島小町第3</div>
+        <div class="photo"><img src="img/image3.png" alt="駐車場B"></div>
+      </div>
+      <div>
+        <div class="photo-label"><span class="letter">C</span>エクセリア小町パーキング</div>
+        <div class="photo"><img src="img/image2.png" alt="駐車場C"></div>
+      </div>
+      <div>
+        <div class="photo-label"><span class="letter">D</span>三井のリパーク 富士見町第5</div>
+        <div class="photo"><img src="img/image5.png" alt="駐車場D"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- チェックイン -->
+  <section id="checkin">
+    <div class="section-head">
+      <div class="icon"><i class="bi bi-key-fill"></i></div>
+      <div>
+        <h2 class="jp">チェックイン手順</h2>
+        <h2 class="en-only">Check-in Steps</h2>
+      </div>
+      <span class="time-badge">16:00〜20:00</span>
+    </div>
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <p class="jp">建物1階のポストコーナーに向かってください。</p>
+        <p class="en-only">Please go to the mailboxes on the first floor.</p>
+        <div class="img-grid cols-2">
+          <div class="photo"><img src="img/image9.png" alt="建物外観"></div>
+          <div class="photo"><img src="img/image10.png" alt="入口"></div>
+          <div class="photo"><img src="img/image15.png" alt="ポストコーナー"></div>
+          <div class="photo"><img src="img/image14.png" alt="ポスト"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <p class="jp">704号室のポストを開け、キーボックスを取り出してください。</p>
+        <p class="en-only">Open the mailbox of Room 704 and take out the key box.</p>
+        <div class="note jp">※ポストの開錠番号は事前にメールでお知らせいたします。</div>
+        <div class="note en-only">The mailbox unlock code will be sent to you by email in advance.</div>
+        <div class="img-grid cols-2">
+          <div class="photo"><img src="img/image16.png" alt="ポスト全景"></div>
+          <div class="photo"><img src="img/image12.png" alt="704号室のポスト"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <p class="jp">キーボックスからカギを取り出してください。</p>
+        <p class="en-only">Take the key out of the key box.</p>
+        <div class="note jp">※キーボックスの開錠番号は事前にメールでお知らせいたします。</div>
+        <div class="note en-only">The key box unlock code will be sent to you by email in advance.</div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <p class="jp">キーボックスをポストに戻し、ポストを閉めてください。</p>
+        <p class="jp">防犯のため、ポストのダイヤルはランダムに回しておいてください。</p>
+        <p class="en-only">Place the key box back in the mailbox and close it. For security, please spin the dial randomly.</p>
+        <div class="img-single">
+          <div class="photo wide"><img src="img/image14.png" alt="ポストを閉める"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-body">
+        <p class="jp">オートロック端末にカギを挿してロック解除し、ロビーに入ってください。</p>
+        <p class="en-only">Insert the key into the auto-lock terminal to unlock, then enter the lobby.</p>
+        <div class="img-grid cols-2">
+          <div class="photo"><img src="img/image17.png" alt="オートロック端末"></div>
+          <div class="photo"><img src="img/image6.png" alt="オートロック解除"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">6</div>
+      <div class="step-body">
+        <p class="jp">エレベーターを呼び、7階を選択してください。</p>
+        <p class="en-only">Call the elevator and select the 7th floor.</p>
+        <div class="img-grid cols-2">
+          <div class="photo tall"><img src="img/image7.png" alt="エレベーター"></div>
+          <div class="photo tall"><img src="img/image18.jpeg" alt="7階を選択" class="rot-cw"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">7</div>
+      <div class="step-body">
+        <p class="jp">エレベーターを降りて右に歩き、704号室へ向かってください。</p>
+        <p class="en-only">After getting off the elevator, walk to the right toward Room 704.</p>
+        <div class="grid-room">
+          <div class="photo"><img src="img/image19.png" alt="7階廊下"></div>
+          <div class="photo"><img src="img/image20.png" alt="704号室へ"></div>
+          <div class="photo"><img src="img/image21.png" alt="704号室前"></div>
+          <div class="room-placeholder">704</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">8</div>
+      <div class="step-body">
+        <p class="jp">704号室のカギを解錠し、ご入室ください。</p>
+        <p class="en-only">Unlock Room 704 and enter.</p>
+        <div class="img-single">
+          <div class="photo"><img src="img/image8.png" alt="704号室のドア"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Wi-Fi -->
+  <section id="wifi">
+    <div class="section-head">
+      <div class="icon"><i class="bi bi-wifi"></i></div>
+      <div>
+        <h2 class="jp">Wi-Fi 情報</h2>
+        <h2 class="en-only">Wi-Fi</h2>
+      </div>
+    </div>
+    <div class="wifi-box">
+      <div class="wifi-row">
+        <div class="wifi-label jp">ユーザ名</div>
+        <div class="wifi-label en-only">SSID</div>
+        <div class="wifi-value">5G58208A363424</div>
+      </div>
+      <div class="wifi-row">
+        <div class="wifi-label jp">パスワード</div>
+        <div class="wifi-label en-only">Password</div>
+        <div class="wifi-value" id="wifi-password">et4ms3tj</div>
+        <button type="button" class="btn-copy" data-copy="#wifi-password" aria-label="パスワードをコピー">
+          <i class="bi bi-clipboard"></i>
+          <span class="jp">コピー</span>
+          <span class="en-only">Copy</span>
+        </button>
+      </div>
+    </div>
+    <p class="wifi-note jp">※ 施設のエアコンのリモコンの下の方に Wi-Fi 端末が置いてあり、そこに記載があります。</p>
+    <p class="wifi-note en-only">* A Wi-Fi router is placed near the bottom of the air-conditioner remote, with SSID and password written on it.</p>
+  </section>
+
+  <!-- チェックアウト -->
+  <section id="checkout">
+    <div class="section-head">
+      <div class="icon"><i class="bi bi-box-arrow-right"></i></div>
+      <div>
+        <h2 class="jp">チェックアウト手順</h2>
+        <h2 class="en-only">Check-out Steps</h2>
+      </div>
+      <span class="time-badge">〜10:00</span>
+    </div>
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <p class="jp">ゴミは室内に置いておいてください（分別にご協力をお願いします）。</p>
+        <p class="en-only">Please keep your garbage inside the room. Separation cooperation appreciated.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <p class="jp">窓のカギを施錠し、照明・エアコンをお切りください。</p>
+        <p class="en-only">Lock the windows and turn off the lights and air conditioning.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <p class="jp">玄関ドアのカギを施錠してください。</p>
+        <p class="en-only">Please lock the front door.</p>
+        <div class="img-single">
+          <div class="photo"><img src="img/image8.png" alt="玄関ドア施錠"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <p class="jp">エレベーターを呼び「↓」を押し、「1」で1階へ降りてください。</p>
+        <p class="en-only">Call the elevator with "↓" and press "1" to go down to the first floor.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-body">
+        <p class="jp">カギをロビーの704のポストに戻してください。</p>
+        <p class="jp">ポストは必ずダイヤルを回し、施錠状態にしてください。</p>
+        <p class="en-only">Return the key to the mailbox of Room 704. Spin the dial to lock it.</p>
+        <div class="img-single">
+          <div class="photo wide"><img src="img/image14.png" alt="ポストを閉める"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ゴミ -->
+  <section id="trash">
+    <div class="section-head">
+      <div class="icon"><i class="bi bi-trash3-fill"></i></div>
+      <div>
+        <h2 class="jp">ゴミについて</h2>
+        <h2 class="en-only">Garbage Rules</h2>
+      </div>
+    </div>
+    <p class="jp">ビン・缶・ペットボトル・燃えるゴミ（生ごみ含む）・その他ゴミ（ビニールなど）に分別して、ゴミ箱またはゴミ袋にお入れください。</p>
+    <p class="en-only">Please separate into cans, bottles, PET bottles, burnable waste (including food waste), and other waste (plastic etc.) in the designated bins or bags.</p>
+
+    <p class="jp">ベランダや廊下などにゴミを放置しないでください。</p>
+    <p class="en-only">Please do not leave garbage on balconies or in hallways.</p>
+
+    <p class="jp">チェックアウトの際、ゴミは室内に置いたままで大丈夫です。</p>
+    <p class="en-only">You may leave the garbage inside the room at checkout.</p>
+
+    <div class="note jp">家庭ごみの持ち込みはご遠慮ください。過剰なごみの量と判断した場合は、別途ごみ処分費用を請求することがあります。</div>
+    <div class="note en-only">Please do not bring in household waste. Excessive garbage may incur a separate disposal fee.</div>
+  </section>
+
+  <!-- 注意事項 -->
+  <section id="rules">
+    <div class="section-head">
+      <div class="icon"><i class="bi bi-exclamation-circle-fill"></i></div>
+      <div>
+        <h2 class="jp">ご注意事項</h2>
+        <h2 class="en-only">House Rules</h2>
+      </div>
+    </div>
+
+    <div class="rule-grid">
+
+      <div class="rule">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-slash-circle"></i></span><span class="jp">禁煙（タバコ・電子タバコ含む）</span><span class="en-only">No Smoking</span></div>
+        <p class="jp">室内は電子タバコを含め完全禁煙です。当社基準により室内で喫煙されたと判断した場合、消臭・特別清掃費として 20,000円 を後日請求いたします。</p>
+        <p class="en-only">All rooms are fully non-smoking (including vapes). A deodorization/cleaning fee of 20,000 yen will be charged if smoking is determined.</p>
+      </div>
+
+      <div class="rule">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-emoji-frown"></i></span><span class="jp">ペット不可</span><span class="en-only">No Pets</span></div>
+        <p class="jp">ペットの宿泊は禁止です。確認された場合、特殊清掃費用を請求いたします。</p>
+        <p class="en-only">Pets are not allowed. A special cleaning fee will be charged if pets are found.</p>
+      </div>
+
+      <div class="rule">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-person-walking"></i></span><span class="jp">土足禁止</span><span class="en-only">No Shoes</span></div>
+        <p class="jp">入室時は、靴を脱いでください。</p>
+        <p class="en-only">Please take off your shoes before entering.</p>
+      </div>
+
+      <div class="rule">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-cup-straw"></i></span><span class="jp">飲酒</span><span class="en-only">Alcohol</span></div>
+        <p class="jp">20歳未満の飲酒は法律で禁止されています。妊娠中・授乳中の飲酒、飲酒運転もご遠慮ください。</p>
+        <p class="en-only">Drinking under 20 is prohibited by law. Please refrain from drinking during pregnancy/breastfeeding and drink driving.</p>
+      </div>
+
+      <div class="rule">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-box-arrow-in-right"></i></span><span class="jp">チェックイン時間</span><span class="en-only">Check-in</span></div>
+        <p class="jp">16:00 〜 20:00。<strong>20:00を過ぎる場合は必ず事前にご連絡ください。</strong>それ以降はホストと連絡がつきにくくなります。</p>
+        <p class="en-only">16:00 – 20:00. <strong>If arriving after 20:00, please contact the host in advance.</strong> After 20:00 the host may be hard to reach.</p>
+      </div>
+
+      <div class="rule">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-clock"></i></span><span class="jp">チェックアウト時間</span><span class="en-only">Check-out</span></div>
+        <p class="jp">午前10時まで。10:00を過ぎると清掃スタッフが入室します。<strong>10:00超過の場合、15分につき 2,000円/人 のペナルティが発生します。</strong></p>
+        <p class="en-only">By 10:00 AM. After 10:00, cleaning staff will enter. <strong>Late check-out: 2,000 yen per person per 15 minutes.</strong></p>
+      </div>
+
+      <div class="rule">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-telephone"></i></span><span class="jp">スタッフ対応時間</span><span class="en-only">Staff Hours</span></div>
+        <p class="jp">6:00 〜 20:00。この時間帯以外は連絡がつきにくい場合があります。</p>
+        <p class="en-only">6:00 – 20:00. Outside these hours, it may be difficult to reach us.</p>
+      </div>
+
+      <div class="rule fine">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-exclamation-octagon-fill"></i></span><span class="jp">緊急時</span><span class="en-only">Emergency</span></div>
+        <p class="jp"><strong>119番</strong>（消防・救急）または <strong>110番</strong>（警察）へご連絡後、ホスト（TEL：090-7500-9595）にもご連絡ください。</p>
+        <p class="en-only">Call <strong>119</strong> (fire/ambulance) or <strong>110</strong> (police), then also contact the host (TEL: 090-7500-9595).</p>
+      </div>
+
+      <div class="rule">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-volume-mute"></i></span><span class="jp">騒音にご配慮</span><span class="en-only">Noise</span></div>
+        <p class="jp">集合住宅のため、夜9時以降は音量にご配慮ください。廊下など共用部での会話もお控えください。</p>
+        <p class="en-only">This is a multi-unit residence. Please minimize noise after 9 PM and refrain from conversations in hallways.</p>
+      </div>
+
+      <div class="rule">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-door-closed"></i></span><span class="jp">外出時の戸締り・セキュリティ</span><span class="en-only">Security</span></div>
+        <p class="jp">在室時・就寝時はドアのカギを、外出時は窓も閉めてください。ロビーはオートロック式です。外出時は必ずカギを持ち出し、一階ロビーのポストに入れてください。</p>
+        <p class="en-only">Lock the door when inside and while sleeping. Close the windows before leaving. The lobby auto-locks. When going out, always take the key and place it in the 1F lobby mailbox.</p>
+      </div>
+
+      <div class="rule">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-tools"></i></span><span class="jp">設備・備品</span><span class="en-only">Equipment</span></div>
+        <p class="jp">大切にご使用ください。破損・紛失の際は速やかにご連絡ください（TEL：090-7500-9595）。費用を請求させていただく場合があります。</p>
+        <p class="en-only">Please use with care. Report damage or loss promptly (TEL: 090-7500-9595). Fees may apply.</p>
+      </div>
+
+      <div class="rule">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-moon-stars"></i></span><span class="jp">連泊のお客様</span><span class="en-only">Multi-night Stays</span></div>
+        <p class="jp">タオル・シーツの交換はありません。必要に応じて洗濯機をご利用ください。滞在中の清掃は行いません。</p>
+        <p class="en-only">No towel/sheet exchange. Please use the washing machine as needed. No cleaning during stay.</p>
+      </div>
+
+      <div class="rule">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-check2-square"></i></span><span class="jp">チェックアウト前のお願い</span><span class="en-only">Before Check-out</span></div>
+        <p class="jp">使用した食器・調理器具は洗ってからお戻しください。</p>
+        <p class="en-only">Please wash dishes and cookware before leaving.</p>
+      </div>
+
+      <div class="rule">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-camera"></i></span><span class="jp">商業目的での写真・動画</span><span class="en-only">Commercial Photography</span></div>
+        <p class="jp">撮影可能です。</p>
+        <p class="en-only">Permitted.</p>
+      </div>
+
+      <div class="rule">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-box-seam"></i></span><span class="jp">忘れ物・カギ紛失</span><span class="en-only">Lost Items / Keys</span></div>
+        <p class="jp">忘れ物の発送は<strong>着払いのみ</strong>、発送手数料 2,500円 がかかります。カギ紛失の際は速やかにご連絡ください。カギ交換費用の実費を請求いたします。</p>
+        <p class="en-only">Lost items: <strong>cash-on-delivery only</strong>, 2,500 yen handling fee. For lost keys, contact us immediately — lock replacement cost will be charged.</p>
+      </div>
+
+      <div class="rule">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-journal-text"></i></span><span class="jp">その他</span><span class="en-only">Notes</span></div>
+        <p class="jp">アーリーチェックイン・レイトチェックアウトには対応しておりません。スーツケース等の大型ゴミの処分は不可です。残置された場合、処分費 10,000円 を請求します。</p>
+        <p class="en-only">Early check-in and late check-out are not available. Large items (suitcases, etc.) cannot be disposed of here — a 10,000 yen disposal fee will apply if left behind.</p>
+      </div>
+
+      <div class="rule fine">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-exclamation-triangle-fill"></i></span><span class="jp">罰金</span><span class="en-only">Fines</span></div>
+        <p class="jp">近隣から騒音で通報があった場合は 50,000円、警察が出動した場合は 100,000円 を後日請求いたします。</p>
+        <p class="en-only">If a noise complaint is filed, 50,000 yen; if police are dispatched, 100,000 yen.</p>
+      </div>
+
+      <div class="rule fine">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-person-x"></i></span><span class="jp">虚偽申告</span><span class="en-only">False Reporting</span></div>
+        <p class="jp">宿泊人数に虚偽があった場合、発見次第、1人あたり 10,000円 を後日請求いたします。</p>
+        <p class="en-only">If guest count is falsely reported, 10,000 yen per person will be charged upon discovery.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- お問合せ -->
+  <section id="contact" class="contact">
+    <div class="label">CONTACT / お問合せ</div>
+    <div class="jp" style="margin-bottom:10px; opacity:0.85; font-size:13px;">ご質問・ご相談等ございましたら、お気軽にご連絡ください。</div>
+    <div class="en-only" style="margin-bottom:10px; opacity:0.85; font-size:13px;">If you have any questions, please feel free to contact us.</div>
+    <a class="tel" href="tel:09075009595">090-7500-9595</a>
+  </section>
+
+  <footer class="bottom">
+    YADO KOMACHI Hiroshima · Thank you for your stay
+  </footer>
+</div>
+
+<script>
+  document.querySelectorAll('.lang-switch button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.lang-switch button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.body.classList.toggle('lang-en', btn.dataset.lang === 'en');
+    });
+  });
+
+  // Lightbox
+  const lb = document.getElementById('lightbox');
+  const lbImg = lb.querySelector('img');
+  document.querySelectorAll('.photo img').forEach(img => {
+    img.addEventListener('click', () => {
+      lbImg.src = img.src;
+      lbImg.alt = img.alt || '';
+      lbImg.classList.toggle('rot-cw', img.classList.contains('rot-cw'));
+      lb.classList.add('open');
+    });
+  });
+  lb.addEventListener('click', () => lb.classList.remove('open'));
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') lb.classList.remove('open');
+  });
+
+  document.querySelectorAll('.btn-copy').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const target = document.querySelector(btn.dataset.copy);
+      if (!target) return;
+      try {
+        await navigator.clipboard.writeText(target.textContent.trim());
+        btn.classList.add('copied');
+        btn.innerHTML = '<i class="bi bi-check2"></i>';
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          btn.innerHTML = '<i class="bi bi-clipboard"></i>';
+        }, 1500);
+      } catch (e) { console.warn('copy failed', e); }
+    });
+  });
+</script>
+</body>
+</html>

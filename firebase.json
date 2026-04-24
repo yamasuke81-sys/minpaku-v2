@@ -16,6 +16,13 @@
         ]
       }
     ],
+    "redirects": [
+      {
+        "source": "/guest-guide.html",
+        "destination": "/guides/the-terrace-nagahama.html",
+        "type": 301
+      }
+    ],
     "rewrites": [
       {
         "source": "/api/**",
@@ -30,7 +37,7 @@
       },
       {
         "source": "/guide/**",
-        "destination": "/guest-guide.html"
+        "destination": "/guides/the-terrace-nagahama.html"
       },
       {
         "source": "**",

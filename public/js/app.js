@@ -9,6 +9,7 @@ const App = {
   pages: {
     staff: StaffPage,
     properties: PropertiesPage,
+    "guest-guides": GuestGuidesPage,
     "property-checklist": PropertyChecklistPage,
     recruitment: RecruitmentPage,
     guests: GuestsPage,
