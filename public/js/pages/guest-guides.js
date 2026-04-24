@@ -9,14 +9,8 @@
 const GUIDE_MAP = {
   // the Terrace 長浜
   "tsZybhDMcPrxqgcRy7wp": { slug: "the-terrace-nagahama" },
-  // YADO KOMACHI Hiroshima（propertyNumber=1 で引くフォールバックあり）
-  // Firestore 上の正式 propertyId が判明したら差し替え推奨
-};
-
-// propertyNumber → slug のフォールバック（propertyId が未マッピングの場合に参照）
-const GUIDE_MAP_BY_NUMBER = {
-  1: "yado-komachi-hiroshima", // YADO KOMACHI Hiroshima
-  4: "the-terrace-nagahama",   // the Terrace 長浜
+  // YADO KOMACHI Hiroshima — propertyId が判明したら追記
+  // 例: "xxxxxxxxxxxxxxxxxxxx": { slug: "yado-komachi-hiroshima" },
 };
 
 const GuestGuidesPage = {
@@ -101,9 +95,7 @@ const GuestGuidesPage = {
 
   getSlug(property) {
     const byId = GUIDE_MAP[property.id];
-    if (byId?.slug) return byId.slug;
-    const byNum = property.propertyNumber != null ? GUIDE_MAP_BY_NUMBER[Number(property.propertyNumber)] : null;
-    return byNum || null;
+    return byId?.slug || null;
   },
 
   renderCards() {
@@ -134,6 +126,7 @@ const GuestGuidesPage = {
               <div class="fw-bold" style="font-size:1.05rem;">${escapeHtml(p.name || "(無名)")}</div>
               ${slug ? `<div class="small text-muted font-monospace">/guides/${slug}.html</div>`
                      : `<div class="small text-warning">ガイド未作成</div>`}
+              <div class="small text-muted font-monospace" style="opacity:0.6;">id: ${escapeHtml(p.id)}</div>
             </div>
             ${actionHtml}
           </div>
