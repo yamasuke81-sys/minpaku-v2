@@ -9,8 +9,8 @@
 const GUIDE_MAP = {
   // the Terrace 長浜
   "tsZybhDMcPrxqgcRy7wp": { slug: "the-terrace-nagahama" },
-  // YADO KOMACHI Hiroshima — propertyId が判明したら追記
-  // 例: "xxxxxxxxxxxxxxxxxxxx": { slug: "yado-komachi-hiroshima" },
+  // YADO KOMACHI Hiroshima
+  "RZV9IwtQgMAsvrdM3j8J": { slug: "yado-komachi-hiroshima" },
 };
 
 const GuestGuidesPage = {
@@ -126,7 +126,6 @@ const GuestGuidesPage = {
               <div class="fw-bold" style="font-size:1.05rem;">${escapeHtml(p.name || "(無名)")}</div>
               ${slug ? `<div class="small text-muted font-monospace">/guides/${slug}.html</div>`
                      : `<div class="small text-warning">ガイド未作成</div>`}
-              <div class="small text-muted font-monospace" style="opacity:0.6;">id: ${escapeHtml(p.id)}</div>
             </div>
             ${actionHtml}
           </div>
