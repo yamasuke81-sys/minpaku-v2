@@ -990,7 +990,10 @@ const MyRecruitmentPage = {
         .filter(p => this._propertyVisibility[p.id] !== false)
         .map(p => p.id)
     );
-    const visibleStaffList = isOwner
+    // 管理者が viewAsStaff (他スタッフ視点で閲覧中) の場合は admin と同様に全スタッフを表示。
+    // 通常のスタッフログインでは「自分 + 担当物件が重なるスタッフ + メイン管理者」だけに絞る。
+    const isAdminViewingAsStaff = !!(this._viewAsStaffId && typeof App !== "undefined" && Auth?.isOwner?.());
+    const visibleStaffList = (isOwner || isAdminViewingAsStaff)
       ? this.staffList
       : this.staffList.filter(s => {
           if (s.id === this.staffId) return true;     // 自分は必ず表示
