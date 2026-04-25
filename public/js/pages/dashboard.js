@@ -1083,29 +1083,54 @@ const DashboardPage = {
     document.getElementById("calEventTitle").innerHTML = `<i class="bi bi-calendar-event"></i> 予約詳細 ${propNameBadge} ${sourceBadge}`;
 
     // 宿泊者名簿 表示/非表示判定
-    // ① customFormEnabled の物件: customFormFields[] の hidden を最優先
-    // ② それ以外の物件: formFieldConfig.overrides + formSectionConfig
+    // 保存先まとめ:
+    //   A) 固定項目 (bbq/bedChoice/transport/carCount/paidParking など facility):
+    //      formSectionConfig[section].fieldHidden[fieldId] = true
+    //   B) 標準項目オーバーライド (g-address/g-phone/purpose 等):
+    //      formFieldConfig.overrides[fieldId].hidden = true
+    //   C) セクション全体非表示:
+    //      formSectionConfig[section].hidden = true
+    //   D) 独自フォーム (customFormEnabled=true) の追加カスタム項目:
+    //      customFormFields[] に hidden=true、または存在しない
     const fieldOverrides = (prop.formFieldConfig && prop.formFieldConfig.overrides) || {};
     const secCfg = prop.formSectionConfig || {};
     const useCustomForm = prop.customFormEnabled === true && Array.isArray(prop.customFormFields) && prop.customFormFields.length > 0;
-    // customFormFields を id → field のマップに展開（id は g-* / id 名混在）
+    // customFormFields を id → field のマップに展開
+    // ※ customFormFields は「カスタム追加項目」を保持するもので、固定項目 (bbq 等) は
+    //   含まれない。固定項目の非表示は formSectionConfig.fieldHidden で制御される。
     const customMap = {};
     if (useCustomForm) {
       prop.customFormFields.forEach(f => {
         if (f && f.id) customMap[f.id] = f;
       });
     }
+    // 固定項目 ID 一覧（customFormFields に出ていなくても非表示扱いにしないため）
+    const FIXED_FIELD_IDS = new Set([
+      "checkOut","checkOutTime","guestCount","guestCountInfants","bookingSite",
+      "transport","taxiAgree","carCount","neighborAgree","paidParking",
+      "bbq","bbqRule1","bbqRule2","bbqRule3","bbqRule4","bbqRule5","bedChoice",
+      "purpose","previousStay","nextStay",
+      "emergencyName","emergencyPhone",
+      "noiseAgree","houseRuleAgree",
+    ]);
     const isFieldVisible = (fieldId, sectionId) => {
-      // 1. カスタムフォーム使用時: そのフィールドが配列に存在しないか hidden=true なら非表示
-      if (useCustomForm && fieldId) {
+      // 1. セクション全体が非表示なら非表示
+      if (sectionId && secCfg[sectionId] && secCfg[sectionId].hidden === true) return false;
+      // 2. 固定項目の個別非表示 (formSectionConfig[sec].fieldHidden[fid])
+      if (sectionId && fieldId) {
+        const fh = secCfg[sectionId] && secCfg[sectionId].fieldHidden;
+        if (fh && fh[fieldId] === true) return false;
+      }
+      // 3. 標準項目オーバーライド (formFieldConfig.overrides)
+      if (fieldId && fieldOverrides[fieldId] && fieldOverrides[fieldId].hidden === true) return false;
+      // 4. 独自フォーム使用時のカスタム項目チェック
+      //    - 固定項目は customFormFields に無くても表示維持
+      //    - カスタム項目は配列に存在しない / hidden=true なら非表示
+      if (useCustomForm && fieldId && !FIXED_FIELD_IDS.has(fieldId)) {
         const f = customMap[fieldId];
-        if (!f) return false;            // カスタムフォームで未定義 = 非表示扱い
+        if (!f) return false;
         if (f.hidden === true) return false;
       }
-      // 2. セクション全体が非表示
-      if (sectionId && secCfg[sectionId] && secCfg[sectionId].hidden === true) return false;
-      // 3. 標準フォームの個別オーバーライド
-      if (fieldId && fieldOverrides[fieldId] && fieldOverrides[fieldId].hidden === true) return false;
       return true;
     };
     const isSectionVisible = (sectionId) => !(secCfg[sectionId] && secCfg[sectionId].hidden === true);
