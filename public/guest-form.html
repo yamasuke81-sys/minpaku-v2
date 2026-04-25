@@ -2048,14 +2048,19 @@
           // (editToken・editTokenExpiresAt は onGuestFormSubmit トリガー側で生成される)
           await db.collection("guestRegistrations").add(data);
         }
-        // successView のガイドリンクを物件別 guideUrl に差し替え (未設定なら yado-komachi-guide)
+        // successView のガイドリンクを物件別 guideUrl に差し替え (未設定ならボタン非表示)
         try {
           const link = document.getElementById("lbl_successGuideLink");
           if (link) {
-            const url = (_propertyConfig && _propertyConfig.guideUrl) || "https://yado-komachi-guide.web.app/";
-            link.setAttribute("href", url);
-            link.setAttribute("target", "_blank");
-            link.setAttribute("rel", "noopener");
+            const url = (_propertyConfig && _propertyConfig.guideUrl) || "";
+            if (url) {
+              link.setAttribute("href", url);
+              link.setAttribute("target", "_blank");
+              link.setAttribute("rel", "noopener");
+              link.classList.remove("d-none");
+            } else {
+              link.classList.add("d-none");
+            }
           }
         } catch (_) {}
         document.getElementById("formView").classList.add("d-none");

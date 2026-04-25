@@ -128,7 +128,7 @@ function inferPropertyId(guest, bookings) {
 // ==============================
 // メール送信 (onGuestFormSubmit 側で行うためこの関数は廃止)
 // ==============================
-const DEFAULT_GUIDE_URL = "https://yado-komachi-guide.web.app/";
+const DEFAULT_GUIDE_URL = "";
 const APP_URL = "https://minpaku-v2.web.app";
 
 // eslint-disable-next-line no-unused-vars
