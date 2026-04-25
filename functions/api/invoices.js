@@ -240,8 +240,13 @@ async function renderInvoicePdfBuffer(invoice, staff, client, propertyMap) {
       if (s.isTimee && s.timeeDetail) {
         const td = s.timeeDetail;
         memo = `タイミー ${td.start}〜${td.end}(${td.durationH}h) × ¥${td.hourlyRate}/h`;
-      } else if (s.guestCount > 1) {
-        memo = `ゲスト${s.guestCount}名`;
+      } else {
+        const parts = [];
+        if (s.workType === "cleaning_by_count" && s.staffCountOnDay) {
+          parts.push(`担当${s.staffCountOnDay}名作業`);
+        }
+        if (s.guestCount > 1) parts.push(`ゲスト${s.guestCount}名`);
+        if (parts.length) memo = parts.join(" / ");
       }
       rows.push({ date: s.date ? fmtDate(s.date) : "", label, amount: s.amount || 0, memo });
     });
@@ -455,8 +460,13 @@ async function generateInvoicePdf_(db, invoiceId) {
       if (s.isTimee && s.timeeDetail) {
         const td = s.timeeDetail;
         memo = `タイミー ${td.start}〜${td.end}(${td.durationH}h) × ¥${td.hourlyRate}/h`;
-      } else if (s.guestCount > 1) {
-        memo = `ゲスト${s.guestCount}名`;
+      } else {
+        const parts = [];
+        if (s.workType === "cleaning_by_count" && s.staffCountOnDay) {
+          parts.push(`担当${s.staffCountOnDay}名作業`);
+        }
+        if (s.guestCount > 1) parts.push(`ゲスト${s.guestCount}名`);
+        if (parts.length) memo = parts.join(" / ");
       }
       rows.push({
         date: s.date ? fmtDate(s.date) : "",
@@ -829,6 +839,40 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
     return bookingCache[bookingId];
   };
 
+  // 同日同物件で active 状態のスタッフ数を取得 (階段制単価の段位選択に使用)
+  // active = status が assigned / confirmed / completed のいずれか
+  // workType も同じ cleaning_by_count に限定 (清掃と直前点検は別カウント)
+  const ACTIVE_SHIFT_STATUSES = ["assigned", "confirmed", "completed"];
+  const staffCountCache = {};
+  const getStaffCountForDateProperty = async (dateStr, pid, workType) => {
+    if (!dateStr || !pid) return 1;
+    const cacheKey = `${dateStr}|${pid}|${workType}`;
+    if (staffCountCache[cacheKey] !== undefined) return staffCountCache[cacheKey];
+    try {
+      // date は Timestamp で保存されているため、その日の 00:00 〜 翌日 00:00 で範囲検索
+      const dayStart = new Date(`${dateStr}T00:00:00+09:00`);
+      const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+      const snap = await db.collection("shifts")
+        .where("propertyId", "==", pid)
+        .where("date", ">=", dayStart)
+        .where("date", "<", dayEnd)
+        .get();
+      const staffIds = new Set();
+      snap.docs.forEach(d => {
+        const s = d.data();
+        if (!ACTIVE_SHIFT_STATUSES.includes(s.status)) return;
+        if (workType && s.workType && s.workType !== workType) return;
+        if (s.staffId) staffIds.add(s.staffId);
+      });
+      const count = Math.max(staffIds.size, 1);
+      staffCountCache[cacheKey] = count;
+      return count;
+    } catch (e) {
+      console.warn("getStaffCountForDateProperty 失敗:", e.message);
+      return 1;
+    }
+  };
+
   // シフト単価計算
   const shiftDetails = [];
   const specialDetails = [];
@@ -845,9 +889,14 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
       ? (shift.date.toDate ? shift.date.toDate() : new Date(shift.date)).toISOString().slice(0, 10)
       : "";
 
-    // booking から guestCount 取得
+    // booking から guestCount 取得 (備考表示用のみに使用)
     const booking = await getBooking(shift.bookingId);
-    const guestCount = Math.min(booking?.guestCount || 1, 3);
+    const guestCountRaw = booking?.guestCount || 1;
+
+    // 階段制単価の段位選択は「同日同物件で active シフトを持つスタッフ人数」基準
+    // (ゲスト数ではない)
+    const staffCountOnDay = await getStaffCountForDateProperty(dateStr, propertyId, workType);
+    const rateKey = Math.min(Math.max(staffCountOnDay, 1), 3);
 
     // propertyWorkItems から作業項目を検索
     // laundry_* は workItemName (名前) で一致検索、それ以外は type で一致検索
@@ -876,11 +925,11 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
         amount = Math.round(durationH * (workItem.timeeHourlyRate || 0));
       } else if (workItem.rateMode === "perStaff") {
         const rates = workItem.staffRates?.[staffId] || {};
-        amount = typeof rates === "object" ? (rates[guestCount] || rates[3] || 0) : Number(rates || 0);
+        amount = typeof rates === "object" ? (rates[rateKey] || rates[3] || 0) : Number(rates || 0);
       } else {
         // common モード (デフォルト)
         const rates = workItem.commonRates || {};
-        amount = typeof rates === "object" ? (rates[guestCount] || rates[3] || 0) : Number(workItem.commonRate || 0);
+        amount = typeof rates === "object" ? (rates[rateKey] || rates[3] || 0) : Number(workItem.commonRate || 0);
       }
     } else {
       // workItem 未設定時のフォールバック
@@ -902,7 +951,8 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
       propertyId,
       propertyName: shift.propertyName || "",
       workType,
-      guestCount: booking?.guestCount || 1,
+      guestCount: guestCountRaw,
+      staffCountOnDay,
       amount,
       sourceChecklistId: shift.sourceChecklistId || "",
       isTimee: staff.isTimee || false,
@@ -1146,9 +1196,17 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
       const td = s.timeeDetail;
       const timeePart = `タイミー ${td.start}〜${td.end}(${td.durationH}h) × ¥${td.hourlyRate}/h`;
       note = note ? `${note} / ${timeePart}` : timeePart;
-    } else if (s.guestCount > 1) {
-      const guestPart = `ゲスト${s.guestCount}名`;
-      note = note ? `${note} / ${guestPart}` : guestPart;
+    } else {
+      // 階段制単価の根拠を明示: 担当スタッフ人数 (+ ゲスト数)
+      const parts = [];
+      if (s.workType === "cleaning_by_count" && s.staffCountOnDay) {
+        parts.push(`担当${s.staffCountOnDay}名作業`);
+      }
+      if (s.guestCount > 1) parts.push(`ゲスト${s.guestCount}名`);
+      if (parts.length) {
+        const extra = parts.join(" / ");
+        note = note ? `${note} / ${extra}` : extra;
+      }
     }
     // ランドリー系シフト(出し/受取/立替)は提出先(depot/リネン屋)名を note に追記
     if (s.workType === "laundry_put_out" || s.workType === "laundry_collected" || s.workType === "laundry_expense") {
