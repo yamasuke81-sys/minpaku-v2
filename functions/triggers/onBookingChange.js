@@ -7,6 +7,7 @@ const {
   notifyOwner,
   notifyGroup,
   notifyStaff,
+  notifyByKey,
   buildRecruitmentFlex,
   resolveNotifyTargets,
   getNotificationSettings_,
@@ -179,18 +180,21 @@ async function detectDoubleBooking(db, bookingId, after) {
           propertyDocName = propDoc.data().name || "";
         }
       }
-      const targets = resolveNotifyTargets(settings, "double_booking", propertyOverrides);
-      if (targets.enabled) {
-        const resolvedPropName = after.propertyName || propertyDocName || after.propertyId;
-        const title = `ダブルブッキング検出: ${after.checkIn}〜${after.checkOut}`;
-        const body = `【⚠️ ダブルブッキング警告】\n物件: ${resolvedPropName}\n日程: ${after.checkIn} 〜 ${after.checkOut}\n衝突件数: ${conflicts.length}件\n\n確認: https://minpaku-v2.web.app/#/schedule`;
-        if (targets.ownerLine) {
-          await notifyOwner(db, "double_booking", title, body, {}, propertyOverrides);
-        }
-        if (targets.groupLine) {
-          await notifyGroup(db, "double_booking", title, body, {}, propertyOverrides, after.propertyId);
-        }
-      }
+      // notifyByKey でチャネル別 (owner/group/staff/email/discord) に発射
+      const resolvedPropName = after.propertyName || propertyDocName || after.propertyId;
+      const title = `ダブルブッキング検出: ${after.checkIn}〜${after.checkOut}`;
+      const body = `【⚠️ ダブルブッキング警告】\n物件: ${resolvedPropName}\n日程: ${after.checkIn} 〜 ${after.checkOut}\n衝突件数: ${conflicts.length}件\n\n確認: https://minpaku-v2.web.app/#/schedule`;
+      await notifyByKey(db, "double_booking", {
+        title,
+        body,
+        vars: {
+          property: resolvedPropName,
+          date: after.checkIn,
+          checkin: after.checkIn,
+          checkout: after.checkOut,
+        },
+        propertyId: after.propertyId || null,
+      });
     } catch (e) {
       console.error("[onBookingChange] ダブルブッキング通知エラー:", e);
     }

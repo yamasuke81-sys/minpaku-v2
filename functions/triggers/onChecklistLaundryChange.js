@@ -26,6 +26,7 @@ const {
   notifyOwner,
   notifyGroup,
   notifyStaff,
+  notifyByKey,
   resolveNotifyTargets,
   getNotificationSettings_,
 } = require("../utils/lineNotify");
@@ -434,39 +435,18 @@ module.exports = async (event) => {
       const title = `ランドリー: ${label}`;
       const body = `🧺 ランドリー ${label}\n\n${dateStr} ${propertyName}\n${staffName}さんが${timeStr}に${verb}。\n詳細: ${checklistUrl}`;
 
-      // 物件別オーバーライドを取得
-      let propertyOverrides = {};
-      if (after.propertyId) {
-        const propDoc = await db.collection("properties").doc(after.propertyId).get();
-        if (propDoc.exists) propertyOverrides = propDoc.data().channelOverrides || {};
-      }
-      const targets = resolveNotifyTargets(settings, type, propertyOverrides);
-      if (!targets.enabled) {
-        console.log(`[onChecklistLaundryChange] ${type} 無効化されているためスキップ`);
-        continue;
-      }
-
-      // Webアプリ管理者LINE
-      if (targets.ownerLine) {
-        await notifyOwner(db, type, title, body, vars, propertyOverrides);
-      }
-      // グループLINE (該当物件の LINE のみ)
-      if (targets.groupLine) {
-        await notifyGroup(db, type, title, body, vars, propertyOverrides, after.propertyId);
-      }
-      // スタッフ個別LINE (割当済みスタッフ全員)
-      if (targets.staffLine) {
-        const staffIds = Array.isArray(after.staffIds) && after.staffIds.length
-          ? after.staffIds
-          : (after.staffId ? [after.staffId] : []);
-        for (const sid of staffIds) {
-          try {
-            await notifyStaff(db, sid, type, title, body, vars, propertyOverrides);
-          } catch (e) {
-            console.error(`[onChecklistLaundryChange] staff ${sid} 通知エラー:`, e.message);
-          }
-        }
-      }
+      // notifyByKey でチャネル別 (owner/group/staff/email/discord) に発射
+      // 割当済みスタッフだけに staffLine を絞るため staffIds を渡す
+      const assignedStaffIds = Array.isArray(after.staffIds) && after.staffIds.length
+        ? after.staffIds
+        : (after.staffId ? [after.staffId] : []);
+      await notifyByKey(db, type, {
+        title,
+        body,
+        vars,
+        propertyId: after.propertyId || null,
+        staffIds: assignedStaffIds.length ? assignedStaffIds : null,
+      });
 
       console.log(`[onChecklistLaundryChange] ${type} 送信完了 checklist=${event.params.checklistId}`);
     } catch (e) {

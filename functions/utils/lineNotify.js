@@ -1041,6 +1041,229 @@ async function sendLineMessageForProperty(db, propertyId, text, logExtra = {}) {
   return { ...result, usedChannel, channelName: usedChannelName };
 }
 
+/**
+ * 通知種別ごとのチャネル設定 (settings.channels[notifyKey] と
+ * properties/{id}.channelOverrides[notifyKey]) に従って各チャネルへ送信する統合関数。
+ *
+ * 各チャネル (ownerLine / groupLine / staffLine / subOwnerLine /
+ * ownerEmail / subOwnerEmail / staffEmail / discordOwner / discordSubOwner)
+ * の ON/OFF を resolveNotifyTargets の結果で厳密に判定し、true のものだけ発射する。
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} notifyKey - 通知種別キー (例: "roster_received")
+ * @param {object} options
+ * @param {string} options.title - ログ用タイトル
+ * @param {string} options.body - デフォルト本文 (customMessage が無い時の fallback)
+ * @param {object} [options.vars] - {変数名} 置換用
+ * @param {string|null} [options.propertyId] - 物件 ID (group/subOwner 系の宛先解決に使用)
+ * @param {string[]} [options.staffIds] - 個別 staff 限定送信したい場合 (省略時は active 全員)
+ * @returns {Promise<{sent: object, errors: object[]}>}
+ */
+async function notifyByKey(db, notifyKey, options = {}) {
+  const { title = "", body = "", vars = {}, propertyId = null, staffIds = null } = options;
+
+  // 1. settings + propertyOverrides 取得
+  const { settings } = await getNotificationSettings_(db);
+  if (!settings) return { sent: {}, errors: [{ error: "通知設定未登録" }] };
+
+  let propertyOverrides = {};
+  if (propertyId) {
+    try {
+      const pDoc = await db.collection("properties").doc(propertyId).get();
+      if (pDoc.exists) propertyOverrides = pDoc.data().channelOverrides || {};
+    } catch (e) {
+      console.warn(`[notifyByKey] property fetch error: ${e.message}`);
+    }
+  }
+
+  // 2. ターゲット判定
+  const targets = resolveNotifyTargets(settings, notifyKey, propertyOverrides);
+  if (!targets.enabled) {
+    console.log(`[notifyByKey] ${notifyKey} は無効化されているためスキップ`);
+    return { sent: {}, errors: [] };
+  }
+
+  // 3. customMessage で本文置換 (string body のみ対象)
+  let resolvedBody = body;
+  if (typeof body === "string") {
+    const ovCh = (propertyOverrides && propertyOverrides[notifyKey]) || {};
+    const globalCh = (settings.channels && settings.channels[notifyKey]) || {};
+    const customMessage = ovCh.customMessage !== undefined ? ovCh.customMessage : globalCh.customMessage;
+    if (customMessage && String(customMessage).trim()) {
+      let msg = String(customMessage);
+      Object.keys(vars || {}).forEach(k => {
+        msg = msg.replace(new RegExp(`\\{${k}\\}`, "g"), String(vars[k] ?? ""));
+      });
+      resolvedBody = msg;
+    }
+  }
+
+  const sent = {};
+  const errors = [];
+
+  // 4. 各チャネルへ並列送信
+  const tasks = [];
+
+  // (a) Webアプリ管理者 LINE
+  if (targets.ownerLine) {
+    tasks.push((async () => {
+      try {
+        const { channelToken, ownerUserId } = await getNotificationSettings_(db);
+        const r = await _sendOwnerLine_(settings, channelToken, ownerUserId, typeof resolvedBody === "string" ? resolvedBody : title);
+        sent.ownerLine = r.success;
+        if (!r.success) errors.push({ channel: "ownerLine", error: r.error });
+      } catch (e) { errors.push({ channel: "ownerLine", error: e.message }); }
+    })());
+  }
+
+  // (b) グループ LINE (物件別)
+  if (targets.groupLine && propertyId) {
+    tasks.push((async () => {
+      try {
+        const text = typeof resolvedBody === "string" ? resolvedBody : `[Flex] ${title}`;
+        const r = await sendLineMessageForProperty(db, propertyId, text, { type: notifyKey, title });
+        sent.groupLine = r.success;
+        if (!r.success) errors.push({ channel: "groupLine", error: r.error });
+      } catch (e) { errors.push({ channel: "groupLine", error: e.message }); }
+    })());
+  }
+
+  // (c) スタッフ個別 LINE
+  if (targets.staffLine) {
+    tasks.push((async () => {
+      try {
+        let ids = staffIds;
+        if (!ids) {
+          const snap = await db.collection("staff").where("active", "==", true).get();
+          ids = snap.docs.map(d => d.id);
+        }
+        let okCount = 0;
+        for (const sid of ids) {
+          try {
+            const r = await notifyStaff(db, sid, notifyKey, title, resolvedBody, vars, propertyOverrides);
+            if (r && r.success) okCount++;
+          } catch (e) { errors.push({ channel: "staffLine", staffId: sid, error: e.message }); }
+        }
+        sent.staffLine = okCount;
+      } catch (e) { errors.push({ channel: "staffLine", error: e.message }); }
+    })());
+  }
+
+  // (d) サブオーナー LINE / メール (notifySubOwners が両方束ねている)
+  if ((targets.subOwnerLine || targets.subOwnerEmail) && propertyId) {
+    tasks.push((async () => {
+      try {
+        const text = typeof resolvedBody === "string" ? resolvedBody : `[Flex] ${title}`;
+        const r = await notifySubOwners(db, propertyId, title, text);
+        sent.subOwner = r.sent;
+      } catch (e) { errors.push({ channel: "subOwner", error: e.message }); }
+    })());
+  }
+
+  // (e) Webアプリ管理者メール
+  if (targets.ownerEmail) {
+    tasks.push((async () => {
+      try {
+        const emails = settings.notifyEmails || [];
+        const text = typeof resolvedBody === "string" ? resolvedBody : `[Flex] ${title}`;
+        let okCount = 0;
+        for (const to of emails) {
+          try {
+            await sendNotificationEmail_(to, title, text);
+            okCount++;
+          } catch (e) { errors.push({ channel: "ownerEmail", to, error: e.message }); }
+        }
+        sent.ownerEmail = okCount;
+      } catch (e) { errors.push({ channel: "ownerEmail", error: e.message }); }
+    })());
+  }
+
+  // (f) スタッフメール (active 全員 or staffIds 指定者)
+  if (targets.staffEmail) {
+    tasks.push((async () => {
+      try {
+        const text = typeof resolvedBody === "string" ? resolvedBody : `[Flex] ${title}`;
+        let snap;
+        if (staffIds && staffIds.length) {
+          // 個別取得
+          const docs = await Promise.all(staffIds.map(id => db.collection("staff").doc(id).get()));
+          snap = { docs: docs.filter(d => d.exists) };
+        } else {
+          snap = await db.collection("staff").where("active", "==", true).get();
+        }
+        let okCount = 0;
+        for (const d of snap.docs) {
+          const sd = d.data();
+          if (!sd.email) continue;
+          try {
+            await sendNotificationEmail_(sd.email, title, text);
+            okCount++;
+          } catch (e) { errors.push({ channel: "staffEmail", staffId: d.id, error: e.message }); }
+        }
+        sent.staffEmail = okCount;
+      } catch (e) { errors.push({ channel: "staffEmail", error: e.message }); }
+    })());
+  }
+
+  // (g) Discord (オーナー)
+  if (targets.discordOwner) {
+    tasks.push((async () => {
+      try {
+        const url = settings.discordOwnerWebhookUrl || settings.discordWebhookUrl;
+        if (!url) {
+          errors.push({ channel: "discordOwner", error: "Webhook URL 未設定" });
+          return;
+        }
+        const text = typeof resolvedBody === "string" ? resolvedBody : `[Flex] ${title}`;
+        const r = await sendDiscord_(url, `**${title}**\n${text}`);
+        sent.discordOwner = !!r.success;
+        if (!r.success) errors.push({ channel: "discordOwner", error: r.error });
+      } catch (e) { errors.push({ channel: "discordOwner", error: e.message }); }
+    })());
+  }
+
+  // (h) Discord (サブオーナー)
+  if (targets.discordSubOwner && propertyId) {
+    tasks.push((async () => {
+      try {
+        const text = typeof resolvedBody === "string" ? resolvedBody : `[Flex] ${title}`;
+        const staffSnap = await db.collection("staff")
+          .where("isSubOwner", "==", true)
+          .where("ownedPropertyIds", "array-contains", propertyId)
+          .get();
+        let okCount = 0;
+        for (const s of staffSnap.docs) {
+          const sd = s.data();
+          if (!sd.active) continue;
+          const url = sd.subOwnerDiscordWebhookUrl || sd.discordWebhookUrl;
+          if (!url) continue;
+          const r = await sendDiscord_(url, `**${title}**\n${text}`);
+          if (r.success) okCount++;
+        }
+        sent.discordSubOwner = okCount;
+      } catch (e) { errors.push({ channel: "discordSubOwner", error: e.message }); }
+    })());
+  }
+
+  await Promise.allSettled(tasks);
+
+  // 通知ログ (集約版)
+  try {
+    await db.collection("notifications").add({
+      type: notifyKey,
+      title,
+      body: typeof resolvedBody === "string" ? resolvedBody.slice(0, 1000) : `[Flex] ${title}`,
+      propertyId: propertyId || null,
+      sentAt: new Date(),
+      channel: "multi",
+      sent,
+      errorCount: errors.length,
+    });
+  } catch (_) { /* ignore log error */ }
+
+  return { sent, errors };
+}
+
 module.exports = {
   sendLineMessage,
   sendLineMessageForProperty,
@@ -1053,6 +1276,7 @@ module.exports = {
   notifyStaff,
   notifyGroup,
   notifySubOwners,
+  notifyByKey,
   buildRecruitmentFlex,
   resolveNotifyTargets,
   getNotificationSettings_,

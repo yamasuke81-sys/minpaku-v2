@@ -7,7 +7,7 @@
  *   4. LINE通知（既存）
  */
 const crypto = require("crypto");
-const { notifyOwner, sendNotificationEmail_ } = require("../utils/lineNotify");
+const { notifyOwner, notifyByKey, sendNotificationEmail_ } = require("../utils/lineNotify");
 const { renderTemplate, buildGuestSummaryText, getTemplates } = require("../utils/emailTemplates");
 // 注: 管理者宛/物件オーナー宛のメール送信は notifyOwner (roster_received) 1本に集約 (2026-04-26)
 //   旧経路 (notifyEmails への直送、subOwners への直送) は重複送信(3通)の原因のため削除済み
@@ -166,14 +166,20 @@ module.exports = async function onGuestFormSubmit(event) {
   }
 
   // roster_received 通知 (通知設定タブで編集可能)
-  await notifyOwner(db, "roster_received", `名簿受信: ${guestName}`, lineText, {
-    checkin: checkIn,
-    date: checkOut,
-    property: data.propertyName || "",
-    guest: guestName,
-    nights: data.nights || "",
-    site: data.bookingSite || "",
-    url: `${APP_URL}/#/guests?id=${encodeURIComponent(guestId)}`,
+  // notifyByKey でチャネル別 (ownerLine/groupLine/staffLine/ownerEmail/...) に発射
+  await notifyByKey(db, "roster_received", {
+    title: `名簿受信: ${guestName}`,
+    body: lineText,
+    vars: {
+      checkin: checkIn,
+      date: checkOut,
+      property: data.propertyName || "",
+      guest: guestName,
+      nights: data.nights || "",
+      site: data.bookingSite || "",
+      url: `${APP_URL}/#/guests?id=${encodeURIComponent(guestId)}`,
+    },
+    propertyId: data.propertyId || null,
   });
 
   // === 4. bookingsコレクションとの照合・情報補完 ===

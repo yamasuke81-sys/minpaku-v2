@@ -6,6 +6,7 @@ const admin = require("firebase-admin");
 const {
   notifyOwner,
   notifyGroup,
+  notifyByKey,
   resolveNotifyTargets,
   getNotificationSettings_,
 } = require("../utils/lineNotify");
@@ -57,9 +58,6 @@ module.exports = async function rosterRemind(event) {
         : null;
       const overrides = propDoc?.exists ? (propDoc.data().channelOverrides || {}) : {};
 
-      const tgt = resolveNotifyTargets(settings, NOTIFY_TYPE, overrides);
-      if (!tgt.enabled) continue;
-
       const propertyName = b.propertyName || (propDoc?.exists ? propDoc.data().name : "") || b.propertyId || "";
       const guestName = b.guestName || "名前未設定";
       const checkin = b.checkIn || "";
@@ -88,17 +86,14 @@ module.exports = async function rosterRemind(event) {
 
       const title = `名簿未提出: ${guestName} (${checkin})`;
 
-      const results = [];
-      if (tgt.ownerLine) {
-        const r = await notifyOwner(db, NOTIFY_TYPE, title, defaultMsg, vars, overrides);
-        results.push(r);
-      }
-      if (tgt.groupLine) {
-        const r = await notifyGroup(db, NOTIFY_TYPE, title, defaultMsg, vars, overrides, b.propertyId);
-        results.push(r);
-      }
-
-      const anySuccess = results.some(r => r?.success);
+      // notifyByKey でチャネル別 (owner/group/staff/email/discord) に発射
+      const result = await notifyByKey(db, NOTIFY_TYPE, {
+        title,
+        body: defaultMsg,
+        vars,
+        propertyId: b.propertyId || null,
+      });
+      const anySuccess = Object.values(result.sent || {}).some(v => v && v !== 0);
       if (anySuccess) sentCount++;
     }
 
