@@ -892,7 +892,12 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
         const s = d.data();
         if (!ACTIVE_SHIFT_STATUSES.includes(s.status)) return;
         if (workType && s.workType && s.workType !== workType) return;
-        if (s.staffId) staffIds.add(s.staffId);
+        // staffIds 配列(複数スタッフ確定)優先、無ければ staffId 単一を使用
+        if (Array.isArray(s.staffIds) && s.staffIds.length) {
+          s.staffIds.forEach(id => { if (id) staffIds.add(id); });
+        } else if (s.staffId) {
+          staffIds.add(s.staffId);
+        }
       });
       const count = Math.max(staffIds.size, 1);
       staffCountCache[cacheKey] = count;
