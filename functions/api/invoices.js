@@ -37,6 +37,24 @@ function fmtYen(n) {
   return Number(n || 0).toLocaleString("ja-JP");
 }
 
+/**
+ * "HH:MM" 形式の開始/終了時刻から勤務時間（時間, 小数点可）を計算
+ * 深夜跨ぎ (end <= start) の場合は翌日扱いで +24h する
+ * 同時刻 ("10:00"→"10:00") は 0 時間扱い（即終了想定。24h 勤務は別途明示指定する仕様とする）
+ * 不正値・空値の場合は 0 を返す
+ */
+function calcDurationHours(startStr, endStr) {
+  if (!startStr || !endStr) return 0;
+  const [sh, sm] = String(startStr).split(":").map(Number);
+  const [eh, em] = String(endStr).split(":").map(Number);
+  if ([sh, sm, eh, em].some(v => Number.isNaN(v))) return 0;
+  const startMin = sh * 60 + sm;
+  let endMin = eh * 60 + em;
+  if (endMin < startMin) endMin += 24 * 60; // 深夜跨ぎ
+  // endMin === startMin は 0h 扱い（差分そのまま）
+  return (endMin - startMin) / 60;
+}
+
 /** Timestamp or Date → "YYYY/MM/DD" */
 function fmtDate(val) {
   if (!val) return "";
@@ -931,9 +949,7 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
         const baseWorkTime = property?.baseWorkTime || {};
         const startT = baseWorkTime.start || "10:30";
         const endT = baseWorkTime.end || "14:30";
-        const [sh, sm] = startT.split(":").map(Number);
-        const [eh, em] = endT.split(":").map(Number);
-        const durationH = ((eh * 60 + em) - (sh * 60 + sm)) / 60;
+        const durationH = calcDurationHours(startT, endT);
         amount = Math.round(durationH * (workItem.timeeHourlyRate || 0));
       } else if (workItem.rateMode === "perStaff") {
         const rates = workItem.staffRates?.[staffId] || {};
