@@ -1044,8 +1044,12 @@ const MyRecruitmentPage = {
         const items = cellRecruits.map(({recruit, prop}) => {
           const responses = recruit.responses || [];
           let resp = "未回答";
+          // 照合は staffId 優先、無ければ staffName 一致のみ。
+          // メール一致は同一メールを複数スタッフで共有しているケースで誤検知するため使わない。
           for (const r of responses) {
-            if (r.staffId === staff.id || r.staffName === staff.name || (r.staffEmail && staff.email && r.staffEmail.toLowerCase() === staff.email.toLowerCase())) {
+            const idMatch = r.staffId && staff.id && r.staffId === staff.id;
+            const nameMatch = !r.staffId && r.staffName && staff.name && r.staffName === staff.name;
+            if (idMatch || nameMatch) {
               resp = r.response || "未回答";
               break;
             }
@@ -1082,7 +1086,9 @@ const MyRecruitmentPage = {
           let triangleStaffName = "";
           if (symbol === "▲") {
             for (const r of responses) {
-              if (r.staffId === staff.id || r.staffName === staff.name || (r.staffEmail && staff.email && r.staffEmail.toLowerCase() === staff.email.toLowerCase())) {
+              const idMatch = r.staffId && staff.id && r.staffId === staff.id;
+              const nameMatch = !r.staffId && r.staffName && staff.name && r.staffName === staff.name;
+              if (idMatch || nameMatch) {
                 triangleReason = r.memo || "";
                 triangleStaffName = r.staffName || staff.name || "";
                 break;

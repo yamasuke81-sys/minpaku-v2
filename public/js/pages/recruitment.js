@@ -903,11 +903,15 @@ const RecruitmentPage = {
     // 自分のstaffIdを特定 (スタッフビュー時、自分の行のみ代理回答ボタンを出す)
     const myStaffId = (typeof Auth !== "undefined" && Auth.currentUser) ? Auth.currentUser.staffId : null;
 
-    // 回答マップ (name優先、emailフォールバック)
+    // 回答マップ (staffId優先、staffName フォールバック)
+    // 同一メールを複数スタッフで共有するケースで誤検知するため email 照合は使わない
+    const respById = {};
     const respByName = {};
     responses.forEach(r => {
+      if (r.staffId) respById[r.staffId] = r;
       if (r.staffName) respByName[r.staffName] = r;
     });
+    const lookupResp = (s) => respById[s.id] || respByName[s.name] || null;
 
     // 最新のアクティブスタッフ全員(Webアプリ管理者含む)
     // 既に取得済みの this.staffList を優先利用 (スタッフ権限で API.staff.list が失敗するのを回避)
@@ -955,7 +959,7 @@ const RecruitmentPage = {
     // 並び: ◎ → △ → 未回答 → × の順で、各グループ内は displayOrder
     const order = { "◎": 0, "△": 1, "未回答": 2, "×": 3 };
     const rows = allStaff.map(s => {
-      const r = respByName[s.name];
+      const r = lookupResp(s);
       return {
         staff: s,
         response: r ? r.response : "未回答",
