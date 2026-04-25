@@ -12,6 +12,7 @@
     .form-header { background: linear-gradient(135deg, #2c3e50, #3498db); color: white; border-radius: 12px 12px 0 0; padding: 1.5rem; text-align: center; }
     .form-header h1 { font-size: 1.3rem; margin: 0; padding-top: 2rem; }
     .form-header p { margin: 0.5rem 0 0; opacity: 0.85; font-size: 0.9rem; }
+    .form-property-name { font-size: 0.78rem; letter-spacing: 0.16em; opacity: 0.85; margin: 0 0 0.4rem; font-weight: 600; }
     .lang-switch { position: absolute; top: 0.5rem; right: 0.5rem; }
     .lang-switch .btn { font-size: 0.8rem; padding: 2px 10px; }
     .section-title { font-size: 1rem; font-weight: 600; border-left: 4px solid #3498db; padding-left: 0.75rem; margin: 1.5rem 0 1rem; }
@@ -44,6 +45,7 @@
         <button class="btn btn-sm btn-outline-light active" data-lang="ja">日本語</button>
         <button class="btn btn-sm btn-outline-light" data-lang="en">English</button>
       </div>
+      <div id="formPropertyName" class="form-property-name" style="display:none;"></div>
       <h1 id="formTitle">宿泊者名簿</h1>
       <p id="formSubtitle">ご宿泊に必要な情報をご記入ください</p>
     </div>
@@ -2093,6 +2095,12 @@
           const resp = await fetch(`/api/public/guest-form-config/${propertyId}`);
           if (resp.ok) {
             _propertyConfig = await resp.json();
+            // ヘッダーに宿名を表示（色や番号は付けない）
+            const propNameEl = document.getElementById("formPropertyName");
+            if (propNameEl && _propertyConfig.name) {
+              propNameEl.textContent = _propertyConfig.name;
+              propNameEl.style.display = "";
+            }
             // Phase 2: formFieldConfig (overrides + customFormFields) を優先使用
             if (_propertyConfig.formFieldConfig) {
               // formFieldConfig.customFormFields が未設定の場合、トップレベルの
