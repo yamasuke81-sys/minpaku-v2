@@ -1,3 +1,5 @@
+// DEPRECATED: onGuestFormSubmit.js に統合済み (2026-04-26)
+// 管理者宛メール3通の重複を防ぐため index.js の export を停止。本ファイルは履歴のため残置。
 /**
  * 宿泊者名簿 作成時トリガー
  * guestRegistrations/{id} が作成された際、propertyId 未設定なら bookings から推論して補完する。

@@ -293,10 +293,12 @@ exports.onBookingChange = onDocumentWritten(
 );
 
 // 宿泊者名簿 作成時→propertyId 未設定なら bookings から推論して補完
-exports.onGuestRegistrationCreate = onDocumentCreated(
-  { document: "guestRegistrations/{guestId}", region: "asia-northeast1" },
-  require("./triggers/onGuestRegistrationCreate")
-);
+// DEPRECATED: onGuestFormSubmit.js に統合済み (2026-04-26)
+// 重複メール送信(管理者宛3通)を防ぐため export を停止。ファイル本体は履歴のため残置。
+// exports.onGuestRegistrationCreate = onDocumentCreated(
+//   { document: "guestRegistrations/{guestId}", region: "asia-northeast1" },
+//   require("./triggers/onGuestRegistrationCreate")
+// );
 
 // シフト作成時→物件テンプレートをスナップショットしてチェックリスト自動生成
 exports.onShiftCreated = onDocumentCreated(
