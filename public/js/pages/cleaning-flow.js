@@ -431,21 +431,19 @@ const CleaningFlowPage = {
     `;
   },
 
-  // 有効状態を返す (propertyField > 物件別オーバーライド enabled > globalChannel > cleaningFlow)
+  // 有効状態を返す (propertyField > 物件別 channelOverrides.enabled > 通知定義 defaultEnabled)
   _isEnabled(property, step) {
     if (step.propertyField) {
-      // ドット記法対応 (例: "inspection.enabled")
       const parts = step.propertyField.split(".");
       let v = property;
       for (const p of parts) { v = v?.[p]; }
       return typeof v === "boolean" ? v : true;
     }
     if (step.globalChannel) {
-      // 物件別オーバーライドに enabled があればそちらを優先
       const ov = property.channelOverrides?.[step.globalChannel];
-      if (ov && ov.enabled !== undefined) return ov.enabled;
-      const c = this.notifChannels[step.globalChannel];
-      return c ? c.enabled !== false : true;
+      if (ov && ov.enabled !== undefined) return ov.enabled !== false;
+      const n = window.NotifyChannelEditor?.findNotification(step.globalChannel);
+      return n ? n.defaultEnabled !== false : true;
     }
     const flow = property.cleaningFlow || {};
     return flow[step.key]?.enabled !== false;
@@ -709,15 +707,6 @@ const CleaningFlowPage = {
 
   // カード1枚のHTML
   _renderCard(step, property, enabled, memo) {
-    const ch = this.notifChannels[step.globalChannel] || {};
-    const nd = this._notifDefaults[step.globalChannel] || {};
-
-    // 物件別オーバーライドを取得
-    const propOverrides = (property.channelOverrides && step.globalChannel)
-      ? (property.channelOverrides[step.globalChannel] || {})
-      : {};
-    const hasOverride = step.globalChannel && Object.keys(propOverrides).some(k => propOverrides[k] !== undefined);
-
     // バッジ類
     const statusBadge = step.status === "未実装"
       ? `<span class="badge bg-warning text-dark ms-1" style="font-size:10px;"><i class="bi bi-hammer"></i> 未実装</span>`
@@ -725,12 +714,6 @@ const CleaningFlowPage = {
     let syncBadge = "";
     if (step.propertyField) {
       syncBadge = `<span class="badge bg-success-subtle text-success border border-success-subtle ms-1 rf-sync-badge" style="font-size:9px;" title="properties.${step.propertyField} に保存 (物件ごと)"><i class="bi bi-arrow-left-right"></i> 同期</span>`;
-    } else if (step.globalChannel) {
-      if (hasOverride) {
-        syncBadge = `<span class="badge bg-danger-subtle text-danger border border-danger-subtle ms-1 rf-sync-badge rf-override-badge" data-step="${step.key}" data-pid="${property.id}" style="font-size:9px;" title="この物件は個別設定で上書き中"><i class="bi bi-shuffle"></i> 物件別</span>`;
-      } else {
-        syncBadge = `<span class="badge bg-warning-subtle text-warning border border-warning-subtle ms-1 rf-sync-badge rf-override-badge" data-step="${step.key}" data-pid="${property.id}" style="font-size:9px;" title="settings/notifications.channels.${step.globalChannel} (全物件共通・予約フロー画面と同期)"><i class="bi bi-globe"></i> 全共通</span>`;
-      }
     }
     const arrowBadge = step.arrowTo
       ? `<span class="badge bg-light text-dark border ms-1" style="font-size:9px;"><i class="bi bi-arrow-right"></i> ${step.arrowTo === "guest" ? "👤" : step.arrowTo === "owner" ? "🏠" : "🧹"}</span>`
@@ -738,18 +721,19 @@ const CleaningFlowPage = {
 
     const foldId = `cfc-${step.key}-${property.id}`;
 
-    // トグル: globalChannel + 物件別 enabled があればそちらを反映
-    let toggleChecked = enabled ? "checked" : "";
-    if (step.globalChannel && propOverrides.enabled !== undefined) {
-      toggleChecked = propOverrides.enabled ? "checked" : "";
-    }
+    // 通知ステップは共有コンポーネント、それ以外はヘッダトグルを表示
+    const notifEditorHtml = step.globalChannel
+      ? this._renderSharedNotifyCard(step, property)
+      : "";
+    const showHeaderToggle = !step.globalChannel;
+    const toggleChecked = enabled ? "checked" : "";
     const toggleId = `cf-tog-${step.key}-${property.id}`;
-
-    const notifEditorHtml = step.globalChannel ? this._renderNotifEditor(step, ch, nd) : "";
-
-    // 物件別オーバーライドパネル
-    const overridePanelHtml = step.globalChannel
-      ? this._renderOverridePanel(step, property, ch, propOverrides)
+    const headerToggleHtml = showHeaderToggle
+      ? `<div class="form-check form-switch mb-0">
+          <input class="form-check-input rf-toggle" type="checkbox" id="${toggleId}"
+            data-step="${step.key}" data-pid="${property.id}" ${toggleChecked}
+            title="${step.propertyField ? "この物件のON/OFF" : "このフローのON/OFF"}">
+        </div>`
       : "";
 
     const guestBtn = (typeof step.guestUrlFn === "function")
@@ -770,11 +754,7 @@ const CleaningFlowPage = {
           <span class="rf-card-title" title="${this._esc(step.label)}">${this._esc(step.label)}</span>
           ${statusBadge}${syncBadge}${arrowBadge}
           <div class="ms-auto d-flex align-items-center gap-1">
-            <div class="form-check form-switch mb-0">
-              <input class="form-check-input rf-toggle" type="checkbox" id="${toggleId}"
-                data-step="${step.key}" data-pid="${property.id}" ${toggleChecked}
-                title="${step.globalChannel ? "この物件の通知 ON/OFF (物件別設定)" : step.propertyField ? "この物件のON/OFF" : "このフローのON/OFF"}">
-            </div>
+            ${headerToggleHtml}
             <i class="bi bi-chevron-down rf-chevron" data-fold="${foldId}" style="font-size:0.75rem;transition:transform 0.2s;"></i>
           </div>
         </div>
@@ -783,7 +763,6 @@ const CleaningFlowPage = {
           ${hintHtml}
           ${this._renderDetailFields(step, property)}
           ${notifEditorHtml}
-          ${overridePanelHtml}
           <!-- リンクボタン -->
           ${(guestBtn || linkBtn) ? `<div class="mt-2 d-flex flex-wrap gap-1">${guestBtn}${linkBtn}</div>` : ""}
           <!-- 物件固有メモ -->
@@ -799,8 +778,23 @@ const CleaningFlowPage = {
     `;
   },
 
-  // 物件別オーバーライドパネルのHTML (reservation-flow.js と同一ロジック)
-  _renderOverridePanel(step, property, globalCh, ov) {
+  // 物件別通知カード (共有コンポーネント経由)
+  _renderSharedNotifyCard(step, property) {
+    const NCE = window.NotifyChannelEditor;
+    if (!NCE) return "";
+    const n = NCE.findNotification(step.globalChannel);
+    if (!n) {
+      return `<div class="mt-2 small text-muted"><i class="bi bi-info-circle"></i> この通知 (${this._esc(step.globalChannel)}) は通知設定タブで未定義です。</div>`;
+    }
+    const channelData = (property.channelOverrides || {})[step.globalChannel] || {};
+    const idPrefix = `prop_${property.id}_${step.globalChannel}`;
+    return `<div class="cf-shared-notify mt-2" data-pid="${property.id}" data-notif-key="${step.globalChannel}" data-id-prefix="${idPrefix}">
+      ${NCE.renderNotificationCard(n, channelData, { idPrefix, collapsed: false })}
+    </div>`;
+  },
+
+  // _legacy_renderOverridePanel_unused_ (削除済: 共有コンポーネントへ移行)
+  _legacy_renderOverridePanel_unused_(step, property, globalCh, ov) {
     const key = step.globalChannel;
     const pid = property.id;
     const panelId = `cf-ovpanel-${key}-${pid}`;
@@ -921,8 +915,8 @@ const CleaningFlowPage = {
     `;
   },
 
-  // 通知編集UI
-  _renderNotifEditor(step, ch, nd) {
+  // _legacy_renderNotifEditor_unused_ (旧グローバル設定UI; 共有コンポーネント移行で削除)
+  _legacy_renderNotifEditor_unused_(step, ch, nd) {
     const varGroup = step.varGroup || nd.varGroup || "cleaning";
     const vars = this.systemVariables[varGroup] || [];
     const customMessage = ch.customMessage || "";
@@ -1023,8 +1017,8 @@ const CleaningFlowPage = {
     `;
   },
 
-  // タイミング行
-  _renderTimingRow(key, t, idx) {
+  // _legacy_renderTimingRow_unused_ (共有コンポーネント移行で未使用)
+  _legacy_renderTimingRow_unused_(key, t, idx) {
     const mode = t.mode || "event";
     const timing = t.timing || "immediate";
     const showEventBlock = mode === "event";
@@ -1069,10 +1063,10 @@ const CleaningFlowPage = {
 
   // ========== イベント登録 ==========
   _attachEvents(wrap, property) {
-    // カード折りたたみトグル
+    // カード折りたたみトグル / rf-toggle / detail / memo
     wrap.addEventListener("click", (e) => {
       const header = e.target.closest(".rf-card-header[data-fold]");
-      if (header && !e.target.closest("input") && !e.target.closest("button") && !e.target.closest("a")) {
+      if (header && !e.target.closest("input") && !e.target.closest("button") && !e.target.closest("a") && !e.target.closest("[data-notify-toggle]")) {
         const foldId = header.dataset.fold;
         const body = document.getElementById(foldId);
         const chev = header.querySelector(".rf-chevron");
@@ -1082,87 +1076,13 @@ const CleaningFlowPage = {
           if (chev) chev.style.transform = isOpen ? "" : "rotate(180deg)";
         }
       }
-
-      // グローバルタイミング追加
-      const addBtn = e.target.closest(".rf-add-timing");
-      if (addBtn) {
-        const notifKey = addBtn.dataset.notifKey;
-        const list = wrap.querySelector(`.rf-notif-timings[data-notif-key="${notifKey}"]`);
-        if (!list) return;
-        const idx = list.querySelectorAll(".notify-timing-row").length;
-        const emptyT = { mode: "event", timing: "immediate", timingMinutes: "", beforeDays: 3, beforeTime: "09:00", schedulePattern: "monthEnd", scheduleDay: 1, scheduleDow: 0, scheduleTime: "09:00" };
-        list.insertAdjacentHTML("beforeend", this._renderTimingRow(notifKey, emptyT, idx));
-      }
-
-      // 物件別オーバーライド タイミング追加
-      const ovAddBtn = e.target.closest(".rf-ov-add-timing");
-      if (ovAddBtn) {
-        const notifKey = ovAddBtn.dataset.notifKey;
-        const pid = ovAddBtn.dataset.pid;
-        const ovTimingKey = ovAddBtn.dataset.ovTimingKey || `${notifKey}--ov--${pid}`;
-        const list = wrap.querySelector(`.rf-ov-timings[data-notif-key="${notifKey}"][data-pid="${pid}"]`);
-        if (!list) return;
-        const idx = list.querySelectorAll(".notify-timing-row").length;
-        const emptyT = { mode: "event", timing: "immediate", timingMinutes: "", beforeDays: 3, beforeTime: "09:00", schedulePattern: "monthEnd", scheduleDay: 1, scheduleDow: 0, scheduleTime: "09:00" };
-        list.insertAdjacentHTML("beforeend", this._renderTimingRow(ovTimingKey, emptyT, idx));
-        this._queueSaveOverride(notifKey, pid);
-        return;
-      }
-
-      // 全共通に反映ボタン
-      const pushBtn = e.target.closest(".rf-ov-push-global");
-      if (pushBtn) {
-        const notifKey = pushBtn.dataset.notifKey;
-        const pid = pushBtn.dataset.pid;
-        this._pushOverrideToGlobal(notifKey, pid, wrap);
-        return;
-      }
-
-      // タイミング削除
-      const rmBtn = e.target.closest(".rf-remove-timing");
-      if (rmBtn) {
-        const row = rmBtn.closest(".notify-timing-row");
-        const list = row?.parentElement;
-        row?.remove();
-        list?.querySelectorAll(".notify-timing-row").forEach((r, i) => {
-          r.dataset.idx = i;
-          r.querySelectorAll("[data-idx]").forEach(el => el.dataset.idx = i);
-        });
-        const rawKey = rmBtn.dataset.notifKey;
-        if (rawKey) {
-          if (rawKey.includes("--ov--")) {
-            const [baseKey, , pidRm] = rawKey.split("--ov--");
-            this._queueSaveOverride(baseKey, pidRm);
-          } else {
-            this._queueSaveNotif(rawKey);
-          }
-        }
-      }
-
-      // 変数タグクリック → textarea に挿入
-      const tag = e.target.closest(".rf-var-tag");
-      if (tag) {
-        const notifKey = tag.dataset.notifKey;
-        const ta = wrap.querySelector(`textarea.rf-notif-msg[data-notif-key="${notifKey}"]`);
-        if (ta) {
-          const pos = ta.selectionStart || ta.value.length;
-          ta.value = ta.value.slice(0, pos) + tag.dataset.var + ta.value.slice(pos);
-          ta.focus();
-          ta.selectionStart = ta.selectionEnd = pos + tag.dataset.var.length;
-          this._updatePreview(notifKey, wrap);
-        }
-      }
     });
 
-    // change イベント
     wrap.addEventListener("change", (e) => {
-      // 詳細設定 (detailFields) change: select / checkbox / switch / date / time / number
       if (e.target.classList.contains("rf-detail-input")) {
         this._queueSave(e.target.dataset.pid, e.target.dataset.step);
         return;
       }
-
-      // rf-toggle: ON/OFF (globalChannel では物件別 enabled オーバーライドとして保存)
       if (e.target.classList.contains("rf-toggle")) {
         const stepKey = e.target.dataset.step;
         const pid = e.target.dataset.pid;
@@ -1171,146 +1091,82 @@ const CleaningFlowPage = {
           card.classList.toggle("rf-card-enabled", e.target.checked);
           card.classList.toggle("rf-card-disabled", !e.target.checked);
         }
-        const step = this.STEPS.find(s => s.key === stepKey);
-        if (step && step.globalChannel) {
-          // rf-ov-check[enabled] を自動的に ON にする
-          const ovCheck = wrap.querySelector(`.rf-ov-check[data-notif-key="${step.globalChannel}"][data-pid="${pid}"][data-field="enabled"]`);
-          const ovVal = wrap.querySelector(`.rf-ov-val[data-notif-key="${step.globalChannel}"][data-pid="${pid}"][data-field="enabled"]`);
-          if (ovCheck && !ovCheck.checked) {
-            ovCheck.checked = true;
-            const w = document.getElementById(`cf-ovwrap-${step.globalChannel}-${pid}-enabled`);
-            if (w) { w.classList.remove("opacity-50", "pe-none"); }
-          }
-          if (ovVal) ovVal.checked = e.target.checked;
-          this._queueSaveOverride(step.globalChannel, pid);
-        } else {
-          this._queueSave(pid, stepKey);
-        }
-        return;
-      }
-
-      // 物件別オーバーライド チェックボックス (上書きするか)
-      if (e.target.classList.contains("rf-ov-check")) {
-        const notifKey = e.target.dataset.notifKey;
-        const pid = e.target.dataset.pid;
-        const field = e.target.dataset.field;
-        const w = document.getElementById(`cf-ovwrap-${notifKey}-${pid}-${field}`);
-        if (w) {
-          if (field === "customMessage" || field === "timings") {
-            w.classList.toggle("d-none", !e.target.checked);
-          } else {
-            w.classList.toggle("opacity-50", !e.target.checked);
-            w.classList.toggle("pe-none", !e.target.checked);
-          }
-        }
-        this._queueSaveOverride(notifKey, pid);
-        return;
-      }
-
-      // 物件別オーバーライド 値トグル
-      if (e.target.classList.contains("rf-ov-val")) {
-        const notifKey = e.target.dataset.notifKey;
-        const pid = e.target.dataset.pid;
-        this._queueSaveOverride(notifKey, pid);
-        return;
-      }
-
-      // タイミング行: モード切替
-      const rawKey = e.target.dataset.notifKey;
-      const idx = e.target.dataset.idx;
-      if (rawKey && idx !== undefined) {
-        const row = wrap.querySelector(`.notify-timing-row[data-notif-key="${rawKey}"][data-idx="${idx}"]`);
-        if (row) {
-          if (e.target.classList.contains("rf-mode-radio")) {
-            const mode = e.target.value;
-            row.querySelector(".rf-mode-event")?.classList.toggle("d-flex", mode === "event");
-            row.querySelector(".rf-mode-event")?.classList.toggle("d-none", mode !== "event");
-            row.querySelector(".rf-mode-date")?.classList.toggle("d-flex", mode === "date");
-            row.querySelector(".rf-mode-date")?.classList.toggle("d-none", mode !== "date");
-          }
-          if (e.target.classList.contains("rf-timing-select")) {
-            const val = e.target.value;
-            row.querySelector(".rf-timing-minutes")?.classList.toggle("d-none", val !== "custom");
-            row.querySelector(".rf-before-days")?.classList.toggle("d-none", val !== "beforeEvent");
-            row.querySelector(".rf-before-suffix")?.classList.toggle("d-none", val !== "beforeEvent");
-            row.querySelector(".rf-before-time")?.classList.toggle("d-none", val !== "beforeEvent");
-          }
-          if (e.target.classList.contains("rf-schedule-pattern")) {
-            const val = e.target.value;
-            row.querySelector(".rf-schedule-day")?.classList.toggle("d-none", val !== "monthlyDay");
-            row.querySelector(".rf-schedule-dow")?.classList.toggle("d-none", val !== "weekly");
-          }
-        }
-        if (rawKey.includes("--ov--")) {
-          const [baseKey, , pid] = rawKey.split("--ov--");
-          this._queueSaveOverride(baseKey, pid);
-        } else {
-          this._queueSaveNotif(rawKey);
-        }
-      }
-
-      // 送信先チェックボックス (全共通)
-      if (e.target.classList.contains("rf-notif-field")) {
-        this._queueSaveNotif(e.target.dataset.notifKey);
+        this._queueSave(pid, stepKey);
       }
     });
 
-    // 物件別オーバーライド 全解除ボタン
-    wrap.addEventListener("click", (e) => {
-      const clearBtn = e.target.closest(".rf-ov-clear");
-      if (clearBtn) {
-        const notifKey = clearBtn.dataset.notifKey;
-        const pid = clearBtn.dataset.pid;
-        wrap.querySelectorAll(`.rf-ov-check[data-notif-key="${notifKey}"][data-pid="${pid}"]`).forEach(cb => {
-          if (cb.checked) {
-            cb.checked = false;
-            const field = cb.dataset.field;
-            const w = document.getElementById(`cf-ovwrap-${notifKey}-${pid}-${field}`);
-            if (w) {
-              if (field === "customMessage" || field === "timings") {
-                w.classList.add("d-none");
-              } else {
-                w.classList.add("opacity-50", "pe-none");
-              }
-            }
-          }
-        });
-        this._queueSaveOverride(notifKey, pid);
-      }
-    });
-
-    // input イベント: textarea/input
     wrap.addEventListener("input", (e) => {
-      if (e.target.classList.contains("rf-notif-msg")) {
-        this._updatePreview(e.target.dataset.notifKey, wrap);
-        this._queueSaveNotif(e.target.dataset.notifKey);
-      }
       if (e.target.classList.contains("rf-memo")) {
         this._queueSave(e.target.dataset.pid, e.target.dataset.step);
       }
-      // 詳細設定 (detailFields) 入力変更
       if (e.target.classList.contains("rf-detail-input")) {
         this._queueSave(e.target.dataset.pid, e.target.dataset.step);
       }
-      // 物件別メッセージ上書きtextarea
-      if (e.target.classList.contains("rf-ov-msg-ta")) {
-        this._queueSaveOverride(e.target.dataset.notifKey, e.target.dataset.pid);
-      }
-      // タイミング数値入力
-      if (e.target.dataset.notifKey && e.target.dataset.idx !== undefined) {
-        const rawKey = e.target.dataset.notifKey;
-        if (rawKey.includes("--ov--")) {
-          const [baseKey, , pid] = rawKey.split("--ov--");
-          this._queueSaveOverride(baseKey, pid);
-        } else {
-          this._queueSaveNotif(rawKey);
-        }
-      }
     });
+
+    // 共有通知エディタのイベント (各カードブロック単位でバインド: __notifyEditorBound で再バインド抑止)
+    const NCE = window.NotifyChannelEditor;
+    if (NCE) {
+      wrap.querySelectorAll(".cf-shared-notify").forEach(block => {
+        const idPrefix = block.dataset.idPrefix;
+        const pid = block.dataset.pid;
+        const notifKey = block.dataset.notifKey;
+        NCE.bindCardEvents(block, {
+          idPrefix,
+          onChange: () => this._queueSaveOverride(notifKey, pid),
+          onTestSend: (key, channelData, varGroup, btn) => this._sendTestNotification(key, channelData, varGroup, btn),
+        });
+      });
+    }
   },
 
-  // プレビュー更新
-  _updatePreview(notifKey, wrap) {
+  // ========== テスト送信 (通知設定タブと同等) ==========
+  async _sendTestNotification(key, channelData, varGroup, btn) {
+    const TEST_API_URL = "https://api-5qrfx7ujcq-an.a.run.app/notifications/test";
+    const NCE = window.NotifyChannelEditor;
+    const sampleVars = {};
+    (NCE?.SYSTEM_VARIABLES?.[varGroup] || []).forEach(v => { sampleVars[v.name] = v.sample; });
+    const targets = {
+      ownerLine:       !!channelData.ownerLine,
+      groupLine:       !!channelData.groupLine,
+      staffLine:       !!channelData.staffLine,
+      staffEmail:      !!channelData.staffEmail,
+      ownerEmail:      !!channelData.ownerEmail,
+      subOwnerLine:    !!channelData.subOwnerLine,
+      subOwnerEmail:   !!channelData.subOwnerEmail,
+      discordOwner:    !!channelData.discordOwner,
+      discordSubOwner: !!channelData.discordSubOwner,
+      fcmStaff:        !!channelData.fcmStaff,
+      fcmOwner:        !!channelData.fcmOwner,
+    };
+    if (!Object.values(targets).some(v => v)) {
+      if (typeof showAlert === "function") showAlert("送信先を1つ以上チェックしてください", "warning");
+      return;
+    }
+    const message = channelData.customMessage || "";
+    if (btn) { btn.disabled = true; var origHtml = btn.innerHTML; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 送信中...'; }
+    try {
+      const token = await firebase.auth().currentUser.getIdToken();
+      const res = await fetch(TEST_API_URL, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ type: key, message: `【テスト】${message}`, targets, vars: sampleVars }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (typeof showAlert === "function") showAlert("テスト送信を実行しました", "success");
+      } else {
+        if (typeof showAlert === "function") showAlert("送信失敗: " + (data.error || res.status), "danger");
+      }
+    } catch (e) {
+      if (typeof showAlert === "function") showAlert("送信失敗: " + e.message, "danger");
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = origHtml; }
+    }
+  },
+
+  // _legacy_updatePreview_unused_ (共有コンポーネントが内部処理)
+  _legacy_updatePreview_unused_(notifKey, wrap) {
     const ta = wrap.querySelector(`textarea.rf-notif-msg[data-notif-key="${notifKey}"]`);
     const el = wrap.querySelector(`[data-preview="${notifKey}"]`);
     if (!ta || !el) return;
@@ -1332,12 +1188,12 @@ const CleaningFlowPage = {
     this._saveTimers[timerKey] = setTimeout(() => this._saveProperty(pid), 800);
   },
 
-  _queueSaveNotif(notifKey) {
+  _legacy_queueSaveNotif_unused_(notifKey) {
     if (!this._saveTimers) this._saveTimers = {};
     const timerKey = `notif-${notifKey}`;
     if (this._saveTimers[timerKey]) clearTimeout(this._saveTimers[timerKey]);
     this._showStatus("saving");
-    this._saveTimers[timerKey] = setTimeout(() => this._saveNotifChannel(notifKey), 800);
+    this._saveTimers[timerKey] = setTimeout(() => this._legacy_saveNotifChannel_unused_(notifKey), 800);
   },
 
   _queueSaveOverride(notifKey, pid) {
@@ -1349,141 +1205,30 @@ const CleaningFlowPage = {
   },
 
   // ========== 保存: 物件別オーバーライド (properties/{pid}.channelOverrides.{notifKey}) ==========
+  // 共有 NotifyChannelEditor.readChannelValue 経由で一括取得 (idPrefix=`prop_${pid}_${notifKey}`)
   async _saveOverride(notifKey, pid) {
     const wrap = document.getElementById("cfSwimLane");
     if (!wrap) return;
-
-    const overrideEntry = {};
-
-    // ---- ブール型フィールド ----
-    for (const field of ["enabled", "ownerLine", "groupLine", "staffLine", "ownerEmail"]) {
-      const checkEl = wrap.querySelector(`.rf-ov-check[data-notif-key="${notifKey}"][data-pid="${pid}"][data-field="${field}"]`);
-      const valEl   = wrap.querySelector(`.rf-ov-val[data-notif-key="${notifKey}"][data-pid="${pid}"][data-field="${field}"]`);
-      if (checkEl && checkEl.checked && valEl) {
-        overrideEntry[field] = !!valEl.checked;
-      }
-    }
-
-    // ---- customMessage オーバーライド ----
-    const msgCheck = wrap.querySelector(`.rf-ov-check[data-notif-key="${notifKey}"][data-pid="${pid}"][data-field="customMessage"]`);
-    const msgTa    = wrap.querySelector(`.rf-ov-msg-ta[data-notif-key="${notifKey}"][data-pid="${pid}"]`);
-    if (msgCheck && msgCheck.checked && msgTa) {
-      overrideEntry.customMessage = msgTa.value;
-    }
-
-    // ---- timings オーバーライド ----
-    const tmCheck = wrap.querySelector(`.rf-ov-check[data-notif-key="${notifKey}"][data-pid="${pid}"][data-field="timings"]`);
-    if (tmCheck && tmCheck.checked) {
-      const tmContainer = wrap.querySelector(`.rf-ov-timings[data-notif-key="${notifKey}"][data-pid="${pid}"]`);
-      const timings = [];
-      if (tmContainer) {
-        tmContainer.querySelectorAll(".notify-timing-row").forEach((row) => {
-          const modeChecked = row.querySelector("input.rf-mode-radio:checked");
-          const mode = modeChecked ? modeChecked.value : "event";
-          const q = (sel) => row.querySelector(sel);
-          const t = { mode };
-          if (mode === "event") {
-            const timing = q(`select[data-field="timing"]`)?.value || "immediate";
-            t.timing = timing;
-            if (timing === "custom") {
-              t.timingMinutes = parseInt(q(`input[data-field="timingMinutes"]`)?.value, 10) || 0;
-            } else if (timing === "beforeEvent") {
-              t.beforeDays = parseInt(q(`input[data-field="beforeDays"]`)?.value, 10) || 0;
-              t.beforeTime = q(`input[data-field="beforeTime"]`)?.value || "09:00";
-            }
-          } else {
-            t.schedulePattern = q(`select[data-field="schedulePattern"]`)?.value || "monthEnd";
-            t.scheduleTime = q(`input[data-field="scheduleTime"]`)?.value || "09:00";
-            if (t.schedulePattern === "monthlyDay") {
-              t.scheduleDay = parseInt(q(`input[data-field="scheduleDay"]`)?.value, 10) || 1;
-            } else if (t.schedulePattern === "weekly") {
-              t.scheduleDow = parseInt(q(`select[data-field="scheduleDow"]`)?.value, 10) || 0;
-            }
-          }
-          timings.push(t);
-        });
-      }
-      overrideEntry.timings = timings;
-    }
-
+    const NCE = window.NotifyChannelEditor;
+    if (!NCE) return;
+    const idPrefix = `prop_${pid}_${notifKey}`;
+    const block = wrap.querySelector(`.cf-shared-notify[data-pid="${pid}"][data-notif-key="${notifKey}"]`);
+    if (!block) return;
+    const overrideEntry = NCE.readChannelValue(block, notifKey, { idPrefix });
     try {
-      const hasAny = Object.keys(overrideEntry).length > 0;
-      const updateData = hasAny
-        ? { [`channelOverrides.${notifKey}`]: overrideEntry }
-        : { [`channelOverrides.${notifKey}`]: firebase.firestore.FieldValue.delete() };
-
       await db.collection("properties").doc(pid).update({
-        ...updateData,
+        [`channelOverrides.${notifKey}`]: overrideEntry,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
-
-      // ローカルキャッシュ更新
       const prop = this.properties.find(p => p.id === pid);
       if (prop) {
         if (!prop.channelOverrides) prop.channelOverrides = {};
-        if (hasAny) {
-          prop.channelOverrides[notifKey] = overrideEntry;
-        } else {
-          delete prop.channelOverrides[notifKey];
-        }
+        prop.channelOverrides[notifKey] = overrideEntry;
       }
-
-      // バッジ更新
-      const badge = wrap.querySelector(`.rf-override-badge[data-step="${this.STEPS.find(s => s.globalChannel === notifKey)?.key}"][data-pid="${pid}"]`);
-      if (badge) {
-        if (hasAny) {
-          badge.className = "badge bg-danger-subtle text-danger border border-danger-subtle ms-1 rf-sync-badge rf-override-badge";
-          badge.innerHTML = `<i class="bi bi-shuffle"></i> 物件別`;
-          badge.title = "この物件は個別設定で上書き中";
-        } else {
-          badge.className = "badge bg-warning-subtle text-warning border border-warning-subtle ms-1 rf-sync-badge rf-override-badge";
-          badge.innerHTML = `<i class="bi bi-globe"></i> 全共通`;
-          badge.title = `settings/notifications.channels.${notifKey} (全物件共通・予約フロー画面と同期)`;
-        }
-      }
-
-      // 全解除ボタンの表示/非表示
-      const clearBtn = wrap.querySelector(`.rf-ov-clear[data-notif-key="${notifKey}"][data-pid="${pid}"]`);
-      if (clearBtn) {
-        clearBtn.style.display = hasAny ? "" : "none";
-      }
-
       this._showStatus("saved");
     } catch (e) {
       this._showStatus("error", e.message);
       console.error("[cf saveOverride] エラー:", e);
-    }
-  },
-
-  // ========== 物件別設定を全共通へ反映 ==========
-  async _pushOverrideToGlobal(notifKey, pid, wrap) {
-    const prop = this.properties.find(p => p.id === pid);
-    const ov = (prop?.channelOverrides || {})[notifKey] || {};
-    if (!Object.keys(ov).length) {
-      showAlert("物件別設定がありません。", "info");
-      return;
-    }
-    const confirmed = await showConfirm(
-      `この物件の「${notifKey}」設定を全共通へ反映しますか？\n全物件に影響します。`,
-      "全共通に反映"
-    );
-    if (!confirmed) return;
-    try {
-      const globalEntry = {};
-      if (ov.customMessage !== undefined) globalEntry.customMessage = ov.customMessage;
-      if (Array.isArray(ov.timings))       globalEntry.timings = ov.timings;
-      if (!Object.keys(globalEntry).length) {
-        showAlert("反映できる値（customMessage / timings）がありません。", "warning");
-        return;
-      }
-      await db.collection("settings").doc("notifications").set({
-        channels: { [notifKey]: globalEntry },
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      }, { merge: true });
-      this.notifChannels[notifKey] = { ...(this.notifChannels[notifKey] || {}), ...globalEntry };
-      showAlert("全共通に反映しました。", "success");
-    } catch (e) {
-      showAlert("反映失敗: " + e.message, "danger");
     }
   },
 
@@ -1668,7 +1413,7 @@ const CleaningFlowPage = {
   },
 
   // ========== 保存: globalChannel (settings/notifications.channels.{key}) ==========
-  async _saveNotifChannel(notifKey) {
+  async _legacy_saveNotifChannel_unused_(notifKey) {
     const wrap = document.getElementById("cfSwimLane");
     if (!wrap) return;
 

@@ -628,21 +628,19 @@ const ReservationFlowPage = {
     `;
   },
 
-  // 有効状態を返す (propertyField > 物件別オーバーライド enabled > globalChannel > reservationFlow)
+  // 有効状態を返す (propertyField > 物件別 channelOverrides.enabled > 通知定義 defaultEnabled)
   _isEnabled(property, step) {
     if (step.propertyField) {
-      // ドット記法対応 (例: "inspection.enabled")
       const parts = step.propertyField.split(".");
       let v = property;
       for (const p of parts) { v = v?.[p]; }
       return typeof v === "boolean" ? v : true;
     }
     if (step.globalChannel) {
-      // 物件別オーバーライドに enabled があればそちらを優先
       const ov = property.channelOverrides?.[step.globalChannel];
-      if (ov && ov.enabled !== undefined) return ov.enabled;
-      const c = this.notifChannels[step.globalChannel];
-      return c ? c.enabled !== false : true;
+      if (ov && ov.enabled !== undefined) return ov.enabled !== false;
+      const n = window.NotifyChannelEditor?.findNotification(step.globalChannel);
+      return n ? n.defaultEnabled !== false : true;
     }
     const flow = property.reservationFlow || {};
     return flow[step.key]?.enabled !== false;
@@ -957,28 +955,12 @@ const ReservationFlowPage = {
 
   // カード1枚のHTML
   _renderCard(step, property, enabled, memo) {
-    const ch = this.notifChannels[step.globalChannel] || {};
-    const nd = this._notifDefaults[step.globalChannel] || {};
-
-    // 物件別オーバーライドを取得
-    const propOverrides = (property.channelOverrides && step.globalChannel)
-      ? (property.channelOverrides[step.globalChannel] || {})
-      : {};
-    const hasOverride = step.globalChannel && Object.keys(propOverrides).some(k => propOverrides[k] !== undefined);
-
-    // バッジ類
     const statusBadge = step.status === "未実装"
       ? `<span class="badge bg-warning text-dark ms-1" style="font-size:10px;"><i class="bi bi-hammer"></i> 未実装</span>`
       : "";
     let syncBadge = "";
     if (step.propertyField) {
       syncBadge = `<span class="badge bg-success-subtle text-success border border-success-subtle ms-1 rf-sync-badge" style="font-size:9px;" title="properties.${step.propertyField} に保存 (物件ごと・他タブと同期)"><i class="bi bi-arrow-left-right"></i> 同期</span>`;
-    } else if (step.globalChannel) {
-      if (hasOverride) {
-        syncBadge = `<span class="badge bg-danger-subtle text-danger border border-danger-subtle ms-1 rf-sync-badge rf-override-badge" data-step="${step.key}" data-pid="${property.id}" style="font-size:9px;" title="この物件は個別設定で上書き中"><i class="bi bi-shuffle"></i> 物件別</span>`;
-      } else {
-        syncBadge = `<span class="badge bg-warning-subtle text-warning border border-warning-subtle ms-1 rf-sync-badge rf-override-badge" data-step="${step.key}" data-pid="${property.id}" style="font-size:9px;" title="settings/notifications.channels.${step.globalChannel} (全物件共通・通知設定タブと同期)"><i class="bi bi-globe"></i> 全共通</span>`;
-      }
     }
     const arrowBadge = step.arrowTo
       ? `<span class="badge bg-light text-dark border ms-1" style="font-size:9px;"><i class="bi bi-arrow-right"></i> ${step.arrowTo === "guest" ? "👤" : step.arrowTo === "owner" ? "🏠" : "🧹"}</span>`
@@ -987,20 +969,18 @@ const ReservationFlowPage = {
     // フォールドID
     const foldId = `rfc-${step.key}-${property.id}`;
 
-    // 有効/無効トグル
-    // globalChannel の場合: 物件別 enabled オーバーライドがあればそちら、なければ global
-    let toggleChecked = enabled ? "checked" : "";
-    if (step.globalChannel && propOverrides.enabled !== undefined) {
-      toggleChecked = propOverrides.enabled ? "checked" : "";
-    }
+    const notifEditorHtml = step.globalChannel
+      ? this._renderSharedNotifyCard(step, property)
+      : "";
+    const showHeaderToggle = !step.globalChannel;
+    const toggleChecked = enabled ? "checked" : "";
     const toggleId = `rf-tog-${step.key}-${property.id}`;
-
-    // 展開時: 通知編集UI (globalChannel があれば)
-    const notifEditorHtml = step.globalChannel ? this._renderNotifEditor(step, ch, nd) : "";
-
-    // 物件別オーバーライドパネル
-    const overridePanelHtml = step.globalChannel
-      ? this._renderOverridePanel(step, property, ch, propOverrides)
+    const headerToggleHtml = showHeaderToggle
+      ? `<div class="form-check form-switch mb-0">
+          <input class="form-check-input rf-toggle" type="checkbox" id="${toggleId}"
+            data-step="${step.key}" data-pid="${property.id}" ${toggleChecked}
+            title="${step.propertyField ? "この物件のON/OFF" : "このフローのON/OFF"}">
+        </div>`
       : "";
 
     // ゲスト画面リンク
@@ -1035,11 +1015,7 @@ const ReservationFlowPage = {
           <span class="rf-card-title" title="${this._esc(step.label)}">${this._esc(step.label)}</span>
           ${statusBadge}${syncBadge}${arrowBadge}
           <div class="ms-auto d-flex align-items-center gap-1">
-            <div class="form-check form-switch mb-0">
-              <input class="form-check-input rf-toggle" type="checkbox" id="${toggleId}"
-                data-step="${step.key}" data-pid="${property.id}" ${toggleChecked}
-                title="${step.globalChannel ? "この物件の通知 ON/OFF (物件別設定)" : step.propertyField ? "この物件のON/OFF" : "このフローのON/OFF"}">
-            </div>
+            ${headerToggleHtml}
             <i class="bi bi-chevron-down rf-chevron" data-fold="${foldId}" style="font-size:0.75rem;transition:transform 0.2s;"></i>
           </div>
         </div>
@@ -1048,7 +1024,6 @@ const ReservationFlowPage = {
           ${hintHtml}
           ${this._renderDetailFields(step, property)}
           ${notifEditorHtml}
-          ${overridePanelHtml}
           ${icalPanelHtml}
           <!-- リンクボタン -->
           ${(guestBtn || linkBtn) ? `<div class="mt-2 d-flex flex-wrap gap-1">${guestBtn}${linkBtn}</div>` : ""}
@@ -1065,8 +1040,23 @@ const ReservationFlowPage = {
     `;
   },
 
-  // 物件別オーバーライドパネルのHTML
-  _renderOverridePanel(step, property, globalCh, ov) {
+  // 物件別通知カード (共有コンポーネント経由)
+  _renderSharedNotifyCard(step, property) {
+    const NCE = window.NotifyChannelEditor;
+    if (!NCE) return "";
+    const n = NCE.findNotification(step.globalChannel);
+    if (!n) {
+      return `<div class="mt-2 small text-muted"><i class="bi bi-info-circle"></i> この通知 (${this._esc(step.globalChannel)}) は通知設定タブで未定義です。</div>`;
+    }
+    const channelData = (property.channelOverrides || {})[step.globalChannel] || {};
+    const idPrefix = `prop_${property.id}_${step.globalChannel}`;
+    return `<div class="rf-shared-notify mt-2" data-pid="${property.id}" data-notif-key="${step.globalChannel}" data-id-prefix="${idPrefix}">
+      ${NCE.renderNotificationCard(n, channelData, { idPrefix, collapsed: false })}
+    </div>`;
+  },
+
+  // _legacy_renderOverridePanel_unused_ (共有コンポーネント移行で削除)
+  _legacy_renderOverridePanel_unused_(step, property, globalCh, ov) {
     const key = step.globalChannel;
     const pid = property.id;
     const panelId = `rf-ovpanel-${key}-${pid}`;
@@ -1188,8 +1178,8 @@ const ReservationFlowPage = {
     `;
   },
 
-  // 通知編集UI (notifications.js と同等の構造を直接実装)
-  _renderNotifEditor(step, ch, nd) {
+  // _legacy_renderNotifEditor_unused_ (共有コンポーネント移行で削除)
+  _legacy_renderNotifEditor_unused_(step, ch, nd) {
     const varGroup = step.varGroup || nd.varGroup || "booking";
     const vars = this.systemVariables[varGroup] || [];
     const customMessage = ch.customMessage || "";
@@ -1290,8 +1280,8 @@ const ReservationFlowPage = {
     `;
   },
 
-  // タイミング行 (notifications.js の renderTimingRow と同構造)
-  _renderTimingRow(key, t, idx) {
+  // _legacy_renderTimingRow_unused_ (共有コンポーネント移行で未使用)
+  _legacy_renderTimingRow_unused_(key, t, idx) {
     const mode = t.mode || "event";
     const timing = t.timing || "immediate";
     const showEventBlock = mode === "event";
@@ -1336,10 +1326,10 @@ const ReservationFlowPage = {
 
   // ========== イベント登録 ==========
   _attachEvents(wrap, property) {
-    // カード折りたたみトグル
+    // カード折りたたみ + 詳細 + memo + rf-toggle のみ。通知カードは共有コンポーネントで処理。
     wrap.addEventListener("click", (e) => {
       const header = e.target.closest(".rf-card-header[data-fold]");
-      if (header && !e.target.closest("input") && !e.target.closest("button") && !e.target.closest("a")) {
+      if (header && !e.target.closest("input") && !e.target.closest("button") && !e.target.closest("a") && !e.target.closest("[data-notify-toggle]")) {
         const foldId = header.dataset.fold;
         const body = document.getElementById(foldId);
         const chev = header.querySelector(".rf-chevron");
@@ -1347,7 +1337,6 @@ const ReservationFlowPage = {
           const isOpen = body.style.display !== "none";
           body.style.display = isOpen ? "none" : "";
           if (chev) chev.style.transform = isOpen ? "" : "rotate(180deg)";
-          // 展開時: iCal パネルを遅延レンダリング
           if (!isOpen) {
             const icalEl = body.querySelector(".rf-ical-container");
             if (icalEl && window.propertyIcalPanel && !icalEl.dataset.rendered) {
@@ -1357,8 +1346,99 @@ const ReservationFlowPage = {
           }
         }
       }
+    });
 
-      // グローバルタイミング追加
+    wrap.addEventListener("change", (e) => {
+      if (e.target.classList.contains("rf-detail-input")) {
+        this._queueSave(e.target.dataset.pid, e.target.dataset.step);
+        return;
+      }
+      if (e.target.classList.contains("rf-toggle")) {
+        const stepKey = e.target.dataset.step;
+        const pid = e.target.dataset.pid;
+        const card = wrap.querySelector(`.rf-card[data-step="${stepKey}"][data-pid="${pid}"]`);
+        if (card) {
+          card.classList.toggle("rf-card-enabled", e.target.checked);
+          card.classList.toggle("rf-card-disabled", !e.target.checked);
+        }
+        this._queueSave(pid, stepKey);
+      }
+    });
+
+    wrap.addEventListener("input", (e) => {
+      if (e.target.classList.contains("rf-memo")) {
+        this._queueSave(e.target.dataset.pid, e.target.dataset.step);
+      }
+      if (e.target.classList.contains("rf-detail-input")) {
+        this._queueSave(e.target.dataset.pid, e.target.dataset.step);
+      }
+    });
+
+    // 共有通知エディタのイベント
+    const NCE = window.NotifyChannelEditor;
+    if (NCE) {
+      wrap.querySelectorAll(".rf-shared-notify").forEach(block => {
+        const idPrefix = block.dataset.idPrefix;
+        const pid = block.dataset.pid;
+        const notifKey = block.dataset.notifKey;
+        NCE.bindCardEvents(block, {
+          idPrefix,
+          onChange: () => this._queueSaveOverride(notifKey, pid),
+          onTestSend: (key, channelData, varGroup, btn) => this._sendTestNotification(key, channelData, varGroup, btn),
+        });
+      });
+    }
+  },
+
+  // ========== テスト送信 (通知設定タブと同等) ==========
+  async _sendTestNotification(key, channelData, varGroup, btn) {
+    const TEST_API_URL = "https://api-5qrfx7ujcq-an.a.run.app/notifications/test";
+    const NCE = window.NotifyChannelEditor;
+    const sampleVars = {};
+    (NCE?.SYSTEM_VARIABLES?.[varGroup] || []).forEach(v => { sampleVars[v.name] = v.sample; });
+    const targets = {
+      ownerLine:       !!channelData.ownerLine,
+      groupLine:       !!channelData.groupLine,
+      staffLine:       !!channelData.staffLine,
+      staffEmail:      !!channelData.staffEmail,
+      ownerEmail:      !!channelData.ownerEmail,
+      subOwnerLine:    !!channelData.subOwnerLine,
+      subOwnerEmail:   !!channelData.subOwnerEmail,
+      discordOwner:    !!channelData.discordOwner,
+      discordSubOwner: !!channelData.discordSubOwner,
+      fcmStaff:        !!channelData.fcmStaff,
+      fcmOwner:        !!channelData.fcmOwner,
+    };
+    if (!Object.values(targets).some(v => v)) {
+      if (typeof showAlert === "function") showAlert("送信先を1つ以上チェックしてください", "warning");
+      return;
+    }
+    const message = channelData.customMessage || "";
+    let origHtml;
+    if (btn) { btn.disabled = true; origHtml = btn.innerHTML; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 送信中...'; }
+    try {
+      const token = await firebase.auth().currentUser.getIdToken();
+      const res = await fetch(TEST_API_URL, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ type: key, message: `【テスト】${message}`, targets, vars: sampleVars }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (typeof showAlert === "function") showAlert("テスト送信を実行しました", "success");
+      } else {
+        if (typeof showAlert === "function") showAlert("送信失敗: " + (data.error || res.status), "danger");
+      }
+    } catch (e) {
+      if (typeof showAlert === "function") showAlert("送信失敗: " + e.message, "danger");
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = origHtml; }
+    }
+  },
+
+  // _legacy_attachEvents_extra_unused_ (旧通知系イベント; 共有コンポーネント移行で削除)
+  _legacy_attachEvents_extra_unused_(wrap) {
+    wrap.addEventListener("click", (e) => {
       const addBtn = e.target.closest(".rf-add-timing");
       if (addBtn) {
         const notifKey = addBtn.dataset.notifKey;
@@ -1590,8 +1670,8 @@ const ReservationFlowPage = {
     });
   },
 
-  // プレビュー更新
-  _updatePreview(notifKey, wrap) {
+  // _legacy_updatePreview_unused_ (共有コンポーネントが内部処理)
+  _legacy_updatePreview_unused_(notifKey, wrap) {
     const ta = wrap.querySelector(`textarea.rf-notif-msg[data-notif-key="${notifKey}"]`);
     const el = wrap.querySelector(`[data-preview="${notifKey}"]`);
     if (!ta || !el) return;
@@ -1613,12 +1693,12 @@ const ReservationFlowPage = {
     this._saveTimers[timerKey] = setTimeout(() => this._saveProperty(pid), 800);
   },
 
-  _queueSaveNotif(notifKey) {
+  _legacy_queueSaveNotif_unused_(notifKey) {
     if (!this._saveTimers) this._saveTimers = {};
     const timerKey = `notif-${notifKey}`;
     if (this._saveTimers[timerKey]) clearTimeout(this._saveTimers[timerKey]);
     this._showStatus("saving");
-    this._saveTimers[timerKey] = setTimeout(() => this._saveNotifChannel(notifKey), 800);
+    this._saveTimers[timerKey] = setTimeout(() => this._legacy_saveNotifChannel_unused_(notifKey), 800);
   },
 
   _queueSaveOverride(notifKey, pid) {
@@ -1630,7 +1710,7 @@ const ReservationFlowPage = {
   },
 
   // ========== 物件別設定を全共通へ反映 ==========
-  async _pushOverrideToGlobal(notifKey, pid, wrap) {
+  async _legacy_pushOverrideToGlobal_unused_(notifKey, pid, wrap) {
     const prop = this.properties.find(p => p.id === pid);
     const ov = (prop?.channelOverrides || {})[notifKey] || {};
     if (!Object.keys(ov).length) {
@@ -1853,6 +1933,33 @@ const ReservationFlowPage = {
   async _saveOverride(notifKey, pid) {
     const wrap = document.getElementById("rfSwimLane");
     if (!wrap) return;
+    const NCE = window.NotifyChannelEditor;
+    if (!NCE) return;
+    const idPrefix = `prop_${pid}_${notifKey}`;
+    const block = wrap.querySelector(`.rf-shared-notify[data-pid="${pid}"][data-notif-key="${notifKey}"]`);
+    if (!block) return;
+    const overrideEntry = NCE.readChannelValue(block, notifKey, { idPrefix });
+    try {
+      await db.collection("properties").doc(pid).update({
+        [`channelOverrides.${notifKey}`]: overrideEntry,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      const prop = this.properties.find(p => p.id === pid);
+      if (prop) {
+        if (!prop.channelOverrides) prop.channelOverrides = {};
+        prop.channelOverrides[notifKey] = overrideEntry;
+      }
+      this._showStatus("saved");
+    } catch (e) {
+      this._showStatus("error", e.message);
+      console.error("[rf saveOverride] エラー:", e);
+    }
+  },
+
+  // _legacy_saveOverride_unused_ (旧 rf-ov-* 直接読取り版)
+  async _legacy_saveOverride_unused_(notifKey, pid) {
+    const wrap = document.getElementById("rfSwimLane");
+    if (!wrap) return;
 
     const overrideEntry = {};
 
@@ -1974,7 +2081,7 @@ const ReservationFlowPage = {
   },
 
   // ========== 保存: globalChannel (settings/notifications.channels.{key}) ==========
-  async _saveNotifChannel(notifKey) {
+  async _legacy_saveNotifChannel_unused_(notifKey) {
     const wrap = document.getElementById("rfSwimLane");
     if (!wrap) return;
 
