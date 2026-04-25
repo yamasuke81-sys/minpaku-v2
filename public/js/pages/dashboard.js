@@ -1066,16 +1066,35 @@ const DashboardPage = {
 
     // nextBookingBlock は募集詳細モーダルに移植したため予約詳細モーダルでは表示しない
 
-    // 物件名バッジ: b.propertyName → 未設定なら propertyMap 系から逆引き、それも無ければ空
-    const propNameForTitle =
-      b.propertyName ||
-      (ctx.properties && ctx.properties.find && (ctx.properties.find(p => p.id === b.propertyId) || {}).name) ||
-      ((this.properties || []).find(p => p.id === b.propertyId) || {}).name ||
-      "";
+    // 物件オブジェクト取得 (ctx.properties 優先, 次に this.properties)
+    const prop =
+      ((ctx.properties && ctx.properties.find && ctx.properties.find(p => p.id === b.propertyId)) || null) ||
+      ((this.properties || []).find(p => p.id === b.propertyId)) ||
+      {};
+    // 物件名バッジ: b.propertyName → 未設定なら prop.name → 空
+    const propNameForTitle = b.propertyName || prop.name || "";
+    // 番号バッジ (prop.propertyNumber + prop.color)
+    const propNumberBadge = (prop.propertyNumber !== undefined && prop.propertyNumber !== null && prop.propertyNumber !== "")
+      ? `<span style="display:inline-block;background:${this.esc(prop.color || "#6c757d")};color:#fff;padding:2px 8px;border-radius:4px;margin-right:4px;font-weight:600;font-size:0.85em;">#${this.esc(String(prop.propertyNumber))}</span>`
+      : "";
     const propNameBadge = propNameForTitle
-      ? `<span class="badge bg-light text-dark border ms-2" style="font-weight:500;">${this.esc(propNameForTitle)}</span>`
+      ? `<span class="badge bg-light text-dark border ms-2" style="font-weight:500;">${propNumberBadge}${this.esc(propNameForTitle)}</span>`
       : "";
     document.getElementById("calEventTitle").innerHTML = `<i class="bi bi-calendar-event"></i> 予約詳細 ${propNameBadge} ${sourceBadge}`;
+
+    // 宿泊者名簿 表示/非表示判定 (formFieldConfig.overrides + formSectionConfig)
+    const fieldOverrides = (prop.formFieldConfig && prop.formFieldConfig.overrides) || {};
+    const secCfg = prop.formSectionConfig || {};
+    const isFieldVisible = (fieldId, sectionId) => {
+      if (sectionId && secCfg[sectionId] && secCfg[sectionId].hidden === true) return false;
+      if (fieldId && fieldOverrides[fieldId] && fieldOverrides[fieldId].hidden === true) return false;
+      return true;
+    };
+    const isSectionVisible = (sectionId) => !(secCfg[sectionId] && secCfg[sectionId].hidden === true);
+    // フィールド行ヘルパ: visible なら html を返す, それ以外は ""
+    const fRow = (fieldId, sectionId, html) => isFieldVisible(fieldId, sectionId) ? html : "";
+    // staff & visibility 両方を満たす場合のみ表示
+    const fRowStaff = (fieldId, sectionId, html) => (isStaffView ? "" : fRow(fieldId, sectionId, html));
     document.getElementById("calEventBody").innerHTML = `
       <div class="d-flex gap-2 mb-3">${rosterBadge}</div>
 
@@ -1096,55 +1115,69 @@ const DashboardPage = {
         </td></tr>
       </table>
 
-      <h6 class="mb-2 text-primary">代表者情報</h6>
-      <table class="table table-sm table-borderless mb-2">
-        <tr><th width="110" class="text-muted">国籍</th><td>${v(guestData.nationality || b.nationality)}</td></tr>
-        <tr><th class="text-muted">年齢</th><td>${v(repAge)}</td></tr>
-        ${isStaffView ? "" : `
-          <tr><th class="text-muted">住所</th><td>${v(guestData.address)}</td></tr>
-          <tr><th class="text-muted">電話</th><td>${v(guestData.phone)}</td></tr>
-          <tr><th class="text-muted">電話2</th><td>${v(guestData.phone2)}</td></tr>
-          <tr><th class="text-muted">メール</th><td>${v(guestData.email)}</td></tr>
-          <tr><th class="text-muted">旅券番号</th><td>${v(guestData.passportNumber)}</td></tr>
-          <tr><th class="text-muted">旅の目的</th><td>${v(guestData.purpose)}</td></tr>
-        `}
-      </table>
+      ${(() => {
+        // 代表者情報セクション (国籍/年齢=companions, 他=companions/survey)
+        const rows = [
+          fRow("nationality", "companions", `<tr><th width="110" class="text-muted">国籍</th><td>${v(guestData.nationality || b.nationality)}</td></tr>`),
+          fRow("repAge", "companions", `<tr><th class="text-muted">年齢</th><td>${v(repAge)}</td></tr>`),
+          fRowStaff("g-address", "companions", `<tr><th class="text-muted">住所</th><td>${v(guestData.address)}</td></tr>`),
+          fRowStaff("g-phone", "companions", `<tr><th class="text-muted">電話</th><td>${v(guestData.phone)}</td></tr>`),
+          isStaffView ? "" : `<tr><th class="text-muted">電話2</th><td>${v(guestData.phone2)}</td></tr>`,
+          fRowStaff("g-email", "companions", `<tr><th class="text-muted">メール</th><td>${v(guestData.email)}</td></tr>`),
+          fRowStaff("g-passport", "companions", `<tr><th class="text-muted">旅券番号</th><td>${v(guestData.passportNumber)}</td></tr>`),
+          fRowStaff("purpose", "survey", `<tr><th class="text-muted">旅の目的</th><td>${v(guestData.purpose)}</td></tr>`),
+        ].filter(Boolean).join("");
+        return rows ? `<h6 class="mb-2 text-primary">代表者情報</h6><table class="table table-sm table-borderless mb-2">${rows}</table>` : "";
+      })()}
 
-      <h6 class="mb-2 text-primary">宿泊情報</h6>
-      <table class="table table-sm table-borderless mb-2">
-        <tr><th width="110" class="text-muted">BBQ</th><td>${vb(guestData.bbq)}</td></tr>
-        <tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${v(guestData.bedChoice)}</td></tr>
-      </table>
+      ${(() => {
+        // 宿泊情報セクション (BBQ/ベッド数 = facility)
+        const rows = [
+          fRow("bbq", "facility", `<tr><th width="110" class="text-muted">BBQ</th><td>${vb(guestData.bbq)}</td></tr>`),
+          fRow("bedChoice", "facility", `<tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${v(guestData.bedChoice)}</td></tr>`),
+        ].filter(Boolean).join("");
+        return rows ? `<h6 class="mb-2 text-primary">宿泊情報</h6><table class="table table-sm table-borderless mb-2">${rows}</table>` : "";
+      })()}
 
-      <h6 class="mb-2 text-primary">交通・駐車場</h6>
-      <table class="table table-sm table-borderless mb-2">
-        <tr><th width="110" class="text-muted">交通手段</th><td>${v(guestData.transport)}</td></tr>
-        <tr><th class="text-muted">車台数</th><td>${guestData.carCount ? this.esc(String(guestData.carCount)) + "台" : "-"}</td></tr>
-        <tr><th class="text-muted">車種</th><td>${vehicleTypes}</td></tr>
-        <tr><th class="text-muted">駐車場割当</th><td>${parkingAllocText}</td></tr>
-        <tr><th class="text-muted">有料駐車場</th><td>${v(guestData.paidParking)}</td></tr>
-      </table>
+      ${(() => {
+        // 交通・駐車場セクション (facility)
+        const transportVisible = isFieldVisible("transport", "facility");
+        const rows = [
+          fRow("transport", "facility", `<tr><th width="110" class="text-muted">交通手段</th><td>${v(guestData.transport)}</td></tr>`),
+          fRow("carCount", "facility", `<tr><th class="text-muted">車台数</th><td>${guestData.carCount ? this.esc(String(guestData.carCount)) + "台" : "-"}</td></tr>`),
+          // 車種 / 駐車場割当 は transport が表示の場合のみ
+          transportVisible ? `<tr><th class="text-muted">車種</th><td>${vehicleTypes}</td></tr>` : "",
+          transportVisible ? `<tr><th class="text-muted">駐車場割当</th><td>${parkingAllocText}</td></tr>` : "",
+          fRow("paidParking", "facility", `<tr><th class="text-muted">有料駐車場</th><td>${v(guestData.paidParking)}</td></tr>`),
+        ].filter(Boolean).join("");
+        return rows ? `<h6 class="mb-2 text-primary">交通・駐車場</h6><table class="table table-sm table-borderless mb-2">${rows}</table>` : "";
+      })()}
 
-      ${isStaffView ? "" : `
-        <h6 class="mb-2 text-primary">緊急連絡先</h6>
-        <table class="table table-sm table-borderless mb-2">
-          <tr><th width="110" class="text-muted">氏名</th><td>${v(guestData.emergencyName)}</td></tr>
-          <tr><th class="text-muted">電話番号</th><td>${v(guestData.emergencyPhone)}</td></tr>
-        </table>
+      ${isStaffView ? "" : (() => {
+        // 緊急連絡先セクション (emergency)
+        const rows = [
+          fRow("emergencyName", "emergency", `<tr><th width="110" class="text-muted">氏名</th><td>${v(guestData.emergencyName)}</td></tr>`),
+          fRow("emergencyPhone", "emergency", `<tr><th class="text-muted">電話番号</th><td>${v(guestData.emergencyPhone)}</td></tr>`),
+        ].filter(Boolean).join("");
+        return rows ? `<h6 class="mb-2 text-primary">緊急連絡先</h6><table class="table table-sm table-borderless mb-2">${rows}</table>` : "";
+      })()}
 
-        <h6 class="mb-2 text-primary">前後泊</h6>
-        <table class="table table-sm table-borderless mb-2">
-          <tr><th width="110" class="text-muted">前泊地</th><td>${vl(guestData.previousStay)}</td></tr>
-          <tr><th class="text-muted">後泊地</th><td>${vl(guestData.nextStay)}</td></tr>
-        </table>
-      `}
+      ${isStaffView ? "" : (() => {
+        // 前後泊セクション (survey)
+        const rows = [
+          fRow("previousStay", "survey", `<tr><th width="110" class="text-muted">前泊地</th><td>${vl(guestData.previousStay)}</td></tr>`),
+          fRow("nextStay", "survey", `<tr><th class="text-muted">後泊地</th><td>${vl(guestData.nextStay)}</td></tr>`),
+        ].filter(Boolean).join("");
+        return rows ? `<h6 class="mb-2 text-primary">前後泊</h6><table class="table table-sm table-borderless mb-2">${rows}</table>` : "";
+      })()}
 
-      ${isStaffView ? "" : `
-        <h6 class="mb-2 text-primary">同意状況</h6>
-        <table class="table table-sm table-borderless mb-2">
-          <tr><th width="110" class="text-muted">騒音ルール</th><td>${noiseBadge}</td></tr>
-        </table>
-      `}
+      ${isStaffView ? "" : (() => {
+        // 同意状況セクション (agreement)
+        const rows = [
+          fRow("noiseAgree", "agreement", `<tr><th width="110" class="text-muted">騒音ルール</th><td>${noiseBadge}</td></tr>`),
+        ].filter(Boolean).join("");
+        return rows ? `<h6 class="mb-2 text-primary">同意状況</h6><table class="table table-sm table-borderless mb-2">${rows}</table>` : "";
+      })()}
 
       ${companionsHtml}
       ${isStaffView ? "" : passportHtml}
