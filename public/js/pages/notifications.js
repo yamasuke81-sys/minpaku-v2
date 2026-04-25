@@ -8,10 +8,13 @@ const NotificationsPage = {
   // テスト送信APIエンドポイント
   TEST_API_URL: "https://api-5qrfx7ujcq-an.a.run.app/notifications/test",
 
-  // ========== システム定義変数 ==========
-  // 通知種別ごとに利用可能な変数を定義
-  // source: 実送信時にどのデータから取得するかの説明
-  systemVariables: {
+  // ========== システム定義変数 (NotifyChannelEditor から alias) ==========
+  // 単一情報源は public/js/shared/notify-channel-editor.js
+  get systemVariables() { return window.NotifyChannelEditor.SYSTEM_VARIABLES; },
+  get notifications() { return window.NotifyChannelEditor.NOTIFICATIONS; },
+
+  // (元の systemVariables 定義は notify-channel-editor.js に移動)
+  _legacySystemVariables_unused_: {
     // 募集系で使える変数
     recruit: [
       { name: "date",     label: "作業日",        sample: "2026/04/20",  source: "recruitment.checkoutDate" },
@@ -67,8 +70,8 @@ const NotificationsPage = {
     ],
   },
 
-  // 通知種別ごとに使えるグループを紐付け
-  notifications: [
+  // (元の notifications 定義は notify-channel-editor.js に移動。下は履歴保存用 dead code)
+  _legacyNotifications_unused_: [
     { key: "recruit_response", label: "スタッフ回答通知", desc: "スタッフが募集に回答(◎/△/×)した時にWebアプリ管理者へ通知", icon: "bi-reply", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
       defaultMsg: "📋 募集に回答がありました\n\n日付: {date} ({property})\n{staff}: {response}\n候補: {count}名" },
     { key: "recruit_start", label: "作業スタッフ募集", desc: "新しい清掃/直前点検に対してスタッフへ募集通知を送信", icon: "bi-megaphone", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
@@ -550,6 +553,29 @@ const NotificationsPage = {
   },
 
   renderNotifications() {
+    // Phase A: 共有コンポーネント NotifyChannelEditor を使用
+    const groups = window.NotifyChannelEditor.groupNotifications();
+    for (const [group, items] of Object.entries(groups)) {
+      const container = document.getElementById(`notifyGroup_${group}`);
+      if (!container) continue;
+      container.innerHTML = items.map(n =>
+        window.NotifyChannelEditor.renderNotificationCard(
+          n,
+          (this.settings.channels || {})[n.key] || {},
+          { collapsed: true, showTestButton: true }
+        )
+      ).join("");
+      window.NotifyChannelEditor.bindCardEvents(container, {
+        onTestSend: (key, channelData, varGroup, btn) => this.sendTestNotification(btn),
+        // onChange は document.body の input/change で _setupAutoSave が拾うため不要
+      });
+    }
+  },
+
+  // ===== 旧 renderNotifications 本体は notify-channel-editor.js に移動 (dead code) =====
+  _legacyRenderNotifications_unused_() {
+    /* DEAD CODE — 残しておくと文字列内の構文崩れがリスクなので即 return */ return;
+    /* eslint-disable */
     const groups = {};
     this.notifications.forEach(n => {
       if (!groups[n.group]) groups[n.group] = [];
@@ -981,74 +1007,11 @@ const NotificationsPage = {
 
   async saveSettings(opts = {}) {
     try {
+      // Phase A: 共有コンポーネントから値を読み取る
       const channels = {};
       this.notifications.forEach(n => {
-        const get = (field) => {
-          const el = document.querySelector(`[data-key="${n.key}"][data-field="${field}"]`);
-          return el ? el.checked : false;
-        };
-        const ta = document.querySelector(`textarea[data-key="${n.key}"][data-field="customMessage"]`);
-        // タイミング配列を収集
-        const rows = document.querySelectorAll(`.notify-timings[data-key="${n.key}"] .notify-timing-row`);
-        const timings = [];
-        rows.forEach((row, idx) => {
-          const modeChecked = row.querySelector(`input[name^="mode-${n.key}-"]:checked`);
-          const mode = modeChecked ? modeChecked.value : "event";
-          const q = (sel) => row.querySelector(sel);
-          const t = { mode };
-          if (mode === "event") {
-            const timing = q(`select[data-field="timing"]`)?.value || "immediate";
-            t.timing = timing;
-            if (timing === "custom") {
-              t.timingMinutes = parseInt(q(`input[data-field="timingMinutes"]`)?.value, 10) || 0;
-            } else if (timing === "beforeEvent") {
-              t.beforeDays = parseInt(q(`input[data-field="beforeDays"]`)?.value, 10) || 0;
-              t.beforeTime = q(`input[data-field="beforeTime"]`)?.value || "09:00";
-            }
-          } else {
-            t.schedulePattern = q(`select[data-field="schedulePattern"]`)?.value || "monthEnd";
-            t.scheduleTime = q(`input[data-field="scheduleTime"]`)?.value || "09:00";
-            if (t.schedulePattern === "monthlyDay") {
-              t.scheduleDay = parseInt(q(`input[data-field="scheduleDay"]`)?.value, 10) || 1;
-            } else if (t.schedulePattern === "weekly") {
-              t.scheduleDow = parseInt(q(`select[data-field="scheduleDow"]`)?.value, 10) || 0;
-            }
-          }
-          timings.push(t);
-        });
-        const entry = {
-          enabled: get("enabled"),
-          ownerLine: get("ownerLine"),
-          groupLine: get("groupLine"),
-          staffLine: get("staffLine"),
-          staffEmail: get("staffEmail"),
-          ownerEmail: get("ownerEmail"),
-          subOwnerLine: get("subOwnerLine"),
-          subOwnerEmail: get("subOwnerEmail"),
-          discordOwner: get("discordOwner"),
-          discordSubOwner: get("discordSubOwner"),
-          // FCM (Web Push) チャネル
-          fcmStaff: get("fcmStaff"),
-          fcmOwner: get("fcmOwner"),
-          customMessage: ta ? ta.value : "",
-          timings,            // 複数タイミング配列
-        };
-        // 後方互換: 旧UIの単一フィールドも代表値として埋める (undefinedは入れない)
-        if (timings[0]) {
-          const t0 = timings[0];
-          if (t0.mode) entry.mode = t0.mode;
-          if (t0.timing) entry.timing = t0.timing;
-          if (t0.timingMinutes !== undefined) entry.timingMinutes = t0.timingMinutes;
-          if (t0.beforeDays !== undefined) entry.beforeDays = t0.beforeDays;
-          if (t0.beforeTime) entry.beforeTime = t0.beforeTime;
-          if (t0.schedulePattern) entry.schedulePattern = t0.schedulePattern;
-          if (t0.scheduleDay !== undefined) entry.scheduleDay = t0.scheduleDay;
-          if (t0.scheduleDow !== undefined) entry.scheduleDow = t0.scheduleDow;
-          if (t0.scheduleTime) entry.scheduleTime = t0.scheduleTime;
-        }
-        // 安全策: entryからundefinedを除去
-        Object.keys(entry).forEach(k => { if (entry[k] === undefined) delete entry[k]; });
-        channels[n.key] = entry;
+        // ページ全体スコープで読み取り (idPrefix なし = 通知設定タブの既定構成)
+        channels[n.key] = window.NotifyChannelEditor.readChannelValue(document, n.key, { idPrefix: "" });
       });
 
       // ownerLineChannels を収集
