@@ -135,22 +135,83 @@ module.exports = async function onGuestFormSubmit(event) {
   void ownerSubjectOverride;
 
   // 2b. 宿泊者へのメール (from = 物件担当者、アプリ管理者にはフォールバックしない)
+  // 物件別 formCompleteMail.{enabled,subject,body} を読み込み、有効ならその内容で送信
+  let propFormCompleteMail = null;
+  if (data.propertyId) {
+    try {
+      const pDoc = await db.collection("properties").doc(data.propertyId).get();
+      if (pDoc.exists) propFormCompleteMail = (pDoc.data() || {}).formCompleteMail || null;
+    } catch (_) {}
+  }
   if (guestEmail) {
     if (!senderEmail) {
-      console.warn("物件担当者 (staff.isSubOwner / isOwner) のメールが未設定のため宿泊者宛メールをスキップ");
+      const errMsg = "物件担当者 (staff.isSubOwner / isOwner) のメールが未設定のため宿泊者宛メールをスキップ";
+      console.warn(errMsg);
+      try {
+        await db.collection("guestRegistrations").doc(guestId).update({
+          formCompleteMailError: errMsg,
+          formCompleteMailErrorAt: new Date(),
+        });
+        await notifyByKey(db, "form_complete_mail_failed", {
+          title: `完了メール送信失敗: ${guestName}`,
+          body: `物件: ${propertyName}\nゲスト: ${guestName} (${guestEmail})\nエラー: ${errMsg}`,
+          vars: { property: propertyName, guest: guestName, email: guestEmail, error: errMsg },
+          propertyId: data.propertyId || null,
+        });
+      } catch (e2) { console.error("失敗通知の保存/送信エラー:", e2.message); }
     } else {
       try {
-        const guestSubject = guestSubjectOverride || renderTemplate(templates.guestConfirmation.subject, vars);
-        const guestBody = renderTemplate(templates.guestConfirmation.body, vars);
+        let guestSubject;
+        let guestBody;
+        if (propFormCompleteMail && propFormCompleteMail.enabled === true && (propFormCompleteMail.subject || propFormCompleteMail.body)) {
+          // 物件別テンプレ ({{var}} 形式)
+          const renderDouble = (tmpl) => String(tmpl || "").replace(/\{\{(\w+)\}\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ""));
+          guestSubject = renderDouble(propFormCompleteMail.subject) || guestSubjectOverride || renderTemplate(templates.guestConfirmation.subject, vars);
+          guestBody = renderDouble(propFormCompleteMail.body) || renderTemplate(templates.guestConfirmation.body, vars);
+        } else {
+          guestSubject = guestSubjectOverride || renderTemplate(templates.guestConfirmation.subject, vars);
+          guestBody = renderTemplate(templates.guestConfirmation.body, vars);
+        }
         // strictFrom: 担当者 Gmail が連携されていなければ送信しない (アプリ管理者から送らない)
         await sendNotificationEmail_(guestEmail, guestSubject, guestBody, senderEmail, { strictFrom: true });
         console.log(`宿泊者メール送信成功: ${guestEmail} (from=${senderEmail})`);
+        try {
+          await db.collection("guestRegistrations").doc(guestId).update({
+            formCompleteMailSentAt: new Date(),
+            formCompleteMailError: admin.firestore.FieldValue.delete(),
+          });
+        } catch (_) {}
       } catch (e) {
         console.error(`宿泊者メール送信失敗 (${guestEmail}):`, e.message);
+        try {
+          await db.collection("guestRegistrations").doc(guestId).update({
+            formCompleteMailError: e.message || "送信失敗",
+            formCompleteMailErrorAt: new Date(),
+          });
+          await notifyByKey(db, "form_complete_mail_failed", {
+            title: `完了メール送信失敗: ${guestName}`,
+            body: `物件: ${propertyName}\nゲスト: ${guestName} (${guestEmail})\nエラー: ${e.message}`,
+            vars: { property: propertyName, guest: guestName, email: guestEmail, error: e.message || "" },
+            propertyId: data.propertyId || null,
+          });
+        } catch (e2) { console.error("失敗通知の保存/送信エラー:", e2.message); }
       }
     }
   } else {
-    console.warn("宿泊者のメールアドレスが未入力のためメール送信スキップ");
+    const errMsg = "宿泊者のメールアドレスが未入力のためメール送信スキップ";
+    console.warn(errMsg);
+    try {
+      await db.collection("guestRegistrations").doc(guestId).update({
+        formCompleteMailError: errMsg,
+        formCompleteMailErrorAt: new Date(),
+      });
+      await notifyByKey(db, "form_complete_mail_failed", {
+        title: `完了メール送信失敗: ${guestName}`,
+        body: `物件: ${propertyName}\nゲスト: ${guestName}\nエラー: ${errMsg}`,
+        vars: { property: propertyName, guest: guestName, email: "(未入力)", error: errMsg },
+        propertyId: data.propertyId || null,
+      });
+    } catch (e2) { console.error("失敗通知の保存/送信エラー:", e2.message); }
   }
 
   // === 3. LINE通知（既存） ===
