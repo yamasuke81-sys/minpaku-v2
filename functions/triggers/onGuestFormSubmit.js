@@ -53,9 +53,10 @@ module.exports = async function onGuestFormSubmit(event) {
   const templates = await getTemplates(db);
 
   // 物件情報取得 (宿名/住所/ガイドURL/担当者メール)
+  const { resolveGuideUrl } = require("../utils/guideMap");
   let propertyName = "";
   let propertyAddress = "";
-  let guideUrlBase = `${APP_URL}/guest-guide.html`;
+  let guideUrlBase = "";
   if (data.propertyId) {
     try {
       const pDoc = await db.collection("properties").doc(data.propertyId).get();
@@ -63,15 +64,19 @@ module.exports = async function onGuestFormSubmit(event) {
         const p = pDoc.data();
         propertyName = p.name || "";
         propertyAddress = p.address || "";
-        if (p.guideUrl) guideUrlBase = p.guideUrl;
+        guideUrlBase = resolveGuideUrl({ id: data.propertyId, guideUrl: p.guideUrl, guideUrlMode: p.guideUrlMode });
       }
     } catch (e) { console.error("物件情報取得エラー:", e.message); }
   }
   if (!propertyName) propertyName = data.propertyName || "";
 
   // ガイド URL に guest トークンを付加 (ガイドページ側で parkingAllocation 等を動的表示する用)
-  const sep = guideUrlBase.includes("?") ? "&" : "?";
-  const guideUrl = `${guideUrlBase}${sep}guest=${encodeURIComponent(editToken)}`;
+  // ガイド未設定なら空のまま (テンプレート側で空チェック想定)
+  let guideUrl = "";
+  if (guideUrlBase) {
+    const sep = guideUrlBase.includes("?") ? "&" : "?";
+    guideUrl = `${guideUrlBase}${sep}guest=${encodeURIComponent(editToken)}`;
+  }
 
   // 送信者アドレス: 物件担当者 (物件オーナー最優先、なければ settings/notifications.ownerEmail)
   // onGuestFormSubmit は先に notifyEmails/subOwners を解決してから使うため、ここでは後続で決定する

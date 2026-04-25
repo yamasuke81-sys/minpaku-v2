@@ -5,13 +5,9 @@
  */
 
 // propertyId → ガイドファイル名（public/guides/{slug}.html）
-// 新規ガイド作成時は Claude Code で public/guides/<slug>.html を複製し、ここへ追記する。
-const GUIDE_MAP = {
-  // the Terrace 長浜
-  "tsZybhDMcPrxqgcRy7wp": { slug: "the-terrace-nagahama" },
-  // YADO KOMACHI Hiroshima
-  "RZV9IwtQgMAsvrdM3j8J": { slug: "yado-komachi-hiroshima" },
-};
+// マッピング本体は public/js/guide-map.js に集約。
+// 新規ガイド作成時は guide-map.js と functions/utils/guideMap.js の両方を同期更新する。
+const GUIDE_MAP = (window.GuideMap && window.GuideMap.GUIDE_MAP) || {};
 
 const GuestGuidesPage = {
   propertyList: [],
@@ -204,8 +200,10 @@ const GuestGuidesPage = {
 手順:
 1. public/guides/${sourceSlug}.html を public/guides/${newSlug}.html に複製
 2. 新ファイル内のタイトル・物件名・固有情報を「${target.name}」向けに書き換え（共通事項の紐付けはせず独立したページとして扱う）
-3. public/js/pages/guest-guides.js の GUIDE_MAP に以下を追記:
+3. 以下2ファイルの GUIDE_MAP に同じ行を追記（クライアント・サーバー両方）:
      "${target.id}": { slug: "${newSlug}" }
+   - public/js/guide-map.js
+   - functions/utils/guideMap.js
 4. deploy（git commit & push → GitHub Actions で自動デプロイ）
 5. 完了後、URL https://minpaku-v2.web.app/guides/${newSlug}.html を確認`;
     document.getElementById("gImportPrompt").value = prompt;

@@ -405,6 +405,7 @@
   </div>
 
   <script src="/js/shared/form-schema.js?v=0419b"></script>
+  <script src="/js/guide-map.js?v=0426a"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-storage-compat.js"></script>
@@ -2048,12 +2049,16 @@
           // (editToken・editTokenExpiresAt は onGuestFormSubmit トリガー側で生成される)
           await db.collection("guestRegistrations").add(data);
         }
-        // successView のガイドリンクを物件別 guideUrl に差し替え (未設定ならボタン非表示)
+        // successView のガイドリンク: 物件設定の guideUrlMode + guideShowOnSuccess に応じて切替
         try {
           const link = document.getElementById("lbl_successGuideLink");
           if (link) {
-            const url = (_propertyConfig && _propertyConfig.guideUrl) || "";
-            if (url) {
+            const showOnSuccess = !_propertyConfig || _propertyConfig.guideShowOnSuccess !== false;
+            const propForResolve = _propertyConfig
+              ? { id: _propertyConfig.propertyId, guideUrl: _propertyConfig.guideUrl, guideUrlMode: _propertyConfig.guideUrlMode }
+              : null;
+            const url = (window.GuideMap && propForResolve) ? window.GuideMap.resolveGuideUrl(propForResolve) : "";
+            if (showOnSuccess && url) {
               link.setAttribute("href", url);
               link.setAttribute("target", "_blank");
               link.setAttribute("rel", "noopener");

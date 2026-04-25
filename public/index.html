@@ -1218,12 +1218,28 @@
                 <!-- ①-B 宿ガイドページ URL -->
                 <div class="border-top border-2 pt-3 mb-4">
                   <h6 class="fw-bold mb-2"><span class="badge bg-secondary me-1">①-B</span> 宿ガイドページ URL <small class="fw-normal text-muted">(送信完了画面と宿泊者宛メールのリンク先)</small></h6>
+
+                  <div class="btn-group btn-group-sm mb-2" role="group" aria-label="URLモード">
+                    <input type="radio" class="btn-check" name="guideUrlMode" id="guideUrlModeAuto" value="auto" autocomplete="off">
+                    <label class="btn btn-outline-primary" for="guideUrlModeAuto"><i class="bi bi-link-45deg"></i> 自動同期</label>
+                    <input type="radio" class="btn-check" name="guideUrlMode" id="guideUrlModeManual" value="manual" autocomplete="off">
+                    <label class="btn btn-outline-primary" for="guideUrlModeManual"><i class="bi bi-pencil"></i> 手動設定</label>
+                  </div>
+
+                  <div id="guideUrlAutoBox" class="alert alert-info py-2 small d-none">
+                    <i class="bi bi-info-circle me-1"></i>
+                    「ゲスト案内」タブで作成・登録されたURLが自動で反映されます。
+                    <div class="mt-1">
+                      自動URL: <code id="guideUrlAutoValue" class="text-break">—</code>
+                    </div>
+                  </div>
+
                   <input type="url" class="form-control form-control-sm" id="formGuideUrl" placeholder="https://minpaku-v2.web.app/guides/yado-komachi-hiroshima.html">
-                  <div class="form-text text-muted">
+                  <div class="form-text text-muted" id="guideUrlHelp">
                     空欄の場合は送信完了画面・メールにガイドリンクを表示しません
                   </div>
                   <div class="mt-2">
-                    <button class="btn btn-sm btn-success" id="btnSaveGuideUrl"><i class="bi bi-check-lg"></i> URL を保存</button>
+                    <button class="btn btn-sm btn-success" id="btnSaveGuideUrl"><i class="bi bi-check-lg"></i> 保存</button>
                     <span id="guideUrlSaveStatus" class="small ms-2"></span>
                   </div>
                 </div>
@@ -1365,6 +1381,7 @@
   <script src="js/fcm-client.js?v=0420d"></script>
   <script src="js/auth.js?v=0423b"></script>
   <script src="js/api.js?v=0421c"></script>
+  <script src="js/guide-map.js?v=0426a"></script>
   <script src="js/pages/dashboard.js?v=0425f"></script>
   <script src="js/pages/staff.js?v=0425c"></script>
   <script src="js/shared/notify-channel-editor.js?v=0425a"></script>

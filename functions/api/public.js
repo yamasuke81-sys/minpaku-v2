@@ -46,6 +46,8 @@ router.get("/guest-form-config/:propertyId", async (req, res) => {
       formSectionConfig: (d.formSectionConfig && typeof d.formSectionConfig === "object") ? d.formSectionConfig : {},
       noiseRuleConfig: (d.noiseRuleConfig && typeof d.noiseRuleConfig === "object") ? d.noiseRuleConfig : {},
       guideUrl: d.guideUrl || "",
+      guideUrlMode: d.guideUrlMode || "auto",
+      guideShowOnSuccess: d.guideShowOnSuccess !== false,  // デフォルト true（送信完了画面でゲスト案内へ案内する）
       address: d.address || "",
     });
   } catch (e) {

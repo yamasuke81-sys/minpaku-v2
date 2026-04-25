@@ -1234,6 +1234,14 @@ const GuestsPage = {
       });
       document.getElementById("btnSaveNoiseRuleConfig")?.addEventListener("click", () => this.saveNoiseRuleConfig());
       document.getElementById("btnSaveGuideUrl")?.addEventListener("click", () => this.saveGuideUrl());
+      document.getElementById("guideUrlModeAuto")?.addEventListener("change", () => {
+        this._guideUrlMode = "auto";
+        this._applyGuideUrlMode();
+      });
+      document.getElementById("guideUrlModeManual")?.addEventListener("change", () => {
+        this._guideUrlMode = "manual";
+        this._applyGuideUrlMode();
+      });
 
       // 「この物件の独自設定を削除」ボタン
       document.getElementById("btnClearCustomForm")?.addEventListener("click", async () => {
@@ -1419,10 +1427,18 @@ const GuestsPage = {
       this._noiseRuleConfig = pd.noiseRuleConfig || {};
       this._loadNoiseRuleEditor();
 
-      // 宿ガイドページ URL
+      // 宿ガイドページ URL（モード: auto / manual）
       this._guideUrl = pd.guideUrl || "";
+      this._guideUrlMode = pd.guideUrlMode || "auto";
       const guideUrlEl = document.getElementById("formGuideUrl");
       if (guideUrlEl) guideUrlEl.value = this._guideUrl;
+      const modeAuto = document.getElementById("guideUrlModeAuto");
+      const modeManual = document.getElementById("guideUrlModeManual");
+      if (modeAuto && modeManual) {
+        modeAuto.checked = (this._guideUrlMode === "auto");
+        modeManual.checked = (this._guideUrlMode === "manual");
+      }
+      this._applyGuideUrlMode();
 
       if (pd.customFormEnabled === true && pd.customFormFields?.length > 0) {
         // 独自設定あり → 編集UIを表示
@@ -2499,26 +2515,56 @@ const GuestsPage = {
     if (lastCard) lastCard.scrollIntoView({ behavior: "smooth", block: "center" });
   },
 
+  // モード切替に応じて UI を更新
+  _applyGuideUrlMode() {
+    const mode = this._guideUrlMode || "auto";
+    const autoBox = document.getElementById("guideUrlAutoBox");
+    const autoValEl = document.getElementById("guideUrlAutoValue");
+    const inputEl = document.getElementById("formGuideUrl");
+    const helpEl = document.getElementById("guideUrlHelp");
+    const pid = this._currentFormTarget;
+    const autoUrl = (window.GuideMap && pid) ? window.GuideMap.getAutoGuideUrl(pid) : "";
+    if (autoValEl) autoValEl.textContent = autoUrl || "（ゲスト案内タブから先にガイドを作成してください）";
+
+    if (mode === "auto") {
+      autoBox?.classList.remove("d-none");
+      if (inputEl) {
+        inputEl.classList.add("d-none");
+      }
+      if (helpEl) helpEl.classList.add("d-none");
+    } else {
+      autoBox?.classList.add("d-none");
+      if (inputEl) {
+        inputEl.classList.remove("d-none");
+      }
+      if (helpEl) helpEl.classList.remove("d-none");
+    }
+  },
+
   // 宿ガイドページ URL を保存
   async saveGuideUrl() {
     const pid = this._currentFormTarget;
     if (!pid) { showToast("", "物件が選択されていません", "error"); return; }
+    const mode = this._guideUrlMode || "auto";
     const el = document.getElementById("formGuideUrl");
     const url = (el?.value || "").trim();
     const statusEl = document.getElementById("guideUrlSaveStatus");
-    if (url && !/^https?:\/\//.test(url)) {
+    if (mode === "manual" && url && !/^https?:\/\//.test(url)) {
       if (statusEl) statusEl.innerHTML = '<span class="text-danger">http(s):// から始まる URL を入力してください</span>';
       return;
     }
     if (statusEl) statusEl.innerHTML = '<span class="text-muted">保存中...</span>';
     try {
-      await db.collection("properties").doc(pid).update({
-        guideUrl: url,
+      const updateData = {
+        guideUrlMode: mode,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      });
-      this._guideUrl = url;
+      };
+      // 手動モードのみ guideUrl を更新（auto モードは既存値を保持・参照しない）
+      if (mode === "manual") updateData.guideUrl = url;
+      await db.collection("properties").doc(pid).update(updateData);
+      if (mode === "manual") this._guideUrl = url;
       if (statusEl) statusEl.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> 保存しました</span>';
-      showToast("完了", "ガイド URL を保存しました", "success");
+      showToast("完了", `ガイドURL設定（${mode === "auto" ? "自動同期" : "手動"}）を保存しました`, "success");
     } catch (e) {
       if (statusEl) statusEl.innerHTML = `<span class="text-danger">保存失敗: ${e.message}</span>`;
     }

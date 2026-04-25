@@ -198,6 +198,21 @@ const ReservationFlowPage = {
       linkLabel: "宿泊者名簿→設定",
     },
     {
+      key: "guide_page",
+      label: "[ゲスト] ゲスト案内ページ",
+      icon: "bi-book",
+      lane: "guest",
+      phase: 2,
+      track: "guest",
+      propertyField: "guideShowOnSuccess",
+      defaultEnabled: true,
+      hint: "宿泊者名簿の送信完了画面で「ゲストガイドを見る」ボタンを表示するか（オフ＝いざなわない）。URL設定は「宿泊者名簿→設定」内の①-Bと同期します。",
+      linkHash: "#/guest-guides",
+      linkLabel: "ゲスト案内タブを開く",
+      // ゲスト案内URLの表示・開くボタン用フラグ（_renderDetailFields 内で特別レンダリング）
+      _renderGuideUrlInfo: true,
+    },
+    {
       key: "roster_received",
       label: "宿泊者名簿 受信通知",
       icon: "bi-envelope-check",
@@ -547,9 +562,40 @@ const ReservationFlowPage = {
     return v;
   },
 
+  // ゲスト案内URL情報（URL表示＋開くボタン）
+  _renderGuideUrlInfoBlock(step, property) {
+    if (!step._renderGuideUrlInfo) return "";
+    const propForResolve = {
+      id: property.id,
+      guideUrl: property.guideUrl,
+      guideUrlMode: property.guideUrlMode,
+    };
+    const url = (window.GuideMap && window.GuideMap.resolveGuideUrl(propForResolve)) || "";
+    const mode = property.guideUrlMode || "auto";
+    const modeLabel = mode === "manual" ? "手動設定" : "自動同期";
+    const urlDisplay = url
+      ? `<code class="text-break small">${this._esc(url)}</code>`
+      : `<span class="text-warning small"><i class="bi bi-exclamation-triangle"></i> 未設定（ゲスト案内タブで作成してください）</span>`;
+    const openBtn = url
+      ? `<a href="${this._esc(url)}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
+           <i class="bi bi-box-arrow-up-right me-1"></i>ページを開く
+         </a>`
+      : "";
+    return `
+      <div class="rf-detail-panel mt-2 p-2 border rounded" style="background:#f8fafc;">
+        <div class="small fw-semibold mb-2">
+          <i class="bi bi-link-45deg"></i> ゲスト案内URL（${this._esc(property.name)}）
+          <span class="badge bg-secondary-subtle text-secondary border ms-1" style="font-size:9px;">${this._esc(modeLabel)}</span>
+        </div>
+        <div class="mb-2">${urlDisplay}</div>
+        ${openBtn}
+      </div>`;
+  },
+
   // detailFields (ネスト対応の型別入力UI) をレンダリング
   _renderDetailFields(step, property) {
-    if (!Array.isArray(step.detailFields) || !step.detailFields.length) return "";
+    const guideInfoHtml = this._renderGuideUrlInfoBlock(step, property);
+    if (!Array.isArray(step.detailFields) || !step.detailFields.length) return guideInfoHtml;
     const pid = property.id;
     const fieldsHtml = step.detailFields.map(fd => {
       const cur = this._getNested(property, fd.field);
