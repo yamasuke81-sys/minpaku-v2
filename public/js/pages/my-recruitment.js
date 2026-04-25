@@ -1072,6 +1072,13 @@ const MyRecruitmentPage = {
           }
           if (confirmed) anyConfirmed = true;
 
+          // スタッフ確定済み × 回答あり × 選ばれなかった → 記号を濃いグレーに
+          // (○/△/× いずれも 落選表示として灰色化)
+          const isFinalized = recruit.status === "スタッフ確定済み";
+          if (isFinalized && resp !== "未回答" && !confirmed) {
+            symColor = "#495057"; // 濃いめのグレー (Bootstrap gray-700)
+          }
+
           // 確定済み: Webアプリ管理者 or 自分の行 (確定されていなくても詳細閲覧は可能) → 常にクリック可能
           // 募集中/選定済: 自分の行 or Webアプリ管理者 → クリック可能
           const clickable = isMe || isOwner;
