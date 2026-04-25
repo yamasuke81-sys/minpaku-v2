@@ -70,7 +70,10 @@ module.exports = function recruitmentApi(db) {
       const docRef = await collection.add(data);
 
       // LINE通知送信（非同期、エラーでもAPIは成功とする）
+      // 注: bookingId が紐付く募集は onBookingChange トリガー側で recruit_start を送るため
+      //     ここでは bookingId が無い手動作成のケースのみ通知する（二重送信防止）
       try {
+        const shouldNotify = !data.bookingId;
         const { settings } = await getNotificationSettings_(db);
         // 物件別オーバーライドを取得
         let propertyOverrides = {};
@@ -79,7 +82,7 @@ module.exports = function recruitmentApi(db) {
           if (propDoc.exists) propertyOverrides = propDoc.data().channelOverrides || {};
         }
         const targets = resolveNotifyTargets(settings, "recruit_start", propertyOverrides);
-        if (targets.enabled) {
+        if (shouldNotify && targets.enabled) {
           const appUrl = (settings && settings.appUrl) || process.env.APP_BASE_URL || "https://minpaku-v2.web.app";
           const recruitUrl = `${appUrl.replace(/\/$/, "")}/#/my-recruitment`;
           const flex = buildRecruitmentFlex(data, appUrl);
