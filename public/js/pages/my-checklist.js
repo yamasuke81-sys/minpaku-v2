@@ -810,11 +810,14 @@ const MyChecklistPage = {
       // 次回予約を全件取得して in-memory フィルタ (Timestamp型不一致回避)
       let nextBooking = null;
       let nextGuest = {};
+      let propDoc = {};
       try {
-        const [bkSnap, grSnap] = await Promise.all([
+        const [bkSnap, grSnap, propSnap] = await Promise.all([
           db.collection("bookings").where("propertyId", "==", c.propertyId).get(),
           db.collection("guestRegistrations").where("propertyId", "==", c.propertyId).limit(60).get(),
+          db.collection("properties").doc(c.propertyId).get(),
         ]);
+        propDoc = propSnap.exists ? propSnap.data() : {};
 
         // 次の予約: 同物件 × 異なる bookingId × キャンセル除外 × CI >= checkoutDate で昇順先頭
         const allBookings = bkSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -867,6 +870,37 @@ const MyChecklistPage = {
         ? `<div class="alert alert-info py-2 small mb-3"><i class="bi bi-person-check"></i> 本日の清掃担当: <strong>${staffNames.map(n => this.escapeHtml(n)).join("、")}</strong></div>`
         : "";
 
+      // 宿泊者名簿の表示/非表示判定ヘルパ (dashboard.js と同一仕様)
+      const fieldOverrides = (propDoc.formFieldConfig && propDoc.formFieldConfig.overrides) || {};
+      const secCfg = propDoc.formSectionConfig || {};
+      const useCustomForm = propDoc.customFormEnabled === true && Array.isArray(propDoc.customFormFields) && propDoc.customFormFields.length > 0;
+      const customMap = {};
+      if (useCustomForm) {
+        propDoc.customFormFields.forEach(f => { if (f && f.id) customMap[f.id] = f; });
+      }
+      const FIXED_FIELD_IDS = new Set([
+        "checkOut","checkOutTime","guestCount","guestCountInfants","bookingSite",
+        "transport","taxiAgree","carCount","neighborAgree","paidParking",
+        "bbq","bbqRule1","bbqRule2","bbqRule3","bbqRule4","bbqRule5","bedChoice",
+        "purpose","previousStay","nextStay",
+        "emergencyName","emergencyPhone",
+        "noiseAgree","houseRuleAgree",
+      ]);
+      const isFieldVisible = (fieldId, sectionId) => {
+        if (sectionId && secCfg[sectionId] && secCfg[sectionId].hidden === true) return false;
+        if (sectionId && fieldId) {
+          const fh = secCfg[sectionId] && secCfg[sectionId].fieldHidden;
+          if (fh && fh[fieldId] === true) return false;
+        }
+        if (fieldId && fieldOverrides[fieldId] && fieldOverrides[fieldId].hidden === true) return false;
+        if (useCustomForm && fieldId && !FIXED_FIELD_IDS.has(fieldId)) {
+          const f = customMap[fieldId];
+          if (!f) return false;
+          if (f.hidden === true) return false;
+        }
+        return true;
+      };
+
       // BBQ表示ヘルパ
       const vb = (val) => {
         if (val === true || val === "Yes" || val === "あり" || val === "◎") return "◎";
@@ -902,11 +936,11 @@ const MyChecklistPage = {
               <table class="table table-sm table-borderless mb-0">
                 <tr><th class="text-muted" style="width:130px;">チェックイン</th><td>${ciDisplay}</td></tr>
                 <tr><th class="text-muted">宿泊人数</th><td>${nb.guestCount ? this.escapeHtml(String(nb.guestCount)) + "名" : "-"}</td></tr>
-                <tr><th class="text-muted">BBQ</th><td>${vb(nextGuest.bbq)}</td></tr>
-                <tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${nextGuest.bedChoice ? this.escapeHtml(String(nextGuest.bedChoice)) : "-"}</td></tr>
-                <tr><th class="text-muted">交通手段</th><td>${nextGuest.transport ? this.escapeHtml(nextGuest.transport) : "-"}</td></tr>
-                <tr><th class="text-muted">車台数</th><td>${nextGuest.carCount ? this.escapeHtml(String(nextGuest.carCount)) + "台" : "-"}</td></tr>
-                <tr><th class="text-muted">有料駐車場</th><td>${nextGuest.paidParking ? this.escapeHtml(nextGuest.paidParking) : "-"}</td></tr>
+                ${isFieldVisible("bbq", "facility") ? `<tr><th class="text-muted">BBQ</th><td>${vb(nextGuest.bbq)}</td></tr>` : ""}
+                ${isFieldVisible("bedChoice", "facility") ? `<tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${nextGuest.bedChoice ? this.escapeHtml(String(nextGuest.bedChoice)) : "-"}</td></tr>` : ""}
+                ${isFieldVisible("transport", "facility") ? `<tr><th class="text-muted">交通手段</th><td>${nextGuest.transport ? this.escapeHtml(nextGuest.transport) : "-"}</td></tr>` : ""}
+                ${isFieldVisible("carCount", "facility") ? `<tr><th class="text-muted">車台数</th><td>${nextGuest.carCount ? this.escapeHtml(String(nextGuest.carCount)) + "台" : "-"}</td></tr>` : ""}
+                ${isFieldVisible("paidParking", "facility") ? `<tr><th class="text-muted">有料駐車場</th><td>${nextGuest.paidParking ? this.escapeHtml(nextGuest.paidParking) : "-"}</td></tr>` : ""}
               </table>
             </div>
           </div>`;
