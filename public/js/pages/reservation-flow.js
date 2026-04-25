@@ -1361,7 +1361,42 @@ const ReservationFlowPage = {
           card.classList.toggle("rf-card-enabled", e.target.checked);
           card.classList.toggle("rf-card-disabled", !e.target.checked);
         }
-        this._queueSave(pid, stepKey);
+        const step = this.STEPS.find(s => s.key === stepKey);
+        // globalChannel の場合は内側 NotifyChannelEditor の enabled トグルへ同期
+        if (step && step.globalChannel) {
+          const NCE = window.NotifyChannelEditor;
+          const idPrefix = `prop_${pid}_${step.globalChannel}`;
+          const dk = NCE ? NCE.dataKey(step.globalChannel, idPrefix) : null;
+          const innerToggle = dk
+            ? card?.querySelector(`input[type="checkbox"][data-field="enabled"][data-key="${CSS.escape(dk)}"]`)
+            : null;
+          if (innerToggle && innerToggle.checked !== e.target.checked) {
+            innerToggle.checked = e.target.checked;
+            // bindCardEvents の onChange を発火させて保存
+            innerToggle.dispatchEvent(new Event("change", { bubbles: true }));
+          } else {
+            // 内側トグルが見つからない/同値の場合も保存だけは確実に行う
+            this._queueSaveOverride(step.globalChannel, pid);
+          }
+        } else {
+          this._queueSave(pid, stepKey);
+        }
+        return;
+      }
+
+      // 内側 NotifyChannelEditor の enabled トグル → ヘッダートグルへ同期
+      if (e.target.matches('input[type="checkbox"][data-field="enabled"]') &&
+          !e.target.classList.contains("rf-toggle")) {
+        const card = e.target.closest(".rf-card");
+        if (card) {
+          const headerToggle = card.querySelector(":scope > .rf-card-header .rf-toggle");
+          if (headerToggle && headerToggle.checked !== e.target.checked) {
+            headerToggle.checked = e.target.checked;
+            card.classList.toggle("rf-card-enabled", e.target.checked);
+            card.classList.toggle("rf-card-disabled", !e.target.checked);
+          }
+        }
+        // 保存は NCE.bindCardEvents の onChange に任せる
       }
     });
 

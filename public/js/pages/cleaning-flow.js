@@ -725,7 +725,7 @@ const CleaningFlowPage = {
     const notifEditorHtml = step.globalChannel
       ? this._renderSharedNotifyCard(step, property)
       : "";
-    const showHeaderToggle = !step.globalChannel;
+    const showHeaderToggle = true;
     const toggleChecked = enabled ? "checked" : "";
     const toggleId = `cf-tog-${step.key}-${property.id}`;
     const headerToggleHtml = showHeaderToggle
@@ -1091,7 +1091,39 @@ const CleaningFlowPage = {
           card.classList.toggle("rf-card-enabled", e.target.checked);
           card.classList.toggle("rf-card-disabled", !e.target.checked);
         }
-        this._queueSave(pid, stepKey);
+        const step = this.STEPS.find(s => s.key === stepKey);
+        // globalChannel の場合は内側 NotifyChannelEditor の enabled トグルへ同期
+        if (step && step.globalChannel) {
+          const NCE = window.NotifyChannelEditor;
+          const idPrefix = `prop_${pid}_${step.globalChannel}`;
+          const dk = NCE ? NCE.dataKey(step.globalChannel, idPrefix) : null;
+          const innerToggle = dk
+            ? card?.querySelector(`input[type="checkbox"][data-field="enabled"][data-key="${CSS.escape(dk)}"]`)
+            : null;
+          if (innerToggle && innerToggle.checked !== e.target.checked) {
+            innerToggle.checked = e.target.checked;
+            innerToggle.dispatchEvent(new Event("change", { bubbles: true }));
+          } else {
+            this._queueSaveOverride(step.globalChannel, pid);
+          }
+        } else {
+          this._queueSave(pid, stepKey);
+        }
+        return;
+      }
+
+      // 内側 NotifyChannelEditor の enabled トグル → ヘッダートグルへ同期
+      if (e.target.matches('input[type="checkbox"][data-field="enabled"]') &&
+          !e.target.classList.contains("rf-toggle")) {
+        const card = e.target.closest(".rf-card");
+        if (card) {
+          const headerToggle = card.querySelector(":scope > .rf-card-header .rf-toggle");
+          if (headerToggle && headerToggle.checked !== e.target.checked) {
+            headerToggle.checked = e.target.checked;
+            card.classList.toggle("rf-card-enabled", e.target.checked);
+            card.classList.toggle("rf-card-disabled", !e.target.checked);
+          }
+        }
       }
     });
 
