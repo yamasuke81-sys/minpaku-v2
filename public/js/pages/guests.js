@@ -94,6 +94,47 @@ const GuestsPage = {
     });
 
     await this.loadGuests();
+
+    // ハッシュ内クエリ ?id=... があれば該当宿泊者の詳細モーダルを自動オープン
+    // 例: #/guests?id=ABC123
+    try {
+      const hash = location.hash || "";
+      const queryStr = hash.includes("?") ? hash.split("?")[1] : "";
+      const params = new URLSearchParams(queryStr);
+      const targetId = params.get("id");
+      if (targetId) {
+        // guestList に存在するか確認 (期間絞り込みで弾かれている可能性あり)
+        let guest = this.guestList.find(g => g.id === targetId);
+        if (!guest) {
+          // 期間外の可能性: API から個別取得を試みる
+          try {
+            guest = await API.guests.get(targetId);
+          } catch (_) { /* 後段で fallback */ }
+        }
+        if (guest) {
+          // 一覧に無ければ追加 (showDetail は guestList から検索する実装のため)
+          if (!this.guestList.find(g => g.id === targetId)) {
+            this.guestList.push(guest);
+          }
+          this.showDetail(targetId);
+          // モーダル close 時に hash から ?id を取り除く (再表示防止)
+          const detailEl = document.getElementById("guestDetailModal");
+          const onHidden = () => {
+            const h = location.hash || "";
+            if (h.includes("?id=")) {
+              const base = h.split("?")[0];
+              history.replaceState(null, "", location.pathname + location.search + base);
+            }
+            detailEl.removeEventListener("hidden.bs.modal", onHidden);
+          };
+          detailEl.addEventListener("hidden.bs.modal", onHidden);
+        } else {
+          showToast("該当宿泊者が見つかりません", `ID: ${targetId}`, "warning");
+        }
+      }
+    } catch (e) {
+      console.warn("guest auto-open error:", e);
+    }
   },
 
   bindEvents() {

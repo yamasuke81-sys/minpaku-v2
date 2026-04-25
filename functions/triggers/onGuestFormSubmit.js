@@ -48,7 +48,7 @@ module.exports = async function onGuestFormSubmit(event) {
   const summary = buildGuestSummaryText(data);
   // 編集URLに propertyId を付与 (non-表示設定を適用させるため)
   const editUrl = `${APP_URL}/guest-form.html?edit=${editToken}${data.propertyId ? `&propertyId=${encodeURIComponent(data.propertyId)}` : ""}`;
-  const confirmUrl = `${APP_URL}/#/guests`;
+  const confirmUrl = `${APP_URL}/#/guests?id=${encodeURIComponent(guestId)}`;
 
   const templates = await getTemplates(db);
 
@@ -173,7 +173,7 @@ module.exports = async function onGuestFormSubmit(event) {
     guest: guestName,
     nights: data.nights || "",
     site: data.bookingSite || "",
-    url: `${APP_URL}/#/guests`,
+    url: `${APP_URL}/#/guests?id=${encodeURIComponent(guestId)}`,
   });
 
   // === 4. bookingsコレクションとの照合・情報補完 ===
