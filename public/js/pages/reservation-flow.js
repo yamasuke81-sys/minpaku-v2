@@ -972,7 +972,7 @@ const ReservationFlowPage = {
     const notifEditorHtml = step.globalChannel
       ? this._renderSharedNotifyCard(step, property)
       : "";
-    const showHeaderToggle = !step.globalChannel;
+    const showHeaderToggle = true;
     const toggleChecked = enabled ? "checked" : "";
     const toggleId = `rf-tog-${step.key}-${property.id}`;
     const headerToggleHtml = showHeaderToggle
@@ -1520,23 +1520,42 @@ const ReservationFlowPage = {
           card.classList.toggle("rf-card-enabled", e.target.checked);
           card.classList.toggle("rf-card-disabled", !e.target.checked);
         }
-        // globalChannel の場合は物件別 enabled オーバーライドとして保存
         const step = this.STEPS.find(s => s.key === stepKey);
+        // globalChannel の場合は内側 NotifyChannelEditor の enabled トグルへ同期
         if (step && step.globalChannel) {
-          // rf-ov-check[enabled] を自動的に ON にする
-          const ovCheck = wrap.querySelector(`.rf-ov-check[data-notif-key="${step.globalChannel}"][data-pid="${pid}"][data-field="enabled"]`);
-          const ovVal = wrap.querySelector(`.rf-ov-val[data-notif-key="${step.globalChannel}"][data-pid="${pid}"][data-field="enabled"]`);
-          if (ovCheck && !ovCheck.checked) {
-            ovCheck.checked = true;
-            const wrap2 = document.getElementById(`rf-ovwrap-${step.globalChannel}-${pid}-enabled`);
-            if (wrap2) { wrap2.classList.remove("opacity-50", "pe-none"); }
+          const NCE = window.NotifyChannelEditor;
+          const idPrefix = `prop_${pid}_${step.globalChannel}`;
+          const dk = NCE ? NCE.dataKey(step.globalChannel, idPrefix) : null;
+          const innerToggle = dk
+            ? card?.querySelector(`input[type="checkbox"][data-field="enabled"][data-key="${CSS.escape(dk)}"]`)
+            : null;
+          if (innerToggle && innerToggle.checked !== e.target.checked) {
+            innerToggle.checked = e.target.checked;
+            // bindCardEvents の onChange を発火させる
+            innerToggle.dispatchEvent(new Event("change", { bubbles: true }));
+          } else {
+            // 既に同期済みでも保存だけは確実に行う
+            this._queueSaveOverride(step.globalChannel, pid);
           }
-          if (ovVal) ovVal.checked = e.target.checked;
-          this._queueSaveOverride(step.globalChannel, pid);
         } else {
           this._queueSave(pid, stepKey);
         }
         return;
+      }
+
+      // 内側 NotifyChannelEditor の enabled トグル → ヘッダートグルへ同期
+      if (e.target.matches('input[type="checkbox"][data-field="enabled"]') &&
+          !e.target.classList.contains("rf-toggle")) {
+        const card = e.target.closest(".rf-card");
+        if (card) {
+          const headerToggle = card.querySelector(":scope > .rf-card-header .rf-toggle");
+          if (headerToggle && headerToggle.checked !== e.target.checked) {
+            headerToggle.checked = e.target.checked;
+            card.classList.toggle("rf-card-enabled", e.target.checked);
+            card.classList.toggle("rf-card-disabled", !e.target.checked);
+          }
+        }
+        // 保存は NotifyChannelEditor.bindCardEvents の onChange に任せる
       }
 
       // 詳細設定 (detailFields) change: select / checkbox / switch / date / time / number

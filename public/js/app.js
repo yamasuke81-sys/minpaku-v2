@@ -189,11 +189,13 @@ const App = {
     }
   },
 
-  /** 「○○として閲覧中」バッジ */
+  /** 「○○として閲覧中」バッジ
+   *  視点切替が実際に効くページ (VIEW_AS_TARGET_PAGES) のみ表示 */
   _renderViewAsBadge() {
     const existing = document.getElementById("viewAsStaffBanner");
     if (existing) existing.remove();
     if (!this.viewAsStaffId) return;
+    if (!this.VIEW_AS_TARGET_PAGES.includes(this.currentPage)) return;
     const banner = document.createElement("div");
     banner.id = "viewAsStaffBanner";
     banner.className = "alert alert-info alert-dismissible mb-0 rounded-0 d-flex align-items-center";
@@ -263,10 +265,12 @@ const App = {
   },
 
   /** my-* ページが「効果的な staffId」を取得するためのヘルパー。
-   *  管理者かつ viewAsStaff 設定中なら viewAsStaffId を返す。それ以外は null。 */
+   *  管理者かつ viewAsStaff 設定中、かつ現在ページが対象3ページの時のみ viewAsStaffId を返す。
+   *  それ以外（schedule タブ等）は null を返してスタッフ視点の影響を出さない。 */
   getViewAsStaffId() {
     if (!Auth.isOwner()) return null;
     if (this.impersonating) return null;
+    if (!this.VIEW_AS_TARGET_PAGES.includes(this.currentPage)) return null;
     return this.viewAsStaffId || null;
   },
 
@@ -370,6 +374,8 @@ const App = {
     const page = availablePages[pageName];
     if (page) {
       this.currentPage = pageName;
+      // viewAsStaff バッジを対象ページに応じて再評価（対象外ページに移動したら隠す）
+      this._renderViewAsBadge();
       page.render(document.getElementById("pageContainer"), path.slice(1));
       // ページ切り替え時にビュー最上部へスクロール
       try {
