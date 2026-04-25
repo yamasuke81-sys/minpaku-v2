@@ -444,8 +444,10 @@ const RecruitmentPage = {
 
     if (!Auth || !Auth.currentUser) return;
 
-    // 確定済みの場合: 自分が選定済みスタッフなら「回答変更要望」ボタンを出す (Task 8)
-    if (recruitment.status === "スタッフ確定済み") {
+    // 確定済みの場合: スタッフは「回答変更要望」ボタン経由のみ。
+    // オーナー(Auth.isOwner)は管理者権限で確定後も直接回答変更可能とする。
+    const isOwnerSelf = !!(Auth.isOwner && Auth.isOwner());
+    if (recruitment.status === "スタッフ確定済み" && !isOwnerSelf) {
       await this._renderChangeRequestArea(recruitment);
       return;
     }
@@ -536,7 +538,10 @@ const RecruitmentPage = {
       const doc = await ref.get();
       if (!doc.exists) throw new Error("募集が見つかりません");
       const data = doc.data();
-      if (data.status === "スタッフ確定済み") throw new Error("確定済みの募集は変更できません");
+      // オーナーは確定後も直接変更可。スタッフは「回答変更要望」フローへ
+      if (data.status === "スタッフ確定済み" && !(Auth.isOwner && Auth.isOwner())) {
+        throw new Error("確定済みの募集は変更できません");
+      }
       const responses = data.responses || [];
       const myEmail = (myStaff.email || "").toLowerCase();
       const match = (r) => {
@@ -991,7 +996,8 @@ const RecruitmentPage = {
       // A4 で自分の回答はモーダル上部に集約したので、テーブル内の自分行の回答ボタンは非表示にする
       // Webアプリ管理者ビュー時は他スタッフへの代理回答のみ可 (自分の行は上部で操作)
       const isMeRow = myStaffId && s.id === myStaffId;
-      const canRespond = !confirmed && !isStaffView && !isMeRow;
+      // オーナーは確定後も代理回答可。スタッフは確定で全面ロック。
+      const canRespond = !isStaffView && !isMeRow && (!confirmed || (Auth.isOwner && Auth.isOwner()));
       const selectCell = isStaffView ? "" : `
         <td>
           <input class="form-check-input staff-select-cb" type="checkbox"
