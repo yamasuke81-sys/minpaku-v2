@@ -738,13 +738,25 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
   }
 
   // シフト取得 (propertyId 指定時はフィルタ)
-  let shiftsQuery = db.collection("shifts")
+  // 複数スタッフ確定時は shifts.staffId に先頭スタッフのみ入り、2人目以降は staffIds 配列に格納される
+  // → staffId 一致と staffIds array-contains の両方で取得し dedup
+  let shiftsQuery1 = db.collection("shifts")
     .where("staffId", "==", staffId)
     .where("date", ">=", start)
     .where("date", "<=", end);
-  if (propertyId) shiftsQuery = shiftsQuery.where("propertyId", "==", propertyId);
-  const shiftsSnap = await shiftsQuery.get();
-  const rawShifts = shiftsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  if (propertyId) shiftsQuery1 = shiftsQuery1.where("propertyId", "==", propertyId);
+
+  let shiftsQuery2 = db.collection("shifts")
+    .where("staffIds", "array-contains", staffId)
+    .where("date", ">=", start)
+    .where("date", "<=", end);
+  if (propertyId) shiftsQuery2 = shiftsQuery2.where("propertyId", "==", propertyId);
+
+  const [snap1, snap2] = await Promise.all([shiftsQuery1.get(), shiftsQuery2.get()]);
+  const rawShiftsMap = new Map();
+  snap1.docs.forEach(d => rawShiftsMap.set(d.id, { id: d.id, ...d.data() }));
+  snap2.docs.forEach(d => rawShiftsMap.set(d.id, { id: d.id, ...d.data() }));
+  const rawShifts = Array.from(rawShiftsMap.values());
 
   // ランドリー取得 (isReimbursable === true のみ計上。propertyId フィルタ適用)
   let laundryQuery = db.collection("laundry")
