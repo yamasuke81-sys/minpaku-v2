@@ -284,7 +284,7 @@ const StaffPage = {
             ${!s.active ? `<button class="btn btn-outline-success btn-reactivate" title="非アクティブ解除">
               <i class="bi bi-arrow-counterclockwise"></i>
             </button>` : ""}
-            <button class="btn btn-outline-danger btn-delete" title="無効化">
+            <button class="btn btn-outline-danger btn-delete" title="${s.active === false ? "完全削除" : "無効化"}">
               <i class="bi bi-trash"></i>
             </button>
           </div>
@@ -988,15 +988,34 @@ const StaffPage = {
   },
 
   async deleteStaff(staff) {
-    const ok = await showConfirm("無効化確認", `${staff.name} を無効化しますか？`);
-    if (!ok) return;
+    // 既に無効化済みのスタッフ → 完全削除（Firestore document を物理削除）
+    // まだ有効なスタッフ → 論理削除（active=false にするだけ）
+    const isAlreadyInactive = staff.active === false;
 
-    try {
-      await API.staff.delete(staff.id);
-      showToast("完了", `${staff.name} を無効化しました`, "success");
-      await this.loadData();
-    } catch (e) {
-      showToast("エラー", `無効化に失敗しました: ${e.message}`, "error");
+    if (isAlreadyInactive) {
+      const ok = await showConfirm(
+        "完全削除",
+        `${staff.name} を完全に削除します。\n\nこの操作は元に戻せません。\n（過去の募集回答・シフト・請求書の履歴に残っている staffId は孤児になります）\n\n本当に削除しますか？`,
+        { okLabel: "完全削除", okClass: "btn-danger" }
+      );
+      if (!ok) return;
+      try {
+        await API.staff.hardDelete(staff.id);
+        showToast("完了", `${staff.name} を完全に削除しました`, "success");
+        await this.loadData();
+      } catch (e) {
+        showToast("エラー", `削除に失敗しました: ${e.message}`, "error");
+      }
+    } else {
+      const ok = await showConfirm("無効化確認", `${staff.name} を無効化しますか？\n（後で『無効スタッフ表示』から再有効化できます）`);
+      if (!ok) return;
+      try {
+        await API.staff.delete(staff.id);
+        showToast("完了", `${staff.name} を無効化しました`, "success");
+        await this.loadData();
+      } catch (e) {
+        showToast("エラー", `無効化に失敗しました: ${e.message}`, "error");
+      }
     }
   },
 

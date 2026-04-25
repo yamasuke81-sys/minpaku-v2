@@ -70,6 +70,12 @@ const API = {
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
     },
+
+    // 完全削除: Firestore document を物理的に削除する
+    // 既に active=false のスタッフを完全に取り除く時に使用
+    async hardDelete(id) {
+      await db.collection("staff").doc(id).delete();
+    },
   },
 
   // 物件 API

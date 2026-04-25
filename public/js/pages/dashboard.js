@@ -1073,20 +1073,38 @@ const DashboardPage = {
       {};
     // 物件名バッジ: b.propertyName → 未設定なら prop.name → 空
     const propNameForTitle = b.propertyName || prop.name || "";
-    // 番号バッジ (prop.propertyNumber + prop.color)
+    // 番号バッジ (prop.propertyNumber + prop.color) — シャープ無し、数字のみ
     const propNumberBadge = (prop.propertyNumber !== undefined && prop.propertyNumber !== null && prop.propertyNumber !== "")
-      ? `<span style="display:inline-block;background:${this.esc(prop.color || "#6c757d")};color:#fff;padding:2px 8px;border-radius:4px;margin-right:4px;font-weight:600;font-size:0.85em;">#${this.esc(String(prop.propertyNumber))}</span>`
+      ? `<span style="display:inline-block;background:${this.esc(prop.color || "#6c757d")};color:#fff;padding:2px 8px;border-radius:4px;margin-right:4px;font-weight:600;font-size:0.85em;">${this.esc(String(prop.propertyNumber))}</span>`
       : "";
     const propNameBadge = propNameForTitle
       ? `<span class="badge bg-light text-dark border ms-2" style="font-weight:500;">${propNumberBadge}${this.esc(propNameForTitle)}</span>`
       : "";
     document.getElementById("calEventTitle").innerHTML = `<i class="bi bi-calendar-event"></i> 予約詳細 ${propNameBadge} ${sourceBadge}`;
 
-    // 宿泊者名簿 表示/非表示判定 (formFieldConfig.overrides + formSectionConfig)
+    // 宿泊者名簿 表示/非表示判定
+    // ① customFormEnabled の物件: customFormFields[] の hidden を最優先
+    // ② それ以外の物件: formFieldConfig.overrides + formSectionConfig
     const fieldOverrides = (prop.formFieldConfig && prop.formFieldConfig.overrides) || {};
     const secCfg = prop.formSectionConfig || {};
+    const useCustomForm = prop.customFormEnabled === true && Array.isArray(prop.customFormFields) && prop.customFormFields.length > 0;
+    // customFormFields を id → field のマップに展開（id は g-* / id 名混在）
+    const customMap = {};
+    if (useCustomForm) {
+      prop.customFormFields.forEach(f => {
+        if (f && f.id) customMap[f.id] = f;
+      });
+    }
     const isFieldVisible = (fieldId, sectionId) => {
+      // 1. カスタムフォーム使用時: そのフィールドが配列に存在しないか hidden=true なら非表示
+      if (useCustomForm && fieldId) {
+        const f = customMap[fieldId];
+        if (!f) return false;            // カスタムフォームで未定義 = 非表示扱い
+        if (f.hidden === true) return false;
+      }
+      // 2. セクション全体が非表示
       if (sectionId && secCfg[sectionId] && secCfg[sectionId].hidden === true) return false;
+      // 3. 標準フォームの個別オーバーライド
       if (fieldId && fieldOverrides[fieldId] && fieldOverrides[fieldId].hidden === true) return false;
       return true;
     };
