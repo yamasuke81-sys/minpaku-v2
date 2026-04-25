@@ -267,6 +267,9 @@ const StaffPage = {
           <span class="badge ${s.active ? "bg-success" : "bg-secondary"} staff-status-badge">
             ${s.active ? "有効" : "無効"}
           </span>
+          ${(!s.active && s.inactiveReason && /15回|直近\d+回|募集について回答がなかった/.test(s.inactiveReason))
+            ? `<span class="badge bg-warning text-dark ms-1" title="${this.escapeHtml(s.inactiveReason)}"><i class="bi bi-clock-history"></i> 15回非表示</span>`
+            : ""}
           ${s.lineUserId ? '<span class="badge bg-success ms-1" title="LINE連携済み"><i class="bi bi-line"></i></span>' : ""}
           ${s.authUid ? '<span class="badge bg-info ms-1" title="アプリ認証済み"><i class="bi bi-person-check"></i></span>' : ""}
         </td>
