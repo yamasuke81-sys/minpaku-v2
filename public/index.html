@@ -56,6 +56,11 @@
       <a class="nav-link" href="#/settings" data-page="settings"><i class="bi bi-gear"></i> 設定</a>
 
       <div class="sidebar-section">スタッフ画面</div>
+      <div class="px-3 py-2" id="ownerViewAsStaffWrap">
+        <select id="ownerViewAsStaffSelect" class="form-select form-select-sm" title="どのスタッフ視点で見るか">
+          <option value="">自分（管理者）として閲覧</option>
+        </select>
+      </div>
       <a class="nav-link d-none" href="#/my-dashboard" data-page="my-dashboard"><i class="bi bi-house-door"></i> マイページ</a>
       <a class="nav-link" href="#/my-recruitment" data-page="my-recruitment" id="ownerNavMyRecruitment"><i class="bi bi-calendar-check"></i> 清掃スケジュール (スタッフ視点)</a>
       <a class="nav-link" href="#/my-checklist" data-page="my-checklist" id="ownerNavMyChecklist"><i class="bi bi-clipboard-check"></i> チェックリスト</a>
@@ -1389,11 +1394,11 @@
   <script src="js/pages/settings.js?v=0418b"></script>
   <!-- スタッフ用ページ -->
   <script src="js/pages/my-dashboard.js?v=0417a"></script>
-  <script src="js/pages/my-recruitment.js?v=0425b"></script>
-  <script src="js/pages/my-checklist.js?v=0423n"></script>
+  <script src="js/pages/my-recruitment.js?v=0426a"></script>
+  <script src="js/pages/my-checklist.js?v=0426a"></script>
   <script src="js/pages/my-invoice.js?v=0421d"></script>
-  <script src="js/pages/my-invoice-create.js?v=0421n"></script>
-  <script src="js/app.js?v=0420d"></script>
+  <script src="js/pages/my-invoice-create.js?v=0426a"></script>
+  <script src="js/app.js?v=0426a"></script>
   <script>
   // サイドバートグル（PC: collapsed切替 / モバイル: show切替）
   document.getElementById('btnToggleSidebar')?.addEventListener('click', () => {

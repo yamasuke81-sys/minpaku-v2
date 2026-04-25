@@ -33,6 +33,9 @@ const MyInvoiceCreatePage = {
         if (!snap.empty) this.staffId = snap.docs[0].id;
       } catch (_) {}
     }
+    // viewAsStaff (管理者のスタッフ視点閲覧) で上書き
+    this._viewAsStaffId = (typeof App !== "undefined" && App.getViewAsStaffId) ? App.getViewAsStaffId() : null;
+    if (this._viewAsStaffId) this.staffId = this._viewAsStaffId;
 
     const today = new Date();
     const defaultYM = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0");
@@ -210,6 +213,11 @@ const MyInvoiceCreatePage = {
     `;
 
     if (this.isOwner) {
+      // viewAsStaff 中はサイドバー側プルダウンが優先。本ページ内 select は無効化
+      if (this._viewAsStaffId) {
+        const sel = document.getElementById("invStaffSel");
+        if (sel) { sel.disabled = true; sel.title = "サイドバーの『○○として閲覧』で切替中"; }
+      }
       document.getElementById("invStaffSel").addEventListener("change", async (e) => {
         this.staffId = e.target.value;
         this.propertyId = null; // スタッフ切替で物件選択リセット

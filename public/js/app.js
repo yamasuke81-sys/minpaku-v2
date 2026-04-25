@@ -158,6 +158,118 @@ const App = {
     return this.impersonatingData.ownedPropertyIds || [];
   },
 
+  // ========== View-As-Staff (管理者がスタッフ視点で my-* ページを閲覧) ==========
+
+  /** 現在「○○スタッフとして閲覧中」の staffId (null = 自分として閲覧) */
+  viewAsStaffId: null,
+  /** 同 表示名 (バッジ用) */
+  viewAsStaffName: null,
+  /** プルダウン用キャッシュ */
+  _viewAsStaffList: [],
+
+  /** 管理者が viewAsStaff を切り替えられるページ */
+  VIEW_AS_TARGET_PAGES: ["my-recruitment", "my-checklist", "my-invoice-create"],
+
+  /** viewAsStaff を設定。localStorage に保存し、対象ページなら再描画 */
+  setViewAsStaff(staffId) {
+    if (staffId) {
+      const s = (this._viewAsStaffList || []).find(x => x.id === staffId);
+      this.viewAsStaffId = staffId;
+      this.viewAsStaffName = s ? s.name : staffId;
+      try { localStorage.setItem("viewAsStaffId", staffId); } catch (_) {}
+    } else {
+      this.viewAsStaffId = null;
+      this.viewAsStaffName = null;
+      try { localStorage.removeItem("viewAsStaffId"); } catch (_) {}
+    }
+    this._renderViewAsBadge();
+    // 対象ページなら再描画
+    if (this.VIEW_AS_TARGET_PAGES.includes(this.currentPage)) {
+      this.route();
+    }
+  },
+
+  /** 「○○として閲覧中」バッジ */
+  _renderViewAsBadge() {
+    const existing = document.getElementById("viewAsStaffBanner");
+    if (existing) existing.remove();
+    if (!this.viewAsStaffId) return;
+    const banner = document.createElement("div");
+    banner.id = "viewAsStaffBanner";
+    banner.className = "alert alert-info alert-dismissible mb-0 rounded-0 d-flex align-items-center";
+    banner.style.cssText = "position:sticky;top:0;z-index:1049;font-size:0.85rem;padding:6px 12px;";
+    banner.innerHTML = `
+      <i class="bi bi-person-circle me-2"></i>
+      <strong>${this.escapeHtml(this.viewAsStaffName || "")} さんとして閲覧中</strong>
+      <span class="ms-2 text-muted small">(書き込みは他人として記録されます)</span>
+      <button type="button" class="btn btn-sm btn-outline-dark ms-auto" id="btnExitViewAs">
+        <i class="bi bi-x-circle"></i> 自分に戻す
+      </button>`;
+    document.querySelector(".app-main")?.prepend(banner);
+    document.getElementById("btnExitViewAs")?.addEventListener("click", () => {
+      const sel = document.getElementById("ownerViewAsStaffSelect");
+      if (sel) sel.value = "";
+      this.setViewAsStaff(null);
+    });
+  },
+
+  /** プルダウン初期化 (管理者のみ) */
+  async initViewAsStaffSelect() {
+    const wrap = document.getElementById("ownerViewAsStaffWrap");
+    const sel = document.getElementById("ownerViewAsStaffSelect");
+    if (!wrap || !sel) return;
+    // 管理者でなければ非表示
+    if (!Auth.isOwner()) {
+      wrap.classList.add("d-none");
+      return;
+    }
+    // impersonation中は viewAsStaff を排他で無効化
+    if (this.impersonating) {
+      wrap.classList.add("d-none");
+      this.viewAsStaffId = null;
+      this.viewAsStaffName = null;
+      try { localStorage.removeItem("viewAsStaffId"); } catch (_) {}
+      return;
+    }
+    try {
+      const list = await API.staff.list(true);
+      // 物件オーナー(isSubOwner) と 自分(isOwner) は除外、active のみ、displayOrder順
+      this._viewAsStaffList = list
+        .filter(s => !s.isSubOwner && !s.isOwner && s.active !== false && s.name)
+        .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+      const stored = (() => {
+        try { return localStorage.getItem("viewAsStaffId") || ""; } catch (_) { return ""; }
+      })();
+      // option 構築 (先頭の「自分」optionは残す)
+      const head = '<option value="">自分（管理者）として閲覧</option>';
+      sel.innerHTML = head + this._viewAsStaffList.map(s =>
+        `<option value="${s.id}" ${s.id === stored ? "selected" : ""}>${this.escapeHtml(s.name)}</option>`
+      ).join("");
+      // 保存値が候補に存在する場合のみ復元
+      if (stored && this._viewAsStaffList.find(s => s.id === stored)) {
+        this.viewAsStaffId = stored;
+        const sObj = this._viewAsStaffList.find(s => s.id === stored);
+        this.viewAsStaffName = sObj ? sObj.name : stored;
+        this._renderViewAsBadge();
+      } else {
+        try { localStorage.removeItem("viewAsStaffId"); } catch (_) {}
+      }
+      sel.addEventListener("change", (e) => {
+        this.setViewAsStaff(e.target.value || null);
+      });
+    } catch (e) {
+      console.warn("[viewAsStaff] 初期化失敗:", e.message);
+    }
+  },
+
+  /** my-* ページが「効果的な staffId」を取得するためのヘルパー。
+   *  管理者かつ viewAsStaff 設定中なら viewAsStaffId を返す。それ以外は null。 */
+  getViewAsStaffId() {
+    if (!Auth.isOwner()) return null;
+    if (this.impersonating) return null;
+    return this.viewAsStaffId || null;
+  },
+
   escapeHtml(s) {
     const d = document.createElement("div");
     d.textContent = String(s || "");
@@ -187,7 +299,11 @@ const App = {
     if (role === "staff") this._maybeShowStaffPrepaidNav();
 
     // impersonation 初期化（Webアプリ管理者のみ）
-    this.initImpersonation().then(() => this.route());
+    this.initImpersonation().then(() => {
+      // viewAsStaff プルダウン (impersonation と排他)
+      this.initViewAsStaffSelect();
+      this.route();
+    });
   },
 
   // スタッフの担当物件に紐づくプリカが存在する時だけサイドバーに「プリカ管理」を表示

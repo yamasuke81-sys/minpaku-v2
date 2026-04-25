@@ -43,6 +43,12 @@ const MyRecruitmentPage = {
     }
     if (isOwner && !this.staffId) this.staffId = Auth.currentUser.uid;
 
+    // 管理者が viewAsStaff (特定スタッフ視点) で閲覧中なら staffId を上書き
+    this._viewAsStaffId = (typeof App !== "undefined" && App.getViewAsStaffId) ? App.getViewAsStaffId() : null;
+    if (this._viewAsStaffId) {
+      this.staffId = this._viewAsStaffId;
+    }
+
     if (!this.staffId) {
       container.innerHTML = '<div class="alert alert-warning m-3">スタッフ情報が取得できません。</div>';
       return;
@@ -1873,6 +1879,14 @@ const MyRecruitmentPage = {
 
   async submitCurrentResponse(response, memo) {
     if (!this._pendingRecruitId) return;
+    // viewAsStaff 中は他人の名義で書き込みになるため確認
+    if (this._viewAsStaffId) {
+      const ok = await showConfirm(
+        `「${this.staffDoc?.name || this._viewAsStaffId}」さんとして回答(${response})を書き込みます。よろしいですか？`,
+        { title: "他スタッフとして書き込み", okLabel: "書き込む", okClass: "btn-warning" }
+      );
+      if (!ok) return;
+    }
     try {
       const ref = db.collection("recruitments").doc(this._pendingRecruitId);
       const doc = await ref.get();

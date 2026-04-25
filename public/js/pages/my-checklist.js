@@ -144,10 +144,11 @@ const MyChecklistPage = {
       // ownedPropertyIds も考慮) で絞り込む。設定が無い場合のみフォールバックで全民泊物件を表示。
       let filteredProps = propSnap;
       try {
-        const staffId = Auth?.currentUser?.staffId || this.staffId;
+        const staffId = this._effectiveStaffId() || this.staffId;
         if (staffId) {
           const sd = await db.collection("staff").doc(staffId).get();
           if (sd.exists) {
+            this.staffDoc = { id: sd.id, ...sd.data() };
             const sData = sd.data();
             const assigned = Array.isArray(sData.assignedPropertyIds) ? sData.assignedPropertyIds : [];
             const owned = Array.isArray(sData.ownedPropertyIds) ? sData.ownedPropertyIds : [];
@@ -426,6 +427,14 @@ const MyChecklistPage = {
 
   async attach() {
     const db = firebase.firestore();
+    // viewAsStaff or 自分の staffDoc をロード (myIdentity / 書き込み identity 用)
+    try {
+      const sid = this._effectiveStaffId();
+      if (sid) {
+        const sd = await db.collection("staff").doc(sid).get();
+        if (sd.exists) this.staffDoc = { id: sd.id, ...sd.data() };
+      }
+    } catch (_) {}
     this.checklistId = await this.resolveChecklistId();
     if (!this.checklistId) {
       // shift から propertyId を取得してテンプレ編集画面へのリンクを表示
@@ -2187,7 +2196,7 @@ const MyChecklistPage = {
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 処理中...'; }
     try {
       const user = firebase.auth().currentUser;
-      const staffId = Auth?.currentUser?.staffId || "";
+      const staffId = this._effectiveStaffId() || "";
       const staffName = this.staffDoc?.name || user?.displayName || "";
 
       // 評価を booking に保存
@@ -2564,9 +2573,21 @@ const MyChecklistPage = {
 
   myIdentity() {
     const user = Auth?.currentUser || {};
+    // viewAsStaff 中は そのスタッフ名で記録 (presence・編集マーカー)
+    const vid = this._effectiveStaffId();
+    if (vid && this.staffDoc) {
+      return { uid: user.uid || "", name: this.staffDoc.name || "スタッフ", asStaffId: vid };
+    }
     return { uid: user.uid || "", name: user.displayName || user.email || "スタッフ" };
   },
   myUid() { return Auth?.currentUser?.uid || ""; },
+
+  /** viewAsStaff (管理者の特定スタッフ視点閲覧) を考慮した staffId 取得 */
+  _effectiveStaffId() {
+    const v = (typeof App !== "undefined" && App.getViewAsStaffId) ? App.getViewAsStaffId() : null;
+    if (v) return v;
+    return Auth?.currentUser?.staffId || "";
+  },
 
   countItems(nodes) {
     let n = 0;
@@ -2996,7 +3017,7 @@ const MyChecklistPage = {
       const c = this.checklist;
       const user = firebase.auth().currentUser;
       const staffName = this.staffDoc?.name || user?.displayName || "スタッフ";
-      const staffId = Auth?.currentUser?.staffId || user?.uid || "";
+      const staffId = this._effectiveStaffId() || user?.uid || "";
       const noteId = "note_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 
       // 写真アップロード
