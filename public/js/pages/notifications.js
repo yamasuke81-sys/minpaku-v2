@@ -131,6 +131,23 @@ const NotificationsPage = {
         </div>
       </div>
 
+      <!-- 通知の ON/OFF・送信先・本文は物件別のみ参照（2026-04-26 ポリシー変更）-->
+      <div class="alert alert-warning mb-3">
+        <div class="d-flex align-items-start gap-2">
+          <i class="bi bi-exclamation-triangle-fill fs-5 flex-shrink-0"></i>
+          <div class="flex-grow-1">
+            <strong>このページの「通知のON/OFF」「送信先」「本文テンプレ」は運用に反映されません</strong>
+            <p class="small mb-2 mt-1">
+              通知の有効/無効・宛先・カスタムメッセージはすべて
+              <a href="#/reservation-flow"><strong>予約フロー構成</strong></a> /
+              <a href="#/cleaning-flow"><strong>清掃フロー構成</strong></a> の物件別カードに統合されました。
+              このページの設定値は無視されます。下記の各通知種別カードは参考表示のみです。
+            </p>
+            <small class="text-muted">Webアプリ管理者の個別通知先（メール/Discord）など個人設定はここで編集します。</small>
+          </div>
+        </div>
+      </div>
+
       <!-- LINE 通知は物件ごとに設定する方針に変更 (2026-04-19) -->
       <div class="alert alert-primary mb-3">
         <div class="d-flex align-items-start gap-2">

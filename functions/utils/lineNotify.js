@@ -306,81 +306,43 @@ async function _sendOwnerLine_(settings, fallbackToken, fallbackUserId, text) {
  * @returns {{ enabled: boolean, ownerLine: boolean, groupLine: boolean, staffLine: boolean, ownerEmail: boolean, fcmStaff: boolean, fcmOwner: boolean, sendToGroup: boolean, sendToIndividual: boolean }}
  */
 function resolveNotifyTargets(settings, notifyType, propertyOverrides = {}) {
-  const defaults = { enabled: true, ownerLine: true, groupLine: false, staffLine: false, ownerEmail: false, discordOwner: false, discordSubOwner: false, fcmStaff: false, fcmOwner: false, sendToGroup: false, sendToIndividual: true };
-  if (!settings || !settings.channels) return defaults;
-  const ch = settings.channels[notifyType] || {};
-
-  // 物件別オーバーライド: channelOverrides[notifyType] の値（undefined でなければ優先）
-  const ov = (propertyOverrides && typeof propertyOverrides === "object")
-    ? (propertyOverrides[notifyType] || {})
-    : {};
-
-  // 各フィールドの解決: 物件別 → グローバル → デフォルト の優先順位
-  const pick = (key, defaultVal) => {
-    if (ov[key] !== undefined) return ov[key];
-    if (ch[key] !== undefined) return ch[key];
-    return defaultVal;
+  // 「物件別のみ参照」ポリシー (2026-04-26 〜)
+  // - settings/notifications.channels (グローバル設定) は参照しない
+  // - properties/{pid}.channelOverrides[notifyType] のみで判定
+  // - 物件別に設定がない / enabled=false の場合は全チャネル OFF (送信しない)
+  const allOff = {
+    enabled: false,
+    ownerLine: false, groupLine: false, staffLine: false, staffEmail: false, ownerEmail: false,
+    subOwnerLine: false, subOwnerEmail: false, discordOwner: false, discordSubOwner: false,
+    fcmStaff: false, fcmOwner: false,
+    sendToGroup: false, sendToIndividual: false,
   };
 
-  // enabled の判定（物件別 > グローバル > デフォルト true）
-  const resolvedEnabled = pick("enabled", true);
-  if (resolvedEnabled === false) {
-    return { enabled: false, ownerLine: false, groupLine: false, staffLine: false, staffEmail: false, ownerEmail: false, subOwnerLine: false, subOwnerEmail: false, discordOwner: false, discordSubOwner: false, fcmStaff: false, fcmOwner: false, sendToGroup: false, sendToIndividual: false };
-  }
+  const ov = (propertyOverrides && typeof propertyOverrides === "object")
+    ? propertyOverrides[notifyType]
+    : null;
+  if (!ov || typeof ov !== "object") return allOff;
+  if (ov.enabled === false) return allOff;
 
-  // 新形式: ownerLine / groupLine / staffLine / staffEmail / ownerEmail / subOwnerLine / subOwnerEmail / discordOwner / discordSubOwner / fcmStaff / fcmOwner
-  const hasNewFormat = ch.ownerLine !== undefined || ch.groupLine !== undefined || ch.staffLine !== undefined
-    || ch.ownerEmail !== undefined || ch.subOwnerLine !== undefined || ch.subOwnerEmail !== undefined
-    || ch.staffEmail !== undefined
-    || ch.discordOwner !== undefined || ch.discordSubOwner !== undefined
-    || ch.fcmStaff !== undefined || ch.fcmOwner !== undefined
-    || ov.ownerLine !== undefined || ov.groupLine !== undefined || ov.staffLine !== undefined
-    || ov.ownerEmail !== undefined;
+  const ownerLine       = !!ov.ownerLine;
+  const groupLine       = !!ov.groupLine;
+  const staffLine       = !!ov.staffLine;
+  const staffEmail      = !!ov.staffEmail;
+  const ownerEmail      = !!ov.ownerEmail;
+  const subOwnerLine    = !!ov.subOwnerLine;
+  const subOwnerEmail   = !!ov.subOwnerEmail;
+  const discordOwner    = !!ov.discordOwner;
+  const discordSubOwner = !!ov.discordSubOwner;
+  const fcmStaff        = !!ov.fcmStaff;
+  const fcmOwner        = !!ov.fcmOwner;
 
-  if (hasNewFormat) {
-    const ownerLine = pick("ownerLine", true) !== false;
-    const groupLine = !!pick("groupLine", false);
-    const staffLine = !!pick("staffLine", false);
-    const staffEmail = !!pick("staffEmail", false);
-    const ownerEmail = !!pick("ownerEmail", false);
-    const subOwnerLine = !!pick("subOwnerLine", false);
-    const subOwnerEmail = !!pick("subOwnerEmail", false);
-    const discordOwner = !!pick("discordOwner", false);
-    const discordSubOwner = !!pick("discordSubOwner", false);
-    // FCMチャネル（Web Push）
-    const fcmStaff = !!pick("fcmStaff", false);
-    const fcmOwner = !!pick("fcmOwner", false);
-    return {
-      enabled: true,
-      ownerLine,
-      groupLine,
-      staffLine,
-      staffEmail,
-      ownerEmail,
-      subOwnerLine,
-      subOwnerEmail,
-      discordOwner,
-      discordSubOwner,
-      fcmStaff,
-      fcmOwner,
-      // 後方互換
-      sendToGroup: groupLine,
-      sendToIndividual: staffLine,
-    };
-  }
-
-  // 旧形式互換: targets ("both"/"group"/"individual")
-  const targets = ch.targets || "both";
   return {
     enabled: true,
-    ownerLine: targets === "both" || targets === "individual",
-    groupLine: targets === "both" || targets === "group",
-    staffLine: targets === "both" || targets === "individual",
-    ownerEmail: !!(ch.channel === "email" || ch.channel === "both"),
-    fcmStaff: false,
-    fcmOwner: false,
-    sendToGroup: targets === "both" || targets === "group",
-    sendToIndividual: targets === "both" || targets === "individual",
+    ownerLine, groupLine, staffLine, staffEmail, ownerEmail,
+    subOwnerLine, subOwnerEmail, discordOwner, discordSubOwner,
+    fcmStaff, fcmOwner,
+    sendToGroup: groupLine,
+    sendToIndividual: staffLine,
   };
 }
 
@@ -400,16 +362,11 @@ function resolveNotifyTargets(settings, notifyType, propertyOverrides = {}) {
 async function resolveMessage_(db, type, fallback, vars, propertyOverrides) {
   try {
     if (typeof fallback !== "string") return fallback; // Flex等はカスタム対象外
-    const doc = await db.collection("settings").doc("notifications").get();
-    const globalCh = doc.exists ? ((doc.data().channels || {})[type] || {}) : {};
-
-    // 物件別オーバーライドの customMessage を優先
+    // 「物件別のみ参照」ポリシー: グローバル settings.channels の customMessage は参照しない
     const propOv = (propertyOverrides && typeof propertyOverrides === "object")
       ? (propertyOverrides[type] || {})
       : {};
-    const customMessage = propOv.customMessage !== undefined
-      ? propOv.customMessage
-      : globalCh.customMessage;
+    const customMessage = propOv.customMessage;
 
     if (!customMessage || !String(customMessage).trim()) return fallback;
     let msg = String(customMessage);
@@ -1084,11 +1041,11 @@ async function notifyByKey(db, notifyKey, options = {}) {
   }
 
   // 3. customMessage で本文置換 (string body のみ対象)
+  // 「物件別のみ参照」ポリシー: グローバル settings.channels.customMessage は参照しない
   let resolvedBody = body;
   if (typeof body === "string") {
     const ovCh = (propertyOverrides && propertyOverrides[notifyKey]) || {};
-    const globalCh = (settings.channels && settings.channels[notifyKey]) || {};
-    const customMessage = ovCh.customMessage !== undefined ? ovCh.customMessage : globalCh.customMessage;
+    const customMessage = ovCh.customMessage;
     if (customMessage && String(customMessage).trim()) {
       let msg = String(customMessage);
       Object.keys(vars || {}).forEach(k => {
