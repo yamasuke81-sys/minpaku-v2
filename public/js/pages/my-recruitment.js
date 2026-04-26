@@ -105,6 +105,33 @@ const MyRecruitmentPage = {
           </div>
         </div>
       </div>
+
+      <!-- GAS版カレンダー 参照パネル（移行期間中） -->
+      <div class="mb-2">
+        <button class="btn btn-sm btn-link text-muted p-0 text-decoration-none" type="button"
+          data-bs-toggle="collapse" data-bs-target="#myCalGasEmbed" aria-expanded="false">
+          <i class="bi bi-calendar2-week"></i> GAS版カレンダー（旧アプリ参照用） ▼
+        </button>
+        <div class="collapse" id="myCalGasEmbed">
+          <div class="mt-2 p-2 border rounded bg-light">
+            <div class="d-flex align-items-center gap-2 mb-2" style="font-size:13px;color:#6c757d;">
+              <i class="bi bi-info-circle text-warning"></i>
+              <span>GAS版（旧アプリ）— 移行中の参照用</span>
+              <a href="https://script.google.com/macros/s/AKfycbzfOEVVpybSZLZe-htulSn-j4wL0pYhyLyAk-Vmz0j9N_3LtAshQiq8GRP0BSDsS8eHdw/exec"
+                 target="_blank" rel="noopener" class="ms-auto btn btn-sm btn-outline-secondary" style="font-size:12px;">
+                <i class="bi bi-box-arrow-up-right"></i> 新しいタブで開く
+              </a>
+            </div>
+            <iframe
+              src="https://script.google.com/macros/s/AKfycbzfOEVVpybSZLZe-htulSn-j4wL0pYhyLyAk-Vmz0j9N_3LtAshQiq8GRP0BSDsS8eHdw/exec"
+              style="width:100%;height:800px;border:1px solid #dee2e6;border-radius:4px;"
+              loading="lazy"
+              title="GAS版民泊管理アプリ（移行期間中の参照用）">
+            </iframe>
+          </div>
+        </div>
+      </div>
+
       <style>
         #myCalContainer .col-resizer { opacity:0; transition:opacity 0.15s; }
         #myCalContainer .col-resizer:hover, #myCalContainer .col-resizer:active { opacity:1; }

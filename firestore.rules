@@ -213,6 +213,10 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow write: if isOwner();
     }
+    // GAS版差分チェック設定 — オーナーのみ読み書き可
+    match /settings/gasComparison {
+      allow read, write: if isOwner();
+    }
     match /settings/{document=**} {
       allow read, write: if isOwner();
     }

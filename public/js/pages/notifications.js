@@ -298,6 +298,93 @@ const NotificationsPage = {
           </div>
         </div>
       </div>
+
+      <!-- GAS版データ差分チェック -->
+      <h6 class="text-muted mb-2"><i class="bi bi-arrow-left-right"></i> GAS版データ差分チェック</h6>
+      <div class="card mb-4" id="gasComparisonCard">
+        <div class="card-header d-flex align-items-center gap-2">
+          <i class="bi bi-arrow-left-right text-warning"></i>
+          <strong class="me-auto">GAS版との予約データ差分チェック</strong>
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" id="gasCompEnabled" role="switch">
+            <label class="form-check-label small" for="gasCompEnabled">有効</label>
+          </div>
+        </div>
+        <div class="card-body">
+          <p class="small text-muted mb-3">
+            民泊v2 への移行期間中、GAS版（旧アプリ）との予約データを自動で突合し、差分がある場合にメールで通知します。
+          </p>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label small mb-1">GAS版 URL <span class="text-danger">*</span></label>
+              <input type="url" class="form-control form-control-sm" id="gasCompUrl"
+                placeholder="https://script.google.com/macros/s/.../exec">
+              <div class="form-text">GAS版アプリの /exec URL</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small mb-1">GAS版 APIトークン <span class="text-danger">*</span></label>
+              <input type="password" class="form-control form-control-sm" id="gasCompToken"
+                placeholder="WIDGET_API_TOKEN の値">
+              <div class="form-text">GAS版スクリプトプロパティ <code>WIDGET_API_TOKEN</code></div>
+            </div>
+            <div class="col-12">
+              <label class="form-label small mb-1">通知先メールアドレス（カンマ区切りで複数指定可）</label>
+              <input type="text" class="form-control form-control-sm" id="gasCompRecipients"
+                placeholder="owner@example.com, admin@example.com">
+            </div>
+
+            <!-- チェックモード -->
+            <div class="col-12">
+              <label class="form-label small mb-1">チェックモード</label>
+              <div class="d-flex flex-column gap-2">
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="gasCompMode" id="gasCompModeDaily" value="daily" checked>
+                  <label class="form-check-label" for="gasCompModeDaily">
+                    <strong>毎日まとめてチェック</strong>
+                  </label>
+                </div>
+                <div class="ps-4 d-flex flex-wrap gap-3 align-items-center" id="gasDailyOptions">
+                  <div>
+                    <label class="form-label small mb-1">実行時刻 (JST)</label>
+                    <input type="time" class="form-control form-control-sm" id="gasCompDailyTime" value="09:00" style="width:120px;">
+                  </div>
+                  <div>
+                    <label class="form-label small mb-1">チェック範囲（今日から N 日先）</label>
+                    <input type="number" class="form-control form-control-sm" id="gasCompDaysAhead" value="30" min="1" max="365" style="width:100px;">
+                  </div>
+                </div>
+
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="gasCompMode" id="gasCompModeBefore" value="before_checkout">
+                  <label class="form-check-label" for="gasCompModeBefore">
+                    <strong>チェックアウト N 日前にチェック</strong>
+                  </label>
+                </div>
+                <div class="ps-4 d-flex flex-wrap gap-3 align-items-center" id="gasBeforeOptions" style="display:none!important;">
+                  <div>
+                    <label class="form-label small mb-1">チェックアウトの何日前</label>
+                    <input type="number" class="form-control form-control-sm" id="gasCompDaysBefore" value="1" min="0" max="30" style="width:100px;">
+                  </div>
+                  <div>
+                    <label class="form-label small mb-1">実行時刻 (JST)</label>
+                    <input type="time" class="form-control form-control-sm" id="gasCompBeforeTime" value="18:00" style="width:120px;">
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="d-flex gap-2 mt-3">
+            <button class="btn btn-sm btn-primary" id="btnSaveGasComp">
+              <i class="bi bi-check-lg"></i> 保存
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" id="btnTestGasComp">
+              <i class="bi bi-play-circle"></i> テスト実行（今すぐ1回比較）
+            </button>
+            <span id="gasCompSaveStatus" class="small align-self-center ms-1"></span>
+          </div>
+        </div>
+      </div>
     `;
 
     await this.loadSettings();
@@ -324,6 +411,48 @@ const NotificationsPage = {
     } catch (e) {
       this.settings = {};
     }
+
+    // GAS版差分チェック設定を読み込む
+    try {
+      const gasDoc = await db.collection("settings").doc("gasComparison").get();
+      const gc = gasDoc.exists ? gasDoc.data() : {};
+      const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ""; };
+      const setChk = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
+      setChk("gasCompEnabled", gc.enabled);
+      setVal("gasCompUrl", gc.gasUrl);
+      setVal("gasCompToken", gc.gasToken);
+      setVal("gasCompRecipients", Array.isArray(gc.recipients) ? gc.recipients.join(", ") : (gc.recipients || ""));
+      setVal("gasCompDailyTime", gc.dailyTime || "09:00");
+      setVal("gasCompDaysAhead", gc.daysAhead || 30);
+      setVal("gasCompDaysBefore", gc.daysBefore || 1);
+      setVal("gasCompBeforeTime", gc.beforeTime || "18:00");
+      // モードラジオ
+      const mode = gc.mode || "daily";
+      const radioEl = document.querySelector(`input[name="gasCompMode"][value="${mode}"]`);
+      if (radioEl) radioEl.checked = true;
+      // オプション表示切り替え
+      this._toggleGasCompMode(mode);
+    } catch (_) {}
+
+    // モード切替イベント
+    document.querySelectorAll('input[name="gasCompMode"]').forEach(r => {
+      r.addEventListener("change", () => this._toggleGasCompMode(r.value));
+    });
+
+    // GAS設定 保存ボタン
+    const saveGasBtn = document.getElementById("btnSaveGasComp");
+    if (saveGasBtn && !saveGasBtn._bound) {
+      saveGasBtn._bound = true;
+      saveGasBtn.addEventListener("click", () => this.saveGasComparisonSettings());
+    }
+
+    // GAS設定 テスト実行ボタン
+    const testGasBtn = document.getElementById("btnTestGasComp");
+    if (testGasBtn && !testGasBtn._bound) {
+      testGasBtn._bound = true;
+      testGasBtn.addEventListener("click", () => this.runTestGasComparison());
+    }
+
     document.getElementById("lineChannelToken").value = this.settings.lineChannelToken || this.settings.lineToken || "";
     document.getElementById("lineGroupId").value = this.settings.lineGroupId || "";
     document.getElementById("lineOwnerUserId").value = this.settings.lineOwnerUserId || this.settings.lineOwnerId || "";
@@ -1110,6 +1239,69 @@ const NotificationsPage = {
     if (/401|Unauthorized/.test(s)) return "認証エラー(ログインし直してください)";
     if (/fetch|network|ENOTFOUND/i.test(s)) return "ネットワークエラー";
     return s.slice(0, 160);
+  },
+
+  // GAS差分チェック: モード切替でオプション表示を制御
+  _toggleGasCompMode(mode) {
+    const dailyEl = document.getElementById("gasDailyOptions");
+    const beforeEl = document.getElementById("gasBeforeOptions");
+    if (dailyEl) dailyEl.style.display = mode === "daily" ? "" : "none";
+    if (beforeEl) beforeEl.style.display = mode === "before_checkout" ? "" : "none";
+  },
+
+  // GAS差分チェック設定を Firestore に保存
+  async saveGasComparisonSettings() {
+    const statusEl = document.getElementById("gasCompSaveStatus");
+    if (statusEl) statusEl.innerHTML = '<span class="text-muted">保存中...</span>';
+    try {
+      const recipients = (document.getElementById("gasCompRecipients")?.value || "")
+        .split(",").map(s => s.trim()).filter(Boolean);
+      const mode = document.querySelector('input[name="gasCompMode"]:checked')?.value || "daily";
+      const data = {
+        enabled: document.getElementById("gasCompEnabled")?.checked || false,
+        gasUrl: (document.getElementById("gasCompUrl")?.value || "").trim(),
+        gasToken: (document.getElementById("gasCompToken")?.value || "").trim(),
+        recipients,
+        mode,
+        dailyTime: (document.getElementById("gasCompDailyTime")?.value || "09:00"),
+        daysAhead: parseInt(document.getElementById("gasCompDaysAhead")?.value || "30", 10),
+        daysBefore: parseInt(document.getElementById("gasCompDaysBefore")?.value || "1", 10),
+        beforeTime: (document.getElementById("gasCompBeforeTime")?.value || "18:00"),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      };
+      await db.collection("settings").doc("gasComparison").set(data, { merge: true });
+      if (statusEl) statusEl.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> 保存しました</span>';
+      showToast("完了", "GAS差分チェック設定を保存しました", "success");
+    } catch (e) {
+      if (statusEl) statusEl.innerHTML = `<span class="text-danger">保存失敗: ${e.message}</span>`;
+      showToast("エラー", e.message, "error");
+    }
+  },
+
+  // GAS差分チェック: テスト実行（callable function 呼び出し）
+  async runTestGasComparison() {
+    const btn = document.getElementById("btnTestGasComp");
+    if (!btn) return;
+    btn.disabled = true;
+    const origHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 実行中...';
+    try {
+      // まず現在の設定を保存してから実行
+      await this.saveGasComparisonSettings();
+
+      const callTestGasComparison = firebase.functions().httpsCallable("testGasComparison");
+      const result = await callTestGasComparison({});
+      const d = result.data || {};
+      const msg = d.total > 0
+        ? `差分 ${d.total}件（GASのみ:${d.gasOnly} / v2のみ:${d.v2Only} / ゲスト名不一致:${d.mismatches}）— メール送信${d.sent ? "完了" : "スキップ（送信先未設定）"}`
+        : "差分なし（両システムの予約データは一致しています）";
+      showToast("テスト実行完了", msg, d.total > 0 ? "warning" : "success");
+    } catch (e) {
+      showToast("エラー", e.message || "テスト実行に失敗しました", "error");
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
   },
 
   // ページ全体の input/change イベントを監視して debounced で自動保存
