@@ -1334,8 +1334,9 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
     const dateStr = toDateStr(s.date);
     let category = "";
     if (s.workType === "cleaning_by_count") {
-      const reqCount = await getReqCount(s.propertyId);
-      category = reqCount >= 2 ? "清掃2人作業" : "清掃1人作業";
+      // 実際の確定スタッフ人数で項目名を決定 (物件設定 cleaningRequiredCount ではなく実態優先)
+      const cnt = s.staffCountOnDay || 1;
+      category = `清掃${cnt}人作業`;
     } else if (s.workType === "pre_inspection") {
       category = "直前点検";
     } else if (s.workType === "laundry_put_out") {
