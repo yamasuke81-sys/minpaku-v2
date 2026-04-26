@@ -109,6 +109,15 @@
       ]
     },
     {
+      "collectionGroup": "shifts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "propertyId", "order": "ASCENDING" },
+        { "fieldPath": "workType", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "recruitments",
       "queryScope": "COLLECTION",
       "fields": [
@@ -124,6 +133,16 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "checkoutDate", "order": "ASCENDING" },
         { "fieldPath": "workType", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "recruitments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "propertyId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "workType", "order": "ASCENDING" },
+        { "fieldPath": "checkoutDate", "order": "ASCENDING" }
       ]
     },
     {
