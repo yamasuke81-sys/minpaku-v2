@@ -774,7 +774,81 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
   const rawShiftsMap = new Map();
   snap1.docs.forEach(d => rawShiftsMap.set(d.id, { id: d.id, ...d.data() }));
   snap2.docs.forEach(d => rawShiftsMap.set(d.id, { id: d.id, ...d.data() }));
-  const rawShifts = Array.from(rawShiftsMap.values());
+  const allRawShifts = Array.from(rawShiftsMap.values());
+
+  /**
+   * 【修正2】シフトを請求対象にする前に recruitment 確定者チェックを行う
+   * - propertyId + dateStr + workType で該当 recruitment を検索
+   * - 確定済みの selectedStaffIds に staffId が含まれていないシフトは除外
+   * - shifts に古いデータが残っていても、recruitment 側で外されていれば請求書に出ない
+   * 変更前: rawShifts をそのまま全件集計（外されたスタッフも請求書に上がる）
+   * 変更後: recruitment 確定者に含まれるシフトのみ集計
+   */
+  const recruitmentConfirmedCache = {};
+  const isConfirmedInRecruitment = async (shiftData) => {
+    const pid = shiftData.propertyId;
+    const wt = shiftData.workType || "cleaning_by_count";
+    const dateStr = shiftData.date
+      ? (shiftData.date.toDate ? shiftData.date.toDate() : new Date(shiftData.date)).toISOString().slice(0, 10)
+      : null;
+    if (!pid || !dateStr) return true; // 判定不能はスキップせず通す
+
+    const cacheKey = `${pid}|${dateStr}|${wt}`;
+    if (recruitmentConfirmedCache[cacheKey] === undefined) {
+      try {
+        // string 形式で検索
+        let qR = db.collection("recruitments")
+          .where("propertyId", "==", pid)
+          .where("status", "==", "スタッフ確定済み")
+          .where("checkoutDate", "==", dateStr)
+          .where("workType", "==", wt);
+        const snapR = await qR.get();
+
+        // Timestamp 形式で検索（混在対応）
+        const dayStart = new Date(`${dateStr}T00:00:00+09:00`);
+        const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+        let qR2 = db.collection("recruitments")
+          .where("propertyId", "==", pid)
+          .where("status", "==", "スタッフ確定済み")
+          .where("checkoutDate", ">=", dayStart)
+          .where("checkoutDate", "<", dayEnd)
+          .where("workType", "==", wt);
+        const snapR2 = await qR2.get();
+
+        const confirmedIds = new Set();
+        const addIds = (snap) => snap.docs.forEach(d => {
+          const r = d.data();
+          if (Array.isArray(r.selectedStaffIds)) {
+            r.selectedStaffIds.forEach(id => { if (id) confirmedIds.add(id); });
+          }
+        });
+        addIds(snapR);
+        addIds(snapR2);
+
+        // 該当 recruitment がなければ (古い shifts のみ存在) 空セットのまま
+        recruitmentConfirmedCache[cacheKey] = confirmedIds;
+      } catch (e) {
+        console.warn("recruitment 確定者チェック失敗 (スキップせず通す):", e.message);
+        recruitmentConfirmedCache[cacheKey] = null; // null=チェック不能→通す
+      }
+    }
+
+    const confirmedIds = recruitmentConfirmedCache[cacheKey];
+    if (!confirmedIds) return true; // チェック不能は通す
+    if (confirmedIds.size === 0) return true; // recruitment なし=shifts のみ=通す
+    return confirmedIds.has(staffId);
+  };
+
+  // recruitment 確定者チェックを経て集計対象シフトを絞り込む
+  const rawShifts = [];
+  for (const shift of allRawShifts) {
+    const confirmed = await isConfirmedInRecruitment(shift);
+    if (confirmed) {
+      rawShifts.push(shift);
+    } else {
+      console.log(`[請求除外] shiftId=${shift.id} staffId=${staffId} は recruitment 確定者に含まれていないため除外`);
+    }
+  }
 
   // ランドリー取得 (isReimbursable === true のみ計上。propertyId フィルタ適用)
   let laundryQuery = db.collection("laundry")
@@ -869,37 +943,60 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
     return bookingCache[bookingId];
   };
 
-  // 同日同物件で active 状態のスタッフ数を取得 (階段制単価の段位選択に使用)
-  // active = status が assigned / confirmed / completed のいずれか
-  // workType も同じ cleaning_by_count に限定 (清掃と直前点検は別カウント)
-  const ACTIVE_SHIFT_STATUSES = ["assigned", "confirmed", "completed"];
+  /**
+   * 同日同物件の確定スタッフ人数を返す（階段制単価の段位選択に使用）
+   * 【修正】shifts.staffIds ではなく recruitments.selectedStaffIds を正として参照する
+   *        shifts.staffIds は古いデータが残っている可能性があるため信頼しない
+   * 変更前: shifts コレクションの staffIds/staffId を集計 → 人数が常に1になるバグあり
+   * 変更後: recruitments コレクションの selectedStaffIds を集計 → 確定済みスタッフのみ正確に反映
+   * @param {string} dateStr - "YYYY-MM-DD"
+   * @param {string} pid - propertyId
+   * @param {string} workType - "cleaning_by_count" | "pre_inspection" 等
+   * @returns {Promise<number>} 確定スタッフ数（最低1）
+   */
   const staffCountCache = {};
   const getStaffCountForDateProperty = async (dateStr, pid, workType) => {
     if (!dateStr || !pid) return 1;
     const cacheKey = `${dateStr}|${pid}|${workType}`;
     if (staffCountCache[cacheKey] !== undefined) return staffCountCache[cacheKey];
     try {
-      // date は Timestamp で保存されているため、その日の 00:00 〜 翌日 00:00 で範囲検索
+      // recruitments は checkoutDate を string ("YYYY-MM-DD") で保存
+      // ただし Timestamp で保存されている可能性もあるため、両パターンで取得してマージ
+      const recruitmentsRef = db.collection("recruitments");
+
+      // string 形式クエリ
+      let q = recruitmentsRef
+        .where("propertyId", "==", pid)
+        .where("status", "==", "スタッフ確定済み")
+        .where("checkoutDate", "==", dateStr);
+      if (workType) q = q.where("workType", "==", workType);
+      const snapStr = await q.get();
+
+      // Timestamp 形式クエリ（checkoutDate が Timestamp で保存されている場合の対応）
       const dayStart = new Date(`${dateStr}T00:00:00+09:00`);
       const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
-      const snap = await db.collection("shifts")
+      let q2 = recruitmentsRef
         .where("propertyId", "==", pid)
-        .where("date", ">=", dayStart)
-        .where("date", "<", dayEnd)
-        .get();
-      const staffIds = new Set();
-      snap.docs.forEach(d => {
-        const s = d.data();
-        if (!ACTIVE_SHIFT_STATUSES.includes(s.status)) return;
-        if (workType && s.workType && s.workType !== workType) return;
-        // staffIds 配列(複数スタッフ確定)優先、無ければ staffId 単一を使用
-        if (Array.isArray(s.staffIds) && s.staffIds.length) {
-          s.staffIds.forEach(id => { if (id) staffIds.add(id); });
-        } else if (s.staffId) {
-          staffIds.add(s.staffId);
-        }
-      });
-      const count = Math.max(staffIds.size, 1);
+        .where("status", "==", "スタッフ確定済み")
+        .where("checkoutDate", ">=", dayStart)
+        .where("checkoutDate", "<", dayEnd);
+      if (workType) q2 = q2.where("workType", "==", workType);
+      const snapTs = await q2.get();
+
+      // 両クエリの結果をマージして selectedStaffIds を集約
+      const confirmedStaffIds = new Set();
+      const processSnap = (snap) => {
+        snap.docs.forEach(d => {
+          const r = d.data();
+          if (Array.isArray(r.selectedStaffIds)) {
+            r.selectedStaffIds.forEach(id => { if (id) confirmedStaffIds.add(id); });
+          }
+        });
+      };
+      processSnap(snapStr);
+      processSnap(snapTs);
+
+      const count = Math.max(confirmedStaffIds.size, 1);
       staffCountCache[cacheKey] = count;
       return count;
     } catch (e) {

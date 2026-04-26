@@ -357,11 +357,16 @@ module.exports = function recruitmentApi(db) {
         console.error("確定通知エラー（無視）:", notifyErr);
       }
 
-      // shift upsert: propertyId + checkoutDate で検索し、なければ作成・あれば更新
+      // shift upsert: propertyId + checkoutDate + workType で検索し、なければ作成・あれば更新
+      // 【修正3】workType 条件を追加 — 同日に清掃と直前点検が両方ある場合に互いを上書きしないようにする
+      // 変更前: propertyId + date のみで検索 → 異なる workType の shift を誤って上書きしていた
+      // 変更後: workType も条件に加えて正しい shift のみ更新する
       try {
+        const targetWorkType = data.workType === "pre_inspection" ? "pre_inspection" : "cleaning_by_count";
         const shiftSnap = await db.collection("shifts")
           .where("propertyId", "==", data.propertyId)
           .where("date", "==", new Date(data.checkoutDate))
+          .where("workType", "==", targetWorkType)
           .limit(1)
           .get();
 
