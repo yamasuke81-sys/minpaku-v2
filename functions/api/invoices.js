@@ -796,12 +796,19 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
     const cacheKey = `${pid}|${dateStr}|${wt}`;
     if (recruitmentConfirmedCache[cacheKey] === undefined) {
       try {
+        // shift workType → recruitment workType マッピング
+        // shift: "cleaning_by_count" / recruitment: "cleaning"
+        const recruitmentWts = wt === "cleaning_by_count"
+          ? ["cleaning", "cleaning_by_count"]
+          : [wt];
+
         // string 形式で検索
         let qR = db.collection("recruitments")
           .where("propertyId", "==", pid)
           .where("status", "==", "スタッフ確定済み")
-          .where("checkoutDate", "==", dateStr)
-          .where("workType", "==", wt);
+          .where("checkoutDate", "==", dateStr);
+        if (recruitmentWts.length === 1) qR = qR.where("workType", "==", recruitmentWts[0]);
+        else qR = qR.where("workType", "in", recruitmentWts);
         const snapR = await qR.get();
 
         // Timestamp 形式で検索（混在対応）
@@ -811,8 +818,9 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
           .where("propertyId", "==", pid)
           .where("status", "==", "スタッフ確定済み")
           .where("checkoutDate", ">=", dayStart)
-          .where("checkoutDate", "<", dayEnd)
-          .where("workType", "==", wt);
+          .where("checkoutDate", "<", dayEnd);
+        if (recruitmentWts.length === 1) qR2 = qR2.where("workType", "==", recruitmentWts[0]);
+        else qR2 = qR2.where("workType", "in", recruitmentWts);
         const snapR2 = await qR2.get();
 
         const confirmedIds = new Set();
@@ -955,21 +963,32 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
    * @returns {Promise<number>} 確定スタッフ数（最低1）
    */
   const staffCountCache = {};
+  // shift の workType と recruitment の workType の名称が異なるためマッピング
+  // shift: "cleaning_by_count" / "pre_inspection"
+  // recruitment: "cleaning" / "pre_inspection"
+  const mapShiftWorkTypeToRecruitment = (wt) => {
+    if (wt === "cleaning_by_count") return ["cleaning", "cleaning_by_count"];
+    if (wt === "pre_inspection") return ["pre_inspection"];
+    return wt ? [wt] : null;
+  };
   const getStaffCountForDateProperty = async (dateStr, pid, workType) => {
     if (!dateStr || !pid) return 1;
     const cacheKey = `${dateStr}|${pid}|${workType}`;
     if (staffCountCache[cacheKey] !== undefined) return staffCountCache[cacheKey];
     try {
-      // recruitments は checkoutDate を string ("YYYY-MM-DD") で保存
-      // ただし Timestamp で保存されている可能性もあるため、両パターンで取得してマージ
       const recruitmentsRef = db.collection("recruitments");
+      const recruitmentWorkTypes = mapShiftWorkTypeToRecruitment(workType);
 
-      // string 形式クエリ
+      // string 形式クエリ (workType は in クエリで複数候補対応)
       let q = recruitmentsRef
         .where("propertyId", "==", pid)
         .where("status", "==", "スタッフ確定済み")
         .where("checkoutDate", "==", dateStr);
-      if (workType) q = q.where("workType", "==", workType);
+      if (recruitmentWorkTypes && recruitmentWorkTypes.length === 1) {
+        q = q.where("workType", "==", recruitmentWorkTypes[0]);
+      } else if (recruitmentWorkTypes && recruitmentWorkTypes.length > 1) {
+        q = q.where("workType", "in", recruitmentWorkTypes);
+      }
       const snapStr = await q.get();
 
       // Timestamp 形式クエリ（checkoutDate が Timestamp で保存されている場合の対応）
@@ -980,7 +999,11 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
         .where("status", "==", "スタッフ確定済み")
         .where("checkoutDate", ">=", dayStart)
         .where("checkoutDate", "<", dayEnd);
-      if (workType) q2 = q2.where("workType", "==", workType);
+      if (recruitmentWorkTypes && recruitmentWorkTypes.length === 1) {
+        q2 = q2.where("workType", "==", recruitmentWorkTypes[0]);
+      } else if (recruitmentWorkTypes && recruitmentWorkTypes.length > 1) {
+        q2 = q2.where("workType", "in", recruitmentWorkTypes);
+      }
       const snapTs = await q2.get();
 
       // 両クエリの結果をマージして selectedStaffIds を集約
