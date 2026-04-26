@@ -784,7 +784,7 @@ const MyChecklistPage = {
         const staffIds = new Set();
         shiftsSnap.docs.forEach(d => {
           const s = d.data();
-          (s.selectedStaffIds || (s.staffId ? [s.staffId] : [])).forEach(id => staffIds.add(id));
+          (s.staffIds || (s.staffId ? [s.staffId] : [])).forEach(id => staffIds.add(id));
         });
         if (staffIds.size > 0) {
           const staffSnaps = await Promise.all(
