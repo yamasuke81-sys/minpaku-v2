@@ -106,7 +106,8 @@ const MyRecruitmentPage = {
         </div>
       </div>
 
-      <!-- GAS版カレンダー 参照パネル（移行期間中） -->
+      ${this.isOwnerView ? `
+      <!-- GAS版カレンダー 参照パネル（移行期間中・オーナーのみ） -->
       <div class="mb-2">
         <button class="btn btn-sm btn-link text-muted p-0 text-decoration-none" type="button"
           data-bs-toggle="collapse" data-bs-target="#myCalGasEmbed" aria-expanded="false">
@@ -131,6 +132,7 @@ const MyRecruitmentPage = {
           </div>
         </div>
       </div>
+      ` : ''}
 
       <style>
         #myCalContainer .col-resizer { opacity:0; transition:opacity 0.15s; }
