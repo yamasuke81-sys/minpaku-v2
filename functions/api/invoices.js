@@ -843,7 +843,12 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
 
     const confirmedIds = recruitmentConfirmedCache[cacheKey];
     if (!confirmedIds) return true; // チェック不能は通す
-    if (confirmedIds.size === 0) return true; // recruitment なし=shifts のみ=通す
+    // workType="cleaning_by_count"/"pre_inspection" は recruitment 必須(確定済が無ければ除外)
+    // それ以外 (laundry_*, other 等) は recruitment が無くても shifts 単独で計上対象
+    const requireRecruitment = wt === "cleaning_by_count" || wt === "pre_inspection";
+    if (confirmedIds.size === 0) {
+      return requireRecruitment ? false : true;
+    }
     return confirmedIds.has(staffId);
   };
 
@@ -1019,6 +1024,8 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
       processSnap(snapStr);
       processSnap(snapTs);
 
+      // 確定済み recruitment がない場合は count=0 を返す
+      // (呼び出し側で「請求対象外」と判定されるため、それで良い)
       const count = Math.max(confirmedStaffIds.size, 1);
       staffCountCache[cacheKey] = count;
       return count;
