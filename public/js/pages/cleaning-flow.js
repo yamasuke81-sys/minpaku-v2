@@ -458,8 +458,7 @@ const CleaningFlowPage = {
       </div>
       <p class="text-muted small mb-3">
         Webアプリ管理者 / スタッフの3レーンで募集〜月末請求までの清掃フローを管理します。
-        🌐 バッジのステップは通知設定タブ・予約フロー画面と共有データです。
-        各カードを展開すると通知設定（文言・タイミング・送信先）を直接編集できます。
+        各カードを展開すると通知設定（文言・タイミング・送信先）をこの物件のみに保存できます。
       </p>
       ${this._renderStyles()}
       <!-- モバイルタブ -->
@@ -968,7 +967,7 @@ const CleaningFlowPage = {
     const key = step.globalChannel;
     return `
       <div class="rf-notif-editor mt-2" data-notif-key="${key}">
-        <div class="small text-muted mb-2"><i class="bi bi-bell"></i> 通知設定 (全物件共通・通知設定タブ・予約フロー画面と同期)</div>
+        <div class="small text-muted mb-2"><i class="bi bi-bell"></i> 通知設定（この物件のみ）</div>
 
         <!-- 送信先 -->
         <div class="mb-2">

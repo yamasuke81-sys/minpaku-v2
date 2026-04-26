@@ -238,10 +238,10 @@ const ReservationFlowPage = {
       linkLabel: "通知設定",
       // 詳細設定 (物件別保存: properties/{pid}.formCompleteMail.*)
       detailFields: [
-        { field: "formCompleteMail.enabled", label: "物件別テンプレートを使う（OFFなら通知設定タブの共通テンプレ）", type: "switch", default: false },
-        { field: "formCompleteMail.subject", label: "メール件名", type: "text",
+        { field: "formCompleteMail.enabled", label: "メール送信を有効にする（OFFなら宿泊者へ送信しない）", type: "switch", default: true },
+        { field: "formCompleteMail.subject", label: "メール件名（空欄ならデフォルト件名）", type: "text",
           placeholder: "例: 宿泊者情報のご登録ありがとうございました", default: "" },
-        { field: "formCompleteMail.body",    label: "メール本文", type: "textarea", rows: 6,
+        { field: "formCompleteMail.body",    label: "メール本文（空欄ならデフォルト本文）", type: "textarea", rows: 6,
           placeholder: "例:\n{{guestName}} 様\n\n宿泊者名簿のご登録ありがとうございました。\nキーボックス暗証番号: {{keyboxCode}}\n住所: {{propertyAddress}}\nWi-Fi: {{wifiInfo}}",
           default: "" },
       ],
@@ -1289,7 +1289,7 @@ const ReservationFlowPage = {
     const key = step.globalChannel;
     return `
       <div class="rf-notif-editor mt-2" data-notif-key="${key}">
-        <div class="small text-muted mb-2"><i class="bi bi-bell"></i> 通知設定 (全物件共通・通知設定タブと同期)</div>
+        <div class="small text-muted mb-2"><i class="bi bi-bell"></i> 通知設定（この物件のみ）</div>
 
         <!-- 📩 送信先 -->
         <div class="mb-2">
@@ -2163,9 +2163,9 @@ const ReservationFlowPage = {
           badge.innerHTML = `<i class="bi bi-shuffle"></i> 物件別`;
           badge.title = "この物件は個別設定で上書き中";
         } else {
-          badge.className = "badge bg-warning-subtle text-warning border border-warning-subtle ms-1 rf-sync-badge rf-override-badge";
-          badge.innerHTML = `<i class="bi bi-globe"></i> 全共通`;
-          badge.title = `settings/notifications.channels.${notifKey} (全物件共通・通知設定タブと同期)`;
+          badge.className = "badge bg-secondary-subtle text-secondary border border-secondary-subtle ms-1 rf-sync-badge rf-override-badge";
+          badge.innerHTML = `<i class="bi bi-dash-circle"></i> 未設定`;
+          badge.title = `この物件はまだ通知設定が空です。送信されません。`;
         }
       }
 

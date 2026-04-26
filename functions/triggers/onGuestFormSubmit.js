@@ -135,7 +135,9 @@ module.exports = async function onGuestFormSubmit(event) {
   void ownerSubjectOverride;
 
   // 2b. 宿泊者へのメール (from = 物件担当者、アプリ管理者にはフォールバックしない)
-  // 物件別 formCompleteMail.{enabled,subject,body} を読み込み、有効ならその内容で送信
+  // 物件別 formCompleteMail.{enabled,subject,body} のみ参照 (グローバル設定は参照しない)
+  // - enabled === false なら送信スキップ (default は送信)
+  // - subject / body 未入力ならビルトインのデフォルト件名・本文を使用
   let propFormCompleteMail = null;
   if (data.propertyId) {
     try {
@@ -143,7 +145,10 @@ module.exports = async function onGuestFormSubmit(event) {
       if (pDoc.exists) propFormCompleteMail = (pDoc.data() || {}).formCompleteMail || null;
     } catch (_) {}
   }
-  if (guestEmail) {
+  // この物件は完了メール送信を OFF にしている
+  if (propFormCompleteMail && propFormCompleteMail.enabled === false) {
+    console.log(`[onGuestFormSubmit] formCompleteMail.enabled=false のため完了メール送信スキップ`);
+  } else if (guestEmail) {
     if (!senderEmail) {
       const errMsg = "物件担当者 (staff.isSubOwner / isOwner) のメールが未設定のため宿泊者宛メールをスキップ";
       console.warn(errMsg);
@@ -161,17 +166,31 @@ module.exports = async function onGuestFormSubmit(event) {
       } catch (e2) { console.error("失敗通知の保存/送信エラー:", e2.message); }
     } else {
       try {
-        let guestSubject;
-        let guestBody;
-        if (propFormCompleteMail && propFormCompleteMail.enabled === true && (propFormCompleteMail.subject || propFormCompleteMail.body)) {
-          // 物件別テンプレ ({{var}} 形式)
-          const renderDouble = (tmpl) => String(tmpl || "").replace(/\{\{(\w+)\}\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ""));
-          guestSubject = renderDouble(propFormCompleteMail.subject) || guestSubjectOverride || renderTemplate(templates.guestConfirmation.subject, vars);
-          guestBody = renderDouble(propFormCompleteMail.body) || renderTemplate(templates.guestConfirmation.body, vars);
-        } else {
-          guestSubject = guestSubjectOverride || renderTemplate(templates.guestConfirmation.subject, vars);
-          guestBody = renderTemplate(templates.guestConfirmation.body, vars);
-        }
+        // ビルトインデフォルト (グローバル settings.notifications は参照しない)
+        const DEFAULT_SUBJECT = `【{propertyName}】宿泊者名簿をお預かりしました／{guestName} 様`;
+        const DEFAULT_BODY = [
+          `{guestName} 様`,
+          ``,
+          `この度は{propertyName}にご予約いただきありがとうございます。`,
+          `宿泊者名簿のご記入をお預かりしました。`,
+          ``,
+          `■ ご宿泊情報`,
+          `チェックイン: {checkIn}`,
+          `チェックアウト: {checkOut}`,
+          `ご人数: {guestCount} 名`,
+          ``,
+          `名簿の編集が必要な場合は、下記リンクから修正してください。`,
+          `{editUrl}`,
+          ``,
+          `ご質問等ございましたらこちらのメールに返信ください。`,
+        ].join("\n");
+
+        const renderSingle = (tmpl) => String(tmpl || "").replace(/\{(\w+)\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ""));
+        const renderDouble = (tmpl) => String(tmpl || "").replace(/\{\{(\w+)\}\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ""));
+        const subjectTmpl = (propFormCompleteMail && propFormCompleteMail.subject) ? propFormCompleteMail.subject : "";
+        const bodyTmpl    = (propFormCompleteMail && propFormCompleteMail.body)    ? propFormCompleteMail.body    : "";
+        const guestSubject = subjectTmpl ? renderDouble(subjectTmpl) : renderSingle(DEFAULT_SUBJECT);
+        const guestBody    = bodyTmpl    ? renderDouble(bodyTmpl)    : renderSingle(DEFAULT_BODY);
         // strictFrom: 担当者 Gmail が連携されていなければ送信しない (アプリ管理者から送らない)
         await sendNotificationEmail_(guestEmail, guestSubject, guestBody, senderEmail, { strictFrom: true });
         console.log(`宿泊者メール送信成功: ${guestEmail} (from=${senderEmail})`);
