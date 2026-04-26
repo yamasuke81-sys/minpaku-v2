@@ -362,6 +362,20 @@ const PropertiesPage = {
     document.getElementById("propertySkills").value = (property?.requiredSkills || []).join(",");
     document.getElementById("propertySelectionMethod").value = property?.selectionMethod || "ownerConfirm";
     document.getElementById("propertyCleaningRequiredCount").value = property?.cleaningRequiredCount || 1;
+    // 清掃必要人数: 早い者勝ち時のみ有効。それ以外はグレーアウト
+    const _toggleReqCount = () => {
+      const sel = document.getElementById("propertySelectionMethod");
+      const inp = document.getElementById("propertyCleaningRequiredCount");
+      const disabled = sel.value !== "firstCome";
+      inp.disabled = disabled;
+      inp.classList.toggle("bg-light", disabled);
+    };
+    _toggleReqCount();
+    const _selEl = document.getElementById("propertySelectionMethod");
+    if (!_selEl._reqCountBound) {
+      _selEl.addEventListener("change", _toggleReqCount);
+      _selEl._reqCountBound = true;
+    }
     // 物件番号プルダウン / 色スウォッチを重複チェック込みで描画
     this._renderPropertyNumberSelect(property?.propertyNumber ?? null);
     this._renderPropertyColorSwatches(property?.color || "#0d6efd");
