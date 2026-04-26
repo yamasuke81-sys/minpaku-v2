@@ -29,7 +29,7 @@ module.exports = function notificationsApi(db) {
   }
 
   router.post("/test", requireOwner, async (req, res) => {
-    const { type, message, targets } = req.body;
+    const { type, message, targets, propertyId } = req.body;
 
     if (!type || typeof type !== "string") {
       return res.status(400).json({ error: "type は必須です" });
@@ -96,7 +96,7 @@ module.exports = function notificationsApi(db) {
       }
     }
 
-    // スタッフ個別LINE（LINE連携済みのアクティブスタッフ全員）
+    // スタッフ個別LINE（LINE連携済みのアクティブスタッフ。propertyId指定時はassignedPropertyIds含むスタッフのみ）
     if (targets.staffLine) {
       if (!channelToken) {
         results.push({ target: "staffLine", success: false, error: "LINEチャネルトークン未設定" });
@@ -109,6 +109,11 @@ module.exports = function notificationsApi(db) {
           for (const doc of staffSnap.docs) {
             const sd = doc.data();
             if (!sd.lineUserId) continue;
+            // 物件スコープ: 指定propertyIdが assignedPropertyIds に含まれていなければスキップ
+            if (propertyId) {
+              const assigned = Array.isArray(sd.assignedPropertyIds) ? sd.assignedPropertyIds : [];
+              if (!assigned.includes(propertyId)) continue;
+            }
             const r = await pushMessages_(channelToken, sd.lineUserId, [{ type: "text", text: body.slice(0, 5000) }]);
             if (r.success) { sentCount++; staffSent++; } else { failCount++; }
             staffResults.push({ staffId: doc.id, staffName: sd.name, ...r });
@@ -164,7 +169,7 @@ module.exports = function notificationsApi(db) {
       }
     }
 
-    // スタッフ個別メール (テスト時は active スタッフ全員)
+    // スタッフ個別メール (active 全員、propertyId指定時はassignedPropertyIdsで絞り込み)
     if (targets.staffEmail) {
       try {
         const sSnap = await db.collection("staff").where("active", "==", true).get();
@@ -172,6 +177,10 @@ module.exports = function notificationsApi(db) {
         for (const sDoc of sSnap.docs) {
           const s = sDoc.data();
           if (!s.email) continue;
+          if (propertyId) {
+            const assigned = Array.isArray(s.assignedPropertyIds) ? s.assignedPropertyIds : [];
+            if (!assigned.includes(propertyId)) continue;
+          }
           try { await sendNotificationEmail_(s.email, title, body); cnt++; }
           catch (e) { fail++; }
         }
@@ -183,7 +192,7 @@ module.exports = function notificationsApi(db) {
       }
     }
 
-    // 物件オーナー個別 LINE / メール (物件別: ownedPropertyIds でフィルタ、テスト時は全物件オーナー対象)
+    // 物件オーナー個別 LINE / メール (propertyId指定時は ownedPropertyIds に該当する物件オーナーのみ)
     if (targets.subOwnerLine || targets.subOwnerEmail) {
       try {
         const staffSnap = await db.collection("staff").where("isSubOwner", "==", true).get();
@@ -191,6 +200,10 @@ module.exports = function notificationsApi(db) {
         for (const sDoc of staffSnap.docs) {
           const s = sDoc.data();
           if (s.active === false) continue;
+          if (propertyId) {
+            const owned = Array.isArray(s.ownedPropertyIds) ? s.ownedPropertyIds : [];
+            if (!owned.includes(propertyId)) continue;
+          }
           if (targets.subOwnerLine && s.subOwnerLineUserId && channelToken) {
             try {
               const { sendLineMessage } = require("../utils/lineNotify");

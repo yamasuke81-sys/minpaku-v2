@@ -792,7 +792,7 @@ const ReservationFlowPage = {
 
     wrap.innerHTML = `
       <div class="d-flex align-items-center gap-2 flex-wrap">
-        <label class="form-label mb-0 small fw-semibold">物件メモ対象:</label>
+        <label class="form-label mb-0 small fw-semibold">対象物件:</label>
         ${visible.map(p => `
           <button class="btn btn-sm ${p.id === this._selectedPid ? "btn-primary" : "btn-outline-secondary"} rf-prop-btn"
             data-pid="${p.id}" style="font-size:0.78rem;">
@@ -803,7 +803,7 @@ const ReservationFlowPage = {
         <button class="btn btn-sm btn-outline-info ms-2 rf-import-btn" style="font-size:0.78rem;">
           <i class="bi bi-box-arrow-in-down"></i> 他物件からインポート
         </button>
-        <span class="text-muted small ms-1">※ 物件メモは物件ごとに保存されます。通知設定は全物件共通です。</span>
+        <span class="text-muted small ms-1">※ ON/OFF・通知設定・メモはすべてこの物件のみに保存されます。テスト送信もこの物件のスタッフ・オーナーが対象です。</span>
       </div>
     `;
 
@@ -942,8 +942,25 @@ const ReservationFlowPage = {
 
     wrap.innerHTML = html;
 
-    // イベント登録
-    this._attachEvents(wrap, property);
+    // イベント登録 (DOM 単位で1回だけ。delegation するので再登録不要)
+    if (!wrap.dataset.eventsAttached) {
+      this._attachEvents(wrap, property);
+      wrap.dataset.eventsAttached = "1";
+    }
+    // NotifyChannelEditor は再描画の度に bindCardEvents が必要 (新しい block にバインド)
+    const NCE = window.NotifyChannelEditor;
+    if (NCE) {
+      wrap.querySelectorAll(".rf-shared-notify").forEach(block => {
+        const idPrefix = block.dataset.idPrefix;
+        const pid = block.dataset.pid;
+        const notifKey = block.dataset.notifKey;
+        NCE.bindCardEvents(block, {
+          idPrefix,
+          onChange: () => this._queueSaveOverride(notifKey, pid),
+          onTestSend: (key, channelData, varGroup, btn) => this._sendTestNotification(key, channelData, varGroup, btn, pid),
+        });
+      });
+    }
   },
 
   // ステップ配列からグリッド行HTMLを生成
@@ -1467,24 +1484,11 @@ const ReservationFlowPage = {
       }
     });
 
-    // 共有通知エディタのイベント
-    const NCE = window.NotifyChannelEditor;
-    if (NCE) {
-      wrap.querySelectorAll(".rf-shared-notify").forEach(block => {
-        const idPrefix = block.dataset.idPrefix;
-        const pid = block.dataset.pid;
-        const notifKey = block.dataset.notifKey;
-        NCE.bindCardEvents(block, {
-          idPrefix,
-          onChange: () => this._queueSaveOverride(notifKey, pid),
-          onTestSend: (key, channelData, varGroup, btn) => this._sendTestNotification(key, channelData, varGroup, btn),
-        });
-      });
-    }
+    // 共有通知エディタのイベントは _renderSwimLane 内で再描画毎にバインド (block が毎回新規)
   },
 
-  // ========== テスト送信 (通知設定タブと同等) ==========
-  async _sendTestNotification(key, channelData, varGroup, btn) {
+  // ========== テスト送信 (通知設定タブと同等、物件スコープ) ==========
+  async _sendTestNotification(key, channelData, varGroup, btn, propertyId) {
     const TEST_API_URL = "https://api-5qrfx7ujcq-an.a.run.app/notifications/test";
     const NCE = window.NotifyChannelEditor;
     const sampleVars = {};
@@ -1514,7 +1518,7 @@ const ReservationFlowPage = {
       const res = await fetch(TEST_API_URL, {
         method: "POST",
         headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ type: key, message: `【テスト】${message}`, targets, vars: sampleVars }),
+        body: JSON.stringify({ type: key, message: `【テスト】${message}`, targets, vars: sampleVars, propertyId: propertyId || this._selectedPid || null }),
       });
       const data = await res.json();
       if (res.ok) {
