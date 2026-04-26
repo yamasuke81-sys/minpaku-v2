@@ -131,6 +131,15 @@
       "fields": [
         { "fieldPath": "propertyId", "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "checkoutDate", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "recruitments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "propertyId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "checkoutDate", "order": "ASCENDING" },
         { "fieldPath": "workType", "order": "ASCENDING" }
       ]
