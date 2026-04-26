@@ -1234,6 +1234,7 @@ const GuestsPage = {
       });
       document.getElementById("btnSaveNoiseRuleConfig")?.addEventListener("click", () => this.saveNoiseRuleConfig());
       document.getElementById("btnSaveGuideUrl")?.addEventListener("click", () => this.saveGuideUrl());
+      document.getElementById("btnSaveSenderGmail")?.addEventListener("click", () => this.saveSenderGmail());
       document.getElementById("guideUrlModeAuto")?.addEventListener("change", () => {
         this._guideUrlMode = "auto";
         this._applyGuideUrlMode();
@@ -1439,6 +1440,12 @@ const GuestsPage = {
         modeManual.checked = (this._guideUrlMode === "manual");
       }
       this._applyGuideUrlMode();
+
+      // 送信元 Gmail (物件別)
+      this._senderGmail = pd.senderGmail || "";
+      await this._loadGmailTokensIntoSelect();
+      const senderSelect = document.getElementById("formSenderGmail");
+      if (senderSelect) senderSelect.value = this._senderGmail;
 
       if (pd.customFormEnabled === true && pd.customFormFields?.length > 0) {
         // 独自設定あり → 編集UIを表示
@@ -2513,6 +2520,44 @@ const GuestsPage = {
     // 最後のカードにスクロール
     const lastCard = document.querySelector("#formFieldList .ff-card:last-child");
     if (lastCard) lastCard.scrollIntoView({ behavior: "smooth", block: "center" });
+  },
+
+  // 連携済み Gmail を取得して select に反映
+  async _loadGmailTokensIntoSelect() {
+    const sel = document.getElementById("formSenderGmail");
+    if (!sel) return;
+    try {
+      const snap = await db.collection("settings").doc("gmailOAuth").collection("tokens").get();
+      const opts = ['<option value="">— 未指定（物件オーナーの email を継承）—</option>'];
+      snap.docs.forEach(d => {
+        const e = (d.data().email || "").trim();
+        if (e) opts.push(`<option value="${e}">${e}</option>`);
+      });
+      sel.innerHTML = opts.join("");
+    } catch (e) {
+      console.warn("[contacts] Gmail tokens 読み込み失敗:", e.message);
+    }
+  },
+
+  // 送信元 Gmail 保存
+  async saveSenderGmail() {
+    const pid = this._currentFormTarget;
+    if (!pid) { showToast("", "物件が選択されていません", "error"); return; }
+    const sel = document.getElementById("formSenderGmail");
+    const val = (sel?.value || "").trim();
+    const statusEl = document.getElementById("senderGmailSaveStatus");
+    if (statusEl) statusEl.innerHTML = '<span class="text-muted">保存中...</span>';
+    try {
+      await db.collection("properties").doc(pid).update({
+        senderGmail: val,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      this._senderGmail = val;
+      if (statusEl) statusEl.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> 保存しました</span>';
+      showToast("完了", "送信元 Gmail を保存しました", "success");
+    } catch (e) {
+      if (statusEl) statusEl.innerHTML = `<span class="text-danger">保存失敗: ${e.message}</span>`;
+    }
   },
 
   // モード切替に応じて UI を更新

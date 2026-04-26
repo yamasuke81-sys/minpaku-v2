@@ -1245,6 +1245,21 @@
                   </div>
                 </div>
 
+                <!-- ①-C 送信元 Gmail (物件別) -->
+                <div class="border-top border-2 pt-3 mb-4">
+                  <h6 class="fw-bold mb-2"><span class="badge bg-secondary me-1">①-C</span> 送信元 Gmail (物件別) <small class="fw-normal text-muted">(完了メール等の差出人)</small></h6>
+                  <select class="form-select form-select-sm" id="formSenderGmail">
+                    <option value="">— 未指定（物件オーナーの email を継承）—</option>
+                  </select>
+                  <div class="form-text text-muted">
+                    連携済み Gmail から選択。未連携アカウントは <a href="#/contacts">連絡先マスタ</a> または <a href="#/email-verification">メール照合</a> で追加してください。
+                  </div>
+                  <div class="mt-2">
+                    <button class="btn btn-sm btn-success" id="btnSaveSenderGmail"><i class="bi bi-check-lg"></i> 保存</button>
+                    <span id="senderGmailSaveStatus" class="small ms-2"></span>
+                  </div>
+                </div>
+
                 <!-- ② ミニゲーム -->
                 <div class="border-top border-2 pt-3 mb-4">
                   <h6 class="fw-bold mb-2"><span class="badge bg-secondary me-1">②</span> ミニゲーム <small class="fw-normal text-muted">(騒音確認ゲーム)</small></h6>

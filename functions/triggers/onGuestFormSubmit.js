@@ -91,8 +91,15 @@ module.exports = async function onGuestFormSubmit(event) {
   };
 
   // 2a. 送信者 (sender) 解決 — 宿泊者宛メールの from に使う
-  // 物件オーナー (staff.isSubOwner=true && ownedPropertyIds に pid 含む) 最優先、なければ staff.isOwner
+  // 優先順位: 1) properties/{pid}.senderGmail (物件直結) > 2) 物件オーナー (staff.isSubOwner=true && ownedPropertyIds に pid 含む) > 3) staff.isOwner
   const pid = data.propertyId || "";
+  let propertySenderGmail = "";
+  if (pid) {
+    try {
+      const pDoc = await db.collection("properties").doc(pid).get();
+      if (pDoc.exists) propertySenderGmail = (pDoc.data().senderGmail || "").trim();
+    } catch (_) {}
+  }
   let primarySubOwner = null;
   let staffOwnerEmail = "";
   let staffOwnerName = "";
@@ -119,7 +126,7 @@ module.exports = async function onGuestFormSubmit(event) {
     }
   } catch (_) {}
 
-  const senderEmail = (primarySubOwner && primarySubOwner.email) || staffOwnerEmail || "";
+  const senderEmail = propertySenderGmail || (primarySubOwner && primarySubOwner.email) || staffOwnerEmail || "";
   const senderName = (primarySubOwner && primarySubOwner.name) || staffOwnerName || propertyName || "宿担当者";
   vars.senderEmail = senderEmail;
   vars.senderName = senderName;
