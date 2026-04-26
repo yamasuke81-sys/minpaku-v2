@@ -84,27 +84,57 @@
       case "discordOwner":
         return ns.discordOwnerWebhookUrl || "";
       case "subOwnerLine": {
-        // isSubOwner=true のスタッフの subOwnerLineUserId (複数対応)
+        // subOwnerLineUserId → なければ lineUserId にフォールバック
         const vals = sl
-          .filter(s => s.isSubOwner && s.subOwnerLineUserId)
-          .map(s => `${s.name || s.id}: ${s.subOwnerLineUserId}`);
+          .filter(s => s.isSubOwner && (s.subOwnerLineUserId || s.lineUserId))
+          .map(s => `${s.name || s.id}: ${s.subOwnerLineUserId || s.lineUserId}`);
         return vals.join("\n") || "";
       }
       case "subOwnerEmail": {
+        // subOwnerEmail → なければ email にフォールバック
         const vals = sl
-          .filter(s => s.isSubOwner && s.subOwnerEmail)
-          .map(s => `${s.name || s.id}: ${s.subOwnerEmail}`);
+          .filter(s => s.isSubOwner && (s.subOwnerEmail || s.email))
+          .map(s => `${s.name || s.id}: ${s.subOwnerEmail || s.email}`);
         return vals.join("\n") || "";
       }
       case "discordSubOwner": {
+        // subOwnerDiscordWebhookUrl → なければ discordWebhookUrl にフォールバック
         const vals = sl
-          .filter(s => s.isSubOwner && s.subOwnerDiscordWebhookUrl)
-          .map(s => `${s.name || s.id}: ${s.subOwnerDiscordWebhookUrl}`);
+          .filter(s => s.isSubOwner && (s.subOwnerDiscordWebhookUrl || s.discordWebhookUrl))
+          .map(s => `${s.name || s.id}: ${s.subOwnerDiscordWebhookUrl || s.discordWebhookUrl}`);
         return vals.join("\n") || "";
       }
       default:
         return "";
     }
+  }
+
+  /**
+   * subOwner系フィールドについて、各スタッフの値と採用元を解決する
+   * @param {string} field - "subOwnerLine" | "subOwnerEmail" | "discordSubOwner"
+   * @param {Array} staffList
+   * @returns {Array<{staffId, name, value, isFallback}>}
+   *   isFallback=true → スタッフ通常フィールドの値を流用中
+   */
+  function resolveSubOwnerValues(field, staffList) {
+    const sl = (staffList || []).filter(s => s.isSubOwner);
+    // フィールド名マッピング: 専用フィールド / フォールバックフィールド
+    const FIELD_MAP = {
+      subOwnerLine:    { dedicated: "subOwnerLineUserId",      fallback: "lineUserId" },
+      subOwnerEmail:   { dedicated: "subOwnerEmail",           fallback: "email" },
+      discordSubOwner: { dedicated: "subOwnerDiscordWebhookUrl", fallback: "discordWebhookUrl" },
+    };
+    const map = FIELD_MAP[field];
+    if (!map) return [];
+    return sl
+      .filter(s => s[map.dedicated] || s[map.fallback])
+      .map(s => ({
+        staffId: s.id,
+        name: s.name || s.id,
+        value: s[map.dedicated] || s[map.fallback] || "",
+        // 専用フィールドが空の場合はフォールバック扱い
+        isFallback: !s[map.dedicated] && !!s[map.fallback],
+      }));
   }
 
   /**
@@ -178,13 +208,12 @@
 
   /**
    * サブオーナースタッフのフィールドを保存
-   * サブオーナーは isSubOwner=true のスタッフが複数いる場合があるので
-   * 単一の入力値はそのスタッフIDを指定する形式 "staffId:value" で渡す
    * @param {string} field
    * @param {string} staffId
-   * @param {string} value
+   * @param {string} value - 入力値
+   * @param {boolean} useShared - true なら専用フィールドを削除（フォールバック継続）
    */
-  async function saveSubOwnerField(field, staffId, value) {
+  async function saveSubOwnerField(field, staffId, value, useShared) {
     const fieldMap = {
       subOwnerLine:    "subOwnerLineUserId",
       subOwnerEmail:   "subOwnerEmail",
@@ -192,7 +221,13 @@
     };
     const fsField = fieldMap[field];
     if (!fsField) throw new Error(`未知のサブオーナーフィールド: ${field}`);
-    await db.collection("staff").doc(staffId).update({ [fsField]: value });
+    if (useShared) {
+      // 専用フィールドを null にしてフォールバックを継続
+      await db.collection("staff").doc(staffId).update({ [fsField]: null });
+    } else {
+      // 個別値を専用フィールドに保存
+      await db.collection("staff").doc(staffId).update({ [fsField]: value });
+    }
     clearCache();
   }
 
@@ -303,19 +338,39 @@
         </div>`;
       } else {
         inputsHtml = subOwners.map((so, i) => {
+          // isFallback=true → 現在フォールバック中（専用フィールドが空）
+          const isCurrentlyFallback = so.isFallback;
           const safeVal = String(so.value || "").replace(/"/g, "&quot;");
           const placeholder = field === "subOwnerEmail" ? "例: subowner@example.com"
             : field === "subOwnerLine" ? "例: Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
             : "例: https://discord.com/api/webhooks/...";
+          // フォールバック元の値をヒントとして表示
+          const fallbackHint = isCurrentlyFallback
+            ? `<div class="text-muted mt-1" style="font-size:0.75em;">現在のスタッフ登録値: ${escapeHtml(so.value || "(未登録)")}</div>`
+            : "";
           return `
-            <div class="mb-3">
-              <label class="form-label small fw-semibold">
+            <div class="mb-3 border rounded p-2">
+              <div class="form-label small fw-semibold mb-2">
                 <i class="bi bi-person-badge text-success"></i>
                 ${escapeHtml(so.name || so.staffId)} さんの ${def.label}
-              </label>
-              <input type="${def.inputType}" class="form-control form-control-sm notify-target-subowner-input"
+              </div>
+              <!-- フォールバック切替チェックボックス -->
+              <div class="form-check mb-2">
+                <input class="form-check-input notify-target-shared-chk" type="checkbox"
+                  id="${MODAL_ID}SharedChk${i}" data-idx="${i}"
+                  ${isCurrentlyFallback ? "checked" : ""}>
+                <label class="form-check-label small" for="${MODAL_ID}SharedChk${i}">
+                  スタッフとして登録した値を共有する
+                  <span class="text-muted" style="font-size:0.8em;">（OFFにすると物件オーナー専用の値を保存）</span>
+                </label>
+              </div>
+              ${fallbackHint}
+              <!-- 専用値入力欄（共有ON のときはdisabled） -->
+              <input type="${def.inputType}"
+                class="form-control form-control-sm notify-target-subowner-input"
                 data-staff-id="${so.staffId}" data-idx="${i}"
-                value="${safeVal}" placeholder="${placeholder}">
+                value="${safeVal}" placeholder="${placeholder}"
+                ${isCurrentlyFallback ? "disabled" : ""}>
               <div class="notify-target-warn text-warning small mt-1" style="display:none;" data-for-idx="${i}">
                 <i class="bi bi-exclamation-triangle"></i> <span></span>
               </div>
@@ -341,6 +396,7 @@
         });
       }
     } else {
+      // 入力バリデーション
       bodyEl.querySelectorAll(".notify-target-subowner-input").forEach((inp, i) => {
         inp.addEventListener("input", () => {
           const { warn } = validate(field, inp.value);
@@ -350,6 +406,14 @@
             const sp = warnEl.querySelector("span");
             if (sp) sp.textContent = warn || "";
           }
+        });
+      });
+      // 「スタッフ共通」チェックボックス切替 → 入力欄 disabled 連動
+      bodyEl.querySelectorAll(".notify-target-shared-chk").forEach(chk => {
+        chk.addEventListener("change", () => {
+          const idx = chk.dataset.idx;
+          const inp = bodyEl.querySelector(`.notify-target-subowner-input[data-idx="${idx}"]`);
+          if (inp) inp.disabled = chk.checked;
         });
       });
     }
@@ -367,12 +431,16 @@
           const val = inp ? inp.value.trim() : "";
           await saveGlobalField(field, val);
         } else {
-          // サブオーナー全件保存
+          // サブオーナー全件保存（チェックボックスで共有/個別を判断）
           const inputs = bodyEl.querySelectorAll(".notify-target-subowner-input");
           for (const inp of inputs) {
+            const idx = inp.dataset.idx;
             const staffId = inp.dataset.staffId;
             const val = inp.value.trim();
-            await saveSubOwnerField(field, staffId, val);
+            // 同じ idx のチェックボックスで共有フラグを確認
+            const chk = bodyEl.querySelector(`.notify-target-shared-chk[data-idx="${idx}"]`);
+            const useShared = chk ? chk.checked : false;
+            await saveSubOwnerField(field, staffId, val, useShared);
           }
         }
         // モーダルを閉じる
@@ -410,13 +478,20 @@
    * @param {string} field
    * @param {string} value  - 現在値（空文字は未設定）
    * @param {boolean} isEditable - true なら✏️ボタン付き
+   * @param {boolean} [isFallback] - true なら「スタッフ共通」バッジを付与
    * @returns {string} HTML
    */
-  function renderValueBadge(field, value, isEditable) {
+  function renderValueBadge(field, value, isEditable, isFallback) {
     const isEmpty = !value;
+    // フォールバック時は「スタッフ共通」バッジを値の右に追加
+    const fallbackBadge = (!isEmpty && isFallback)
+      ? `<span class="badge bg-secondary bg-opacity-25 text-secondary border ms-1"
+             style="font-size:0.65em;vertical-align:middle;cursor:help;"
+             title="スタッフとしての登録値を流用中">[スタッフ共通]</span>`
+      : "";
     const displayVal = isEmpty
       ? `<span class="text-muted" style="font-size:0.72em;font-style:italic;">（未設定）</span>`
-      : `<span class="badge bg-light text-dark border ms-1" style="font-size:0.72em;max-width:200px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;" title="${escapeHtml(value)}">${escapeHtml(truncate(value, 30))}</span>`;
+      : `<span class="badge bg-light text-dark border ms-1" style="font-size:0.72em;max-width:200px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;" title="${escapeHtml(value)}">${escapeHtml(truncate(value, 30))}</span>${fallbackBadge}`;
 
     const editBtn = isEditable
       ? `<button type="button" class="btn btn-link btn-sm p-0 ms-1 notify-target-edit-btn"
@@ -488,6 +563,9 @@
     const [ns, sl] = await Promise.all([fetchNotifSettings(), fetchStaffList()]);
     const subOwners = sl.filter(s => s.isSubOwner);
 
+    // subOwner系フィールドのフォールバック判定用
+    const SUB_OWNER_FIELDS = ["subOwnerLine", "subOwnerEmail", "discordSubOwner"];
+
     placeholders.forEach(ph => {
       const field = ph.dataset.field;
       let badgeHtml = "";
@@ -496,11 +574,21 @@
         // スタッフ一覧表示のみ（編集なし）
         const summary = resolveStaffSummary(field, sl);
         badgeHtml = renderStaffSummaryBadge(field, summary);
+      } else if (SUB_OWNER_FIELDS.includes(field)) {
+        // subOwner系: フォールバック情報を付与して表示
+        const resolved = resolveSubOwnerValues(field, sl);
+        if (!resolved.length) {
+          badgeHtml = renderValueBadge(field, "", true, false);
+        } else {
+          // 複数サブオーナーがいる場合は最初の1件を代表表示（全件はモーダルで確認）
+          const first = resolved[0];
+          const hasFallback = resolved.some(r => r.isFallback);
+          badgeHtml = renderValueBadge(field, first.value, true, hasFallback);
+        }
       } else {
-        // グローバルまたはサブオーナーの現在値
+        // グローバルの現在値
         const value = resolveCurrentValue(field, ns, sl);
-        const isEditable = true;
-        badgeHtml = renderValueBadge(field, value, isEditable);
+        badgeHtml = renderValueBadge(field, value, true, false);
       }
 
       ph.outerHTML = badgeHtml;
@@ -523,15 +611,9 @@
           ? null // subOwner の場合は下で組み立て
           : resolveCurrentValue(field, latestNs, latestSl);
 
+        // subOwner系: フォールバック情報込みで渡す
         const subOwnerData = isSubOwnerField
-          ? subOwners.map(so => {
-              const fmap = {
-                subOwnerLine: "subOwnerLineUserId",
-                subOwnerEmail: "subOwnerEmail",
-                discordSubOwner: "subOwnerDiscordWebhookUrl",
-              };
-              return { staffId: so.id, name: so.name, value: so[fmap[field]] || "" };
-            })
+          ? resolveSubOwnerValues(field, latestSl)
           : null;
 
         openEditModal({
@@ -575,6 +657,7 @@
     renderTargetRow,
     hydrateBadges,
     resolveCurrentValue,
+    resolveSubOwnerValues,
     resolveStaffSummary,
     renderValueBadge,
     renderStaffSummaryBadge,
