@@ -1142,8 +1142,9 @@ const ReservationFlowPage = {
     }
     const channelData = (property.channelOverrides || {})[step.globalChannel] || {};
     const idPrefix = `prop_${property.id}_${step.globalChannel}`;
+    const importBtnHtml = `<button class="btn btn-sm btn-outline-info rf-notify-import-btn" type="button" data-pid="${property.id}" data-notif-key="${step.globalChannel}"><i class="bi bi-box-arrow-in-down"></i> 他物件から</button>`;
     return `<div class="rf-shared-notify mt-2" data-pid="${property.id}" data-notif-key="${step.globalChannel}" data-id-prefix="${idPrefix}">
-      ${NCE.renderNotificationCard(n, channelData, { idPrefix, collapsed: false, hideHeader: true })}
+      ${NCE.renderNotificationCard(n, channelData, { idPrefix, collapsed: false, hideHeader: true, extraActionsHtml: importBtnHtml })}
     </div>`;
   },
 
@@ -1420,6 +1421,20 @@ const ReservationFlowPage = {
   _attachEvents(wrap, property) {
     // カード折りたたみ + 詳細 + memo + rf-toggle のみ。通知カードは共有コンポーネントで処理。
     wrap.addEventListener("click", (e) => {
+      // 通知カード「他物件から」ボタン
+      const importBtn = e.target.closest(".rf-notify-import-btn");
+      if (importBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (window.NotifyImportModal) {
+          window.NotifyImportModal.open({
+            notifyKey: importBtn.dataset.notifKey,
+            targetPropertyId: importBtn.dataset.pid,
+            onImported: () => this._renderSwimLane(),
+          });
+        }
+        return;
+      }
       const header = e.target.closest(".rf-card-header[data-fold]");
       if (header && !e.target.closest("input") && !e.target.closest("button") && !e.target.closest("a") && !e.target.closest("[data-notify-toggle]")) {
         const foldId = header.dataset.fold;
