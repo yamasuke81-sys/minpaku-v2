@@ -323,9 +323,14 @@
             </div><!-- /notify-collapse -->
           </div>
 
+          ${hideHeader ? `
+          <!-- 親カード(rf-card-header)のトグルを使うため、内側 notify-toggle は隠す。値は同期するため input は残す(非表示) -->
+          <input type="checkbox" class="d-none" data-key="${dk}" data-field="enabled" ${enabled ? "checked" : ""}>
+          ` : `
           <div class="form-check form-switch notify-toggle ms-3">
             <input class="form-check-input" type="checkbox" data-key="${dk}" data-field="enabled" ${enabled ? "checked" : ""}>
           </div>
+          `}
         </div>
       </div>`;
   }
