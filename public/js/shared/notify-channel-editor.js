@@ -226,58 +226,23 @@
             <div class="notify-collapse" data-key="${dk}" ${collapseInlineStyle}>
             ${hideHeader ? "" : `<div class="text-muted small mb-2">${n.desc}</div>`}
 
-            <div class="d-flex flex-wrap gap-3 mb-2">
-              <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: settings/notifications.lineChannelToken の LINE Bot">
-                <input class="form-check-input" type="checkbox" data-key="${dk}" data-field="ownerLine" ${ownerLine ? "checked" : ""}>
-                <span class="form-check-label small"><i class="bi bi-person-circle text-success"></i> Webアプリ管理者LINE <span class="text-muted" style="font-size:0.75em;">(送信元: LINE Bot)</span></span>
-                <a href="#/notifications" class="ms-1 text-decoration-none small notify-config-link" title="Webアプリ管理者LINE設定へ"><i class="bi bi-gear"></i></a>
-              </label>
-              <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: 該当物件の properties.lineChannels[].name の Bot (物件別)">
-                <input class="form-check-input" type="checkbox" data-key="${dk}" data-field="groupLine" ${groupLine ? "checked" : ""}>
-                <span class="form-check-label small"><i class="bi bi-people-fill text-primary"></i> グループLINE <span class="text-muted" style="font-size:0.75em;">(送信元: 物件別 LINE Bot)</span></span>
-                <a href="#/properties" class="ms-1 text-decoration-none small notify-config-link" title="物件別 LINE Bot 設定へ"><i class="bi bi-gear"></i></a>
-              </label>
-              <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: 共通 LINE Bot (Webアプリ管理者と同じ)">
-                <input class="form-check-input" type="checkbox" data-key="${dk}" data-field="staffLine" ${staffLine ? "checked" : ""}>
-                <span class="form-check-label small"><i class="bi bi-person-lines-fill text-info"></i> スタッフ個別LINE <span class="text-muted" style="font-size:0.75em;">(送信元: LINE Bot)</span></span>
-                <a href="#/staff" class="ms-1 text-decoration-none small notify-config-link" title="スタッフ管理へ (LINE User ID 紐付け)"><i class="bi bi-gear"></i></a>
-              </label>
-              <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: 共通 LINE Bot (Webアプリ管理者と同じ)">
-                <input class="form-check-input" type="checkbox" data-key="${dk}" data-field="subOwnerLine" ${subOwnerLine ? "checked" : ""}>
-                <span class="form-check-label small"><i class="bi bi-person-badge text-success"></i> 物件オーナー個別LINE <span class="text-muted" style="font-size:0.75em;">(送信元: LINE Bot)</span></span>
-                <a href="#/staff" class="ms-1 text-decoration-none small notify-config-link" title="スタッフ管理へ (subOwnerLineUserId 紐付け)"><i class="bi bi-gear"></i></a>
-              </label>
-              <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: settings/gmailOAuth/tokens の先頭アカウント (連携済み Gmail)">
-                <input class="form-check-input" type="checkbox" data-key="${dk}" data-field="ownerEmail" ${ownerEmail ? "checked" : ""}>
-                <span class="form-check-label small"><i class="bi bi-envelope text-warning"></i> Webアプリ管理者メール <span class="text-muted" style="font-size:0.75em;">(送信元: 連携済み Gmail)</span></span>
-                <a href="#/notifications" class="ms-1 text-decoration-none small notify-config-link" title="Webアプリ管理者メールアドレス設定へ"><i class="bi bi-gear"></i></a>
-              </label>
-              <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: 該当物件オーナーの Gmail (連携済み) / 未連携ならフォールバック">
-                <input class="form-check-input" type="checkbox" data-key="${dk}" data-field="subOwnerEmail" ${subOwnerEmail ? "checked" : ""}>
-                <span class="form-check-label small"><i class="bi bi-envelope-at text-success"></i> 物件オーナー個別メール <span class="text-muted" style="font-size:0.75em;">(送信元: 物件オーナーの Gmail)</span></span>
-                <a href="#/staff" class="ms-1 text-decoration-none small notify-config-link" title="スタッフ管理へ (物件オーナーのメールアドレス)"><i class="bi bi-gear"></i></a>
-              </label>
-              <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: 連携済み Gmail (Webアプリ管理者メールと同じ)">
-                <input class="form-check-input" type="checkbox" data-key="${dk}" data-field="staffEmail" ${staffEmail ? "checked" : ""}>
-                <span class="form-check-label small"><i class="bi bi-envelope-fill text-info"></i> スタッフ個別メール <span class="text-muted" style="font-size:0.75em;">(送信元: 連携済み Gmail)</span></span>
-                <a href="#/staff" class="ms-1 text-decoration-none small notify-config-link" title="スタッフ管理へ (各スタッフの email)"><i class="bi bi-gear"></i></a>
-              </label>
-              <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: Discord Webhook の Bot">
-                <input class="form-check-input" type="checkbox" data-key="${dk}" data-field="discordOwner" ${discordOwner ? "checked" : ""}>
-                <span class="form-check-label small"><i class="bi bi-discord" style="color:#5865F2"></i> Discord(Webアプリ管理者) <span class="text-muted" style="font-size:0.75em;">(送信元: Discord Bot)</span></span>
-                <a href="#/notifications" class="ms-1 text-decoration-none small notify-config-link" title="Discord Webhook URL 設定へ"><i class="bi bi-gear"></i></a>
-              </label>
-              <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: Discord Webhook の Bot">
-                <input class="form-check-input" type="checkbox" data-key="${dk}" data-field="discordSubOwner" ${discordSubOwner ? "checked" : ""}>
-                <span class="form-check-label small"><i class="bi bi-discord" style="color:#8da0f8"></i> Discord(物件オーナー) <span class="text-muted" style="font-size:0.75em;">(送信元: Discord Bot)</span></span>
-                <a href="#/staff" class="ms-1 text-decoration-none small notify-config-link" title="スタッフ管理へ (物件オーナーの Discord Webhook URL)"><i class="bi bi-gear"></i></a>
-              </label>
+            <!-- 送信先チェックボックス (歯車廃止 → インライン値表示 + ✏️ 編集ボタン) -->
+            <div class="notify-target-rows d-flex flex-wrap gap-2 mb-2" data-dk="${dk}">
+              ${_renderTargetRow(dk, "ownerLine",      ownerLine,      "bi-person-circle text-success",      "Webアプリ管理者LINE",   "(送信元: LINE Bot)")}
+              ${_renderTargetRow(dk, "groupLine",      groupLine,      "bi-people-fill text-primary",        "グループLINE",          "(送信元: 物件別 LINE Bot)")}
+              ${_renderTargetRow(dk, "staffLine",      staffLine,      "bi-person-lines-fill text-info",     "スタッフ個別LINE",       "(送信元: LINE Bot)")}
+              ${_renderTargetRow(dk, "subOwnerLine",   subOwnerLine,   "bi-person-badge text-success",       "物件オーナー個別LINE",   "(送信元: LINE Bot)")}
+              ${_renderTargetRow(dk, "ownerEmail",     ownerEmail,     "bi-envelope text-warning",           "Webアプリ管理者メール",  "(送信元: 連携済み Gmail)")}
+              ${_renderTargetRow(dk, "subOwnerEmail",  subOwnerEmail,  "bi-envelope-at text-success",        "物件オーナー個別メール", "(送信元: 物件オーナーの Gmail)")}
+              ${_renderTargetRow(dk, "staffEmail",     staffEmail,     "bi-envelope-fill text-info",         "スタッフ個別メール",     "(送信元: 連携済み Gmail)")}
+              ${_renderTargetRow(dk, "discordOwner",   discordOwner,   "bi-discord",                         "Discord(Webアプリ管理者)", "(送信元: Discord Bot)", "color:#5865F2")}
+              ${_renderTargetRow(dk, "discordSubOwner",discordSubOwner,"bi-discord",                         "Discord(物件オーナー)",  "(送信元: Discord Bot)", "color:#8da0f8")}
               <!-- FCM (Web Push) は将来再検討。iOS 制約により導入保留 -->
-              <label class="form-check form-check-inline mb-0 d-none" style="cursor:pointer;">
+              <label class="form-check form-check-inline mb-0 d-none">
                 <input class="form-check-input" type="checkbox" data-key="${dk}" data-field="fcmStaff" ${fcmStaff ? "checked" : ""}>
                 <span class="form-check-label small"><i class="bi bi-bell-fill text-primary"></i> Web Push(スタッフ)</span>
               </label>
-              <label class="form-check form-check-inline mb-0 d-none" style="cursor:pointer;">
+              <label class="form-check form-check-inline mb-0 d-none">
                 <input class="form-check-input" type="checkbox" data-key="${dk}" data-field="fcmOwner" ${fcmOwner ? "checked" : ""}>
                 <span class="form-check-label small"><i class="bi bi-bell text-success"></i> Web Push(Webアプリ管理者)</span>
               </label>
@@ -333,6 +298,35 @@
           `}
         </div>
       </div>`;
+  }
+
+  // ========== 通知先1行レンダリング (歯車廃止 → インライン値バッジ付き) ==========
+  /**
+   * チェックボックス1行を生成する内部ヘルパー
+   * 値バッジのプレースホルダーを埋め込み、hydrateBadges() で非同期に差し込む
+   * @param {string} dk       data-key 属性値
+   * @param {string} field    フィールド名 ("ownerLine" 等)
+   * @param {boolean} checked チェック状態
+   * @param {string} icon     Bootstrap icon クラス
+   * @param {string} label    表示ラベル
+   * @param {string} subLabel 薄字の補足テキスト
+   * @param {string} iconStyle アイコンの style 属性 (省略可)
+   * @returns {string} <label> HTML
+   */
+  function _renderTargetRow(dk, field, checked, icon, label, subLabel, iconStyle) {
+    // 値バッジのプレースホルダー
+    const placeholder = `<span class="notify-target-inline notify-target-placeholder" data-field="${field}"></span>`;
+    const iconEl = iconStyle
+      ? `<i class="bi ${icon}" style="${iconStyle}"></i>`
+      : `<i class="bi ${icon}"></i>`;
+    return `
+      <label class="form-check form-check-inline mb-0 d-flex align-items-center flex-wrap gap-1" style="cursor:pointer;">
+        <input class="form-check-input" type="checkbox" data-key="${dk}" data-field="${field}" ${checked ? "checked" : ""}>
+        <span class="form-check-label small">${iconEl} ${label}
+          <span class="text-muted" style="font-size:0.75em;">${subLabel || ""}</span>
+        </span>
+        ${placeholder}
+      </label>`;
   }
 
   // ========== 1タイミングぶんの行 ==========
@@ -492,6 +486,12 @@
   function bindCardEvents(container, opt = {}) {
     if (container.__notifyEditorBound) return;
     container.__notifyEditorBound = true;
+
+    // 値バッジを非同期で差し込む（NotifyTargetEditor が読み込まれている場合）
+    const NTE = window.NotifyTargetEditor;
+    if (NTE && typeof NTE.hydrateBadges === "function") {
+      NTE.hydrateBadges(container, typeof opt.onChange === "function" ? opt.onChange : null);
+    }
 
     container.addEventListener("click", (e) => {
       // 設定リンクは label 内に置いてあるため、ブラウザ標準のチェックトグル動作を抑止し、手動でハッシュ遷移
