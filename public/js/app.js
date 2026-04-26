@@ -32,6 +32,8 @@ const App = {
     settings: SettingsPage,
     // 予約・清掃スケジュール (Webアプリ管理者用フル機能ビュー) — MyRecruitmentPage を view mode で分岐
     "schedule": MyRecruitmentPage,
+    // 新旧cal比較（オーナーのみ）
+    "cal-compare": CalComparePage,
   },
 
   // スタッフ用ページ
