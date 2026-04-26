@@ -234,11 +234,11 @@ const ReservationFlowPage = {
       phase: 2,
       track: "guest",
       arrowTo: "guest",
-      linkHash: "#/notifications",
-      linkLabel: "通知設定",
+      // ヘッダー右のトグルでメール送信ON/OFF (物件別: formCompleteMail.enabled)
+      propertyField: "formCompleteMail.enabled",
+      defaultEnabled: true,
       // 詳細設定 (物件別保存: properties/{pid}.formCompleteMail.*)
       detailFields: [
-        { field: "formCompleteMail.enabled", label: "メール送信を有効にする（OFFなら宿泊者へ送信しない）", type: "switch", default: true },
         { field: "formCompleteMail.subject", label: "メール件名（空欄ならデフォルト件名）", type: "text",
           placeholder: "例: 宿泊者情報のご登録ありがとうございました", default: "" },
         { field: "formCompleteMail.body",    label: "メール本文（空欄ならデフォルト本文）", type: "textarea", rows: 6,
@@ -249,7 +249,22 @@ const ReservationFlowPage = {
         "{{guestName}}", "{{propertyName}}", "{{checkIn}}", "{{checkOut}}",
         "{{keyboxCode}}", "{{propertyAddress}}", "{{wifiInfo}}", "{{guideUrl}}",
       ],
-      detailNote: "Gmail API 連携が必要（settings/gmailOAuth）。送信失敗時は「名簿入力完了メール 送信失敗」通知が飛びます。",
+      detailNoteHtml: `
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+          <span class="small"><i class="bi bi-info-circle text-warning"></i> 送信には <strong>Gmail API 連携</strong>が必要です。送信失敗時は「完了メール送信失敗」通知が飛びます。</span>
+          <a href="#/email-verification" class="btn btn-sm btn-outline-primary"><i class="bi bi-google"></i> Gmail 連携設定へ</a>
+        </div>
+        <details class="small">
+          <summary class="text-primary" style="cursor:pointer;"><i class="bi bi-question-circle"></i> Gmail 連携の設定方法</summary>
+          <ol class="mt-2 mb-0 ps-3">
+            <li>サイドバー「<a href="#/email-verification">メール照合</a>」を開く</li>
+            <li>「Gmail 連携」パネルで送信元にしたい Gmail アドレスを入力し<strong>連携</strong>ボタンを押す</li>
+            <li>Google の認可画面で当該アカウントにログイン → 権限を許可</li>
+            <li>戻ってきたら連携完了。複数アカウント追加可。送信元は物件オーナーの <code>email</code> と一致する Gmail が優先で使われます</li>
+            <li>連携が解除されている / 一致する Gmail が無い場合は「完了メール送信失敗」通知が飛びます</li>
+          </ol>
+        </details>
+      `,
     },
     {
       key: "form_complete_mail_failed",
@@ -667,8 +682,10 @@ const ReservationFlowPage = {
            <i class="bi bi-braces"></i> 利用可変数: ${step.detailVarsHint.map(v => `<code>${this._esc(v)}</code>`).join(" ")}
          </div>`
       : "";
-    // 注意文
-    const noteHtml = step.detailNote
+    // 注意文 (detailNoteHtml は HTML をそのまま埋め込み可、detailNote は文字列のみ)
+    const noteHtml = step.detailNoteHtml
+      ? `<div class="alert alert-warning py-2 px-2 mb-2" style="font-size:0.78rem;">${step.detailNoteHtml}</div>`
+      : step.detailNote
       ? `<div class="alert alert-warning py-1 px-2 mb-2 small" style="font-size:0.72rem;">
            <i class="bi bi-info-circle"></i> ${this._esc(step.detailNote)}
          </div>`
@@ -1126,7 +1143,7 @@ const ReservationFlowPage = {
     const channelData = (property.channelOverrides || {})[step.globalChannel] || {};
     const idPrefix = `prop_${property.id}_${step.globalChannel}`;
     return `<div class="rf-shared-notify mt-2" data-pid="${property.id}" data-notif-key="${step.globalChannel}" data-id-prefix="${idPrefix}">
-      ${NCE.renderNotificationCard(n, channelData, { idPrefix, collapsed: false })}
+      ${NCE.renderNotificationCard(n, channelData, { idPrefix, collapsed: false, hideHeader: true })}
     </div>`;
   },
 

@@ -207,19 +207,24 @@
     const showTestButton = opt.showTestButton !== false;
     const extraBadgeHtml = opt.extraBadgeHtml || "";
     const extraActionsHtml = opt.extraActionsHtml || "";
+    const hideHeader = opt.hideHeader === true; // 親カードでヘッダーを表示している場合は二重表示を抑止
 
-    return `
-      <div class="notify-channel-card" data-card-key="${dk}">
-        <div class="d-flex justify-content-between align-items-start">
-          <div class="flex-grow-1">
+    const headerHtml = hideHeader ? "" : `
             <div class="d-flex align-items-center gap-2 mb-1" style="cursor:pointer;" data-notify-toggle="${dk}">
               <i class="bi bi-chevron-right notify-chevron" data-key="${dk}" style="transition:transform 0.2s; transform:${collapsed ? "rotate(0deg)" : "rotate(90deg)"};"></i>
               <i class="bi ${n.icon} text-primary"></i>
               <strong>${n.label}</strong>
               ${extraBadgeHtml}
-            </div>
-            <div class="notify-collapse" data-key="${dk}" style="display:${collapsed ? "none" : ""};">
-            <div class="text-muted small mb-2">${n.desc}</div>
+            </div>`;
+    const collapseInlineStyle = hideHeader ? "" : `style="display:${collapsed ? "none" : ""};"`;
+
+    return `
+      <div class="notify-channel-card" data-card-key="${dk}">
+        <div class="d-flex justify-content-between align-items-start">
+          <div class="flex-grow-1">
+            ${headerHtml}
+            <div class="notify-collapse" data-key="${dk}" ${collapseInlineStyle}>
+            ${hideHeader ? "" : `<div class="text-muted small mb-2">${n.desc}</div>`}
 
             <div class="d-flex flex-wrap gap-3 mb-2">
               <label class="form-check form-check-inline mb-0" style="cursor:pointer;" title="送信元: settings/notifications.lineChannelToken の LINE Bot">

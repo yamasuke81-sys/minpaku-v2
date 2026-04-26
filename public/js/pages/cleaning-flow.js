@@ -805,7 +805,7 @@ const CleaningFlowPage = {
     const channelData = (property.channelOverrides || {})[step.globalChannel] || {};
     const idPrefix = `prop_${property.id}_${step.globalChannel}`;
     return `<div class="cf-shared-notify mt-2" data-pid="${property.id}" data-notif-key="${step.globalChannel}" data-id-prefix="${idPrefix}">
-      ${NCE.renderNotificationCard(n, channelData, { idPrefix, collapsed: false })}
+      ${NCE.renderNotificationCard(n, channelData, { idPrefix, collapsed: false, hideHeader: true })}
     </div>`;
   },
 
