@@ -767,10 +767,16 @@ async function sendNotificationEmail_(to, subject, body, fromEmail, opts) {
   // fromEmail 指定があれば対応トークンを優先探索、なければ先頭トークン
   let tokenData = null;
   if (fromEmail) {
+    // 両コンテキスト(税理士資料用 / メール照合用)を統合検索
     try {
-      const byEmail = await db.collection("settings").doc("gmailOAuth").collection("tokens")
-        .where("email", "==", fromEmail).limit(1).get();
-      if (!byEmail.empty) tokenData = byEmail.docs[0].data();
+      const cols = [
+        db.collection("settings").doc("gmailOAuth").collection("tokens"),
+        db.collection("settings").doc("gmailOAuthEmailVerification").collection("tokens"),
+      ];
+      for (const col of cols) {
+        const byEmail = await col.where("email", "==", fromEmail).limit(1).get();
+        if (!byEmail.empty) { tokenData = byEmail.docs[0].data(); break; }
+      }
     } catch (_) {}
   }
   if (!tokenData) {
@@ -778,7 +784,11 @@ async function sendNotificationEmail_(to, subject, body, fromEmail, opts) {
     if (fromEmail && opts && opts.strictFrom) {
       throw new Error(`fromEmail=${fromEmail} の Gmail 連携が未登録のため送信をスキップ`);
     }
-    const tokensSnap = await db.collection("settings").doc("gmailOAuth").collection("tokens").limit(1).get();
+    // フォールバック: 両コンテキストから先頭の有効トークンを取得
+    let tokensSnap = await db.collection("settings").doc("gmailOAuth").collection("tokens").limit(1).get();
+    if (tokensSnap.empty) {
+      tokensSnap = await db.collection("settings").doc("gmailOAuthEmailVerification").collection("tokens").limit(1).get();
+    }
     if (tokensSnap.empty) throw new Error("Gmail認証済みアカウントなし（設定画面でGmail連携してください）");
     tokenData = tokensSnap.docs[0].data();
     if (fromEmail && tokenData.email !== fromEmail) {

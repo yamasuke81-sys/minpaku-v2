@@ -44,17 +44,22 @@ const ContactsPage = {
 
   async loadAll() {
     try {
-      const [staffSnap, propSnap, notifDoc, tokensSnap] = await Promise.all([
+      const [staffSnap, propSnap, notifDoc, tokensSnap1, tokensSnap2] = await Promise.all([
         db.collection("staff").orderBy("displayOrder", "asc").get(),
         db.collection("properties").get(),
         db.collection("settings").doc("notifications").get(),
         db.collection("settings").doc("gmailOAuth").collection("tokens").get(),
+        db.collection("settings").doc("gmailOAuthEmailVerification").collection("tokens").get(),
       ]);
       this.staff = staffSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       this.properties = propSnap.docs.map(d => ({ id: d.id, ...d.data() }))
         .sort((a, b) => (a.propertyNumber ?? 999) - (b.propertyNumber ?? 999));
       this.notifSettings = notifDoc.exists ? notifDoc.data() : {};
-      this.gmailTokens = tokensSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // 両コンテキスト統合 (context フィールド付与)
+      this.gmailTokens = [
+        ...tokensSnap1.docs.map(d => ({ id: d.id, context: "default", ...d.data() })),
+        ...tokensSnap2.docs.map(d => ({ id: d.id, context: "emailVerification", ...d.data() })),
+      ];
     } catch (e) {
       console.error("[contacts] 読み込み失敗:", e);
       showToast("エラー", "読み込み失敗: " + e.message, "error");
@@ -132,11 +137,21 @@ const ContactsPage = {
       <div class="card mb-3"><div class="card-body p-2">
         ${this.gmailTokens.length === 0
           ? '<div class="text-muted small">連携アカウントなし。<a href="#/email-verification">メール照合タブ</a>から Gmail 連携を追加できます。</div>'
-          : `<table class="table table-sm mb-0">
-              <thead class="table-light"><tr><th>Gmail アドレス</th><th style="width:120px;">最終更新</th></tr></thead>
-              <tbody>${this.gmailTokens.map(t => `<tr><td><code>${this._esc(t.email || "(不明)")}</code></td><td class="small text-muted">${this._fmtDate(t.updatedAt)}</td></tr>`).join("")}</tbody>
+          : `<table class="table table-sm mb-0 align-middle">
+              <thead class="table-light"><tr><th>Gmail アドレス</th><th style="width:140px;">用途</th><th style="width:120px;">最終更新</th><th style="width:90px;">操作</th></tr></thead>
+              <tbody>${this.gmailTokens.map(t => {
+                const ctxLabel = t.context === "emailVerification"
+                  ? '<span class="badge bg-info-subtle text-info border">メール照合用</span>'
+                  : '<span class="badge bg-warning-subtle text-warning border">税理士資料用</span>';
+                return `<tr>
+                  <td><code>${this._esc(t.email || "(不明)")}</code> ${t.refreshToken ? '<span class="badge bg-success-subtle text-success border ms-1" title="リフレッシュトークン有効">有効</span>' : '<span class="badge bg-danger-subtle text-danger border ms-1">無効</span>'}</td>
+                  <td>${ctxLabel}</td>
+                  <td class="small text-muted">${this._fmtDate(t.savedAt || t.updatedAt)}</td>
+                  <td><button class="btn btn-sm btn-outline-danger c-token-delete-btn" data-token-id="${this._esc(t.id)}" data-context="${this._esc(t.context)}" data-email="${this._esc(t.email || "")}"><i class="bi bi-x-circle"></i> 解除</button></td>
+                </tr>`;
+              }).join("")}</tbody>
             </table>`}
-        <div class="mt-2 small"><a href="#/email-verification"><i class="bi bi-plus-circle"></i> Gmail 連携を追加 / 解除</a></div>
+        <div class="mt-2 small"><a href="#/email-verification"><i class="bi bi-plus-circle"></i> Gmail 連携を追加</a></div>
       </div></div>
     `;
 
@@ -291,6 +306,32 @@ const ContactsPage = {
     document.querySelectorAll(".c-save-row-btn").forEach(btn => {
       btn.addEventListener("click", () => this.saveStaffRow(btn));
     });
+    document.querySelectorAll(".c-token-delete-btn").forEach(btn => {
+      btn.addEventListener("click", () => this.deleteToken(btn));
+    });
+  },
+
+  async deleteToken(btn) {
+    const tokenId = btn.dataset.tokenId;
+    const context = btn.dataset.context;
+    const email = btn.dataset.email;
+    const ok = typeof window.showConfirm === "function"
+      ? await window.showConfirm(`${email} の Gmail 連携を解除します。よろしいですか？`, "Gmail 連携解除")
+      : window.confirm(`${email} の Gmail 連携を解除しますか？`);
+    if (!ok) return;
+    const orig = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    try {
+      const parent = context === "emailVerification" ? "gmailOAuthEmailVerification" : "gmailOAuth";
+      await db.collection("settings").doc(parent).collection("tokens").doc(tokenId).delete();
+      this.gmailTokens = this.gmailTokens.filter(t => !(t.id === tokenId && t.context === context));
+      this.renderEmails();
+      this.bindEvents();
+      showToast("解除完了", `${email} の連携を解除しました`, "success");
+    } catch (e) {
+      btn.disabled = false; btn.innerHTML = orig;
+      showToast("エラー", "解除失敗: " + e.message, "error");
+    }
   },
 
   async saveSingle(btn) {

@@ -2522,17 +2522,23 @@ const GuestsPage = {
     if (lastCard) lastCard.scrollIntoView({ behavior: "smooth", block: "center" });
   },
 
-  // 連携済み Gmail を取得して select に反映
+  // 連携済み Gmail を取得して select に反映 (両コンテキストから取得して重複排除)
   async _loadGmailTokensIntoSelect() {
     const sel = document.getElementById("formSenderGmail");
     if (!sel) return;
     try {
-      const snap = await db.collection("settings").doc("gmailOAuth").collection("tokens").get();
-      const opts = ['<option value="">— 未指定（物件オーナーの email を継承）—</option>'];
-      snap.docs.forEach(d => {
+      const [snap1, snap2] = await Promise.all([
+        db.collection("settings").doc("gmailOAuth").collection("tokens").get(),
+        db.collection("settings").doc("gmailOAuthEmailVerification").collection("tokens").get(),
+      ]);
+      const seen = new Set();
+      const emails = [];
+      [...snap1.docs, ...snap2.docs].forEach(d => {
         const e = (d.data().email || "").trim();
-        if (e) opts.push(`<option value="${e}">${e}</option>`);
+        if (e && !seen.has(e.toLowerCase())) { seen.add(e.toLowerCase()); emails.push(e); }
       });
+      const opts = ['<option value="">— 未指定（物件オーナーの email を継承）—</option>'];
+      emails.forEach(e => opts.push(`<option value="${e}">${e}</option>`));
       sel.innerHTML = opts.join("");
     } catch (e) {
       console.warn("[contacts] Gmail tokens 読み込み失敗:", e.message);
