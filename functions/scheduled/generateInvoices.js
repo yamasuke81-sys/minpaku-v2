@@ -2,7 +2,7 @@ const admin = require("firebase-admin");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { FieldValue } = require("firebase-admin/firestore");
 const { computeInvoiceDetails } = require("../api/invoices");
-const { notifyOwner } = require("../utils/lineNotify");
+const { notifyByKey } = require("../utils/lineNotify");
 
 /**
  * 月次請求書自動生成
@@ -85,13 +85,17 @@ exports.generateInvoices = onSchedule({
   for (const g of generated) console.log(`  ✓ ${g.invoiceId} ${g.staff} ¥${g.total}`);
   for (const s of skipped) console.log(`  - skip staff=${s.staffId} reason=${s.reason}`);
 
-  // Webアプリ管理者サマリ通知
+  // invoice_request: notifyByKey で送信 (ownerLine/groupLine/subOwner系を一括)
   if (generated.length > 0) {
     try {
       const totalAmount = generated.reduce((s, g) => s + g.total, 0);
       const title = `${yearMonth} 請求書 ${generated.length}件 自動生成`;
       const body = `月次集計が完了しました。\n\n件数: ${generated.length}件\n合計: ¥${totalAmount.toLocaleString()}\n\n確認: https://minpaku-v2.web.app/#/invoices`;
-      await notifyOwner(db, "invoice_request", title, body, { month: yearMonth, count: generated.length });
+      await notifyByKey(db, "invoice_request", {
+        title,
+        body,
+        vars: { month: yearMonth, count: String(generated.length) },
+      });
     } catch (e) {
       console.error("[generateInvoices] 通知エラー:", e);
     }

@@ -148,6 +148,7 @@ const CleaningFlowPage = {
       icon: "bi-search",
       lane: "owner",
       phase: 2,
+      unimplemented: true, // バックエンド通知未実装
       propertyField: "inspection.enabled",
       hint: "有効にすると、チェックアウト同日に直前点検シフトが自動生成されます (workType=pre_inspection)。点検設定は物件管理ページで詳細設定できます。",
       linkHash: "#/properties",
@@ -163,21 +164,6 @@ const CleaningFlowPage = {
     },
 
     // ---- Phase 3: 清掃実施 ----
-    {
-      key: "cleaning_start",
-      label: "清掃開始",
-      icon: "bi-play-circle",
-      lane: "staff",
-      phase: 3,
-      hint: "スタッフがチェックリストを開いて清掃を開始します。ステータス表示のみ（通知なし）。",
-      linkHash: "#/my-checklist",
-      linkLabel: "チェックリスト",
-      // 詳細設定 (物件別保存: properties/{pid}.cleaningStartTime)
-      detailFields: [
-        { field: "cleaningStartTime", label: "清掃開始時刻", type: "time", default: "11:00",
-          hint: "物件管理画面の清掃開始時刻と同期します" },
-      ],
-    },
     {
       key: "laundry_put_out",
       label: "ランドリー 出した",
@@ -215,27 +201,6 @@ const CleaningFlowPage = {
       linkLabel: "通知設定",
     },
     {
-      key: "checklist_progress",
-      label: "チェックリスト入力中",
-      icon: "bi-list-check",
-      lane: "staff",
-      phase: 3,
-      hint: "スタッフがチェックリストに入力中のステータス。通知なし。",
-      linkHash: "#/my-checklist",
-      linkLabel: "チェックリスト",
-      // 詳細設定 (物件別保存: properties/{pid}.checklistProgress.*)
-      detailFields: [
-        { field: "checklistProgress.enabled",   label: "進捗通知", type: "switch", default: false },
-        { field: "checklistProgress.threshold", label: "通知閾値", type: "select",
-          options: [
-            { value: "50", label: "50% 完了時" },
-            { value: "75", label: "75% 完了時" },
-            { value: "90", label: "90% 完了時" },
-          ],
-          default: "75" },
-      ],
-    },
-    {
       key: "cleaning_done",
       label: "清掃完了通知",
       icon: "bi-clipboard-check",
@@ -247,19 +212,6 @@ const CleaningFlowPage = {
       linkHash: "#/notifications",
       linkLabel: "通知設定",
     },
-    {
-      key: "checklist_complete",
-      label: "チェックリスト完了通知",
-      icon: "bi-check-all",
-      lane: "staff",
-      phase: 3,
-      globalChannel: "checklist_complete",
-      varGroup: "cleaning",
-      arrowTo: "owner",
-      linkHash: "#/notifications",
-      linkLabel: "通知設定",
-    },
-
     // ---- Phase 4: 月末 ----
     {
       key: "invoice_request",
@@ -286,13 +238,14 @@ const CleaningFlowPage = {
       linkLabel: "通知設定",
     },
 
-    // ---- 分岐 A: 出勤キャンセル ----
+    // ---- 分岐 A: 出勤キャンセル (バックエンド未実装) ----
     {
       key: "cancel_request",
       label: "出勤キャンセル要望",
       icon: "bi-person-dash",
       lane: "staff",
       branch: "staff_cancel",
+      unimplemented: true,
       globalChannel: "cancel_request",
       varGroup: "staff",
       arrowTo: "owner",
@@ -305,6 +258,7 @@ const CleaningFlowPage = {
       icon: "bi-check-circle",
       lane: "owner",
       branch: "staff_cancel",
+      unimplemented: true,
       globalChannel: "cancel_approve",
       varGroup: "staff",
       arrowTo: "staff",
@@ -317,6 +271,7 @@ const CleaningFlowPage = {
       icon: "bi-dash-circle",
       lane: "owner",
       branch: "staff_cancel",
+      unimplemented: true,
       globalChannel: "cancel_reject",
       varGroup: "staff",
       arrowTo: "staff",
@@ -723,9 +678,9 @@ const CleaningFlowPage = {
 
   // カード1枚のHTML
   _renderCard(step, property, enabled, memo) {
-    // バッジ類
-    const statusBadge = step.status === "未実装"
-      ? `<span class="badge bg-warning text-dark ms-1" style="font-size:10px;"><i class="bi bi-hammer"></i> 未実装</span>`
+    // バッジ類: status="未実装" または unimplemented:true の両方に対応
+    const statusBadge = (step.status === "未実装" || step.unimplemented)
+      ? `<span class="badge bg-secondary ms-1" style="font-size:10px;">未実装</span>`
       : "";
     let syncBadge = "";
     if (step.propertyField) {

@@ -3,7 +3,7 @@
  * 「募集中」の募集で未回答のスタッフに個別LINEリマインド
  */
 const admin = require("firebase-admin");
-const { notifyStaff, getNotificationSettings_, resolveNotifyTargets } = require("../utils/lineNotify");
+const { notifyByKey, getNotificationSettings_, resolveNotifyTargets } = require("../utils/lineNotify");
 
 module.exports = async function recruitReminder(event) {
   const db = admin.firestore();
@@ -12,7 +12,7 @@ module.exports = async function recruitReminder(event) {
     // 通知設定確認
     const { settings } = await getNotificationSettings_(db);
     const targets = resolveNotifyTargets(settings, "recruit_remind");
-    if (!targets.enabled || !targets.sendToIndividual) {
+    if (!targets.enabled) {
       console.log("募集リマインドは無効化されています");
       return;
     }
@@ -90,15 +90,19 @@ module.exports = async function recruitReminder(event) {
         property: recruitment.propertyName || "",
         propertyName: recruitment.propertyName || "",
         url: recruitUrl,
-        count: String((recruitment.responses || []).length),
+        count: String(responses.length),
       };
 
-      // 未回答スタッフに個別送信
-      const sends = unreplied.map(s =>
-        notifyStaff(db, s.id, "recruit_remind", `リマインド: ${recruitment.checkoutDate}`, text, remindVars)
-      );
-      const results = await Promise.allSettled(sends);
-      sentCount += results.filter(r => r.status === "fulfilled" && r.value?.success).length;
+      // 未回答スタッフのIDリストを渡して個別送信 (notifyByKey の staffIds 引数で絞り込み)
+      const unrepliedIds = unreplied.map(s => s.id);
+      const result = await notifyByKey(db, "recruit_remind", {
+        title: `リマインド: ${recruitment.checkoutDate}`,
+        body: text,
+        vars: remindVars,
+        propertyId: recruitment.propertyId || null,
+        staffIds: unrepliedIds,
+      });
+      sentCount += unrepliedIds.length;
     }
 
     console.log(`募集リマインド完了: ${sentCount}件送信`);

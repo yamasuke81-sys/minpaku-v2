@@ -14,15 +14,7 @@ const INACTIVE_THRESHOLD = 15;
 async function addRecruitmentToActiveStaff(db, recruitmentId) {
   if (!recruitmentId) return;
   const staffSnap = await db.collection("staff").where("active", "==", true).get();
-  const {
-    notifyOwner,
-    notifyGroup,
-    getNotificationSettings_,
-    resolveNotifyTargets,
-  } = require("./lineNotify");
-
-  const { settings } = await getNotificationSettings_(db);
-  const targets = resolveNotifyTargets(settings, "staff_inactive");
+  const { notifyByKey } = require("./lineNotify");
 
   for (const doc of staffSnap.docs) {
     const data = doc.data();
@@ -43,14 +35,16 @@ async function addRecruitmentToActiveStaff(db, recruitmentId) {
     }
     await doc.ref.update(update);
 
-    // 通知
-    if (update.active === false && targets.enabled) {
+    // notifyByKey で staff_inactive を ownerLine/groupLine/subOwner 系に一括送信
+    if (update.active === false) {
       try {
-        const baseVars = { staff: data.name || "", reason: update.inactiveReason };
         const title = `スタッフ非アクティブ化: ${data.name}`;
         const body = `⚠️ スタッフ非アクティブ化\n\n${data.name} さんを非アクティブに変更しました。\n理由: ${update.inactiveReason}`;
-        if (targets.ownerLine) await notifyOwner(db, "staff_inactive", title, body, baseVars);
-        if (targets.groupLine) await notifyGroup(db, "staff_inactive", title, body, baseVars);
+        await notifyByKey(db, "staff_inactive", {
+          title,
+          body,
+          vars: { staff: data.name || "", reason: update.inactiveReason },
+        });
       } catch (e) {
         console.error("staff_inactive 通知エラー:", e);
       }

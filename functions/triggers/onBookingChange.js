@@ -273,6 +273,43 @@ module.exports = async function onBookingChange(event) {
     } catch (e) {
       console.error("日程変更処理エラー:", e);
     }
+
+    // booking_change 通知: CI/CO/ゲスト人数/ゲスト名のいずれかが変更された場合に通知
+    try {
+      const ciChanged = before.checkIn && after.checkIn && before.checkIn !== after.checkIn;
+      const coChanged = before.checkOut && after.checkOut && before.checkOut !== after.checkOut;
+      const countChanged = before.guestCount !== after.guestCount;
+      const nameChanged = before.guestName !== after.guestName;
+      if (ciChanged || coChanged || countChanged || nameChanged) {
+        // 変更点サマリを組み立て
+        const changes = [];
+        if (ciChanged) changes.push(`チェックイン: ${before.checkIn} → ${after.checkIn}`);
+        if (coChanged) changes.push(`チェックアウト: ${before.checkOut} → ${after.checkOut}`);
+        if (countChanged) changes.push(`人数: ${before.guestCount ?? "?"}名 → ${after.guestCount ?? "?"}名`);
+        if (nameChanged) changes.push(`ゲスト名: ${before.guestName || "不明"} → ${after.guestName || "不明"}`);
+        const changeSummary = changes.join("\n");
+
+        const propName = after.propertyName || "";
+        const newNights = (after.checkIn && after.checkOut)
+          ? Math.max(0, (new Date(after.checkOut) - new Date(after.checkIn)) / 86400000)
+          : "";
+        await notifyByKey(db, "booking_change", {
+          title: `予約変更: ${after.checkIn}〜${after.checkOut}`,
+          body: `🔄 予約変更\n\n${propName}\n新しい日程: ${after.checkIn}〜${after.checkOut}${newNights !== "" ? `（${newNights}泊）` : ""}\nゲスト: ${after.guestName || "不明"}\n\n変更内容:\n${changeSummary}`,
+          vars: {
+            checkin: after.checkIn || "",
+            date: after.checkOut || "",
+            property: propName,
+            guest: after.guestName || "",
+            nights: String(newNights),
+            change_summary: changeSummary,
+          },
+          propertyId: after.propertyId || null,
+        });
+      }
+    } catch (e) {
+      console.error("[onBookingChange] booking_change 通知エラー:", e);
+    }
   }
 
   // 削除 or キャンセル化: 対応する shifts/recruitments/checklists を削除
@@ -328,6 +365,30 @@ module.exports = async function onBookingChange(event) {
         await resolveConflictsOnCancel(db, event.params.bookingId, after);
       } catch (e) {
         console.error("conflict解決エラー:", e);
+      }
+    }
+    // booking_cancel 通知: キャンセル化時にオーナーへ通知
+    if (nowCancelled && after) {
+      try {
+        const propName = after.propertyName || "";
+        const nights = (after.checkIn && after.checkOut)
+          ? Math.max(0, (new Date(after.checkOut) - new Date(after.checkIn)) / 86400000)
+          : "";
+        await notifyByKey(db, "booking_cancel", {
+          title: `予約キャンセル: ${after.checkIn}〜${after.checkOut}`,
+          body: `❌ 予約キャンセル\n\n${after.checkIn}〜${after.checkOut} ${propName}\nゲスト: ${after.guestName || "不明"}（${after.source || "不明"}）\n予約がキャンセルされました。`,
+          vars: {
+            checkin: after.checkIn || "",
+            date: after.checkOut || "",
+            property: propName,
+            guest: after.guestName || "",
+            site: after.source || "",
+            nights: String(nights),
+          },
+          propertyId: after.propertyId || null,
+        });
+      } catch (e) {
+        console.error("[onBookingChange] booking_cancel 通知エラー:", e);
       }
     }
     // 削除 or キャンセル化はここで終了
@@ -537,79 +598,24 @@ module.exports = async function onBookingChange(event) {
     return;
   }
 
-  // ========== LINE通知 ==========
+  // ========== LINE通知 (recruit_start) ==========
   try {
     const { settings } = await getNotificationSettings_(db);
-    // propertyData は既に取得済みなので再取得しない
-    const propertyOverrides = (propertyData && propertyData.channelOverrides) || {};
-    const targets = resolveNotifyTargets(settings, "recruit_start", propertyOverrides);
-
-    if (!targets.enabled) {
-      console.log("recruit_start通知が無効のためスキップ");
-      return;
-    }
-
-    // アプリベースURL取得（settings/notifications.appUrl or デフォルト）
     const appUrl = settings?.appUrl || "https://minpaku-v2.web.app";
     const recruitUrl = `${appUrl}/#/my-recruitment`;
-
-    const flexMessage = buildRecruitmentFlex(
-      { checkoutDate: checkOut, propertyName, memo },
-      appUrl
-    );
-
-    // 変数置換用 vars (customMessage で {date}/{property}/{work}/{url}/{memo} が置換される)
-    const baseVars = {
-      date: checkOut,
-      property: propertyName || "",
-      work: "清掃",
-      url: recruitUrl,
-      memo: memo || "",
-    };
-
-    // Webアプリ管理者LINE通知
-    if (targets.ownerLine) {
-      await notifyOwner(
-        db,
-        "recruit_start",
-        `清掃スタッフ募集: ${checkOut}`,
-        `【清掃スタッフ募集】\n${checkOut} ${propertyName}\n${memo}\n回答: ${recruitUrl}`,
-        baseVars,
-        propertyOverrides
-      );
-    }
-
-    // グループLINE通知 (該当物件の LINE のみ)
-    if (targets.groupLine) {
-      await notifyGroup(
-        db,
-        "recruit_start",
-        `清掃スタッフ募集: ${checkOut}`,
-        flexMessage,
-        baseVars,
-        propertyOverrides,
-        booking.propertyId
-      );
-    }
-
-    // スタッフ個別通知（activeなスタッフ全員）
-    if (targets.staffLine) {
-      const staffSnap = await db.collection("staff")
-        .where("active", "==", true)
-        .get();
-      const notifyPromises = staffSnap.docs.map((doc) =>
-        notifyStaff(
-          db,
-          doc.id,
-          "recruit_start",
-          `清掃スタッフ募集: ${checkOut}`,
-          flexMessage,
-          baseVars,
-          propertyOverrides
-        )
-      );
-      await Promise.all(notifyPromises);
-    }
+    // notifyByKey で ownerLine/groupLine/staffLine を一括送信
+    await notifyByKey(db, "recruit_start", {
+      title: `清掃スタッフ募集: ${checkOut}`,
+      body: `【清掃スタッフ募集】\n${checkOut} ${propertyName}\n${memo}\n回答: ${recruitUrl}`,
+      vars: {
+        date: checkOut,
+        property: propertyName || "",
+        work: "清掃",
+        url: recruitUrl,
+        memo: memo || "",
+      },
+      propertyId: propertyId || null,
+    });
   } catch (e) {
     console.error("LINE通知エラー:", e);
   }
@@ -698,32 +704,20 @@ module.exports = async function onBookingChange(event) {
       try { await addRecruitmentToActiveStaff(db, insRecruitmentId); } catch (e) { console.error("addRecruitmentToActiveStaff(直前点検) エラー:", e); }
     }
 
-    // 直前点検の募集通知
+    // 直前点検の募集通知 (recruit_start)
     try {
+      if (!insRecruitmentId) return;
       const { settings: s2 } = await getNotificationSettings_(db);
-      // propertyData は既に取得済みなので再取得しない
-      const propOv2 = (propertyData && propertyData.channelOverrides) || {};
-      const tgt2 = resolveNotifyTargets(s2, "recruit_start", propOv2);
-      if (!tgt2.enabled || !insRecruitmentId) return;
       const appUrl2 = s2?.appUrl || "https://minpaku-v2.web.app";
       const recruitUrl2 = `${appUrl2}/#/my-recruitment`;
       const memo2 = `直前点検: ゲスト ${guestName || "不明"} (${source || ""})`;
-      const flex2 = buildRecruitmentFlex({ checkoutDate: checkIn, propertyName, memo: memo2 }, appUrl2);
-      const baseVars2 = { date: checkIn, property: propertyName || "", work: "直前点検", url: recruitUrl2, memo: memo2 };
-
-      if (tgt2.ownerLine) {
-        await notifyOwner(db, "recruit_start", `直前点検スタッフ募集: ${checkIn}`,
-          `【直前点検スタッフ募集】\n${checkIn} ${propertyName}\n${memo2}\n回答: ${recruitUrl2}`, baseVars2, propOv2);
-      }
-      if (tgt2.groupLine) {
-        await notifyGroup(db, "recruit_start", `直前点検スタッフ募集: ${checkIn}`, flex2, baseVars2, propOv2, booking.propertyId);
-      }
-      if (tgt2.staffLine) {
-        const staffSnap2 = await db.collection("staff").where("active", "==", true).get();
-        await Promise.all(staffSnap2.docs.map(doc =>
-          notifyStaff(db, doc.id, "recruit_start", `直前点検スタッフ募集: ${checkIn}`, flex2, baseVars2, propOv2)
-        ));
-      }
+      // notifyByKey で ownerLine/groupLine/staffLine を一括送信
+      await notifyByKey(db, "recruit_start", {
+        title: `直前点検スタッフ募集: ${checkIn}`,
+        body: `【直前点検スタッフ募集】\n${checkIn} ${propertyName}\n${memo2}\n回答: ${recruitUrl2}`,
+        vars: { date: checkIn, property: propertyName || "", work: "直前点検", url: recruitUrl2, memo: memo2 },
+        propertyId: propertyId || null,
+      });
     } catch (notifErr) {
       console.error("直前点検LINE通知エラー:", notifErr);
     }

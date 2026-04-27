@@ -6,7 +6,7 @@ const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
 const {
   notifyStaff, notifyGroup, notifyOwner,
-  buildRecruitmentFlex, resolveNotifyTargets, getNotificationSettings_,
+  notifyByKey, buildRecruitmentFlex, resolveNotifyTargets, getNotificationSettings_,
 } = require("../utils/lineNotify");
 const { addRecruitmentToActiveStaff, removeRecruitmentFromStaff, removeRecruitmentFromAllStaff } = require("../utils/inactiveStaff");
 
@@ -81,41 +81,26 @@ module.exports = function recruitmentApi(db) {
           const propDoc = await db.collection("properties").doc(data.propertyId).get();
           if (propDoc.exists) propertyOverrides = propDoc.data().channelOverrides || {};
         }
-        const targets = resolveNotifyTargets(settings, "recruit_start", propertyOverrides);
-        if (shouldNotify && targets.enabled) {
+        if (shouldNotify) {
           const appUrl = (settings && settings.appUrl) || process.env.APP_BASE_URL || "https://minpaku-v2.web.app";
           const recruitUrl = `${appUrl.replace(/\/$/, "")}/#/my-recruitment`;
-          const flex = buildRecruitmentFlex(data, appUrl);
-          const title = `募集: ${data.checkoutDate}`;
-          // 変数置換用 vars (customMessage で使う)
+          const work = data.workType === "pre_inspection" ? "直前点検" : "清掃";
           const baseVars = {
             date: data.checkoutDate,
             checkoutDate: data.checkoutDate,
             property: data.propertyName || "",
             propertyName: data.propertyName || "",
-            work: data.workType === "pre_inspection" ? "直前点検" : "清掃",
+            work,
             url: recruitUrl,
             memo: data.memo || "",
           };
-
-          // Webアプリ管理者LINEに送信
-          if (targets.ownerLine) {
-            await notifyOwner(db, "recruit_start", title,
-              `🧹 清掃スタッフ募集\n${data.checkoutDate} ${data.propertyName || ""}\n回答: ${recruitUrl}`,
-              baseVars);
-          }
-          // グループLINEに送信 (該当物件の LINE のみ)
-          if (targets.groupLine) {
-            await notifyGroup(db, "recruit_start", title, flex, baseVars, undefined, data.propertyId);
-          }
-          // スタッフ個別LINEに送信
-          if (targets.staffLine) {
-            const staffSnap = await db.collection("staff").where("active", "==", true).get();
-            const sends = staffSnap.docs
-              .filter(d => d.data().lineUserId)
-              .map(d => notifyStaff(db, d.id, "recruit_start", title, flex, baseVars));
-            await Promise.allSettled(sends);
-          }
+          // notifyByKey で ownerLine/groupLine/staffLine を一括送信 (recruit_start)
+          await notifyByKey(db, "recruit_start", {
+            title: `募集: ${data.checkoutDate}`,
+            body: `🧹 ${work}スタッフ募集\n${data.checkoutDate} ${data.propertyName || ""}\n回答: ${recruitUrl}`,
+            vars: baseVars,
+            propertyId: data.propertyId || null,
+          });
         }
       } catch (notifyErr) {
         console.error("募集通知エラー（無視）:", notifyErr);
@@ -338,6 +323,26 @@ module.exports = function recruitmentApi(db) {
             ? selectedIds.map(id => idToName.get(id) || "").filter(Boolean).join("、")
             : selectedNames.join("、");
           const text = `✅ 清掃確定のお知らせ\n\n${data.checkoutDate} ${data.propertyName || ""}\n担当: ${allConfirmedNames}\nよろしくお願いします。\n詳細: ${dashUrl}`;
+          const confirmVars = {
+            date: data.checkoutDate,
+            checkoutDate: data.checkoutDate,
+            property: data.propertyName || "",
+            propertyName: data.propertyName || "",
+            staff: allConfirmedNames,
+            url: dashUrl,
+          };
+
+          // ownerLine/groupLine/ownerEmail/subOwner系 は notifyByKey で一括 (staffLine は除外)
+          // staffLine は確定者本人のみに個別送信するため現行ロジックを維持
+          await notifyByKey(db, "staff_confirm", {
+            title: `確定: ${data.checkoutDate}`,
+            body: text,
+            vars: confirmVars,
+            propertyId: data.propertyId || null,
+            staffIds: [], // staffLine を notifyByKey に送らせない（空配列で全スタッフ送信を抑止）
+          });
+
+          // 確定スタッフ本人のみに staffLine 個別送信
           for (const staffDoc of staffSnap.docs) {
             const sd = staffDoc.data();
             const isSelected = hasIdList
@@ -347,13 +352,8 @@ module.exports = function recruitmentApi(db) {
               await notifyStaff(db, staffDoc.id, "staff_confirm",
                 `確定: ${data.checkoutDate}`, text,
                 {
-                  date: data.checkoutDate,
-                  checkoutDate: data.checkoutDate,
-                  property: data.propertyName || "",
-                  propertyName: data.propertyName || "",
-                  staff: allConfirmedNames,    // 全員の名前（テンプレ用）
-                  staffName: sd.name,          // 受信者本人の名前（個別呼びかけ用に残す）
-                  url: dashUrl,
+                  ...confirmVars,
+                  staffName: sd.name, // 受信者本人の名前（個別呼びかけ用）
                 });
             }
           }

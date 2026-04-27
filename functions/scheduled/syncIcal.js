@@ -10,6 +10,7 @@
  */
 const admin = require("firebase-admin");
 const ical = require("node-ical");
+const { notifyByKey } = require("../utils/lineNotify");
 
 /**
  * iCal URLのドメインからプラットフォームを判定
@@ -393,6 +394,34 @@ async function syncIcal() {
   }
 
   console.log(`[syncIcal] 完了: 合計 ${totalSynced}件同期, ${totalSkipped}件スキップ`);
+
+  // ical_sync 通知: 新規予約があった場合のみ送信
+  if (totalSynced > 0) {
+    try {
+      // 複数物件対応: 最初の syncSettings の propertyName を代表として使用
+      let firstPropertyName = "";
+      if (!settingsSnap.empty) {
+        const firstSetting = settingsSnap.docs[0].data();
+        if (firstSetting.propertyId) {
+          const propDoc = await db.collection("properties").doc(firstSetting.propertyId).get();
+          if (propDoc.exists) firstPropertyName = propDoc.data().name || "";
+        }
+      }
+      const propertyLabel = settingsSnap.size > 1 ? "複数物件" : (firstPropertyName || "不明");
+      const syncDateStr = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+      await notifyByKey(db, "ical_sync", {
+        title: `iCal同期完了: ${totalSynced}件の新規予約`,
+        body: `📅 iCal同期完了\n\n新規予約: ${totalSynced}件\n物件: ${propertyLabel}\n同期日時: ${syncDateStr}`,
+        vars: {
+          count: String(totalSynced),
+          property: propertyLabel,
+          date: syncDateStr,
+        },
+      });
+    } catch (notifyErr) {
+      console.error("[syncIcal] ical_sync 通知エラー:", notifyErr.message);
+    }
+  }
 
   // lastIcalSync を現在時刻で更新
   await syncConfigRef.set(

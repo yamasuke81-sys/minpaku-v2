@@ -4,9 +4,7 @@
  */
 const admin = require("firebase-admin");
 const {
-  notifyOwner,
-  notifyGroup,
-  resolveNotifyTargets,
+  notifyByKey,
   getNotificationSettings_,
 } = require("../utils/lineNotify");
 
@@ -17,8 +15,6 @@ module.exports = async function staffUndecidedRemind(event) {
   const db = admin.firestore();
 
   try {
-    const { settings } = await getNotificationSettings_(db);
-
     // 今日〜3日後の日付文字列を算出
     const now = new Date();
     const todayStr = now.toISOString().slice(0, 10);
@@ -61,25 +57,15 @@ module.exports = async function staffUndecidedRemind(event) {
     for (const doc of targets) {
       const r = doc.data();
 
-      // 物件別オーバーライド取得
-      const propDoc = r.propertyId
-        ? await db.collection("properties").doc(r.propertyId).get()
-        : null;
-      const overrides = propDoc?.exists ? (propDoc.data().channelOverrides || {}) : {};
+      // 今日すでに通知済みの募集はスキップ
+      if (sentTodayIds.has(doc.id)) {
+        console.log(`スタッフ未決定リマインド: ${doc.id} は今日送信済み — スキップ`);
+        continue;
+      }
 
-      const tgt = resolveNotifyTargets(settings, NOTIFY_TYPE, overrides);
-      if (!tgt.enabled) continue;
-
-      const propertyName = r.propertyName || (propDoc?.exists ? propDoc.data().name : "") || r.propertyId || "";
+      const propertyName = r.propertyName || r.propertyId || "";
       const date = r.checkoutDate || "";
       const recruitUrl = `${APP_URL}/#/recruitment`;
-
-      const vars = {
-        date,
-        property: propertyName,
-        url: recruitUrl,
-        staff: "",
-      };
 
       const defaultMsg = [
         `⚠️ スタッフ未確定 警告`,
@@ -93,23 +79,15 @@ module.exports = async function staffUndecidedRemind(event) {
 
       const title = `スタッフ未確定: ${propertyName} (${date})`;
 
-      // 今日すでに通知済みの募集はスキップ
-      if (sentTodayIds.has(doc.id)) {
-        console.log(`スタッフ未決定リマインド: ${doc.id} は今日送信済み — スキップ`);
-        continue;
-      }
+      // notifyByKey で設定 ON/OFF と物件別オーバーライドを自動適用
+      const result = await notifyByKey(db, NOTIFY_TYPE, {
+        title,
+        body: defaultMsg,
+        vars: { date, property: propertyName, url: recruitUrl, staff: "", count: String((r.responses || []).length) },
+        propertyId: r.propertyId || null,
+      });
 
-      const results = [];
-      if (tgt.ownerLine) {
-        const res = await notifyOwner(db, NOTIFY_TYPE, title, defaultMsg, vars, overrides);
-        results.push(res);
-      }
-      if (tgt.groupLine) {
-        const res = await notifyGroup(db, NOTIFY_TYPE, title, defaultMsg, vars, overrides, r.propertyId);
-        results.push(res);
-      }
-
-      const anySuccess = results.some(res => res?.success);
+      const anySuccess = Object.values(result.sent || {}).some(v => v);
       if (anySuccess) {
         sentCount++;
         // 送信日と募集IDを記録（次回実行時の重複防止用）

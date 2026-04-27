@@ -3,7 +3,7 @@
  * - 回答が追加された → Webアプリ管理者にLINE通知 (通知タイプ: recruit_response)
  * - 物件の selectionMethod が "firstCome" で新規◎回答 → 即自動確定
  */
-const { notifyOwner, resolveNotifyTargets, getNotificationSettings_ } = require("../utils/lineNotify");
+const { notifyByKey, resolveNotifyTargets, getNotificationSettings_ } = require("../utils/lineNotify");
 
 module.exports = async function onRecruitmentChange(event) {
   const admin = require("firebase-admin");
@@ -91,12 +91,7 @@ module.exports = async function onRecruitmentChange(event) {
     }
   }
 
-  // recruit_response が無効化されていれば送信しない（物件別オーバーライド適用）
-  const { settings } = await getNotificationSettings_(db);
-  const targets = resolveNotifyTargets(settings, "recruit_response", propertyOverrides);
-  if (!targets.enabled) return;
-
-  // 通常通知
+  // recruit_response: notifyByKey で送信 (設定 ON/OFF は内部で判定)
   const available = afterResponses.filter((r) => r.response === "◎" || r.response === "△");
   const declined = afterResponses.filter((r) => r.response === "×");
 
@@ -112,6 +107,10 @@ module.exports = async function onRecruitmentChange(event) {
     text += "→ スタッフを選定・確定してください";
   }
 
-  await notifyOwner(db, "recruit_response", `募集回答: ${checkoutDate}`, text,
-    { date: checkoutDate, property: propertyName, staff: staffName, response, count: available.length });
+  await notifyByKey(db, "recruit_response", {
+    title: `募集回答: ${checkoutDate}`,
+    body: text,
+    vars: { date: checkoutDate, property: propertyName, staff: staffName, response, count: available.length },
+    propertyId: propertyId || null,
+  });
 };

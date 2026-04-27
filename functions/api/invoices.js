@@ -5,7 +5,7 @@
 const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
 const { getStorage } = require("firebase-admin/storage");
-const { notifyOwner, notifyGroup, getNotificationSettings_, sendLineMessage, sendNotificationEmail_, resolveNotifyTargets } = require("../utils/lineNotify");
+const { notifyOwner, notifyGroup, notifyByKey, getNotificationSettings_, sendLineMessage, sendNotificationEmail_, resolveNotifyTargets } = require("../utils/lineNotify");
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
@@ -1838,39 +1838,35 @@ module.exports = function invoicesApi(db) {
         console.error("PDF生成エラー:", e);
       }
 
-      // invoice_submitted 通知: resolveNotifyTargets で送信先を判定
+      // invoice_submitted 通知: notifyByKey で ownerLine/groupLine/subOwner/discord 等を一括送信
+      // staffLine は提出者本人のみに個別送信するため notifyByKey の対象外とする
       try {
-        const { settings, channelToken, ownerUserId } = await getNotificationSettings_(db);
-        const targets = resolveNotifyTargets(settings, "invoice_submitted");
-        if (targets.enabled) {
-          const appUrl = (settings && settings.appUrl) || "https://minpaku-v2.web.app";
-          const confirmUrl = `${appUrl}/#/invoices`;
-          const linkLine = pdfSignedUrl ? `\nPDF: ${pdfSignedUrl}` : "";
-          const title = `請求書提出: ${staffDoc.name} ${yearMonth}`;
-          const ownerBody = `📨 請求書が提出されました\n\n${staffDoc.name} さんから ${m}月分の請求書が届きました。\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}${linkLine}\n確認: ${confirmUrl}`;
+        const { settings, channelToken } = await getNotificationSettings_(db);
+        const appUrl = (settings && settings.appUrl) || "https://minpaku-v2.web.app";
+        const confirmUrl = `${appUrl}/#/invoices`;
+        const linkLine = pdfSignedUrl ? `\nPDF: ${pdfSignedUrl}` : "";
+        const title = `請求書提出: ${staffDoc.name} ${yearMonth}`;
+        const ownerBody = `📨 請求書が提出されました\n\n${staffDoc.name} さんから ${m}月分の請求書が届きました。\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}${linkLine}\n確認: ${confirmUrl}`;
+        const notifyVars = {
+          month: String(m),
+          staff: staffDoc.name || "",
+          total: `¥${Number(computed.total).toLocaleString("ja-JP")}`,
+          url: confirmUrl,
+        };
 
-          // Webアプリ管理者LINE
-          if (targets.ownerLine) {
-            await notifyOwner(db, "invoice_submitted", title, ownerBody).catch((e) => console.error("Webアプリ管理者LINE送信失敗:", e.message));
-          }
-          // グループLINE
-          if (targets.groupLine) {
-            await notifyGroup(db, "invoice_submitted", title, ownerBody).catch((e) => console.error("グループLINE送信失敗:", e.message));
-          }
-          // Webアプリ管理者メール
-          if (targets.ownerEmail) {
-            const ownerEmail = settings && (settings.ownerEmail || (settings.notifyEmails && settings.notifyEmails[0]));
-            if (ownerEmail) {
-              sendNotificationEmail_(ownerEmail, `【請求書提出】${staffDoc.name} ${yearMonth}`, ownerBody)
-                .catch((e) => console.error("Webアプリ管理者への請求書通知メール失敗:", e.message));
-            }
-          }
-          // スタッフ個別LINE: 提出者本人のみに送信（全スタッフ同報は絶対禁止）
-          if (targets.staffLine && staffDoc.lineUserId && channelToken) {
-            const staffLineBody = `📨 ${yearMonth} の請求書を提出しました\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}${linkLine}\n確認: ${confirmUrl}`;
-            sendLineMessage(channelToken, staffDoc.lineUserId, staffLineBody)
-              .catch((e) => console.error("提出者LINE送信失敗:", e.message));
-          }
+        // ownerLine/groupLine/ownerEmail/subOwner/discord 系を一括送信 (staffLine は除外)
+        await notifyByKey(db, "invoice_submitted", {
+          title,
+          body: ownerBody,
+          vars: notifyVars,
+          staffIds: [], // staffLine を notifyByKey に送らせない（空配列で全スタッフ送信を抑止）
+        });
+
+        // スタッフ個別LINE: 提出者本人のみに送信（全スタッフ同報は絶対禁止）
+        if (staffDoc.lineUserId && channelToken) {
+          const staffLineBody = `📨 ${yearMonth} の請求書を提出しました\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}${linkLine}\n確認: ${confirmUrl}`;
+          sendLineMessage(channelToken, staffDoc.lineUserId, staffLineBody)
+            .catch((e) => console.error("提出者LINE送信失敗:", e.message));
         }
 
         // スタッフ本人にも PDF リンクをメール送付（方針A: 通知設定に依存しない固定送信で後方互換を維持）

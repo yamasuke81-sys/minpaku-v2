@@ -458,19 +458,6 @@ const ReservationFlowPage = {
       linkHash: "#/notifications",
       linkLabel: "通知設定",
     },
-    {
-      key: "checklist_complete",
-      label: "チェックリスト完了通知",
-      icon: "bi-check-all",
-      lane: "staff",
-      phase: 4,
-      globalChannel: "checklist_complete",
-      varGroup: "cleaning",
-      arrowTo: "owner",
-      linkHash: "#/notifications",
-      linkLabel: "通知設定",
-    },
-
     // ---- Phase 5: 月末請求 ----
     {
       key: "invoice_request",
@@ -521,13 +508,14 @@ const ReservationFlowPage = {
       linkLabel: "通知設定",
     },
 
-    // ---- 分岐B: スタッフ出勤キャンセル ----
+    // ---- 分岐B: スタッフ出勤キャンセル (バックエンド未実装) ----
     {
       key: "cancel_request",
       label: "出勤キャンセル要望",
       icon: "bi-person-dash",
       lane: "staff",
       branch: "staff_cancel",
+      unimplemented: true,
       globalChannel: "cancel_request",
       varGroup: "staff",
       arrowTo: "owner",
@@ -540,6 +528,7 @@ const ReservationFlowPage = {
       icon: "bi-check-circle",
       lane: "owner",
       branch: "staff_cancel",
+      unimplemented: true,
       globalChannel: "cancel_approve",
       varGroup: "staff",
       arrowTo: "staff",
@@ -552,6 +541,7 @@ const ReservationFlowPage = {
       icon: "bi-dash-circle",
       lane: "owner",
       branch: "staff_cancel",
+      unimplemented: true,
       globalChannel: "cancel_reject",
       varGroup: "staff",
       arrowTo: "staff",
@@ -1047,8 +1037,9 @@ const ReservationFlowPage = {
 
   // カード1枚のHTML
   _renderCard(step, property, enabled, memo) {
-    const statusBadge = step.status === "未実装"
-      ? `<span class="badge bg-warning text-dark ms-1" style="font-size:10px;"><i class="bi bi-hammer"></i> 未実装</span>`
+    // バッジ類: status="未実装" または unimplemented:true の両方に対応
+    const statusBadge = (step.status === "未実装" || step.unimplemented)
+      ? `<span class="badge bg-secondary ms-1" style="font-size:10px;">未実装</span>`
       : "";
     let syncBadge = "";
     if (step.propertyField) {
