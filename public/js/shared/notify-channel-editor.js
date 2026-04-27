@@ -314,16 +314,18 @@
    * @returns {string} <label> HTML
    */
   function _renderTargetRow(dk, field, checked, icon, label, subLabel, iconStyle) {
-    // 値バッジのプレースホルダー
-    const placeholder = `<span class="notify-target-inline notify-target-placeholder" data-field="${field}"></span>`;
+    // 値バッジのプレースホルダー（hydrateBadges で非同期差し込み）
+    const placeholder = `<span class="notify-target-inline notify-target-placeholder d-inline-flex align-items-center gap-1" data-field="${field}"></span>`;
     const iconEl = iconStyle
       ? `<i class="bi ${icon}" style="${iconStyle}"></i>`
       : `<i class="bi ${icon}"></i>`;
+    // チェックボックス〜ラベル〜値バッジ〜ボタンを1行 flex で横並びにする
+    // form-check/form-check-inline は block を強制するため使用しない
     return `
-      <label class="form-check form-check-inline mb-0 d-flex align-items-center flex-wrap gap-1" style="cursor:pointer;">
-        <input class="form-check-input" type="checkbox" data-key="${dk}" data-field="${field}" ${checked ? "checked" : ""}>
-        <span class="form-check-label small">${iconEl} ${label}
-          <span class="text-muted" style="font-size:0.75em;">${subLabel || ""}</span>
+      <label class="d-inline-flex align-items-center flex-wrap gap-1 mb-0" style="cursor:pointer;">
+        <input class="form-check-input mt-0 flex-shrink-0" type="checkbox" data-key="${dk}" data-field="${field}" ${checked ? "checked" : ""}>
+        <span class="small d-inline-flex align-items-center gap-1 flex-shrink-0">
+          ${iconEl}<span>${label}</span>${subLabel ? `<span class="text-muted" style="font-size:0.75em;">${subLabel}</span>` : ""}
         </span>
         ${placeholder}
       </label>`;
