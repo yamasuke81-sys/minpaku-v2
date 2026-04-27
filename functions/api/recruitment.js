@@ -331,10 +331,15 @@ module.exports = function recruitmentApi(db) {
           } catch (_) { /* デフォルトで続行 */ }
           const dashUrl = `${appUrl.replace(/\/$/, "")}/#/my-dashboard`;
           const staffSnap = await db.collection("staff").where("active", "==", true).get();
-          const text = `✅ 清掃確定のお知らせ\n\n${data.checkoutDate} ${data.propertyName || ""}\nあなたが清掃担当に確定されました。\n詳細: ${dashUrl}`;
+          // 確定スタッフ全員の表示名を ID 順で組み立て (テンプレ {staff} 用)
+          const idToName = new Map();
+          staffSnap.docs.forEach(d => idToName.set(d.id, d.data().name || ""));
+          const allConfirmedNames = hasIdList
+            ? selectedIds.map(id => idToName.get(id) || "").filter(Boolean).join("、")
+            : selectedNames.join("、");
+          const text = `✅ 清掃確定のお知らせ\n\n${data.checkoutDate} ${data.propertyName || ""}\n担当: ${allConfirmedNames}\nよろしくお願いします。\n詳細: ${dashUrl}`;
           for (const staffDoc of staffSnap.docs) {
             const sd = staffDoc.data();
-            // IDリストがあればID照合優先、なければ名前照合にフォールバック
             const isSelected = hasIdList
               ? selectedIds.includes(staffDoc.id)
               : selectedNames.includes(sd.name);
@@ -346,8 +351,8 @@ module.exports = function recruitmentApi(db) {
                   checkoutDate: data.checkoutDate,
                   property: data.propertyName || "",
                   propertyName: data.propertyName || "",
-                  staff: sd.name,
-                  staffName: sd.name,
+                  staff: allConfirmedNames,    // 全員の名前（テンプレ用）
+                  staffName: sd.name,          // 受信者本人の名前（個別呼びかけ用に残す）
                   url: dashUrl,
                 });
             }
