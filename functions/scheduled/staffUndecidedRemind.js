@@ -49,6 +49,14 @@ module.exports = async function staffUndecidedRemind(event) {
 
     console.log(`スタッフ未決定リマインド: ${targets.length}件対象`);
 
+    // 今日すでに送信済みの募集IDセットを取得（重複防止）
+    const todayStr = now.toISOString().slice(0, 10);
+    const sentTodaySnap = await db.collection("notifications")
+      .where("type", "==", NOTIFY_TYPE)
+      .where("sentDate", "==", todayStr)
+      .get();
+    const sentTodayIds = new Set(sentTodaySnap.docs.map(d => d.data().recruitmentId).filter(Boolean));
+
     let sentCount = 0;
 
     for (const doc of targets) {
@@ -86,6 +94,12 @@ module.exports = async function staffUndecidedRemind(event) {
 
       const title = `スタッフ未確定: ${propertyName} (${date})`;
 
+      // 今日すでに通知済みの募集はスキップ
+      if (sentTodayIds.has(doc.id)) {
+        console.log(`スタッフ未決定リマインド: ${doc.id} は今日送信済み — スキップ`);
+        continue;
+      }
+
       const results = [];
       if (tgt.ownerLine) {
         const res = await notifyOwner(db, NOTIFY_TYPE, title, defaultMsg, vars, overrides);
@@ -97,7 +111,22 @@ module.exports = async function staffUndecidedRemind(event) {
       }
 
       const anySuccess = results.some(res => res?.success);
-      if (anySuccess) sentCount++;
+      if (anySuccess) {
+        sentCount++;
+        // 送信日と募集IDを記録（次回実行時の重複防止用）
+        try {
+          await db.collection("notifications").add({
+            type: NOTIFY_TYPE,
+            recruitmentId: doc.id,
+            sentDate: todayStr,
+            title,
+            body: "",
+            sentAt: new Date(),
+            channel: "dedup_guard",
+            success: true,
+          });
+        } catch (logErr) { /* 無視 */ }
+      }
     }
 
     console.log(`スタッフ未決定リマインド完了: ${sentCount}/${targets.length}件送信`);

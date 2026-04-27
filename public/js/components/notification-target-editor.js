@@ -113,11 +113,20 @@
    * subOwner系フィールドについて、各スタッフの値と採用元を解決する
    * @param {string} field - "subOwnerLine" | "subOwnerEmail" | "discordSubOwner"
    * @param {Array} staffList
+   * @param {string|null} [propertyId] - 指定時は ownedPropertyIds に含むスタッフのみに絞る
    * @returns {Array<{staffId, name, value, isFallback}>}
    *   isFallback=true → スタッフ通常フィールドの値を流用中
    */
-  function resolveSubOwnerValues(field, staffList) {
-    const sl = (staffList || []).filter(s => s.isSubOwner);
+  function resolveSubOwnerValues(field, staffList, propertyId) {
+    // propertyId が指定されていれば担当物件でフィルタ、なければ全サブオーナー（フォールバック）
+    const sl = (staffList || []).filter(s => {
+      if (!s.isSubOwner) return false;
+      if (propertyId) {
+        const owned = Array.isArray(s.ownedPropertyIds) ? s.ownedPropertyIds : [];
+        return owned.includes(propertyId);
+      }
+      return true;
+    });
     // フィールド名マッピング: 専用フィールド / フォールバックフィールド
     const FIELD_MAP = {
       subOwnerLine:    { dedicated: "subOwnerLineUserId",      fallback: "lineUserId" },
@@ -307,7 +316,7 @@
          </div>`
       : `<div class="alert alert-warning py-2 px-3 mb-3" style="font-size:0.82rem;">
            <i class="bi bi-person-badge me-1"></i>
-           この値は <strong>物件オーナー（サブオーナー）</strong> の個別設定です。
+           この値は <strong>この物件のオーナー（サブオーナー）</strong> の個別設定です。
            同じサブオーナーが複数物件に紐づく場合は全物件に反映されます。
          </div>`;
 
@@ -333,7 +342,7 @@
       // サブオーナー複数対応 → スタッフごとに入力欄
       if (!subOwners || subOwners.length === 0) {
         inputsHtml = `<div class="text-muted small">
-          <i class="bi bi-info-circle"></i> サブオーナー（isSubOwner=true）のスタッフが登録されていません。
+          <i class="bi bi-info-circle"></i> この物件に紐づくオーナー（isSubOwner=true かつ ownedPropertyIds に含む）が登録されていません。
           <a href="#/staff">スタッフ管理</a>で設定してください。
         </div>`;
       } else {
@@ -572,9 +581,12 @@
     const placeholders = container.querySelectorAll(".notify-target-placeholder");
     if (!placeholders.length) return;
 
+    // data-pid: コンテナ自体または最近の親要素から物件IDを取得
+    const pidEl = container.closest("[data-pid]") || container.querySelector("[data-pid]");
+    const propertyId = pidEl ? pidEl.dataset.pid : null;
+
     // データ取得（並行）
     const [ns, sl] = await Promise.all([fetchNotifSettings(), fetchStaffList()]);
-    const subOwners = sl.filter(s => s.isSubOwner);
 
     // subOwner系フィールドのフォールバック判定用
     const SUB_OWNER_FIELDS = ["subOwnerLine", "subOwnerEmail", "discordSubOwner"];
@@ -588,9 +600,10 @@
         const summary = resolveStaffSummary(field, sl);
         badgeHtml = renderStaffSummaryBadge(field, summary);
       } else if (SUB_OWNER_FIELDS.includes(field)) {
-        // subOwner系: フォールバック情報を付与して表示
-        const resolved = resolveSubOwnerValues(field, sl);
+        // subOwner系: 対象物件のオーナーのみ（取れなければ全サブオーナー）
+        const resolved = resolveSubOwnerValues(field, sl, propertyId);
         if (!resolved.length) {
+          // 対象物件のオーナーが0人 → 「(未設定)」表示（編集ボタン付き）
           badgeHtml = renderValueBadge(field, "", true, false);
         } else {
           // 複数サブオーナーがいる場合は最初の1件を代表表示（全件はモーダルで確認）
@@ -614,19 +627,22 @@
         e.stopPropagation();
         const field = btn.dataset.field;
 
+        // クリックされたボタンの近傍から物件IDを取得
+        const pidEl = btn.closest("[data-pid]");
+        const btnPropertyId = pidEl ? pidEl.dataset.pid : propertyId;
+
         // 最新データを取得
         clearCache();
         const [latestNs, latestSl] = await Promise.all([fetchNotifSettings(), fetchStaffList()]);
-        const subOwners = latestSl.filter(s => s.isSubOwner);
 
         const isSubOwnerField = ["subOwnerLine", "subOwnerEmail", "discordSubOwner"].includes(field);
         const currentValue = isSubOwnerField
           ? null // subOwner の場合は下で組み立て
           : resolveCurrentValue(field, latestNs, latestSl);
 
-        // subOwner系: フォールバック情報込みで渡す
+        // subOwner系: 対象物件のオーナーのみに絞る（取れなければ全サブオーナー）
         const subOwnerData = isSubOwnerField
-          ? resolveSubOwnerValues(field, latestSl)
+          ? resolveSubOwnerValues(field, latestSl, btnPropertyId)
           : null;
 
         openEditModal({

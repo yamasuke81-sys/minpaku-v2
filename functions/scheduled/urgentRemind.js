@@ -51,6 +51,13 @@ module.exports = async function urgentRemind(event) {
 
     console.log(`緊急リマインド: ${targets.length}件対象`);
 
+    // 今日すでに送信済みの予約IDセットを取得（重複防止）
+    const sentTodaySnap = await db.collection("notifications")
+      .where("type", "==", NOTIFY_TYPE)
+      .where("sentDate", "==", todayStr)
+      .get();
+    const sentTodayIds = new Set(sentTodaySnap.docs.map(d => d.data().bookingId).filter(Boolean));
+
     let sentCount = 0;
 
     for (const doc of targets) {
@@ -92,6 +99,12 @@ module.exports = async function urgentRemind(event) {
 
       const title = `【緊急】名簿未提出: ${guestName} (${checkin})`;
 
+      // 今日すでに通知済みの予約はスキップ
+      if (sentTodayIds.has(doc.id)) {
+        console.log(`緊急リマインド: ${doc.id} は今日送信済み — スキップ`);
+        continue;
+      }
+
       // notifyByKey でチャネル別 (owner/group/staff/email/discord) に発射
       const result = await notifyByKey(db, NOTIFY_TYPE, {
         title,
@@ -100,7 +113,22 @@ module.exports = async function urgentRemind(event) {
         propertyId: b.propertyId || null,
       });
       const anySuccess = Object.values(result.sent || {}).some(v => v && v !== 0);
-      if (anySuccess) sentCount++;
+      if (anySuccess) {
+        sentCount++;
+        // 送信日と予約IDを記録（次回実行時の重複防止用）
+        try {
+          await db.collection("notifications").add({
+            type: NOTIFY_TYPE,
+            bookingId: doc.id,
+            sentDate: todayStr,
+            title,
+            body: "",
+            sentAt: new Date(),
+            channel: "dedup_guard",
+            success: true,
+          });
+        } catch (logErr) { /* 無視 */ }
+      }
     }
 
     console.log(`緊急リマインド完了: ${sentCount}/${targets.length}件送信`);

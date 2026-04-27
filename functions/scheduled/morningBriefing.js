@@ -14,6 +14,17 @@ module.exports = async function morningBriefing(event) {
   const db = admin.firestore();
 
   const today = getJSTDateString(new Date());
+
+  // 1日1回ガード: 今日すでに送信済みならスキップ
+  try {
+    const stateDoc = await db.collection("settings").doc("briefingState").get();
+    if (stateDoc.exists && stateDoc.data().lastSentDate === today) {
+      console.log("朝ブリーフィング: 本日送信済み — スキップ");
+      return;
+    }
+  } catch (e) {
+    console.warn("朝ブリーフィング: 送信状態確認失敗、送信を継続:", e.message);
+  }
   const threeDaysLater = getJSTDateString(addDays(new Date(), 3));
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
@@ -180,7 +191,19 @@ module.exports = async function morningBriefing(event) {
   text += "\n━━━━━━━━━━━━━━━━━";
 
   console.log("朝ブリーフィング生成完了:", text.length, "文字");
-  await notifyOwner(db, "briefing", "朝のブリーフィング", text);
+  const briefResult = await notifyOwner(db, "briefing", "朝のブリーフィング", text);
+
+  // 送信成功時に送信日を記録（重複防止用）
+  if (briefResult && briefResult.success) {
+    try {
+      await db.collection("settings").doc("briefingState").set(
+        { lastSentDate: today, lastSentAt: new Date() },
+        { merge: true }
+      );
+    } catch (e) {
+      console.warn("朝ブリーフィング: 送信日記録失敗:", e.message);
+    }
+  }
 };
 
 // ユーティリティ
