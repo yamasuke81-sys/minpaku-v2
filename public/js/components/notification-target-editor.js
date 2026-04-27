@@ -699,9 +699,21 @@
         const field = btn.dataset.field;
 
         // フィールド種別に応じて遷移先を決定
-        if (["ownerEmail", "ownerLine", "groupLine", "discordOwner"].includes(field)) {
+        if (["ownerEmail", "ownerLine", "discordOwner"].includes(field)) {
           // グローバル設定 → 通知設定タブ
           window.location.hash = "/notifications";
+
+        } else if (field === "groupLine") {
+          // グループLINE は物件単位 (properties.lineChannels) → 物件編集モーダルへ
+          const pidEl = btn.closest("[data-pid]");
+          const pid = pidEl ? pidEl.dataset.pid : null;
+          if (pid) {
+            try { sessionStorage.setItem("openPropertyEdit", pid); } catch (_) {}
+            window.location.hash = "/properties";
+          } else {
+            // 物件IDが取れない場合は物件一覧へ
+            window.location.hash = "/properties";
+          }
 
         } else if (["subOwnerLine", "subOwnerEmail", "discordSubOwner"].includes(field)) {
           // 物件オーナー個別 → 近傍の data-pid から物件IDを取得して物件編集モーダルを直接開く
