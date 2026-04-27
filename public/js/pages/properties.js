@@ -168,8 +168,25 @@ const PropertiesPage = {
       // Webアプリ管理者候補 (isOwner or isSubOwner の staff) を取得
       await this._loadOwnerStaffOptions();
       this.renderCards();
+      // 外部から sessionStorage 経由でモーダル直接オープンを要求された場合に対応
+      this._openFromSession();
     } catch (e) {
       showToast("エラー", `物件読み込み失敗: ${e.message}`, "error");
+    }
+  },
+
+  // sessionStorage "openPropertyEdit" に物件IDが入っていたらモーダルを自動オープン
+  _openFromSession() {
+    try {
+      const targetId = sessionStorage.getItem("openPropertyEdit");
+      if (!targetId) return;
+      sessionStorage.removeItem("openPropertyEdit");
+      const prop = this.propertyList.find(p => p.id === targetId);
+      if (prop) {
+        setTimeout(() => this.openModal(prop), 100);
+      }
+    } catch (e) {
+      console.warn("[properties _openFromSession]", e.message);
     }
   },
 

@@ -487,7 +487,7 @@
     const fallbackBadge = (!isEmpty && isFallback)
       ? `<span class="badge bg-secondary bg-opacity-25 text-secondary border ms-1"
              style="font-size:0.65em;vertical-align:middle;cursor:help;"
-             title="スタッフとしての登録値を流用中">[スタッフ共通]</span>`
+             title="物件オーナー専用の値が未設定のため、スタッフとしての登録値を使用しています">[スタッフ登録値を使用中]</span>`
       : "";
     const displayVal = isEmpty
       ? `<span class="text-muted" style="font-size:0.72em;font-style:italic;">（未設定）</span>`
@@ -500,7 +500,15 @@
            title="通知先を編集">✏️</button>`
       : "";
 
-    return `<span class="notify-target-inline" data-field="${field}">${displayVal}${editBtn}</span>`;
+    // 設定画面ジャンプボタン（✏️の右）
+    const jumpBtn = isEditable
+      ? `<button type="button" class="btn btn-link btn-sm p-0 ms-0 notify-target-jump-btn"
+           data-field="${field}"
+           style="font-size:0.75em;vertical-align:middle;color:#6c757d;"
+           title="設定画面で開く"><i class="bi bi-box-arrow-up-right"></i></button>`
+      : "";
+
+    return `<span class="notify-target-inline" data-field="${field}">${displayVal}${editBtn}${jumpBtn}</span>`;
   }
 
   /**
@@ -514,7 +522,12 @@
       ? `<span class="badge bg-info-subtle text-info border ms-1" style="font-size:0.72em;max-width:250px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;" title="${escapeHtml(summary)}">${escapeHtml(summary)}に送信</span>`
       : `<span class="text-muted" style="font-size:0.72em;font-style:italic;">（登録済みスタッフなし）</span>`;
     const tooltip = "スタッフ管理画面でメール/LINE IDを設定してください";
-    return `<span class="notify-target-inline" data-field="${field}" title="${escapeHtml(tooltip)}">${displayVal}</span>`;
+    // スタッフ個別にも設定画面ジャンプボタンを付与
+    const jumpBtn = `<button type="button" class="btn btn-link btn-sm p-0 ms-1 notify-target-jump-btn"
+         data-field="${field}"
+         style="font-size:0.75em;vertical-align:middle;color:#6c757d;"
+         title="設定画面で開く"><i class="bi bi-box-arrow-up-right"></i></button>`;
+    return `<span class="notify-target-inline" data-field="${field}" title="${escapeHtml(tooltip)}">${displayVal}${jumpBtn}</span>`;
   }
 
   // ========== 通知先ラベル行の完全な HTML を生成 ==========
@@ -634,6 +647,51 @@
             await hydrateBadges(container, onSaved);
           },
         });
+      });
+    });
+
+    // 設定画面ジャンプボタンのクリックイベントをバインド
+    container.querySelectorAll(".notify-target-jump-btn").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const field = btn.dataset.field;
+
+        // フィールド種別に応じて遷移先を決定
+        if (["ownerEmail", "ownerLine", "groupLine", "discordOwner"].includes(field)) {
+          // グローバル設定 → 通知設定タブ
+          window.location.hash = "/notifications";
+
+        } else if (["subOwnerLine", "subOwnerEmail", "discordSubOwner"].includes(field)) {
+          // 物件オーナー個別 → 近傍の data-pid から物件IDを取得して物件編集モーダルを直接開く
+          const pidEl = btn.closest("[data-pid]");
+          const pid = pidEl ? pidEl.dataset.pid : null;
+          if (pid) {
+            try { sessionStorage.setItem("openPropertyEdit", pid); } catch (_) {}
+            window.location.hash = "/properties";
+          } else {
+            // data-pid が取れない場合はスタッフ画面のサブオーナーモーダルへ
+            const latestSl = await fetchStaffList();
+            const firstSubOwner = latestSl.find(s => s.isSubOwner);
+            if (firstSubOwner) {
+              try { sessionStorage.setItem("openStaffEdit", firstSubOwner.id); } catch (_) {}
+            }
+            window.location.hash = "/staff";
+          }
+
+        } else if (["staffLine", "staffEmail"].includes(field)) {
+          // スタッフ個別 → スタッフ画面（一覧）
+          // 最初のアクティブスタッフのモーダルを開く
+          const latestSl = await fetchStaffList();
+          const firstStaff = latestSl.find(s => s.active !== false);
+          if (firstStaff) {
+            try { sessionStorage.setItem("openStaffEdit", firstStaff.id); } catch (_) {}
+          }
+          window.location.hash = "/staff";
+
+        } else {
+          window.location.hash = "/notifications";
+        }
       });
     });
   }
