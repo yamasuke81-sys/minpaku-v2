@@ -50,7 +50,6 @@ module.exports = async function staffUndecidedRemind(event) {
     console.log(`スタッフ未決定リマインド: ${targets.length}件対象`);
 
     // 今日すでに送信済みの募集IDセットを取得（重複防止）
-    const todayStr = now.toISOString().slice(0, 10);
     const sentTodaySnap = await db.collection("notifications")
       .where("type", "==", NOTIFY_TYPE)
       .where("sentDate", "==", todayStr)
