@@ -1865,9 +1865,15 @@ module.exports = function invoicesApi(db) {
                 .catch((e) => console.error("Webアプリ管理者への請求書通知メール失敗:", e.message));
             }
           }
+          // スタッフ個別LINE: 提出者本人のみに送信（全スタッフ同報は絶対禁止）
+          if (targets.staffLine && staffDoc.lineUserId && channelToken) {
+            const staffLineBody = `📨 ${yearMonth} の請求書を提出しました\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}${linkLine}\n確認: ${confirmUrl}`;
+            sendLineMessage(channelToken, staffDoc.lineUserId, staffLineBody)
+              .catch((e) => console.error("提出者LINE送信失敗:", e.message));
+          }
         }
 
-        // スタッフ本人にも PDF リンクをメール送付（通知設定に依存しない固定送信）
+        // スタッフ本人にも PDF リンクをメール送付（方針A: 通知設定に依存しない固定送信で後方互換を維持）
         if (staffDoc.email && pdfSignedUrl) {
           const staffBody = `${staffDoc.name} 様\n\n${yearMonth} 分の請求書が作成されました。\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}\n\nPDFダウンロード (7日間有効):\n${pdfSignedUrl}\n\n何か相違がございましたらご連絡ください。`;
           sendNotificationEmail_(staffDoc.email, `【請求書】${yearMonth} 分`, staffBody)

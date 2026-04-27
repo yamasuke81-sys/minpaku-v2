@@ -2337,8 +2337,15 @@ const ReservationFlowPage = {
     } else if (kind === "saved") {
       el.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill"></i> 保存済み</span>`;
       setTimeout(() => { if (el.innerHTML.includes("保存済み")) el.innerHTML = ""; }, 2000);
+      // 直前のトーストから3秒以内なら抑制
+      const now = Date.now();
+      if (!this._lastToastAt || now - this._lastToastAt > 3000) {
+        this._lastToastAt = now;
+        if (typeof showToast === "function") showToast("保存しました", "", "success");
+      }
     } else if (kind === "error") {
       el.innerHTML = `<span class="text-danger">保存失敗: ${this._esc(msg || "")}</span>`;
+      if (typeof showToast === "function") showToast("保存できませんでした", msg || "", "error");
     }
   },
 
