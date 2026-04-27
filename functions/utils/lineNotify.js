@@ -931,6 +931,11 @@ async function sendLineMessageForProperty(db, propertyId, text, logExtra = {}) {
         // enabled=true かつ token/groupId が揃っているチャネルのみ対象
         const activeChannels = channels.filter(c => c.enabled && c.token && c.groupId);
 
+        // TODO: 未実装 — lineDeliveryMode (single/rotate/fallback) の反映
+        // lineDeliveryMode が "rotate" の場合: properties.{pid}.lineLastChannelIdx を記録して交互送信
+        // lineDeliveryMode が "fallback" の場合: 1番目失敗時に2番目で再試行
+        // 現状は lineChannelStrategy (roundrobin/fallback) ベースのロジックのみ
+
         if (activeChannels.length > 0) {
           const strategy = pd.lineChannelStrategy || "fallback";
 

@@ -592,6 +592,26 @@
                 </select>
               </div>
 
+              <!-- 複数チャネルの配信モード -->
+              <div class="mb-3">
+                <label class="form-label small fw-semibold">複数チャネルの配信モード</label>
+                <div class="d-flex flex-wrap gap-3">
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="propLineDeliveryMode" id="lineMode_single" value="single">
+                    <label class="form-check-label small" for="lineMode_single">単一配信（1番目のみ）</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="propLineDeliveryMode" id="lineMode_rotate" value="rotate">
+                    <label class="form-check-label small" for="lineMode_rotate">交互配信（1通ずつ交互）</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="propLineDeliveryMode" id="lineMode_fallback" value="fallback">
+                    <label class="form-check-label small" for="lineMode_fallback">フォールバック（1番目失敗時のみ2番目を使用）</label>
+                  </div>
+                </div>
+                <div class="form-text">複数チャネル登録時の動作を選択。交互は順番に切替、フォールバックは1番目失敗時のみ2番目を使用。</div>
+              </div>
+
               <!-- Bot リスト（動的生成） -->
               <div id="lineChannelsList"></div>
 

@@ -23,6 +23,27 @@
 
   // ========== Firestore データ取得 ==========
 
+  // 物件データのキャッシュ（pid → data）
+  let _propertyCache = {};
+
+  /**
+   * 指定物件の Firestore ドキュメントを取得（キャッシュあり）
+   * @param {string} pid
+   * @returns {Promise<object>}
+   */
+  async function fetchProperty(pid) {
+    if (!pid) return {};
+    if (_propertyCache[pid] !== undefined) return _propertyCache[pid];
+    try {
+      const snap = await db.collection("properties").doc(pid).get();
+      _propertyCache[pid] = snap.exists ? snap.data() : {};
+    } catch (e) {
+      console.warn("[NotifyTargetEditor] properties 取得失敗:", e.message);
+      _propertyCache[pid] = {};
+    }
+    return _propertyCache[pid];
+  }
+
   /**
    * settings/notifications を取得（キャッシュあり）
    * @returns {Promise<object>}
@@ -59,6 +80,7 @@
   function clearCache() {
     _notifSettings = null;
     _staffList = null;
+    _propertyCache = {};
   }
 
   // ========== 値の取得 ==========
@@ -584,12 +606,50 @@
     const pidEl = container.closest("[data-pid]") || container.querySelector("[data-pid]");
     const propertyId = pidEl ? pidEl.dataset.pid : null;
 
-    const [ns, sl] = await Promise.all([fetchNotifSettings(), fetchStaffList()]);
+    // groupLine 用に物件データも取得
+    const [ns, sl, propData] = await Promise.all([
+      fetchNotifSettings(),
+      fetchStaffList(),
+      propertyId ? fetchProperty(propertyId) : Promise.resolve({}),
+    ]);
 
     const SUB_OWNER_FIELDS = ["subOwnerLine", "subOwnerEmail", "discordSubOwner"];
 
+    /**
+     * groupLine 専用: 物件の lineChannels 全件をバッジHTML化
+     */
+    const buildGroupLineBadge = () => {
+      if (!propertyId) {
+        return `<span class="text-muted" style="font-size:0.72em;font-style:italic;">（物件未指定）</span>`;
+      }
+      // lineChannels 配列を取得（旧単一フィールドで互換）
+      let channels = Array.isArray(propData.lineChannels) ? propData.lineChannels : [];
+      if (channels.length === 0 && propData.lineGroupId) {
+        channels = [{ groupId: propData.lineGroupId, name: propData.lineChannelName || "" }];
+      }
+      const active = channels.filter(c => c.groupId);
+      if (!active.length) {
+        return `<span class="text-muted" style="font-size:0.72em;font-style:italic;">（未設定）</span>`;
+      }
+      // 配信モードを取得
+      const mode = propData.lineDeliveryMode || propData.lineChannelStrategy || "single";
+      const modeLabel = { single: "単一", rotate: "交互", fallback: "fallback", roundrobin: "交互" }[mode] || mode;
+      return active.map(c => {
+        const gid = escapeHtml(truncate(c.groupId, 15));
+        const name = c.name ? escapeHtml(c.name) : "";
+        const label = name ? `${name}: ${modeLabel}` : modeLabel;
+        return `<span class="badge bg-light text-dark border ms-1"
+                      style="font-size:0.72em;vertical-align:middle;"
+                      title="${escapeHtml(c.groupId)}">[${gid}] [${label}]</span>`;
+      }).join("");
+    };
+
     // 値部分のみ HTML を返す (3行目用)
     const buildValuePart = (field) => {
+      // groupLine は物件の lineChannels を全件表示
+      if (field === "groupLine") {
+        return buildGroupLineBadge();
+      }
       if (field === "staffLine" || field === "staffEmail") {
         const summary = resolveStaffSummary(field, sl);
         return summary
@@ -620,8 +680,10 @@
     // アクション部分のみ HTML を返す (1行目右端用)
     const buildActionPart = (field) => {
       const isStaff = (field === "staffLine" || field === "staffEmail");
-      // スタッフ個別は ✏️ なし、↗ のみ
-      const editBtn = isStaff ? "" : `<button type="button" class="btn btn-link btn-sm p-0 notify-target-edit-btn"
+      // groupLine は物件編集でのみ変更するため ✏️ なし、↗ のみ
+      const isGroupLine = (field === "groupLine");
+      // スタッフ個別 / groupLine は ✏️ なし、↗ のみ
+      const editBtn = (isStaff || isGroupLine) ? "" : `<button type="button" class="btn btn-link btn-sm p-0 notify-target-edit-btn"
            data-field="${field}"
            style="font-size:0.85em;line-height:1;"
            title="通知先を編集">✏️</button>`;

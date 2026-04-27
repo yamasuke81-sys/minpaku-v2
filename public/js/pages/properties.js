@@ -441,6 +441,17 @@ const PropertiesPage = {
     document.getElementById("propertyLineChannelStrategy").value =
       property?.lineChannelStrategy || "fallback";
 
+    // 配信モード初期化（デフォルト: single）
+    const deliveryMode = property?.lineDeliveryMode || "single";
+    const deliveryRadio = document.querySelector(`input[name="propLineDeliveryMode"][value="${deliveryMode}"]`);
+    if (deliveryRadio) {
+      deliveryRadio.checked = true;
+    } else {
+      // デフォルト値に戻す
+      const defaultRadio = document.querySelector(`input[name="propLineDeliveryMode"][value="single"]`);
+      if (defaultRadio) defaultRadio.checked = true;
+    }
+
     // lineChannels 配列の構築（旧単一フィールドとの後方互換）
     let savedChannels = Array.isArray(property?.lineChannels) ? property.lineChannels : [];
     if (savedChannels.length === 0 && (property?.lineChannelToken || property?.lineGroupId)) {
@@ -599,6 +610,11 @@ const PropertiesPage = {
       lineEnabled: document.getElementById("propertyLineEnabled").checked,
       lineChannelStrategy: document.getElementById("propertyLineChannelStrategy").value || "fallback",
       lineChannels: this._collectLineChannels(),
+      // 配信モード（single / rotate / fallback）
+      lineDeliveryMode: (() => {
+        const el = document.querySelector('input[name="propLineDeliveryMode"]:checked');
+        return el ? el.value : "single";
+      })(),
     };
     // 後方互換: lineChannels[0] があれば旧単一フィールドにも反映
     const firstCh = data.lineChannels[0];
@@ -720,6 +736,11 @@ const PropertiesPage = {
       lineEnabled: document.getElementById("propertyLineEnabled").checked,
       lineChannelStrategy: document.getElementById("propertyLineChannelStrategy").value || "fallback",
       lineChannels: this._collectLineChannels(),
+      // 配信モード（single / rotate / fallback）
+      lineDeliveryMode: (() => {
+        const el = document.querySelector('input[name="propLineDeliveryMode"]:checked');
+        return el ? el.value : "single";
+      })(),
     };
     // 後方互換: lineChannels[0] があれば旧単一フィールドにも反映
     const firstChA = data.lineChannels[0];
