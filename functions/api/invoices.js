@@ -260,9 +260,6 @@ async function renderInvoicePdfBuffer(invoice, staff, client, propertyMap) {
         memo = `タイミー ${td.start}〜${td.end}(${td.durationH}h) × ¥${td.hourlyRate}/h`;
       } else {
         const parts = [];
-        if (s.workType === "cleaning_by_count" && s.staffCountOnDay) {
-          parts.push(`担当${s.staffCountOnDay}名作業`);
-        }
         if (s.guestCount > 1) parts.push(`ゲスト${s.guestCount}名`);
         if (parts.length) memo = parts.join(" / ");
       }
@@ -480,9 +477,6 @@ async function generateInvoicePdf_(db, invoiceId) {
         memo = `タイミー ${td.start}〜${td.end}(${td.durationH}h) × ¥${td.hourlyRate}/h`;
       } else {
         const parts = [];
-        if (s.workType === "cleaning_by_count" && s.staffCountOnDay) {
-          parts.push(`担当${s.staffCountOnDay}名作業`);
-        }
         if (s.guestCount > 1) parts.push(`ゲスト${s.guestCount}名`);
         if (parts.length) memo = parts.join(" / ");
       }
@@ -1348,11 +1342,7 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
       const timeePart = `タイミー ${td.start}〜${td.end}(${td.durationH}h) × ¥${td.hourlyRate}/h`;
       note = note ? `${note} / ${timeePart}` : timeePart;
     } else {
-      // 階段制単価の根拠を明示: 担当スタッフ人数 (+ ゲスト数)
       const parts = [];
-      if (s.workType === "cleaning_by_count" && s.staffCountOnDay) {
-        parts.push(`担当${s.staffCountOnDay}名作業`);
-      }
       if (s.guestCount > 1) parts.push(`ゲスト${s.guestCount}名`);
       if (parts.length) {
         const extra = parts.join(" / ");
