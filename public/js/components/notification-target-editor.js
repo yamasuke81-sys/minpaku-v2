@@ -581,43 +581,70 @@
     const placeholders = container.querySelectorAll(".notify-target-placeholder");
     if (!placeholders.length) return;
 
-    // data-pid: コンテナ自体または最近の親要素から物件IDを取得
     const pidEl = container.closest("[data-pid]") || container.querySelector("[data-pid]");
     const propertyId = pidEl ? pidEl.dataset.pid : null;
 
-    // データ取得（並行）
     const [ns, sl] = await Promise.all([fetchNotifSettings(), fetchStaffList()]);
 
-    // subOwner系フィールドのフォールバック判定用
     const SUB_OWNER_FIELDS = ["subOwnerLine", "subOwnerEmail", "discordSubOwner"];
+
+    // 値部分のみ HTML を返す (3行目用)
+    const buildValuePart = (field) => {
+      if (field === "staffLine" || field === "staffEmail") {
+        const summary = resolveStaffSummary(field, sl);
+        return summary
+          ? `<span class="badge bg-info-subtle text-info border" style="font-size:0.72em;max-width:100%;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(summary)}">${escapeHtml(summary)}に送信</span>`
+          : `<span class="text-muted" style="font-size:0.72em;font-style:italic;">（登録済みスタッフなし）</span>`;
+      }
+      let value = "", isFallback = false;
+      if (SUB_OWNER_FIELDS.includes(field)) {
+        const resolved = resolveSubOwnerValues(field, sl, propertyId);
+        if (resolved.length) {
+          value = resolved[0].value;
+          isFallback = resolved.some(r => r.isFallback);
+        }
+      } else {
+        value = resolveCurrentValue(field, ns, sl);
+      }
+      const isEmpty = !value;
+      const fallbackBadge = (!isEmpty && isFallback)
+        ? `<span class="badge bg-secondary bg-opacity-25 text-secondary border ms-1"
+               style="font-size:0.65em;cursor:help;"
+               title="物件オーナー専用の値が未設定のため、スタッフとしての登録値を使用しています">[スタッフ登録値を使用中]</span>`
+        : "";
+      return isEmpty
+        ? `<span class="text-muted" style="font-size:0.72em;font-style:italic;">（未設定）</span>`
+        : `<span class="badge bg-light text-dark border" style="font-size:0.72em;max-width:100%;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(value)}">${escapeHtml(truncate(value, 40))}</span>${fallbackBadge}`;
+    };
+
+    // アクション部分のみ HTML を返す (1行目右端用)
+    const buildActionPart = (field) => {
+      const isStaff = (field === "staffLine" || field === "staffEmail");
+      // スタッフ個別は ✏️ なし、↗ のみ
+      const editBtn = isStaff ? "" : `<button type="button" class="btn btn-link btn-sm p-0 notify-target-edit-btn"
+           data-field="${field}"
+           style="font-size:0.85em;line-height:1;"
+           title="通知先を編集">✏️</button>`;
+      const jumpBtn = `<button type="button" class="btn btn-link btn-sm p-0 notify-target-jump-btn"
+           data-field="${field}"
+           style="font-size:0.85em;line-height:1;color:#6c757d;"
+           title="設定画面で開く"><i class="bi bi-box-arrow-up-right"></i></button>`;
+      return `${editBtn}${jumpBtn}`;
+    };
 
     placeholders.forEach(ph => {
       const field = ph.dataset.field;
-      let badgeHtml = "";
-
-      if (field === "staffLine" || field === "staffEmail") {
-        // スタッフ一覧表示のみ（編集なし）
-        const summary = resolveStaffSummary(field, sl);
-        badgeHtml = renderStaffSummaryBadge(field, summary);
-      } else if (SUB_OWNER_FIELDS.includes(field)) {
-        // subOwner系: 対象物件のオーナーのみ（取れなければ全サブオーナー）
-        const resolved = resolveSubOwnerValues(field, sl, propertyId);
-        if (!resolved.length) {
-          // 対象物件のオーナーが0人 → 「(未設定)」表示（編集ボタン付き）
-          badgeHtml = renderValueBadge(field, "", true, false);
-        } else {
-          // 複数サブオーナーがいる場合は最初の1件を代表表示（全件はモーダルで確認）
-          const first = resolved[0];
-          const hasFallback = resolved.some(r => r.isFallback);
-          badgeHtml = renderValueBadge(field, first.value, true, hasFallback);
-        }
-      } else {
-        // グローバルの現在値
-        const value = resolveCurrentValue(field, ns, sl);
-        badgeHtml = renderValueBadge(field, value, true, false);
+      const slot = ph.dataset.slot;
+      let html = "";
+      if (slot === "actions") html = buildActionPart(field);
+      else if (slot === "value") html = buildValuePart(field);
+      else {
+        // 旧来（slot指定なし）: 後方互換で全部
+        html = buildValuePart(field) + buildActionPart(field);
       }
-
-      ph.outerHTML = badgeHtml;
+      // outerHTML 置換は親と data-field を保持したいので innerHTML 差し替え
+      ph.classList.remove("notify-target-placeholder");
+      ph.innerHTML = html;
     });
 
     // ✏️ ボタンのクリックイベントをバインド
@@ -653,12 +680,10 @@
             // バッジを再描画するためキャッシュ破棄して再実行
             clearCache();
             if (typeof onSaved === "function") onSaved();
-            // コンテナ内のプレースホルダーを仮置きして再 hydrate
-            container.querySelectorAll(".notify-target-inline").forEach(span => {
-              const f = span.dataset.field;
-              span.className = "notify-target-inline notify-target-placeholder";
+            // 再描画: actions / value スロットそれぞれを placeholder に戻す
+            container.querySelectorAll(".notify-target-actions, .notify-target-value").forEach(span => {
+              span.classList.add("notify-target-placeholder");
               span.innerHTML = "";
-              span.dataset.field = f;
             });
             await hydrateBadges(container, onSaved);
           },

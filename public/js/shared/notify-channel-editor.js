@@ -314,21 +314,32 @@
    * @returns {string} <label> HTML
    */
   function _renderTargetRow(dk, field, checked, icon, label, subLabel, iconStyle) {
-    // 値バッジのプレースホルダー（hydrateBadges で非同期差し込み）
-    const placeholder = `<span class="notify-target-inline notify-target-placeholder d-inline-flex align-items-center gap-1" data-field="${field}"></span>`;
+    // プレースホルダー (hydrateBadges で非同期差し込み)
+    // - actions: 1行目右端の ✏️ + ↗ ボタン
+    // - value:   3行目の値バッジ + フォールバックバッジ
+    const actionsPlaceholder = `<span class="notify-target-actions notify-target-placeholder d-inline-flex align-items-center gap-1" data-field="${field}" data-slot="actions"></span>`;
+    const valuePlaceholder = `<span class="notify-target-value notify-target-placeholder d-inline-flex align-items-center gap-1 flex-wrap" data-field="${field}" data-slot="value"></span>`;
     const iconEl = iconStyle
       ? `<i class="bi ${icon}" style="${iconStyle}"></i>`
       : `<i class="bi ${icon}"></i>`;
-    // チェックボックス〜ラベル〜値バッジ〜ボタンを1行 flex で横並びにする
-    // form-check/form-check-inline は block を強制するため使用しない
+    // 3行構成:
+    //   1行目: チェックボックス + アイコン+見出し + (右端) ✏️↗
+    //   2行目: 送信元注記 (薄字)
+    //   3行目: 値バッジ + フォールバックバッジ
     return `
-      <label class="d-inline-flex align-items-center flex-wrap gap-1 mb-0" style="cursor:pointer;">
-        <input class="form-check-input mt-0 flex-shrink-0" type="checkbox" data-key="${dk}" data-field="${field}" ${checked ? "checked" : ""}>
-        <span class="small d-inline-flex align-items-center gap-1 flex-shrink-0">
-          ${iconEl}<span>${label}</span>${subLabel ? `<span class="text-muted" style="font-size:0.75em;">${subLabel}</span>` : ""}
-        </span>
-        ${placeholder}
-      </label>`;
+      <div class="notify-target-block mb-2" data-field="${field}">
+        <div class="d-flex align-items-center gap-2">
+          <label class="d-inline-flex align-items-center gap-1 mb-0 flex-grow-1" style="cursor:pointer;">
+            <input class="form-check-input mt-0 flex-shrink-0" type="checkbox" data-key="${dk}" data-field="${field}" ${checked ? "checked" : ""}>
+            <span class="small d-inline-flex align-items-center gap-1">
+              ${iconEl}<span>${label}</span>
+            </span>
+          </label>
+          ${actionsPlaceholder}
+        </div>
+        ${subLabel ? `<div class="text-muted ps-4" style="font-size:0.72em;line-height:1.2;">${subLabel}</div>` : ""}
+        <div class="ps-4 mt-1">${valuePlaceholder}</div>
+      </div>`;
   }
 
   // ========== 1タイミングぶんの行 ==========
