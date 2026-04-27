@@ -228,15 +228,19 @@
 
             <!-- 送信先チェックボックス (歯車廃止 → インライン値表示 + ✏️ 編集ボタン) -->
             <div class="notify-target-rows d-flex flex-wrap gap-2 mb-2" data-dk="${dk}">
+              <!-- ① Webアプリ管理者 -->
               ${_renderTargetRow(dk, "ownerLine",      ownerLine,      "bi-person-circle text-success",      "Webアプリ管理者LINE",   "(送信元: LINE Bot)")}
-              ${_renderTargetRow(dk, "groupLine",      groupLine,      "bi-people-fill text-primary",        "グループLINE",          "(送信元: 物件別 LINE Bot)")}
-              ${_renderTargetRow(dk, "staffLine",      staffLine,      "bi-person-lines-fill text-info",     "スタッフ個別LINE",       "(送信元: LINE Bot)")}
-              ${_renderTargetRow(dk, "subOwnerLine",   subOwnerLine,   "bi-person-badge text-success",       "物件オーナー個別LINE",   "(送信元: LINE Bot)")}
               ${_renderTargetRow(dk, "ownerEmail",     ownerEmail,     "bi-envelope text-warning",           "Webアプリ管理者メール",  "(送信元: 連携済み Gmail)")}
-              ${_renderTargetRow(dk, "subOwnerEmail",  subOwnerEmail,  "bi-envelope-at text-success",        "物件オーナー個別メール", "(送信元: 物件オーナーの Gmail)")}
-              ${_renderTargetRow(dk, "staffEmail",     staffEmail,     "bi-envelope-fill text-info",         "スタッフ個別メール",     "(送信元: 連携済み Gmail)")}
               ${_renderTargetRow(dk, "discordOwner",   discordOwner,   "bi-discord",                         "Discord(Webアプリ管理者)", "(送信元: Discord Bot)", "color:#5865F2")}
+              <!-- ② 物件オーナー個別 -->
+              ${_renderTargetRow(dk, "subOwnerLine",   subOwnerLine,   "bi-person-badge text-success",       "物件オーナー個別LINE",   "(送信元: LINE Bot)")}
+              ${_renderTargetRow(dk, "subOwnerEmail",  subOwnerEmail,  "bi-envelope-at text-success",        "物件オーナー個別メール", "(送信元: 物件オーナーの Gmail)")}
               ${_renderTargetRow(dk, "discordSubOwner",discordSubOwner,"bi-discord",                         "Discord(物件オーナー)",  "(送信元: Discord Bot)", "color:#8da0f8")}
+              <!-- ③ スタッフ個別 -->
+              ${_renderTargetRow(dk, "staffLine",      staffLine,      "bi-person-lines-fill text-info",     "スタッフ個別LINE",       "(送信元: LINE Bot)")}
+              ${_renderTargetRow(dk, "staffEmail",     staffEmail,     "bi-envelope-fill text-info",         "スタッフ個別メール",     "(送信元: 連携済み Gmail)")}
+              <!-- ④ グループ -->
+              ${_renderTargetRow(dk, "groupLine",      groupLine,      "bi-people-fill text-primary",        "グループLINE",          "(送信元: 物件別 LINE Bot)")}
               <!-- FCM (Web Push) は将来再検討。iOS 制約により導入保留 -->
               <label class="form-check form-check-inline mb-0 d-none">
                 <input class="form-check-input" type="checkbox" data-key="${dk}" data-field="fcmStaff" ${fcmStaff ? "checked" : ""}>
