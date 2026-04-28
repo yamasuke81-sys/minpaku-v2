@@ -2056,22 +2056,10 @@ const ReservationFlowPage = {
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
 
-      // formCompleteMail が保存された場合、グローバル既定値 (settings/notifications) にも同期
-      if (propertyFields.formCompleteMail) {
-        try {
-          const fcm = propertyFields.formCompleteMail;
-          const globalUpdate = {};
-          if (fcm.subject !== undefined) globalUpdate["formCompleteMailSubject"] = fcm.subject;
-          if (fcm.body    !== undefined) globalUpdate["formCompleteMailBody"]    = fcm.body;
-          if (fcm.enabled !== undefined) globalUpdate["formCompleteMailEnabled"] = fcm.enabled;
-          if (Object.keys(globalUpdate).length > 0) {
-            await db.collection("settings").doc("notifications").set(globalUpdate, { merge: true });
-          }
-        } catch (syncErr) {
-          // グローバル同期失敗は主保存に影響させない
-          console.warn("[formCompleteMail] グローバル設定同期失敗:", syncErr.message);
-        }
-      }
+      // 注: 以前ここで settings/notifications へグローバル同期していたが、
+      // 「最後に保存した物件のテンプレが他物件に上書きされる」問題があったため廃止。
+      // フロー画面は物件別保存のみに限定し、各物件は独立したテンプレを持つ。
+      // 通知設定タブは物件未設定時のフォールバック用 (グローバル既定値) として残す。
 
       // ローカルキャッシュ更新
       const prop = this.properties.find(p => p.id === pid);

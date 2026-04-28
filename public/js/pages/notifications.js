@@ -272,7 +272,7 @@ const NotificationsPage = {
           <div class="alert alert-warning py-1 px-2 mb-2 small">
             <i class="bi bi-exclamation-triangle"></i>
             ⚠️ この設定は将来的に <a href="#/reservation-flow" class="alert-link">フロー画面 (#/reservation-flow)</a> に統合予定です。
-            現在はフロー画面で保存した内容がグローバル既定値として自動反映されます。
+            ここで設定する内容は<strong>物件で個別設定が無い場合のフォールバック既定値</strong>として使用されます。物件ごとの設定はフロー画面で行ってください（物件別設定が優先）。
           </div>
           <div class="text-muted small mb-3">
             宿泊者が名簿を送信した直後に、宿泊者本人のメールアドレス宛に自動送信されるメール。
