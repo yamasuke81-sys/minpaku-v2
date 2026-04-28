@@ -7,9 +7,15 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <style>
-    body { background: #f0f4f8; min-height: 100vh; }
+    /* テーマカラー (JS で物件別に上書き) */
+    :root {
+      --theme-header-bg: linear-gradient(135deg, #2c3e50, #3498db);
+      --theme-header-text: #fff;
+      --theme-page-bg: #f0f4f8;
+    }
+    body { background: var(--theme-page-bg); min-height: 100vh; }
     .form-card { max-width: 640px; margin: 1rem auto; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
-    .form-header { background: linear-gradient(135deg, #2c3e50, #3498db); color: white; border-radius: 12px 12px 0 0; padding: 1.5rem; text-align: center; }
+    .form-header { background: var(--theme-header-bg); color: var(--theme-header-text); border-radius: 12px 12px 0 0; padding: 1.5rem; text-align: center; }
     .form-header h1 { font-size: 1.3rem; margin: 0; padding-top: 2rem; }
     .form-header p { margin: 0.5rem 0 0; opacity: 0.85; font-size: 0.9rem; }
     .form-property-name { font-size: 0.78rem; letter-spacing: 0.16em; opacity: 0.85; margin: 0 0 0.4rem; font-weight: 600; }
@@ -398,7 +404,7 @@
           <li id="lbl_successEditInfo">修正が必要な場合は、メール内の修正リンクをご利用ください。</li>
         </ul>
       </div>
-      <a href="/guest-guide.html" class="btn btn-primary w-100 py-2" id="lbl_successGuideLink" style="background: linear-gradient(135deg, #2c3e50, #3498db); border:none;">
+      <a href="/guest-guide.html" class="btn btn-primary w-100 py-2" id="lbl_successGuideLink" style="background: var(--theme-header-bg); border:none;">
         <i class="bi bi-book me-1"></i> <span>ゲストガイドを見る</span>
       </a>
     </div>
@@ -2157,6 +2163,25 @@
           }
         }
       } catch (_) {}
+      // === 物件別テーマカラーを適用 ===
+      // 未定義の物件はデフォルト青グラデーションを維持（CSS変数の初期値がフォールバック）
+      const PROPERTY_THEMES = {
+        // YADO KOMACHI Hiroshima — 黄色系
+        "RZV9IwtQgMAsvrdM3j8J": {
+          headerBg:   "linear-gradient(135deg, #e8b923, #f4cf3a)",
+          headerText: "#3d3426",
+          pageBg:     "#faf3e4",
+        },
+        // the Terrace 長浜 — デフォルト青グラデーション（明示定義は省略）
+      };
+      const _theme = PROPERTY_THEMES[params.propertyId || ""];
+      if (_theme) {
+        const r = document.documentElement;
+        r.style.setProperty("--theme-header-bg",   _theme.headerBg);
+        r.style.setProperty("--theme-header-text",  _theme.headerText);
+        r.style.setProperty("--theme-page-bg",      _theme.pageBg);
+      }
+
       // 物件別フォーム設定を適用
       // _resolvedFormFields は formFieldConfig オブジェクト または 旧形式配列
       if (_resolvedFormFields) {
