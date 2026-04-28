@@ -32,10 +32,15 @@ module.exports = async function onGuestFormSubmit(event) {
   const editTokenExpiresAt = admin.firestore.Timestamp.fromMillis(
     Date.now() + 30 * 24 * 60 * 60 * 1000
   );
+
+  // キーボックス送信OKボタン用 shortToken (8文字HEX)
+  const keyboxConfirmToken = crypto.randomBytes(4).toString("hex");
+
   await docRef.update({
     editToken,
     editTokenExpiresAt,
     status: "submitted",
+    keyboxConfirmToken,
   });
 
   const guestName = data.guestName || "名前不明";
@@ -257,11 +262,17 @@ module.exports = async function onGuestFormSubmit(event) {
     }
   }
 
+  // キーボックス送信OKボタンURL — メール本文に埋め込む
+  const API_BASE = "https://api-5qrfx7ujcq-an.a.run.app";
+  const keyboxConfirmUrl = `${API_BASE}/keybox-confirm/${guestId}?token=${keyboxConfirmToken}`;
+  // OKボタンHTMLブロック (notifyByKey の ownerEmail 経由でHTML本文に差し込まれる想定)
+  const okButtonHtml = `\n\n---\n\n【キーボックス情報送信の確認】\n名簿内容を確認したら、下のリンクをクリックしてキーボックス送信スケジュールを有効化してください。\n\n✅ 内容確認OK（キーボックス情報送信スケジュール開始）:\n${keyboxConfirmUrl}\n\n---`;
+
   // roster_received 通知 (通知設定タブで編集可能)
   // notifyByKey でチャネル別 (ownerLine/groupLine/staffLine/ownerEmail/...) に発射
   await notifyByKey(db, "roster_received", {
     title: `名簿受信: ${guestName}`,
-    body: lineText,
+    body: lineText + okButtonHtml,
     vars: {
       checkin: checkIn,
       date: checkOut,

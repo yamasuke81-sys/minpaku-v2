@@ -127,6 +127,26 @@
     { key: "double_booking", label: "ダブルブッキング検知", desc: "同物件・同日程に複数予約が重複した際にWebアプリ管理者へ緊急通知", icon: "bi-exclamation-triangle-fill", group: "booking", varGroup: "booking", defaultTiming: "immediate",
       defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: true, defaultStaffLine: false, defaultEmail: false,
       defaultMsg: "【⚠️ ダブルブッキング警告】\n物件: {property}\n日程: {checkin} 〜 {date}\n\n衝突予約が検出されました。至急確認してください。\n確認: {url}" },
+    // ----- 追加: バックエンドで使用されていたが未登録の通知種別 -----
+    { key: "roster_mismatch", label: "名簿照合エラー", desc: "宿泊者名簿の内容が既存予約と一致しない場合にWebアプリ管理者へ通知（予約なし・人数不一致・CO日不一致）", icon: "bi-exclamation-diamond", group: "booking", varGroup: "booking", defaultTiming: "immediate",
+      defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: true,
+      defaultMsg: "⚠️ 名簿照合エラー\n\nゲスト: {guest}\nCI: {checkin}\n詳細: {error}\n\n名簿確認: {url}" },
+    { key: "laundry_reminder", label: "ランドリー入力リマインド", desc: "清掃完了後、スタッフへランドリー記録の入力を促す通知", icon: "bi-basket", group: "cleaning", varGroup: "cleaning", defaultTiming: "immediate",
+      defaultEnabled: true, defaultOwnerLine: false, defaultGroupLine: false, defaultStaffLine: true, defaultEmail: false,
+      defaultMsg: "🧺 ランドリーを使用した場合は記録をお願いします\n\n{date} {property}\n入力: {url}" },
+    { key: "error_alert", label: "エラーアラート", desc: "Cloud Functions でシステムエラーが発生した際にWebアプリ管理者へ通知", icon: "bi-bug", group: "system", varGroup: "system", defaultTiming: "immediate",
+      defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: false,
+      defaultMsg: "🚨 システムエラー\n\n{error}\n\n管理画面: {url}" },
+    { key: "scan_pending", label: "スキャン確認待ち", desc: "スキャンログが作成されファイルの仕分け確認が必要な場合にWebアプリ管理者へ通知", icon: "bi-file-earmark-check", group: "system", varGroup: "system", defaultTiming: "immediate",
+      defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: false,
+      defaultMsg: "📄 スキャンファイルの確認が必要です\n\n{property}\nファイル: {url}" },
+    // ----- キーボックス送信通知 (タスク2) -----
+    { key: "keybox_send", label: "キーボックス情報送信", desc: "ゲストへキーボックス暗証番号・施設案内メールを自動送信", icon: "bi-key", group: "booking", varGroup: "booking", defaultTiming: "immediate",
+      defaultEnabled: false, defaultOwnerLine: false, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: false,
+      defaultMsg: "" },
+    { key: "keybox_remind", label: "キーボックス送信リマインド (OKボタン未押下)", desc: "OKボタン未押下のためキーボックス情報が未送信の場合にWebアプリ管理者へ警告", icon: "bi-key-fill", group: "booking", varGroup: "booking", defaultTiming: "immediate",
+      defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: false,
+      defaultMsg: "⚠️ キーボックス情報未送信\n\nゲスト: {guest}\nCI: {checkin}\nOKボタンが未押下のため送信がスケジュールされていません。\n確認: {url}" },
   ];
 
   function findNotification(key) {

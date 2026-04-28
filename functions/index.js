@@ -147,6 +147,10 @@ app.use("/sync", syncApi(db));
 const emailVerificationApi = require("./api/email-verification");
 app.use("/email-verification", emailVerificationApi(db));
 
+// ========== キーボックス確認API ==========
+const keyboxApi = require("./api/keybox");
+app.use("/keybox", keyboxApi(db));
+
 // gmail-auth は authenticate の前に登録済み（認証不要）
 
 // ========== グローバルエラーハンドラ (HTMLレスポンス漏れ防止) ==========
@@ -235,12 +239,19 @@ exports.sendParkingInvoice = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/sendParkingInvoice"));
 
-// キーボックス番号メール送信（毎朝7:00 JST）
+// キーボックス番号メール送信（毎朝7:00 JST）- 旧来の簡易版
 exports.sendKeyboxEmail = onSchedule({
   schedule: "0 7 * * *",
   region: "asia-northeast1",
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/sendKeyboxEmail"));
+
+// キーボックス情報スケジュール送信（毎時実行）- フロー設定対応の新版
+exports.sendKeyboxScheduled = onSchedule({
+  schedule: "0 * * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/sendKeyboxScheduled"));
 
 // iCal同期（5分おき）— Beds24導入後はこちらを無効化
 exports.syncIcal = onSchedule({
