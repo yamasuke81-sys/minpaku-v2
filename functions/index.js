@@ -239,13 +239,6 @@ exports.sendParkingInvoice = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/sendParkingInvoice"));
 
-// キーボックス番号メール送信（毎朝7:00 JST）- 旧来の簡易版
-exports.sendKeyboxEmail = onSchedule({
-  schedule: "0 7 * * *",
-  region: "asia-northeast1",
-  timeZone: "Asia/Tokyo",
-}, require("./scheduled/sendKeyboxEmail"));
-
 // キーボックス情報スケジュール送信（毎時実行）- フロー設定対応の新版
 exports.sendKeyboxScheduled = onSchedule({
   schedule: "0 * * * *",

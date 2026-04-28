@@ -1049,8 +1049,8 @@ const ReservationFlowPage = {
         各カードを展開すると通知設定（文言・タイミング・送信先）を直接編集できます。
       </p>
       ${this._renderStyles()}
-      <!-- 物件セレクタ (1物件フォーカス: プルダウン的な切替 UI) -->
-      <div id="rfPropertySelector" class="mb-2"></div>
+      <!-- 物件セレクタ (sticky固定: スクロール時も対象物件が常に見える) -->
+      <div id="rfPropertySelector" class="rf-property-bar mb-2"></div>
       <!-- モバイルタブ -->
       <div class="rf-mobile-tabs d-md-none mb-2">
         <ul class="nav nav-pills nav-fill rf-lane-tabs">
@@ -2756,10 +2756,20 @@ const ReservationFlowPage = {
       gap: 0;
     }
 
-    /* ヘッダー行 */
+    /* 対象物件バー: ナビバー(56px)直下に sticky 固定 */
+    .rf-property-bar {
+      position: sticky;
+      top: 56px;
+      z-index: 11;
+      background: #fff;
+      padding: 6px 0 6px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    /* ヘッダー行: 物件バー(56px+48px=104px)直下に sticky 固定 */
     .rf-swimlane-header {
       position: sticky;
-      top: 56px; /* ナビバー高さ分 */
+      top: 104px; /* ナビバー56px + 物件バー約48px */
       z-index: 10;
       background: #fff; /* sticky 下に内容が透けないよう */
     }
