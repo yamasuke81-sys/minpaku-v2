@@ -314,17 +314,23 @@ module.exports = async function onGuestFormSubmit(event) {
 
     // 処理B-3: マッチなし
     if (bookingsSnap.empty) {
-      const warnMsg = `⚠️ 名簿照合: 該当する予約が見つかりません\n\nCI: ${rosterCheckIn}\n代表者: ${guestName}`;
+      const warnMsg = `⚠️ 名簿照合: 該当する予約が見つかりません\n\n物件: ${propertyName || "(未設定)"}\nCI: ${rosterCheckIn}\n代表者: ${guestName}\n\n名簿確認: ${confirmUrl}`;
       await db.collection("notifications").add({
         type: "roster_mismatch",
         title: `名簿照合エラー: ${guestName}`,
         body: `該当する予約が見つかりません（checkIn: ${rosterCheckIn}）`,
         guestId,
+        propertyId: data.propertyId || null,
         checkIn: rosterCheckIn,
         severity: "warning",
         createdAt: new Date(),
       });
-      await notifyOwner(db, "roster_mismatch", `名簿照合エラー: ${guestName}`, warnMsg);
+      await notifyByKey(db, "roster_mismatch", {
+        title: `名簿照合エラー: ${guestName}`,
+        body: warnMsg,
+        vars: { property: propertyName, propertyName, guest: guestName, guestName, checkin: rosterCheckIn, url: confirmUrl },
+        propertyId: data.propertyId || null,
+      });
       console.warn("名簿照合: 一致するbookingなし", rosterCheckIn);
       return;
     }
@@ -337,34 +343,46 @@ module.exports = async function onGuestFormSubmit(event) {
     const rosterGuestCount = Number(data.guestCount) || 0;
     const bookingGuestCount = Number(booking.guestCount) || 0;
     if (bookingGuestCount > 0 && rosterGuestCount !== bookingGuestCount) {
-      const warnMsg = `⚠️ 名簿照合: 人数が異なります（予約: ${bookingGuestCount}名、名簿: ${rosterGuestCount}名）\n\nCI: ${rosterCheckIn}\n代表者: ${guestName}`;
+      const warnMsg = `⚠️ 名簿照合: 人数が異なります（予約: ${bookingGuestCount}名、名簿: ${rosterGuestCount}名）\n\n物件: ${propertyName || "(未設定)"}\nCI: ${rosterCheckIn}\n代表者: ${guestName}\n\n名簿確認: ${confirmUrl}`;
       await db.collection("notifications").add({
         type: "roster_mismatch",
         title: `名簿照合警告: 人数不一致`,
         body: `人数が異なります（予約: ${bookingGuestCount}名、名簿: ${rosterGuestCount}名）`,
         guestId,
         bookingId,
+        propertyId: data.propertyId || null,
         checkIn: rosterCheckIn,
         severity: "warning",
         createdAt: new Date(),
       });
-      await notifyOwner(db, "roster_mismatch", "名簿照合警告: 人数不一致", warnMsg);
+      await notifyByKey(db, "roster_mismatch", {
+        title: "名簿照合警告: 人数不一致",
+        body: warnMsg,
+        vars: { property: propertyName, propertyName, guest: guestName, guestName, checkin: rosterCheckIn, url: confirmUrl },
+        propertyId: data.propertyId || null,
+      });
     }
 
     // 処理B-2: チェックアウト日不一致チェック
     if (rosterCheckOut && booking.checkOut && booking.checkOut !== rosterCheckOut) {
-      const warnMsg = `⚠️ 名簿照合: チェックアウト日が異なります\n\n予約CO: ${booking.checkOut}\n名簿CO: ${rosterCheckOut}\n代表者: ${guestName}`;
+      const warnMsg = `⚠️ 名簿照合: チェックアウト日が異なります\n\n物件: ${propertyName || "(未設定)"}\n予約CO: ${booking.checkOut}\n名簿CO: ${rosterCheckOut}\n代表者: ${guestName}\n\n名簿確認: ${confirmUrl}`;
       await db.collection("notifications").add({
         type: "roster_mismatch",
         title: `名簿照合警告: CO日不一致`,
         body: `チェックアウト日が異なります（予約: ${booking.checkOut}、名簿: ${rosterCheckOut}）`,
         guestId,
         bookingId,
+        propertyId: data.propertyId || null,
         checkIn: rosterCheckIn,
         severity: "warning",
         createdAt: new Date(),
       });
-      await notifyOwner(db, "roster_mismatch", "名簿照合警告: CO日不一致", warnMsg);
+      await notifyByKey(db, "roster_mismatch", {
+        title: "名簿照合警告: CO日不一致",
+        body: warnMsg,
+        vars: { property: propertyName, propertyName, guest: guestName, guestName, checkin: rosterCheckIn, url: confirmUrl },
+        propertyId: data.propertyId || null,
+      });
     }
 
     // 処理A: bookingへの情報補完（上書き）
