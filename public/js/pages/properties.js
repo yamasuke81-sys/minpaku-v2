@@ -424,6 +424,17 @@ const PropertiesPage = {
     recurCb.onchange = () => this.toggleInspectionPeriodBlocks(recurCb.checked);
 
     document.getElementById("propertyKeyboxNumber").value = property?.keyboxNumber || "";
+    // タスク8-2: Wi-Fi SSID/パスワード (旧 wifiInfo は後方互換で読む)
+    document.getElementById("propertyWifiSSID").value = property?.wifiSSID || "";
+    document.getElementById("propertyWifiPassword").value = property?.wifiPassword || "";
+    // タスク8-3: ポスト情報
+    const postEnabled = !!property?.post?.enabled;
+    document.getElementById("propertyPostEnabled").checked = postEnabled;
+    document.getElementById("propertyPostCode").value = property?.post?.code || "";
+    document.getElementById("propertyPostCodeWrap").style.display = postEnabled ? "" : "none";
+    document.getElementById("propertyPostEnabled").onchange = function() {
+      document.getElementById("propertyPostCodeWrap").style.display = this.checked ? "" : "none";
+    };
     document.getElementById("propertyNotes").value = property?.notes || "";
 
     // 物件オーナー (請求書宛名) プルダウンを構築 + 名義 / 編集リンク
@@ -609,6 +620,14 @@ const PropertiesPage = {
         };
       })(),
       keyboxNumber: document.getElementById("propertyKeyboxNumber").value.trim() || null,
+      // タスク8-2: Wi-Fi SSID/パスワード分割保存
+      wifiSSID: document.getElementById("propertyWifiSSID")?.value.trim() || null,
+      wifiPassword: document.getElementById("propertyWifiPassword")?.value.trim() || null,
+      // タスク8-3: ポスト情報
+      post: {
+        enabled: !!document.getElementById("propertyPostEnabled")?.checked,
+        code: document.getElementById("propertyPostCode")?.value.trim() || null,
+      },
       notes: document.getElementById("propertyNotes").value.trim(),
       // Webアプリ管理者 (請求書宛名用 staff ID) + 名義 (billingProfile ID)
       ownerStaffId: document.getElementById("propertyOwnerStaffId")?.value || null,
@@ -735,6 +754,14 @@ const PropertiesPage = {
         };
       })(),
       keyboxNumber: document.getElementById("propertyKeyboxNumber").value.trim() || null,
+      // タスク8-2: Wi-Fi SSID/パスワード分割保存
+      wifiSSID: document.getElementById("propertyWifiSSID")?.value.trim() || null,
+      wifiPassword: document.getElementById("propertyWifiPassword")?.value.trim() || null,
+      // タスク8-3: ポスト情報
+      post: {
+        enabled: !!document.getElementById("propertyPostEnabled")?.checked,
+        code: document.getElementById("propertyPostCode")?.value.trim() || null,
+      },
       notes: document.getElementById("propertyNotes").value.trim(),
       // Webアプリ管理者 (請求書宛名用 staff ID) + 名義 (billingProfile ID)
       ownerStaffId: document.getElementById("propertyOwnerStaffId")?.value || null,

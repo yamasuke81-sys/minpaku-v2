@@ -5,7 +5,7 @@
  * 同じ通知タイプ単位の編集UIを描画するための共通モジュール。
  *
  * 提供API:
- *   NotifyChannelEditor.NOTIFICATIONS              … 全通知定義(22種)
+ *   NotifyChannelEditor.NOTIFICATIONS              … 全通知定義(25種 ※scan_pending削除後)
  *   NotifyChannelEditor.SYSTEM_VARIABLES           … 通知種別ごとの利用可能変数
  *   NotifyChannelEditor.findNotification(key)      … key で通知定義を引く
  *   NotifyChannelEditor.groupNotifications()       … group ごとに分類
@@ -131,15 +131,15 @@
     { key: "roster_mismatch", label: "名簿照合エラー", desc: "宿泊者名簿の内容が既存予約と一致しない場合にWebアプリ管理者へ通知（予約なし・人数不一致・CO日不一致）", icon: "bi-exclamation-diamond", group: "booking", varGroup: "booking", defaultTiming: "immediate",
       defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: true,
       defaultMsg: "⚠️ 名簿照合エラー\n\nゲスト: {guest}\nCI: {checkin}\n詳細: {error}\n\n名簿確認: {url}" },
-    { key: "laundry_reminder", label: "ランドリー入力リマインド", desc: "清掃完了後、スタッフへランドリー記録の入力を促す通知", icon: "bi-basket", group: "cleaning", varGroup: "cleaning", defaultTiming: "immediate",
+    // タスク6: タイミング基準を清掃日に変更 (after_cleaning_hours / after_cleaning_days / after_checklist_complete)
+    { key: "laundry_reminder", label: "ランドリー入力リマインド", desc: "清掃完了後、スタッフへランドリー記録の入力を促す通知（タイミング基準: 清掃日）", icon: "bi-basket", group: "cleaning", varGroup: "cleaning", defaultTiming: "after_cleaning_hours",
       defaultEnabled: true, defaultOwnerLine: false, defaultGroupLine: false, defaultStaffLine: true, defaultEmail: false,
+      laundryReminderTiming: true,
       defaultMsg: "🧺 ランドリーを使用した場合は記録をお願いします\n\n{date} {property}\n入力: {url}" },
     { key: "error_alert", label: "エラーアラート", desc: "Cloud Functions でシステムエラーが発生した際にWebアプリ管理者へ通知", icon: "bi-bug", group: "system", varGroup: "system", defaultTiming: "immediate",
       defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: false,
       defaultMsg: "🚨 システムエラー\n\n{error}\n\n管理画面: {url}" },
-    { key: "scan_pending", label: "スキャン確認待ち", desc: "スキャンログが作成されファイルの仕分け確認が必要な場合にWebアプリ管理者へ通知", icon: "bi-file-earmark-check", group: "system", varGroup: "system", defaultTiming: "immediate",
-      defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: false,
-      defaultMsg: "📄 スキャンファイルの確認が必要です\n\n{property}\nファイル: {url}" },
+    // タスク5: scan_pending は民泊v2に不要なため削除 (scan-sorter プロジェクトのみで使用)
     // ----- キーボックス送信通知 (タスク2) -----
     { key: "keybox_send", label: "キーボックス情報送信", desc: "ゲストへキーボックス暗証番号・施設案内メールを自動送信", icon: "bi-key", group: "booking", varGroup: "booking", defaultTiming: "immediate",
       defaultEnabled: false, defaultOwnerLine: false, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: false,
@@ -279,6 +279,8 @@
               </label>
             </div>
 
+            <!-- タスク6: ランドリーリマインド専用タイミングUI (清掃日基準) -->
+            ${n.laundryReminderTiming ? _renderLaundryReminderTimingUI(dk, ch) : `
             <!-- 通知タイミング (複数追加可能) -->
             <div class="mb-2 notify-timings-wrap" data-key="${dk}">
               <div class="small text-muted mb-1"><i class="bi bi-clock"></i> 通知タイミング (複数追加可能)</div>
@@ -289,6 +291,7 @@
                 <i class="bi bi-plus"></i> タイミングを追加
               </button>
             </div>
+            `}
 
             <!-- 利用可能な変数 -->
             <div class="mb-2">
@@ -371,6 +374,34 @@
         ${subLabel ? `<div class="text-muted ps-4" style="font-size:0.72em;line-height:1.2;">${subLabel}</div>` : ""}
         <div class="ps-4 mt-1">${valuePlaceholder}</div>
       </div>`;
+  }
+
+  // ========== タスク6: ランドリーリマインド 専用タイミングUI (清掃日基準) ==========
+  function _renderLaundryReminderTimingUI(dk, ch) {
+    const mode = ch.laundryTimingMode || "after_cleaning_hours";
+    const hours = ch.laundryTimingHours !== undefined ? ch.laundryTimingHours : 2;
+    const days = ch.laundryTimingDays !== undefined ? ch.laundryTimingDays : 0;
+    return `
+      <div class="mb-2 laundry-timing-wrap" data-key="${dk}">
+        <div class="small text-muted mb-1"><i class="bi bi-clock"></i> 通知タイミング（清掃日基準）</div>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <select class="form-select form-select-sm laundry-timing-mode" style="width:auto;" data-key="${dk}" data-field="laundryTimingMode">
+            <option value="after_cleaning_hours" ${mode==="after_cleaning_hours"?"selected":""}>清掃日の N時間後</option>
+            <option value="after_cleaning_days"  ${mode==="after_cleaning_days"?"selected":""}>清掃日の N日後</option>
+            <option value="after_checklist_complete" ${mode==="after_checklist_complete"?"selected":""}>清掃完了報告から N時間後</option>
+          </select>
+          <input type="number" class="form-control form-control-sm laundry-timing-hours ${mode==="after_cleaning_days"?"d-none":""}"
+            style="width:75px;" data-key="${dk}" data-field="laundryTimingHours"
+            value="${hours}" min="0" max="72" placeholder="時間">
+          <span class="small laundry-timing-hours-suffix ${mode==="after_cleaning_days"?"d-none":""}">時間後</span>
+          <input type="number" class="form-control form-control-sm laundry-timing-days ${mode!=="after_cleaning_days"?"d-none":""}"
+            style="width:75px;" data-key="${dk}" data-field="laundryTimingDays"
+            value="${days}" min="0" max="7" placeholder="日">
+          <span class="small laundry-timing-days-suffix ${mode!=="after_cleaning_days"?"d-none":""}">日後</span>
+        </div>
+        <div class="small text-muted mt-1" style="font-size:0.72rem;"><i class="bi bi-info-circle"></i> バックエンドが清掃日 (shifts.date) を基準に計算して条件を満たす予約に送信します。</div>
+      </div>
+    `;
   }
 
   // ========== 1タイミングぶんの行 ==========
@@ -486,6 +517,18 @@
       }
       timings.push(t);
     });
+    // タスク6: ランドリーリマインド専用タイミング値を読み取る
+    const laundryWrap = scope.querySelector(`.laundry-timing-wrap[data-key="${cssEsc(dk)}"]`);
+    const laundryTimingMode = laundryWrap
+      ? (laundryWrap.querySelector(`select[data-field="laundryTimingMode"]`)?.value || "after_cleaning_hours")
+      : undefined;
+    const laundryTimingHours = laundryWrap
+      ? (parseInt(laundryWrap.querySelector(`input[data-field="laundryTimingHours"]`)?.value, 10) || 2)
+      : undefined;
+    const laundryTimingDays = laundryWrap
+      ? (parseInt(laundryWrap.querySelector(`input[data-field="laundryTimingDays"]`)?.value, 10) || 0)
+      : undefined;
+
     const entry = {
       enabled: get("enabled"),
       ownerLine: get("ownerLine"),
@@ -501,6 +544,7 @@
       fcmOwner: get("fcmOwner"),
       customMessage: ta ? ta.value : "",
       timings,
+      ...(laundryTimingMode !== undefined ? { laundryTimingMode, laundryTimingHours, laundryTimingDays } : {}),
     };
     // 後方互換: 旧UIの単一フィールドにも代表値を埋める
     if (timings[0]) {
@@ -657,6 +701,19 @@
             row.querySelector(".notify-schedule-day")?.classList.toggle("d-none", val !== "monthlyDay");
             row.querySelector(".notify-schedule-dow")?.classList.toggle("d-none", val !== "weekly");
           }
+        }
+      }
+
+      // タスク6: ランドリーリマインド タイミングモード切替
+      if (t.classList.contains("laundry-timing-mode")) {
+        const dk2 = t.dataset.key;
+        const wrap = container.querySelector(`.laundry-timing-wrap[data-key="${cssEsc(dk2)}"]`);
+        if (wrap) {
+          const isDays = t.value === "after_cleaning_days";
+          wrap.querySelector(".laundry-timing-hours")?.classList.toggle("d-none", isDays);
+          wrap.querySelector(".laundry-timing-hours-suffix")?.classList.toggle("d-none", isDays);
+          wrap.querySelector(".laundry-timing-days")?.classList.toggle("d-none", !isDays);
+          wrap.querySelector(".laundry-timing-days-suffix")?.classList.toggle("d-none", !isDays);
         }
       }
 

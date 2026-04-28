@@ -98,7 +98,7 @@ const ReservationFlowPage = {
     roster_mismatch:    { defaultMsg: "⚠️ 名簿照合エラー\n\nゲスト: {guest}\nCI: {checkin}\n詳細: {error}\n\n名簿確認: {url}", defaultTiming: "immediate", varGroup: "booking" },
     laundry_reminder:   { defaultMsg: "🧺 ランドリーを使用した場合は記録をお願いします\n\n{date} {property}\n入力: {url}", defaultTiming: "immediate", varGroup: "cleaning" },
     error_alert:        { defaultMsg: "🚨 システムエラー\n\n{error}\n\n管理画面: {url}", defaultTiming: "immediate", varGroup: "system" },
-    scan_pending:       { defaultMsg: "📄 スキャンファイルの確認が必要です\n\n{property}\nファイル: {url}", defaultTiming: "immediate", varGroup: "system" },
+    // scan_pending: タスク5で削除 (民泊v2に不要)
     keybox_send:        { defaultMsg: "", defaultTiming: "scheduled", varGroup: "booking" },
     keybox_remind:      { defaultMsg: "⚠️ キーボックス情報未送信\n\nゲスト: {guest}\nCI: {checkin}\nOKボタンが未押下のため送信がスケジュールされていません。\n確認: {url}", defaultTiming: "immediate", varGroup: "booking" },
   },
@@ -232,6 +232,20 @@ const ReservationFlowPage = {
       linkHash: "#/notifications",
       linkLabel: "通知設定",
     },
+    // タスク7: roster_mismatch を roster_received 直後に移動 (Phase2 owner レーン)
+    {
+      key: "roster_mismatch",
+      label: "名簿照合エラー通知",
+      icon: "bi-exclamation-diamond",
+      lane: "owner",
+      phase: 2,
+      track: "guest",
+      globalChannel: "roster_mismatch",
+      varGroup: "booking",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+      hint: "名簿の内容が予約データと一致しない場合（予約なし・人数不一致・CO日不一致）に発火",
+    },
     {
       key: "form_complete_mail",
       label: "名簿入力完了メール (宿泊者宛)",
@@ -321,10 +335,11 @@ const ReservationFlowPage = {
       linkHash: "#/properties",
       linkLabel: "物件設定",
       propertyField: "keyboxSend.enabled",
-      // 詳細設定 (物件別保存: properties/{pid}.keyboxSend.* / keyboxCode / keyboxLocation / wifiInfo)
+      // タスク1: 「自動送信」スイッチ廃止 (カード右上 ON/OFF トグルで完結)
+      // タスク2: 送信先・送信元をdetailNoteHtmlで表示 (_renderGmailSenderInfo 流用)
+      // タスク8: Wi-Fi分割 / ポスト情報 / guideUrl / addressMapUrl 追加
       detailFields: [
-        { field: "keyboxSend.enabled",      label: "自動送信",       type: "switch", default: false },
-        // 送信タイミング: 2択ラジオ
+        // 送信タイミング
         { field: "keyboxSend.mode",         label: "送信タイミング", type: "select",
           options: [
             { value: "after_ok_click",  label: "OKボタンを押したタイミングでスケジュール開始" },
@@ -332,6 +347,7 @@ const ReservationFlowPage = {
           ],
           default: "after_ok_click",
           hint: "「OKボタン」モード: 名簿受信メールのリンクをクリックするとスケジュールが有効化されます" },
+        // タスク3: scheduleType 変更時 customDaysBefore を disabled にする (renderDetailFields 拡張で対応)
         { field: "keyboxSend.scheduleType", label: "送信日", type: "select",
           options: [
             { value: "day_of",        label: "チェックイン当日" },
@@ -342,29 +358,48 @@ const ReservationFlowPage = {
           default: "day_before" },
         { field: "keyboxSend.customDaysBefore", label: "何日前に送信", type: "number",
           placeholder: "例: 3", default: 3,
-          hint: "送信日が「カスタム」の場合のみ有効" },
+          hint: "送信日が「カスタム」の場合のみ有効",
+          // scheduleType が custom でないときに disabled (renderDetailFields でハンドリング)
+          conditionalDisable: { field: "keyboxSend.scheduleType", notValue: "custom" } },
         { field: "keyboxSend.sendTime",     label: "送信時刻 (HH:MM)", type: "text",
           placeholder: "例: 15:00", default: "15:00" },
         // メールテンプレ
         { field: "keyboxSend.subject",      label: "メール件名", type: "text",
           placeholder: "例: 【{{propertyName}}】チェックイン情報のご案内",
           default: "【{{propertyName}}】チェックイン情報のご案内" },
-        { field: "keyboxSend.body",         label: "メール本文", type: "textarea", rows: 12,
-          placeholder: "{{guestName}} 様\n\nご予約ありがとうございます。{{propertyName}} のキーボックス情報をお送りします。\n\n■ チェックイン情報\n日時: {{checkIn}}\n\n■ キーボックス\n暗証番号: {{keyboxCode}}\n場所: {{keyboxLocation}}\n\n■ 施設のご案内\nWi-Fi: {{wifiInfo}}\n住所: {{propertyAddress}}\n\nご不明な点がございましたら、本メールにご返信ください。\nどうぞよろしくお願いいたします。",
-          default: "{{guestName}} 様\n\nご予約ありがとうございます。{{propertyName}} のキーボックス情報をお送りします。\n\n■ チェックイン情報\n日時: {{checkIn}}\n\n■ キーボックス\n暗証番号: {{keyboxCode}}\n場所: {{keyboxLocation}}\n\n■ 施設のご案内\nWi-Fi: {{wifiInfo}}\n住所: {{propertyAddress}}\n\nご不明な点がございましたら、本メールにご返信ください。\nどうぞよろしくお願いいたします。" },
+        { field: "keyboxSend.body",         label: "メール本文", type: "textarea", rows: 14,
+          placeholder: "{{guestName}} 様\n\nご予約ありがとうございます。{{propertyName}} のキーボックス情報をお送りします。\n\n■ チェックイン情報\n日時: {{checkIn}}\nご案内ページ: {{guideUrl}}\n\n■ キーボックス\n暗証番号: {{keyboxCode}}\n場所: {{keyboxLocation}}\n\n■ 施設のご案内\n住所: {{propertyAddress}}\n地図: {{addressMapUrl}}\nWi-Fi SSID: {{wifiSSID}}\nWi-Fi パスワード: {{wifiPassword}}\n\nご不明な点がございましたら、本メールにご返信ください。\nどうぞよろしくお願いいたします。",
+          default: "{{guestName}} 様\n\nご予約ありがとうございます。{{propertyName}} のキーボックス情報をお送りします。\n\n■ チェックイン情報\n日時: {{checkIn}}\nご案内ページ: {{guideUrl}}\n\n■ キーボックス\n暗証番号: {{keyboxCode}}\n場所: {{keyboxLocation}}\n\n■ 施設のご案内\n住所: {{propertyAddress}}\n地図: {{addressMapUrl}}\nWi-Fi SSID: {{wifiSSID}}\nWi-Fi パスワード: {{wifiPassword}}\n\nご不明な点がございましたら、本メールにご返信ください。\nどうぞよろしくお願いいたします。" },
         // 物件固有情報
         { field: "keyboxCode",              label: "キーボックス暗証番号", type: "text",
           placeholder: "例: 1234", default: "" },
         { field: "keyboxLocation",          label: "キーボックス場所", type: "text",
           placeholder: "例: 玄関ドア横の金属ボックス内", default: "" },
-        { field: "wifiInfo",                label: "Wi-Fi情報", type: "text",
-          placeholder: "例: SSID: MyWifi / パスワード: xxxx1234", default: "" },
+        // タスク8-2: Wi-Fi を SSID / パスワードに分割 (旧 wifiInfo は後方互換で読む)
+        { field: "wifiSSID",                label: "Wi-Fi SSID", type: "text",
+          placeholder: "例: MyWifi", default: "" },
+        { field: "wifiPassword",            label: "Wi-Fi パスワード", type: "text",
+          placeholder: "例: xxxx1234", default: "" },
+        // タスク8-3: ポスト情報
+        { field: "post.enabled",            label: "ポスト情報を含める", type: "checkbox", default: false },
+        { field: "post.code",               label: "ポスト暗証番号", type: "text",
+          placeholder: "例: 5678", default: "",
+          conditionalDisable: { field: "post.enabled", notValue: true } },
       ],
       detailVarsHint: [
         "{{guestName}}", "{{propertyName}}", "{{keyboxCode}}", "{{keyboxLocation}}",
-        "{{checkIn}}", "{{wifiInfo}}", "{{propertyAddress}}",
+        "{{checkIn}}", "{{guideUrl}}", "{{propertyAddress}}", "{{addressMapUrl}}",
+        "{{wifiSSID}}", "{{wifiPassword}}", "{{postCode}}",
       ],
-      detailNote: "「OKボタン」モードでは名簿受信メール内のリンクをクリックするとスケジュールが有効化されます。バックエンド (sendKeyboxScheduled) が毎時チェックして自動送信します。",
+      // タスク1: メール本文プレビューを表示 (detailNoteHtml 内に Gmail送信先情報も)
+      detailNoteHtml: `
+        <!-- 送信先・送信元表示エリア -->
+        <div id="flowKeyboxSenderInfo" class="mb-2 small"></div>
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+          <span class="small"><i class="bi bi-info-circle text-warning"></i> 送信には <strong>Gmail API 連携</strong>が必要です。名簿入力完了メールと同じ送信元 Gmail を使用します。</span>
+        </div>
+        <div class="small text-muted mb-1" style="font-size:0.72rem;"><i class="bi bi-info-circle"></i> カード右上 ON/OFF = この物件のキーボックスメール自動送信を有効/無効にします。</div>
+      `,
     },
     {
       key: "keybox_remind",
@@ -377,7 +412,9 @@ const ReservationFlowPage = {
       varGroup: "booking",
       linkHash: "#/notifications",
       linkLabel: "通知設定",
-      hint: "OKボタン未押下のため送信がスケジュールされていない場合にWebアプリ管理者へ警告",
+      // タスク4: 条件発動のためタイミング設定UIを非表示にして説明文のみ表示
+      hideTimingUI: true,
+      hint: "条件: 名簿入力済 + 受信通知済 + OKボタン未押下のとき自動通知（タイミング選択不要）",
     },
     {
       key: "checkin_app",
@@ -606,19 +643,8 @@ const ReservationFlowPage = {
       linkLabel: "通知設定",
     },
 
-    // ---- 分岐D: エラー・照合警告 ----
-    {
-      key: "roster_mismatch",
-      label: "名簿照合エラー通知",
-      icon: "bi-exclamation-diamond",
-      lane: "owner",
-      branch: "monitor",
-      globalChannel: "roster_mismatch",
-      varGroup: "booking",
-      linkHash: "#/notifications",
-      linkLabel: "通知設定",
-      hint: "名簿の内容が予約データと一致しない場合（予約なし・人数不一致・CO日不一致）に発火",
-    },
+    // タスク5: scan_pending は民泊v2に不要なため削除
+    // タスク7: roster_mismatch は roster_received の直後 (Phase2 ゲストトラック) へ移動済み
     {
       key: "laundry_reminder",
       label: "ランドリー入力リマインド (スタッフ宛)",
@@ -630,7 +656,8 @@ const ReservationFlowPage = {
       arrowTo: "owner",
       linkHash: "#/notifications",
       linkLabel: "通知設定",
-      hint: "清掃完了後にスタッフへランドリー記録の入力を促す通知",
+      // タスク6: ランドリーリマインドのタイミング基準を清掃日に変更
+      hint: "清掃完了後にスタッフへランドリー記録の入力を促す通知（タイミング基準: 清掃日）",
     },
     {
       key: "error_alert",
@@ -643,18 +670,6 @@ const ReservationFlowPage = {
       linkHash: "#/notifications",
       linkLabel: "通知設定",
       hint: "Cloud Functions で予期しないエラーが発生した場合に通知",
-    },
-    {
-      key: "scan_pending",
-      label: "スキャン確認待ち通知",
-      icon: "bi-file-earmark-check",
-      lane: "owner",
-      branch: "monitor",
-      globalChannel: "scan_pending",
-      varGroup: "system",
-      linkHash: "#/notifications",
-      linkLabel: "通知設定",
-      hint: "スキャンファイルの仕分け確認が必要な場合に通知",
     },
   ],
 
@@ -763,6 +778,122 @@ const ReservationFlowPage = {
         </div>
       </div>
     `;
+  },
+
+  // タスク2: keybox_send カード内「送信先」「送信元」を表示 (_renderGmailSenderInfo と同ロジック)
+  async _renderKeyboxSenderInfo(bodyEl, pid) {
+    const infoEl = bodyEl.querySelector("#flowKeyboxSenderInfo");
+    if (!infoEl) return;
+
+    infoEl.innerHTML = `<div class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>読込中...</div>`;
+
+    let senderGmail = "";
+    let accounts = [];
+    try {
+      const [propDoc, accountRes] = await Promise.all([
+        db.collection("properties").doc(pid).get(),
+        (async () => {
+          const token = await firebase.auth().currentUser.getIdToken();
+          const res = await fetch(
+            "https://api-5qrfx7ujcq-an.a.run.app/gmail-auth/accounts?context=emailVerification",
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          return res.ok ? res.json() : { accounts: [] };
+        })(),
+      ]);
+      senderGmail = (propDoc.exists && propDoc.data().senderGmail) || "";
+      accounts = accountRes.accounts || [];
+    } catch (e) {
+      infoEl.innerHTML = `<div class="text-danger small">情報取得失敗: ${this._esc(e.message)}</div>`;
+      return;
+    }
+
+    const destBlock = `
+      <div class="d-flex align-items-center gap-1 mb-1">
+        <span class="small">📧 <strong>送信先:</strong> 宿泊者本人（フォーム入力時のメールアドレス）</span>
+      </div>
+      <div class="text-muted small mb-2" style="font-size:0.73rem;">
+        <i class="bi bi-info-circle"></i> 名簿入力完了メールと同じ送信先設定です
+      </div>
+    `;
+
+    const pidEsc = this._esc(pid);
+    const openProps = `sessionStorage.setItem('openPropertyEdit','${pidEsc}'); location.hash='#/properties';`;
+    let srcBlock = "";
+
+    if (senderGmail) {
+      const linked = accounts.find(a => a.email === senderGmail);
+      if (linked && linked.hasRefreshToken) {
+        srcBlock = `
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="small">📤 <strong>送信元:</strong> 🟢 ${this._esc(senderGmail)} <span class="badge bg-success-subtle text-success border" style="font-size:0.7rem;">連携中</span></span>
+            <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="${openProps}"><i class="bi bi-x-circle"></i> 解除</button>
+          </div>
+        `;
+      } else {
+        srcBlock = `
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="small">📤 <strong>送信元:</strong> 🔴 ${this._esc(senderGmail)} ⚠️ <span class="text-danger">トークン失効中。再連携が必要です</span></span>
+            <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick="${openProps}"><i class="bi bi-arrow-repeat"></i> 再連携</button>
+          </div>
+        `;
+      }
+    } else {
+      srcBlock = `
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <span class="small">📤 <strong>送信元:</strong> ⚪ <span class="text-muted">送信元 Gmail が未連携です</span></span>
+          <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick="${openProps}"><i class="bi bi-box-arrow-up-right"></i> 物件管理で連携</button>
+        </div>
+      `;
+    }
+
+    infoEl.innerHTML = `
+      <div class="border rounded p-2 mb-2" style="background:#f8fafc;">
+        ${destBlock}
+        ${srcBlock}
+        <div class="text-muted mt-2" style="font-size:0.71rem;">
+          <i class="bi bi-info-circle"></i> ※ 名簿入力完了メールと同じ送信元です。
+        </div>
+      </div>
+    `;
+  },
+
+  // タスク3: scheduleType ラジオ変更時に customDaysBefore の disabled を切り替え
+  _bindScheduleTypeConditional(bodyEl, pid) {
+    const schedSel = bodyEl.querySelector(
+      `.rf-detail-input[data-field="keyboxSend.scheduleType"]`
+    );
+    const customInput = bodyEl.querySelector(
+      `.rf-detail-input[data-field="keyboxSend.customDaysBefore"]`
+    );
+    if (!schedSel || !customInput) return;
+
+    const update = () => {
+      const isCustom = schedSel.value === "custom";
+      customInput.disabled = !isCustom;
+      customInput.closest(".mb-2").style.opacity = isCustom ? "" : "0.5";
+    };
+    update();
+    schedSel.addEventListener("change", update);
+  },
+
+  // タスク8: ポスト情報チェックボックス変更時に post.code の disabled を切り替え
+  _bindPostConditional(bodyEl, pid) {
+    const postChk = bodyEl.querySelector(
+      `.rf-detail-input[data-field="post.enabled"]`
+    );
+    const codeInput = bodyEl.querySelector(
+      `.rf-detail-input[data-field="post.code"]`
+    );
+    if (!postChk || !codeInput) return;
+
+    const update = () => {
+      const enabled = postChk.checked;
+      codeInput.disabled = !enabled;
+      codeInput.closest(".mb-2").style.opacity = enabled ? "" : "0.5";
+    };
+    update();
+    postChk.addEventListener("change", update);
   },
 
   // ドット記法でネストフィールドから値を取得
@@ -1329,8 +1460,20 @@ const ReservationFlowPage = {
     const channelData = (property.channelOverrides || {})[step.globalChannel] || {};
     const idPrefix = `prop_${property.id}_${step.globalChannel}`;
     const importBtnHtml = `<button class="btn btn-sm btn-outline-info rf-notify-import-btn" type="button" data-pid="${property.id}" data-notif-key="${step.globalChannel}"><i class="bi bi-box-arrow-in-down"></i> 他物件から</button>`;
-    return `<div class="rf-shared-notify mt-2" data-pid="${property.id}" data-notif-key="${step.globalChannel}" data-id-prefix="${idPrefix}">
-      ${NCE.renderNotificationCard(n, channelData, { idPrefix, collapsed: false, hideHeader: true, extraActionsHtml: importBtnHtml })}
+
+    // タスク4: hideTimingUI=true のステップはタイミング設定行を非表示にする
+    const hideTimingStyle = step.hideTimingUI
+      ? `<style>#rfc-${step.key}-${property.id} .notify-timings-wrap{display:none!important}#rfc-${step.key}-${property.id} .notify-add-timing{display:none!important}</style>`
+      : "";
+    // タスク4: 条件発動の説明文
+    const conditionNoteHtml = step.hideTimingUI
+      ? `<div class="alert alert-info py-1 px-2 mb-2 small" style="font-size:0.78rem;">
+           <i class="bi bi-info-circle"></i> <strong>条件発動:</strong> 名簿入力済 + 受信通知済 + OKボタン未押下のとき自動通知。タイミング設定は不要です。
+         </div>`
+      : "";
+
+    return `${hideTimingStyle}<div class="rf-shared-notify mt-2" data-pid="${property.id}" data-notif-key="${step.globalChannel}" data-id-prefix="${idPrefix}">
+      ${conditionNoteHtml}${NCE.renderNotificationCard(n, channelData, { idPrefix, collapsed: false, hideHeader: true, extraActionsHtml: importBtnHtml })}
     </div>`;
   },
 
@@ -1636,11 +1779,20 @@ const ReservationFlowPage = {
               icalEl.dataset.rendered = "1";
               window.propertyIcalPanel.render(icalEl, icalEl.dataset.pid);
             }
-            // form_complete_mail カード展開時に送信元 Gmail を表示
+            // タスク2: form_complete_mail / keybox_send カード展開時に送信先・送信元 Gmail を表示
             const stepKey = body.dataset.stepKey;
             const pid = body.dataset.pid;
             if (stepKey === "form_complete_mail" && pid) {
               this._renderGmailSenderInfo(body, pid);
+            }
+            if (stepKey === "keybox_send" && pid) {
+              this._renderKeyboxSenderInfo(body, pid);
+            }
+            // タスク3: scheduleType 変更時に customDaysBefore を disabled 制御
+            // タスク8-3: post.enabled 変更時に post.code を disabled 制御
+            if (stepKey === "keybox_send") {
+              this._bindScheduleTypeConditional(body, pid);
+              this._bindPostConditional(body, pid);
             }
           }
         }

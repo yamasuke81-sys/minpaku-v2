@@ -41,7 +41,7 @@ function renderTemplate(tmpl, vars) {
 /** デフォルトメール件名 */
 const DEFAULT_SUBJECT = "【{{propertyName}}】チェックイン情報のご案内";
 
-/** デフォルトメール本文 */
+/** デフォルトメール本文 (ポストON時は {{#if postEnabled}}〜{{/if}} ブロックを展開) */
 const DEFAULT_BODY = [
   "{{guestName}} 様",
   "",
@@ -49,22 +49,42 @@ const DEFAULT_BODY = [
   "",
   "■ チェックイン情報",
   "日時: {{checkIn}}",
+  "ご案内ページ: {{guideUrl}}",
   "",
+  "{{#if postEnabled}}",
+  "■ ポスト",
+  "暗証番号: {{postCode}}",
+  "",
+  "{{/if}}",
   "■ キーボックス",
   "暗証番号: {{keyboxCode}}",
   "場所: {{keyboxLocation}}",
   "",
   "■ 施設のご案内",
-  "Wi-Fi: {{wifiInfo}}",
   "住所: {{propertyAddress}}",
+  "地図: {{addressMapUrl}}",
+  "Wi-Fi SSID: {{wifiSSID}}",
+  "Wi-Fi パスワード: {{wifiPassword}}",
   "",
   "ご不明な点がございましたら、本メールにご返信ください。",
   "どうぞよろしくお願いいたします。",
 ].join("\n");
 
 /**
+ * タスク8-(A): テンプレート内の {{#if X}}...{{/if}} 条件ブロックを展開する
+ * @param {string} tmpl  テンプレート文字列
+ * @param {object} flags 条件フラグ { key: boolean }
+ * @returns {string} 展開済み文字列
+ */
+function resolveIfBlocks(tmpl, flags) {
+  return tmpl.replace(/\{\{#if (\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, key, content) => {
+    return flags[key] ? content : "";
+  });
+}
+
+/**
  * キーボックスメールを送信する
- * @param {object} guest - guestRegistrations ドキュメントデータ
+ * @param {object} guest    - guestRegistrations ドキュメントデータ
  * @param {object} property - properties ドキュメントデータ
  */
 async function sendKeyboxEmail(guest, property) {
@@ -72,18 +92,41 @@ async function sendKeyboxEmail(guest, property) {
   if (!guestEmail) throw new Error("ゲストのメールアドレスが未設定");
 
   const keyboxSend = property.keyboxSend || {};
+  const postEnabled = !!(property.post && property.post.enabled);
+
+  // タスク8-1: guideUrl / addressMapUrl
+  const rawAddress = property.address || "";
+  const addressMapUrl = rawAddress
+    ? `https://maps.google.com/?q=${encodeURIComponent(rawAddress)}`
+    : "";
+  const guideUrl = property.guideUrl || "";
+
+  // タスク8-2: Wi-Fi を SSID / パスワードに分割 (旧 wifiInfo は後方互換フォールバック)
+  const wifiSSID     = property.wifiSSID     || (property.wifiInfo ? property.wifiInfo.split("/")[0]?.trim() : "") || "";
+  const wifiPassword = property.wifiPassword || (property.wifiInfo ? property.wifiInfo.split("/").slice(1).join("/").trim() : "") || "";
+
   const vars = {
-    guestName: guest.guestName || "ゲスト",
-    propertyName: property.name || "",
-    keyboxCode: property.keyboxCode || property.keyboxNumber || "",
-    keyboxLocation: property.keyboxLocation || "",
-    checkIn: guest.checkIn || "?",
-    wifiInfo: property.wifiInfo || "",
-    propertyAddress: property.address || "",
+    guestName:       guest.guestName || "ゲスト",
+    propertyName:    property.name || "",
+    keyboxCode:      property.keyboxCode || property.keyboxNumber || "",
+    keyboxLocation:  property.keyboxLocation || "",
+    checkIn:         guest.checkIn || "?",
+    wifiSSID,
+    wifiPassword,
+    propertyAddress: rawAddress,
+    guideUrl,
+    addressMapUrl,
+    // タスク8-3: ポスト情報
+    postCode:        (property.post && property.post.code) || "",
   };
 
-  const subject = renderTemplate(keyboxSend.subject || DEFAULT_SUBJECT, vars);
-  const body    = renderTemplate(keyboxSend.body    || DEFAULT_BODY,    vars);
+  // テンプレートを取得し、条件ブロック → 変数置換の順で展開
+  const rawSubject = keyboxSend.subject || DEFAULT_SUBJECT;
+  const rawBody    = keyboxSend.body    || DEFAULT_BODY;
+
+  const flags = { postEnabled };
+  const subject = renderTemplate(resolveIfBlocks(rawSubject, flags), vars);
+  const body    = renderTemplate(resolveIfBlocks(rawBody,    flags), vars);
 
   await sendNotificationEmail_(guestEmail, subject, body);
 }

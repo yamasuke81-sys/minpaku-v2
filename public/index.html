@@ -412,6 +412,26 @@
               <input type="text" class="form-control" id="propertyKeyboxNumber" placeholder="例: 1234">
               <div class="form-text">ゲストへのキーボックスメールで使用。空白の場合は共通設定を使用。</div>
             </div>
+            <!-- タスク8-2: Wi-Fi SSID / パスワード分割 -->
+            <div class="col-md-6">
+              <label class="form-label">Wi-Fi SSID</label>
+              <input type="text" class="form-control" id="propertyWifiSSID" placeholder="例: MyWifi">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Wi-Fi パスワード</label>
+              <input type="text" class="form-control" id="propertyWifiPassword" placeholder="例: xxxx1234">
+            </div>
+            <!-- タスク8-3: ポスト情報 -->
+            <div class="col-12">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="propertyPostEnabled">
+                <label class="form-check-label" for="propertyPostEnabled">ポスト情報を含める（キーボックスメールに追加）</label>
+              </div>
+            </div>
+            <div class="col-md-6" id="propertyPostCodeWrap" style="display:none;">
+              <label class="form-label">ポスト暗証番号</label>
+              <input type="text" class="form-control" id="propertyPostCode" placeholder="例: 5678">
+            </div>
             <div class="col-12">
               <label class="form-label">メモ</label>
               <textarea class="form-control" id="propertyNotes" rows="2"></textarea>
