@@ -90,10 +90,26 @@ module.exports = async function onGuestFormSubmit(event) {
     ? "https://maps.google.com/?q=" + encodeURIComponent(propertyAddress)
     : "";
 
+  // 曜日+時刻付きフォーマット (例: 2026年4月29日(火) 15:00)
+  function formatDateWithDay(dateStr, timeStr) {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const DOW = ["日", "月", "火", "水", "木", "金", "土"];
+    const y = d.getUTCFullYear();
+    const m = d.getUTCMonth() + 1;
+    const day = d.getUTCDate();
+    const dow = DOW[d.getUTCDay()];
+    const base = `${y}年${m}月${day}日(${dow})`;
+    return timeStr ? `${base} ${timeStr}` : base;
+  }
+
   const vars = {
     guestName, checkIn, checkOut, guestCount,
     checkInTime: data.checkInTime || "",
     checkOutTime: data.checkOutTime || "",
+    checkInFormatted: formatDateWithDay(checkIn, data.checkInTime || ""),
+    checkOutFormatted: formatDateWithDay(checkOut, data.checkOutTime || ""),
     nationality: data.nationality || "日本",
     propertyName,
     propertyAddress,
@@ -189,20 +205,26 @@ module.exports = async function onGuestFormSubmit(event) {
         const DEFAULT_BODY = [
           `{guestName} 様`,
           ``,
-          `この度は{propertyName}にご予約いただきありがとうございます。`,
-          `宿泊者名簿をご登録いただきありがとうございました。`,
+          `いつもお世話になっております。{propertyName} です。`,
+          ``,
+          `この度はご予約いただき、誠にありがとうございます。`,
+          `宿泊者名簿のご登録を承りました。`,
           ``,
           `■ ご宿泊情報`,
-          `チェックイン: {checkIn}`,
-          `チェックアウト: {checkOut}`,
+          `チェックイン: {checkInFormatted}`,
+          `チェックアウト: {checkOutFormatted}`,
           `ご人数: {guestCount} 名`,
           `住所: {propertyAddress}`,
           `地図: {addressMapUrl}`,
           ``,
-          `名簿の編集が必要な場合は、下記リンクから修正してください。`,
+          `ご記入内容に修正が必要な場合は、下記リンクよりお手続きください。`,
           `{editUrl}`,
           ``,
-          `ご質問等ございましたらこちらのメールに返信ください。`,
+          `チェックイン前日〜当日にかけて、キーボックス番号や施設のご案内に関するメールを別途お送りいたします。`,
+          `楽しいご滞在となりますよう、心よりお待ちしております。`,
+          ``,
+          `ご質問等ございましたら、本メールにご返信ください。`,
+          `何卒よろしくお願い申し上げます。`,
         ].join("\n");
 
         const renderSingle = (tmpl) => String(tmpl || "").replace(/\{(\w+)\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ""));

@@ -152,8 +152,24 @@ module.exports = async function onGuestFormUpdate(event) {
     } catch (_) {}
   }
 
+  // 曜日+時刻付きフォーマット (例: 2026年4月29日(火) 15:00)
+  function formatDateWithDay(dateStr, timeStr) {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const DOW = ["日", "月", "火", "水", "木", "金", "土"];
+    const y = d.getUTCFullYear();
+    const m = d.getUTCMonth() + 1;
+    const day = d.getUTCDate();
+    const dow = DOW[d.getUTCDay()];
+    const base = `${y}年${m}月${day}日(${dow})`;
+    return timeStr ? `${base} ${timeStr}` : base;
+  }
+
   const vars = {
     guestName, checkIn, checkOut, guestCount,
+    checkInFormatted: formatDateWithDay(checkIn, after.checkInTime || ""),
+    checkOutFormatted: formatDateWithDay(checkOut, after.checkOutTime || ""),
     propertyName, propertyAddress, addressMapUrl,
     changes, confirmUrl, editUrl,
   };
@@ -185,11 +201,14 @@ module.exports = async function onGuestFormUpdate(event) {
           `ご登録内容を承りました。`,
           ``,
           `■ ご宿泊情報`,
-          `チェックイン: {checkIn}`,
-          `チェックアウト: {checkOut}`,
+          `チェックイン: {checkInFormatted}`,
+          `チェックアウト: {checkOutFormatted}`,
           `ご人数: {guestCount} 名`,
           `住所: {propertyAddress}`,
           `地図: {addressMapUrl}`,
+          ``,
+          `■ 変更内容`,
+          `{changes}`,
           ``,
           `再度ご修正の必要がございましたら、下記リンクよりお手続きください。`,
           `{editUrl}`,

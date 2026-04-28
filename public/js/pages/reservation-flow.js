@@ -290,10 +290,11 @@ const ReservationFlowPage = {
           default: "【{{propertyName}}】宿泊者名簿をご登録いただきありがとうございました／{{guestName}} 様" },
         { field: "formCompleteMail.body",    label: "メール本文", type: "textarea", rows: 10,
           placeholder: "空欄にするとデフォルト本文に戻ります",
-          default: "{{guestName}} 様\n\nこの度は{{propertyName}}にご予約いただきありがとうございます。\n宿泊者名簿をご登録いただきありがとうございました。\n\n■ ご宿泊情報\nチェックイン: {{checkIn}}\nチェックアウト: {{checkOut}}\nご人数: {{guestCount}} 名\n住所: {{propertyAddress}}\n地図: {{addressMapUrl}}\n\n名簿の編集が必要な場合は、下記リンクから修正してください。\n{{editUrl}}\n\nご質問等ございましたらこちらのメールに返信ください。" },
+          default: "{{guestName}} 様\n\nいつもお世話になっております。{{propertyName}} です。\n\nこの度はご予約いただき、誠にありがとうございます。\n宿泊者名簿のご登録を承りました。\n\n■ ご宿泊情報\nチェックイン: {{checkInFormatted}}\nチェックアウト: {{checkOutFormatted}}\nご人数: {{guestCount}} 名\n住所: {{propertyAddress}}\n地図: {{addressMapUrl}}\n\nご記入内容に修正が必要な場合は、下記リンクよりお手続きください。\n{{editUrl}}\n\nチェックイン前日〜当日にかけて、キーボックス番号や施設のご案内に関するメールを別途お送りいたします。\n楽しいご滞在となりますよう、心よりお待ちしております。\n\nご質問等ございましたら、本メールにご返信ください。\n何卒よろしくお願い申し上げます。" },
       ],
       detailVarsHint: [
         "{{guestName}}", "{{propertyName}}", "{{checkIn}}", "{{checkOut}}",
+        "{{checkInFormatted}}", "{{checkOutFormatted}}",
         "{{guestCount}}", "{{propertyAddress}}", "{{addressMapUrl}}", "{{editUrl}}",
       ],
       detailNoteHtml: `
@@ -338,11 +339,12 @@ const ReservationFlowPage = {
           default: "【{{propertyName}}】宿泊者名簿の修正を受け付けました／{{guestName}} 様" },
         { field: "formUpdateMail.body",    label: "メール本文", type: "textarea", rows: 10,
           placeholder: "空欄にするとデフォルト本文に戻ります",
-          default: "{{guestName}} 様\n\nいつもお世話になっております。{{propertyName}} です。\n\n宿泊者名簿のご修正、誠にありがとうございます。\nご登録内容を承りました。\n\n■ ご宿泊情報\nチェックイン: {{checkIn}}\nチェックアウト: {{checkOut}}\nご人数: {{guestCount}} 名\n住所: {{propertyAddress}}\n地図: {{addressMapUrl}}\n\n再度ご修正の必要がございましたら、下記リンクよりお手続きください。\n{{editUrl}}\n\nご質問等ございましたら、本メールにご返信ください。\n何卒よろしくお願い申し上げます。" },
+          default: "{{guestName}} 様\n\nいつもお世話になっております。{{propertyName}} です。\n\n宿泊者名簿のご修正、誠にありがとうございます。\nご登録内容を承りました。\n\n■ ご宿泊情報\nチェックイン: {{checkInFormatted}}\nチェックアウト: {{checkOutFormatted}}\nご人数: {{guestCount}} 名\n住所: {{propertyAddress}}\n地図: {{addressMapUrl}}\n\n■ 変更内容\n{{changes}}\n\n再度ご修正の必要がございましたら、下記リンクよりお手続きください。\n{{editUrl}}\n\nご質問等ございましたら、本メールにご返信ください。\n何卒よろしくお願い申し上げます。" },
       ],
       detailVarsHint: [
         "{{guestName}}", "{{propertyName}}", "{{checkIn}}", "{{checkOut}}",
-        "{{guestCount}}", "{{propertyAddress}}", "{{addressMapUrl}}", "{{editUrl}}",
+        "{{checkInFormatted}}", "{{checkOutFormatted}}",
+        "{{guestCount}}", "{{propertyAddress}}", "{{addressMapUrl}}", "{{editUrl}}", "{{changes}}",
       ],
       detailNoteHtml: `
         <div class="small fw-semibold mb-1"><i class="bi bi-eye"></i> 本文プレビュー（サンプル値で展開）</div>
