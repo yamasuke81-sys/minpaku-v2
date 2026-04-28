@@ -262,12 +262,12 @@ const ReservationFlowPage = {
         { field: "formCompleteMail.subject", label: "メール件名（空欄ならデフォルト件名）", type: "text",
           placeholder: "例: 宿泊者情報のご登録ありがとうございました", default: "" },
         { field: "formCompleteMail.body",    label: "メール本文（空欄ならデフォルト本文）", type: "textarea", rows: 6,
-          placeholder: "例:\n{{guestName}} 様\n\n宿泊者名簿のご登録ありがとうございました。\nキーボックス暗証番号: {{keyboxCode}}\n住所: {{propertyAddress}}\nWi-Fi: {{wifiInfo}}",
+          placeholder: "例:\n{{guestName}} 様\n\nこの度は{{propertyName}}にご予約いただきありがとうございます。\n宿泊者名簿のご記入をお預かりしました。\n\n■ ご宿泊情報\nチェックイン: {{checkIn}}\nチェックアウト: {{checkOut}}\nご人数: {{guestCount}} 名\n住所: {{propertyAddress}}\n\n名簿の編集が必要な場合は、下記リンクから修正してください。\n{{editUrl}}\n\nご質問等ございましたらこちらのメールに返信ください。",
           default: "" },
       ],
       detailVarsHint: [
         "{{guestName}}", "{{propertyName}}", "{{checkIn}}", "{{checkOut}}",
-        "{{keyboxCode}}", "{{propertyAddress}}", "{{wifiInfo}}", "{{guideUrl}}",
+        "{{guestCount}}", "{{propertyAddress}}", "{{editUrl}}",
       ],
       detailNoteHtml: `
         <!-- メール本文プレビュー -->

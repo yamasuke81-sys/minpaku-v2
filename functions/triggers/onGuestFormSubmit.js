@@ -190,6 +190,7 @@ module.exports = async function onGuestFormSubmit(event) {
           `チェックイン: {checkIn}`,
           `チェックアウト: {checkOut}`,
           `ご人数: {guestCount} 名`,
+          `住所: {propertyAddress}`,
           ``,
           `名簿の編集が必要な場合は、下記リンクから修正してください。`,
           `{editUrl}`,
