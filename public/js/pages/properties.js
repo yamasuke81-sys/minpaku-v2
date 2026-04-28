@@ -438,17 +438,15 @@ const PropertiesPage = {
 
     // LINE 連携フィールド
     document.getElementById("propertyLineEnabled").checked = !!property?.lineEnabled;
-    document.getElementById("propertyLineChannelStrategy").value =
-      property?.lineChannelStrategy || "fallback";
 
-    // 配信モード初期化（デフォルト: single）
-    const deliveryMode = property?.lineDeliveryMode || "single";
+    // 配信モード初期化（デフォルト: fallback = 推奨）
+    const deliveryMode = property?.lineDeliveryMode || "fallback";
     const deliveryRadio = document.querySelector(`input[name="propLineDeliveryMode"][value="${deliveryMode}"]`);
     if (deliveryRadio) {
       deliveryRadio.checked = true;
     } else {
       // デフォルト値に戻す
-      const defaultRadio = document.querySelector(`input[name="propLineDeliveryMode"][value="single"]`);
+      const defaultRadio = document.querySelector(`input[name="propLineDeliveryMode"][value="fallback"]`);
       if (defaultRadio) defaultRadio.checked = true;
     }
 
@@ -617,12 +615,11 @@ const PropertiesPage = {
       ownerBillingProfileId: document.getElementById("propertyOwnerBillingProfileId")?.value || null,
       // LINE 連携フィールド
       lineEnabled: document.getElementById("propertyLineEnabled").checked,
-      lineChannelStrategy: document.getElementById("propertyLineChannelStrategy").value || "fallback",
       lineChannels: this._collectLineChannels(),
-      // 配信モード（single / rotate / fallback）
+      // 配信モード（single / rotate / fallback）、未選択時は fallback
       lineDeliveryMode: (() => {
         const el = document.querySelector('input[name="propLineDeliveryMode"]:checked');
-        return el ? el.value : "single";
+        return el ? el.value : "fallback";
       })(),
     };
     // 後方互換: lineChannels[0] があれば旧単一フィールドにも反映
@@ -743,12 +740,11 @@ const PropertiesPage = {
       ownerStaffId: document.getElementById("propertyOwnerStaffId")?.value || null,
       ownerBillingProfileId: document.getElementById("propertyOwnerBillingProfileId")?.value || null,
       lineEnabled: document.getElementById("propertyLineEnabled").checked,
-      lineChannelStrategy: document.getElementById("propertyLineChannelStrategy").value || "fallback",
       lineChannels: this._collectLineChannels(),
-      // 配信モード（single / rotate / fallback）
+      // 配信モード（single / rotate / fallback）、未選択時は fallback
       lineDeliveryMode: (() => {
         const el = document.querySelector('input[name="propLineDeliveryMode"]:checked');
-        return el ? el.value : "single";
+        return el ? el.value : "fallback";
       })(),
     };
     // 後方互換: lineChannels[0] があれば旧単一フィールドにも反映

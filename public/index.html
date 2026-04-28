@@ -583,33 +583,26 @@
                 <label class="form-check-label" for="propertyLineEnabled">この物件の LINE 連携を有効にする</label>
               </div>
 
-              <!-- 配信戦略セレクト -->
-              <div class="mb-3">
-                <label class="form-label small fw-semibold">配信戦略</label>
-                <select class="form-select form-select-sm" id="propertyLineChannelStrategy" style="max-width:260px">
-                  <option value="fallback">残枠 fallback（先頭 Bot を優先、枯渇したら次へ）</option>
-                  <option value="roundrobin">交互使用（日付でローテーション）</option>
-                </select>
-              </div>
-
-              <!-- 複数チャネルの配信モード -->
+              <!-- 複数チャネルの配信モード（旧「配信戦略」セレクトを統合） -->
               <div class="mb-3">
                 <label class="form-label small fw-semibold">複数チャネルの配信モード</label>
                 <div class="d-flex flex-wrap gap-3">
                   <div class="form-check">
                     <input class="form-check-input" type="radio" name="propLineDeliveryMode" id="lineMode_single" value="single">
-                    <label class="form-check-label small" for="lineMode_single">単一配信（1番目のみ）</label>
+                    <label class="form-check-label small" for="lineMode_single">1番目のBotだけを使用</label>
                   </div>
                   <div class="form-check">
                     <input class="form-check-input" type="radio" name="propLineDeliveryMode" id="lineMode_rotate" value="rotate">
-                    <label class="form-check-label small" for="lineMode_rotate">交互配信（1通ずつ交互）</label>
+                    <label class="form-check-label small" for="lineMode_rotate">1番目→2番目→1番目→...の順に交互に送信</label>
                   </div>
                   <div class="form-check">
                     <input class="form-check-input" type="radio" name="propLineDeliveryMode" id="lineMode_fallback" value="fallback">
-                    <label class="form-check-label small" for="lineMode_fallback">フォールバック（1番目失敗時のみ2番目を使用）</label>
+                    <label class="form-check-label small" for="lineMode_fallback">1番目を優先、無料枠が尽きたら2番目に自動切替（<strong>推奨</strong>）</label>
                   </div>
                 </div>
-                <div class="form-text">複数チャネル登録時の動作を選択。交互は順番に切替、フォールバックは1番目失敗時のみ2番目を使用。</div>
+                <div class="form-text">
+                  <span class="text-warning fw-semibold">⚠️ 交互配信を選んでいる場合、Botの並び順を変更すると次に使われる順番がリセットされます。</span>
+                </div>
               </div>
 
               <!-- Bot リスト（動的生成） -->
@@ -768,7 +761,7 @@
                         <strong>グループID</strong>: <strong>Bot #1 と同じ Group ID</strong> (同じグループに両方 Bot が居るため)<br>
                         <strong>表示名</strong>: 「長浜 Bot #2」など
                       </li>
-                      <li><strong>配信戦略</strong>: 通常は「残枠 fallback」で OK (Bot #1 が枯渇したら Bot #2 へ自動切替)</li>
+                      <li><strong>配信モード</strong>: 通常は「1番目を優先、無料枠が尽きたら2番目に自動切替（推奨）」で OK</li>
                     </ol>
 
                     <!-- 参考リンク -->
