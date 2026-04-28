@@ -570,46 +570,104 @@ const ReservationFlowPage = {
     return d.innerHTML;
   },
 
-  // form_complete_mail カード内の「送信元」欄を非同期で更新する
+  // form_complete_mail カード内の「送信先」「送信元」欄を非同期で更新する (タスク1/3)
   async _renderGmailSenderInfo(bodyEl, pid) {
     const infoEl = bodyEl.querySelector("#flowGmailSenderInfo");
     if (!infoEl) return;
 
-    // 物件データから senderGmail を取得
+    infoEl.innerHTML = `<div class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>読込中...</div>`;
+
+    // 物件データと Gmail 連携状態を並行取得
     let senderGmail = "";
+    let accounts = [];
     try {
-      const propDoc = await db.collection("properties").doc(pid).get();
+      const [propDoc, accountRes] = await Promise.all([
+        db.collection("properties").doc(pid).get(),
+        (async () => {
+          const token = await firebase.auth().currentUser.getIdToken();
+          const res = await fetch(
+            "https://api-5qrfx7ujcq-an.a.run.app/gmail-auth/accounts?context=emailVerification",
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          return res.ok ? res.json() : { accounts: [] };
+        })(),
+      ]);
       senderGmail = (propDoc.exists && propDoc.data().senderGmail) || "";
+      accounts = accountRes.accounts || [];
     } catch (e) {
-      infoEl.innerHTML = `<div class="text-danger">物件情報の取得に失敗しました: ${this._esc(e.message)}</div>`;
+      infoEl.innerHTML = `<div class="text-danger small">情報取得失敗: ${this._esc(e.message)}</div>`;
       return;
     }
 
+    // 送信先ブロック (宿泊者本人、固定)
+    const destBlock = `
+      <div class="d-flex align-items-center gap-1 mb-1">
+        <span class="small">📧 <strong>送信先:</strong> 宿泊者本人（フォーム入力時のメールアドレス）</span>
+      </div>
+      <div class="text-muted small mb-2" style="font-size:0.73rem;">
+        <i class="bi bi-info-circle"></i> 他通知のような送信先選択UIがないのは仕様です（宿泊者宛の単一メールのため）
+      </div>
+    `;
+
+    // 送信元ブロック: OAuth 状態に応じて3パターン
+    let srcBlock = "";
+    const pidEsc = this._esc(pid);
+    const openProps = `sessionStorage.setItem('openPropertyEdit','${pidEsc}'); location.hash='#/properties';`;
+
     if (senderGmail) {
-      infoEl.innerHTML = `
-        <div class="d-flex align-items-center gap-2 flex-wrap">
-          <span><i class="bi bi-envelope-fill text-primary"></i> 送信元: <strong>${this._esc(senderGmail)}</strong></span>
-          <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="
-            sessionStorage.setItem('openPropertyEdit','${this._esc(pid)}');
-            location.hash='#/properties';
-          ">
-            <i class="bi bi-box-arrow-up-right"></i> 物件管理で変更
-          </button>
-        </div>
-      `;
+      const linked = accounts.find(a => a.email === senderGmail);
+      if (linked && linked.hasRefreshToken) {
+        // 連携中・有効
+        srcBlock = `
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="small">📤 <strong>送信元:</strong> 🟢 ${this._esc(senderGmail)} <span class="badge bg-success-subtle text-success border" style="font-size:0.7rem;">連携中</span></span>
+            <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="${openProps}">
+              <i class="bi bi-x-circle"></i> 解除
+            </button>
+          </div>
+        `;
+      } else if (linked && !linked.hasRefreshToken) {
+        // 連携中・トークン失効
+        srcBlock = `
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="small">📤 <strong>送信元:</strong> 🔴 ${this._esc(senderGmail)} ⚠️ <span class="text-danger">トークン失効中。再連携が必要です</span></span>
+            <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick="${openProps}">
+              <i class="bi bi-arrow-repeat"></i> 再連携
+            </button>
+          </div>
+        `;
+      } else {
+        // senderGmail あるがトークン未登録
+        srcBlock = `
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="small">📤 <strong>送信元:</strong> 🔴 ${this._esc(senderGmail)} ⚠️ <span class="text-danger">トークン失効中。再連携が必要です</span></span>
+            <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick="${openProps}">
+              <i class="bi bi-arrow-repeat"></i> 再連携
+            </button>
+          </div>
+        `;
+      }
     } else {
-      infoEl.innerHTML = `
+      // 未連携
+      srcBlock = `
         <div class="d-flex align-items-center gap-2 flex-wrap">
-          <span class="text-danger"><i class="bi bi-exclamation-triangle"></i> 送信元 Gmail が未連携です</span>
-          <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick="
-            sessionStorage.setItem('openPropertyEdit','${this._esc(pid)}');
-            location.hash='#/properties';
-          ">
+          <span class="small">📤 <strong>送信元:</strong> ⚪ <span class="text-muted">送信元 Gmail が未連携です</span></span>
+          <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick="${openProps}">
             <i class="bi bi-box-arrow-up-right"></i> 物件管理で連携
           </button>
         </div>
       `;
     }
+
+    infoEl.innerHTML = `
+      <div class="border rounded p-2 mb-2" style="background:#f8fafc;">
+        ${destBlock}
+        ${srcBlock}
+        <div class="text-muted mt-2" style="font-size:0.71rem;">
+          <i class="bi bi-info-circle"></i> Gmail連携は1回で半永久的に有効です。失効した場合のみ再連携してください。
+        </div>
+      </div>
+    `;
   },
 
   // ドット記法でネストフィールドから値を取得
