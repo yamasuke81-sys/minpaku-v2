@@ -87,9 +87,10 @@ module.exports = async function onGuestFormUpdate(event) {
   const docRef = event.data.after.ref;
   const guestId = event.params?.guestId || docRef.id;
 
-  const guestName = after.guestName || "名前不明";
-  const checkIn   = after.checkIn   || "?";
-  const checkOut  = after.checkOut  || "?";
+  const guestName  = after.guestName  || "名前不明";
+  const checkIn    = after.checkIn    || "?";
+  const checkOut   = after.checkOut   || "?";
+  const guestCount = after.guestCount || "?";
   const guestEmail = after.email || "";
 
   // 差分計算
@@ -152,7 +153,7 @@ module.exports = async function onGuestFormUpdate(event) {
   }
 
   const vars = {
-    guestName, checkIn, checkOut,
+    guestName, checkIn, checkOut, guestCount,
     propertyName, propertyAddress, addressMapUrl,
     changes, confirmUrl, editUrl,
   };
@@ -178,11 +179,23 @@ module.exports = async function onGuestFormUpdate(event) {
         const DEFAULT_BODY = [
           `{guestName} 様`,
           ``,
-          `宿泊者名簿の修正をお預かりしました。`,
+          `いつもお世話になっております。{propertyName} です。`,
           ``,
-          `修正内容を確認させていただき、何かご不明な点があればご連絡いたします。`,
+          `宿泊者名簿のご修正、誠にありがとうございます。`,
+          `ご登録内容を承りました。`,
           ``,
-          `どうぞよろしくお願いいたします。`,
+          `■ ご宿泊情報`,
+          `チェックイン: {checkIn}`,
+          `チェックアウト: {checkOut}`,
+          `ご人数: {guestCount} 名`,
+          `住所: {propertyAddress}`,
+          `地図: {addressMapUrl}`,
+          ``,
+          `再度ご修正の必要がございましたら、下記リンクよりお手続きください。`,
+          `{editUrl}`,
+          ``,
+          `ご質問等ございましたら、本メールにご返信ください。`,
+          `何卒よろしくお願い申し上げます。`,
         ].join("\n");
 
         const renderSingle = (tmpl) => String(tmpl || "").replace(/\{(\w+)\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ""));

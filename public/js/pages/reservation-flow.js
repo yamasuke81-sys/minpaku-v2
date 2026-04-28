@@ -271,7 +271,7 @@ const ReservationFlowPage = {
     },
     {
       key: "form_complete_mail",
-      label: "名簿入力完了メール (宿泊者宛)",
+      label: "名簿入力サンクスメール (宿泊者宛)",
       icon: "bi-envelope-check",
       lane: "owner",
       phase: 2,
@@ -301,20 +301,23 @@ const ReservationFlowPage = {
         <div class="small fw-semibold mb-1"><i class="bi bi-eye"></i> 本文プレビュー（サンプル値で展開）</div>
         <div id="form_complete_mail_preview" class="border rounded p-2 bg-light"
           style="white-space:pre-wrap;min-height:200px;font-size:0.78rem;font-family:monospace;"></div>
-        <!-- 送信元 Gmail 表示エリア（renderDetailPanel_ で動的に更新） -->
-        <div id="flowGmailSenderInfo" class="mt-2 mb-2 small"></div>
-        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-          <span class="small"><i class="bi bi-info-circle text-warning"></i> 送信には <strong>Gmail API 連携</strong>が必要です。送信失敗時は「完了メール送信失敗」通知が飛びます。</span>
+        <!-- 送信先・送信元 Gmail 表示エリア（詳細設定の下に配置） -->
+        <div class="mt-3 border rounded p-2" style="background:#f0f4ff;">
+          <div class="small fw-semibold mb-2"><i class="bi bi-send"></i> 送信先 / 送信元</div>
+          <div id="flowGmailSenderInfo" class="small"></div>
+          <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+            <span class="small"><i class="bi bi-info-circle text-warning"></i> 送信には <strong>Gmail API 連携</strong>が必要です。送信失敗時は「サンクスメール送信失敗」通知が飛びます。</span>
+          </div>
+          <details class="small mt-1">
+            <summary class="text-primary" style="cursor:pointer;"><i class="bi bi-question-circle"></i> Gmail 連携の設定方法</summary>
+            <ol class="mt-2 mb-0 ps-3">
+              <li>サイドバー「<a href="#/properties">物件管理</a>」を開く</li>
+              <li>該当物件の編集モーダルを開き「Gmail 連携」セクションで連携ボタンを押す</li>
+              <li>Google の認可画面で当該アカウントにログイン → 権限を許可</li>
+              <li>連携が解除されている場合は「サンクスメール送信失敗」通知が飛びます</li>
+            </ol>
+          </details>
         </div>
-        <details class="small">
-          <summary class="text-primary" style="cursor:pointer;"><i class="bi bi-question-circle"></i> Gmail 連携の設定方法</summary>
-          <ol class="mt-2 mb-0 ps-3">
-            <li>サイドバー「<a href="#/properties">物件管理</a>」を開く</li>
-            <li>該当物件の編集モーダルを開き「Gmail 連携」セクションで連携ボタンを押す</li>
-            <li>Google の認可画面で当該アカウントにログイン → 権限を許可</li>
-            <li>連携が解除されている場合は「完了メール送信失敗」通知が飛びます</li>
-          </ol>
-        </details>
       `,
     },
     // 名簿修正完了サンクスメール (宿泊者宛)
@@ -335,24 +338,29 @@ const ReservationFlowPage = {
           default: "【{{propertyName}}】宿泊者名簿の修正を受け付けました／{{guestName}} 様" },
         { field: "formUpdateMail.body",    label: "メール本文", type: "textarea", rows: 10,
           placeholder: "空欄にするとデフォルト本文に戻ります",
-          default: "{{guestName}} 様\n\n宿泊者名簿の修正をお預かりしました。\n\n修正内容を確認させていただき、何かご不明な点があればご連絡いたします。\n\nどうぞよろしくお願いいたします。" },
+          default: "{{guestName}} 様\n\nいつもお世話になっております。{{propertyName}} です。\n\n宿泊者名簿のご修正、誠にありがとうございます。\nご登録内容を承りました。\n\n■ ご宿泊情報\nチェックイン: {{checkIn}}\nチェックアウト: {{checkOut}}\nご人数: {{guestCount}} 名\n住所: {{propertyAddress}}\n地図: {{addressMapUrl}}\n\n再度ご修正の必要がございましたら、下記リンクよりお手続きください。\n{{editUrl}}\n\nご質問等ございましたら、本メールにご返信ください。\n何卒よろしくお願い申し上げます。" },
       ],
       detailVarsHint: [
-        "{{guestName}}", "{{propertyName}}", "{{checkIn}}", "{{checkOut}}", "{{editUrl}}",
+        "{{guestName}}", "{{propertyName}}", "{{checkIn}}", "{{checkOut}}",
+        "{{guestCount}}", "{{propertyAddress}}", "{{addressMapUrl}}", "{{editUrl}}",
       ],
       detailNoteHtml: `
         <div class="small fw-semibold mb-1"><i class="bi bi-eye"></i> 本文プレビュー（サンプル値で展開）</div>
         <div id="form_update_mail_preview" class="border rounded p-2 bg-light"
           style="white-space:pre-wrap;min-height:200px;font-size:0.78rem;font-family:monospace;"></div>
-        <div id="flowUpdateGmailSenderInfo" class="mt-2 mb-2 small"></div>
-        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-          <span class="small"><i class="bi bi-info-circle text-warning"></i> 送信には <strong>Gmail API 連携</strong>が必要です。</span>
+        <!-- 送信先・送信元 Gmail 表示エリア（詳細設定の下に配置） -->
+        <div class="mt-3 border rounded p-2" style="background:#f0f4ff;">
+          <div class="small fw-semibold mb-2"><i class="bi bi-send"></i> 送信先 / 送信元</div>
+          <div id="flowUpdateGmailSenderInfo" class="small"></div>
+          <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+            <span class="small"><i class="bi bi-info-circle text-warning"></i> 送信には <strong>Gmail API 連携</strong>が必要です。</span>
+          </div>
         </div>
       `,
     },
     {
       key: "form_complete_mail_failed",
-      label: "完了メール送信失敗 通知",
+      label: "サンクスメール送信失敗 通知",
       icon: "bi-envelope-exclamation",
       lane: "owner",
       phase: 2,
@@ -1124,7 +1132,8 @@ const ReservationFlowPage = {
     const pid = property.id;
     const fieldsHtml = step.detailFields.map(fd => {
       const cur = this._getNested(property, fd.field);
-      const val = (cur === undefined || cur === null) ? (fd.default ?? "") : cur;
+      // 未保存(undefined/null)または空文字の場合はデフォルト値を初期表示する
+      const val = (cur === undefined || cur === null || cur === "") ? (fd.default ?? "") : cur;
       const hintHtml = fd.hint
         ? `<div class="form-text small" style="font-size:0.7rem;">${this._esc(fd.hint)}</div>`
         : "";
