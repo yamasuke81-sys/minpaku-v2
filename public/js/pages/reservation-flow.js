@@ -1576,12 +1576,10 @@ const ReservationFlowPage = {
             : null;
           if (innerToggle && innerToggle.checked !== e.target.checked) {
             innerToggle.checked = e.target.checked;
-            // bindCardEvents の onChange を発火させて保存
             innerToggle.dispatchEvent(new Event("change", { bubbles: true }));
-          } else {
-            // 内側トグルが見つからない/同値の場合も保存だけは確実に行う
-            this._queueSaveOverride(step.globalChannel, pid);
           }
+          // dispatchEvent の後も確実に保存をキューに積む (NCE.onChange 依存を排除)
+          this._queueSaveOverride(step.globalChannel, pid);
         } else {
           this._queueSave(pid, stepKey);
         }
@@ -1757,12 +1755,10 @@ const ReservationFlowPage = {
             : null;
           if (innerToggle && innerToggle.checked !== e.target.checked) {
             innerToggle.checked = e.target.checked;
-            // bindCardEvents の onChange を発火させる
             innerToggle.dispatchEvent(new Event("change", { bubbles: true }));
-          } else {
-            // 既に同期済みでも保存だけは確実に行う
-            this._queueSaveOverride(step.globalChannel, pid);
           }
+          // dispatchEvent の後も確実に保存をキューに積む (NCE.onChange 依存を排除)
+          this._queueSaveOverride(step.globalChannel, pid);
         } else {
           this._queueSave(pid, stepKey);
         }
@@ -2182,12 +2178,28 @@ const ReservationFlowPage = {
   // ========== 保存: 物件別オーバーライド (properties/{pid}.channelOverrides.{notifKey}) ==========
   async _saveOverride(notifKey, pid) {
     const wrap = document.getElementById("rfSwimLane");
-    if (!wrap) return;
+    if (!wrap) { this._showStatus("error", "UI要素が見つかりません"); return; }
     const NCE = window.NotifyChannelEditor;
-    if (!NCE) return;
+    if (!NCE) { this._showStatus("error", "NotifyChannelEditor が未ロード"); return; }
     const idPrefix = `prop_${pid}_${notifKey}`;
     const block = wrap.querySelector(`.rf-shared-notify[data-pid="${pid}"][data-notif-key="${notifKey}"]`);
-    if (!block) return;
+    if (!block) {
+      // ブロックが見つからない場合: enabled フラグだけ enabled 判定から読んで最小保存
+      console.warn(`[rf _saveOverride] block not found for ${notifKey} / ${pid} — enabled-only fallback`);
+      const prop = this.properties.find(p => p.id === pid);
+      const step = this.STEPS.find(s => s.globalChannel === notifKey);
+      const enabled = step ? this._isEnabled(prop, step) : undefined;
+      try {
+        const patch = {};
+        if (enabled !== undefined) patch[`channelOverrides.${notifKey}.enabled`] = enabled;
+        patch.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+        await db.collection("properties").doc(pid).update(patch);
+        this._showStatus("saved");
+      } catch (e) {
+        this._showStatus("error", e.message);
+      }
+      return;
+    }
     const overrideEntry = NCE.readChannelValue(block, notifKey, { idPrefix });
     try {
       await db.collection("properties").doc(pid).update({
@@ -2431,14 +2443,24 @@ const ReservationFlowPage = {
   },
 
   // ========== ステータス表示 ==========
+  // 画面右上の固定インジケーター + ヘッダー内のインライン表示を同時更新
   _showStatus(kind, msg) {
+    // ① ヘッダー内インライン表示 (既存)
     const el = document.getElementById("rfSaveStatus");
-    if (!el) return;
+    // ② 固定インジケーター (常時表示エリア)
+    const indicator = this._getOrCreateSaveIndicator("rf");
+    const setText = (html) => {
+      if (el) el.innerHTML = html;
+      if (indicator) indicator.innerHTML = html;
+    };
     if (kind === "saving") {
-      el.innerHTML = `<i class="bi bi-arrow-repeat"></i> 保存中…`;
+      setText(`🟡 保存中…`);
     } else if (kind === "saved") {
-      el.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill"></i> 保存済み</span>`;
-      setTimeout(() => { if (el.innerHTML.includes("保存済み")) el.innerHTML = ""; }, 2000);
+      setText(`🟢 保存しました`);
+      setTimeout(() => {
+        if (el && el.innerHTML.includes("保存しました")) el.innerHTML = "";
+        if (indicator && indicator.innerHTML.includes("保存しました")) indicator.innerHTML = "";
+      }, 3000);
       // 直前のトーストから3秒以内なら抑制
       const now = Date.now();
       if (!this._lastToastAt || now - this._lastToastAt > 3000) {
@@ -2446,9 +2468,22 @@ const ReservationFlowPage = {
         if (typeof showToast === "function") showToast("保存しました", "", "success");
       }
     } else if (kind === "error") {
-      el.innerHTML = `<span class="text-danger">保存失敗: ${this._esc(msg || "")}</span>`;
+      setText(`🔴 保存できませんでした: ${this._esc(msg || "")}`);
       if (typeof showToast === "function") showToast("保存できませんでした", msg || "", "error");
     }
+  },
+
+  // 固定インジケーター要素を取得または生成
+  _getOrCreateSaveIndicator(prefix) {
+    const id = `${prefix}-save-indicator`;
+    let el = document.getElementById(id);
+    if (!el) {
+      el = document.createElement("div");
+      el.id = id;
+      el.style.cssText = "position:fixed;top:10px;right:20px;z-index:9999;background:rgba(255,255,255,0.95);border:1px solid #dee2e6;border-radius:6px;padding:4px 10px;font-size:0.82rem;box-shadow:0 2px 8px rgba(0,0,0,0.12);pointer-events:none;";
+      document.body.appendChild(el);
+    }
+    return el;
   },
 
   // ========== CSS ==========

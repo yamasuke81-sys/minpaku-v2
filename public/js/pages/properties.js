@@ -1374,7 +1374,7 @@ const PropertiesPage = {
           </button>
         </div>
         <div class="form-text mt-1">
-          この Gmail アドレスが宿泊者宛サンクスメールの送信元として使われます。
+          この Gmail が<strong>通知メール全般</strong>（宿泊者宛サンクスメール、名簿受信通知、その他のメール通知）の送信元として使われます。
         </div>
       `;
       document.getElementById("btnPropGmailUnlink")?.addEventListener("click", () => {

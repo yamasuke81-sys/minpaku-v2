@@ -1517,14 +1517,24 @@ const CleaningFlowPage = {
   },
 
   // ========== ステータス表示 ==========
+  // 画面右上の固定インジケーター + ヘッダー内のインライン表示を同時更新
   _showStatus(kind, msg) {
+    // ① ヘッダー内インライン表示 (既存)
     const el = document.getElementById("cfSaveStatus");
-    if (!el) return;
+    // ② 固定インジケーター (常時表示エリア)
+    const indicator = this._getOrCreateSaveIndicator("cf");
+    const setText = (html) => {
+      if (el) el.innerHTML = html;
+      if (indicator) indicator.innerHTML = html;
+    };
     if (kind === "saving") {
-      el.innerHTML = `<i class="bi bi-arrow-repeat"></i> 保存中…`;
+      setText(`🟡 保存中…`);
     } else if (kind === "saved") {
-      el.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill"></i> 保存済み</span>`;
-      setTimeout(() => { if (el.innerHTML.includes("保存済み")) el.innerHTML = ""; }, 2000);
+      setText(`🟢 保存しました`);
+      setTimeout(() => {
+        if (el && el.innerHTML.includes("保存しました")) el.innerHTML = "";
+        if (indicator && indicator.innerHTML.includes("保存しました")) indicator.innerHTML = "";
+      }, 3000);
       // 直前のトーストから3秒以内なら抑制
       const now = Date.now();
       if (!this._lastToastAt || now - this._lastToastAt > 3000) {
@@ -1532,9 +1542,22 @@ const CleaningFlowPage = {
         if (typeof showToast === "function") showToast("保存しました", "", "success");
       }
     } else if (kind === "error") {
-      el.innerHTML = `<span class="text-danger">保存失敗: ${this._esc(msg || "")}</span>`;
+      setText(`🔴 保存できませんでした: ${this._esc(msg || "")}`);
       if (typeof showToast === "function") showToast("保存できませんでした", msg || "", "error");
     }
+  },
+
+  // 固定インジケーター要素を取得または生成
+  _getOrCreateSaveIndicator(prefix) {
+    const id = `${prefix}-save-indicator`;
+    let el = document.getElementById(id);
+    if (!el) {
+      el = document.createElement("div");
+      el.id = id;
+      el.style.cssText = "position:fixed;top:10px;right:20px;z-index:9999;background:rgba(255,255,255,0.95);border:1px solid #dee2e6;border-radius:6px;padding:4px 10px;font-size:0.82rem;box-shadow:0 2px 8px rgba(0,0,0,0.12);pointer-events:none;";
+      document.body.appendChild(el);
+    }
+    return el;
   },
 
   // ========== CSS ==========
