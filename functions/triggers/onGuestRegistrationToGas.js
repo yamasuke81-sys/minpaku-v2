@@ -1,7 +1,8 @@
 /**
  * 宿泊者名簿 新規作成 → GAS版スプシへの自動転記
  * トリガー: guestRegistrations/{guestId} の onCreate
- * 対象: source === "guest_form" のみ（BEDS24インポート等は除外）
+ * 対象: source === "guest_form" かつ propertyId === "tsZybhDMcPrxqgcRy7wp" (the Terrace 長浜) のみ
+ *       他物件は対象外 (GAS版は the Terrace 長浜専用のため)
  */
 const https = require("https");
 
@@ -57,6 +58,13 @@ module.exports = async function onGuestRegistrationToGas(event) {
 
   // guest_form 以外はスキップ
   if (data.source !== "guest_form") return;
+
+  // the Terrace 長浜 以外の物件はスキップ（GAS版は the Terrace 長浜専用）
+  const TERRACE_NAGAHAMA_ID = "tsZybhDMcPrxqgcRy7wp";
+  if (data.propertyId !== TERRACE_NAGAHAMA_ID) {
+    console.log(`[onGuestRegistrationToGas] propertyId=${data.propertyId} は対象外 (the Terrace 長浜のみ転記)`);
+    return;
+  }
 
   const guestId = event.params?.guestId || event.data.ref.id;
 
