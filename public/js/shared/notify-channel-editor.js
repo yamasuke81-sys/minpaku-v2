@@ -109,6 +109,8 @@
       defaultMsg: "📝 名簿入力のお願い\n\n{checkin} {property}\nゲスト: {guest}\n宿泊者名簿がまだ届いていません。" },
     { key: "roster_received", label: "宿泊者名簿 受信通知", desc: "宿泊者名簿のフォーム回答が届いた時にWebアプリ管理者等へ通知", icon: "bi-envelope-check", group: "booking", varGroup: "booking", defaultTiming: "immediate",
       defaultMsg: "📨 宿泊者名簿が届きました\n\n{checkin} {property}\nゲスト: {guest}\n詳細: {url}" },
+    { key: "roster_updated", label: "名簿更新通知 (修正受信)", desc: "宿泊者が修正リンクから名簿を再送信した時にWebアプリ管理者へ通知", icon: "bi-arrow-repeat", group: "booking", varGroup: "booking", defaultTiming: "immediate",
+      defaultMsg: "🔄 宿泊者名簿が更新されました\n\n{checkin} {property}\nゲスト: {guest}\n\n変更内容:\n{changes}\n\n確認: {url}" },
     { key: "form_complete_mail_failed", label: "名簿入力完了メール 送信失敗", desc: "宿泊者へ送る完了メールが送信エラーになった時、Webアプリ管理者等へ通知", icon: "bi-envelope-exclamation", group: "booking", varGroup: "booking", defaultTiming: "immediate",
       defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: true,
       defaultMsg: "⚠️ 完了メール送信失敗\n\n物件: {property}\nゲスト: {guest} ({email})\nエラー: {error}\n\n手動で連絡してください。" },

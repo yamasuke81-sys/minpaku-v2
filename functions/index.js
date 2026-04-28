@@ -314,6 +314,12 @@ exports.onGuestFormSubmit = onDocumentCreated(
   require("./triggers/onGuestFormSubmit")
 );
 
+// 宿泊者名簿 更新→修正完了メール + 更新通知
+exports.onGuestFormUpdate = onDocumentUpdated(
+  "guestRegistrations/{guestId}",
+  require("./triggers/onGuestFormUpdate")
+);
+
 // 宿泊者名簿 新規作成→GAS版スプシへ自動転記（リバース連携）
 exports.onGuestRegistrationToGas = onDocumentCreated(
   "guestRegistrations/{guestId}",

@@ -85,6 +85,11 @@ module.exports = async function onGuestFormSubmit(event) {
 
   // 送信者アドレス: 物件担当者 (物件オーナー最優先、なければ settings/notifications.ownerEmail)
   // onGuestFormSubmit は先に notifyEmails/subOwners を解決してから使うため、ここでは後続で決定する
+  // Google マップリンク生成
+  const addressMapUrl = propertyAddress
+    ? "https://maps.google.com/?q=" + encodeURIComponent(propertyAddress)
+    : "";
+
   const vars = {
     guestName, checkIn, checkOut, guestCount,
     checkInTime: data.checkInTime || "",
@@ -92,6 +97,7 @@ module.exports = async function onGuestFormSubmit(event) {
     nationality: data.nationality || "日本",
     propertyName,
     propertyAddress,
+    addressMapUrl,
     summary, editUrl, confirmUrl, guideUrl,
   };
 
@@ -138,7 +144,7 @@ module.exports = async function onGuestFormSubmit(event) {
 
   // 宿泊者宛メール件名を物件名入りで生成 (テンプレート変数 {propertyName} 経由)
   const guestSubjectOverride = propertyName
-    ? `【${propertyName}】宿泊者名簿をお預かりしました／${guestName} 様`
+    ? `【${propertyName}】宿泊者名簿をご登録いただきありがとうございました／${guestName} 様`
     : null;
   const ownerSubjectOverride = propertyName
     ? `【${propertyName}】宿泊者名簿が届きました`
@@ -179,18 +185,19 @@ module.exports = async function onGuestFormSubmit(event) {
     } else {
       try {
         // ビルトインデフォルト (グローバル settings.notifications は参照しない)
-        const DEFAULT_SUBJECT = `【{propertyName}】宿泊者名簿をお預かりしました／{guestName} 様`;
+        const DEFAULT_SUBJECT = `【{propertyName}】宿泊者名簿をご登録いただきありがとうございました／{guestName} 様`;
         const DEFAULT_BODY = [
           `{guestName} 様`,
           ``,
           `この度は{propertyName}にご予約いただきありがとうございます。`,
-          `宿泊者名簿のご記入をお預かりしました。`,
+          `宿泊者名簿をご登録いただきありがとうございました。`,
           ``,
           `■ ご宿泊情報`,
           `チェックイン: {checkIn}`,
           `チェックアウト: {checkOut}`,
           `ご人数: {guestCount} 名`,
           `住所: {propertyAddress}`,
+          `地図: {addressMapUrl}`,
           ``,
           `名簿の編集が必要な場合は、下記リンクから修正してください。`,
           `{editUrl}`,

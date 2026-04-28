@@ -68,6 +68,13 @@ const ReservationFlowPage = {
       { name: "time",     label: "実施時刻",         sample: "19:30" },
       { name: "url",      label: "チェックリストURL", sample: "https://minpaku-v2.web.app/#/my-checklist/xxx" },
     ],
+    guestUpdate: [
+      { name: "guestName",     label: "ゲスト名",        sample: "John Smith" },
+      { name: "propertyName",  label: "物件名",          sample: "長浜民泊A" },
+      { name: "checkin",       label: "チェックイン日",   sample: "2026/04/20" },
+      { name: "changes",       label: "変更内容",        sample: "代表者の年齢: 30 → 35" },
+      { name: "confirmUrl",    label: "確認URL",         sample: "https://minpaku-v2.web.app/#/guests?id=xxx" },
+    ],
   },
 
   // ========== 通知デフォルト値 (notifications.js の notifications 配列から参照) ==========
@@ -76,6 +83,7 @@ const ReservationFlowPage = {
     double_booking:     { defaultMsg: "【⚠️ ダブルブッキング警告】\n物件: {property}\n日程: {checkin} 〜 {date}\n\n衝突予約が検出されました。至急確認してください。\n確認: {url}", defaultTiming: "immediate", varGroup: "booking" },
     roster_received:    { defaultMsg: "📨 宿泊者名簿が届きました\n\n{checkin} {property}\nゲスト: {guest}\n詳細: {url}", defaultTiming: "immediate", varGroup: "booking" },
     form_complete_mail_failed: { defaultMsg: "⚠️ 完了メール送信失敗\n\n物件: {property}\nゲスト: {guest} ({email})\nエラー: {error}\n\n手動で連絡してください。", defaultTiming: "immediate", varGroup: "booking" },
+    roster_updated:    { defaultMsg: "🔄 宿泊者名簿が更新されました\n\n{checkin} {property}\nゲスト: {guest}\n\n変更内容:\n{changes}\n\n確認: {url}", defaultTiming: "immediate", varGroup: "guestUpdate" },
     roster_remind:      { defaultMsg: "📝 名簿入力のお願い\n\n{checkin} {property}\nゲスト: {guest}\n宿泊者名簿がまだ届いていません。", defaultTiming: "morning", varGroup: "booking" },
     urgent_remind:      { defaultMsg: "🔴 緊急: 直前予約の{work}手配\n\n{date} {property}\n直前予約が入りました。至急スタッフの手配をお願いします。", defaultTiming: "immediate", varGroup: "recruit" },
     recruit_response:   { defaultMsg: "📋 募集に回答がありました\n\n日付: {date} ({property})\n{staff}: {response}\n候補: {count}名", defaultTiming: "immediate", varGroup: "recruit" },
@@ -246,6 +254,21 @@ const ReservationFlowPage = {
       linkLabel: "通知設定",
       hint: "名簿の内容が予約データと一致しない場合（予約なし・人数不一致・CO日不一致）に発火",
     },
+    // 名簿更新通知 (宿泊者が修正リンクから再送信した場合)
+    {
+      key: "roster_updated",
+      label: "名簿更新通知 (修正受信)",
+      icon: "bi-arrow-repeat",
+      lane: "owner",
+      phase: 2,
+      track: "guest",
+      globalChannel: "roster_updated",
+      varGroup: "guestUpdate",
+      arrowFrom: "guest",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+      hint: "宿泊者が修正リンクから名簿を再送信した時にWebアプリ管理者へ通知",
+    },
     {
       key: "form_complete_mail",
       label: "名簿入力完了メール (宿泊者宛)",
@@ -257,27 +280,29 @@ const ReservationFlowPage = {
       // ヘッダー右のトグルでメール送信ON/OFF (物件別: formCompleteMail.enabled)
       propertyField: "formCompleteMail.enabled",
       defaultEnabled: true,
+      // 左:editFields / 右:プレビュー の2カラムレイアウト
+      detailTwoCol: true,
       // 詳細設定 (物件別保存: properties/{pid}.formCompleteMail.*)
+      // デフォルト値を初期表示に入力済みにし、空保存でデフォルトに戻る仕様
       detailFields: [
-        { field: "formCompleteMail.subject", label: "メール件名（空欄ならデフォルト件名）", type: "text",
-          placeholder: "例: 宿泊者情報のご登録ありがとうございました", default: "" },
-        { field: "formCompleteMail.body",    label: "メール本文（空欄ならデフォルト本文）", type: "textarea", rows: 6,
-          placeholder: "例:\n{{guestName}} 様\n\nこの度は{{propertyName}}にご予約いただきありがとうございます。\n宿泊者名簿のご記入をお預かりしました。\n\n■ ご宿泊情報\nチェックイン: {{checkIn}}\nチェックアウト: {{checkOut}}\nご人数: {{guestCount}} 名\n住所: {{propertyAddress}}\n\n名簿の編集が必要な場合は、下記リンクから修正してください。\n{{editUrl}}\n\nご質問等ございましたらこちらのメールに返信ください。",
-          default: "" },
+        { field: "formCompleteMail.subject", label: "メール件名", type: "text",
+          placeholder: "例: 宿泊者情報のご登録ありがとうございました",
+          default: "【{{propertyName}}】宿泊者名簿をご登録いただきありがとうございました／{{guestName}} 様" },
+        { field: "formCompleteMail.body",    label: "メール本文", type: "textarea", rows: 10,
+          placeholder: "空欄にするとデフォルト本文に戻ります",
+          default: "{{guestName}} 様\n\nこの度は{{propertyName}}にご予約いただきありがとうございます。\n宿泊者名簿をご登録いただきありがとうございました。\n\n■ ご宿泊情報\nチェックイン: {{checkIn}}\nチェックアウト: {{checkOut}}\nご人数: {{guestCount}} 名\n住所: {{propertyAddress}}\n地図: {{addressMapUrl}}\n\n名簿の編集が必要な場合は、下記リンクから修正してください。\n{{editUrl}}\n\nご質問等ございましたらこちらのメールに返信ください。" },
       ],
       detailVarsHint: [
         "{{guestName}}", "{{propertyName}}", "{{checkIn}}", "{{checkOut}}",
-        "{{guestCount}}", "{{propertyAddress}}", "{{editUrl}}",
+        "{{guestCount}}", "{{propertyAddress}}", "{{addressMapUrl}}", "{{editUrl}}",
       ],
       detailNoteHtml: `
-        <!-- メール本文プレビュー -->
-        <div class="mb-2">
-          <div class="small fw-semibold mb-1"><i class="bi bi-eye"></i> 本文プレビュー（サンプル値で展開）</div>
-          <div id="form_complete_mail_preview" class="border rounded p-2 bg-light"
-            style="white-space:pre-wrap;min-height:80px;font-size:0.78rem;font-family:monospace;"></div>
-        </div>
+        <!-- 本文プレビュー（サンプル値で展開） -->
+        <div class="small fw-semibold mb-1"><i class="bi bi-eye"></i> 本文プレビュー（サンプル値で展開）</div>
+        <div id="form_complete_mail_preview" class="border rounded p-2 bg-light"
+          style="white-space:pre-wrap;min-height:200px;font-size:0.78rem;font-family:monospace;"></div>
         <!-- 送信元 Gmail 表示エリア（renderDetailPanel_ で動的に更新） -->
-        <div id="flowGmailSenderInfo" class="mb-2 small"></div>
+        <div id="flowGmailSenderInfo" class="mt-2 mb-2 small"></div>
         <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
           <span class="small"><i class="bi bi-info-circle text-warning"></i> 送信には <strong>Gmail API 連携</strong>が必要です。送信失敗時は「完了メール送信失敗」通知が飛びます。</span>
         </div>
@@ -290,6 +315,39 @@ const ReservationFlowPage = {
             <li>連携が解除されている場合は「完了メール送信失敗」通知が飛びます</li>
           </ol>
         </details>
+      `,
+    },
+    // 名簿修正完了サンクスメール (宿泊者宛)
+    {
+      key: "form_update_mail",
+      label: "名簿修正完了メール (宿泊者宛)",
+      icon: "bi-envelope-arrow-up",
+      lane: "owner",
+      phase: 2,
+      track: "guest",
+      arrowTo: "guest",
+      propertyField: "formUpdateMail.enabled",
+      defaultEnabled: true,
+      detailTwoCol: true,
+      detailFields: [
+        { field: "formUpdateMail.subject", label: "メール件名", type: "text",
+          placeholder: "例: 宿泊者名簿の修正を受け付けました",
+          default: "【{{propertyName}}】宿泊者名簿の修正を受け付けました／{{guestName}} 様" },
+        { field: "formUpdateMail.body",    label: "メール本文", type: "textarea", rows: 10,
+          placeholder: "空欄にするとデフォルト本文に戻ります",
+          default: "{{guestName}} 様\n\n宿泊者名簿の修正をお預かりしました。\n\n修正内容を確認させていただき、何かご不明な点があればご連絡いたします。\n\nどうぞよろしくお願いいたします。" },
+      ],
+      detailVarsHint: [
+        "{{guestName}}", "{{propertyName}}", "{{checkIn}}", "{{checkOut}}", "{{editUrl}}",
+      ],
+      detailNoteHtml: `
+        <div class="small fw-semibold mb-1"><i class="bi bi-eye"></i> 本文プレビュー（サンプル値で展開）</div>
+        <div id="form_update_mail_preview" class="border rounded p-2 bg-light"
+          style="white-space:pre-wrap;min-height:200px;font-size:0.78rem;font-family:monospace;"></div>
+        <div id="flowUpdateGmailSenderInfo" class="mt-2 mb-2 small"></div>
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+          <span class="small"><i class="bi bi-info-circle text-warning"></i> 送信には <strong>Gmail API 連携</strong>が必要です。</span>
+        </div>
       `,
     },
     {
@@ -998,10 +1056,14 @@ const ReservationFlowPage = {
       propertyName: "the Terrace 長浜",
       checkIn: "2026/04/30",
       checkOut: "2026/05/02",
+      guestCount: "4",
       keyboxCode: "1234",
       propertyAddress: "滋賀県長浜市○○町1-2-3",
+      addressMapUrl: "https://maps.google.com/?q=%E6%BB%8B%E8%B3%80%E7%9C%8C%E9%95%B7%E6%B5%9C%E5%B8%82",
+      editUrl: "https://minpaku-v2.web.app/guest-form.html?edit=sample-token",
       wifiInfo: "SSID: MyWifi / PW: xxxx1234",
       guideUrl: "https://minpaku-v2.web.app/guide/?propertyId=xxx",
+      changes: "代表者の年齢: 30 → 35",
     };
 
     const updatePreview = () => {
@@ -1127,14 +1189,18 @@ const ReservationFlowPage = {
          </div>`
       : "";
 
+    // detailTwoCol: true の場合は左:fieldsHtml / 右:noteHtml の2カラムレイアウト
+    const innerHtml = step.detailTwoCol
+      ? `<div class="row g-2"><div class="col-md-6">${fieldsHtml}</div><div class="col-md-6">${step.detailNoteHtml || ""}</div></div>`
+      : `${noteHtml}${fieldsHtml}`;
+
     return `
       <div class="rf-detail-panel mt-2 p-2 border rounded" style="background:#f8fafc;">
         <div class="small fw-semibold mb-2">
           <i class="bi bi-sliders2"></i> 詳細設定（${this._esc(property.name)}）
         </div>
         ${varsHint}
-        ${noteHtml}
-        ${fieldsHtml}
+        ${innerHtml}
       </div>
     `;
   },
@@ -1905,6 +1971,10 @@ const ReservationFlowPage = {
             // form_complete_mail: プレビューUIをバインド
             if (stepKey === "form_complete_mail") {
               this._bindMailPreview(body, pid, "formCompleteMail.body", "form_complete_mail_preview");
+            }
+            // form_update_mail: プレビューUIをバインド
+            if (stepKey === "form_update_mail") {
+              this._bindMailPreview(body, pid, "formUpdateMail.body", "form_update_mail_preview");
             }
           }
         }

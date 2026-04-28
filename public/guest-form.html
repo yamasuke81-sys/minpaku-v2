@@ -404,6 +404,17 @@
     </div>
   </div>
 
+  <!-- 人数変更確認ダイアログ (Bootstrap JSを使わないインライン実装) -->
+  <div id="guestCountConfirmModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:12px;padding:1.5rem;max-width:360px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+      <div id="guestCountConfirmMsg" style="margin-bottom:1.2rem;white-space:pre-wrap;font-size:0.95rem;"></div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+        <button id="guestCountConfirmCancel" class="btn btn-outline-secondary btn-sm">キャンセル</button>
+        <button id="guestCountConfirmOk" class="btn btn-danger btn-sm">削除して変更</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/js/shared/form-schema.js?v=0419b"></script>
   <script src="/js/guide-map.js?v=0426a"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
@@ -1319,10 +1330,7 @@
         if (d.checkOut) { const el = document.getElementById("f_checkOut"); if (el) el.value = d.checkOut; }
         if (d.checkInTime)  { const el = document.getElementById("f_checkInTime");  if (el) el.value = d.checkInTime; }
         if (d.checkOutTime) { const el = document.getElementById("f_checkOutTime"); if (el) el.value = d.checkOutTime; }
-        if (d.guestCount) {
-          const el = document.getElementById("f_guestCount");
-          if (el) { el.value = d.guestCount; renderGuestInputs(); }
-        }
+        // guestCount のセットは下の guestData 設定ブロック内で行うため、ここではスキップ
         if (d.bookingSite) { const el = document.getElementById("f_bookingSite"); if (el) el.value = d.bookingSite; }
         if (d.transport)   { const el = document.getElementById("f_transport");   if (el) { el.value = d.transport; updateTransportUI(); } }
         if (d.carCount)    { const el = document.getElementById("f_carCount");    if (el) el.value = d.carCount; }
@@ -1338,11 +1346,8 @@
         // 保存形式:
         //   - 代表者情報は top-level (guestName/nationality/address/phone/email/passportNumber/passportPhotoUrl)
         //   - 代表者の年齢 + 同行者全情報は allGuests[] (全員の配列)、または guests[] (同行者のみの配列)
-        setTimeout(() => {
-          const blocks = document.querySelectorAll(".guest-block");
-          if (!blocks.length) return;
-
-          // 全員ぶんの配列を構築
+        {
+          // 全員ぶんの配列を構築し guestData に直接セット（setTimeout不要、renderGuestInputsが参照）
           let all = [];
           if (Array.isArray(d.allGuests) && d.allGuests.length > 0) {
             all = d.allGuests;
@@ -1354,27 +1359,35 @@
               age: (d.guests && d.guests[0] && d.guests[0].age) || d.age || "",
               phone: d.phone || "",
               email: d.email || "",
-              passportNumber: d.passportNumber || "",
-              passportPhotoUrl: d.passportPhotoUrl || "",
+              passport: d.passportNumber || "",
             };
-            const companions = Array.isArray(d.guests) ? d.guests : [];
+            const companions = Array.isArray(d.guests) ? d.guests.map(g => ({
+              name: g.name || "",
+              nationality: g.nationality || "",
+              address: g.address || "",
+              age: g.age || "",
+              phone: g.phone || "",
+              email: g.email || "",
+              passport: g.passportNumber || "",
+            })) : [];
             all = [rep, ...companions];
           }
-
-          blocks.forEach((block, i) => {
-            const g = all[i] || {};
-            const setVal = (sel, v) => { const el = block.querySelector(sel); if (el && v != null) { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); } };
-            setVal(".g-name", g.name || "");
-            setVal(".g-nationality", g.nationality || (i === 0 ? (d.nationality || "日本") : "日本"));
-            setVal(".g-address", g.address || (i === 0 ? (d.address || "") : ""));
-            setVal(".g-age", g.age || "");
-            if (i === 0) {
-              setVal(".g-phone", g.phone || d.phone || "");
-              setVal(".g-email", g.email || d.email || "");
-            }
-            if (g.passportNumber) setVal(".g-passport", g.passportNumber);
-          });
-        }, 200);
+          // guestData に直接セットしてから renderGuestInputs で HTML 生成
+          guestData = all.map(g => ({
+            name:        g.name        || "",
+            nationality: g.nationality || "",
+            address:     g.address     || "",
+            age:         g.age         || "",
+            phone:       g.phone       || "",
+            email:       g.email       || "",
+            passport:    g.passport    || g.passportNumber || "",
+          }));
+          if (d.guestCount) {
+            const el = document.getElementById("f_guestCount");
+            if (el) el.value = d.guestCount;
+          }
+          renderGuestInputs();
+        }
 
         // 予約情報バナー
         if (d.checkIn || d.checkOut) {
@@ -2235,7 +2248,45 @@
 
       setupOtherToggle("f_bookingSite", "f_bookingSiteOther");
       setupOtherToggle("f_purpose", "f_purposeOther");
-      document.getElementById("f_guestCount").addEventListener("change", () => renderGuestInputs());
+      // インライン確認ダイアログ (Bootstrap JSなし)
+      function guestCountConfirm(msg) {
+        return new Promise(resolve => {
+          const modal = document.getElementById("guestCountConfirmModal");
+          document.getElementById("guestCountConfirmMsg").textContent = msg;
+          modal.style.display = "flex";
+          const cleanup = (result) => {
+            modal.style.display = "none";
+            resolve(result);
+          };
+          document.getElementById("guestCountConfirmOk").onclick     = () => cleanup(true);
+          document.getElementById("guestCountConfirmCancel").onclick  = () => cleanup(false);
+        });
+      }
+
+      // 人数変更: 増加→既存データ保持のまま末尾追加、減少→確認後に末尾削除
+      async function onGuestCountChange() {
+        const el = document.getElementById("f_guestCount");
+        const maxGuests = (_propertyConfig && _propertyConfig.capacity) ? Math.min(_propertyConfig.capacity, 20) : 20;
+        const newCount = Math.min(Math.max(1, parseInt(el.value) || 1), maxGuests);
+        const oldCount = guestData.length || 1;
+        if (newCount < oldCount) {
+          const diff = oldCount - newCount;
+          const ok = await guestCountConfirm(
+            `宿泊者 ${oldCount}名 → ${newCount}名に変更します。\n末尾の${diff}名分のデータは削除されます。よろしいですか？`
+          );
+          if (!ok) {
+            // キャンセル: 元の人数に戻す
+            el.value = oldCount;
+            return;
+          }
+          // 末尾から削除
+          guestData = guestData.slice(0, newCount);
+        }
+        // 増加の場合は既存 guestData をそのまま保持（renderGuestInputs 内でスパース補完）
+        el.value = newCount;
+        renderGuestInputs();
+      }
+      document.getElementById("f_guestCount").addEventListener("change", onGuestCountChange);
       document.getElementById("f_guestCount").addEventListener("input", () => renderGuestInputs());
       // チェックイン日変更→チェックアウト日のmin制約
       document.getElementById("f_checkIn").addEventListener("change", function() {
