@@ -269,6 +269,11 @@ const NotificationsPage = {
             <i class="bi bi-person-heart text-danger"></i>
             <strong>宿泊者名簿 入力完了 サンクスメール</strong>
           </div>
+          <div class="alert alert-warning py-1 px-2 mb-2 small">
+            <i class="bi bi-exclamation-triangle"></i>
+            ⚠️ この設定は将来的に <a href="#/reservation-flow" class="alert-link">フロー画面 (#/reservation-flow)</a> に統合予定です。
+            現在はフロー画面で保存した内容がグローバル既定値として自動反映されます。
+          </div>
           <div class="text-muted small mb-3">
             宿泊者が名簿を送信した直後に、宿泊者本人のメールアドレス宛に自動送信されるメール。
             送信者は該当物件の物件オーナー (staff.isSubOwner=true。未設定時は staff.isOwner=true)。
