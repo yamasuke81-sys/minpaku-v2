@@ -4,9 +4,11 @@
  * GET /keybox-confirm/:guestId?token=...
  *   - オーナーがOKボタンを押した時の受口
  *   - token を検証し keyboxConfirmedAt をセット
+ *   - 送信予定時刻が既に過ぎていれば即時送信
  *   - 完了画面HTMLを返す
  */
 const { Router } = require("express");
+const { computeScheduledSendAt, formatScheduledSendAt, sendKeyboxEmail } = require("../utils/keyboxSender");
 
 module.exports = function keyboxApi(db) {
   const router = Router();
@@ -21,6 +23,7 @@ module.exports = function keyboxApi(db) {
     }
 
     try {
+      const admin = require("firebase-admin");
       const docRef = db.collection("guestRegistrations").doc(guestId);
       const doc = await docRef.get();
 
@@ -35,31 +38,86 @@ module.exports = function keyboxApi(db) {
         return res.status(403).send(htmlPage("エラー", "❌ 無効なトークンです。URLを確認してください。"));
       }
 
-      // 既に確認済みの場合はそのまま成功を返す
+      // 既に確認済みの場合は送信予定時刻を表示して返す
       if (data.keyboxConfirmedAt) {
         const confirmedDate = data.keyboxConfirmedAt.toDate
           ? data.keyboxConfirmedAt.toDate().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })
           : String(data.keyboxConfirmedAt);
+
+        // 送信済みかどうかで文言を分ける
+        if (data.keyboxSentAt) {
+          const sentDate = data.keyboxSentAt.toDate
+            ? data.keyboxSentAt.toDate().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })
+            : String(data.keyboxSentAt);
+          return res.send(htmlPage(
+            "確認済み",
+            `✅ 既に確認済みです（${confirmedDate}）。<br>キーボックス情報は送信済みです（${sentDate}）。`
+          ));
+        }
+
+        const prop = await getPropertyData(db, data.propertyId);
+        const ks = prop ? (prop.keyboxSend || {}) : {};
+        const scheduledAt = computeScheduledSendAt(data.checkIn, ks);
+        const scheduledStr = formatScheduledSendAt(scheduledAt);
+
         return res.send(htmlPage(
           "確認済み",
-          `✅ 既に確認済みです（${confirmedDate}）。<br>設定された日時にキーボックス情報を自動送信します。`
+          `✅ 既に確認済みです（${confirmedDate}）。<br>設定された日時にキーボックス情報を自動送信します（${scheduledStr}）。`
         ));
       }
 
       // keyboxConfirmedAt をセット
-      const admin = require("firebase-admin");
       await docRef.update({
         keyboxConfirmedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
       const guestName = data.guestName || "ゲスト";
-      const checkIn = data.checkIn || "?";
+      const checkIn   = data.checkIn   || "?";
 
       console.log(`キーボックス送信確認OK: guestId=${guestId} guestName=${guestName} checkIn=${checkIn}`);
 
+      // 物件設定を取得して即時送信判定
+      const prop = await getPropertyData(db, data.propertyId);
+      const ks   = prop ? (prop.keyboxSend || {}) : {};
+      const mode = ks.mode || "after_ok_click";
+
+      if (mode === "after_ok_click" && ks.scheduleType && ks.sendTime && !data.keyboxSentAt) {
+        const scheduledAt = computeScheduledSendAt(data.checkIn, ks);
+        const now = new Date();
+
+        if (scheduledAt && now >= scheduledAt) {
+          // 送信予定時刻を過ぎている → 即時送信
+          try {
+            await sendKeyboxEmail(data, prop);
+            await docRef.update({ keyboxSentAt: admin.firestore.FieldValue.serverTimestamp() });
+            console.log(`キーボックス即時送信: guestId=${guestId} to=${data.email}`);
+
+            return res.send(htmlPage(
+              "確認完了（即時送信）",
+              `✅ 確認完了。<strong>キーボックス情報を即時送信しました</strong>（送信予定時刻が経過していたため）。<br>${guestName} 様（チェックイン: ${checkIn}）`
+            ));
+          } catch (sendErr) {
+            console.error(`キーボックス即時送信失敗 (${guestId}):`, sendErr.message);
+            // 送信失敗でも確認完了は通知する (スケジュール送信に委ねる)
+            return res.send(htmlPage(
+              "確認完了",
+              `✅ 確認完了。メール送信に失敗しました（${sendErr.message}）。<br>スケジュール送信で再試行します。`
+            ));
+          }
+        }
+
+        // まだ送信予定時刻前 → 予定時刻を表示
+        const scheduledStr = formatScheduledSendAt(scheduledAt);
+        return res.send(htmlPage(
+          "確認完了",
+          `✅ 確認完了。${guestName} 様（チェックイン: ${checkIn}）のキーボックス情報を<br>設定された日時に自動送信します（${scheduledStr}）。`
+        ));
+      }
+
+      // mode が after_ok_click 以外、または sendTime 未設定の場合
       return res.send(htmlPage(
         "確認完了",
-        `✅ 確認完了。<br>${guestName} 様（チェックイン: ${checkIn}）の<br>キーボックス情報を設定された日時に自動送信します。`
+        `✅ 確認完了。${guestName} 様（チェックイン: ${checkIn}）のキーボックス情報を設定された日時に自動送信します。`
       ));
     } catch (e) {
       console.error("keybox-confirm エラー:", e.message);
@@ -69,6 +127,15 @@ module.exports = function keyboxApi(db) {
 
   return router;
 };
+
+/** 物件データを取得するヘルパー */
+async function getPropertyData(db, propertyId) {
+  if (!propertyId) return null;
+  try {
+    const snap = await db.collection("properties").doc(propertyId).get();
+    return snap.exists ? snap.data() : null;
+  } catch (_) { return null; }
+}
 
 /** シンプルなHTML完了画面を生成 */
 function htmlPage(title, message) {

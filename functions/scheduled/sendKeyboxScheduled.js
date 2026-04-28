@@ -15,7 +15,8 @@
  *   mode=after_ok_click かつ送信予定時刻 -1時間 以内なのに keyboxConfirmedAt が未設定の場合、
  *   notifyByKey("keybox_remind") で管理者に警告
  */
-const { notifyByKey, sendNotificationEmail_ } = require("../utils/lineNotify");
+const { notifyByKey } = require("../utils/lineNotify");
+const { computeScheduledSendAt, sendKeyboxEmail } = require("../utils/keyboxSender");
 
 module.exports = async function sendKeyboxScheduled() {
   const admin = require("firebase-admin");
@@ -72,22 +73,10 @@ module.exports = async function sendKeyboxScheduled() {
     if (!keyboxSend.enabled) continue;
 
     const mode = keyboxSend.mode || "after_ok_click";
-    const scheduleType = keyboxSend.scheduleType || "day_before";
-    const sendTime = keyboxSend.sendTime || "15:00";
-    const customDaysBefore = Number(keyboxSend.customDaysBefore) || 3;
 
-    // 送信予定日計算
-    const checkInDate = new Date(data.checkIn + "T00:00:00.000Z");
-    let daysBefore = 0;
-    if (scheduleType === "day_before") daysBefore = 1;
-    else if (scheduleType === "2_days_before") daysBefore = 2;
-    else if (scheduleType === "custom") daysBefore = customDaysBefore;
-    // day_of は 0
-
-    const sendDate = new Date(checkInDate.getTime() - daysBefore * 24 * 60 * 60 * 1000);
-    const [hh, mm] = sendTime.split(":").map(Number);
-    // 送信予定時刻 (JST) を UTC に変換
-    const scheduledAtUtc = new Date(sendDate.getTime() + hh * 3600000 + mm * 60000 - jstOffset);
+    // 共通モジュールで送信予定時刻を計算
+    const scheduledAtUtc = computeScheduledSendAt(data.checkIn, keyboxSend);
+    if (!scheduledAtUtc) continue;
 
     const diffMs = scheduledAtUtc.getTime() - now.getTime();
     const diffMinutes = diffMs / 60000;
@@ -126,59 +115,17 @@ module.exports = async function sendKeyboxScheduled() {
     }
 
     // メールアドレス確認
-    const guestEmail = data.email || "";
-    if (!guestEmail) {
+    if (!data.email) {
       console.warn(`メールアドレスなし: guestId=${guestId}, guestName=${data.guestName}`);
       continue;
     }
 
-    // テンプレート変数を埋める
-    const vars = {
-      guestName: data.guestName || "ゲスト",
-      propertyName: prop.name || "",
-      keyboxCode: prop.keyboxCode || prop.keyboxNumber || "",
-      keyboxLocation: prop.keyboxLocation || "",
-      checkIn: data.checkIn || "?",
-      wifiInfo: prop.wifiInfo || "",
-      propertyAddress: prop.address || "",
-    };
-
-    // テンプレート未設定時はデフォルト
-    const DEFAULT_SUBJECT = "【{{propertyName}}】チェックイン情報のご案内";
-    const DEFAULT_BODY = [
-      "{{guestName}} 様",
-      "",
-      "ご予約ありがとうございます。{{propertyName}} のキーボックス情報をお送りします。",
-      "",
-      "■ チェックイン情報",
-      "日時: {{checkIn}}",
-      "",
-      "■ キーボックス",
-      "暗証番号: {{keyboxCode}}",
-      "場所: {{keyboxLocation}}",
-      "",
-      "■ 施設のご案内",
-      "Wi-Fi: {{wifiInfo}}",
-      "住所: {{propertyAddress}}",
-      "",
-      "ご不明な点がございましたら、本メールにご返信ください。",
-      "どうぞよろしくお願いいたします。",
-    ].join("\n");
-
-    const subjectTmpl = keyboxSend.subject || DEFAULT_SUBJECT;
-    const bodyTmpl    = keyboxSend.body    || DEFAULT_BODY;
-
-    // {{変数}} 形式で置換
-    const render = (tmpl) => String(tmpl).replace(/\{\{(\w+)\}\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ""));
-    const subject = render(subjectTmpl);
-    const body    = render(bodyTmpl);
-
     try {
-      await sendNotificationEmail_(guestEmail, subject, body);
+      await sendKeyboxEmail(data, prop);
       await doc.ref.update({
         keyboxSentAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-      console.log(`キーボックスメール送信成功: guestId=${guestId} to=${guestEmail}`);
+      console.log(`キーボックスメール送信成功: guestId=${guestId} to=${data.email}`);
       sentCount++;
     } catch (e) {
       console.error(`キーボックスメール送信失敗 (${guestId}):`, e.message);
