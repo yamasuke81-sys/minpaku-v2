@@ -663,10 +663,12 @@ async function notifySubOwners(db, propertyId, title, body) {
       const sData = s.data();
       if (!sData.active) continue;
 
-      // 物件オーナー専用 LINE User ID に個別送信
-      if (sData.subOwnerLineUserId && channelToken) {
-        const result = await sendLineMessage(channelToken, sData.subOwnerLineUserId, body);
+      // 物件オーナー専用 LINE User ID → 未設定なら staff.lineUserId にフォールバック
+      const subOwnerLineId = sData.subOwnerLineUserId || sData.lineUserId;
+      if (subOwnerLineId && channelToken) {
+        const result = await sendLineMessage(channelToken, subOwnerLineId, body);
         if (result.success) sentCount++;
+        console.log(`物件オーナー(${sData.name}) LINE送信: ${result.success ? "成功" : "失敗"} (id=${subOwnerLineId.slice(0,8)}..., fallback=${!sData.subOwnerLineUserId})`);
         try {
           await db.collection("notifications").add({
             type: "sub_owner_notify",
@@ -684,11 +686,13 @@ async function notifySubOwners(db, propertyId, title, body) {
         } catch (e) { console.error("通知ログ記録エラー:", e); }
       }
 
-      // 物件オーナー専用メールに送信
-      if (sData.subOwnerEmail) {
+      // 物件オーナー専用メール → 未設定なら staff.email にフォールバック
+      const subOwnerMail = sData.subOwnerEmail || sData.email;
+      if (subOwnerMail) {
         try {
-          await sendNotificationEmail_(sData.subOwnerEmail, title, body);
+          await sendNotificationEmail_(subOwnerMail, title, body);
           sentCount++;
+          console.log(`物件オーナー(${sData.name}) メール送信成功: ${subOwnerMail} (fallback=${!sData.subOwnerEmail})`);
         } catch (e) {
           console.error(`物件オーナー(${sData.name}) メール通知エラー:`, e.message);
         }
