@@ -25,42 +25,67 @@ module.exports = function gmailAuthApi(db) {
   }
 
   // ========================================
-  // コンテキスト正規化 (default = 既存税理士資料フロー / emailVerification = メール照合フロー)
+  // コンテキスト正規化
+  //   default          = 既存税理士資料フロー
+  //   emailVerification = メール照合フロー
+  //   property          = 物件管理タブからの連携 (state に propertyId も付与)
   // ========================================
   function normalizeContext_(raw) {
-    return raw === "emailVerification" ? "emailVerification" : "default";
+    if (raw === "emailVerification") return "emailVerification";
+    if (raw === "property") return "property";
+    return "default";
   }
 
-  // state = `${context}|${email}` 形式。旧仕様 (email 単体) は default として後方互換
+  // state = `${context}|${email}|${propertyId}` 形式
+  // 旧仕様 (email 単体) は default として後方互換
   function parseState_(state) {
-    if (!state) return { context: "default", email: "" };
-    const i = state.indexOf("|");
-    if (i === -1) return { context: "default", email: state };
-    const ctx = state.slice(0, i);
-    if (ctx !== "default" && ctx !== "emailVerification") {
-      return { context: "default", email: state };
+    if (!state) return { context: "default", email: "", propertyId: "" };
+    const parts = state.split("|");
+    const ctx = parts[0];
+    if (ctx !== "default" && ctx !== "emailVerification" && ctx !== "property") {
+      // 旧仕様: state = email のみ
+      return { context: "default", email: state, propertyId: "" };
     }
-    return { context: ctx, email: state.slice(i + 1) };
+    return {
+      context: ctx,
+      email: parts[1] || "",
+      propertyId: parts[2] || "",
+    };
   }
 
   // コンテキスト別トークン格納先 (サブコレクション)
+  // property context は emailVerification と同じ gmailOAuthEmailVerification を共有
   function tokensCollection_(context) {
-    const parent = context === "emailVerification" ? "gmailOAuthEmailVerification" : "gmailOAuth";
-    return db.collection("settings").doc(parent).collection("tokens");
+    if (context === "emailVerification" || context === "property") {
+      return db.collection("settings").doc("gmailOAuthEmailVerification").collection("tokens");
+    }
+    return db.collection("settings").doc("gmailOAuth").collection("tokens");
   }
 
   // コンテキスト別の集約ドキュメント (userEmails 一覧を持つ)
   function aggregateDocRef_(context) {
-    const docId = context === "emailVerification" ? "gmailEmailVerification" : "gmail";
-    return db.collection("settings").doc(docId);
+    if (context === "emailVerification" || context === "property") {
+      return db.collection("settings").doc("gmailEmailVerification");
+    }
+    return db.collection("settings").doc("gmail");
   }
 
   // 完了ページ戻りリンクのラベル・URL
-  function returnLink_(context) {
+  function returnLink_(context, propertyId) {
     if (context === "emailVerification") {
       return {
         label: "メール照合に戻る",
         href: "https://minpaku-v2.web.app/#/email-verification",
+      };
+    }
+    if (context === "property") {
+      // 物件管理タブへ戻り、該当物件の編集モーダルを自動オープン
+      const hash = propertyId
+        ? `#/properties?openEdit=${propertyId}`
+        : "#/properties";
+      return {
+        label: "物件管理に戻る",
+        href: `https://minpaku-v2.web.app/${hash}`,
       };
     }
     return {
@@ -87,12 +112,14 @@ module.exports = function gmailAuthApi(db) {
   // ========================================
   // Step 1: 認証開始（Googleの同意画面にリダイレクト）
   //   ?email=xxx@gmail.com&context=emailVerification
+  //   ?email=xxx@gmail.com&context=property&propertyId={pid}
   //   context 省略時は従来の税理士資料フロー (default)
   // ========================================
   router.get("/start", async (req, res) => {
     try {
       const email = req.query.email || "";
       const context = normalizeContext_(req.query.context);
+      const propertyId = req.query.propertyId || "";
       const oauth2Client = await getOrCreateOAuthClient_();
       if (!oauth2Client) {
         return res.status(400).send(`
@@ -119,7 +146,8 @@ module.exports = function gmailAuthApi(db) {
         prompt: "consent",       // 毎回同意画面を表示（リフレッシュトークン確実に取得）
         scope: scopes,
         login_hint: email,
-        state: `${context}|${email}`, // コールバックで context + email を受け取る
+        // コールバックで context + email + propertyId を受け取る
+        state: `${context}|${email}|${propertyId}`,
       });
 
       res.redirect(authUrl);
@@ -136,8 +164,8 @@ module.exports = function gmailAuthApi(db) {
   router.get("/callback", async (req, res) => {
     try {
       const { code, state, error } = req.query;
-      const { context, email } = parseState_(state);
-      const back = returnLink_(context);
+      const { context, email, propertyId } = parseState_(state);
+      const back = returnLink_(context, propertyId);
 
       if (error) {
         return res.send(`<html><body style="font-family:sans-serif;padding:20px;">
@@ -198,7 +226,21 @@ module.exports = function gmailAuthApi(db) {
         authMethod: "oauth2",
       }, { merge: true });
 
-      const featureLabel = context === "emailVerification" ? "メール照合機能" : "税理士資料";
+      // property context: properties/{pid}.senderGmail にも書き込む
+      if (context === "property" && propertyId && email) {
+        try {
+          await db.collection("properties").doc(propertyId).update({
+            senderGmail: email,
+          });
+        } catch (propErr) {
+          console.warn("properties.senderGmail 書き込み失敗:", propErr.message);
+        }
+      }
+
+      const featureLabel =
+        context === "emailVerification" ? "メール照合機能" :
+        context === "property" ? "物件管理（サンクスメール送信）" :
+        "税理士資料";
       res.send(`<html><body style="font-family:sans-serif;padding:20px;">
         <h2 style="color:green;">✅ Gmail認証完了</h2>
         <p><b>${email || "アカウント"}</b> のGmail読み取り・送信権限を取得しました (${featureLabel}用)。</p>

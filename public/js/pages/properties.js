@@ -485,6 +485,15 @@ const PropertiesPage = {
       if (icalRow) icalRow.classList.add("d-none");
     }
 
+    // --- Gmail 連携セクション（編集時のみ読み込み）---
+    const gmailSection = document.getElementById("propertyGmailSection");
+    if (isEdit) {
+      if (gmailSection) gmailSection.innerHTML = '<div class="text-muted small">読み込み中...</div>';
+      this._loadGmailSection(property.id, property.senderGmail || null);
+    } else {
+      if (gmailSection) gmailSection.innerHTML = '<p class="text-muted small">物件を保存してから Gmail を連携してください。</p>';
+    }
+
     // --- タイミー時給ページへのリンクボタン ---
     // モーダルを閉じてから #/rates?propertyId=xxx へ遷移する
     const btnGoToRates = document.getElementById("btnGoToRates");
@@ -1317,6 +1326,165 @@ const PropertiesPage = {
       }
     });
     return result;
+  },
+
+  // ---- Gmail 連携（物件単位） ----
+
+  /**
+   * Gmail 連携セクションを描画する
+   * @param {string} propertyId
+   * @param {string|null} currentSenderGmail  - properties/{pid}.senderGmail
+   */
+  async _loadGmailSection(propertyId, currentSenderGmail) {
+    const el = document.getElementById("propertyGmailSection");
+    if (!el) return;
+
+    // 連携済みアカウント一覧を取得（emailVerification context と共有）
+    let accounts = [];
+    try {
+      const res = await this._cfApi("GET", "/gmail-auth/accounts?context=emailVerification");
+      accounts = res.accounts || [];
+    } catch (e) {
+      el.innerHTML = `<div class="text-danger small">Gmail アカウント一覧の取得に失敗しました: ${this.escapeHtml(e.message)}</div>`;
+      return;
+    }
+
+    const sender = currentSenderGmail || "";
+    const linkedAccount = accounts.find(a => a.email === sender);
+
+    if (sender && linkedAccount) {
+      // 連携済み状態
+      const savedAt = linkedAccount.savedAt
+        ? this._formatTs(linkedAccount.savedAt)
+        : "";
+      const statusBadge = linkedAccount.hasRefreshToken
+        ? `<span class="badge bg-success">有効</span>`
+        : `<span class="badge bg-danger">失効</span>`;
+      el.innerHTML = `
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <span class="small"><i class="bi bi-envelope-fill text-primary"></i>
+            <strong>${this.escapeHtml(sender)}</strong> ${statusBadge}
+            ${savedAt ? `<span class="text-muted small ms-1">連携日: ${savedAt}</span>` : ""}
+          </span>
+          <button class="btn btn-sm btn-outline-danger" id="btnPropGmailUnlink">
+            <i class="bi bi-x-circle"></i> 解除
+          </button>
+          <button class="btn btn-sm btn-outline-secondary" id="btnPropGmailRelink">
+            <i class="bi bi-arrow-repeat"></i> 別アカウントで再連携
+          </button>
+        </div>
+        <div class="form-text mt-1">
+          この Gmail アドレスが宿泊者宛サンクスメールの送信元として使われます。
+        </div>
+      `;
+      document.getElementById("btnPropGmailUnlink")?.addEventListener("click", () => {
+        this._unlinkPropertyGmail(propertyId);
+      });
+      document.getElementById("btnPropGmailRelink")?.addEventListener("click", () => {
+        this._connectPropertyGmail(propertyId);
+      });
+    } else if (sender && !linkedAccount) {
+      // senderGmail は設定済みだがトークンが存在しない（別環境で連携した等）
+      el.innerHTML = `
+        <div class="alert alert-warning py-2 small mb-2">
+          <i class="bi bi-exclamation-triangle"></i>
+          送信元に <strong>${this.escapeHtml(sender)}</strong> が設定されていますが、
+          このアカウントのトークンが見つかりません。再連携してください。
+        </div>
+        <button class="btn btn-sm btn-outline-primary" id="btnPropGmailConnect">
+          <i class="bi bi-plus-lg"></i> Gmail を連携
+        </button>
+      `;
+      document.getElementById("btnPropGmailConnect")?.addEventListener("click", () => {
+        this._connectPropertyGmail(propertyId);
+      });
+    } else {
+      // 未連携
+      el.innerHTML = `
+        <div class="alert alert-secondary py-2 small mb-2">
+          <i class="bi bi-info-circle"></i> 未連携 — 連携すると宿泊者宛メールをこの物件専用アカウントから送信できます。
+        </div>
+        <button class="btn btn-sm btn-outline-primary" id="btnPropGmailConnect">
+          <i class="bi bi-plus-lg"></i> Gmail を連携
+        </button>
+      `;
+      document.getElementById("btnPropGmailConnect")?.addEventListener("click", () => {
+        this._connectPropertyGmail(propertyId);
+      });
+    }
+  },
+
+  /** Gmail 連携ボタン: OAuth フローを新タブで開く */
+  async _connectPropertyGmail(propertyId) {
+    const email = window.showPrompt
+      ? await window.showPrompt(
+          "連携する Gmail アドレスを入力してください (例: example@gmail.com)",
+          "",
+          "Gmail 連携"
+        )
+      : window.prompt("連携する Gmail アドレス:");
+    if (!email) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      if (window.showAlert) await window.showAlert("メールアドレスの形式が正しくありません", "エラー");
+      return;
+    }
+    const cfBase = "https://api-5qrfx7ujcq-an.a.run.app";
+    const url = `${cfBase}/gmail-auth/start?context=property&propertyId=${encodeURIComponent(propertyId)}&email=${encodeURIComponent(email)}`;
+    window.open(url, "_blank", "noopener");
+    if (window.showAlert) {
+      await window.showAlert(
+        "新しいタブで Google 認証画面が開きます。完了後、このモーダルを閉じて再度開くと連携状態が反映されます。",
+        "Gmail 連携"
+      );
+    }
+  },
+
+  /** Gmail 連携解除: properties.senderGmail をクリア */
+  async _unlinkPropertyGmail(propertyId) {
+    const ok = window.showConfirm
+      ? await window.showConfirm("この物件の Gmail 連携を解除しますか？ 以降はサンクスメールが送信できなくなります。", "Gmail 連携解除")
+      : window.confirm("Gmail 連携を解除しますか？");
+    if (!ok) return;
+    try {
+      await db.collection("properties").doc(propertyId).update({ senderGmail: null });
+      showToast("完了", "Gmail 連携を解除しました", "success");
+      // セクションを再描画
+      await this._loadGmailSection(propertyId, null);
+    } catch (e) {
+      showToast("エラー", `解除失敗: ${e.message}`, "error");
+    }
+  },
+
+  /** Cloud Functions API を呼ぶ簡易ラッパ */
+  async _cfApi(method, path) {
+    let token = "test-token";
+    if (typeof Auth !== "undefined" && !Auth.testMode && Auth.currentUser?.getIdToken) {
+      token = await Auth.currentUser.getIdToken();
+    }
+    const cfBase = "https://api-5qrfx7ujcq-an.a.run.app";
+    const res = await fetch(`${cfBase}${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status}: ${text.substring(0, 200)}`);
+    }
+    return res.json();
+  },
+
+  /** タイムスタンプを M/D HH:mm に変換 */
+  _formatTs(v) {
+    if (!v) return "";
+    try {
+      let d;
+      if (typeof v === "string") d = new Date(v);
+      else if (v.toDate) d = v.toDate();
+      else if (v._seconds) d = new Date(v._seconds * 1000);
+      else d = new Date(v);
+      if (isNaN(d.getTime())) return "";
+      return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    } catch (_) { return ""; }
   },
 
   // ---- 共通ユーティリティ ----

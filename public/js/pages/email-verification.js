@@ -31,11 +31,13 @@ const EmailVerificationPage = {
       <div class="card mb-3">
         <div class="card-header d-flex justify-content-between align-items-center">
           <span><i class="bi bi-google"></i> Gmail 連携</span>
-          <button class="btn btn-sm btn-outline-primary" id="btnEvConnectGmail">
-            <i class="bi bi-plus-lg"></i> 新しいアカウントを連携
-          </button>
         </div>
         <div class="card-body">
+          <div class="alert alert-info py-2 small mb-2">
+            <i class="bi bi-info-circle"></i>
+            <strong>Gmail の新規連携は <a href="#/properties" class="alert-link">物件管理タブ</a> で行ってください。</strong>
+            各物件の編集モーダル内「Gmail 連携」セクションから登録できます。
+          </div>
           <div id="evAccountsList" class="small">
             <div class="text-muted">読み込み中...</div>
           </div>
@@ -140,7 +142,6 @@ const EmailVerificationPage = {
       this.loadAccounts_();
     });
     document.getElementById("btnEvRunNow").addEventListener("click", () => this.runNow_());
-    document.getElementById("btnEvConnectGmail").addEventListener("click", () => this.connectGmail_());
     document.querySelectorAll("#evFilterBar button").forEach((b) => {
       b.addEventListener("click", (e) => {
         document.querySelectorAll("#evFilterBar button").forEach((x) => x.classList.remove("active"));
@@ -212,25 +213,6 @@ const EmailVerificationPage = {
     listEl.querySelectorAll("button[data-account]").forEach((btn) => {
       btn.addEventListener("click", () => this.removeAccount_(btn.dataset.account));
     });
-  },
-
-  async connectGmail_() {
-    const email = window.showPrompt
-      ? await window.showPrompt("連携する Gmail アドレスを入力してください (例: 81hassac@gmail.com)", "", "Gmail 連携")
-      : window.prompt("連携する Gmail アドレス (例: 81hassac@gmail.com):");
-    if (!email) return;
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      if (window.showAlert) await window.showAlert("メールアドレスの形式が正しくありません", "エラー");
-      return;
-    }
-    const url = `https://api-5qrfx7ujcq-an.a.run.app/gmail-auth/start?context=emailVerification&email=${encodeURIComponent(email)}`;
-    window.open(url, "_blank", "noopener");
-    if (window.showAlert) {
-      await window.showAlert(
-        "新しいタブで Google 認証画面が開きます。完了後、このページの「再読込」ボタンを押してください。",
-        "Gmail 連携"
-      );
-    }
   },
 
   async removeAccount_(email) {

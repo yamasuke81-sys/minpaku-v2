@@ -250,18 +250,18 @@ const ReservationFlowPage = {
         "{{keyboxCode}}", "{{propertyAddress}}", "{{wifiInfo}}", "{{guideUrl}}",
       ],
       detailNoteHtml: `
+        <!-- 送信元 Gmail 表示エリア（renderDetailPanel_ で動的に更新） -->
+        <div id="flowGmailSenderInfo" class="mb-2 small"></div>
         <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
           <span class="small"><i class="bi bi-info-circle text-warning"></i> 送信には <strong>Gmail API 連携</strong>が必要です。送信失敗時は「完了メール送信失敗」通知が飛びます。</span>
-          <a href="#/email-verification" class="btn btn-sm btn-outline-primary"><i class="bi bi-google"></i> Gmail 連携設定へ</a>
         </div>
         <details class="small">
           <summary class="text-primary" style="cursor:pointer;"><i class="bi bi-question-circle"></i> Gmail 連携の設定方法</summary>
           <ol class="mt-2 mb-0 ps-3">
-            <li>サイドバー「<a href="#/email-verification">メール照合</a>」を開く</li>
-            <li>「Gmail 連携」パネルで送信元にしたい Gmail アドレスを入力し<strong>連携</strong>ボタンを押す</li>
+            <li>サイドバー「<a href="#/properties">物件管理</a>」を開く</li>
+            <li>該当物件の編集モーダルを開き「Gmail 連携」セクションで連携ボタンを押す</li>
             <li>Google の認可画面で当該アカウントにログイン → 権限を許可</li>
-            <li>戻ってきたら連携完了。複数アカウント追加可。送信元は物件オーナーの <code>email</code> と一致する Gmail が優先で使われます</li>
-            <li>連携が解除されている / 一致する Gmail が無い場合は「完了メール送信失敗」通知が飛びます</li>
+            <li>連携が解除されている場合は「完了メール送信失敗」通知が飛びます</li>
           </ol>
         </details>
       `,
@@ -568,6 +568,48 @@ const ReservationFlowPage = {
     const d = document.createElement("div");
     d.textContent = String(s || "");
     return d.innerHTML;
+  },
+
+  // form_complete_mail カード内の「送信元」欄を非同期で更新する
+  async _renderGmailSenderInfo(bodyEl, pid) {
+    const infoEl = bodyEl.querySelector("#flowGmailSenderInfo");
+    if (!infoEl) return;
+
+    // 物件データから senderGmail を取得
+    let senderGmail = "";
+    try {
+      const propDoc = await db.collection("properties").doc(pid).get();
+      senderGmail = (propDoc.exists && propDoc.data().senderGmail) || "";
+    } catch (e) {
+      infoEl.innerHTML = `<div class="text-danger">物件情報の取得に失敗しました: ${this._esc(e.message)}</div>`;
+      return;
+    }
+
+    if (senderGmail) {
+      infoEl.innerHTML = `
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <span><i class="bi bi-envelope-fill text-primary"></i> 送信元: <strong>${this._esc(senderGmail)}</strong></span>
+          <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="
+            sessionStorage.setItem('openPropertyEdit','${this._esc(pid)}');
+            location.hash='#/properties';
+          ">
+            <i class="bi bi-box-arrow-up-right"></i> 物件管理で変更
+          </button>
+        </div>
+      `;
+    } else {
+      infoEl.innerHTML = `
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <span class="text-danger"><i class="bi bi-exclamation-triangle"></i> 送信元 Gmail が未連携です</span>
+          <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick="
+            sessionStorage.setItem('openPropertyEdit','${this._esc(pid)}');
+            location.hash='#/properties';
+          ">
+            <i class="bi bi-box-arrow-up-right"></i> 物件管理で連携
+          </button>
+        </div>
+      `;
+    }
   },
 
   // ドット記法でネストフィールドから値を取得
@@ -1440,6 +1482,12 @@ const ReservationFlowPage = {
             if (icalEl && window.propertyIcalPanel && !icalEl.dataset.rendered) {
               icalEl.dataset.rendered = "1";
               window.propertyIcalPanel.render(icalEl, icalEl.dataset.pid);
+            }
+            // form_complete_mail カード展開時に送信元 Gmail を表示
+            const stepKey = body.dataset.stepKey;
+            const pid = body.dataset.pid;
+            if (stepKey === "form_complete_mail" && pid) {
+              this._renderGmailSenderInfo(body, pid);
             }
           }
         }
