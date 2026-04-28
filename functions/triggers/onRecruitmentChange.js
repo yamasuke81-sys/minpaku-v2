@@ -77,14 +77,15 @@ module.exports = async function onRecruitmentChange(event) {
         console.warn(`[firstCome] 対象shiftが見つからず: checkoutDate=${checkoutDate} propertyId=${propertyId} bookingId=${bookingId}`);
       }
 
-      await notifyOwner(
-        db, "recruit_response",
-        `自動確定: ${checkoutDate}`,
-        `⚡ 早い者勝ちルールにより自動確定\n\n` +
-        `日付: ${checkoutDate}${propertyName ? ` (${propertyName})` : ""}\n` +
-        `担当: ${staffName}\n`,
-        { date: checkoutDate, property: propertyName, staff: staffName, response, count: afterResponses.length }
-      );
+      // フロー画面設定を尊重するため notifyByKey を使用
+      await notifyByKey(db, "recruit_response", {
+        title: `自動確定: ${checkoutDate}`,
+        body: `⚡ 早い者勝ちルールにより自動確定\n\n` +
+          `日付: ${checkoutDate}${propertyName ? ` (${propertyName})` : ""}\n` +
+          `担当: ${staffName}\n`,
+        vars: { date: checkoutDate, property: propertyName, staff: staffName, response, count: afterResponses.length },
+        propertyId: propertyId || null,
+      });
       return;
     } catch (e) {
       console.error("firstCome 自動確定失敗:", e);

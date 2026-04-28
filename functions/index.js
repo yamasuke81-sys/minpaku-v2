@@ -352,12 +352,6 @@ exports.onChecklistTemplateUpdate = onDocumentUpdated(
   require("./triggers/onChecklistTemplateUpdate")
 );
 
-// スキャンログ作成→確認待ちLINE通知（AI秘書「黒子」× 経理部連携）
-exports.onScanLogCreated = onDocumentCreated(
-  "scanLogs/{logId}",
-  require("./triggers/onScanLogCreated")
-);
-
 // チェックリスト完了→シフト完了+通知
 exports.onChecklistComplete = onDocumentUpdated(
   "checklists/{checklistId}",

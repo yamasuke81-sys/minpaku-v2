@@ -3,7 +3,7 @@
  * Cloud Functionsでエラーが発生→error_logsに書き込み→
  * このトリガーがAIでログを解析し、日本語で原因と対処法をWebアプリ管理者に通知
  */
-const { notifyOwner } = require("../utils/lineNotify");
+const { notifyByKey } = require("../utils/lineNotify");
 
 module.exports = async function onErrorLogCreated(event) {
   const admin = require("firebase-admin");
@@ -44,7 +44,13 @@ module.exports = async function onErrorLogCreated(event) {
     + `${analysis}\n\n`
     + `発生時刻: ${formatJST_(data.createdAt)}`;
 
-  await notifyOwner(db, "error_alert", "エラー通知", text);
+  // フロー画面設定を尊重するため notifyByKey を使用（propertyId なし = null でOK）
+  await notifyByKey(db, "error_alert", {
+    title: "エラー通知",
+    body: text,
+    vars: { functionName: data.functionName || "不明", error: data.errorMessage || "不明" },
+    propertyId: null,
+  });
 };
 
 /**
