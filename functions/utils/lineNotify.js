@@ -935,29 +935,49 @@ async function sendLineMessageForProperty(db, propertyId, text, logExtra = {}) {
         // enabled=true かつ token/groupId が揃っているチャネルのみ対象
         const activeChannels = channels.filter(c => c.enabled && c.token && c.groupId);
 
-        // TODO: 未実装 — lineDeliveryMode (single/rotate/fallback) の反映
-        // lineDeliveryMode が "rotate" の場合: properties.{pid}.lineLastChannelIdx を記録して交互送信
-        // lineDeliveryMode が "fallback" の場合: 1番目失敗時に2番目で再試行
-        // 現状は lineChannelStrategy (roundrobin/fallback) ベースのロジックのみ
-
+        // lineDeliveryMode (single/rotate/fallback) を優先、未設定時は lineChannelStrategy に後方互換フォールバック
+        // 旧値 "roundrobin" は新値 "rotate" にマップ
         if (activeChannels.length > 0) {
-          const strategy = pd.lineChannelStrategy || "fallback";
+          const rawMode = pd.lineDeliveryMode || pd.lineChannelStrategy || "fallback";
+          const mode = rawMode === "roundrobin" ? "rotate" : rawMode;
 
-          if (strategy === "roundrobin" && activeChannels.length > 1) {
-            // 日付 % チャネル数 でインデックス選択
-            const idx = new Date().getDate() % activeChannels.length;
-            const primary = activeChannels[idx];
-            const secondary = activeChannels[(idx + 1) % activeChannels.length];
-            result = await _trySendOne_(primary, text);
-            if (!result.success) {
-              console.warn("[LINE] roundrobin 1番目失敗、2番目を試みます:", result.error);
-              result = await _trySendOne_(secondary, text);
-              usedChannelName = result.success ? secondary.name : null;
-            } else {
-              usedChannelName = primary.name;
+          if (mode === "single") {
+            // single: 1番目のチャネルのみ使用、失敗しても他へフォールバックしない
+            const ch = activeChannels[0];
+            if (!ch.token) {
+              console.warn(`[LINE][single] チャネル「${ch.name || ch.groupId}」の残枠がゼロです`);
             }
+            result = await _trySendOne_(ch, text);
+            usedChannelName = ch.name;
+
+          } else if (mode === "rotate") {
+            // rotate: 前回使ったインデックスの次を使う（インデックス記録ベース）
+            const lastIdx = typeof pd.lineLastChannelIdx === "number" ? pd.lineLastChannelIdx : -1;
+            const startIdx = (lastIdx + 1) % activeChannels.length;
+
+            // startIdx から順に試みる（全チャネルを一周）
+            for (let i = 0; i < activeChannels.length; i++) {
+              const idx = (startIdx + i) % activeChannels.length;
+              const ch = activeChannels[idx];
+              result = await _trySendOne_(ch, text);
+              if (result.success) {
+                usedChannelName = ch.name;
+                // 成功したインデックスを記録（失敗しても本処理に影響させない）
+                try {
+                  await db.collection("properties").doc(propertyId).update({ lineLastChannelIdx: idx });
+                } catch (e) {
+                  console.warn("[LINE][rotate] lineLastChannelIdx 保存失敗:", e.message);
+                }
+                break;
+              }
+              console.warn(`[LINE][rotate] チャネル「${ch.name || ch.groupId}」失敗、次を試みます:`, result.error);
+            }
+            if (!result || !result.success) {
+              result = { success: false, error: "全チャネルで送信失敗 (rotate)" };
+            }
+
           } else {
-            // fallback: 残枠が多い順に試みる
+            // fallback: 残枠が多い順に試みる（デフォルト動作）
             for (const ch of activeChannels) {
               const quota = await getChannelQuota(ch.token);
               if (quota.remaining > 0) {
@@ -970,7 +990,6 @@ async function sendLineMessageForProperty(db, propertyId, text, logExtra = {}) {
                 console.warn(`[LINE] チャネル「${ch.name || ch.groupId}」の無料枠が枯渇しています (used=${quota.used}/${quota.max})`);
               }
             }
-            // 全チャネル枯渇 or 失敗時
             if (!result || !result.success) {
               result = { success: false, error: "全チャネルで無料枠枯渇または送信失敗" };
             }
