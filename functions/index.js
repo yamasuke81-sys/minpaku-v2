@@ -310,6 +310,12 @@ exports.onGuestFormSubmit = onDocumentCreated(
   require("./triggers/onGuestFormSubmit")
 );
 
+// 宿泊者名簿 新規作成→GAS版スプシへ自動転記（リバース連携）
+exports.onGuestRegistrationToGas = onDocumentCreated(
+  "guestRegistrations/{guestId}",
+  require("./triggers/onGuestRegistrationToGas")
+);
+
 // 予約変更時→清掃スケジュール自動生成
 exports.onBookingChange = onDocumentWritten(
   "bookings/{bookingId}",

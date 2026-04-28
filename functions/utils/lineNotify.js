@@ -1054,10 +1054,7 @@ async function notifyByKey(db, notifyKey, options = {}) {
 
   // 2. ターゲット判定
   const targets = resolveNotifyTargets(settings, notifyKey, propertyOverrides);
-  // 診断ログ: 物件別 channelOverrides の状態を出力
-  console.log(`[notifyByKey] ${notifyKey} propertyId=${propertyId} ov=${JSON.stringify(propertyOverrides[notifyKey] ?? null)} enabled=${targets.enabled} ownerEmail=${targets.ownerEmail} ownerLine=${targets.ownerLine}`);
   if (!targets.enabled) {
-    console.log(`[notifyByKey] ${notifyKey} は無効化されているためスキップ (channelOverrides 未設定 or enabled=false)`);
     return { sent: {}, errors: [] };
   }
 

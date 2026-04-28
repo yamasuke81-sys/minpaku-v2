@@ -1373,9 +1373,6 @@ const PropertiesPage = {
             <i class="bi bi-arrow-repeat"></i> 別アカウントで再連携
           </button>
         </div>
-        <div class="form-text mt-1">
-          この Gmail が<strong>通知メール全般</strong>（宿泊者宛サンクスメール、名簿受信通知、その他のメール通知）の送信元として使われます。
-        </div>
       `;
       document.getElementById("btnPropGmailUnlink")?.addEventListener("click", () => {
         this._unlinkPropertyGmail(propertyId);
