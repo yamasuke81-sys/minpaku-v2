@@ -270,6 +270,12 @@ const ReservationFlowPage = {
         "{{keyboxCode}}", "{{propertyAddress}}", "{{wifiInfo}}", "{{guideUrl}}",
       ],
       detailNoteHtml: `
+        <!-- メール本文プレビュー -->
+        <div class="mb-2">
+          <div class="small fw-semibold mb-1"><i class="bi bi-eye"></i> 本文プレビュー（サンプル値で展開）</div>
+          <div id="form_complete_mail_preview" class="border rounded p-2 bg-light"
+            style="white-space:pre-wrap;min-height:80px;font-size:0.78rem;font-family:monospace;"></div>
+        </div>
         <!-- 送信元 Gmail 表示エリア（renderDetailPanel_ で動的に更新） -->
         <div id="flowGmailSenderInfo" class="mb-2 small"></div>
         <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
@@ -391,7 +397,6 @@ const ReservationFlowPage = {
         "{{checkIn}}", "{{guideUrl}}", "{{propertyAddress}}", "{{addressMapUrl}}",
         "{{wifiSSID}}", "{{wifiPassword}}", "{{postCode}}",
       ],
-      // タスク1: メール本文プレビューを表示 (detailNoteHtml 内に Gmail送信先情報も)
       detailNoteHtml: `
         <!-- 送信先・送信元表示エリア -->
         <div id="flowKeyboxSenderInfo" class="mb-2 small"></div>
@@ -399,6 +404,19 @@ const ReservationFlowPage = {
           <span class="small"><i class="bi bi-info-circle text-warning"></i> 送信には <strong>Gmail API 連携</strong>が必要です。名簿入力完了メールと同じ送信元 Gmail を使用します。</span>
         </div>
         <div class="small text-muted mb-1" style="font-size:0.72rem;"><i class="bi bi-info-circle"></i> カード右上 ON/OFF = この物件のキーボックスメール自動送信を有効/無効にします。</div>
+        <!-- メール本文プレビュー -->
+        <div class="mt-2">
+          <div class="small fw-semibold mb-1"><i class="bi bi-eye"></i> 本文プレビュー（サンプル値で展開）</div>
+          <div class="row g-2 small" style="font-size:0.8rem;">
+            <div class="col-12">
+              <div id="keyboxSendPreview" class="border rounded p-2 bg-light"
+                style="white-space:pre-wrap;min-height:100px;font-size:0.78rem;font-family:monospace;"></div>
+            </div>
+          </div>
+          <div class="small text-muted mt-1" style="font-size:0.7rem;">
+            <i class="bi bi-info-circle"></i> ポスト情報ON/OFFにより <code>{{#if postEnabled}}...{{/if}}</code> の表示が切り替わります
+          </div>
+        </div>
       `,
     },
     {
@@ -412,9 +430,9 @@ const ReservationFlowPage = {
       varGroup: "booking",
       linkHash: "#/notifications",
       linkLabel: "通知設定",
-      // タスク4: 条件発動のためタイミング設定UIを非表示にして説明文のみ表示
-      hideTimingUI: true,
-      hint: "条件: 名簿入力済 + 受信通知済 + OKボタン未押下のとき自動通知（タイミング選択不要）",
+      hint: "条件: 名簿入力済 + 受信通知済 + OKボタン未押下のとき自動通知",
+      // 「キーボックス送信予定時刻」基準の相対タイミング設定
+      keyboxRemindTiming: true,
     },
     {
       key: "checkin_app",
@@ -486,81 +504,6 @@ const ReservationFlowPage = {
       globalChannel: "staff_confirm",
       varGroup: "recruit",
       arrowTo: "staff",
-      linkHash: "#/notifications",
-      linkLabel: "通知設定",
-    },
-
-    // ---- Phase 4: 清掃実施 ----
-    {
-      key: "laundry_put_out",
-      label: "ランドリー 出した",
-      icon: "bi-arrow-up-circle",
-      lane: "staff",
-      phase: 4,
-      globalChannel: "laundry_put_out",
-      varGroup: "laundry",
-      arrowTo: "owner",
-      linkHash: "#/notifications",
-      linkLabel: "通知設定",
-    },
-    {
-      key: "laundry_collected",
-      label: "ランドリー 回収した",
-      icon: "bi-arrow-down-circle",
-      lane: "staff",
-      phase: 4,
-      globalChannel: "laundry_collected",
-      varGroup: "laundry",
-      arrowTo: "owner",
-      linkHash: "#/notifications",
-      linkLabel: "通知設定",
-    },
-    {
-      key: "laundry_stored",
-      label: "ランドリー 収納した",
-      icon: "bi-check2-circle",
-      lane: "staff",
-      phase: 4,
-      globalChannel: "laundry_stored",
-      varGroup: "laundry",
-      arrowTo: "owner",
-      linkHash: "#/notifications",
-      linkLabel: "通知設定",
-    },
-    {
-      key: "cleaning_done",
-      label: "清掃完了通知",
-      icon: "bi-clipboard-check",
-      lane: "staff",
-      phase: 4,
-      globalChannel: "cleaning_done",
-      varGroup: "cleaning",
-      arrowTo: "owner",
-      linkHash: "#/notifications",
-      linkLabel: "通知設定",
-    },
-    // ---- Phase 5: 月末請求 ----
-    {
-      key: "invoice_request",
-      label: "請求書要請",
-      icon: "bi-receipt",
-      lane: "owner",
-      phase: 5,
-      globalChannel: "invoice_request",
-      varGroup: "invoice",
-      arrowTo: "staff",
-      linkHash: "#/notifications",
-      linkLabel: "通知設定",
-    },
-    {
-      key: "invoice_submitted",
-      label: "請求書提出通知",
-      icon: "bi-send-check",
-      lane: "staff",
-      phase: 5,
-      globalChannel: "invoice_submitted",
-      varGroup: "invoice",
-      arrowTo: "owner",
       linkHash: "#/notifications",
       linkLabel: "通知設定",
     },
@@ -858,6 +801,81 @@ const ReservationFlowPage = {
     `;
   },
 
+  // keybox_remind: キーボックス送信予定時刻基準のタイミング設定UIをレンダリング
+  // データ: properties.{pid}.channelOverrides.keybox_remind.reminderOffset
+  _renderKeyboxRemindTiming(stepKey, property) {
+    const pid = property.id;
+    const offset = property.channelOverrides?.keybox_remind?.reminderOffset || {};
+    const mode = offset.mode || "same";
+    const hours = offset.hours ?? 2;
+
+    const radioName = `kbr-mode-${pid}`;
+    return `
+      <div class="rf-detail-panel mt-2 mb-2 p-2 border rounded" style="background:#f0f8ff;" id="kbr-timing-${pid}">
+        <div class="small fw-semibold mb-2"><i class="bi bi-clock"></i> 通知タイミング（送信予定時刻基準）</div>
+        <div class="d-flex flex-column gap-1">
+          <div class="form-check">
+            <input class="form-check-input kbr-mode-radio" type="radio"
+              name="${radioName}" id="kbr-same-${pid}" value="same"
+              data-pid="${pid}" ${mode === "same" ? "checked" : ""}>
+            <label class="form-check-label small" for="kbr-same-${pid}">送信予定時刻と同時（デフォルト）</label>
+          </div>
+          <div class="form-check d-flex align-items-center gap-2">
+            <input class="form-check-input kbr-mode-radio" type="radio"
+              name="${radioName}" id="kbr-before-${pid}" value="before_hours"
+              data-pid="${pid}" ${mode === "before_hours" ? "checked" : ""}>
+            <label class="form-check-label small" for="kbr-before-${pid}">送信予定時刻の</label>
+            <input type="number" class="form-control form-control-sm kbr-hours-input" min="1" max="72"
+              style="width:65px;font-size:0.85rem;" value="${mode === "before_hours" ? hours : 2}"
+              data-pid="${pid}" data-offset-mode="before_hours"
+              ${mode !== "before_hours" ? "disabled" : ""}>
+            <span class="small">時間前</span>
+          </div>
+          <div class="form-check d-flex align-items-center gap-2">
+            <input class="form-check-input kbr-mode-radio" type="radio"
+              name="${radioName}" id="kbr-after-${pid}" value="after_hours"
+              data-pid="${pid}" ${mode === "after_hours" ? "checked" : ""}>
+            <label class="form-check-label small" for="kbr-after-${pid}">送信予定時刻の</label>
+            <input type="number" class="form-control form-control-sm kbr-hours-input" min="1" max="72"
+              style="width:65px;font-size:0.85rem;" value="${mode === "after_hours" ? hours : 2}"
+              data-pid="${pid}" data-offset-mode="after_hours"
+              ${mode !== "after_hours" ? "disabled" : ""}>
+            <span class="small">時間後</span>
+          </div>
+        </div>
+        <div class="small text-muted mt-2" style="font-size:0.72rem;">
+          <i class="bi bi-info-circle"></i> 条件: 名簿入力済 + 受信通知済 + OKボタン未押下のとき発火
+        </div>
+      </div>
+    `;
+  },
+
+  // keybox_remind タイミング変更をFirestoreに保存
+  async _saveKeyboxRemindOffset(pid, bodyEl) {
+    const checkedRadio = bodyEl.querySelector(`.kbr-mode-radio:checked`);
+    if (!checkedRadio) return;
+    const mode = checkedRadio.value;
+    const hoursInput = bodyEl.querySelector(`.kbr-hours-input[data-offset-mode="${mode}"]`);
+    const hours = hoursInput ? (parseInt(hoursInput.value, 10) || 2) : 2;
+
+    const reminderOffset = mode === "same" ? { mode } : { mode, hours };
+    try {
+      await db.collection("properties").doc(pid).update({
+        "channelOverrides.keybox_remind.reminderOffset": reminderOffset,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      const prop = this.properties.find(p => p.id === pid);
+      if (prop) {
+        if (!prop.channelOverrides) prop.channelOverrides = {};
+        if (!prop.channelOverrides.keybox_remind) prop.channelOverrides.keybox_remind = {};
+        prop.channelOverrides.keybox_remind.reminderOffset = reminderOffset;
+      }
+      this._showStatus("saved");
+    } catch (e) {
+      this._showStatus("error", e.message);
+    }
+  },
+
   // タスク3: scheduleType ラジオ変更時に customDaysBefore の disabled を切り替え
   _bindScheduleTypeConditional(bodyEl, pid) {
     const schedSel = bodyEl.querySelector(
@@ -894,6 +912,108 @@ const ReservationFlowPage = {
     };
     update();
     postChk.addEventListener("change", update);
+  },
+
+  // keybox_remind タイミングUIのラジオ/時間入力イベントをバインド
+  _bindKeyboxRemindTiming(bodyEl, pid) {
+    const radios = bodyEl.querySelectorAll(".kbr-mode-radio");
+    const hoursInputs = bodyEl.querySelectorAll(".kbr-hours-input");
+
+    radios.forEach(radio => {
+      radio.addEventListener("change", () => {
+        const selectedMode = radio.value;
+        // 時間入力の disabled 制御
+        hoursInputs.forEach(inp => {
+          inp.disabled = (inp.dataset.offsetMode !== selectedMode);
+        });
+        this._saveKeyboxRemindOffset(pid, bodyEl);
+      });
+    });
+
+    hoursInputs.forEach(inp => {
+      inp.addEventListener("input", () => {
+        const checkedRadio = bodyEl.querySelector(".kbr-mode-radio:checked");
+        if (checkedRadio && checkedRadio.value === inp.dataset.offsetMode) {
+          clearTimeout(this._kbrTimer);
+          this._kbrTimer = setTimeout(() => this._saveKeyboxRemindOffset(pid, bodyEl), 800);
+        }
+      });
+    });
+  },
+
+  // keybox_send プレビューUIをバインド（メール本文変更時にリアルタイム更新）
+  _bindKeyboxSendPreview(bodyEl, pid) {
+    const bodyTextarea = bodyEl.querySelector(`.rf-detail-input[data-field="keyboxSend.body"]`);
+    const previewEl = bodyEl.querySelector("#keyboxSendPreview");
+    if (!bodyTextarea || !previewEl) return;
+
+    // サンプル変数
+    const sampleVars = {
+      guestName: "山田 太郎",
+      propertyName: "the Terrace 長浜",
+      checkIn: "2026/04/30 15:00",
+      checkOut: "2026/05/02 10:00",
+      keyboxCode: "1234",
+      keyboxLocation: "玄関ドア横の金属ボックス",
+      propertyAddress: "滋賀県長浜市○○町1-2-3",
+      addressMapUrl: "https://maps.google.com/?q=...",
+      wifiSSID: "MyWifi",
+      wifiPassword: "xxxx1234",
+      guideUrl: "https://minpaku-v2.web.app/guide/?propertyId=xxx",
+      postCode: "5678",
+    };
+
+    const postEnabledChk = bodyEl.querySelector(`.rf-detail-input[data-field="post.enabled"]`);
+
+    const updatePreview = () => {
+      let text = bodyTextarea.value || "";
+      const postEnabled = postEnabledChk ? postEnabledChk.checked : false;
+
+      // {{#if postEnabled}}...{{/if}} の展開/非表示
+      text = text.replace(/\{\{#if postEnabled\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, inner) => {
+        return postEnabled ? inner : "";
+      });
+
+      // 変数置換
+      Object.entries(sampleVars).forEach(([k, v]) => {
+        text = text.replace(new RegExp(`\\{\\{${k}\\}\\}`, "g"), v);
+      });
+
+      previewEl.textContent = text;
+    };
+
+    bodyTextarea.addEventListener("input", updatePreview);
+    if (postEnabledChk) postEnabledChk.addEventListener("change", updatePreview);
+    updatePreview();
+  },
+
+  // メールテンプレートのプレビューUIをバインド（form_complete_mail 等）
+  _bindMailPreview(bodyEl, pid, bodyField, previewId) {
+    const bodyTextarea = bodyEl.querySelector(`.rf-detail-input[data-field="${bodyField}"]`);
+    const previewEl = bodyEl.querySelector(`#${previewId}`);
+    if (!bodyTextarea || !previewEl) return;
+
+    const sampleVars = {
+      guestName: "山田 太郎",
+      propertyName: "the Terrace 長浜",
+      checkIn: "2026/04/30",
+      checkOut: "2026/05/02",
+      keyboxCode: "1234",
+      propertyAddress: "滋賀県長浜市○○町1-2-3",
+      wifiInfo: "SSID: MyWifi / PW: xxxx1234",
+      guideUrl: "https://minpaku-v2.web.app/guide/?propertyId=xxx",
+    };
+
+    const updatePreview = () => {
+      let text = bodyTextarea.value || "";
+      Object.entries(sampleVars).forEach(([k, v]) => {
+        text = text.replace(new RegExp(`\\{\\{${k}\\}\\}`, "g"), v);
+      });
+      previewEl.textContent = text;
+    };
+
+    bodyTextarea.addEventListener("input", updatePreview);
+    updatePreview();
   },
 
   // ドット記法でネストフィールドから値を取得
@@ -1184,12 +1304,10 @@ const ReservationFlowPage = {
     const branchBSteps = this.STEPS.filter(s => s.branch === "staff_cancel");
     const branchCSteps = this.STEPS.filter(s => s.branch === "monitor");
 
-    const phases = [1, 2, 4, 5];
+    const phases = [1, 2];
     const phaseLabels = {
       1: "Phase 1: 予約受付",
       2: "Phase 2: ゲスト対応 & スタッフ手配",
-      4: "Phase 4: 清掃実施",
-      5: "Phase 5: 月末請求",
     };
 
     // デスクトップ: 3レーングリッド
@@ -1210,15 +1328,6 @@ const ReservationFlowPage = {
     phases.forEach(phase => {
       const phaseSteps = mainSteps.filter(s => s.phase === phase);
       if (!phaseSteps.length) return;
-
-      // Phase 3 区切り (Phase 2 → Phase 4 の間)
-      if (phase === 4) {
-        html += `
-          <div class="rf-phase-divider">
-            <span>━━━ Phase 3: 滞在中（ステップなし）━━━</span>
-          </div>
-        `;
-      }
 
       html += `
         <div class="rf-phase-divider">
@@ -1461,19 +1570,13 @@ const ReservationFlowPage = {
     const idPrefix = `prop_${property.id}_${step.globalChannel}`;
     const importBtnHtml = `<button class="btn btn-sm btn-outline-info rf-notify-import-btn" type="button" data-pid="${property.id}" data-notif-key="${step.globalChannel}"><i class="bi bi-box-arrow-in-down"></i> 他物件から</button>`;
 
-    // タスク4: hideTimingUI=true のステップはタイミング設定行を非表示にする
-    const hideTimingStyle = step.hideTimingUI
-      ? `<style>#rfc-${step.key}-${property.id} .notify-timings-wrap{display:none!important}#rfc-${step.key}-${property.id} .notify-add-timing{display:none!important}</style>`
-      : "";
-    // タスク4: 条件発動の説明文
-    const conditionNoteHtml = step.hideTimingUI
-      ? `<div class="alert alert-info py-1 px-2 mb-2 small" style="font-size:0.78rem;">
-           <i class="bi bi-info-circle"></i> <strong>条件発動:</strong> 名簿入力済 + 受信通知済 + OKボタン未押下のとき自動通知。タイミング設定は不要です。
-         </div>`
+    // keybox_remind: キーボックス送信予定時刻基準のタイミング設定UIを追加
+    const keyboxRemindTimingHtml = step.keyboxRemindTiming
+      ? this._renderKeyboxRemindTiming(step.key, property)
       : "";
 
-    return `${hideTimingStyle}<div class="rf-shared-notify mt-2" data-pid="${property.id}" data-notif-key="${step.globalChannel}" data-id-prefix="${idPrefix}">
-      ${conditionNoteHtml}${NCE.renderNotificationCard(n, channelData, { idPrefix, collapsed: false, hideHeader: true, extraActionsHtml: importBtnHtml })}
+    return `<div class="rf-shared-notify mt-2" data-pid="${property.id}" data-notif-key="${step.globalChannel}" data-id-prefix="${idPrefix}">
+      ${keyboxRemindTimingHtml}${NCE.renderNotificationCard(n, channelData, { idPrefix, collapsed: false, hideHeader: true, extraActionsHtml: importBtnHtml })}
     </div>`;
   },
 
@@ -1793,6 +1896,15 @@ const ReservationFlowPage = {
             if (stepKey === "keybox_send") {
               this._bindScheduleTypeConditional(body, pid);
               this._bindPostConditional(body, pid);
+              this._bindKeyboxSendPreview(body, pid);
+            }
+            // keybox_remind: タイミングUIイベントをバインド
+            if (stepKey === "keybox_remind") {
+              this._bindKeyboxRemindTiming(body, pid);
+            }
+            // form_complete_mail: プレビューUIをバインド
+            if (stepKey === "form_complete_mail") {
+              this._bindMailPreview(body, pid, "formCompleteMail.body", "form_complete_mail_preview");
             }
           }
         }
