@@ -452,6 +452,73 @@ async function syncIcal() {
     { lastIcalSync: admin.firestore.FieldValue.serverTimestamp() },
     { merge: true }
   );
+
+  // ===== 案C: 保留中メールの自動アーカイブ =====
+  // iCal同期後、pending_request の emailVerifications を対応する bookings と照合し、
+  // 予約が confirmed 済 → resolved_to_confirmed、予約なし(キャンセル済) → archived に更新
+  try {
+    await autoArchivePendingRequests(db);
+  } catch (archErr) {
+    console.error("[syncIcal] autoArchive エラー:", archErr.message);
+  }
+}
+
+/**
+ * 案C: pending_request のメールを自動アーカイブする
+ * - 対応予約が bookings に confirmed で存在 → resolved_to_confirmed
+ * - 対応予約が存在しない or キャンセル → archived
+ */
+async function autoArchivePendingRequests(db) {
+  const snap = await db.collection("emailVerifications")
+    .where("matchStatus", "==", "pending_request")
+    .get();
+  if (snap.empty) return;
+
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  for (const doc of snap.docs) {
+    const data = doc.data();
+    const propertyId = data.propertyId;
+    const checkInDate = data.extractedInfo && data.extractedInfo.checkIn && data.extractedInfo.checkIn.date;
+    if (!propertyId || !checkInDate) continue;
+
+    // 同じ物件+チェックイン日の確定予約を検索
+    const bookSnap = await db.collection("bookings")
+      .where("propertyId", "==", propertyId)
+      .where("status", "==", "confirmed")
+      .get();
+
+    let hasConfirmedBooking = false;
+    for (const bDoc of bookSnap.docs) {
+      const bData = bDoc.data();
+      let ci = "";
+      try {
+        const ciRaw = bData.checkIn;
+        if (ciRaw) {
+          const d = (ciRaw && typeof ciRaw.toDate === "function") ? ciRaw.toDate() : new Date(ciRaw);
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, "0");
+          const da = String(d.getDate()).padStart(2, "0");
+          ci = `${y}-${m}-${da}`;
+        }
+      } catch (_) { /* noop */ }
+      if (ci === checkInDate) { hasConfirmedBooking = true; break; }
+    }
+
+    if (hasConfirmedBooking) {
+      await doc.ref.update({ matchStatus: "resolved_to_confirmed", resolvedAt: now });
+      console.log(`[autoArchive] resolved_to_confirmed: ${doc.id}`);
+    } else {
+      // 予約が見つからない場合はアーカイブ (30日以上前の保留中メールのみ対象)
+      const receivedMs = data.receivedAt
+        ? (data.receivedAt._seconds ? data.receivedAt._seconds * 1000 : 0)
+        : 0;
+      const ageMs = Date.now() - receivedMs;
+      if (ageMs > 30 * 24 * 60 * 60 * 1000) {
+        await doc.ref.update({ matchStatus: "archived", archivedAt: now, archiveReason: "no_confirmed_booking_after_30d" });
+        console.log(`[autoArchive] archived: ${doc.id}`);
+      }
+    }
+  }
 }
 
 module.exports = syncIcal;

@@ -21,6 +21,7 @@ const {
   findBookingMatch,
   decideBookingUpdate,
   decideVerificationStatus,
+  isPendingRequest,
 } = require("../utils/emailMatcher");
 
 const PROCESSED_LABEL_NAME = "minpaku-v2-email-verified";
@@ -282,7 +283,11 @@ async function emailVerificationCore(db, opts = {}) {
             }
           }
 
-          const matchStatus = decideVerificationStatus(extractedInfo, bookingMatch);
+          // extractedInfo に subject を補完して判定関数に渡す (案A/B の判定に使用)
+          const parsedInfoWithSubject = extractedInfo
+            ? { ...extractedInfo, subject }
+            : null;
+          const matchStatus = decideVerificationStatus(parsedInfoWithSubject, bookingMatch);
 
           await evRef.set({
             messageId: msg.id,
@@ -309,6 +314,34 @@ async function emailVerificationCore(db, opts = {}) {
 
           // 処理済マークは emailVerifications/{messageId} ドキュメント存在で判定するため
           // Gmail ラベル付与 (gmail.modify スコープ要) は行わない
+
+          // ===== 案B: チェーン追跡 =====
+          // 新しい confirmed メールが保存された場合、同じ物件+チェックイン日の
+          // pending_request エントリを resolved_to_confirmed に更新
+          const kindForChain = extractedInfo && extractedInfo.kind;
+          const checkInDateForChain = extractedInfo && extractedInfo.checkIn && extractedInfo.checkIn.date;
+          if (kindForChain === "confirmed" && propertyId && checkInDateForChain) {
+            try {
+              const pendingSnap = await db.collection("emailVerifications")
+                .where("propertyId", "==", propertyId)
+                .where("matchStatus", "==", "pending_request")
+                .get();
+              for (const pendingDoc of pendingSnap.docs) {
+                const pendingData = pendingDoc.data();
+                const pendingCheckIn = pendingData.extractedInfo && pendingData.extractedInfo.checkIn && pendingData.extractedInfo.checkIn.date;
+                if (pendingCheckIn === checkInDateForChain) {
+                  await db.collection("emailVerifications").doc(pendingDoc.id).update({
+                    matchStatus: "resolved_to_confirmed",
+                    resolvedByMessageId: msg.id,
+                    resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+                  });
+                  console.log(`[chainTrack] pending_request → resolved_to_confirmed: ${pendingDoc.id}`);
+                }
+              }
+            } catch (chainErr) {
+              console.error(`[chainTrack] エラー: ${chainErr.message}`);
+            }
+          }
 
           result.newlySaved++;
           result.processedCount++;

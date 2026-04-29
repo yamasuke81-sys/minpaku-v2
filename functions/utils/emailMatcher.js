@@ -225,26 +225,48 @@ function decideBookingUpdate(booking, parsedInfo, messageId, emailReceivedAt, th
 // ======================================================
 
 /**
+ * 件名から「保留中/予約リクエスト」メールかどうかを判定する
+ * 案A: pending_request ステータスの付与判断に使用
+ */
+function isPendingRequest(subject, kind) {
+  // kind が "request" なら件名チェック不要で保留中とみなす
+  if (kind === "request") return true;
+  const s = String(subject || "").toLowerCase();
+  return /保留中|予約リクエスト|reservation request|^request\s|^pending\s/.test(s);
+}
+
+/**
  * emailVerifications ドキュメントに書き込む matchStatus を返す
- * - matched   : confirmed メールが予約と突合
- * - cancelled : cancelled メールが予約と突合 (bookings も更新)
- * - changed   : change-approved / change-request メール
- * - unmatched : 予約が見つからない (メール先行のケース — 定期巡回で後追い可能)
- * - pending   : 不明 kind
+ * - matched              : confirmed メールが予約と突合
+ * - cancelled            : cancelled メールが予約と突合 (bookings も更新)
+ * - changed              : change-approved / change-request メール
+ * - unmatched            : 予約が見つからない (メール先行のケース — 定期巡回で後追い可能)
+ * - pending              : 不明 kind
+ * - pending_request      : 予約リクエスト/保留中メール (案A)
+ * - resolved_to_confirmed: 保留中→確定済チェーン (案B、呼び出し側が上書き)
+ * - archived             : iCal同期後に自動アーカイブ (案C、呼び出し側が上書き)
  */
 function decideVerificationStatus(parsedInfo, matchedBooking) {
   if (!parsedInfo) return "pending";
   const kind = parsedInfo.kind;
-  // payout (送金) は予約ステータスへの影響なし。emailVerifications 一覧に
-  // 独立ステータスとして並べて、集計や除外ルール見直しの対象にできるようにする
+  // payout (送金) は予約ステータスへの影響なし
   if (kind === "payout") return "payout";
+
+  // 案A: 保留中/リクエストメールを pending_request に分類
+  if (isPendingRequest(parsedInfo.subject || "", kind)) {
+    // 対応する確定予約が見つかっていれば resolved_to_confirmed (案B 相当)
+    if (matchedBooking && matchedBooking.data && matchedBooking.data.status === "confirmed") {
+      return "resolved_to_confirmed";
+    }
+    return "pending_request";
+  }
+
   if (!matchedBooking) {
     return kind === "cancelled" ? "cancelled-unmatched" : "unmatched";
   }
   if (kind === "confirmed") return "matched";
   if (kind === "cancelled") return "cancelled";
   if (kind === "change-approved" || kind === "change-request") return "changed";
-  if (kind === "request") return "matched"; // リクエスト段階も予約あれば matched 扱い
   return "matched";
 }
 
@@ -252,6 +274,7 @@ module.exports = {
   findBookingMatch,
   decideBookingUpdate,
   decideVerificationStatus,
+  isPendingRequest,
   // テスト用 internal
   _normalizeCheckInDate: normalizeCheckInDate_,
 };

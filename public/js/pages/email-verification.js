@@ -13,7 +13,7 @@
  */
 const EmailVerificationPage = {
   items: [],
-  filter: "all", // all | unmatched | matched | cancelled | cancelled-unmatched | changed | ignored | pending
+  filter: "all", // all | unmatched | matched | cancelled | cancelled-unmatched | changed | ignored | pending | pending_request | resolved_to_confirmed | archived
   properties: [], // { id, name, color? } 手動紐付けの候補物件絞り込み用
   gmailAccounts: [], // 連携済 Gmail アカウント一覧
 
@@ -50,7 +50,7 @@ const EmailVerificationPage = {
       </div>
 
       <!-- ステータスフィルタ -->
-      <div class="btn-group mb-3" role="group" aria-label="matchStatus フィルタ" id="evFilterBar">
+      <div class="d-flex flex-wrap gap-1 mb-3" id="evFilterBar">
         <button type="button" class="btn btn-outline-primary active" data-filter="all">すべて</button>
         <button type="button" class="btn btn-outline-warning" data-filter="unmatched">未突合</button>
         <button type="button" class="btn btn-outline-danger" data-filter="cancelled-unmatched">キャンセル未突合</button>
@@ -58,6 +58,10 @@ const EmailVerificationPage = {
         <button type="button" class="btn btn-outline-dark" data-filter="cancelled">キャンセル済</button>
         <button type="button" class="btn btn-outline-info" data-filter="changed">変更通知</button>
         <button type="button" class="btn btn-outline-secondary" data-filter="ignored">無視</button>
+        <!-- 案A/B/C 追加タブ -->
+        <button type="button" class="btn btn-outline-warning" data-filter="pending_request" style="border-style:dashed;">保留中</button>
+        <button type="button" class="btn btn-outline-success" data-filter="resolved_to_confirmed" style="border-style:dashed;">対応済(保留→確定)</button>
+        <button type="button" class="btn btn-outline-secondary" data-filter="archived" style="border-style:dashed;">アーカイブ</button>
       </div>
 
       <!-- 統計サマリ -->
@@ -231,7 +235,10 @@ const EmailVerificationPage = {
 
   renderTable_() {
     const all = this.items;
-    const filtered = this.filter === "all" ? all : all.filter((x) => x.matchStatus === this.filter);
+    // "all" フィルタ時はアーカイブ済を除外してデフォルト表示をすっきりさせる
+    const filtered = this.filter === "all"
+      ? all.filter((x) => x.matchStatus !== "archived")
+      : all.filter((x) => x.matchStatus === this.filter);
 
     // 統計バー
     const counts = all.reduce((acc, x) => {
@@ -350,6 +357,12 @@ const EmailVerificationPage = {
     } else if (it.matchStatus === "pending") {
       parts.push(
         `<button class="btn btn-sm btn-outline-secondary" data-action="ignore" data-id="${id}"><i class="bi bi-x-circle"></i> 無視</button>`
+      );
+    } else if (it.matchStatus === "pending_request") {
+      // 保留中: 手動で予約紐付けするか無視できる
+      parts.push(
+        `<button class="btn btn-sm btn-outline-primary" data-action="link" data-id="${id}" title="予約に紐付け"><i class="bi bi-link-45deg"></i> 紐付け</button>`,
+        `<button class="btn btn-sm btn-outline-secondary" data-action="ignore" data-id="${id}" title="無視"><i class="bi bi-x-circle"></i></button>`
       );
     }
     return `<div class="btn-group">${parts.join("")}</div>`;
@@ -545,6 +558,9 @@ const EmailVerificationPage = {
       status === "unmatched" ? "bg-warning text-dark" :
       status === "changed" ? "bg-info text-dark" :
       status === "ignored" ? "bg-secondary" :
+      status === "pending_request" ? "bg-warning text-dark" :
+      status === "resolved_to_confirmed" ? "bg-success" :
+      status === "archived" ? "bg-secondary" :
       "bg-light text-dark";
     return `<span class="badge ${cls}">${this.escape_(label)}</span>`;
   },
@@ -558,6 +574,9 @@ const EmailVerificationPage = {
       changed: "変更",
       pending: "処理中",
       ignored: "無視",
+      pending_request: "保留中",
+      resolved_to_confirmed: "対応済(保留→確定)",
+      archived: "アーカイブ",
     }[s] || (s || "不明");
   },
 
