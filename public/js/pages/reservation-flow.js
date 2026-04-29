@@ -1205,8 +1205,8 @@ const ReservationFlowPage = {
     const pid = property.id;
     const fieldsHtml = step.detailFields.map(fd => {
       const cur = this._getNested(property, fd.field);
-      // 未保存(undefined/null)または空文字の場合はデフォルト値を初期表示する
-      const val = (cur === undefined || cur === null || cur === "") ? (fd.default ?? "") : cur;
+      // 未保存(undefined/null)のときのみデフォルト値を使用。空文字はユーザーの意図として保持する
+      const val = (cur === undefined || cur === null) ? (fd.default ?? "") : cur;
       const hintHtml = fd.hint
         ? `<div class="form-text small" style="font-size:0.7rem;">${this._esc(fd.hint)}</div>`
         : "";
