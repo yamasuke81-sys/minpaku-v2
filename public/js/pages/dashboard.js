@@ -1359,10 +1359,15 @@ const DashboardPage = {
     });
 
     // GAS版インポートボタン (該当 CI 日の宿泊者名簿を取り込み)
+    // 注: GAS版スプレッドシートには同一CI日に複数行 (iCal連携の予約行 + 宿泊者入力行) が
+    //     混在しうるため、取り込み件数だけでは「名簿未回答」を判定できない。
+    //     取り込み後に guestRegistrations を直接照会し、プレースホルダー名 (Reserved/Airbnb/Booking 等)
+    //     でない実名の行が存在するかで判定する。
     const btnGasImport = document.getElementById("btnGasImportForBooking");
     if (btnGasImport) {
       btnGasImport.addEventListener("click", async () => {
         const ciDate = btnGasImport.dataset.ci;
+        const pidForImport = btnGasImport.dataset.pid || "";
         const statusEl = document.getElementById("gasImportStatusInline");
         if (!ciDate) {
           if (statusEl) statusEl.innerHTML = `<span class="text-danger">CI日が不明です</span>`;
@@ -1395,26 +1400,67 @@ const DashboardPage = {
           try { data = JSON.parse(text); } catch { data = { message: text }; }
           if (data.error) {
             if (statusEl) statusEl.innerHTML = `<span class="text-danger">エラー: ${this.esc(String(data.error))}</span>`;
-          } else {
-            // 取り込み件数判定: count / imported.length / inserted+updated を順に確認
-            const count = (typeof data.count === "number") ? data.count
-              : Array.isArray(data.imported) ? data.imported.length
-              : (typeof data.inserted === "number" || typeof data.updated === "number")
-                ? ((data.inserted || 0) + (data.updated || 0))
-                : null;
-            if (count === 0) {
-              if (statusEl) statusEl.innerHTML = `<span class="text-warning"><i class="bi bi-hourglass-split"></i> まだ未回答</span>`;
-            } else {
-              const msg = (count !== null) ? `${count}件取り込みました` : (data.message || "取り込み完了");
-              if (statusEl) statusEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> ${this.esc(String(msg))}</span>`;
-              // モーダルを閉じてカレンダーを再描画 (取り込んだ名簿を反映)
-              setTimeout(() => {
-                const modalInst = bootstrap.Modal.getInstance(modalEl);
-                if (modalInst) modalInst.hide();
-                if (typeof onGuestCountSaved === "function") onGuestCountSaved();
-              }, 1200);
+            return;
+          }
+
+          // 取り込み完了後、guestRegistrations を直接照会して名簿の「実データ行」があるか判定
+          // GAS版の buildCalendarEvents (index.html:2939) と同じロジックを踏襲:
+          //   - 同一CI日の複数行をマージ対象とし、プレースホルダー名以外を実回答とみなす
+          //   - プレースホルダー判定は GAS版と同じ厳密一致パターン
+          //     /^(Not available|Reserved|CLOSED|Blocked|Airbnb(予約)?|Booking\.com(予約)?|Rakuten|楽天)$/i
+          //   (v2 既存の _isPlaceholderName は部分一致で緩いためここでは使わない)
+          const isGasPlaceholder = (name) => {
+            if (!name) return true;
+            return /^(Not available|Reserved|CLOSED|Blocked|Airbnb(予約)?|Booking\.com(予約)?|Rakuten|楽天)$/i
+              .test(String(name).trim());
+          };
+
+          // 書き込みが Firestore に伝播するまで少し待つ
+          await new Promise(r => setTimeout(r, 1200));
+          let grSnap;
+          try {
+            const baseQ = dbi.collection("guestRegistrations").where("checkIn", "==", ciDate);
+            grSnap = pidForImport
+              ? await baseQ.where("propertyId", "==", pidForImport).get()
+              : await baseQ.get();
+          } catch (qe) {
+            console.warn("guestRegistrations 照会失敗:", qe);
+            grSnap = null;
+          }
+
+          // 同一CI日の複数行から実名ドキュメントを優先採用 (GAS版マージ思想)
+          // 実名 (プレースホルダーでない) のドキュメントが1件でもあれば「回答済」
+          let realRecord = null;
+          let placeholderCount = 0;
+          if (grSnap && !grSnap.empty) {
+            for (const d of grSnap.docs) {
+              const g = d.data();
+              if (!g || !g.guestName) continue;
+              if (isGasPlaceholder(g.guestName)) {
+                placeholderCount++;
+                continue;
+              }
+              // 実名: 最初に見つかったものを採用 (GAS版も先勝ちでマージ)
+              realRecord = g;
+              break;
             }
           }
+
+          if (!realRecord) {
+            const detail = placeholderCount > 0
+              ? ` (iCal由来の${placeholderCount}行のみ、宿泊者の名簿入力なし)`
+              : " (GAS版に該当行なし)";
+            if (statusEl) statusEl.innerHTML = `<span class="text-warning"><i class="bi bi-hourglass-split"></i> まだ未回答${this.esc(detail)}</span>`;
+            return;
+          }
+
+          if (statusEl) statusEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> 取り込み完了 (${this.esc(realRecord.guestName)})</span>`;
+          // モーダルを閉じてカレンダーを再描画 (取り込んだ名簿を反映)
+          setTimeout(() => {
+            const modalInst = bootstrap.Modal.getInstance(modalEl);
+            if (modalInst) modalInst.hide();
+            if (typeof onGuestCountSaved === "function") onGuestCountSaved();
+          }, 1200);
         } catch (e) {
           if (statusEl) statusEl.innerHTML = `<span class="text-danger">通信失敗: ${this.esc(e.message)}</span>`;
         } finally {
