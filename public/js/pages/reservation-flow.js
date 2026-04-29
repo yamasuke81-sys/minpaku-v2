@@ -2769,12 +2769,21 @@ const ReservationFlowPage = {
       return;
     }
     const overrideEntry = NCE.readChannelValue(block, notifKey, { idPrefix });
+    // 既存のオーバーライドに含まれる、NCE管轄外フィールド (reminderOffset 等) を保持
+    // (全置換で保存すると _saveKeyboxRemindOffset 等の保存内容が消えるため)
+    const prop = this.properties.find(p => p.id === pid);
+    const existing = (prop?.channelOverrides || {})[notifKey] || {};
+    const PRESERVE_KEYS = ["reminderOffset"];
+    PRESERVE_KEYS.forEach(k => {
+      if (existing[k] !== undefined && overrideEntry[k] === undefined) {
+        overrideEntry[k] = existing[k];
+      }
+    });
     try {
       await db.collection("properties").doc(pid).update({
         [`channelOverrides.${notifKey}`]: overrideEntry,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
-      const prop = this.properties.find(p => p.id === pid);
       if (prop) {
         if (!prop.channelOverrides) prop.channelOverrides = {};
         prop.channelOverrides[notifKey] = overrideEntry;
