@@ -1212,7 +1212,11 @@ const ReservationFlowPage = {
     if (!Array.isArray(step.detailFields) || !step.detailFields.length) return guideInfoHtml;
     const pid = property.id;
     const fieldsHtml = step.detailFields.map(fd => {
-      const cur = this._getNested(property, fd.field);
+      let cur = this._getNested(property, fd.field);
+      // キーボックス番号: 物件管理画面 keyboxNumber と相互同期 (片方しか保存されていない場合のフォールバック)
+      if (fd.field === "keyboxCode" && (cur === undefined || cur === null || cur === "")) {
+        cur = property?.keyboxNumber;
+      }
       // 未保存(undefined/null)のときのみデフォルト値を使用。空文字はユーザーの意図として保持する
       const val = (cur === undefined || cur === null) ? (fd.default ?? "") : cur;
       const hintHtml = fd.hint
@@ -2714,6 +2718,11 @@ const ReservationFlowPage = {
         });
       }
     });
+
+    // キーボックス番号: 物件管理画面 keyboxNumber と相互同期 (両方に同じ値を書く)
+    if (propertyFields.keyboxCode !== undefined) {
+      propertyFields.keyboxNumber = propertyFields.keyboxCode;
+    }
 
     try {
       await db.collection("properties").doc(pid).set({

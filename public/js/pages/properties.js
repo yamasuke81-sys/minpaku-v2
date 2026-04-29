@@ -423,7 +423,8 @@ const PropertiesPage = {
     this.toggleInspectionPeriodBlocks(recur);
     recurCb.onchange = () => this.toggleInspectionPeriodBlocks(recurCb.checked);
 
-    document.getElementById("propertyKeyboxNumber").value = property?.keyboxNumber || "";
+    // キーボックス番号: 予約フロー画面の keyboxCode と相互同期 (どちらかに値があれば優先)
+    document.getElementById("propertyKeyboxNumber").value = property?.keyboxNumber || property?.keyboxCode || "";
     // タスク8-2: Wi-Fi SSID/パスワード (旧 wifiInfo は後方互換で読む)
     document.getElementById("propertyWifiSSID").value = property?.wifiSSID || "";
     document.getElementById("propertyWifiPassword").value = property?.wifiPassword || "";
@@ -619,7 +620,9 @@ const PropertiesPage = {
           periodEnd: recur ? null : (document.getElementById("propertyInspectionPeriodEnd").value || null),
         };
       })(),
+      // キーボックス番号: 予約フロー画面の keyboxCode と相互同期 (両方に同じ値を書く)
       keyboxNumber: document.getElementById("propertyKeyboxNumber").value.trim() || null,
+      keyboxCode:   document.getElementById("propertyKeyboxNumber").value.trim() || null,
       // タスク8-2: Wi-Fi SSID/パスワード分割保存
       wifiSSID: document.getElementById("propertyWifiSSID")?.value.trim() || null,
       wifiPassword: document.getElementById("propertyWifiPassword")?.value.trim() || null,
@@ -753,7 +756,9 @@ const PropertiesPage = {
           periodEnd: recur ? null : (document.getElementById("propertyInspectionPeriodEnd").value || null),
         };
       })(),
+      // キーボックス番号: 予約フロー画面の keyboxCode と相互同期 (両方に同じ値を書く)
       keyboxNumber: document.getElementById("propertyKeyboxNumber").value.trim() || null,
+      keyboxCode:   document.getElementById("propertyKeyboxNumber").value.trim() || null,
       // タスク8-2: Wi-Fi SSID/パスワード分割保存
       wifiSSID: document.getElementById("propertyWifiSSID")?.value.trim() || null,
       wifiPassword: document.getElementById("propertyWifiPassword")?.value.trim() || null,
