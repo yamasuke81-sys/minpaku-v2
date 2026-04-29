@@ -962,6 +962,17 @@ const DashboardPage = {
       ? '<span class="badge bg-success"><i class="bi bi-check-circle"></i> 名簿記入済み</span>'
       : '<span class="badge bg-danger"><i class="bi bi-exclamation-circle"></i> 名簿未記入</span>';
 
+    // GAS版インポートボタン (Webアプリ管理者のみ・CI日が確定している場合)
+    const isOwnerForBtn = (typeof Auth !== "undefined") && Auth?.isOwner?.();
+    const gasImportBtn = (isOwnerForBtn && !isStaffView && ci)
+      ? `<button type="button" class="btn btn-outline-info btn-sm py-0 px-2" id="btnGasImportForBooking"
+           data-ci="${this.esc(ci)}" data-pid="${this.esc(b.propertyId || "")}"
+           style="font-size:0.75rem;" title="GAS版スプレッドシートから ${this.esc(ci)} の宿泊者名簿を取り込み">
+           <i class="bi bi-cloud-download"></i> GAS版から取り込み
+         </button>
+         <span id="gasImportStatusInline" class="small ms-1"></span>`
+      : "";
+
     // CO日の清掃募集を検索
     const recruit = co ? recruitments.find(r => this.toDateStr(r.checkoutDate) === co) : null;
     let cleaningHtml = '<span class="text-muted">募集なし</span>';
@@ -1151,7 +1162,7 @@ const DashboardPage = {
     // staff & visibility 両方を満たす場合のみ表示
     const fRowStaff = (fieldId, sectionId, html) => (isStaffView ? "" : fRow(fieldId, sectionId, html));
     document.getElementById("calEventBody").innerHTML = `
-      <div class="d-flex gap-2 mb-3">${rosterBadge}</div>
+      <div class="d-flex gap-2 mb-3 flex-wrap align-items-center">${rosterBadge}${gasImportBtn}</div>
 
       <h6 class="mb-2 text-primary">基本情報</h6>
       <table class="table table-sm table-borderless mb-2">
@@ -1346,6 +1357,72 @@ const DashboardPage = {
         }, 180);
       });
     });
+
+    // GAS版インポートボタン (該当 CI 日の宿泊者名簿を取り込み)
+    const btnGasImport = document.getElementById("btnGasImportForBooking");
+    if (btnGasImport) {
+      btnGasImport.addEventListener("click", async () => {
+        const ciDate = btnGasImport.dataset.ci;
+        const statusEl = document.getElementById("gasImportStatusInline");
+        if (!ciDate) {
+          if (statusEl) statusEl.innerHTML = `<span class="text-danger">CI日が不明です</span>`;
+          return;
+        }
+        const dbi = firebase.firestore();
+        // settings/notifications から GAS Web App URL/Secret を取得
+        let gasUrl = "", gasSecret = "";
+        try {
+          const sDoc = await dbi.collection("settings").doc("notifications").get();
+          if (sDoc.exists) {
+            const sd = sDoc.data();
+            gasUrl = sd.gasSyncWebAppUrl || "";
+            gasSecret = sd.gasSecret || "";
+          }
+        } catch (_) {}
+        if (!gasUrl) {
+          if (statusEl) statusEl.innerHTML = `<span class="text-danger">GAS Web App URL 未設定 (宿泊者名簿画面で設定)</span>`;
+          return;
+        }
+        btnGasImport.disabled = true;
+        const origHtml = btnGasImport.innerHTML;
+        btnGasImport.innerHTML = `<span class="spinner-border spinner-border-sm"></span> 取得中...`;
+        if (statusEl) statusEl.innerHTML = "";
+        try {
+          const params = new URLSearchParams({ from: ciDate, to: ciDate, secret: gasSecret });
+          const res = await fetch(`${gasUrl}?${params.toString()}`);
+          const text = await res.text();
+          let data;
+          try { data = JSON.parse(text); } catch { data = { message: text }; }
+          if (data.error) {
+            if (statusEl) statusEl.innerHTML = `<span class="text-danger">エラー: ${this.esc(String(data.error))}</span>`;
+          } else {
+            // 取り込み件数判定: count / imported.length / inserted+updated を順に確認
+            const count = (typeof data.count === "number") ? data.count
+              : Array.isArray(data.imported) ? data.imported.length
+              : (typeof data.inserted === "number" || typeof data.updated === "number")
+                ? ((data.inserted || 0) + (data.updated || 0))
+                : null;
+            if (count === 0) {
+              if (statusEl) statusEl.innerHTML = `<span class="text-warning"><i class="bi bi-hourglass-split"></i> まだ未回答</span>`;
+            } else {
+              const msg = (count !== null) ? `${count}件取り込みました` : (data.message || "取り込み完了");
+              if (statusEl) statusEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> ${this.esc(String(msg))}</span>`;
+              // モーダルを閉じてカレンダーを再描画 (取り込んだ名簿を反映)
+              setTimeout(() => {
+                const modalInst = bootstrap.Modal.getInstance(modalEl);
+                if (modalInst) modalInst.hide();
+                if (typeof onGuestCountSaved === "function") onGuestCountSaved();
+              }, 1200);
+            }
+          }
+        } catch (e) {
+          if (statusEl) statusEl.innerHTML = `<span class="text-danger">通信失敗: ${this.esc(e.message)}</span>`;
+        } finally {
+          btnGasImport.disabled = false;
+          btnGasImport.innerHTML = origHtml;
+        }
+      });
+    }
 
     // 人数保存ボタンのイベントハンドラ
     const btnSave = document.getElementById("btnSaveGuestCount");
