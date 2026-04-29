@@ -2773,7 +2773,7 @@ const ReservationFlowPage = {
     // (全置換で保存すると _saveKeyboxRemindOffset 等の保存内容が消えるため)
     const prop = this.properties.find(p => p.id === pid);
     const existing = (prop?.channelOverrides || {})[notifKey] || {};
-    const PRESERVE_KEYS = ["reminderOffset"];
+    const PRESERVE_KEYS = ["reminderOffset", "reminderTiming"];
     PRESERVE_KEYS.forEach(k => {
       if (existing[k] !== undefined && overrideEntry[k] === undefined) {
         overrideEntry[k] = existing[k];

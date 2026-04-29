@@ -148,9 +148,11 @@ const CleaningFlowPage = {
       icon: "bi-search",
       lane: "owner",
       phase: 2,
-      unimplemented: true, // バックエンド通知未実装
+      // unimplemented 削除: inspection_reminder バックエンド実装済み
       propertyField: "inspection.enabled",
-      hint: "有効にすると、チェックアウト同日に直前点検シフトが自動生成されます (workType=pre_inspection)。点検設定は物件管理ページで詳細設定できます。",
+      globalChannel: "inspection_reminder",
+      varGroup: "inspection",
+      hint: "有効にすると、チェックアウト同日に直前点検シフトが自動生成され、チェックイン前日に担当者へ通知が届きます。点検設定は物件管理ページで詳細設定できます。",
       linkHash: "#/properties",
       linkLabel: "物件編集→点検設定",
       // 詳細設定 (物件別保存: properties/{pid}.inspection.*)
@@ -1224,7 +1226,7 @@ const CleaningFlowPage = {
     // (全置換で上書きすると別ルートで保存したフィールドが消えるため reservation-flow.js と同じ方式)
     const prop = this.properties.find(p => p.id === pid);
     const existing = (prop?.channelOverrides || {})[notifKey] || {};
-    const PRESERVE_KEYS = ["reminderOffset"];
+    const PRESERVE_KEYS = ["reminderOffset", "reminderTiming"];
     PRESERVE_KEYS.forEach(k => {
       if (existing[k] !== undefined && overrideEntry[k] === undefined) {
         overrideEntry[k] = existing[k];

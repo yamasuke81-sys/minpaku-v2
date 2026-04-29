@@ -110,27 +110,34 @@ module.exports = async function onChecklistComplete(event) {
     } catch (_) { /* ログ書き込み失敗は無視 */ }
   }
 
-  // ---- 処理C: スタッフにランドリー入力リマインド ----
-  if (staffId) {
+  // ---- 処理C: ランドリー入力リマインド (物件別設定対応) ----
+  // notifyByKey で物件別 channelOverrides.laundry_reminder を読み ON/OFFを判定
+  try {
+    const vars = {
+      date: dateStr,
+      property: propertyName || "",
+      staff: staffName || "",
+      url: checklistUrl,
+    };
+    const staffMsg = `🧺 ランドリーを使用した場合は記録をお願いします\n\n${dateStr} ${propertyName || ""}\n入力: ${checklistUrl}`;
+    // staffId が特定できる場合はそのスタッフのみ、不明なら active 全員に staffLine 送信
+    const staffIds = staffId ? [staffId] : null;
+    await notifyByKey(db, "laundry_reminder", {
+      title: "ランドリー入力リマインド",
+      body: staffMsg,
+      vars,
+      propertyId: propertyId || null,
+      staffIds,
+    });
+  } catch (e) {
+    console.error("ランドリーリマインド通知エラー:", e);
     try {
-      const vars = {
-        date: dateStr,
-        property: propertyName || "",
-        staff: staffName || "",
-        url: checklistUrl,
-      };
-      const staffMsg = `🧺 ランドリーの入力をお願いします\n\n${dateStr} ${propertyName || ""}\n清掃お疲れさまでした。ランドリーの使用がある場合は入力をお願いします。\n詳細: ${checklistUrl}`;
-      await notifyStaff(db, staffId, "laundry_reminder", "ランドリー入力リマインド", staffMsg, vars, propertyOverrides);
-    } catch (e) {
-      console.error("スタッフ通知エラー:", e);
-      try {
-        await db.collection("error_logs").add({
-          type: "onChecklistComplete_staffNotify",
-          message: e.message,
-          staffId,
-          createdAt: new Date(),
-        });
-      } catch (_) { /* ログ書き込み失敗は無視 */ }
-    }
+      await db.collection("error_logs").add({
+        type: "onChecklistComplete_laundryReminder",
+        message: e.message,
+        staffId: staffId || null,
+        createdAt: new Date(),
+      });
+    } catch (_) { /* ログ書き込み失敗は無視 */ }
   }
 };

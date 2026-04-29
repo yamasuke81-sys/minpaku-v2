@@ -394,6 +394,13 @@ exports.staffUndecidedRemind = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/staffUndecidedRemind"));
 
+// 直前点検リマインド（毎時実行）— inspection.enabled=true 物件のチェックイン前日に通知
+exports.sendInspectionReminder = onSchedule({
+  schedule: "0 * * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/sendInspectionReminder"));
+
 // 予約確認メール（bookings 新規作成時 → ゲストへ名簿フォームURL送信）
 exports.onBookingConfirmMail = onDocumentCreated(
   { document: "bookings/{bookingId}", region: "asia-northeast1" },

@@ -77,6 +77,13 @@
       { name: "time",     label: "実施時刻",         sample: "19:30",       source: "checklist.laundry.*.at" },
       { name: "url",      label: "チェックリストURL", sample: "https://minpaku-v2.web.app/#/my-checklist/xxx", source: "自動生成 (該当シフトのチェックリストページ)" },
     ],
+    inspection: [
+      { name: "date",     label: "チェックイン日",   sample: "2026/04/20",   source: "booking.checkIn" },
+      { name: "property", label: "物件名",          sample: "長浜民泊A",     source: "booking.propertyName" },
+      { name: "guest",    label: "ゲスト名",         sample: "John Smith",  source: "booking.guestName" },
+      { name: "checkin",  label: "チェックイン日",   sample: "2026/04/20",   source: "booking.checkIn" },
+      { name: "checkout", label: "チェックアウト日",  sample: "2026/04/22",  source: "booking.checkOut" },
+    ],
   };
 
   // ========== 通知定義 ==========
@@ -149,6 +156,10 @@
     { key: "keybox_remind", label: "キーボックス送信リマインド (OKボタン未押下)", desc: "OKボタン未押下のためキーボックス情報が未送信の場合にWebアプリ管理者へ警告", icon: "bi-key-fill", group: "booking", varGroup: "booking", defaultTiming: "immediate",
       defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: false,
       defaultMsg: "⚠️ キーボックス情報未送信\n\nゲスト: {guest}\nCI: {checkin}\nOKボタンが未押下のため送信がスケジュールされていません。\n確認: {url}" },
+    // 直前点検リマインド
+    { key: "inspection_reminder", label: "直前点検リマインド", desc: "チェックイン前日(デフォルト)に物件オーナー/管理者に直前点検を通知", icon: "bi-search", group: "cleaning", varGroup: "inspection", defaultTiming: "beforeEvent",
+      defaultEnabled: false, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: false,
+      defaultMsg: "🔍 直前点検リマインド\n\n{date} チェックイン前の点検をお忘れなく\n物件: {property}\nゲスト: {guest}" },
   ];
 
   function findNotification(key) {
@@ -383,23 +394,34 @@
     const mode = ch.laundryTimingMode || "after_cleaning_hours";
     const hours = ch.laundryTimingHours !== undefined ? ch.laundryTimingHours : 2;
     const days = ch.laundryTimingDays !== undefined ? ch.laundryTimingDays : 0;
+    // 翌朝指定時刻モード: laundryTimingTime に "HH:MM" を保存
+    const nextMorningTime = ch.laundryTimingTime || "06:00";
+    const isHours = mode === "after_cleaning_hours" || mode === "after_checklist_complete";
+    const isDays  = mode === "after_cleaning_days";
+    const isTime  = mode === "next_morning_time";
     return `
       <div class="mb-2 laundry-timing-wrap" data-key="${dk}">
         <div class="small text-muted mb-1"><i class="bi bi-clock"></i> 通知タイミング（清掃日基準）</div>
         <div class="d-flex flex-wrap align-items-center gap-2">
           <select class="form-select form-select-sm laundry-timing-mode" style="width:auto;" data-key="${dk}" data-field="laundryTimingMode">
-            <option value="after_cleaning_hours" ${mode==="after_cleaning_hours"?"selected":""}>清掃日の N時間後</option>
-            <option value="after_cleaning_days"  ${mode==="after_cleaning_days"?"selected":""}>清掃日の N日後</option>
+            <option value="after_cleaning_hours"     ${mode==="after_cleaning_hours"?"selected":""}>清掃日の N時間後</option>
+            <option value="after_cleaning_days"      ${mode==="after_cleaning_days"?"selected":""}>清掃日の N日後</option>
             <option value="after_checklist_complete" ${mode==="after_checklist_complete"?"selected":""}>清掃完了報告から N時間後</option>
+            <option value="next_morning_time"        ${mode==="next_morning_time"?"selected":""}>翌朝 指定時刻に送信</option>
           </select>
-          <input type="number" class="form-control form-control-sm laundry-timing-hours ${mode==="after_cleaning_days"?"d-none":""}"
+          <input type="number" class="form-control form-control-sm laundry-timing-hours ${!isHours?"d-none":""}"
             style="width:75px;" data-key="${dk}" data-field="laundryTimingHours"
             value="${hours}" min="0" max="72" placeholder="時間">
-          <span class="small laundry-timing-hours-suffix ${mode==="after_cleaning_days"?"d-none":""}">時間後</span>
-          <input type="number" class="form-control form-control-sm laundry-timing-days ${mode!=="after_cleaning_days"?"d-none":""}"
+          <span class="small laundry-timing-hours-suffix ${!isHours?"d-none":""}">時間後</span>
+          <input type="number" class="form-control form-control-sm laundry-timing-days ${!isDays?"d-none":""}"
             style="width:75px;" data-key="${dk}" data-field="laundryTimingDays"
             value="${days}" min="0" max="7" placeholder="日">
-          <span class="small laundry-timing-days-suffix ${mode!=="after_cleaning_days"?"d-none":""}">日後</span>
+          <span class="small laundry-timing-days-suffix ${!isDays?"d-none":""}">日後</span>
+          <!-- 翌朝指定時刻入力 -->
+          <input type="time" class="form-control form-control-sm laundry-timing-time ${!isTime?"d-none":""}"
+            style="width:120px;" data-key="${dk}" data-field="laundryTimingTime"
+            value="${nextMorningTime}">
+          <span class="small laundry-timing-time-suffix ${!isTime?"d-none":""}">に送信</span>
         </div>
         <div class="small text-muted mt-1" style="font-size:0.72rem;"><i class="bi bi-info-circle"></i> バックエンドが清掃日 (shifts.date) を基準に計算して条件を満たす予約に送信します。</div>
       </div>
@@ -530,6 +552,10 @@
     const laundryTimingDays = laundryWrap
       ? (parseInt(laundryWrap.querySelector(`input[data-field="laundryTimingDays"]`)?.value, 10) || 0)
       : undefined;
+    // 翌朝指定時刻モード用フィールド
+    const laundryTimingTime = laundryWrap
+      ? (laundryWrap.querySelector(`input[data-field="laundryTimingTime"]`)?.value || "06:00")
+      : undefined;
 
     const entry = {
       enabled: get("enabled"),
@@ -546,7 +572,7 @@
       fcmOwner: get("fcmOwner"),
       customMessage: ta ? ta.value : "",
       timings,
-      ...(laundryTimingMode !== undefined ? { laundryTimingMode, laundryTimingHours, laundryTimingDays } : {}),
+      ...(laundryTimingMode !== undefined ? { laundryTimingMode, laundryTimingHours, laundryTimingDays, laundryTimingTime } : {}),
     };
     // 後方互換: 旧UIの単一フィールドにも代表値を埋める
     if (timings[0]) {
@@ -711,11 +737,16 @@
         const dk2 = t.dataset.key;
         const wrap = container.querySelector(`.laundry-timing-wrap[data-key="${cssEsc(dk2)}"]`);
         if (wrap) {
-          const isDays = t.value === "after_cleaning_days";
-          wrap.querySelector(".laundry-timing-hours")?.classList.toggle("d-none", isDays);
-          wrap.querySelector(".laundry-timing-hours-suffix")?.classList.toggle("d-none", isDays);
+          const val = t.value;
+          const isDays = val === "after_cleaning_days";
+          const isTime = val === "next_morning_time";
+          const isHours = val === "after_cleaning_hours" || val === "after_checklist_complete";
+          wrap.querySelector(".laundry-timing-hours")?.classList.toggle("d-none", !isHours);
+          wrap.querySelector(".laundry-timing-hours-suffix")?.classList.toggle("d-none", !isHours);
           wrap.querySelector(".laundry-timing-days")?.classList.toggle("d-none", !isDays);
           wrap.querySelector(".laundry-timing-days-suffix")?.classList.toggle("d-none", !isDays);
+          wrap.querySelector(".laundry-timing-time")?.classList.toggle("d-none", !isTime);
+          wrap.querySelector(".laundry-timing-time-suffix")?.classList.toggle("d-none", !isTime);
         }
       }
 
