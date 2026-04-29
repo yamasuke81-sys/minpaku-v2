@@ -1220,12 +1220,21 @@ const CleaningFlowPage = {
     const block = wrap.querySelector(`.cf-shared-notify[data-pid="${pid}"][data-notif-key="${notifKey}"]`);
     if (!block) return;
     const overrideEntry = NCE.readChannelValue(block, notifKey, { idPrefix });
+    // NCE管轄外フィールド (reminderOffset 等) を既存値から保持
+    // (全置換で上書きすると別ルートで保存したフィールドが消えるため reservation-flow.js と同じ方式)
+    const prop = this.properties.find(p => p.id === pid);
+    const existing = (prop?.channelOverrides || {})[notifKey] || {};
+    const PRESERVE_KEYS = ["reminderOffset"];
+    PRESERVE_KEYS.forEach(k => {
+      if (existing[k] !== undefined && overrideEntry[k] === undefined) {
+        overrideEntry[k] = existing[k];
+      }
+    });
     try {
       await db.collection("properties").doc(pid).update({
         [`channelOverrides.${notifKey}`]: overrideEntry,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
-      const prop = this.properties.find(p => p.id === pid);
       if (prop) {
         if (!prop.channelOverrides) prop.channelOverrides = {};
         prop.channelOverrides[notifKey] = overrideEntry;
