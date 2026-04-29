@@ -1358,18 +1358,10 @@ const CleaningFlowPage = {
     if (!wrap) return;
 
     const cleaningFlow = {};
-    const propertyFields = {};
-
-    // ドット記法で propertyFields にネスト値をセット
-    const setNested = (obj, path, value) => {
-      const parts = path.split(".");
-      let cur = obj;
-      for (let i = 0; i < parts.length - 1; i++) {
-        if (!cur[parts[i]] || typeof cur[parts[i]] !== "object") cur[parts[i]] = {};
-        cur = cur[parts[i]];
-      }
-      cur[parts[parts.length - 1]] = value;
-    };
+    // Firestore update() 用フラットフィールドマップ (ドット記法キー)
+    // ネストオブジェクトを set({merge:true}) で上書きすると既存サブフィールドが消えるため
+    // update() + ドット記法パスで個別フィールドのみ更新する
+    const flatFields = {};
 
     this.STEPS.forEach(step => {
       const toggleEl = wrap.querySelector(`.rf-toggle[data-step="${step.key}"][data-pid="${pid}"]`);
@@ -1378,8 +1370,8 @@ const CleaningFlowPage = {
       const memo     = memoEl   ? (memoEl.value || "") : "";
 
       if (step.propertyField) {
-        // ドット記法対応
-        setNested(propertyFields, step.propertyField, enabled);
+        // ドット記法パスをそのままキーとして使う (例: "inspection.enabled")
+        flatFields[step.propertyField] = enabled;
         cleaningFlow[step.key] = { memo };
       } else if (step.globalChannel) {
         // ON/OFFは globalChannel 側で保存するため、ここではメモのみ
@@ -1388,7 +1380,7 @@ const CleaningFlowPage = {
         cleaningFlow[step.key] = { enabled, memo };
       }
 
-      // detailFields の値を収集
+      // detailFields の値を個別フィールドとして収集
       if (Array.isArray(step.detailFields)) {
         step.detailFields.forEach(fd => {
           const el = wrap.querySelector(
@@ -1404,23 +1396,34 @@ const CleaningFlowPage = {
           } else {
             val = el.value || "";
           }
-          setNested(propertyFields, fd.field, val);
+          // ドット記法パスをそのままキーとして使う (例: "inspection.requiredCount")
+          flatFields[fd.field] = val;
         });
       }
     });
 
     try {
-      await db.collection("properties").doc(pid).set({
-        ...propertyFields,
+      // update() でドット記法フィールドを個別更新 → 既存サブフィールド (recurStart 等) を保持
+      await db.collection("properties").doc(pid).update({
+        ...flatFields,
         cleaningFlow,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      }, { merge: true });
+      });
 
-      // ローカルキャッシュ更新
+      // ローカルキャッシュ更新 (ドット記法パスを解析して setNested)
       const prop = this.properties.find(p => p.id === pid);
       if (prop) {
         prop.cleaningFlow = cleaningFlow;
-        Object.assign(prop, propertyFields);
+        const setNested = (obj, path, value) => {
+          const parts = path.split(".");
+          let cur = obj;
+          for (let i = 0; i < parts.length - 1; i++) {
+            if (!cur[parts[i]] || typeof cur[parts[i]] !== "object") cur[parts[i]] = {};
+            cur = cur[parts[i]];
+          }
+          cur[parts[parts.length - 1]] = value;
+        };
+        Object.entries(flatFields).forEach(([path, val]) => setNested(prop, path, val));
       }
       this._showStatus("saved");
     } catch (e) {
