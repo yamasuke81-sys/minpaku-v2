@@ -155,13 +155,15 @@ const CleaningFlowPage = {
       hint: "有効にすると、チェックアウト同日に直前点検シフトが自動生成され、チェックイン前日に担当者へ通知が届きます。点検設定は物件管理ページで詳細設定できます。",
       linkHash: "#/properties",
       linkLabel: "物件編集→点検設定",
-      // 詳細設定 (物件別保存: properties/{pid}.inspection.*)
+      // 詳細設定 (物件別保存: properties/{pid}.inspection.* と top-level inspectionStartTime)
+      // 物件管理画面と完全同期: 同じフィールドへ読み書きするため自動的に相互同期
       detailFields: [
         { field: "inspection.requiredCount", label: "必要人数", type: "number",
           min: 1, max: 3, default: 1 },
+        { field: "inspectionStartTime",      label: "直前点検開始時間", type: "time", default: "10:00" },
         { field: "inspection.periodStart",   label: "期間 開始", type: "date", default: "" },
         { field: "inspection.periodEnd",     label: "期間 終了", type: "date", default: "" },
-        { field: "inspection.recurYearly",   label: "毎年繰り返す", type: "checkbox", default: false },
+        { field: "inspection.recurYearly",   label: "毎年繰り返す (月日だけ指定、年をまたいで毎年同じ期間)", type: "checkbox", default: false },
       ],
     },
 
@@ -358,8 +360,15 @@ const CleaningFlowPage = {
       } else {
         inputHtml = `<input type="text" ${commonAttrs} placeholder="${this._esc(fd.placeholder || "")}" value="${this._esc(val)}">`;
       }
+      // 直前点検: periodStart/periodEnd は recurYearly=true 時に非表示 (物件管理画面と同等の挙動)
+      let wrapperCls = "mb-2";
+      let wrapperStyle = "";
+      if (step.key === "inspection" && (fd.field === "inspection.periodStart" || fd.field === "inspection.periodEnd")) {
+        wrapperCls += " cf-inspection-period-input";
+        wrapperStyle = (property.inspection?.recurYearly) ? "display:none;" : "";
+      }
       return `
-        <div class="mb-2">
+        <div class="${wrapperCls}" data-pid="${pid}" style="${wrapperStyle}">
           <label class="form-label small mb-1" for="${inputId}">${this._esc(fd.label)}</label>
           ${inputHtml}
           ${hintHtml}
@@ -377,6 +386,9 @@ const CleaningFlowPage = {
          </div>`
       : "";
 
+    // inspection ステップ専用: 毎年繰り返し用の月/日プルダウン4つを追加
+    const extraHtml = (step.key === "inspection") ? this._renderInspectionRecurBlock(property) : "";
+
     return `
       <div class="rf-detail-panel mt-2 p-2 border rounded" style="background:#f8fafc;">
         <div class="small fw-semibold mb-2">
@@ -385,6 +397,56 @@ const CleaningFlowPage = {
         ${varsHint}
         ${noteHtml}
         ${fieldsHtml}
+        ${extraHtml}
+      </div>
+    `;
+  },
+
+  // 直前点検: 毎年繰り返し用 月/日プルダウン4つ (物件管理画面と同等のUI)
+  // 値は properties/{pid}.inspection.recurStart, recurEnd ("MM-DD" 形式) に保存
+  _renderInspectionRecurBlock(property) {
+    const pid = property.id;
+    const inspection = property.inspection || {};
+    const recur = !!inspection.recurYearly;
+    const rs = (inspection.recurStart || "").split("-");
+    const re = (inspection.recurEnd   || "").split("-");
+    const rsm = rs[0] ? String(Number(rs[0])) : "5";
+    const rsd = rs[1] ? String(Number(rs[1])) : "1";
+    const rem = re[0] ? String(Number(re[0])) : "10";
+    const red = re[1] ? String(Number(re[1])) : "31";
+
+    const monthOpts = (sel) => Array.from({ length: 12 }, (_, i) => {
+      const v = String(i + 1);
+      return `<option value="${v}" ${v === sel ? "selected" : ""}>${v}月</option>`;
+    }).join("");
+    const dayOpts = (sel) => Array.from({ length: 31 }, (_, i) => {
+      const v = String(i + 1);
+      return `<option value="${v}" ${v === sel ? "selected" : ""}>${v}日</option>`;
+    }).join("");
+
+    return `
+      <div class="cf-inspection-recur-block mt-2 p-2 border rounded" data-pid="${pid}"
+           style="background:#fff; ${recur ? "" : "display:none;"}">
+        <div class="small fw-semibold mb-2"><i class="bi bi-arrow-repeat"></i> 毎年繰り返し期間 (月日のみ)</div>
+        <div class="row g-2">
+          <div class="col-6 col-md-3">
+            <label class="form-label small mb-1">開始月</label>
+            <select class="form-select form-select-sm cf-inspection-recur-input" data-pid="${pid}" data-field="recurStartMonth">${monthOpts(rsm)}</select>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label small mb-1">開始日</label>
+            <select class="form-select form-select-sm cf-inspection-recur-input" data-pid="${pid}" data-field="recurStartDay">${dayOpts(rsd)}</select>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label small mb-1">終了月</label>
+            <select class="form-select form-select-sm cf-inspection-recur-input" data-pid="${pid}" data-field="recurEndMonth">${monthOpts(rem)}</select>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label small mb-1">終了日</label>
+            <select class="form-select form-select-sm cf-inspection-recur-input" data-pid="${pid}" data-field="recurEndDay">${dayOpts(red)}</select>
+          </div>
+        </div>
+        <div class="form-text small" style="font-size:0.7rem;">例: 5/1〜10/31 で毎年夏場のみ募集</div>
       </div>
     `;
   },
@@ -1067,7 +1129,21 @@ const CleaningFlowPage = {
     });
 
     wrap.addEventListener("change", (e) => {
+      // 直前点検: 毎年繰り返し用 月/日プルダウンの変更 → 物件保存をトリガー
+      if (e.target.classList.contains("cf-inspection-recur-input")) {
+        this._queueSave(e.target.dataset.pid, "inspection");
+        return;
+      }
       if (e.target.classList.contains("rf-detail-input")) {
+        // 直前点検: recurYearly チェックボックスの状態に応じて月日プルダウン/期間date入力を切替
+        if (e.target.dataset.field === "inspection.recurYearly") {
+          const pid = e.target.dataset.pid;
+          const block = wrap.querySelector(`.cf-inspection-recur-block[data-pid="${pid}"]`);
+          if (block) block.style.display = e.target.checked ? "" : "none";
+          wrap.querySelectorAll(`.cf-inspection-period-input[data-pid="${pid}"]`).forEach(el => {
+            el.style.display = e.target.checked ? "none" : "";
+          });
+        }
         this._queueSave(e.target.dataset.pid, e.target.dataset.step);
         return;
       }
@@ -1399,6 +1475,27 @@ const CleaningFlowPage = {
           // ドット記法パスをそのままキーとして使う (例: "inspection.requiredCount")
           flatFields[fd.field] = val;
         });
+      }
+
+      // 直前点検: 月/日プルダウン4つから recurStart/recurEnd を組み立て、recurYearly に応じて period* と排他制御
+      if (step.key === "inspection") {
+        const block = wrap.querySelector(`.cf-inspection-recur-block[data-pid="${pid}"]`);
+        const recurOn = !!flatFields["inspection.recurYearly"];
+        if (block) {
+          const get = (field) => block.querySelector(`.cf-inspection-recur-input[data-field="${field}"]`)?.value || "";
+          const pad = (s) => String(Number(s) || 0).padStart(2, "0");
+          const rsm = get("recurStartMonth"), rsd = get("recurStartDay");
+          const rem = get("recurEndMonth"),   red = get("recurEndDay");
+          if (recurOn) {
+            flatFields["inspection.recurStart"] = `${pad(rsm)}-${pad(rsd)}`;
+            flatFields["inspection.recurEnd"]   = `${pad(rem)}-${pad(red)}`;
+            flatFields["inspection.periodStart"] = null;
+            flatFields["inspection.periodEnd"]   = null;
+          } else {
+            flatFields["inspection.recurStart"] = null;
+            flatFields["inspection.recurEnd"]   = null;
+          }
+        }
       }
     });
 
