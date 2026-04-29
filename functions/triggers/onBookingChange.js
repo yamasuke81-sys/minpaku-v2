@@ -421,6 +421,42 @@ module.exports = async function onBookingChange(event) {
     return;
   }
 
+  // ========== メール照合保留ガード ==========
+  // pendingApproval=true (Airbnbの保留中リクエスト等) の予約は募集生成・通知をスキップ
+  // → 確定メール受信で emailVerificationCore が pendingApproval=false に降ろした瞬間、
+  //   bookings 更新イベントとして再発火し、ここを通過して募集生成
+  if (after.pendingApproval === true) {
+    console.log(`予約 ${bookingId}: pendingApproval=true (メール承認待ち) のため募集生成スキップ`);
+    return;
+  }
+  // 念のため emailVerifications 側も直接確認 (pendingApproval が立つ前にレースする場合の保険)
+  try {
+    const evSnap = await db.collection("emailVerifications")
+      .where("propertyId", "==", propertyId)
+      .where("matchStatus", "==", "pending_request")
+      .get();
+    const hasPending = evSnap.docs.some(d => {
+      const ext = d.data().extractedInfo || {};
+      const ci = ext.checkIn && ext.checkIn.date;
+      return ci === checkIn;
+    });
+    if (hasPending) {
+      console.log(`予約 ${bookingId}: emailVerifications に pending_request あり (CI=${checkIn}) → 募集生成スキップ`);
+      // bookings にもフラグを立てておく (確定メール受信で false に降ろされて再発火させるため)
+      try {
+        await db.collection("bookings").doc(bookingId).update({
+          pendingApproval: true,
+          updatedAt: admin_module.firestore.FieldValue.serverTimestamp(),
+        });
+      } catch (e) {
+        console.error("pendingApproval 立て直しエラー:", e);
+      }
+      return;
+    }
+  } catch (e) {
+    console.error("emailVerifications 確認エラー:", e);
+  }
+
   // ========== D-1: ダブルブッキング検知 ==========
   // 新規作成 or 日程変更時に、同物件の active 予約と重複チェック
   // ※ 募集重複チェック等の早期 return より前に実行して確実に動かす

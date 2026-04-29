@@ -315,6 +315,36 @@ async function emailVerificationCore(db, opts = {}) {
           // 処理済マークは emailVerifications/{messageId} ドキュメント存在で判定するため
           // Gmail ラベル付与 (gmail.modify スコープ要) は行わない
 
+          // ===== 保留中→確定 連動: bookings.pendingApproval を false に降ろす =====
+          // confirmed メール受信で対応 booking が見つかれば、pendingApproval=false に更新
+          // → onBookingChange が更新イベントで再発火し、募集生成が走る
+          if (extractedInfo && extractedInfo.kind === "confirmed" && bookingMatch && bookingMatch.id) {
+            try {
+              await db.collection("bookings").doc(bookingMatch.id).update({
+                pendingApproval: false,
+                pendingApprovalResolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
+              console.log(`[emailVerification] pendingApproval=false に降下 (confirmed): booking=${bookingMatch.id}`);
+            } catch (e) {
+              console.error(`[emailVerification] pendingApproval 降下エラー:`, e.message);
+            }
+          }
+
+          // ===== 保留中メール検出時: bookings.pendingApproval=true をセット =====
+          // pending_request メールが届いて対応 booking がある場合、フラグを立てて募集生成をブロック
+          if (matchStatus === "pending_request" && bookingMatch && bookingMatch.id) {
+            try {
+              await db.collection("bookings").doc(bookingMatch.id).update({
+                pendingApproval: true,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
+              console.log(`[emailVerification] pendingApproval=true をセット: booking=${bookingMatch.id}`);
+            } catch (e) {
+              console.error(`[emailVerification] pendingApproval セットエラー:`, e.message);
+            }
+          }
+
           // ===== 案B: チェーン追跡 =====
           // 新しい confirmed メールが保存された場合、同じ物件+チェックイン日の
           // pending_request エントリを resolved_to_confirmed に更新

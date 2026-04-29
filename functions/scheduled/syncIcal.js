@@ -273,6 +273,12 @@ async function syncIcal() {
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
 
+        // Airbnb で guestName が "Reserved" のまま (=保留中の可能性) は pendingApproval=true で取り込む
+        // → onBookingChange は pendingApproval=true なら募集生成・通知をスキップする
+        // → メール照合(emailVerificationCore)で確定メールが見つかった瞬間に false に降ろされ、再発火で募集が走る
+        const isReservedPlaceholder = platform === "Airbnb"
+          && /^reserved$/i.test(String(resolvedGuestName || "").trim());
+
         if (!existing.exists) {
           bookingData.createdAt = admin.firestore.FieldValue.serverTimestamp();
           bookingData.guestCount = 0;
@@ -281,6 +287,10 @@ async function syncIcal() {
           bookingData.parking = false;
           bookingData.nationality = "";
           bookingData.notes = event.description || "";
+          if (isReservedPlaceholder) {
+            bookingData.pendingApproval = true;
+            console.log(`[syncIcal] 保留扱いで取り込み (pendingApproval=true): ${platform} ${checkIn}〜${checkOut} (Reservedのまま)`);
+          }
         } else {
           // 既存データの手動編集を上書きしない（guestNameが実名なら保持）
           const existData = existing.data();
