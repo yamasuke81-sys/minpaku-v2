@@ -1162,14 +1162,17 @@ const DashboardPage = {
         // 代表者情報セクション (国籍/年齢=companions, 他=companions/survey)
         // 電話番号: phone と phone2 を両方表示する場合は「/」連結、片方のみなら片方
         const phoneCombined = [guestData.phone, guestData.phone2].filter(Boolean).join(" / ");
+        // 注: 代表者の連絡情報 (氏名/電話番号/メール 等) は予約管理上必須なので
+        //     物件のフォーム表示設定 (isFieldVisible) に関係なく**常に表示**する。
+        //     スタッフ視点では isStaffView の判定で個別に隠す。
         const rows = [
-          fRow("nationality", "companions", `<tr><th width="110" class="text-muted">国籍</th><td>${v(guestData.nationality || b.nationality)}</td></tr>`),
-          fRow("repAge", "companions", `<tr><th width="110" class="text-muted">年齢</th><td>${v(repAge)}</td></tr>`),
-          fRowStaff("g-address", "companions", `<tr><th width="110" class="text-muted">住所</th><td>${v(guestData.address)}</td></tr>`),
-          fRowStaff("g-phone", "companions", `<tr><th width="110" class="text-muted">電話番号</th><td>${v(phoneCombined)}</td></tr>`),
-          fRowStaff("g-email", "companions", `<tr><th width="110" class="text-muted">メール</th><td>${v(guestData.email)}</td></tr>`),
-          fRowStaff("g-passport", "companions", `<tr><th width="110" class="text-muted">旅券番号</th><td>${v(guestData.passportNumber)}</td></tr>`),
-          fRowStaff("purpose", "survey", `<tr><th width="110" class="text-muted">旅の目的</th><td>${v(guestData.purpose)}</td></tr>`),
+          `<tr><th width="110" class="text-muted">国籍</th><td>${v(guestData.nationality || b.nationality)}</td></tr>`,
+          `<tr><th width="110" class="text-muted">年齢</th><td>${v(repAge)}</td></tr>`,
+          isStaffView ? "" : `<tr><th width="110" class="text-muted">住所</th><td>${v(guestData.address)}</td></tr>`,
+          isStaffView ? "" : `<tr><th width="110" class="text-muted">電話番号</th><td>${v(phoneCombined)}</td></tr>`,
+          isStaffView ? "" : `<tr><th width="110" class="text-muted">メール</th><td>${v(guestData.email)}</td></tr>`,
+          isStaffView ? "" : `<tr><th width="110" class="text-muted">旅券番号</th><td>${v(guestData.passportNumber)}</td></tr>`,
+          `<tr><th width="110" class="text-muted">旅の目的</th><td>${v(guestData.purpose)}</td></tr>`,
         ].filter(Boolean).join("");
         return rows ? `<h6 class="mb-2 text-primary">代表者情報</h6><table class="table table-sm table-borderless mb-2">${rows}</table>` : "";
       })()}
