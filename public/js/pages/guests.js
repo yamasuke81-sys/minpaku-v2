@@ -747,14 +747,13 @@ const GuestsPage = {
           <h6 class="border-bottom pb-1 mb-2">代表者情報</h6>
           <table class="table table-sm table-borderless">
             <tr><th style="width:120px">氏名</th><td><strong>${v(g.guestName)}</strong></td></tr>
-            <tr><th>国籍</th><td>${v(g.nationality || "日本")}</td></tr>
-            <tr><th>年齢</th><td>${v(repAge)}</td></tr>
-            <tr><th>住所</th><td>${v(g.address)}</td></tr>
-            <tr><th>電話</th><td>${v(g.phone)}</td></tr>
-            <tr><th>電話2</th><td>${v(g.phone2)}</td></tr>
-            <tr><th>メール</th><td>${v(g.email)}</td></tr>
-            <tr><th>旅券番号</th><td>${v(g.passportNumber)}</td></tr>
-            <tr><th>旅の目的</th><td>${v(g.purpose)}</td></tr>
+            <tr><th style="width:120px">国籍</th><td>${v(g.nationality || "日本")}</td></tr>
+            <tr><th style="width:120px">年齢</th><td>${v(repAge)}</td></tr>
+            <tr><th style="width:120px">住所</th><td>${v(g.address)}</td></tr>
+            <tr><th style="width:120px">電話番号</th><td>${v([g.phone, g.phone2].filter(Boolean).join(" / "))}</td></tr>
+            <tr><th style="width:120px">メール</th><td>${v(g.email)}</td></tr>
+            <tr><th style="width:120px">旅券番号</th><td>${v(g.passportNumber)}</td></tr>
+            <tr><th style="width:120px">旅の目的</th><td>${v(g.purpose)}</td></tr>
           </table>
         </div>
         <div class="col-md-6">
