@@ -1,11 +1,30 @@
 /**
  * 宿泊者名簿 更新トリガー (onUpdate)
  * 宿泊者が修正リンクから再送信した場合 (source=guest_form, status=submitted のまま更新):
- *   1. 差分計算 (全フィールド比較)
+ *   1. 差分計算 (ゲスト入力フィールドのみ比較)
  *   2. 宿泊者宛に修正完了サンクスメール (form_update_mail)
  *   3. Webアプリ管理者に更新通知 (roster_updated)
+ *
+ * 重複発火防止:
+ *   - ゲスト入力フィールドに変更がない場合はスキップ
+ *   - formUpdateMailSentAt で1分以内の再発火を抑制
  */
 const { notifyByKey, sendNotificationEmail_ } = require("../utils/lineNotify");
+
+// ゲストが実際に入力するフィールドのみ (システムフィールド変更では発火しない)
+const GUEST_INPUT_FIELDS = [
+  "guestName", "email", "phone", "address", "nationality", "purpose",
+  "checkIn", "checkOut", "checkInTime", "checkOutTime", "guestCount",
+  "guestCountInfants", "guests", "bbq", "parking", "memo",
+  "bookingSite", "transport", "carCount", "paidParking",
+  "passportNumber", "age", "bedChoice", "previousStay", "nextStay",
+  "emergencyName", "emergencyPhone",
+];
+
+// ゲスト入力フィールドに変更があるか判定
+function hasGuestChanges(before, after) {
+  return GUEST_INPUT_FIELDS.some(f => JSON.stringify(before[f]) !== JSON.stringify(after[f]));
+}
 
 const APP_URL = "https://minpaku-v2.web.app";
 
@@ -81,8 +100,24 @@ module.exports = async function onGuestFormUpdate(event) {
   if (after.status !== "submitted")  return;
 
   // 初回 onCreate の直後 (editToken がなかった→今付いた) は更新通知をスキップ
-  // (onCreate で editToken を付与する update があるため)
   if (!before.editToken && after.editToken) return;
+
+  // ゲスト入力フィールドに変更がなければシステムフィールド更新 → スキップ
+  if (!hasGuestChanges(before, after)) {
+    console.log("[onGuestFormUpdate] ゲスト入力フィールドに変更なし — スキップ");
+    return;
+  }
+
+  // 1分以内に既に送信済みなら重複発火防止 (formCompleteMailSentAt 等の連続 update 対策)
+  if (after.formUpdateMailSentAt) {
+    const sentAt = after.formUpdateMailSentAt.toDate
+      ? after.formUpdateMailSentAt.toDate()
+      : new Date(after.formUpdateMailSentAt);
+    if (Date.now() - sentAt.getTime() < 60 * 1000) {
+      console.log("[onGuestFormUpdate] 1分以内に送信済み — 重複発火スキップ");
+      return;
+    }
+  }
 
   const docRef = event.data.after.ref;
   const guestId = event.params?.guestId || docRef.id;
@@ -101,8 +136,10 @@ module.exports = async function onGuestFormUpdate(event) {
     : "";
 
   // 物件情報取得
+  const { resolveGuideUrl } = require("../utils/guideMap");
   let propertyName    = after.propertyName || "";
   let propertyAddress = "";
+  let guideUrlBase    = "";
   if (after.propertyId) {
     try {
       const pDoc = await db.collection("properties").doc(after.propertyId).get();
@@ -110,8 +147,16 @@ module.exports = async function onGuestFormUpdate(event) {
         const p = pDoc.data();
         if (!propertyName) propertyName = p.name || "";
         propertyAddress = p.address || "";
+        guideUrlBase = resolveGuideUrl({ id: after.propertyId, guideUrl: p.guideUrl, guideUrlMode: p.guideUrlMode });
       }
     } catch (e) { console.error("物件情報取得エラー:", e.message); }
+  }
+
+  // ガイドURLにeditTokenを付加
+  let guideUrl = "";
+  if (guideUrlBase) {
+    const sep = guideUrlBase.includes("?") ? "&" : "?";
+    guideUrl = `${guideUrlBase}${sep}guest=${encodeURIComponent(after.editToken || "")}`;
   }
 
   const addressMapUrl = propertyAddress
@@ -170,7 +215,7 @@ module.exports = async function onGuestFormUpdate(event) {
     guestName, checkIn, checkOut, guestCount,
     checkInFormatted: formatDateWithDay(checkIn, after.checkInTime || ""),
     checkOutFormatted: formatDateWithDay(checkOut, after.checkOutTime || ""),
-    propertyName, propertyAddress, addressMapUrl,
+    propertyName, propertyAddress, addressMapUrl, guideUrl,
     changes, confirmUrl, editUrl,
   };
 
@@ -213,6 +258,9 @@ module.exports = async function onGuestFormUpdate(event) {
           `再度ご修正の必要がございましたら、下記リンクよりお手続きください。`,
           `{editUrl}`,
           ``,
+          `■ ゲスト案内ページ`,
+          `{guideUrl}`,
+          ``,
           `ご質問等ございましたら、本メールにご返信ください。`,
           `何卒よろしくお願い申し上げます。`,
         ].join("\n");
@@ -226,6 +274,10 @@ module.exports = async function onGuestFormUpdate(event) {
 
         await sendNotificationEmail_(guestEmail, subject, body, senderEmail, { strictFrom: true });
         console.log(`名簿更新 宿泊者メール送信成功: ${guestEmail}`);
+        // 送信済み記録 (重複発火防止用)
+        try {
+          await event.data.after.ref.update({ formUpdateMailSentAt: new Date() });
+        } catch (_) {}
       } catch (e) {
         console.error(`名簿更新 宿泊者メール送信失敗 (${guestEmail}):`, e.message);
       }

@@ -44,6 +44,23 @@ function isBlockEvent(summary) {
 }
 
 /**
+ * 保留中・予約リクエスト状態かどうかを判定
+ * 確定していない予約はスキップ (確定後に再取得されたタイミングで登録)
+ */
+function isPendingEvent(summary, status) {
+  // STATUS フィールドが TENTATIVE なら保留
+  if (status && /tentative/i.test(String(status))) return true;
+  const s = String(summary || "").toLowerCase().trim();
+  return (
+    /保留中/i.test(s) ||
+    /予約リクエスト/i.test(s) ||
+    /^request$/i.test(s) ||
+    /^pending$/i.test(s) ||
+    /reservation request/i.test(s)
+  );
+}
+
+/**
  * iCalイベントからゲスト名を抽出（SUMMARYから推定）
  */
 function extractGuestName(event, platform) {
@@ -184,6 +201,13 @@ async function syncIcal() {
         // ブロック/非公開/売り止めイベントは全プラットフォームでスキップ
         const summary = (event.summary || "").trim();
         const summaryLower = summary.toLowerCase();
+
+        // 保留中・予約リクエストはスキップ (確定後に再登録される)
+        if (isPendingEvent(summary, event.status)) {
+          console.log(`[syncIcal] 保留中スキップ: ${platform} ${checkIn}〜${checkOut} "${summary}"`);
+          skipped++;
+          continue;
+        }
 
         // ゲスト名が空 + CLOSED/Not available/Blocked/Reserved → ブロック
         if (!guestName && /not available|closed|blocked|reserved/i.test(summaryLower)) {

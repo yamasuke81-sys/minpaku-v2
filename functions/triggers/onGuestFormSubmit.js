@@ -104,6 +104,10 @@ module.exports = async function onGuestFormSubmit(event) {
     return timeStr ? `${base} ${timeStr}` : base;
   }
 
+  // キーボックス確認URL (vars生成前に先行計算)
+  const API_BASE_EARLY = "https://api-5qrfx7ujcq-an.a.run.app";
+  const keyboxConfirmUrlEarly = `${API_BASE_EARLY}/keybox-confirm/${guestId}?token=${keyboxConfirmToken}`;
+
   const vars = {
     guestName, checkIn, checkOut, guestCount,
     checkInTime: data.checkInTime || "",
@@ -115,6 +119,8 @@ module.exports = async function onGuestFormSubmit(event) {
     propertyAddress,
     addressMapUrl,
     summary, editUrl, confirmUrl, guideUrl,
+    keyboxConfirmToken,
+    keyboxConfirmUrl: keyboxConfirmUrlEarly,
   };
 
   // 2a. 送信者 (sender) 解決 — 宿泊者宛メールの from に使う
@@ -223,6 +229,9 @@ module.exports = async function onGuestFormSubmit(event) {
           `チェックイン前日〜当日にかけて、キーボックス番号や施設のご案内に関するメールを別途お送りいたします。`,
           `楽しいご滞在となりますよう、心よりお待ちしております。`,
           ``,
+          `■ ゲスト案内ページ`,
+          `{guideUrl}`,
+          ``,
           `ご質問等ございましたら、本メールにご返信ください。`,
           `何卒よろしくお願い申し上げます。`,
         ].join("\n");
@@ -292,9 +301,9 @@ module.exports = async function onGuestFormSubmit(event) {
     }
   }
 
-  // キーボックス送信OKボタンURL — メール本文に埋め込む
-  const API_BASE = "https://api-5qrfx7ujcq-an.a.run.app";
-  const keyboxConfirmUrl = `${API_BASE}/keybox-confirm/${guestId}?token=${keyboxConfirmToken}`;
+  // キーボックス送信OKボタンURL — メール本文に埋め込む (vars.keyboxConfirmUrl と同値)
+  const API_BASE = API_BASE_EARLY;
+  const keyboxConfirmUrl = keyboxConfirmUrlEarly;
   // OKボタンHTMLブロック (notifyByKey の ownerEmail 経由でHTML本文に差し込まれる想定)
   const okButtonHtml = `\n\n---\n\n【キーボックス情報送信の確認】\n名簿内容を確認したら、下のリンクをクリックしてキーボックス送信スケジュールを有効化してください。\n\n✅ 内容確認OK（キーボックス情報送信スケジュール開始）:\n${keyboxConfirmUrl}\n\n---`;
 

@@ -295,11 +295,11 @@ const ReservationFlowPage = {
       detailVarsHint: [
         "{{guestName}}", "{{propertyName}}", "{{checkIn}}", "{{checkOut}}",
         "{{checkInFormatted}}", "{{checkOutFormatted}}",
-        "{{guestCount}}", "{{propertyAddress}}", "{{addressMapUrl}}", "{{editUrl}}",
+        "{{guestCount}}", "{{propertyAddress}}", "{{addressMapUrl}}", "{{editUrl}}", "{{guideUrl}}",
       ],
       detailNoteHtml: `
-        <!-- 本文プレビュー（サンプル値で展開） -->
-        <div class="small fw-semibold mb-1"><i class="bi bi-eye"></i> 本文プレビュー（サンプル値で展開）</div>
+        <!-- 本文プレビュー（物件実データで展開） -->
+        <div class="small fw-semibold mb-1"><i class="bi bi-eye"></i> 本文プレビュー（物件実データで展開）</div>
         <div id="form_complete_mail_preview" class="border rounded p-2 bg-light"
           style="white-space:pre-wrap;min-height:200px;font-size:0.78rem;font-family:monospace;"></div>
         <!-- 送信先・送信元 Gmail 表示エリア（詳細設定の下に配置） -->
@@ -344,10 +344,10 @@ const ReservationFlowPage = {
       detailVarsHint: [
         "{{guestName}}", "{{propertyName}}", "{{checkIn}}", "{{checkOut}}",
         "{{checkInFormatted}}", "{{checkOutFormatted}}",
-        "{{guestCount}}", "{{propertyAddress}}", "{{addressMapUrl}}", "{{editUrl}}", "{{changes}}",
+        "{{guestCount}}", "{{propertyAddress}}", "{{addressMapUrl}}", "{{editUrl}}", "{{changes}}", "{{guideUrl}}",
       ],
       detailNoteHtml: `
-        <div class="small fw-semibold mb-1"><i class="bi bi-eye"></i> 本文プレビュー（サンプル値で展開）</div>
+        <div class="small fw-semibold mb-1"><i class="bi bi-eye"></i> 本文プレビュー（物件実データで展開）</div>
         <div id="form_update_mail_preview" class="border rounded p-2 bg-light"
           style="white-space:pre-wrap;min-height:200px;font-size:0.78rem;font-family:monospace;"></div>
         <!-- 送信先・送信元 Gmail 表示エリア（詳細設定の下に配置） -->
@@ -431,8 +431,8 @@ const ReservationFlowPage = {
           ],
           default: "day_before" },
         { field: "keyboxSend.customDaysBefore", label: "何日前に送信", type: "number",
-          placeholder: "例: 3", default: 3,
-          hint: "送信日が「カスタム」の場合のみ有効",
+          placeholder: "例: 3", default: 3, min: 0,
+          hint: "送信日が「カスタム」の場合のみ有効。0 = チェックイン当日",
           // scheduleType が custom でないときに disabled (renderDetailFields でハンドリング)
           conditionalDisable: { field: "keyboxSend.scheduleType", notValue: "custom" } },
         { field: "keyboxSend.sendTime",     label: "送信時刻 (HH:MM)", type: "text",
@@ -1009,29 +1009,62 @@ const ReservationFlowPage = {
     });
   },
 
-  // keybox_send プレビューUIをバインド（メール本文変更時にリアルタイム更新）
-  _bindKeyboxSendPreview(bodyEl, pid) {
+  // keybox_send プレビューUIをバインド（物件実データ優先、サンプル値フォールバック）
+  async _bindKeyboxSendPreview(bodyEl, pid) {
     const bodyTextarea = bodyEl.querySelector(`.rf-detail-input[data-field="keyboxSend.body"]`);
     const previewEl = bodyEl.querySelector("#keyboxSendPreview");
     if (!bodyTextarea || !previewEl) return;
 
-    // サンプル変数
-    const sampleVars = {
-      guestName: "山田 太郎",
-      propertyName: "the Terrace 長浜",
-      checkIn: "2026/04/30 15:00",
-      checkOut: "2026/05/02 10:00",
-      keyboxCode: "1234",
-      keyboxLocation: "玄関ドア横の金属ボックス",
-      propertyAddress: "滋賀県長浜市○○町1-2-3",
-      addressMapUrl: "https://maps.google.com/?q=...",
-      wifiSSID: "MyWifi",
-      wifiPassword: "xxxx1234",
-      guideUrl: "https://minpaku-v2.web.app/guide/?propertyId=xxx",
-      postCode: "5678",
+    const postEnabledChk = bodyEl.querySelector(`.rf-detail-input[data-field="post.enabled"]`);
+
+    // 基本サンプル値（ゲスト情報等は仮値）
+    let sampleVars = {
+      guestName:       "山田 太郎",
+      checkIn:         "2026年4月30日(木) 15:00",
+      checkOut:        "2026年5月2日(土) 10:00",
+      // 物件実データで上書き (以下は Firestore 取得前フォールバック)
+      propertyName:    "（物件名読込中）",
+      propertyAddress: "",
+      addressMapUrl:   "",
+      keyboxCode:      "（暗証番号未設定）",
+      keyboxLocation:  "（場所未設定）",
+      wifiSSID:        "（SSID未設定）",
+      wifiPassword:    "（PW未設定）",
+      guideUrl:        "（ゲスト案内URL未設定）",
+      postCode:        "（ポスト番号未設定）",
     };
 
-    const postEnabledChk = bodyEl.querySelector(`.rf-detail-input[data-field="post.enabled"]`);
+    // 物件実データ取得して上書き
+    try {
+      const pDoc = await db.collection("properties").doc(pid).get();
+      if (pDoc.exists) {
+        const p = pDoc.data();
+        sampleVars.propertyName    = p.name    || "（物件名未設定）";
+        sampleVars.propertyAddress = p.address || "（住所未設定）";
+        sampleVars.addressMapUrl   = p.address
+          ? "https://maps.google.com/?q=" + encodeURIComponent(p.address) : "";
+        // フォーム内の入力値があればそちらを優先
+        const kbCode = bodyEl.querySelector(`.rf-detail-input[data-field="keyboxCode"]`);
+        const kbLoc  = bodyEl.querySelector(`.rf-detail-input[data-field="keyboxLocation"]`);
+        const wSSID  = bodyEl.querySelector(`.rf-detail-input[data-field="wifiSSID"]`);
+        const wPW    = bodyEl.querySelector(`.rf-detail-input[data-field="wifiPassword"]`);
+        const postCd = bodyEl.querySelector(`.rf-detail-input[data-field="post.code"]`);
+        sampleVars.keyboxCode     = (kbCode && kbCode.value) || p.keyboxCode     || "（暗証番号未設定）";
+        sampleVars.keyboxLocation = (kbLoc  && kbLoc.value)  || p.keyboxLocation || "（場所未設定）";
+        sampleVars.wifiSSID       = (wSSID  && wSSID.value)  || p.wifiSSID       || "（SSID未設定）";
+        sampleVars.wifiPassword   = (wPW    && wPW.value)    || p.wifiPassword   || "（PW未設定）";
+        sampleVars.postCode       = (postCd && postCd.value)
+          || (p.post && p.post.code) || "（ポスト番号未設定）";
+        const guideBase = (window.GuideMap && window.GuideMap.resolveGuideUrl({
+          id: pid, guideUrl: p.guideUrl, guideUrlMode: p.guideUrlMode,
+        })) || "";
+        sampleVars.guideUrl = guideBase
+          ? guideBase + (guideBase.includes("?") ? "&" : "?") + "guest=sample-token"
+          : "（ゲスト案内URL未設定）";
+      }
+    } catch (_) {
+      sampleVars.propertyName = "the Terrace 長浜";
+    }
 
     const updatePreview = () => {
       let text = bodyTextarea.value || "";
@@ -1044,7 +1077,7 @@ const ReservationFlowPage = {
 
       // 変数置換
       Object.entries(sampleVars).forEach(([k, v]) => {
-        text = text.replace(new RegExp(`\\{\\{${k}\\}\\}`, "g"), v);
+        text = text.replace(new RegExp(`\\{\\{${k}\\}\\}`, "g"), String(v));
       });
 
       previewEl.textContent = text;
@@ -1055,31 +1088,66 @@ const ReservationFlowPage = {
     updatePreview();
   },
 
-  // メールテンプレートのプレビューUIをバインド（form_complete_mail 等）
-  _bindMailPreview(bodyEl, pid, bodyField, previewId) {
+  // メールテンプレートのプレビューUIをバインド（物件実データ優先、サンプル値フォールバック）
+  async _bindMailPreview(bodyEl, pid, bodyField, previewId) {
     const bodyTextarea = bodyEl.querySelector(`.rf-detail-input[data-field="${bodyField}"]`);
     const previewEl = bodyEl.querySelector(`#${previewId}`);
     if (!bodyTextarea || !previewEl) return;
 
-    const sampleVars = {
-      guestName: "山田 太郎",
-      propertyName: "the Terrace 長浜",
-      checkIn: "2026/04/30",
-      checkOut: "2026/05/02",
-      guestCount: "4",
-      keyboxCode: "1234",
-      propertyAddress: "滋賀県長浜市○○町1-2-3",
-      addressMapUrl: "https://maps.google.com/?q=%E6%BB%8B%E8%B3%80%E7%9C%8C%E9%95%B7%E6%B5%9C%E5%B8%82",
-      editUrl: "https://minpaku-v2.web.app/guest-form.html?edit=sample-token",
-      wifiInfo: "SSID: MyWifi / PW: xxxx1234",
-      guideUrl: "https://minpaku-v2.web.app/guide/?propertyId=xxx",
-      changes: "代表者の年齢: 30 → 35",
+    // 基本サンプル値（ゲスト情報等は仮値）
+    const baseVars = {
+      guestName:    "山田 太郎",
+      checkIn:      "2026/04/30",
+      checkOut:     "2026/05/02",
+      checkInFormatted:  "2026年4月30日(木) 15:00",
+      checkOutFormatted: "2026年5月2日(土) 10:00",
+      guestCount:   "4",
+      editUrl:      "https://minpaku-v2.web.app/guest-form.html?edit=sample-token",
+      changes:      "代表者の年齢: 30 → 35",
     };
+
+    // 物件実データを取得して sampleVars を上書き
+    let sampleVars = { ...baseVars };
+    try {
+      const pDoc = await db.collection("properties").doc(pid).get();
+      if (pDoc.exists) {
+        const p = pDoc.data();
+        sampleVars.propertyName    = p.name    || "（物件名未設定）";
+        sampleVars.propertyAddress = p.address || "（住所未設定）";
+        sampleVars.addressMapUrl   = p.address
+          ? "https://maps.google.com/?q=" + encodeURIComponent(p.address) : "";
+        sampleVars.keyboxCode      = p.keyboxCode      || "（暗証番号未設定）";
+        sampleVars.keyboxLocation  = p.keyboxLocation  || "（場所未設定）";
+        sampleVars.wifiSSID        = p.wifiSSID        || "（SSID未設定）";
+        sampleVars.wifiPassword    = p.wifiPassword    || "（PW未設定）";
+        sampleVars.wifiInfo        = (p.wifiSSID && p.wifiPassword)
+          ? `SSID: ${p.wifiSSID} / PW: ${p.wifiPassword}` : "（Wi-Fi未設定）";
+        sampleVars.postCode        = (p.post && p.post.code) ? p.post.code : "（ポスト番号未設定）";
+        // guideUrl: GuideMap で解決
+        const guideBase = (window.GuideMap && window.GuideMap.resolveGuideUrl({
+          id: pid, guideUrl: p.guideUrl, guideUrlMode: p.guideUrlMode,
+        })) || "";
+        sampleVars.guideUrl = guideBase
+          ? guideBase + (guideBase.includes("?") ? "&" : "?") + "guest=sample-token"
+          : "（ゲスト案内URL未設定）";
+      }
+    } catch (_) {
+      sampleVars.propertyName    = "the Terrace 長浜";
+      sampleVars.propertyAddress = "滋賀県長浜市○○町1-2-3";
+      sampleVars.addressMapUrl   = "https://maps.google.com/?q=...";
+      sampleVars.keyboxCode      = "1234";
+      sampleVars.keyboxLocation  = "玄関ドア横の金属ボックス";
+      sampleVars.wifiSSID        = "MyWifi";
+      sampleVars.wifiPassword    = "xxxx1234";
+      sampleVars.wifiInfo        = "SSID: MyWifi / PW: xxxx1234";
+      sampleVars.postCode        = "5678";
+      sampleVars.guideUrl        = "https://minpaku-v2.web.app/guide/?propertyId=xxx";
+    }
 
     const updatePreview = () => {
       let text = bodyTextarea.value || "";
       Object.entries(sampleVars).forEach(([k, v]) => {
-        text = text.replace(new RegExp(`\\{\\{${k}\\}\\}`, "g"), v);
+        text = text.replace(new RegExp(`\\{\\{${k}\\}\\}`, "g"), String(v));
       });
       previewEl.textContent = text;
     };
