@@ -937,15 +937,11 @@ const ReservationFlowPage = {
     console.log(`[_saveKeyboxRemindOffset] pid=${pid} reminderOffset=`, reminderOffset);
     this._showStatus("saving");
     try {
-      // set({ merge: true }) でネスト構造をまとめて書き込み (update より堅牢)
-      await db.collection("properties").doc(pid).set({
-        channelOverrides: {
-          keybox_remind: {
-            reminderOffset,
-          },
-        },
+      // ドット記法で対象フィールドのみ更新（set merge だと channelOverrides 内の他キーを消すため）
+      await db.collection("properties").doc(pid).update({
+        "channelOverrides.keybox_remind.reminderOffset": reminderOffset,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      }, { merge: true });
+      });
       const prop = this.properties.find(p => p.id === pid);
       if (prop) {
         if (!prop.channelOverrides) prop.channelOverrides = {};

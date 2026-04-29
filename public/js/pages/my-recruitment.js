@@ -1717,13 +1717,18 @@ const MyRecruitmentPage = {
       if (!uid) return;
       const now = firebase.firestore.FieldValue.serverTimestamp();
       const nowLocal = new Date();
-      const setPayload = { readIds: {} };
+      // ドット記法で個別 readIds フィールドのみ追記
+      // set(merge:true) は readIds ネスト全体を置換するため update() を使う
+      // ドキュメント未存在時のみ set(merge) で初期化してから update
+      const ref = db.collection("userNotificationStatus").doc(uid);
+      const patch = {};
       notifIds.forEach(id => {
-        setPayload.readIds[id] = now;
+        patch[`readIds.${id}`] = now;
         if (!this._readIds) this._readIds = {};
         this._readIds[id] = nowLocal; // ローカル即時反映
       });
-      await db.collection("userNotificationStatus").doc(uid).set(setPayload, { merge: true });
+      await ref.set({ readIds: {} }, { merge: true }); // ドキュメント存在保証
+      await ref.update(patch); // フィールド単位追記
     } catch (e) {
       console.error("[my-recruitment] _markAsRead 失敗", e);
       showToast("エラー", "既読の保存に失敗しました", "error");
