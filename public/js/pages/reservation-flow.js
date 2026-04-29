@@ -147,6 +147,7 @@ const ReservationFlowPage = {
       linkHash: "#/notifications",
       linkLabel: "通知設定",
       // 詳細設定 (物件別保存: properties/{pid}.bookingConfirmMail.*)
+      detailTwoCol: true,
       detailFields: [
         { field: "bookingConfirmMail.enabled", label: "メール送信", type: "switch", default: false },
         { field: "bookingConfirmMail.subject", label: "メール件名", type: "text",
@@ -159,7 +160,7 @@ const ReservationFlowPage = {
         "{{guestName}}", "{{propertyName}}", "{{checkIn}}", "{{checkOut}}",
         "{{guestCount}}", "{{formUrl}}",
       ],
-      detailNote: "実際のメール送信は Gmail API 連携が必要です (実装中)",
+      detailNoteHtml: `<div class="alert alert-warning py-1 px-2 mb-0 small" style="font-size:0.72rem;"><i class="bi bi-info-circle"></i> 実際のメール送信は Gmail API 連携が必要です (実装中)</div>`,
     },
     {
       key: "recruit_start",
@@ -299,7 +300,7 @@ const ReservationFlowPage = {
       ],
       detailNoteHtml: `
         <!-- 本文プレビュー（物件実データで展開） -->
-        <div class="small fw-semibold mb-1"><i class="bi bi-eye"></i> 本文プレビュー（物件実データで展開）</div>
+        <div class="small fw-semibold mb-1"><i class="bi bi-eye"></i> 📋 本文プレビュー（物件実データで展開）</div>
         <div id="form_complete_mail_preview" class="border rounded p-2 bg-light"
           style="white-space:pre-wrap;min-height:200px;font-size:0.78rem;font-family:monospace;"></div>
         <!-- 送信先・送信元 Gmail 表示エリア（詳細設定の下に配置） -->
@@ -347,7 +348,7 @@ const ReservationFlowPage = {
         "{{guestCount}}", "{{propertyAddress}}", "{{addressMapUrl}}", "{{editUrl}}", "{{changes}}", "{{guideUrl}}",
       ],
       detailNoteHtml: `
-        <div class="small fw-semibold mb-1"><i class="bi bi-eye"></i> 本文プレビュー（物件実データで展開）</div>
+        <div class="small fw-semibold mb-1"><i class="bi bi-eye"></i> 📋 本文プレビュー（物件実データで展開）</div>
         <div id="form_update_mail_preview" class="border rounded p-2 bg-light"
           style="white-space:pre-wrap;min-height:200px;font-size:0.78rem;font-family:monospace;"></div>
         <!-- 送信先・送信元 Gmail 表示エリア（詳細設定の下に配置） -->
@@ -409,6 +410,7 @@ const ReservationFlowPage = {
       linkHash: "#/properties",
       linkLabel: "物件設定",
       propertyField: "keyboxSend.enabled",
+      detailTwoCol: true,
       // タスク1: 「自動送信」スイッチ廃止 (カード右上 ON/OFF トグルで完結)
       // タスク2: 送信先・送信元をdetailNoteHtmlで表示 (_renderGmailSenderInfo 流用)
       // タスク8: Wi-Fi分割 / ポスト情報 / guideUrl / addressMapUrl 追加
@@ -461,9 +463,12 @@ const ReservationFlowPage = {
           conditionalDisable: { field: "post.enabled", notValue: true } },
       ],
       detailVarsHint: [
-        "{{guestName}}", "{{propertyName}}", "{{keyboxCode}}", "{{keyboxLocation}}",
-        "{{checkIn}}", "{{guideUrl}}", "{{propertyAddress}}", "{{addressMapUrl}}",
-        "{{wifiSSID}}", "{{wifiPassword}}", "{{postCode}}",
+        "{{guestName}}", "{{propertyName}}",
+        "{{checkInFormatted}}", "{{checkOutFormatted}}",
+        "{{keyboxCode}}", "{{keyboxLocation}}",
+        "{{wifiSSID}}", "{{wifiPassword}}",
+        "{{postCode}}", "{{postEnabled}}",
+        "{{propertyAddress}}", "{{addressMapUrl}}", "{{guideUrl}}",
       ],
       detailNoteHtml: `
         <!-- 送信先・送信元表示エリア -->
@@ -472,15 +477,11 @@ const ReservationFlowPage = {
           <span class="small"><i class="bi bi-info-circle text-warning"></i> 送信には <strong>Gmail API 連携</strong>が必要です。名簿入力完了メールと同じ送信元 Gmail を使用します。</span>
         </div>
         <div class="small text-muted mb-1" style="font-size:0.72rem;"><i class="bi bi-info-circle"></i> カード右上 ON/OFF = この物件のキーボックスメール自動送信を有効/無効にします。</div>
-        <!-- メール本文プレビュー -->
+        <!-- 本文プレビュー -->
         <div class="mt-2">
-          <div class="small fw-semibold mb-1"><i class="bi bi-eye"></i> 本文プレビュー（サンプル値で展開）</div>
-          <div class="row g-2 small" style="font-size:0.8rem;">
-            <div class="col-12">
-              <div id="keyboxSendPreview" class="border rounded p-2 bg-light"
-                style="white-space:pre-wrap;min-height:100px;font-size:0.78rem;font-family:monospace;"></div>
-            </div>
-          </div>
+          <div class="small fw-semibold mb-1"><i class="bi bi-eye"></i> 📋 本文プレビュー（サンプル値で展開）</div>
+          <div id="keyboxSendPreview" class="border rounded p-2 bg-light"
+            style="white-space:pre-wrap;min-height:200px;font-size:0.78rem;font-family:monospace;"></div>
           <div class="small text-muted mt-1" style="font-size:0.7rem;">
             <i class="bi bi-info-circle"></i> ポスト情報ON/OFFにより <code>{{#if postEnabled}}...{{/if}}</code> の表示が切り替わります
           </div>
@@ -512,6 +513,7 @@ const ReservationFlowPage = {
       status: "未実装",
       hint: "チェックインappは別で開発済み。連携部分は未実装",
       // 詳細設定 (物件別保存: properties/{pid}.checkinApp.*)
+      detailTwoCol: true,
       detailFields: [
         { field: "checkinApp.enabled",      label: "アプリ連携", type: "switch", default: false },
         { field: "checkinApp.url",          label: "連携先URL",  type: "text",
@@ -520,7 +522,8 @@ const ReservationFlowPage = {
           placeholder: "チェックインアプリで本人確認をお願いします: {{checkinAppUrl}}",
           default: "" },
       ],
-      detailNote: "ここの設定はプレースホルダーです。実際のアプリ連携は今後実装",
+      detailVarsHint: [ "{{checkinAppUrl}}" ],
+      detailNoteHtml: `<div class="alert alert-warning py-1 px-2 mb-0 small" style="font-size:0.72rem;"><i class="bi bi-info-circle"></i> ここの設定はプレースホルダーです。実際のアプリ連携は今後実装</div>`,
     },
 
     // ---- Phase 2: スタッフトラック ----
@@ -1253,12 +1256,26 @@ const ReservationFlowPage = {
         </div>`;
     }).join("");
 
-    // 利用可能変数ヒント
-    const varsHint = (Array.isArray(step.detailVarsHint) && step.detailVarsHint.length)
-      ? `<div class="small text-muted mb-2" style="font-size:0.72rem;">
-           <i class="bi bi-braces"></i> 利用可変数: ${step.detailVarsHint.map(v => `<code>${this._esc(v)}</code>`).join(" ")}
+    // 利用可変数バッジ — クリックで対応 textarea にカーソル位置挿入
+    // data-target-step + data-target-pid で「このカード内の body フィールド textarea」を特定
+    const varBadges = (Array.isArray(step.detailVarsHint) && step.detailVarsHint.length)
+      ? `<div class="mb-2">
+           <span class="small text-muted"><i class="bi bi-braces"></i> 変数（クリックで挿入）:</span>
+           <div class="d-flex flex-wrap mt-1">
+             ${step.detailVarsHint.map(v => {
+               // {{varName}} 形式からラベル用に varName 部分を取り出す
+               const inner = v.replace(/^\{\{|\}\}$/g, "");
+               return `<span class="badge bg-light text-dark border me-1 mb-1 rf-detail-var-tag"
+                 role="button" style="cursor:pointer;font-size:0.78rem;"
+                 data-var="${this._esc(v)}"
+                 data-target-step="${this._esc(step.key)}"
+                 data-target-pid="${this._esc(pid)}"
+                 title="${this._esc(v)}">${this._esc(v)}</span>`;
+             }).join("")}
+           </div>
          </div>`
       : "";
+
     // 注意文 (detailNoteHtml は HTML をそのまま埋め込み可、detailNote は文字列のみ)
     const noteHtml = step.detailNoteHtml
       ? `<div class="alert alert-warning py-2 px-2 mb-2" style="font-size:0.78rem;">${step.detailNoteHtml}</div>`
@@ -1268,17 +1285,22 @@ const ReservationFlowPage = {
          </div>`
       : "";
 
-    // detailTwoCol: true の場合は左:fieldsHtml / 右:noteHtml の2カラムレイアウト
+    // detailTwoCol: true の場合は左:入力フォーム / 右:変数バッジ+プレビュー の2カラムレイアウト
     const innerHtml = step.detailTwoCol
-      ? `<div class="row g-2"><div class="col-md-6">${fieldsHtml}</div><div class="col-md-6">${step.detailNoteHtml || ""}</div></div>`
-      : `${noteHtml}${fieldsHtml}`;
+      ? `<div class="row g-2">
+           <div class="col-md-6">${fieldsHtml}</div>
+           <div class="col-md-6">
+             ${varBadges}
+             ${step.detailNoteHtml || ""}
+           </div>
+         </div>`
+      : `${noteHtml}${varBadges}${fieldsHtml}`;
 
     return `
       <div class="rf-detail-panel mt-2 p-2 border rounded" style="background:#f8fafc;">
         <div class="small fw-semibold mb-2">
           <i class="bi bi-sliders2"></i> 詳細設定（${this._esc(property.name)}）
         </div>
-        ${varsHint}
         ${innerHtml}
       </div>
     `;
@@ -1998,6 +2020,32 @@ const ReservationFlowPage = {
   _attachEvents(wrap, property) {
     // カード折りたたみ + 詳細 + memo + rf-toggle のみ。通知カードは共有コンポーネントで処理。
     wrap.addEventListener("click", (e) => {
+      // 変数バッジクリック → detailFields の body textarea にカーソル位置挿入
+      const varTag = e.target.closest(".rf-detail-var-tag");
+      if (varTag) {
+        const stepKey  = varTag.dataset.targetStep;
+        const pid      = varTag.dataset.targetPid;
+        const variable = varTag.dataset.var;
+        // body フィールド（textarea）を探す: body / formCompleteMail.body / keyboxSend.body 等
+        const card = wrap.querySelector(`.rf-card[data-step="${stepKey}"][data-pid="${pid}"]`);
+        if (card) {
+          // body を持つ textarea を優先、無ければカード内最初の textarea
+          const ta = card.querySelector(`textarea.rf-detail-input[data-field$=".body"]`)
+                  || card.querySelector("textarea.rf-detail-input");
+          if (ta) {
+            const pos = ta.selectionStart != null ? ta.selectionStart : ta.value.length;
+            ta.value = ta.value.slice(0, pos) + variable + ta.value.slice(pos);
+            ta.focus();
+            ta.setSelectionRange(pos + variable.length, pos + variable.length);
+            // 保存キューに乗せる
+            this._queueSave(pid, stepKey);
+            // プレビューを更新: _bindMailPreview / _bindKeyboxSendPreview が
+            // textarea の "input" イベントをリッスン済みなので dispatch するだけでよい
+            ta.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+        }
+        return;
+      }
       // 通知カード「他物件から」ボタン
       const importBtn = e.target.closest(".rf-notify-import-btn");
       if (importBtn) {
