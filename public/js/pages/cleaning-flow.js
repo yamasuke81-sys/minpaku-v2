@@ -295,8 +295,9 @@ const CleaningFlowPage = {
 
   // ========== ユーティリティ ==========
   _esc(s) {
+    // 注: s=0 や s=false の場合 String(s||"") は "" になるため != null チェックを使う
     const d = document.createElement("div");
-    d.textContent = String(s || "");
+    d.textContent = (s == null ? "" : String(s));
     return d.innerHTML;
   },
 

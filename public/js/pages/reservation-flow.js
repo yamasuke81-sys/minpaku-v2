@@ -689,8 +689,9 @@ const ReservationFlowPage = {
 
   // ========== ユーティリティ ==========
   _esc(s) {
+    // 注: s=0 や s=false の場合 String(s||"") は "" になるため != null チェックを使う
     const d = document.createElement("div");
-    d.textContent = String(s || "");
+    d.textContent = (s == null ? "" : String(s));
     return d.innerHTML;
   },
 
@@ -924,17 +925,27 @@ const ReservationFlowPage = {
   // keybox_remind タイミング変更をFirestoreに保存
   async _saveKeyboxRemindOffset(pid, bodyEl) {
     const checkedRadio = bodyEl.querySelector(`.kbr-mode-radio:checked`);
-    if (!checkedRadio) return;
+    if (!checkedRadio) {
+      console.warn("[_saveKeyboxRemindOffset] チェック中のラジオがありません");
+      return;
+    }
     const mode = checkedRadio.value;
     const hoursInput = bodyEl.querySelector(`.kbr-hours-input[data-offset-mode="${mode}"]`);
     const hours = hoursInput ? (parseInt(hoursInput.value, 10) || 2) : 2;
 
     const reminderOffset = mode === "same" ? { mode } : { mode, hours };
+    console.log(`[_saveKeyboxRemindOffset] pid=${pid} reminderOffset=`, reminderOffset);
+    this._showStatus("saving");
     try {
-      await db.collection("properties").doc(pid).update({
-        "channelOverrides.keybox_remind.reminderOffset": reminderOffset,
+      // set({ merge: true }) でネスト構造をまとめて書き込み (update より堅牢)
+      await db.collection("properties").doc(pid).set({
+        channelOverrides: {
+          keybox_remind: {
+            reminderOffset,
+          },
+        },
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      });
+      }, { merge: true });
       const prop = this.properties.find(p => p.id === pid);
       if (prop) {
         if (!prop.channelOverrides) prop.channelOverrides = {};
@@ -943,6 +954,7 @@ const ReservationFlowPage = {
       }
       this._showStatus("saved");
     } catch (e) {
+      console.error("[_saveKeyboxRemindOffset] 保存失敗:", e);
       this._showStatus("error", e.message);
     }
   },
