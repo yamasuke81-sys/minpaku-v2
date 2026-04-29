@@ -902,8 +902,22 @@ const MyRecruitmentPage = {
           if (starting) {
             const c = bookingColor(starting.source, fallbackColor);
             segs += `<div style="position:absolute;left:50%;right:0;${barTopStyle}background:${c};border-top-left-radius:999px;border-bottom-left-radius:999px;z-index:2;"></div>`;
-            // 名簿ドット (CIの右半分、左寄せ) — pointer-events:none で td タップを透過
-            const hasGuest = !!this.guestMap[starting.checkIn];
+            // 名簿ドット判定 — placeholder予約と他物件名簿の誤マッチを防ぐ
+            const isPlaceholder = (n) => {
+              const s = String(n || "").toLowerCase().trim();
+              return !s || /^(reserved|not available|airbnb|booking|airbnb予約|booking\.com予約|\(no name\))/i.test(s);
+            };
+            // (1) 予約自体がプレースホルダー名 (Reserved 等) なら名簿未記入扱い
+            // (2) 物件IDがあれば propertyId+CI の複合キーで照合、無ければ CI 単独
+            // (3) guestRegistration 側もプレースホルダー名なら未記入扱い
+            let hasGuest = false;
+            if (!isPlaceholder(starting.guestName)) {
+              const key = starting.propertyId
+                ? `${starting.propertyId}_${starting.checkIn}`
+                : starting.checkIn;
+              const g = this.guestMap[key];
+              if (g && !isPlaceholder(g.guestName)) hasGuest = true;
+            }
             const dotColor = hasGuest ? "#198754" : "#dc3545";
             const dotTitle = hasGuest ? "名簿提出済み" : "名簿未提出";
             segs += `<span style="position:absolute;left:calc(50% + 4px);top:50%;transform:translateY(-50%);width:9px;height:9px;border-radius:50%;background:${dotColor};border:1.5px solid #fff;z-index:4;pointer-events:none;" title="${dotTitle}"></span>`;
