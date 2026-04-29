@@ -447,8 +447,21 @@ const DashboardPage = {
     return "fc-event-other";
   },
 
+  // プレースホルダーゲスト名判定（iCal ブロック・予約サイト自動入力）
+  _isPlaceholderName(name) {
+    if (!name) return true;
+    const n = name.trim().toLowerCase();
+    return !n || n === "-" ||
+      n.includes("airbnb") || n.includes("booking.com") || n.includes("booking") ||
+      n.includes("not available") || n.includes("blocked") || n.includes("closed") ||
+      n === "reserved" || n.startsWith("reserved");
+  },
+
   // 名簿の記入済み判定
   hasGuestRegistration(booking, guestMap) {
+    // 予約自体がプレースホルダーなら名簿未記入扱い（カレンダー・詳細ともに統一）
+    if (this._isPlaceholderName(booking.guestName)) return false;
+
     const gm = guestMap || this.guestMap;
     if (!gm) return false;
     const ci = this.toDateStr(booking.checkIn);
@@ -464,9 +477,8 @@ const DashboardPage = {
       if (cand && !cand.propertyId) g = cand;
     }
     if (!g) return false;
-    const name = (g.guestName || "").trim().toLowerCase();
-    if (!name || name === "-") return false;
-    if (name.includes("airbnb") || name.includes("booking") || name.includes("not available") || name.includes("blocked") || name.includes("closed")) return false;
+    // guestRegistrations 側の名前もプレースホルダーなら未記入扱い
+    if (this._isPlaceholderName(g.guestName)) return false;
     return true;
   },
 

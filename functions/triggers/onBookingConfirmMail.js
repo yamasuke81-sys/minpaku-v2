@@ -47,12 +47,9 @@ module.exports = async function onBookingConfirmMail(event) {
       ? `${APP_URL}/form/?propertyId=${b.propertyId}`
       : `${APP_URL}/form/`;
 
-    // customMessage 取得（設定があれば優先）
+    // customMessage 取得 — 物件別のみ参照、グローバル参照は廃止（他トリガーと同一方針）
     const propOv = overrides[NOTIFY_TYPE] || {};
-    const globalCh = (settings?.channels || {})[NOTIFY_TYPE] || {};
-    const customMessage = propOv.customMessage !== undefined
-      ? propOv.customMessage
-      : globalCh.customMessage;
+    const customMessage = propOv.customMessage;
 
     let body;
     if (customMessage && String(customMessage).trim()) {
