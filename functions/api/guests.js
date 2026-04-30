@@ -194,29 +194,8 @@ module.exports = function guestsApi(db) {
         updatedAt: FieldValue.serverTimestamp(),
       });
 
-      // 宿泊者にメール送信
-      const guestEmail = data.email;
-      if (guestEmail) {
-        try {
-          const { sendNotificationEmail_ } = require("../utils/lineNotify");
-          const { renderTemplate, getTemplates } = require("../utils/emailTemplates");
-          const templates = await getTemplates(db);
-          const vars = {
-            guestName: data.guestName || "ゲスト",
-            checkIn: data.checkIn || "?",
-            checkOut: data.checkOut || "?",
-            checkInTime: data.checkInTime || "",
-            checkOutTime: data.checkOutTime || "",
-          };
-          const subject = renderTemplate(templates.ownerConfirmed.subject, vars);
-          const body = renderTemplate(templates.ownerConfirmed.body, vars);
-          await sendNotificationEmail_(guestEmail, subject, body);
-        } catch (e) {
-          console.error("確認メール送信失敗:", e.message);
-        }
-      }
-
-      res.json({ success: true, message: "確認済みにしました。宿泊者にメールを送信しました。" });
+      // 宿泊者宛の「確認完了」メール送信は廃止 (ownerConfirmed テンプレ削除)
+      res.json({ success: true, message: "確認済みにしました。" });
     } catch (e) {
       console.error("confirm エラー:", e);
       res.status(500).json({ error: "確認に失敗しました" });

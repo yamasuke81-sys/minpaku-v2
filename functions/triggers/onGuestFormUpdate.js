@@ -271,8 +271,17 @@ module.exports = async function onGuestFormUpdate(event) {
         const bodyTmpl    = (propUpdateMail && propUpdateMail.body)    ? propUpdateMail.body    : "";
         const subject = subjectTmpl ? renderDouble(subjectTmpl) : renderSingle(DEFAULT_SUBJECT);
         const body    = bodyTmpl    ? renderDouble(bodyTmpl)    : renderSingle(DEFAULT_BODY);
+        // 英訳併記 (formUpdateMail.subjectEn / bodyEn)
+        const subjectEnTmpl = (propUpdateMail && propUpdateMail.subjectEn) ? propUpdateMail.subjectEn : "";
+        const bodyEnTmpl    = (propUpdateMail && propUpdateMail.bodyEn)    ? propUpdateMail.bodyEn    : "";
+        const subjectEn = subjectEnTmpl ? renderDouble(subjectEnTmpl) : "";
+        const bodyEn    = bodyEnTmpl    ? renderDouble(bodyEnTmpl)    : "";
+        const finalSubject = subjectEn ? `${subject} / ${subjectEn}` : subject;
+        const finalBody    = bodyEn
+          ? `${body}\n\n--------------------------------\n--- English follows ---\n--------------------------------\n\n${bodyEn}`
+          : body;
 
-        await sendNotificationEmail_(guestEmail, subject, body, senderEmail, { strictFrom: true });
+        await sendNotificationEmail_(guestEmail, finalSubject, finalBody, senderEmail, { strictFrom: true });
         console.log(`名簿更新 宿泊者メール送信成功: ${guestEmail}`);
         // 送信済み記録 (重複発火防止用)
         try {

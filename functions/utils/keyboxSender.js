@@ -128,7 +128,17 @@ async function sendKeyboxEmail(guest, property) {
   const subject = renderTemplate(resolveIfBlocks(rawSubject, flags), vars);
   const body    = renderTemplate(resolveIfBlocks(rawBody,    flags), vars);
 
-  await sendNotificationEmail_(guestEmail, subject, body);
+  // 英訳併記 (keyboxSend.subjectEn / bodyEn)
+  const rawSubjectEn = keyboxSend.subjectEn || "";
+  const rawBodyEn    = keyboxSend.bodyEn    || "";
+  const subjectEn = rawSubjectEn ? renderTemplate(resolveIfBlocks(rawSubjectEn, flags), vars) : "";
+  const bodyEn    = rawBodyEn    ? renderTemplate(resolveIfBlocks(rawBodyEn,    flags), vars) : "";
+  const finalSubject = subjectEn ? `${subject} / ${subjectEn}` : subject;
+  const finalBody    = bodyEn
+    ? `${body}\n\n--------------------------------\n--- English follows ---\n--------------------------------\n\n${bodyEn}`
+    : body;
+
+  await sendNotificationEmail_(guestEmail, finalSubject, finalBody);
 }
 
 module.exports = { computeScheduledSendAt, formatScheduledSendAt, sendKeyboxEmail };

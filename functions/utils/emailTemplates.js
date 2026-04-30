@@ -177,18 +177,7 @@ const DEFAULT_TEMPLATES = {
 確認して問題がなければ「確認済み」にしてください。
 {confirmUrl}`,
   },
-  ownerConfirmed: {
-    subject: "【確認完了】宿泊者名簿を確認しました - {guestName}様",
-    body: `{guestName} 様
-
-宿泊者名簿の内容を確認いたしました。
-ご宿泊当日の朝に、キーボックスの番号をメールでお伝えいたします。
-
-チェックイン: {checkIn} {checkInTime}
-チェックアウト: {checkOut} {checkOutTime}
-
-ご宿泊を楽しみにお待ちしております。`,
-  },
+  // ownerConfirmed: 廃止 (2026-04-30) — 「確認済み」ボタン押下時の宿泊者宛メールは送らない
   keyboxDelivery: {
     subject: "【本日チェックイン】キーボックス番号のご案内 - {guestName}様",
     body: `{guestName} 様

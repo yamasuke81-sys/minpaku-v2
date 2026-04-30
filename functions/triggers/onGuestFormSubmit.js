@@ -242,8 +242,17 @@ module.exports = async function onGuestFormSubmit(event) {
         const bodyTmpl    = (propFormCompleteMail && propFormCompleteMail.body)    ? propFormCompleteMail.body    : "";
         const guestSubject = subjectTmpl ? renderDouble(subjectTmpl) : renderSingle(DEFAULT_SUBJECT);
         const guestBody    = bodyTmpl    ? renderDouble(bodyTmpl)    : renderSingle(DEFAULT_BODY);
+        // 英訳併記 (formCompleteMail.subjectEn / bodyEn)
+        const subjectEnTmpl = (propFormCompleteMail && propFormCompleteMail.subjectEn) ? propFormCompleteMail.subjectEn : "";
+        const bodyEnTmpl    = (propFormCompleteMail && propFormCompleteMail.bodyEn)    ? propFormCompleteMail.bodyEn    : "";
+        const guestSubjectEn = subjectEnTmpl ? renderDouble(subjectEnTmpl) : "";
+        const guestBodyEn    = bodyEnTmpl    ? renderDouble(bodyEnTmpl)    : "";
+        const finalSubject = guestSubjectEn ? `${guestSubject} / ${guestSubjectEn}` : guestSubject;
+        const finalBody    = guestBodyEn
+          ? `${guestBody}\n\n--------------------------------\n--- English follows ---\n--------------------------------\n\n${guestBodyEn}`
+          : guestBody;
         // strictFrom: 担当者 Gmail が連携されていなければ送信しない (アプリ管理者から送らない)
-        await sendNotificationEmail_(guestEmail, guestSubject, guestBody, senderEmail, { strictFrom: true });
+        await sendNotificationEmail_(guestEmail, finalSubject, finalBody, senderEmail, { strictFrom: true });
         console.log(`宿泊者メール送信成功: ${guestEmail} (from=${senderEmail})`);
         try {
           await db.collection("guestRegistrations").doc(guestId).update({

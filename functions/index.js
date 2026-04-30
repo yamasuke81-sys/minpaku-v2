@@ -139,6 +139,10 @@ app.use("/tax-docs", taxDocsApi(db));
 const notificationsApi = require("./api/notifications");
 app.use("/notifications", notificationsApi(db));
 
+// ========== 英訳 API (Gemini, scan-sorter キー流用) ==========
+const translateApi = require("./api/translate");
+app.use("/translate", translateApi(db));
+
 // ========== 手動同期 API ==========
 const syncApi = require("./api/sync");
 app.use("/sync", syncApi(db));

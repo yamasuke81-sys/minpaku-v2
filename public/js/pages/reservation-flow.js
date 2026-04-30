@@ -292,6 +292,15 @@ const ReservationFlowPage = {
         { field: "formCompleteMail.body",    label: "メール本文", type: "textarea", rows: 10,
           placeholder: "空欄にするとデフォルト本文に戻ります",
           default: "{{guestName}} 様\n\nいつもお世話になっております。{{propertyName}} です。\n\nこの度はご予約いただき、誠にありがとうございます。\n宿泊者名簿のご登録を承りました。\n\n■ ご宿泊情報\nチェックイン: {{checkInFormatted}}\nチェックアウト: {{checkOutFormatted}}\nご人数: {{guestCount}} 名\n住所: {{propertyAddress}}\n地図: {{addressMapUrl}}\n\nご記入内容に修正が必要な場合は、下記リンクよりお手続きください。\n{{editUrl}}\n\nチェックイン前日〜当日にかけて、キーボックス番号や施設のご案内に関するメールを別途お送りいたします。\n楽しいご滞在となりますよう、心よりお待ちしております。\n\nご質問等ございましたら、本メールにご返信ください。\n何卒よろしくお願い申し上げます。" },
+        // 英訳 (Gemini で日本語編集時に自動生成、手動修正可)
+        { field: "formCompleteMail.subjectEn", label: "Email Subject (English)", type: "text",
+          placeholder: "(日本語の件名を編集すると自動翻訳されます)",
+          translateSource: "formCompleteMail.subject",
+          hint: "日本語編集の約2秒後に自動翻訳。手動で上書き編集も可能" },
+        { field: "formCompleteMail.bodyEn",    label: "Email Body (English)", type: "textarea", rows: 10,
+          placeholder: "(日本語の本文を編集すると自動翻訳されます)",
+          translateSource: "formCompleteMail.body",
+          hint: "日本語編集の約2秒後に自動翻訳。手動で上書き編集も可能" },
       ],
       detailVarsHint: [
         "{{guestName}}", "{{propertyName}}", "{{checkIn}}", "{{checkOut}}",
@@ -341,6 +350,15 @@ const ReservationFlowPage = {
         { field: "formUpdateMail.body",    label: "メール本文", type: "textarea", rows: 10,
           placeholder: "空欄にするとデフォルト本文に戻ります",
           default: "{{guestName}} 様\n\nいつもお世話になっております。{{propertyName}} です。\n\n宿泊者名簿のご修正、誠にありがとうございます。\nご登録内容を承りました。\n\n■ ご宿泊情報\nチェックイン: {{checkInFormatted}}\nチェックアウト: {{checkOutFormatted}}\nご人数: {{guestCount}} 名\n住所: {{propertyAddress}}\n地図: {{addressMapUrl}}\n\n■ 変更内容\n{{changes}}\n\n再度ご修正の必要がございましたら、下記リンクよりお手続きください。\n{{editUrl}}\n\nご質問等ございましたら、本メールにご返信ください。\n何卒よろしくお願い申し上げます。" },
+        // 英訳
+        { field: "formUpdateMail.subjectEn", label: "Email Subject (English)", type: "text",
+          placeholder: "(日本語の件名を編集すると自動翻訳されます)",
+          translateSource: "formUpdateMail.subject",
+          hint: "日本語編集の約2秒後に自動翻訳。手動で上書き編集も可能" },
+        { field: "formUpdateMail.bodyEn",    label: "Email Body (English)", type: "textarea", rows: 10,
+          placeholder: "(日本語の本文を編集すると自動翻訳されます)",
+          translateSource: "formUpdateMail.body",
+          hint: "日本語編集の約2秒後に自動翻訳。手動で上書き編集も可能" },
       ],
       detailVarsHint: [
         "{{guestName}}", "{{propertyName}}", "{{checkIn}}", "{{checkOut}}",
@@ -463,6 +481,15 @@ const ReservationFlowPage = {
         { field: "keyboxSend.body",         label: "メール本文", type: "textarea", rows: 14,
           placeholder: "{{guestName}} 様\n\nご予約ありがとうございます。{{propertyName}} のキーボックス情報をお送りします。\n\n■ チェックイン情報\n日時: {{checkIn}}\nご案内ページ: {{guideUrl}}\n\n■ キーボックス\n暗証番号: {{keyboxCode}}\n場所: {{keyboxLocation}}\n\n■ 施設のご案内\n住所: {{propertyAddress}}\n地図: {{addressMapUrl}}\nWi-Fi SSID: {{wifiSSID}}\nWi-Fi パスワード: {{wifiPassword}}\n\nご不明な点がございましたら、本メールにご返信ください。\nどうぞよろしくお願いいたします。",
           default: "{{guestName}} 様\n\nご予約ありがとうございます。{{propertyName}} のキーボックス情報をお送りします。\n\n■ チェックイン情報\n日時: {{checkIn}}\nご案内ページ: {{guideUrl}}\n\n■ キーボックス\n暗証番号: {{keyboxCode}}\n場所: {{keyboxLocation}}\n\n■ 施設のご案内\n住所: {{propertyAddress}}\n地図: {{addressMapUrl}}\nWi-Fi SSID: {{wifiSSID}}\nWi-Fi パスワード: {{wifiPassword}}\n\nご不明な点がございましたら、本メールにご返信ください。\nどうぞよろしくお願いいたします。" },
+        // 英訳
+        { field: "keyboxSend.subjectEn", label: "Email Subject (English)", type: "text",
+          placeholder: "(日本語の件名を編集すると自動翻訳されます)",
+          translateSource: "keyboxSend.subject",
+          hint: "日本語編集の約2秒後に自動翻訳。手動で上書き編集も可能" },
+        { field: "keyboxSend.bodyEn",    label: "Email Body (English)", type: "textarea", rows: 14,
+          placeholder: "(日本語の本文を編集すると自動翻訳されます)",
+          translateSource: "keyboxSend.body",
+          hint: "日本語編集の約2秒後に自動翻訳。手動で上書き編集も可能" },
         // 物件固有情報
         { field: "keyboxCode",              label: "キーボックス暗証番号", type: "text",
           placeholder: "例: 1234", default: "" },
@@ -1240,10 +1267,14 @@ const ReservationFlowPage = {
         ? `<div class="form-text small" style="font-size:0.7rem;">${this._esc(fd.hint)}</div>`
         : "";
       const inputId = `rf-det-${step.key}-${pid}-${fd.field.replace(/\./g, "_")}`;
+      // 英訳フィールド: data-translate-source に翻訳元フィールド名を記録 (例: "formCompleteMail.subject")
+      const translateAttr = fd.translateSource
+        ? ` data-translate-source="${this._esc(fd.translateSource)}"`
+        : "";
       const commonAttrs =
         `class="form-control form-control-sm rf-detail-input" ` +
         `id="${inputId}" ` +
-        `data-step="${step.key}" data-pid="${pid}" data-field="${this._esc(fd.field)}" data-type="${fd.type}"`;
+        `data-step="${step.key}" data-pid="${pid}" data-field="${this._esc(fd.field)}" data-type="${fd.type}"${translateAttr}`;
 
       let inputHtml = "";
       if (fd.type === "textarea") {
@@ -2202,6 +2233,8 @@ const ReservationFlowPage = {
       }
       if (e.target.classList.contains("rf-detail-input")) {
         this._queueSave(e.target.dataset.pid, e.target.dataset.step);
+        // 翻訳: この field を翻訳元として持つ英訳フィールドがあれば debounce 翻訳発火
+        this._queueTranslateFor(e.target, wrap);
       }
     });
 
@@ -2526,6 +2559,71 @@ const ReservationFlowPage = {
     if (this._saveTimers[timerKey]) clearTimeout(this._saveTimers[timerKey]);
     this._showStatus("saving");
     this._saveTimers[timerKey] = setTimeout(() => this._saveProperty(pid), 800);
+  },
+
+  // ========== 英訳キュー (Gemini) ==========
+  // ソース field の input 時に呼ばれる。translate-source として
+  // この field を参照する英訳フィールドがあれば 2 秒 debounce で翻訳。
+  _queueTranslateFor(srcEl, wrap) {
+    const srcField = srcEl?.dataset?.field;
+    const pid = srcEl?.dataset?.pid;
+    const stepKey = srcEl?.dataset?.step;
+    if (!srcField || !pid || !stepKey) return;
+    // この pid/step 配下で translate-source = srcField を持つ英訳要素を全部探す
+    const targets = wrap.querySelectorAll(
+      `.rf-detail-input[data-pid="${pid}"][data-step="${stepKey}"][data-translate-source="${srcField}"]`
+    );
+    if (!targets.length) return;
+    if (!this._translateTimers) this._translateTimers = {};
+    targets.forEach(targetEl => {
+      const timerKey = `xl-${pid}-${targetEl.dataset.field}`;
+      if (this._translateTimers[timerKey]) clearTimeout(this._translateTimers[timerKey]);
+      // 翻訳中インジケータ
+      targetEl.placeholder = "(翻訳中...)";
+      this._translateTimers[timerKey] = setTimeout(
+        () => this._runTranslate(srcEl, targetEl),
+        2000
+      );
+    });
+  },
+
+  async _runTranslate(srcEl, targetEl) {
+    const text = (srcEl.value || "").trim();
+    if (!text) {
+      targetEl.value = "";
+      targetEl.dispatchEvent(new Event("input", { bubbles: true }));
+      return;
+    }
+    // subject/body のいずれかを判定 (target の field 名末尾で判別)
+    const targetField = targetEl.dataset.field || "";
+    const isSubject = /subjectEn$/i.test(targetField);
+    const payload = isSubject ? { subject: text } : { body: text };
+    try {
+      const idToken = await firebase.auth().currentUser?.getIdToken();
+      const res = await fetch("/api/translate/email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      const translated = isSubject ? (data.subjectEn || "") : (data.bodyEn || "");
+      targetEl.value = translated;
+      targetEl.placeholder = "(日本語の本文を編集すると自動翻訳されます)";
+      // 既存の自動保存ハンドラに乗せる
+      targetEl.dispatchEvent(new Event("input", { bubbles: true }));
+      this._showStatus("saved");
+    } catch (e) {
+      console.warn("英訳失敗:", e.message);
+      targetEl.placeholder = `(翻訳失敗: ${e.message})`;
+      this._showStatus("error", `英訳失敗: ${e.message}`);
+    }
   },
 
   _legacy_queueSaveNotif_unused_(notifKey) {
