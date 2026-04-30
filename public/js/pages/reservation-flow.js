@@ -412,7 +412,7 @@ const ReservationFlowPage = {
       linkLabel: "通知設定",
       // 外部リンク (タイミー公式サイトを開く)
       extraLinks: [
-        { hash: "https://timee.co.jp/", label: "タイミーを開く", external: true },
+        { hash: "https://app-new.taimee.co.jp/account", label: "タイミーを開く", external: true },
       ],
     },
     {

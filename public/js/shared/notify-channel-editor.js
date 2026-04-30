@@ -163,7 +163,7 @@
     // タイミー募集依頼 (新規確定予約検知時に物件オーナー宛に通知)
     { key: "timee_posting", label: "タイミー募集依頼", desc: "新規予約確定時に物件オーナーへタイミーでの求人募集を依頼する通知", icon: "bi-clock-history", group: "recruit", varGroup: "booking", defaultTiming: "immediate",
       defaultEnabled: false, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: true,
-      defaultMsg: "🕐 タイミー募集依頼\n\nタイミー募集が必要な予約が入りました。\nチェックアウト日時: {date}\n物件: {property}\n\nこの日の求人募集をタイミーでお願いします。\n\nタイミー: https://timee.co.jp/" },
+      defaultMsg: "🕐 タイミー募集依頼\n\nタイミー募集が必要な予約が入りました。\nチェックアウト日時: {date}\n物件: {property}\n\nこの日の求人募集をタイミーでお願いします。\n\nタイミー: https://app-new.taimee.co.jp/account" },
   ];
 
   function findNotification(key) {

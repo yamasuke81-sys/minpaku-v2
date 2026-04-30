@@ -671,14 +671,14 @@ module.exports = async function onBookingChange(event) {
       if (enabled) {
         await notifyByKey(db, "timee_posting", {
           title: `タイミー募集依頼: ${checkOut} ${propertyName}`,
-          body: `🕐 タイミー募集依頼\n\nタイミー募集が必要な予約が入りました。\nチェックアウト日時: ${checkOut}\n物件: ${propertyName}\n\nこの日の求人募集をタイミーでお願いします。\n\nタイミー: https://timee.co.jp/`,
+          body: `🕐 タイミー募集依頼\n\nタイミー募集が必要な予約が入りました。\nチェックアウト日時: ${checkOut}\n物件: ${propertyName}\n\nこの日の求人募集をタイミーでお願いします。\n\nタイミー: https://app-new.taimee.co.jp/account`,
           vars: {
             date: checkOut,
             checkin: checkIn || "",
             property: propertyName || "",
             guest: guestName || "",
             site: source || "",
-            url: "https://timee.co.jp/",
+            url: "https://app-new.taimee.co.jp/account",
           },
           propertyId: propertyId || null,
         });
