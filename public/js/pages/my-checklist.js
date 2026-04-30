@@ -999,7 +999,6 @@ const MyChecklistPage = {
           <button type="button" class="btn btn-sm btn-outline-secondary mcl-toggle-all-expand">
             <i class="bi bi-arrows-expand"></i> 全展開/全折りたたみ
           </button>
-          <span class="ms-auto small text-muted align-self-center">${done}/${total} チェック済</span>
         </div>
         ${this.renderChildren(area)}
       </div>
