@@ -399,6 +399,23 @@ const ReservationFlowPage = {
       linkLabel: "通知設定",
     },
     {
+      key: "timee_posting",
+      label: "タイミー募集依頼",
+      icon: "bi-clock-history",
+      lane: "owner",
+      phase: 1,
+      track: "owner",
+      globalChannel: "timee_posting",
+      varGroup: "booking",
+      hint: "新規予約確定時に物件オーナーへタイミー求人募集を依頼します。物件ごとに有効化/通知先/文言を設定できます。",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+      // 外部リンク (タイミー公式サイトを開く)
+      extraLinks: [
+        { hash: "https://timee.co.jp/", label: "タイミーを開く", external: true },
+      ],
+    },
+    {
       key: "keybox_send",
       label: "キーボックス情報送信 + 施設案内",
       icon: "bi-key",
@@ -1687,6 +1704,15 @@ const ReservationFlowPage = {
     const linkBtn = step.linkHash
       ? `<a href="${this._esc(step.linkHash)}" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:0.72rem;">${this._esc(step.linkLabel || "設定")} <i class="bi bi-arrow-right"></i></a>`
       : "";
+    // 追加リンク (extraLinks) — 例: タイミー公式サイト等の外部リンク
+    const extraLinksBtns = Array.isArray(step.extraLinks)
+      ? step.extraLinks.map(l => {
+          const ext = !!l.external;
+          const targetAttr = ext ? ` target="_blank" rel="noopener"` : "";
+          const icon = ext ? "bi-box-arrow-up-right" : "bi-arrow-right";
+          return `<a href="${this._esc(l.hash)}"${targetAttr} class="btn btn-outline-secondary btn-sm py-0 px-2 ms-1" style="font-size:0.72rem;">${this._esc(l.label || "設定")} <i class="bi ${icon}"></i></a>`;
+        }).join("")
+      : "";
     const hintHtml = step.hint
       ? `<div class="small text-muted mt-1" style="font-size:11px;"><i class="bi bi-info-circle"></i> ${this._esc(step.hint)}</div>`
       : "";
@@ -1723,7 +1749,7 @@ const ReservationFlowPage = {
           ${notifEditorHtml}
           ${icalPanelHtml}
           <!-- リンクボタン -->
-          ${(guestBtn || linkBtn) ? `<div class="mt-2 d-flex flex-wrap gap-1">${guestBtn}${linkBtn}</div>` : ""}
+          ${(guestBtn || linkBtn || extraLinksBtns) ? `<div class="mt-2 d-flex flex-wrap gap-1">${guestBtn}${linkBtn}${extraLinksBtns}</div>` : ""}
           <!-- 物件固有メモ -->
           <div class="mt-2">
             <label class="form-label small text-muted mb-1"><i class="bi bi-pencil"></i> 物件メモ（${this._esc(property.name)}用）</label>

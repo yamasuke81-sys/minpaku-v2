@@ -160,6 +160,10 @@
     { key: "inspection_reminder", label: "直前点検リマインド", desc: "チェックイン前日(デフォルト)に物件オーナー/管理者に直前点検を通知", icon: "bi-search", group: "cleaning", varGroup: "inspection", defaultTiming: "beforeEvent",
       defaultEnabled: false, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: false,
       defaultMsg: "🔍 直前点検リマインド\n\n{date} チェックイン前の点検をお忘れなく\n物件: {property}\nゲスト: {guest}" },
+    // タイミー募集依頼 (新規確定予約検知時に物件オーナー宛に通知)
+    { key: "timee_posting", label: "タイミー募集依頼", desc: "新規予約確定時に物件オーナーへタイミーでの求人募集を依頼する通知", icon: "bi-clock-history", group: "recruit", varGroup: "booking", defaultTiming: "immediate",
+      defaultEnabled: false, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: true,
+      defaultMsg: "🕐 タイミー募集依頼\n\nタイミー募集が必要な予約が入りました。\nチェックアウト日時: {date}\n物件: {property}\n\nこの日の求人募集をタイミーでお願いします。\n\nタイミー: https://timee.co.jp/" },
   ];
 
   function findNotification(key) {

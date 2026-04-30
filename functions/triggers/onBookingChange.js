@@ -656,6 +656,47 @@ module.exports = async function onBookingChange(event) {
     console.error("LINE通知エラー:", e);
   }
 
+  // ========== タイミー募集依頼通知 (timee_posting) ==========
+  // 新規確定予約検知時に物件オーナー宛にタイミー求人募集を依頼
+  // 重複送信防止: bookings.timeeNotifySentAt が既に立っていればスキップ
+  try {
+    if (after.timeeNotifySentAt) {
+      // 送信済み → スキップ
+    } else {
+      // 物件別 channelOverrides で enabled=true の場合のみ送信
+      // (notifyByKey 内部で channelOverrides を見て送信先を決定)
+      const ovs = (propertyData.channelOverrides || {}).timee_posting || {};
+      const NCE_default = false; // notify-channel-editor のデフォルトは false
+      const enabled = (ovs.enabled !== undefined) ? !!ovs.enabled : NCE_default;
+      if (enabled) {
+        await notifyByKey(db, "timee_posting", {
+          title: `タイミー募集依頼: ${checkOut} ${propertyName}`,
+          body: `🕐 タイミー募集依頼\n\nタイミー募集が必要な予約が入りました。\nチェックアウト日時: ${checkOut}\n物件: ${propertyName}\n\nこの日の求人募集をタイミーでお願いします。\n\nタイミー: https://timee.co.jp/`,
+          vars: {
+            date: checkOut,
+            checkin: checkIn || "",
+            property: propertyName || "",
+            guest: guestName || "",
+            site: source || "",
+            url: "https://timee.co.jp/",
+          },
+          propertyId: propertyId || null,
+        });
+        // 重複送信防止フラグ
+        try {
+          await db.collection("bookings").doc(bookingId).update({
+            timeeNotifySentAt: admin_module.firestore.FieldValue.serverTimestamp(),
+          });
+        } catch (uerr) {
+          console.error("timeeNotifySentAt 更新エラー:", uerr);
+        }
+        console.log(`予約 ${bookingId}: タイミー募集依頼通知送信 (${checkOut})`);
+      }
+    }
+  } catch (e) {
+    console.error("タイミー募集依頼通知エラー:", e);
+  }
+
   // ========== 直前点検 (チェックイン日) ==========
   // 条件: 物件の inspection.enabled=true, 募集期間内, 当該物件の checkIn日に他予約のcheckOutがない
   try {
