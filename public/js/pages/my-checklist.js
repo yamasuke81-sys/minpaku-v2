@@ -80,15 +80,27 @@ const MyChecklistPage = {
     // fixed 化後の実レイアウト高さで spacer 計算
     requestAnimationFrame(() => {
       const headerH = header.getBoundingClientRect().height;
-      // 上位タブ + 大カテゴリタブ (表示中のみ) の高さを合算
+      // 上位タブ + 完了ボタンスロット + 大カテゴリタブ (表示中のみ) の高さを合算
       const topTabsWrap = document.querySelector(".mcl-tabs-wrap");
       const topTabsH = topTabsWrap ? topTabsWrap.getBoundingClientRect().height : 0;
+      const completeSlot = document.getElementById("mclChecklistTopComplete");
+      const completeH = (completeSlot && completeSlot.style.display !== "none")
+        ? completeSlot.getBoundingClientRect().height : 0;
       const areaTabsWrap = document.querySelector(".mcl-area-tabs-wrap");
       const areaTabsH = (areaTabsWrap && areaTabsWrap.style.display !== "none")
         ? areaTabsWrap.getBoundingClientRect().height : 0;
+      // 完了ボタンスロットの top も再計算 (renderFooter 後に高さが変わるため)
+      if (completeSlot && completeSlot.style.position === "fixed") {
+        const topbar = document.querySelector(".app-topbar");
+        const topbarH = topbar ? topbar.getBoundingClientRect().height : 0;
+        completeSlot.style.top = (topbarH + headerH + topTabsH) + "px";
+        if (areaTabsWrap && areaTabsWrap.style.position === "fixed") {
+          areaTabsWrap.style.top = (topbarH + headerH + topTabsH + completeH) + "px";
+        }
+      }
       const spacer = document.querySelector(".mcl-page-header-spacer");
       // spacer は flow 内 (= topbar の後ろから start)、topbarH は二重計上になるので除外
-      if (spacer) spacer.style.height = Math.max(0, headerH + topTabsH + areaTabsH) + "px";
+      if (spacer) spacer.style.height = Math.max(0, headerH + topTabsH + completeH + areaTabsH) + "px";
     });
   },
 
@@ -1351,10 +1363,11 @@ const MyChecklistPage = {
     });
   },
 
-  // 上位タブバー + 大カテゴリタブバーを fixed 化する
+  // 上位タブバー + 清掃完了ボタンスロット + 大カテゴリタブバーを fixed 化する
   _setupTopTabStickyObserver(body) {
     const topWrap = body.querySelector(".mcl-tabs-wrap");
     const areaWrap = body.querySelector(".mcl-area-tabs-wrap");
+    const completeSlot = body.querySelector("#mclChecklistTopComplete");
     if (!topWrap) return;
 
     const applyLayout = () => {
@@ -1374,28 +1387,43 @@ const MyChecklistPage = {
       topWrap.style.background = "#fff";
       topWrap.style.boxShadow = "0 1px 0 #dee2e6";
 
-      // 大カテゴリタブバーを上位タブの真下に固定
+      // 清掃完了ボタンスロットを上位タブの直下に固定 (大カテゴリタブの上)
+      if (completeSlot) {
+        completeSlot.style.position = "fixed";
+        completeSlot.style.left = rect.left + "px";
+        completeSlot.style.width = rect.width + "px";
+        completeSlot.style.zIndex = "27";
+        completeSlot.style.background = "#fff";
+        completeSlot.style.boxSizing = "border-box";
+      }
+
+      // 大カテゴリタブバーを完了ボタンスロットの真下に固定
       if (areaWrap) {
         areaWrap.style.position = "fixed";
         areaWrap.style.left = rect.left + "px";
         areaWrap.style.width = rect.width + "px";
-        areaWrap.style.zIndex = "27";
+        areaWrap.style.zIndex = "26";
         areaWrap.style.background = "#f8f9fa";
         areaWrap.style.boxShadow = "0 2px 6px rgba(0,0,0,0.06)";
       }
 
       requestAnimationFrame(() => {
         const topH = topWrap.getBoundingClientRect().height;
+        const completeH = (completeSlot && completeSlot.style.display !== "none")
+          ? completeSlot.getBoundingClientRect().height : 0;
         const areaH = (areaWrap && areaWrap.style.display !== "none")
           ? areaWrap.getBoundingClientRect().height : 0;
 
+        if (completeSlot) {
+          completeSlot.style.top = (topbarH + headerH + topH) + "px";
+        }
         if (areaWrap) {
-          areaWrap.style.top = (topbarH + headerH + topH) + "px";
+          areaWrap.style.top = (topbarH + headerH + topH + completeH) + "px";
         }
 
         const spacer = document.querySelector(".mcl-page-header-spacer");
         // spacer は flow 内 (= topbar の後ろから start)、topbarH は二重計上になるので除外
-        if (spacer) spacer.style.height = Math.max(0, headerH + topH + areaH) + "px";
+        if (spacer) spacer.style.height = Math.max(0, headerH + topH + completeH + areaH) + "px";
       });
     };
 
@@ -1553,6 +1581,9 @@ const MyChecklistPage = {
     });
     document.getElementById('mclCompleteBtn')?.addEventListener('click', () => this.completeChecklist(allDone, total - done));
     document.getElementById('mclRevertBtn')?.addEventListener('click', () => this.revertChecklist());
+
+    // 完了ボタンスロットの高さが変わったため、fixed位置と spacer を再計算
+    requestAnimationFrame(() => this._applyHeaderLayout());
   },
 
   async revertChecklist() {
