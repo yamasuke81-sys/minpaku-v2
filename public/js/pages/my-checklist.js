@@ -655,6 +655,7 @@ const MyChecklistPage = {
           ${topTabsHtml}
         </div>
       </div>
+      <div id="mclChecklistTopComplete" class="px-2 pt-2" style="background:#fff;${this.activeTopTab === 'checklist' ? '' : 'display:none;'}"></div>
       <div class="mcl-area-tabs-wrap" style="background:#f8f9fa;border-bottom:1px solid #dee2e6;padding:4px 4px;${this.activeTopTab === 'checklist' ? '' : 'display:none;'}">
         <ul class="nav nav-pills flex-nowrap overflow-auto mb-0" style="white-space:nowrap;gap:8px;">
           ${areaTabs}
@@ -743,6 +744,11 @@ const MyChecklistPage = {
     const areaTabsWrap = body.querySelector(".mcl-area-tabs-wrap");
     if (areaTabsWrap) {
       areaTabsWrap.style.display = this.activeTopTab === "checklist" ? "" : "none";
+    }
+    // 清掃完了ボタン上部スロットの表示/非表示 (チェックリストタブ時のみ)
+    const completeTopSlot = document.getElementById("mclChecklistTopComplete");
+    if (completeTopSlot) {
+      completeTopSlot.style.display = this.activeTopTab === "checklist" ? "" : "none";
     }
     // spacer 再計算
     requestAnimationFrame(() => this._applyHeaderLayout());
@@ -1505,8 +1511,7 @@ const MyChecklistPage = {
         </div>`
       : `
         <div class="card ${allDone ? 'border-success' : ''}">
-          <div class="card-body">
-            <div style="background:#fff3cd;color:#664d03;padding:8px 12px;border-radius:6px;margin-bottom:10px;font-weight:600;"><i class="bi bi-flag-fill"></i> 清掃完了</div>
+          <div class="card-body p-2">
             ${allDone ? `
               <div class="alert alert-success py-2 small mb-2">
                 <i class="bi bi-check-circle"></i> 全項目チェック済み (${done}/${total})。完了処理を行えます。
@@ -1514,21 +1519,23 @@ const MyChecklistPage = {
             <button type="button" class="btn btn-success btn-lg w-100" id="mclCompleteBtn">
               <i class="bi bi-check2-circle"></i> 清掃完了にする
             </button>
-            <div class="small text-muted mt-2">
-              完了するとWebアプリ管理者に清掃完了通知、ランドリー入力のリマインドが送信されます。
-            </div>
           </div>
         </div>`;
 
     // タブに応じて表示切替:
-    // タブ4 (ランドリー) → ランドリーのみ
-    // タブ2 (清掃チェックリスト) → 清掃完了のみ
-    // 旧構造互換 (どちらも取れる場合) → 両方
+    //  - タブ2 (清掃チェックリスト) → 清掃完了ボタンを上部スロット (mclChecklistTopComplete) に表示
+    //    大カテゴリタブの上に常時表示し、最下部までスクロールしなくてもアクセス可能にする
+    //  - タブ4 (ランドリー) → mclFooter にランドリーのみ
+    //  - 旧構造互換 (どちらも取れる場合) → 両方を mclFooter に
+    const elTop = document.getElementById("mclChecklistTopComplete");
     if (this.activeTopTab === "laundry") {
+      if (elTop) elTop.innerHTML = "";
       el.innerHTML = laundrySection || `<div class="alert alert-secondary">ランドリー設定がありません</div>`;
     } else if (this.activeTopTab === "checklist") {
-      el.innerHTML = completeSection;
+      if (elTop) elTop.innerHTML = completeSection;
+      el.innerHTML = "";
     } else {
+      if (elTop) elTop.innerHTML = "";
       el.innerHTML = completeSection + laundrySection;
     }
 
