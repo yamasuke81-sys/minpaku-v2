@@ -525,10 +525,13 @@ const MyRecruitmentPage = {
       bookingQuery = bookingQuery.where("propertyId", "in", assignedIds);
     }
     const unsubBooking = bookingQuery.onSnapshot(snap => {
-      // キャンセル予約は全て除外（"cancelled" / "canceled" / 日本語）
+      // キャンセル + 保留中(pendingApproval=true) を除外
+      // 保留中は Airbnb 予約承認待ちなど (確定後に再 ingest される)
       this._rawBookings = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(b => {
         const s = String(b.status || "").toLowerCase();
-        return !s.includes("cancel") && b.status !== "キャンセル" && b.status !== "キャンセル済み";
+        if (s.includes("cancel") || b.status === "キャンセル" || b.status === "キャンセル済み") return false;
+        if (b.pendingApproval === true) return false;
+        return true;
       });
       // impersonation: 表示物件セットに含まれるもののみ
       if (impersonatedAllowedProps) {
@@ -1706,14 +1709,31 @@ const MyRecruitmentPage = {
    * userNotificationStatus/{uid} doc: { readIds: { [notifId]: Timestamp } }
    */
   async _loadReadIds() {
-    this._readIds = {};
+    // 既存値を保持したまま Firestore から再取得 (Firestore 取得待ちの間に
+    // 既読アイテムが「未読」として復活するのを防ぐ)
+    if (!this._readIds) this._readIds = {};
     try {
       const uid = (typeof firebase !== "undefined" && firebase.auth().currentUser?.uid)
         || Auth.currentUser?.uid;
       if (!uid) return;
+      // localStorage から即時復元 (オフライン時も既読維持)
+      try {
+        const cached = localStorage.getItem(`userNotificationStatus_${uid}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && typeof parsed === "object") {
+            this._readIds = { ...parsed, ...this._readIds };
+          }
+        }
+      } catch (_) {}
       const doc = await db.collection("userNotificationStatus").doc(uid).get();
       if (doc.exists) {
-        this._readIds = doc.data().readIds || {};
+        const remote = doc.data().readIds || {};
+        // remote と local をマージ (どちらかで既読なら既読扱い)
+        this._readIds = { ...remote, ...this._readIds };
+        try {
+          localStorage.setItem(`userNotificationStatus_${uid}`, JSON.stringify(this._readIds));
+        } catch (_) {}
       }
     } catch (e) {
       console.warn("[my-recruitment] _loadReadIds 失敗", e);
@@ -1743,6 +1763,10 @@ const MyRecruitmentPage = {
       });
       await ref.set({ readIds: {} }, { merge: true }); // ドキュメント存在保証
       await ref.update(patch); // フィールド単位追記
+      // localStorage にも即時キャッシュ (次回ロードまでの間も既読維持)
+      try {
+        localStorage.setItem(`userNotificationStatus_${uid}`, JSON.stringify(this._readIds));
+      } catch (_) {}
     } catch (e) {
       console.error("[my-recruitment] _markAsRead 失敗", e);
       showToast("エラー", "既読の保存に失敗しました", "error");

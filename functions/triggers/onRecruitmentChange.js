@@ -13,6 +13,47 @@ module.exports = async function onRecruitmentChange(event) {
   const after = event.data.after?.data();
   if (!after) return;
 
+  // ===== status 遷移: → "スタッフ確定済み" になったら対応 shift を同期 =====
+  // (UI から Firestore SDK 直接更新でも、API 経由でも、ここで保証)
+  if (before?.status !== "スタッフ確定済み" && after.status === "スタッフ確定済み") {
+    try {
+      const ids = Array.isArray(after.selectedStaffIds) ? after.selectedStaffIds : [];
+      if (ids.length && after.propertyId && after.checkoutDate) {
+        const targetWorkType = after.workType === "pre_inspection" ? "pre_inspection" : "cleaning_by_count";
+        const dt = new Date(after.checkoutDate);
+        const shiftSnap = await db.collection("shifts")
+          .where("propertyId", "==", after.propertyId)
+          .where("date", "==", dt)
+          .where("workType", "==", targetWorkType)
+          .limit(1).get();
+        const firstName = (after.selectedStaff || "").split(",")[0]?.trim() || null;
+        if (!shiftSnap.empty) {
+          const sd = shiftSnap.docs[0];
+          const cur = sd.data();
+          const curIds = Array.isArray(cur.staffIds) ? cur.staffIds : [];
+          const same = cur.staffId === ids[0]
+            && curIds.length === ids.length
+            && curIds.every((x, i) => x === ids[i]);
+          if (!same) {
+            await sd.ref.update({
+              staffId: ids[0],
+              staffName: firstName,
+              staffIds: ids,
+              status: cur.status === "completed" ? "completed" : "assigned",
+              assignMethod: cur.assignMethod || "trigger_sync",
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            console.log(`[onRecruitmentChange] shift同期 ${sd.id} staffIds=${JSON.stringify(ids)}`);
+          }
+        } else {
+          console.warn(`[onRecruitmentChange] 同期対象 shift なし: ${after.propertyId} ${after.checkoutDate} ${targetWorkType}`);
+        }
+      }
+    } catch (e) {
+      console.error("[onRecruitmentChange] shift同期エラー:", e);
+    }
+  }
+
   const beforeResponses = before?.responses || [];
   const afterResponses = after.responses || [];
   if (afterResponses.length <= beforeResponses.length) return;

@@ -1055,7 +1055,12 @@ async function sendLineMessageForProperty(db, propertyId, text, logExtra = {}) {
  * @returns {Promise<{sent: object, errors: object[]}>}
  */
 async function notifyByKey(db, notifyKey, options = {}) {
-  const { title = "", body = "", vars = {}, propertyId = null, staffIds = null } = options;
+  const {
+    title = "", body = "", vars = {}, propertyId = null, staffIds = null,
+    // ownerEmail / subOwnerEmail のみに必ず追記される文字列 (LINEには含めない)
+    // 用途: customMessage で消えても残したい OK ボタン等の操作リンク
+    extraEmailFooter = "",
+  } = options;
 
   // 1. settings + propertyOverrides 取得
   const { settings } = await getNotificationSettings_(db);
@@ -1159,7 +1164,11 @@ async function notifyByKey(db, notifyKey, options = {}) {
     tasks.push((async () => {
       try {
         const emails = settings.notifyEmails || [];
-        const text = typeof resolvedBody === "string" ? resolvedBody : `[Flex] ${title}`;
+        const baseText = typeof resolvedBody === "string" ? resolvedBody : `[Flex] ${title}`;
+        // customMessage で削られても OK ボタン等は必ず付ける
+        const text = extraEmailFooter && !baseText.includes(extraEmailFooter)
+          ? baseText + extraEmailFooter
+          : baseText;
         let okCount = 0;
         for (const to of emails) {
           try {

@@ -206,9 +206,10 @@ const DashboardPage = {
       };
 
       // 1) bookings/ コレクション（iCal同期 or BEDS24）— 最優先
+      // pendingApproval=true (Airbnb 予約承認待ち) も除外: 確定後に再 ingest される
       const rawBookings = bookingSnap.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .filter(b => b.status !== "cancelled"); // キャンセル済み予約を除外
+        .filter(b => b.status !== "cancelled" && b.pendingApproval !== true);
       rawBookings.forEach(b => addBooking(b, "bookings"));
 
       // 2) guestRegistrations/（名簿フォーム）— 補完
@@ -973,8 +974,14 @@ const DashboardPage = {
          <span id="gasImportStatusInline" class="small ms-1"></span>`
       : "";
 
-    // CO日の清掃募集を検索
-    const recruit = co ? recruitments.find(r => this.toDateStr(r.checkoutDate) === co) : null;
+    // CO日の清掃募集を検索 (propertyId 必須: 同日他物件の募集と混ざらないように)
+    const recruit = co
+      ? recruitments.find(r =>
+          this.toDateStr(r.checkoutDate) === co
+          && r.propertyId === b.propertyId
+          && (r.workType || "cleaning_by_count") !== "pre_inspection"
+        )
+      : null;
     let cleaningHtml = '<span class="text-muted">募集なし</span>';
     if (recruit) {
       if (recruit.status === "スタッフ確定済み") {

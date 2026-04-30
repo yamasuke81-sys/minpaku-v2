@@ -321,6 +321,8 @@ module.exports = async function onGuestFormSubmit(event) {
   await notifyByKey(db, "roster_received", {
     title: `名簿受信: ${guestName}`,
     body: lineText + okButtonHtml,
+    // customMessage で本文置換されても OK ボタンは必ずメールに残す
+    extraEmailFooter: okButtonHtml,
     vars: {
       checkin: checkIn,
       date: checkOut,

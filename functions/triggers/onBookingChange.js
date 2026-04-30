@@ -280,7 +280,12 @@ module.exports = async function onBookingChange(event) {
       const coChanged = before.checkOut && after.checkOut && before.checkOut !== after.checkOut;
       const countChanged = before.guestCount !== after.guestCount;
       const nameChanged = before.guestName !== after.guestName;
-      if (ciChanged || coChanged || countChanged || nameChanged) {
+      // 「保留中→確定」遷移時は変更通知を抑止 (guestName 等が後追いで埋まるため誤発火する)
+      const wasPending = before.pendingApproval === true;
+      const nowConfirmed = after.pendingApproval !== true;
+      if (wasPending && nowConfirmed) {
+        console.log(`[onBookingChange] 保留→確定 遷移のため booking_change 通知スキップ: ${event.params.bookingId}`);
+      } else if (ciChanged || coChanged || countChanged || nameChanged) {
         // 変更点サマリを組み立て
         const changes = [];
         if (ciChanged) changes.push(`チェックイン: ${before.checkIn} → ${after.checkIn}`);
