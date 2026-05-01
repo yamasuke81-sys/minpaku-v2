@@ -976,7 +976,12 @@ const MyRecruitmentPage = {
           const isHdToday = dd.dateStr === todayStr;
           const cellBg = isHdToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : "#fff");
           if (r) {
-            html += `<td class="text-center" data-col-date="${dd.dateStr}" style="height:${propRowH};background:${cellBg};padding:1px;vertical-align:middle;">${this._recruitPill(r)}</td>`;
+            // 清掃 / 直前点検 バーをタップしたら対応する予約詳細を開く
+            const hasBid = !!r.bookingId;
+            const cls = hasBid ? "text-center cal-date-hd" : "text-center";
+            const bidAttr = hasBid ? ` data-booking-id="${this.esc(r.bookingId)}" data-cal-date="${dd.dateStr}"` : "";
+            const cur = hasBid ? "cursor:pointer;" : "";
+            html += `<td class="${cls}"${bidAttr} data-col-date="${dd.dateStr}" style="height:${propRowH};background:${cellBg};padding:1px;vertical-align:middle;${cur}">${this._recruitPill(r)}</td>`;
           } else {
             html += `<td data-col-date="${dd.dateStr}" style="height:${propRowH};background:${cellBg};padding:0;"></td>`;
           }
