@@ -776,10 +776,15 @@ const MyRecruitmentPage = {
     const colW = colWN + "px";        // 最小セル幅
 
     // 予約ソース別の色
-    const bookingColor = (src, fallback) => {
-      const s = (src || "").toLowerCase();
-      if (s.includes("airbnb")) return "#ff5a5f";
-      if (s.includes("booking")) return "#003580";
+    // src だけでなく booking 全体 (b) を受け取って bookingSite / guestName / notes も判定材料にする
+    // (gas_form_sync など source が中立な値の予約でも色を正しく出すため)
+    const bookingColor = (bOrSrc, fallback) => {
+      const b = (bOrSrc && typeof bOrSrc === "object") ? bOrSrc : null;
+      const haystack = b
+        ? `${b.source || ""} ${b.bookingSite || ""} ${b.guestName || ""} ${b.notes || ""}`.toLowerCase()
+        : String(bOrSrc || "").toLowerCase();
+      if (haystack.includes("airbnb")) return "#ff5a5f";
+      if (haystack.includes("booking")) return "#003580";
       return fallback;
     };
 
@@ -895,15 +900,15 @@ const MyRecruitmentPage = {
           const barTopStyle = "top:50%;transform:translateY(-50%);height:20px;pointer-events:none;";
           let segs = "";
           if (ending) {
-            const c = bookingColor(ending.source, fallbackColor);
+            const c = bookingColor(ending, fallbackColor);
             segs += `<div style="position:absolute;left:0;right:50%;${barTopStyle}background:${c};border-top-right-radius:999px;border-bottom-right-radius:999px;z-index:2;"></div>`;
           }
           if (middle) {
-            const c = bookingColor(middle.source, fallbackColor);
+            const c = bookingColor(middle, fallbackColor);
             segs += `<div style="position:absolute;left:0;right:0;${barTopStyle}background:${c};z-index:2;"></div>`;
           }
           if (starting) {
-            const c = bookingColor(starting.source, fallbackColor);
+            const c = bookingColor(starting, fallbackColor);
             segs += `<div style="position:absolute;left:50%;right:0;${barTopStyle}background:${c};border-top-left-radius:999px;border-bottom-left-radius:999px;z-index:2;"></div>`;
             // 名簿ドット判定 — placeholder予約と他物件名簿の誤マッチを防ぐ
             const isPlaceholder = (n) => {
