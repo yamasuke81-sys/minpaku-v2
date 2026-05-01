@@ -1909,10 +1909,10 @@ const MyChecklistPage = {
                 </div>
 
                 <!-- 旧 ④支払総額 (lpoPrepaidAmount) は ②支払総額 (lpoRate) に統合。HTMLは互換のため残し非表示化 -->
-                <select class="form-select d-none" id="lpoPrepaidAmount" aria-hidden="true">
+                <select class="form-select d-none" id="lpoPrepaidAmount" aria-hidden="true" style="display:none !important;">
                   <option value="">-- 金額を選択 --</option>
                 </select>
-                <input type="number" class="form-control mt-2 d-none" id="lpoPrepaidAmountOther" min="0" placeholder="金額を手入力(円)" aria-hidden="true">
+                <input type="number" class="form-control mt-2 d-none" id="lpoPrepaidAmountOther" min="0" placeholder="金額を手入力(円)" aria-hidden="true" style="display:none !important;">
                 <div class="d-flex justify-content-between mt-3">
                   <button type="button" class="btn btn-sm btn-outline-secondary" id="lpoAutoAllocate">
                     <i class="bi bi-magic"></i> 自動配分 (残高の少ない順)
