@@ -280,11 +280,12 @@ module.exports = async function onBookingChange(event) {
       const coChanged = before.checkOut && after.checkOut && before.checkOut !== after.checkOut;
       const countChanged = before.guestCount !== after.guestCount;
       const nameChanged = before.guestName !== after.guestName;
-      // 「保留中→確定」遷移時は変更通知を抑止 (guestName 等が後追いで埋まるため誤発火する)
-      const wasPending = before.pendingApproval === true;
-      const nowConfirmed = after.pendingApproval !== true;
-      if (wasPending && nowConfirmed) {
-        console.log(`[onBookingChange] 保留→確定 遷移のため booking_change 通知スキップ: ${event.params.bookingId}`);
+      // pendingApproval の遷移時は両方向とも変更通知を抑止
+      // - true→false (確定): guestName/guestCount が後追いで埋まる
+      // - false→true (再ガード): emailVerifications の競合で再セットされた直後
+      const pendingChanged = !!before.pendingApproval !== !!after.pendingApproval;
+      if (pendingChanged) {
+        console.log(`[onBookingChange] pendingApproval 遷移 (${!!before.pendingApproval}→${!!after.pendingApproval}) のため booking_change 通知スキップ: ${event.params.bookingId}`);
       } else if (ciChanged || coChanged || countChanged || nameChanged) {
         // 変更点サマリを組み立て
         const changes = [];
@@ -435,17 +436,24 @@ module.exports = async function onBookingChange(event) {
     return;
   }
   // 念のため emailVerifications 側も直接確認 (pendingApproval が立つ前にレースする場合の保険)
+  // ただし、同物件・同CIに confirmed メールが既にある場合は「確定済み」とみなして再ガードしない
+  // (これがないと emailVerification が pendingApproval=false に降ろした直後に再 true セット
+  //  → onBookingChange 再発火 → before/after で booking_change 誤通知のループになる)
   try {
     const evSnap = await db.collection("emailVerifications")
       .where("propertyId", "==", propertyId)
-      .where("matchStatus", "==", "pending_request")
       .get();
-    const hasPending = evSnap.docs.some(d => {
-      const ext = d.data().extractedInfo || {};
+    let hasPending = false;
+    let hasConfirmed = false;
+    for (const d of evSnap.docs) {
+      const data = d.data() || {};
+      const ext = data.extractedInfo || {};
       const ci = ext.checkIn && ext.checkIn.date;
-      return ci === checkIn;
-    });
-    if (hasPending) {
+      if (ci !== checkIn) continue;
+      if (data.matchStatus === "pending_request") hasPending = true;
+      if (data.matchStatus === "confirmed") hasConfirmed = true;
+    }
+    if (hasPending && !hasConfirmed) {
       console.log(`予約 ${bookingId}: emailVerifications に pending_request あり (CI=${checkIn}) → 募集生成スキップ`);
       // bookings にもフラグを立てておく (確定メール受信で false に降ろされて再発火させるため)
       try {
@@ -457,6 +465,9 @@ module.exports = async function onBookingChange(event) {
         console.error("pendingApproval 立て直しエラー:", e);
       }
       return;
+    }
+    if (hasPending && hasConfirmed) {
+      console.log(`予約 ${bookingId}: pending_request あるが confirmed メールも存在 → 確定済みとして処理続行`);
     }
   } catch (e) {
     console.error("emailVerifications 確認エラー:", e);
