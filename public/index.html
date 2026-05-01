@@ -909,9 +909,14 @@
               <div id="detailMyResponseArea" class="mb-3 d-none"></div>
 
               <!-- 選定スタッフ (回答ボタンの下) -->
-              <div class="mb-3">
-                <strong>選定スタッフ</strong><br>
-                <span id="detailSelectedStaff" class="text-muted">未選定</span>
+              <div class="alert alert-success border-0 mb-3 py-2 px-3" id="detailSelectedStaffWrap" style="background:#d1f7dd;">
+                <div class="d-flex align-items-center gap-2">
+                  <i class="bi bi-person-check-fill" style="font-size:1.5rem;color:#198754;"></i>
+                  <div>
+                    <div class="small text-muted" style="line-height:1;">選定スタッフ</div>
+                    <div id="detailSelectedStaff" style="font-size:1.15rem;font-weight:700;color:#0a3622;">未選定</div>
+                  </div>
+                </div>
               </div>
 
               <hr>
@@ -1452,9 +1457,9 @@
   <script src="js/components/notify-import-modal.js?v=0426a"></script>
   <script src="js/pages/properties.js?v=0421n"></script>
   <script src="js/pages/guest-guides.js?v=0424e"></script>
-  <script src="js/pages/recruitment.js?v=0425c"></script>
+  <script src="js/pages/recruitment.js?v=0501a"></script>
   <script src="js/shared/form-schema.js?v=0419b"></script>
-  <script src="js/pages/guests.js?v=0426a"></script>
+  <script src="js/pages/guests.js?v=0501a"></script>
   <script src="js/pages/shifts.js?v=0415a"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
   <script src="js/pages/notifications.js?v=0425a"></script>

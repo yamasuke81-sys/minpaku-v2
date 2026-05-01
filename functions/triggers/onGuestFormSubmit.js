@@ -310,19 +310,17 @@ module.exports = async function onGuestFormSubmit(event) {
     }
   }
 
-  // キーボックス送信OKボタンURL — メール本文に埋め込む (vars.keyboxConfirmUrl と同値)
-  const API_BASE = API_BASE_EARLY;
-  const keyboxConfirmUrl = keyboxConfirmUrlEarly;
-  // OKボタンHTMLブロック (notifyByKey の ownerEmail 経由でHTML本文に差し込まれる想定)
-  const okButtonHtml = `\n\n---\n\n【キーボックス情報送信の確認】\n名簿内容を確認したら、下のリンクをクリックしてキーボックス送信スケジュールを有効化してください。\n\n✅ 内容確認OK（キーボックス情報送信スケジュール開始）:\n${keyboxConfirmUrl}\n\n---`;
+  // 名簿画面リンク (旧 OK ボタン URL は廃止。LINE/メール 共通で名簿画面に誘導)
+  const guestPageUrl = `${APP_URL}/#/guests?id=${encodeURIComponent(guestId)}`;
+  const guestPageBlock = `\n\n---\n\n【名簿確認 → キーボックス送信予約】\n以下のリンクから名簿を確認し、画面内の「キーボックス送信を予約する」ボタンを押してください。\n${guestPageUrl}\n\n---`;
 
   // roster_received 通知 (通知設定タブで編集可能)
   // notifyByKey でチャネル別 (ownerLine/groupLine/staffLine/ownerEmail/...) に発射
   await notifyByKey(db, "roster_received", {
     title: `名簿受信: ${guestName}`,
-    body: lineText + okButtonHtml,
-    // customMessage で本文置換されても OK ボタンは必ずメールに残す
-    extraEmailFooter: okButtonHtml,
+    body: lineText + guestPageBlock,
+    // customMessage で本文置換されても名簿リンクは必ずメールに残す
+    extraEmailFooter: guestPageBlock,
     vars: {
       checkin: checkIn,
       date: checkOut,
@@ -330,7 +328,7 @@ module.exports = async function onGuestFormSubmit(event) {
       guest: guestName,
       nights: data.nights || "",
       site: data.bookingSite || "",
-      url: `${APP_URL}/#/guests?id=${encodeURIComponent(guestId)}`,
+      url: guestPageUrl,
     },
     propertyId: data.propertyId || null,
   });

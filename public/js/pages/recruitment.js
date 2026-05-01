@@ -387,8 +387,22 @@ const RecruitmentPage = {
       memoEl.textContent = memoText;
     }
 
-    // 選定済みスタッフ表示
-    document.getElementById("detailSelectedStaff").textContent = r.selectedStaff || "未選定";
+    // 選定済みスタッフ表示 (未選定時はグレー、選定済みは緑で目立たせる)
+    const selStaffEl = document.getElementById("detailSelectedStaff");
+    const selWrap = document.getElementById("detailSelectedStaffWrap");
+    const hasSel = !!(r.selectedStaff && r.selectedStaff.trim());
+    selStaffEl.textContent = hasSel ? r.selectedStaff : "未選定";
+    if (selWrap) {
+      selWrap.classList.toggle("alert-success", hasSel);
+      selWrap.classList.toggle("alert-secondary", !hasSel);
+      selWrap.style.background = hasSel ? "#d1f7dd" : "#e9ecef";
+      const icon = selWrap.querySelector("i.bi");
+      if (icon) {
+        icon.className = hasSel ? "bi bi-person-check-fill" : "bi bi-person-dash";
+        icon.style.color = hasSel ? "#198754" : "#6c757d";
+      }
+      selStaffEl.style.color = hasSel ? "#0a3622" : "#6c757d";
+    }
 
     // 統合テーブル + 選定アクション
     this.renderResponseTable(r);

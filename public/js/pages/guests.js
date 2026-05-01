@@ -741,7 +741,31 @@ const GuestsPage = {
     };
     const repAge = g.allGuests?.[0]?.age || "";
 
+    // === キーボックス送信予約ステータス ===
+    const kbConfirmedAt = g.keyboxConfirmedAt;
+    const kbSentAt = g.keyboxSentAt;
+    let kbStatusHtml;
+    if (kbSentAt) {
+      const sentStr = (kbSentAt.toDate ? kbSentAt.toDate() : new Date(kbSentAt)).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+      kbStatusHtml = `<span class="badge bg-secondary"><i class="bi bi-send-check"></i> 送信済み (${this.escapeHtml(sentStr)})</span>`;
+    } else if (kbConfirmedAt) {
+      const confStr = (kbConfirmedAt.toDate ? kbConfirmedAt.toDate() : new Date(kbConfirmedAt)).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+      kbStatusHtml = `<span class="badge bg-success"><i class="bi bi-check-circle"></i> 予約済み (${this.escapeHtml(confStr)})</span>
+        <button class="btn btn-sm btn-outline-secondary ms-2" id="btnKeyboxReReserve">再予約</button>`;
+    } else {
+      kbStatusHtml = `<button class="btn btn-primary" id="btnKeyboxReserve"><i class="bi bi-key"></i> キーボックス送信を予約する</button>
+        <span class="badge bg-warning text-dark ms-2"><i class="bi bi-clock"></i> 未予約</span>`;
+    }
+
     body.innerHTML = `
+      <!-- キーボックス送信予約 -->
+      <div class="alert alert-light border d-flex align-items-center mb-3" style="background:#f8fafc;">
+        <div class="me-3"><i class="bi bi-key-fill text-warning" style="font-size:1.4rem;"></i></div>
+        <div class="flex-grow-1">
+          <div class="fw-semibold mb-1">キーボックス送信</div>
+          <div class="small">${kbStatusHtml}</div>
+        </div>
+      </div>
       <div class="row g-3">
         <div class="col-md-6">
           <h6 class="border-bottom pb-1 mb-2">代表者情報</h6>
@@ -845,7 +869,93 @@ const GuestsPage = {
       ` : `<p class="text-muted small mb-0">パスポート写真なし</p>`}
     `;
 
+    // キーボックス送信予約ボタン (新規 / 再予約) のハンドラ
+    const bindKeyboxBtn = (btnId) => {
+      const btn = document.getElementById(btnId);
+      if (!btn) return;
+      btn.addEventListener("click", async () => {
+        await this._reserveKeyboxSend(g);
+      });
+    };
+    bindKeyboxBtn("btnKeyboxReserve");
+    bindKeyboxBtn("btnKeyboxReReserve");
+
     this.detailModal.show();
+  },
+
+  /**
+   * キーボックス送信予約: 物件設定を読み確認モーダル → guestRegistrations.keyboxConfirmedAt セット
+   */
+  async _reserveKeyboxSend(g) {
+    if (!g || !g.propertyId) {
+      showToast("エラー", "物件IDが不明です", "error");
+      return;
+    }
+    let prop = null;
+    try {
+      const pd = await db.collection("properties").doc(g.propertyId).get();
+      if (pd.exists) prop = pd.data();
+    } catch (e) {
+      showToast("エラー", `物件取得失敗: ${e.message}`, "error");
+      return;
+    }
+    const ks = (prop && prop.keyboxSend) || {};
+    const propName = (prop && prop.name) || "(物件名不明)";
+
+    // 送信予定日時の文章化
+    const formatScheduled = () => {
+      if (!ks.enabled) return null;
+      const ci = g.checkIn || "";
+      if (!ci) return null;
+      let baseDate = new Date(ci + "T00:00:00");
+      const st = ks.scheduleType || "day_before";
+      if (st === "day_before") baseDate.setDate(baseDate.getDate() - 1);
+      else if (st === "2_days_before") baseDate.setDate(baseDate.getDate() - 2);
+      else if (st === "custom") {
+        const n = parseInt(ks.customDaysBefore, 10) || 0;
+        baseDate.setDate(baseDate.getDate() - n);
+      }
+      const y = baseDate.getFullYear();
+      const m = String(baseDate.getMonth() + 1).padStart(2, "0");
+      const d = String(baseDate.getDate()).padStart(2, "0");
+      const tm = ks.sendTime || "15:00";
+      return `${y}年${m}月${d}日 ${tm}`;
+    };
+
+    let msg;
+    if (ks.enabled === false) {
+      msg = `⚠️ この物件のキーボックス送信は「無効化」されています。\n\n` +
+            `物件: ${propName}\n` +
+            `予約済みにしてもキーボックス番号メールは自動送信されません。\n` +
+            `(予約状態を記録するだけです。物件設定で送信を有効化してください)`;
+    } else {
+      const sched = formatScheduled() || "(送信予定の計算ができません)";
+      msg = `この操作で「キーボックス送信を予約」します。\n\n` +
+            `物件: ${propName}\n` +
+            `ゲスト: ${g.guestName || "?"}\n` +
+            `チェックイン: ${g.checkIn || "?"}\n` +
+            `送信予定日時: ${sched}\n` +
+            `(上記日時にキーボックス番号メールがゲスト宛に自動送信されます)`;
+    }
+
+    const ok = await showConfirm(msg, {
+      title: "キーボックス送信を予約する",
+      okLabel: "予約する",
+      okClass: "btn-primary",
+    });
+    if (!ok) return;
+
+    try {
+      await db.collection("guestRegistrations").doc(g.id).update({
+        keyboxConfirmedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      showToast("完了", "キーボックス送信を予約しました", "success");
+      // 一覧再読込 → モーダル再描画
+      await this.loadGuests();
+      this.showGuestDetail(g.id);
+    } catch (e) {
+      showToast("エラー", `予約失敗: ${e.message}`, "error");
+    }
   },
 
   async deleteGuest(id) {
