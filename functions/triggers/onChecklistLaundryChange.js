@@ -380,12 +380,22 @@ module.exports = async (event) => {
     const wasSet = isLaundrySet(beforeLaundry[key]);
     const nowSet = isLaundrySet(afterLaundry[key]);
 
-    // 削除時 (値あり → null): collected の場合は shift も削除
-    if (wasSet && !nowSet && key === "collected") {
-      try {
-        await deleteLaundryShift(db, checklistId, "collected");
-      } catch (e) {
-        console.error(`[onChecklistLaundryChange] deleteLaundryShift(collected) エラー:`, e);
+    // 削除時 (値あり → null): 対応する shift (報酬) も削除
+    if (wasSet && !nowSet) {
+      if (key === "collected") {
+        try {
+          await deleteLaundryShift(db, checklistId, "collected");
+        } catch (e) {
+          console.error(`[onChecklistLaundryChange] deleteLaundryShift(collected) エラー:`, e);
+        }
+      } else if (key === "putOut") {
+        // 「ランドリー出し」解除 → put_out + expense (立替) 両方削除
+        try {
+          await deleteLaundryShift(db, checklistId, "put_out");
+          await deleteLaundryShift(db, checklistId, "expense");
+        } catch (e) {
+          console.error(`[onChecklistLaundryChange] deleteLaundryShift(put_out/expense) エラー:`, e);
+        }
       }
     }
 
