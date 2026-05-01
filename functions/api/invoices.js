@@ -1363,14 +1363,18 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
         note = note ? `${note} / ${depotName}` : depotName;
       }
     }
-    pushRow({
-      type: "shift",
-      refId: s.shiftId || s.id || "",
-      date: dateStr,
-      category,
-      unitPrice: s.amount || 0,
-      note: note.replace(/^ \/ /, ""),
-    }, "shift");
+    // 0円項目 (例: ランドリー出し/受取で報酬無し) は明細に出さない
+    const _amt = s.amount || 0;
+    if (_amt > 0) {
+      pushRow({
+        type: "shift",
+        refId: s.shiftId || s.id || "",
+        date: dateStr,
+        category,
+        unitPrice: _amt,
+        note: note.replace(/^ \/ /, ""),
+      }, "shift");
+    }
   }
 
   // 特別加算行

@@ -1860,9 +1860,15 @@ const MyChecklistPage = {
                 </select>
                 <input type="text" class="form-control mt-2 d-none" id="lpoDepotOther" placeholder="提出先名を入力">
               </div>
-              <!-- ステップ2: 支払方法 -->
+              <!-- ステップ2: 支払総額 (depot 選択後に表示) -->
+              <div class="mb-3 d-none" id="lpoRateWrap">
+                <label class="form-label">② 支払総額 <span class="text-danger">*</span></label>
+                <select class="form-select" id="lpoRate"></select>
+                <input type="number" class="form-control mt-2 d-none" id="lpoRateOther" min="0" placeholder="金額を手入力(円)">
+              </div>
+              <!-- ステップ3: 支払方法 -->
               <div class="mb-3">
-                <label class="form-label">② 支払方法 <span class="text-danger">*</span></label>
+                <label class="form-label">③ 支払方法 <span class="text-danger">*</span></label>
                 <select class="form-select" id="lpoPayment">
                   <option value="">-- 選択 --</option>
                   <option value="cash">現金(立替)</option>
@@ -1871,9 +1877,9 @@ const MyChecklistPage = {
                   <option value="invoice">店舗請求(後払い)</option>
                 </select>
               </div>
-              <!-- ステップ3以降: プリカ選択 (支払方法=prepaid 時のみ) -->
+              <!-- ステップ4: プリカ選択 (支払方法=prepaid 時のみ) -->
               <div class="mb-3 d-none" id="lpoPrepaidWrap">
-                <label class="form-label">③ 使用するプリカを選択 <span class="text-danger">*</span></label>
+                <label class="form-label">④ 使用するプリカを選択 <span class="text-danger">*</span></label>
                 <div class="small text-muted mb-2">複数のカードを組み合わせて支払できます。各カードに使用する金額を入力してください。</div>
                 <div id="lpoPrepaidCardsList" class="border rounded p-2" style="max-height:260px;overflow-y:auto;">
                   <div class="text-muted small">プリカを読み込み中...</div>
@@ -1917,15 +1923,9 @@ const MyChecklistPage = {
                   </div>
                 </div>
               </div>
-              <!-- ステップ3': 金額 (支払方法=cash/credit/invoice 時) -->
-              <div class="mb-3 d-none" id="lpoRateWrap">
-                <label class="form-label">③ 金額 <span class="text-danger">*</span></label>
-                <select class="form-select" id="lpoRate"></select>
-                <input type="number" class="form-control mt-2 d-none" id="lpoRateOther" min="0" placeholder="金額を手入力(円)">
-              </div>
-              <!-- ステップ5: メモ (プリペイド時) / ステップ4: メモ (cash/credit/invoice時) / ステップ3: メモ (未選択時) -->
+              <!-- メモ (動的に番号変更) -->
               <div class="mb-3">
-                <label class="form-label" id="lpoNoteLabel">③ メモ</label>
+                <label class="form-label" id="lpoNoteLabel">⑤ メモ</label>
                 <input type="text" class="form-control" id="lpoNote">
               </div>
             </div>
@@ -1963,16 +1963,9 @@ const MyChecklistPage = {
       function updateStep3() {
         const depotV = depotSel.value;
         const payV = paySel.value;
-        // メモラベルを支払方法で切替 (prepaid → ⑤、それ以外 → ④)
+        // メモラベル: 新順序で常に ⑤
         const noteLbl = modalEl.querySelector("#lpoNoteLabel");
-        // prepaid: ③プリカ→④支払総額→⑤メモ
-        // cash/credit/invoice: ③金額→④メモ
-        // 未選択: ③メモ
-        if (noteLbl) {
-          if (payV === "prepaid") noteLbl.textContent = "⑤ メモ";
-          else if (payV) noteLbl.textContent = "④ メモ";
-          else noteLbl.textContent = "③ メモ";
-        }
+        if (noteLbl) noteLbl.textContent = "⑤ メモ";
         // ステップ3の表示: 支払方法で分岐
         if (payV === "prepaid") {
           rateWrap.classList.add("d-none");
