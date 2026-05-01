@@ -274,31 +274,16 @@ module.exports = async function onBookingChange(event) {
       console.error("日程変更処理エラー:", e);
     }
 
-    // booking_change 通知: CI/CO/ゲスト人数/ゲスト名のいずれかが変更された場合に通知
+    // booking_change 通知: 「日程変更 (CI/CO)」のみで発火
+    // 人数・ゲスト名の変化は emailVerification や iCal 同期で頻繁に動くため対象外
+    // (誤発火を防ぐため、人数/名前の変化通知は当面なし。必要なら別 type で実装)
     try {
       const ciChanged = before.checkIn && after.checkIn && before.checkIn !== after.checkIn;
       const coChanged = before.checkOut && after.checkOut && before.checkOut !== after.checkOut;
-      const countChanged = before.guestCount !== after.guestCount;
-      const nameChanged = before.guestName !== after.guestName;
-      // pendingApproval の遷移時は両方向とも変更通知を抑止
-      // - true→false (確定): guestName/guestCount が後追いで埋まる
-      // - false→true (再ガード): emailVerifications の競合で再セットされた直後
-      const pendingChanged = !!before.pendingApproval !== !!after.pendingApproval;
-      // 手動編集 (予約詳細モーダル等で人数等を直接編集) の場合も通知を抑止
-      const beforeManualMs = before.lastManualEditAt?.toMillis?.() || 0;
-      const afterManualMs = after.lastManualEditAt?.toMillis?.() || 0;
-      const manualEdited = afterManualMs > beforeManualMs;
-      if (pendingChanged) {
-        console.log(`[onBookingChange] pendingApproval 遷移 (${!!before.pendingApproval}→${!!after.pendingApproval}) のため booking_change 通知スキップ: ${event.params.bookingId}`);
-      } else if (manualEdited) {
-        console.log(`[onBookingChange] 手動編集 (lastManualEditAt 更新) のため booking_change 通知スキップ: ${event.params.bookingId}`);
-      } else if (ciChanged || coChanged || countChanged || nameChanged) {
-        // 変更点サマリを組み立て
+      if (ciChanged || coChanged) {
         const changes = [];
         if (ciChanged) changes.push(`チェックイン: ${before.checkIn} → ${after.checkIn}`);
         if (coChanged) changes.push(`チェックアウト: ${before.checkOut} → ${after.checkOut}`);
-        if (countChanged) changes.push(`人数: ${before.guestCount ?? "?"}名 → ${after.guestCount ?? "?"}名`);
-        if (nameChanged) changes.push(`ゲスト名: ${before.guestName || "不明"} → ${after.guestName || "不明"}`);
         const changeSummary = changes.join("\n");
 
         const propName = after.propertyName || "";
