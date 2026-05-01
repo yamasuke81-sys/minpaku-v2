@@ -180,6 +180,14 @@ async function syncIcal() {
     console.log(`[syncIcal] 同期開始: ${platform} (${icalUrl.slice(0, 60)}...)`);
 
     try {
+      // 物件のメール照合接続状況を取得 (senderGmail があれば接続済み)
+      // 未接続なら Reserved 予約も pendingApproval=true を立てない (= 即カレンダー表示)
+      let hasEmailVerification = false;
+      if (setting.propertyId) {
+        const propSnap = await db.collection("properties").doc(setting.propertyId).get();
+        hasEmailVerification = !!(propSnap.exists && propSnap.data()?.senderGmail);
+      }
+
       // iCalフィードを取得・パース
       const events = await ical.async.fromURL(icalUrl);
       let synced = 0;
@@ -287,9 +295,13 @@ async function syncIcal() {
           bookingData.parking = false;
           bookingData.nationality = "";
           bookingData.notes = event.description || "";
-          if (isReservedPlaceholder) {
+          // メール照合未接続の物件は pendingApproval=true を立てない
+          // (照合で確定降下できないため、Reserved のまま永久に非表示になるのを防ぐ)
+          if (isReservedPlaceholder && hasEmailVerification) {
             bookingData.pendingApproval = true;
             console.log(`[syncIcal] 保留扱いで取り込み (pendingApproval=true): ${platform} ${checkIn}〜${checkOut} (Reservedのまま)`);
+          } else if (isReservedPlaceholder && !hasEmailVerification) {
+            console.log(`[syncIcal] メール照合未接続のため即表示で取り込み: ${platform} ${checkIn}〜${checkOut} (propertyId=${setting.propertyId})`);
           }
         } else {
           // 既存データの手動編集を上書きしない（guestNameが実名なら保持）
@@ -297,6 +309,12 @@ async function syncIcal() {
           if (existData.guestName && existData.guestName !== existData._icalOriginalName) {
             // 手動で変更された名前は保持
             bookingData.guestName = existData.guestName;
+          }
+          // メール照合未接続の物件で過去に pendingApproval=true で書き込まれていたら降ろす
+          // (本変更投入前に取り込まれた Reserved 予約を可視化)
+          if (isReservedPlaceholder && !hasEmailVerification && existData.pendingApproval === true) {
+            bookingData.pendingApproval = false;
+            console.log(`[syncIcal] 既存 pendingApproval=true を降下 (メール照合未接続): ${platform} ${checkIn}〜${checkOut}`);
           }
         }
         // iCalの元の名前を保存（手動変更検知用）
