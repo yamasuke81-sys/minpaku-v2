@@ -484,6 +484,64 @@ module.exports = async function onBookingChange(event) {
     console.error("物件取得エラー:", e);
   }
 
+  // ========== urgent_remind 即時送信 (timings に "immediate" が含まれる物件向け) ==========
+  // 新規予約 + CI=今日/明日(JST) + 名簿未提出 + 未送信 → 即時通知
+  try {
+    if (!before && after && !nowCancelled && after.pendingApproval !== true) {
+      const ov = (propertyData.channelOverrides || {}).urgent_remind || {};
+      if (ov.enabled !== false) {
+        const timings = Array.isArray(ov.timings) ? ov.timings : [];
+        const hasImmediate = timings.length === 0 || timings.some(t => t.timing === "immediate");
+        if (hasImmediate) {
+          const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
+          const todayJ = nowJ.toISOString().slice(0, 10);
+          const tomorrowJ = (() => {
+            const d = new Date(nowJ);
+            d.setUTCDate(d.getUTCDate() + 1);
+            return d.toISOString().slice(0, 10);
+          })();
+          if ((after.checkIn === todayJ || after.checkIn === tomorrowJ)
+              && after.rosterStatus !== "submitted"
+              && !after.urgentRemindSentAt) {
+            const formUrl = `https://minpaku-v2.web.app/form/?propertyId=${propertyId}`;
+            const isToday = after.checkIn === todayJ;
+            const urgencyLabel = isToday ? "【本日チェックイン】" : "【明日チェックイン】";
+            const guestNameUrgent = after.guestName || "名前未設定";
+            const body = [
+              `🚨 ${urgencyLabel} 名簿未提出 緊急リマインド (即時)`,
+              ``,
+              `物件: ${propertyName}`,
+              `ゲスト: ${guestNameUrgent}`,
+              `チェックイン: ${after.checkIn}`,
+              ``,
+              `直前予約のため至急対応が必要です。`,
+              `フォームURL: ${formUrl}`,
+            ].join("\n");
+            try {
+              await notifyByKey(db, "urgent_remind", {
+                title: `【緊急】直前予約: ${guestNameUrgent} (${after.checkIn})`,
+                body,
+                vars: {
+                  date: after.checkIn, checkin: after.checkIn,
+                  property: propertyName, guest: guestNameUrgent, url: formUrl,
+                },
+                propertyId,
+              });
+              await db.collection("bookings").doc(bookingId).update({
+                urgentRemindSentAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
+              console.log(`[urgent_remind] 即時送信完了: bookingId=${bookingId}`);
+            } catch (e) {
+              console.error("[urgent_remind] 即時送信エラー:", e.message);
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error("[urgent_remind] 処理エラー:", e);
+  }
+
   const now = new Date();
 
   // ========== シフト重複チェック ==========
@@ -806,4 +864,5 @@ module.exports = async function onBookingChange(event) {
   } catch (e) {
     console.error("直前点検 処理エラー:", e);
   }
+
 };

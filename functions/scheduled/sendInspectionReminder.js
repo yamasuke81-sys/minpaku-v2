@@ -1,146 +1,145 @@
 /**
- * 直前点検リマインド (毎時実行)
+ * 直前点検リマインド (毎時実行 JST)
  *
- * 動作フロー:
- *   1. properties で inspection.enabled === true の物件を取得
- *   2. 各物件の bookings から「翌日チェックイン」の予約を検索
- *      ※タイミングは channelOverrides.inspection_reminder.beforeDays (デフォルト1) を使用
- *   3. 重複防止フラグ (inspectionReminderSentAt) がなければ notifyByKey で送信
- *   4. 送信後 bookings に inspectionReminderSentAt を記録
+ * 物件別 channelOverrides.inspection_reminder.timings[] に従って発火。
+ *
+ * timings 構造例:
+ *   [{ mode:"event", timing:"beforeEvent", beforeDays:5, beforeTime:"08:00" }, ...]
+ *
+ * → JST 08時に走った時、各物件で beforeDays=5 のタイミングを抽出し、
+ *   `checkIn = todayJST + 5日` の bookings (status=confirmed/completed)
+ *   かつ inspection.enabled=true の物件 のみ通知。
+ *
+ * 重複防止: bookings.inspectionReminderSentKeys[] に
+ *   "YYYY-MM-DD_HH_dN" を記録
  */
+const admin = require("firebase-admin");
 const { notifyByKey } = require("../utils/lineNotify");
 
-function getJSTDateString(date) {
-  const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
-  const y = jst.getUTCFullYear();
-  const m = String(jst.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(jst.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
+const NOTIFY_TYPE = "inspection_reminder";
 
-function addDays(date, n) {
-  const d = new Date(date.getTime());
-  d.setDate(d.getDate() + n);
-  return d;
+function nowJst() {
+  const d = new Date(Date.now() + 9 * 3600 * 1000);
+  return { date: d.toISOString().slice(0, 10), hour: d.getUTCHours() };
 }
-
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + "T00:00:00.000Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
 function fmtDate(s) {
   if (!s) return "";
-  try {
-    const d = typeof s === "string"
-      ? new Date(s + "T00:00:00")
-      : (s && typeof s.toDate === "function" ? s.toDate() : new Date(s));
-    if (isNaN(d.getTime())) return String(s);
-    const y = d.getFullYear();
-    const mo = String(d.getMonth() + 1).padStart(2, "0");
-    const da = String(d.getDate()).padStart(2, "0");
-    return `${y}/${mo}/${da}`;
-  } catch (_) { return String(s); }
+  const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[1]}/${m[2]}/${m[3]}` : String(s);
 }
 
-module.exports = async function sendInspectionReminder(event) {
-  const admin = require("firebase-admin");
+module.exports = async function sendInspectionReminder() {
   const db = admin.firestore();
+  const { date: todayJst, hour: hourJst } = nowJst();
+  console.log(`[inspectionReminder] 起動 JST=${todayJst} ${String(hourJst).padStart(2, "0")}:00`);
 
-  // inspection.enabled = true の物件を全取得
-  const propsSnap = await db.collection("properties")
-    .where("inspection.enabled", "==", true)
-    .get();
+  try {
+    // inspection.enabled=true の物件のみ対象
+    const propsSnap = await db.collection("properties")
+      .where("inspection.enabled", "==", true)
+      .get();
+    if (propsSnap.empty) return;
 
-  if (propsSnap.empty) return;
-
-  const now = new Date();
-  const todayStr = getJSTDateString(now);
-
-  for (const propDoc of propsSnap.docs) {
-    const prop = propDoc.data();
-    const propertyId = propDoc.id;
-    const propertyName = prop.name || "";
-
-    // チャネルオーバーライドからタイミング設定を取得 (デフォルト: 1日前)
-    const ov = (prop.channelOverrides || {}).inspection_reminder || {};
-    // タイミング設定: beforeDays (送信するタイミング: チェックイン N日前)
-    // 「N日前のHH:MM」形式を想定。未設定なら前日 (1日前) とする
-    const beforeDays = typeof ov.beforeDays === "number" ? ov.beforeDays : 1;
-    // 送信時刻は「翌朝6時〜7時の実行」を想定 (Scheduler毎時実行で1時間以内に必ず1回通る)
-
-    // 送信タイミング当日 = チェックイン日 - beforeDays
-    const targetSendDate = getJSTDateString(addDays(now, beforeDays));
-    if (targetSendDate !== todayStr) {
-      // 今日が「送信すべき日」でなければスキップ
-      // (beforeDays=1 なら今日=チェックイン前日のみ実行)
-      // 注: 現時点の簡易実装では「今日=送信日」のみ対応
-      // 将来は「チェックイン日 - beforeDays === today」をブッキング単位で判定
-    }
-
-    // 該当物件の bookings で checkIn が (today + beforeDays) のものを取得
-    const targetCheckIn = getJSTDateString(addDays(now, beforeDays));
-
-    let bookingsSnap;
-    try {
-      bookingsSnap = await db.collection("bookings")
-        .where("propertyId", "==", propertyId)
-        .where("status", "in", ["confirmed", "completed"])
-        .get();
-    } catch (e) {
-      console.error(`[inspectionReminder] bookings取得エラー (${propertyId}):`, e.message);
-      continue;
-    }
-
-    for (const bDoc of bookingsSnap.docs) {
-      const booking = bDoc.data();
-
-      // checkIn を文字列に変換して比較
-      let checkInStr = "";
-      try {
-        const ci = booking.checkIn;
-        if (ci) {
-          const d = (ci && typeof ci.toDate === "function") ? ci.toDate() : new Date(ci);
-          checkInStr = getJSTDateString(d);
-        }
-      } catch (_) { continue; }
-
-      if (checkInStr !== targetCheckIn) continue;
-
-      // 既送信チェック
-      if (booking.inspectionReminderSentAt) continue;
-
-      // 通知変数
-      const vars = {
-        date: fmtDate(booking.checkIn),
-        property: propertyName,
-        guest: booking.guestName || "ゲスト",
-        checkin: fmtDate(booking.checkIn),
-        checkout: fmtDate(booking.checkOut),
-      };
-      const body = `🔍 直前点検リマインド\n\n${fmtDate(booking.checkIn)} チェックイン前の点検をお忘れなく\n物件: ${propertyName}\nゲスト: ${booking.guestName || ""}`;
-
-      try {
-        await notifyByKey(db, "inspection_reminder", {
-          title: "直前点検リマインド",
-          body,
-          vars,
-          propertyId,
+    // (propertyId, beforeDays, targetCheckIn) の集合を作る
+    const targets = [];
+    for (const pd of propsSnap.docs) {
+      const prop = pd.data() || {};
+      if (prop.active === false) continue;
+      const ov = (prop.channelOverrides || {})[NOTIFY_TYPE] || {};
+      if (ov.enabled === false) continue;
+      // timings[] が無ければ後方互換で beforeDays/beforeTime 単一値を採用
+      let timings = Array.isArray(ov.timings) ? ov.timings : [];
+      if (timings.length === 0 && (ov.beforeDays !== undefined || ov.beforeTime !== undefined)) {
+        timings = [{
+          timing: "beforeEvent",
+          beforeDays: ov.beforeDays ?? 1,
+          beforeTime: ov.beforeTime || "08:00",
+        }];
+      }
+      for (const t of timings) {
+        if (t.timing !== "beforeEvent") continue;
+        const beforeDays = parseInt(t.beforeDays, 10);
+        if (!Number.isFinite(beforeDays) || beforeDays < 0) continue;
+        const m = String(t.beforeTime || "").match(/^(\d{1,2}):(\d{2})$/);
+        if (!m) continue;
+        if (parseInt(m[1], 10) !== hourJst) continue;
+        targets.push({
+          propertyId: pd.id,
+          propertyName: prop.name || pd.id,
+          beforeDays,
+          targetCheckIn: addDays(todayJst, beforeDays),
         });
-
-        // 送信済みフラグを記録 (重複防止)
-        await db.collection("bookings").doc(bDoc.id).update({
-          inspectionReminderSentAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-        console.log(`[inspectionReminder] 送信完了: bookingId=${bDoc.id} property=${propertyName} checkIn=${checkInStr}`);
-      } catch (e) {
-        console.error(`[inspectionReminder] 送信エラー: bookingId=${bDoc.id}`, e.message);
-        try {
-          await db.collection("error_logs").add({
-            type: "sendInspectionReminder",
-            bookingId: bDoc.id,
-            propertyId,
-            message: e.message,
-            createdAt: new Date(),
-          });
-        } catch (_) { /* ログ失敗は無視 */ }
       }
     }
+
+    if (targets.length === 0) {
+      console.log(`[inspectionReminder] このタイミング (JST ${hourJst}時) に該当物件設定なし`);
+      return;
+    }
+
+    let sentCount = 0;
+
+    for (const tgt of targets) {
+      const bookingsSnap = await db.collection("bookings")
+        .where("propertyId", "==", tgt.propertyId)
+        .where("checkIn", "==", tgt.targetCheckIn)
+        .where("status", "in", ["confirmed", "completed"])
+        .get();
+      if (bookingsSnap.empty) continue;
+
+      for (const bd of bookingsSnap.docs) {
+        const b = bd.data();
+        if (b.pendingApproval === true) continue;
+
+        const key = `${todayJst}_${String(hourJst).padStart(2, "0")}_d${tgt.beforeDays}`;
+        const sentKeys = Array.isArray(b.inspectionReminderSentKeys) ? b.inspectionReminderSentKeys : [];
+        if (sentKeys.includes(key)) continue;
+
+        const vars = {
+          date: fmtDate(b.checkIn),
+          property: tgt.propertyName,
+          guest: b.guestName || "ゲスト",
+          checkin: fmtDate(b.checkIn),
+          checkout: fmtDate(b.checkOut),
+        };
+        const body = `🔍 直前点検リマインド (${tgt.beforeDays}日前)\n\n${fmtDate(b.checkIn)} チェックイン前の点検をお忘れなく\n物件: ${tgt.propertyName}\nゲスト: ${b.guestName || ""}`;
+
+        try {
+          const result = await notifyByKey(db, NOTIFY_TYPE, {
+            title: `直前点検リマインド (${tgt.beforeDays}日前)`,
+            body,
+            vars,
+            propertyId: tgt.propertyId,
+          });
+          const anySuccess = Object.values(result.sent || {}).some(v => v && v !== 0);
+          if (anySuccess) {
+            sentCount++;
+            await bd.ref.update({
+              inspectionReminderSentKeys: admin.firestore.FieldValue.arrayUnion(key),
+            });
+          }
+        } catch (e) {
+          console.error(`[inspectionReminder] 送信エラー bookingId=${bd.id}:`, e.message);
+        }
+      }
+    }
+
+    console.log(`[inspectionReminder] 完了: ${sentCount}件送信`);
+  } catch (e) {
+    console.error("[inspectionReminder] エラー:", e);
+    try {
+      await db.collection("error_logs").add({
+        functionName: "sendInspectionReminder",
+        error: e.message,
+        stack: e.stack?.slice(0, 500),
+        severity: "warning",
+        createdAt: new Date(),
+      });
+    } catch (_) { /* 無視 */ }
   }
 };

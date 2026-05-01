@@ -1,123 +1,183 @@
 /**
- * スタッフ未決定リマインド（毎朝11:00 JST）
- * 今日から3日以内に実施予定の recruitment で status="募集中"（スタッフ未確定）のものを通知
+ * スタッフ未確定リマインド (毎時実行 JST)
+ *
+ * 物件別 channelOverrides.staff_undecided.timings[] に従って発火。
+ *
+ * timings 構造例:
+ *   [{ mode:"event", timing:"beforeEvent", beforeDays:3, beforeTime:"11:00" }, ...]
+ *
+ * → JST 11時に走った時、各物件で beforeDays=3 のタイミングを抽出し、
+ *   `checkoutDate (清掃日) = todayJST + 3日` の status="募集中" の
+ *   recruitment を通知。
+ *
+ * 後方互換: timings 未設定なら従来動作 (今日〜3日以内の募集中をまとめて毎日11時通知)
+ *   → cron が毎時になったため、未設定物件は毎朝11時のみ動作するよう hourJst===11 を判定
+ *
+ * 重複防止: recruitments.{id}.staffUndecidedSentKeys[] に
+ *   "YYYY-MM-DD_HH_dN" を記録 (timings 経路) または
+ *   "YYYY-MM-DD_legacy" (後方互換 経路)
  */
 const admin = require("firebase-admin");
-const {
-  notifyByKey,
-  getNotificationSettings_,
-} = require("../utils/lineNotify");
+const { notifyByKey } = require("../utils/lineNotify");
 
 const APP_URL = "https://minpaku-v2.web.app";
 const NOTIFY_TYPE = "staff_undecided";
 
-module.exports = async function staffUndecidedRemind(event) {
+function nowJst() {
+  const d = new Date(Date.now() + 9 * 3600 * 1000);
+  return { date: d.toISOString().slice(0, 10), hour: d.getUTCHours() };
+}
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + "T00:00:00.000Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+module.exports = async function staffUndecidedRemind() {
   const db = admin.firestore();
+  const { date: todayJst, hour: hourJst } = nowJst();
+  console.log(`[staffUndecidedRemind] 起動 JST=${todayJst} ${String(hourJst).padStart(2, "0")}:00`);
 
   try {
-    // 今日〜3日後の日付文字列を算出
-    const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
-    const limitDate = new Date(now);
-    limitDate.setDate(limitDate.getDate() + 3);
-    const limitStr = limitDate.toISOString().slice(0, 10);
+    // 物件 timings から (propertyId, beforeDays, targetCheckoutDate) を抽出
+    const propsSnap = await db.collection("properties").get();
+    const targets = [];
+    const legacyPropertyIds = new Set(); // timings 未設定の物件 (後方互換動作)
 
-    // status="募集中" の募集を全件取得（Firestoreインデックス不要のため全件取得後フィルタ）
-    const recruitSnap = await db.collection("recruitments")
-      .where("status", "==", "募集中")
-      .get();
-
-    if (recruitSnap.empty) {
-      console.log("スタッフ未決定リマインド: 募集中の案件なし");
-      return;
+    for (const pd of propsSnap.docs) {
+      const prop = pd.data() || {};
+      if (prop.active === false) continue;
+      const ov = (prop.channelOverrides || {})[NOTIFY_TYPE] || {};
+      if (ov.enabled === false) continue;
+      const timings = Array.isArray(ov.timings) ? ov.timings : [];
+      if (timings.length === 0) {
+        legacyPropertyIds.add(pd.id);
+        continue;
+      }
+      for (const t of timings) {
+        if (t.timing !== "beforeEvent") continue;
+        const beforeDays = parseInt(t.beforeDays, 10);
+        if (!Number.isFinite(beforeDays) || beforeDays < 0) continue;
+        const m = String(t.beforeTime || "").match(/^(\d{1,2}):(\d{2})$/);
+        if (!m) continue;
+        if (parseInt(m[1], 10) !== hourJst) continue;
+        targets.push({
+          propertyId: pd.id,
+          propertyName: prop.name || pd.id,
+          beforeDays,
+          targetCheckoutDate: addDays(todayJst, beforeDays),
+        });
+      }
     }
-
-    // checkoutDate が今日〜3日以内のものに絞る
-    const targets = recruitSnap.docs.filter(d => {
-      const date = d.data().checkoutDate || "";
-      return date >= todayStr && date <= limitStr;
-    });
-
-    if (targets.length === 0) {
-      console.log(`スタッフ未決定リマインド: ${todayStr}〜${limitStr} の対象なし`);
-      return;
-    }
-
-    console.log(`スタッフ未決定リマインド: ${targets.length}件対象`);
-
-    // 今日すでに送信済みの募集IDセットを取得（重複防止）
-    const sentTodaySnap = await db.collection("notifications")
-      .where("type", "==", NOTIFY_TYPE)
-      .where("sentDate", "==", todayStr)
-      .get();
-    const sentTodayIds = new Set(sentTodaySnap.docs.map(d => d.data().recruitmentId).filter(Boolean));
 
     let sentCount = 0;
 
-    for (const doc of targets) {
-      const r = doc.data();
+    // === 1) timings 経路 ===
+    for (const tgt of targets) {
+      const recSnap = await db.collection("recruitments")
+        .where("propertyId", "==", tgt.propertyId)
+        .where("checkoutDate", "==", tgt.targetCheckoutDate)
+        .where("status", "==", "募集中")
+        .get();
+      if (recSnap.empty) continue;
 
-      // 今日すでに通知済みの募集はスキップ
-      if (sentTodayIds.has(doc.id)) {
-        console.log(`スタッフ未決定リマインド: ${doc.id} は今日送信済み — スキップ`);
-        continue;
-      }
+      for (const rd of recSnap.docs) {
+        const r = rd.data();
+        const key = `${todayJst}_${String(hourJst).padStart(2, "0")}_d${tgt.beforeDays}`;
+        const sentKeys = Array.isArray(r.staffUndecidedSentKeys) ? r.staffUndecidedSentKeys : [];
+        if (sentKeys.includes(key)) continue;
 
-      const propertyName = r.propertyName || r.propertyId || "";
-      const date = r.checkoutDate || "";
-      const recruitUrl = `${APP_URL}/#/recruitment`;
-
-      const defaultMsg = [
-        `⚠️ スタッフ未確定 警告`,
-        ``,
-        `物件: ${propertyName}`,
-        `清掃日: ${date}`,
-        ``,
-        `3日以内にスタッフが確定していません。`,
-        `募集画面: ${recruitUrl}`,
-      ].join("\n");
-
-      const title = `スタッフ未確定: ${propertyName} (${date})`;
-
-      // notifyByKey で設定 ON/OFF と物件別オーバーライドを自動適用
-      const result = await notifyByKey(db, NOTIFY_TYPE, {
-        title,
-        body: defaultMsg,
-        vars: { date, property: propertyName, url: recruitUrl, staff: "", count: String((r.responses || []).length) },
-        propertyId: r.propertyId || null,
-      });
-
-      const anySuccess = Object.values(result.sent || {}).some(v => v);
-      if (anySuccess) {
-        sentCount++;
-        // 送信日と募集IDを記録（次回実行時の重複防止用）
-        try {
-          await db.collection("notifications").add({
-            type: NOTIFY_TYPE,
-            recruitmentId: doc.id,
-            sentDate: todayStr,
-            title,
-            body: "",
-            sentAt: new Date(),
-            channel: "dedup_guard",
-            success: true,
-          });
-        } catch (logErr) { /* 無視 */ }
+        const propertyName = r.propertyName || tgt.propertyName;
+        const recruitUrl = `${APP_URL}/#/recruitment`;
+        const body = [
+          `⚠️ スタッフ未確定 警告 (${tgt.beforeDays}日前)`,
+          ``,
+          `物件: ${propertyName}`,
+          `清掃日: ${r.checkoutDate}`,
+          ``,
+          `${tgt.beforeDays}日後の清掃スタッフが未確定です。`,
+          `募集画面: ${recruitUrl}`,
+        ].join("\n");
+        const title = `スタッフ未確定 (${tgt.beforeDays}日前): ${propertyName} (${r.checkoutDate})`;
+        const result = await notifyByKey(db, NOTIFY_TYPE, {
+          title,
+          body,
+          vars: {
+            date: r.checkoutDate, property: propertyName, url: recruitUrl,
+            staff: "", count: String((r.responses || []).length),
+          },
+          propertyId: tgt.propertyId,
+        });
+        const anySuccess = Object.values(result.sent || {}).some(v => v && v !== 0);
+        if (anySuccess) {
+          sentCount++;
+          try {
+            await rd.ref.update({
+              staffUndecidedSentKeys: admin.firestore.FieldValue.arrayUnion(key),
+            });
+          } catch (_) {}
+        }
       }
     }
 
-    console.log(`スタッフ未決定リマインド完了: ${sentCount}/${targets.length}件送信`);
+    // === 2) 後方互換 (timings 未設定物件): 毎朝 11時 のみ動作、3日以内の募集中まとめ通知 ===
+    if (hourJst === 11 && legacyPropertyIds.size > 0) {
+      const limit = addDays(todayJst, 3);
+      const recSnap = await db.collection("recruitments")
+        .where("status", "==", "募集中")
+        .get();
+      const legacyTargets = recSnap.docs.filter(d => {
+        const data = d.data();
+        if (!legacyPropertyIds.has(data.propertyId)) return false;
+        const co = data.checkoutDate || "";
+        return co >= todayJst && co <= limit;
+      });
+      for (const rd of legacyTargets) {
+        const r = rd.data();
+        const key = `${todayJst}_legacy`;
+        const sentKeys = Array.isArray(r.staffUndecidedSentKeys) ? r.staffUndecidedSentKeys : [];
+        if (sentKeys.includes(key)) continue;
+
+        const propertyName = r.propertyName || r.propertyId || "";
+        const recruitUrl = `${APP_URL}/#/recruitment`;
+        const body = [
+          `⚠️ スタッフ未確定 警告`, ``,
+          `物件: ${propertyName}`, `清掃日: ${r.checkoutDate}`, ``,
+          `3日以内にスタッフが確定していません。`,
+          `募集画面: ${recruitUrl}`,
+        ].join("\n");
+        const title = `スタッフ未確定: ${propertyName} (${r.checkoutDate})`;
+        const result = await notifyByKey(db, NOTIFY_TYPE, {
+          title, body,
+          vars: {
+            date: r.checkoutDate, property: propertyName, url: recruitUrl,
+            staff: "", count: String((r.responses || []).length),
+          },
+          propertyId: r.propertyId || null,
+        });
+        const anySuccess = Object.values(result.sent || {}).some(v => v && v !== 0);
+        if (anySuccess) {
+          sentCount++;
+          try {
+            await rd.ref.update({
+              staffUndecidedSentKeys: admin.firestore.FieldValue.arrayUnion(key),
+            });
+          } catch (_) {}
+        }
+      }
+    }
+
+    console.log(`[staffUndecidedRemind] 完了: ${sentCount}件送信`);
   } catch (e) {
-    console.error("スタッフ未決定リマインドエラー:", e);
+    console.error("[staffUndecidedRemind] エラー:", e);
     try {
-      const db2 = admin.firestore();
-      await db2.collection("error_logs").add({
+      await db.collection("error_logs").add({
         functionName: "staffUndecidedRemind",
         error: e.message,
         stack: e.stack?.slice(0, 500),
         severity: "warning",
         createdAt: new Date(),
       });
-    } catch (logErr) { /* 無視 */ }
+    } catch (_) { /* 無視 */ }
   }
 };

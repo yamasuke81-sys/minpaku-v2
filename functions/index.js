@@ -221,9 +221,9 @@ exports.checkTaxDocsDrive = onSchedule({
   timeoutSeconds: 300,
 }, require("./scheduled/checkTaxDocsDrive"));
 
-// 募集リマインド（毎日18:00 JST）— 未回答スタッフに個別LINEリマインド
+// 募集リマインド（毎時実行 — 物件別タイミング設定に従って発火）
 exports.recruitReminder = onSchedule({
-  schedule: "0 18 * * *",
+  schedule: "0 * * * *",
   region: "asia-northeast1",
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/recruitReminder"));
@@ -384,16 +384,13 @@ exports.rosterRemind = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/rosterRemind"));
 
-// 直前予約リマインド（毎朝10:00 JST）
-exports.urgentRemind = onSchedule({
-  schedule: "0 10 * * *",
-  region: "asia-northeast1",
-  timeZone: "Asia/Tokyo",
-}, require("./scheduled/urgentRemind"));
+// 直前予約リマインド: cron 廃止。urgent_remind は onBookingChange の即時送信に統合
+// (timings=[{timing:"immediate"}] 設定で動作。新規予約 + CI=今日/明日 + 名簿未提出で即時通知)
+// exports.urgentRemind = ...
 
-// スタッフ未決定リマインド（毎朝11:00 JST）
+// スタッフ未確定リマインド（毎時実行 — 物件別タイミング設定に従って発火、未設定物件は朝11時に従来動作）
 exports.staffUndecidedRemind = onSchedule({
-  schedule: "0 11 * * *",
+  schedule: "0 * * * *",
   region: "asia-northeast1",
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/staffUndecidedRemind"));
