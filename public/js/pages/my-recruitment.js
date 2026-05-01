@@ -1456,9 +1456,13 @@ const MyRecruitmentPage = {
           const dateStr = el.dataset.calDate;
           const bs = bookingsByDate[dateStr];
           if (!bs || !bs.length) return;
-          // 日付ヘッダー由来 (物件指定なし) の場合は、日付内の最初の予約
-          const first = bs[0];
-          targetBooking = this.bookings.find(x => x.id === first.id) || first;
+          // 日付ヘッダータップ: その日が CI (チェックイン) の予約を最優先で表示
+          // 該当が無ければ middle (滞在中) → ending (CO) の順でフォールバック
+          const ciHit = bs.find(b => b.checkIn === dateStr);
+          const midHit = bs.find(b => b.checkIn && b.checkOut && b.checkIn < dateStr && dateStr < b.checkOut);
+          const coHit = bs.find(b => b.checkOut === dateStr);
+          const pick = ciHit || midHit || coHit || bs[0];
+          targetBooking = this.bookings.find(x => x.id === pick.id) || pick;
         }
         if (!targetBooking) return;
 

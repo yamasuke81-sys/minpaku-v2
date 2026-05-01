@@ -2045,6 +2045,8 @@ const MyChecklistPage = {
             updateAllocationTarget();
           };
           prepaidAmountOther.oninput = () => { updateAllocationTarget(); };
+          // ② で既に値が選ばれていれば即同期して target/プリカ描画を反映
+          syncRateToPrepaid();
 
           // プリカ一覧を描画
           const listEl = modalEl.querySelector("#lpoPrepaidCardsList");
