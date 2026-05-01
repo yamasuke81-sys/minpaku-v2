@@ -981,23 +981,9 @@ const MyRecruitmentPage = {
           const isHdToday = dd.dateStr === todayStr;
           const cellBg = isHdToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : "#fff");
           if (r) {
-            // 清掃 / 直前点検 バーをタップしたら対応する予約詳細を開く
-            // r.bookingId が空でも propBookings から日付一致で引き当てる
-            // 清掃 (cleaning_by_count) → CO 日 = recruitment.checkoutDate
-            // 直前点検 (pre_inspection) → CI 日 = recruitment.checkoutDate
-            let resolvedBid = r.bookingId || "";
-            if (!resolvedBid) {
-              const refDate = r.checkoutDate;
-              const tgt = (r.workType === "pre_inspection")
-                ? propBookings.find(b => b.checkIn === refDate)
-                : propBookings.find(b => b.checkOut === refDate);
-              if (tgt) resolvedBid = tgt.id;
-            }
-            const hasBid = !!resolvedBid;
-            const cls = hasBid ? "text-center cal-date-hd" : "text-center";
-            const bidAttr = hasBid ? ` data-booking-id="${this.esc(resolvedBid)}" data-cal-date="${dd.dateStr}"` : "";
-            const cur = hasBid ? "cursor:pointer;" : "";
-            html += `<td class="${cls}"${bidAttr} data-col-date="${dd.dateStr}" style="height:${propRowH};background:${cellBg};padding:1px;vertical-align:middle;${cur}">${this._recruitPill(r)}</td>`;
+            // 清掃 / 直前点検 バーをタップしたら「募集詳細モーダル」を開く
+            // (予約詳細モーダルは予約バー / 日付セル側で開く)
+            html += `<td class="text-center cal-recruit-cell" data-recruitment-id="${this.esc(r.id)}" data-col-date="${dd.dateStr}" style="height:${propRowH};background:${cellBg};padding:1px;vertical-align:middle;cursor:pointer;">${this._recruitPill(r)}</td>`;
           } else {
             html += `<td data-col-date="${dd.dateStr}" style="height:${propRowH};background:${cellBg};padding:0;"></td>`;
           }
@@ -1485,6 +1471,22 @@ const MyRecruitmentPage = {
             viewMode: isOwnerView ? "owner" : "staff",
             onGuestCountSaved: () => this.renderCalendar && this.renderCalendar(),
           });
+        }
+      });
+    });
+
+    // 清掃 / 直前点検 バーのタップ → 募集詳細モーダル
+    container.querySelectorAll(".cal-recruit-cell").forEach(el => {
+      el.addEventListener("click", async () => {
+        const recruitmentId = el.dataset.recruitmentId;
+        if (!recruitmentId) return;
+        const recruit = this.recruitments.find(x => x.id === recruitmentId);
+        if (!recruit) return;
+        if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
+          if (typeof RecruitmentPage.ensureLoaded === "function") {
+            await RecruitmentPage.ensureLoaded();
+          }
+          RecruitmentPage.openDetailModal(recruit, { viewMode: isOwnerView ? "owner" : "staff" });
         }
       });
     });

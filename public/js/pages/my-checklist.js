@@ -1908,12 +1908,12 @@ const MyChecklistPage = {
                   </div>
                 </div>
 
-                <label class="form-label mt-3">④ 支払総額 <span class="text-danger">*</span></label>
-                <select class="form-select" id="lpoPrepaidAmount">
+                <!-- 旧 ④支払総額 (lpoPrepaidAmount) は ②支払総額 (lpoRate) に統合。HTMLは互換のため残し非表示化 -->
+                <select class="form-select d-none" id="lpoPrepaidAmount" aria-hidden="true">
                   <option value="">-- 金額を選択 --</option>
                 </select>
-                <input type="number" class="form-control mt-2 d-none" id="lpoPrepaidAmountOther" min="0" placeholder="金額を手入力(円)">
-                <div class="d-flex justify-content-between mt-2">
+                <input type="number" class="form-control mt-2 d-none" id="lpoPrepaidAmountOther" min="0" placeholder="金額を手入力(円)" aria-hidden="true">
+                <div class="d-flex justify-content-between mt-3">
                   <button type="button" class="btn btn-sm btn-outline-secondary" id="lpoAutoAllocate">
                     <i class="bi bi-magic"></i> 自動配分 (残高の少ない順)
                   </button>
@@ -1960,15 +1960,55 @@ const MyChecklistPage = {
 
       paySel.addEventListener("change", () => updateStep3());
 
+      // ② 支払総額 (lpoRate) を depot 連動で常時更新するヘルパー
+      function refreshRateOptions() {
+        const depotV = depotSel.value;
+        if (!depotV) {
+          rateWrap.classList.add("d-none");
+          return;
+        }
+        rateWrap.classList.remove("d-none");
+        const depot = depotV === "__other__" ? null : depotMaster[+depotV];
+        const rates = (depot && depot.rates) || [];
+        const prevVal = rateSel.value;
+        const prevOther = rateOther.value;
+        rateSel.innerHTML = `<option value="">-- 金額を選択 --</option>` +
+          rates.map((r, ri) => `<option value="${ri}" data-amount="${r.amount||0}" data-label="${(r.label||'').replace(/"/g,'&quot;')}">${(r.label||"").replace(/</g,"&lt;")} ¥${(r.amount||0).toLocaleString()}</option>`).join("") +
+          `<option value="__other__">その他 (金額手入力)</option>`;
+        if (prevVal && [...rateSel.options].some(o => o.value === prevVal)) {
+          rateSel.value = prevVal;
+          if (prevVal === "__other__") rateOther.value = prevOther;
+        }
+      }
+      // rateSel 変更時: 単位フォームの toggle + prepaid 同期
+      rateSel.addEventListener("change", () => {
+        rateOther.classList.toggle("d-none", rateSel.value !== "__other__");
+        if (rateSel.value === "__other__") rateOther.focus();
+        syncRateToPrepaid();
+      });
+      rateOther.addEventListener("input", () => syncRateToPrepaid());
+      function syncRateToPrepaid() {
+        if (paySel.value !== "prepaid") return;
+        // 隠しの lpoPrepaidAmount に同期して既存ロジック (target/allocation) が動くようにする
+        if (rateSel.value === "__other__") {
+          prepaidAmountSel.value = "__other__";
+          prepaidAmountOther.value = rateOther.value;
+        } else {
+          prepaidAmountSel.value = rateSel.value;
+        }
+        prepaidAmountSel.dispatchEvent(new Event("change"));
+      }
+
       function updateStep3() {
         const depotV = depotSel.value;
         const payV = paySel.value;
         // メモラベル: 新順序で常に ⑤
         const noteLbl = modalEl.querySelector("#lpoNoteLabel");
         if (noteLbl) noteLbl.textContent = "⑤ メモ";
-        // ステップ3の表示: 支払方法で分岐
+        // ② 支払総額: depot 選択後は payV を問わず常時表示
+        refreshRateOptions();
+        // ④ プリカ選択: 支払方法=prepaid 時のみ
         if (payV === "prepaid") {
-          rateWrap.classList.add("d-none");
           prepaidWrap.classList.remove("d-none");
           // プリカをフィルタ (該当 depot に紐づくカードのみ、残高0除外)
           let filtered = prepaidCards;
@@ -2094,20 +2134,8 @@ const MyChecklistPage = {
             });
             updateAllocationSum();
           };
-        } else if (payV === "cash" || payV === "credit" || payV === "invoice") {
-          prepaidWrap.classList.add("d-none");
-          rateWrap.classList.remove("d-none");
-          const depot = depotV === "__other__" ? null : depotMaster[+depotV];
-          const rates = (depot && depot.rates) || [];
-          rateSel.innerHTML = `<option value="">-- 金額を選択 --</option>` +
-            rates.map((r, ri) => `<option value="${ri}" data-amount="${r.amount||0}" data-label="${(r.label||'').replace(/"/g,'&quot;')}">${(r.label||"").replace(/</g,"&lt;")} ¥${(r.amount||0).toLocaleString()}</option>`).join("") +
-            `<option value="__other__">その他 (金額手入力)</option>`;
-          rateSel.onchange = () => {
-            rateOther.classList.toggle("d-none", rateSel.value !== "__other__");
-            if (rateSel.value === "__other__") rateOther.focus();
-          };
         } else {
-          rateWrap.classList.add("d-none");
+          // prepaid 以外: プリカ選択 wrap は隠す (② 支払総額 lpoRate は refreshRateOptions で既に表示済み)
           prepaidWrap.classList.add("d-none");
         }
       }
