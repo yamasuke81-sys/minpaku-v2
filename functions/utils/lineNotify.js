@@ -1104,11 +1104,47 @@ async function notifyByKey(db, notifyKey, options = {}) {
   const tasks = [];
 
   // (a) Webアプリ管理者 LINE
+  // 案A: propertyId 指定があれば、まず物件別 Bot (lineChannels[0].token) でプッシュ試行
+  //       → やますけ側で Bot 名を見て物件を識別できるようにする
+  //       失敗時はグローバル Bot にフォールバック
   if (targets.ownerLine) {
     tasks.push((async () => {
       try {
         const { channelToken, ownerUserId } = await getNotificationSettings_(db);
-        const r = await _sendOwnerLine_(settings, channelToken, ownerUserId, typeof resolvedBody === "string" ? resolvedBody : title);
+        const text = typeof resolvedBody === "string" ? resolvedBody : title;
+
+        // 物件別 Bot 優先 (propertyId 指定 + lineChannels[0].token があれば)
+        let propBotToken = null;
+        let propBotName = null;
+        if (propertyId) {
+          try {
+            const pd = await db.collection("properties").doc(propertyId).get();
+            if (pd.exists) {
+              const pData = pd.data() || {};
+              const ch0 = Array.isArray(pData.lineChannels)
+                ? pData.lineChannels.find(c => c && c.enabled !== false && c.token)
+                : null;
+              if (ch0) {
+                propBotToken = ch0.token;
+                propBotName = ch0.name || "";
+              }
+            }
+          } catch (_) { /* 取得失敗時は無視してグローバルへ */ }
+        }
+
+        // 物件別 Bot 試行 (ownerUserId はグローバル設定を流用 — Bot 単位で userId が違う場合は失敗するので fallback)
+        if (propBotToken && ownerUserId) {
+          const r1 = await sendLineMessage(propBotToken, ownerUserId, text);
+          if (r1.success) {
+            sent.ownerLine = true;
+            console.log(`[ownerLine] 物件別 Bot で送信成功: ${propBotName || "(name未設定)"} → ${ownerUserId.slice(0,10)}...`);
+            return;
+          }
+          console.warn(`[ownerLine] 物件別 Bot 失敗 (${propBotName}) → グローバル Bot にフォールバック:`, r1.error);
+        }
+
+        // グローバル ownerLine (ownerLineChannels[] 戦略 / 後方互換単一チャネル)
+        const r = await _sendOwnerLine_(settings, channelToken, ownerUserId, text);
         sent.ownerLine = r.success;
         if (!r.success) errors.push({ channel: "ownerLine", error: r.error });
       } catch (e) { errors.push({ channel: "ownerLine", error: e.message }); }
