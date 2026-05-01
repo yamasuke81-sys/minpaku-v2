@@ -2029,7 +2029,15 @@ const MyChecklistPage = {
             if (!filtered.length) { chk.checked = true; fields.classList.remove("d-none"); }
             chk.onchange = () => {
               fields.classList.toggle("d-none", !chk.checked);
+              try { updateAllocationSum(); } catch (_) {}
             };
+            // 購入金額入力時にも配分済を再計算
+            const purchaseAmtEl = modalEl.querySelector("#lpoPrepaidPurchaseAmount");
+            if (purchaseAmtEl) {
+              purchaseAmtEl.addEventListener("input", () => {
+                try { updateAllocationSum(); } catch (_) {}
+              });
+            }
           }
 
           // 金額プルダウン
@@ -2090,12 +2098,21 @@ const MyChecklistPage = {
             modalEl.querySelector("#lpoAllocatedTarget").textContent = `¥${t.toLocaleString()}`;
           };
           const updateAllocationSum = () => {
-            const sum = [...listEl.querySelectorAll(".prepaid-use-amount")]
+            const cardSum = [...listEl.querySelectorAll(".prepaid-use-amount")]
               .reduce((s, i) => s + (Number(i.value) || 0), 0);
+            // 「プリカを購入する (立替)」がチェック済みなら購入金額も配分済に合算
+            const purchaseChk = modalEl.querySelector("#lpoPrepaidPurchaseChk");
+            const purchaseAmt = (purchaseChk && purchaseChk.checked)
+              ? (Number(modalEl.querySelector("#lpoPrepaidPurchaseAmount")?.value) || 0)
+              : 0;
+            const sum = cardSum + purchaseAmt;
             const target = _getPrepaidTargetAmount();
             const el = modalEl.querySelector("#lpoAllocatedSum");
-            el.textContent = `¥${sum.toLocaleString()}`;
-            el.style.color = sum === target && target > 0 ? "#198754" : (sum > target ? "#dc3545" : "#6c757d");
+            const breakdown = purchaseAmt > 0
+              ? ` <small class="text-muted">(カード ¥${cardSum.toLocaleString()} + 新規購入 ¥${purchaseAmt.toLocaleString()})</small>`
+              : "";
+            el.innerHTML = `¥${sum.toLocaleString()}${breakdown}`;
+            el.style.color = sum >= target && target > 0 ? "#198754" : (sum > target ? "#dc3545" : "#6c757d");
           };
           const _getPrepaidTargetAmount = () => {
             const v = prepaidAmountSel.value;

@@ -245,7 +245,7 @@
     <!-- ==================== -->
     <div id="checkin">
       <h2 class="section-title">🔑 チェックイン方法</h2>
-      <ul class="mb-0">
+      <ul class="mb-3">
         <li>現地にはスタッフはおりません。</li>
         <li>カギは現地のキーボックスに入れております。ご自身で取り出してから入室してください。</li>
         <li>
@@ -257,6 +257,21 @@
           <span class="badge bg-secondary">予約サイトのメッセージ機能</span>
         </li>
       </ul>
+      <!-- 住所 + 地図埋め込み -->
+      <div class="p-3 rounded border" style="background:#f8f9fa;">
+        <div class="mb-2"><i class="bi bi-geo-alt-fill text-danger"></i>
+          <strong>住所:</strong> 広島県呉市広長浜5-14-6
+        </div>
+        <a href="https://www.google.com/maps/search/?api=1&amp;query=%E5%BA%83%E5%B3%B6%E7%9C%8C%E5%91%89%E5%B8%82%E5%BA%83%E9%95%B7%E6%B5%9C5-14-6"
+           target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm mb-2">
+          <i class="bi bi-map me-1"></i> Google MAP で開く
+        </a>
+        <div class="ratio ratio-16x9">
+          <iframe src="https://www.google.com/maps?q=%E5%BA%83%E5%B3%B6%E7%9C%8C%E5%91%89%E5%B8%82%E5%BA%83%E9%95%B7%E6%B5%9C5-14-6&amp;output=embed"
+                  style="border:0;" allowfullscreen loading="lazy"
+                  referrerpolicy="no-referrer-when-downgrade"></iframe>
+        </div>
+      </div>
     </div>
 
     <hr class="section-divider">

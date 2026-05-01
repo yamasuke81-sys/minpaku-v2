@@ -105,17 +105,43 @@ async function sendKeyboxEmail(guest, property) {
   const wifiSSID     = property.wifiSSID     || (property.wifiInfo ? property.wifiInfo.split("/")[0]?.trim() : "") || "";
   const wifiPassword = property.wifiPassword || (property.wifiInfo ? property.wifiInfo.split("/").slice(1).join("/").trim() : "") || "";
 
+  // 日付を「YYYY年M月D日(曜)」共通フォーマットに整形 (英訳用は YYYY-MM-DD のまま)
+  const _ja = ["日","月","火","水","木","金","土"];
+  const fmtDateJa = (s) => {
+    if (!s) return "";
+    const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return s;
+    const d = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`);
+    if (isNaN(d.getTime())) return s;
+    return `${m[1]}年${parseInt(m[2],10)}月${parseInt(m[3],10)}日(${_ja[d.getDay()]})`;
+  };
+  const checkInTime = guest.checkInTime || property.checkInTime || "";
+  const checkInDateJa = fmtDateJa(guest.checkIn);
+  const checkInJa = checkInTime ? `${checkInDateJa} ${checkInTime}` : checkInDateJa;
+
   const vars = {
     guestName:       guest.guestName || "ゲスト",
     propertyName:    property.name || "",
     keyboxCode:      property.keyboxCode || property.keyboxNumber || "",
     keyboxLocation:  property.keyboxLocation || "",
-    checkIn:         guest.checkIn || "?",
+    // 日本語向け: 共通日付フォーマット + 時間
+    checkIn:         checkInJa || "?",
+    checkInDate:     checkInDateJa || "?",
+    checkInTime:     checkInTime || "",
+    // 英訳向け: ISO 形式 (テンプレ側で別変数として使える)
+    checkInIso:      guest.checkIn || "",
     wifiSSID,
     wifiPassword,
     propertyAddress: rawAddress,
-    guideUrl,
     addressMapUrl,
+    // 住所と地図URLをセットで使う変数 (テンプレ側で {addressBlock} として埋め込める)
+    addressBlock:    rawAddress
+      ? `${rawAddress}${addressMapUrl ? "\n地図: " + addressMapUrl : ""}`
+      : "",
+    addressBlockEn:  rawAddress
+      ? `${rawAddress}${addressMapUrl ? "\nMap: " + addressMapUrl : ""}`
+      : "",
+    guideUrl,
     // タスク8-3: ポスト情報
     postCode:        (property.post && property.post.code) || "",
   };
