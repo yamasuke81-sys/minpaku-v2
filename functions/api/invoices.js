@@ -263,7 +263,9 @@ async function renderInvoicePdfBuffer(invoice, staff, client, propertyMap) {
         if (s.guestCount > 1) parts.push(`ゲスト${s.guestCount}名`);
         if (parts.length) memo = parts.join(" / ");
       }
-      rows.push({ date: s.date ? fmtDate(s.date) : "", label, amount: s.amount || 0, memo });
+      const amt = s.amount || 0;
+      // 0円項目は明細に出さない (例: ランドリー出し/受取で報酬が発生しない作業)
+      if (amt > 0) rows.push({ date: s.date ? fmtDate(s.date) : "", label, amount: amt, memo });
     });
     (invoice.details?.special || []).forEach((sp) => {
       const propName = propertyMap[sp.propertyId] || sp.propertyId || "";
@@ -480,13 +482,17 @@ async function generateInvoicePdf_(db, invoiceId) {
         if (s.guestCount > 1) parts.push(`ゲスト${s.guestCount}名`);
         if (parts.length) memo = parts.join(" / ");
       }
-      rows.push({
-        date: s.date ? fmtDate(s.date) : "",
-        label,
-        amount: s.amount || 0,
-        memo,
-        section: "shift",
-      });
+      const amt2 = s.amount || 0;
+      // 0円項目は明細に出さない (例: ランドリー出し/受取で報酬が発生しない作業)
+      if (amt2 > 0) {
+        rows.push({
+          date: s.date ? fmtDate(s.date) : "",
+          label,
+          amount: amt2,
+          memo,
+          section: "shift",
+        });
+      }
     });
     const specialItems = _filtered.special;
     specialItems.forEach((sp) => {
