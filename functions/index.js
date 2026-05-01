@@ -377,9 +377,9 @@ exports.onErrorLogCreated = onDocumentCreated(
 
 // ========== 通知スケジュール (未実装通知の発火) ==========
 
-// 名簿未入力リマインド（毎朝9:00 JST）
+// 名簿未入力リマインド（毎時実行 — 物件別タイミング設定に従って発火）
 exports.rosterRemind = onSchedule({
-  schedule: "0 9 * * *",
+  schedule: "0 * * * *",
   region: "asia-northeast1",
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/rosterRemind"));

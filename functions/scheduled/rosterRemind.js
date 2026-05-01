@@ -1,127 +1,174 @@
 /**
- * 名簿未入力リマインド（毎朝9:00 JST）
- * 今日以降の confirmed 予約で宿泊者名簿が未提出の予約ごとにWebアプリ管理者LINE通知
- * 同日・同予約への重複送信を bookings.rosterRemindSentDate で防止
+ * 名簿未入力リマインド（毎時実行 JST）
+ *
+ * 物件別の channelOverrides.roster_remind.timings[] に従って、各タイミングが
+ * 「現在の JST 時刻」と一致したときだけ発火する。
+ *
+ * timings 構造例:
+ *   [{ mode:"event", timing:"beforeEvent", beforeDays:6, beforeTime:"03:00" }, ...]
+ *
+ * → JST 03時に rosterRemind が走った時、各物件で beforeDays=6 のタイミングを抽出し、
+ *   `checkIn = todayJST + 6日` の名簿未提出予約を対象に送信。
+ *
+ * 重複送信防止:
+ *   bookings.{bookingId}.rosterRemindSentKeys[] に "YYYY-MM-DD_HH_NdaysBefore" を記録
  */
 const admin = require("firebase-admin");
-const {
-  notifyByKey,
-  getNotificationSettings_,
-} = require("../utils/lineNotify");
+const { notifyByKey } = require("../utils/lineNotify");
 
 const APP_URL = "https://minpaku-v2.web.app";
 const NOTIFY_TYPE = "roster_remind";
 
-module.exports = async function rosterRemind(event) {
+// JST の今 → { date: "YYYY-MM-DD", hour: 0..23 }
+function nowJst() {
+  const d = new Date(Date.now() + 9 * 3600 * 1000);
+  return {
+    date: d.toISOString().slice(0, 10),
+    hour: d.getUTCHours(),
+  };
+}
+
+// "YYYY-MM-DD" + N → "YYYY-MM-DD" (N日後)
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + "T00:00:00.000Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+module.exports = async function rosterRemind() {
   const db = admin.firestore();
+  const { date: todayJst, hour: hourJst } = nowJst();
+
+  console.log(`[rosterRemind] 起動 JST=${todayJst} ${String(hourJst).padStart(2, "0")}:00`);
 
   try {
-    const { settings } = await getNotificationSettings_(db);
+    // 1) 全物件の timings を取得し、現在時刻にマッチする (propertyId, beforeDays) を収集
+    const propsSnap = await db.collection("properties").get();
+    const targets = []; // [{ propertyId, beforeDays, targetCheckIn }]
 
-    // 今日の日付（YYYY-MM-DD）
-    const today = new Date().toISOString().slice(0, 10);
+    for (const pd of propsSnap.docs) {
+      const prop = pd.data() || {};
+      if (prop.active === false) continue;
+      const ov = (prop.channelOverrides || {})[NOTIFY_TYPE] || {};
+      if (ov.enabled === false) continue;
+      const timings = Array.isArray(ov.timings) ? ov.timings : [];
+      if (timings.length === 0) continue;
 
-    // 今日以降のチェックイン予約（今日チェックインも対象）を取得
-    // checkIn >= today で当日も含める
-    const bookingsSnap = await db.collection("bookings")
-      .where("status", "==", "confirmed")
-      .where("checkIn", ">=", today)
-      .get();
+      for (const t of timings) {
+        // 現状サポート: mode=event / timing=beforeEvent
+        if (t.timing !== "beforeEvent") continue;
+        const beforeDays = parseInt(t.beforeDays, 10);
+        if (!Number.isFinite(beforeDays) || beforeDays < 0) continue;
+        const beforeTime = String(t.beforeTime || "").trim();
+        const m = beforeTime.match(/^(\d{1,2}):(\d{2})$/);
+        if (!m) continue;
+        const targetHour = parseInt(m[1], 10);
+        if (targetHour !== hourJst) continue;
 
-    if (bookingsSnap.empty) {
-      console.log("名簿リマインド: 対象予約なし");
-      return;
+        const targetCheckIn = addDays(todayJst, beforeDays);
+        targets.push({
+          propertyId: pd.id,
+          propertyName: prop.name || pd.id,
+          beforeDays,
+          targetCheckIn,
+        });
+      }
     }
-
-    // 名簿未提出 かつ 今日まだ未送信のもののみフィルタ
-    const targets = bookingsSnap.docs.filter(d => {
-      const data = d.data();
-      if (data.rosterStatus === "submitted") return false;
-      // 今日すでにリマインドを送った予約はスキップ（重複送信防止）
-      if (data.rosterRemindSentDate === today) return false;
-      return true;
-    });
 
     if (targets.length === 0) {
-      console.log("名簿リマインド: 全予約の名簿提出済みまたは本日送信済み");
+      console.log(`[rosterRemind] このタイミング (JST ${hourJst}時) に該当する物件設定なし`);
       return;
     }
 
-    console.log(`名簿リマインド: ${targets.length}件対象`);
+    console.log(`[rosterRemind] マッチした (物件×タイミング) 数: ${targets.length}`);
 
-    let sentCount = 0;
+    let sentTotal = 0;
 
-    for (const doc of targets) {
-      const b = doc.data();
-      const bookingId = doc.id;
+    // 2) 各 (propertyId, targetCheckIn) について bookings を取得して送信
+    for (const tgt of targets) {
+      const bookingsSnap = await db.collection("bookings")
+        .where("propertyId", "==", tgt.propertyId)
+        .where("checkIn", "==", tgt.targetCheckIn)
+        .where("status", "==", "confirmed")
+        .get();
 
-      // 物件別オーバーライド取得
-      const propDoc = b.propertyId
-        ? await db.collection("properties").doc(b.propertyId).get()
-        : null;
+      if (bookingsSnap.empty) continue;
 
-      const propertyName = b.propertyName || (propDoc?.exists ? propDoc.data().name : "") || b.propertyId || "";
-      const guestName = b.guestName || "名前未設定";
-      const checkin = b.checkIn || "";
-      const formUrl = b.propertyId
-        ? `${APP_URL}/form/?propertyId=${b.propertyId}`
-        : `${APP_URL}/form/`;
+      for (const bd of bookingsSnap.docs) {
+        const b = bd.data();
+        const bookingId = bd.id;
 
-      const vars = {
-        date: checkin,
-        checkin,
-        property: propertyName,
-        guest: guestName,
-        url: formUrl,
-      };
+        // 名簿提出済み → スキップ
+        if (b.rosterStatus === "submitted") continue;
+        // 保留中 (Airbnb 承認待ち) → スキップ
+        if (b.pendingApproval === true) continue;
 
-      const defaultMsg = [
-        `📋 名簿未提出リマインド`,
-        ``,
-        `物件: ${propertyName}`,
-        `ゲスト: ${guestName}`,
-        `チェックイン: ${checkin}`,
-        ``,
-        `宿泊者名簿がまだ提出されていません。`,
-        `フォームURL: ${formUrl}`,
-      ].join("\n");
+        // 重複防止キー: 日付+時+beforeDays で一意
+        const key = `${todayJst}_${String(hourJst).padStart(2, "0")}_d${tgt.beforeDays}`;
+        const sentKeys = Array.isArray(b.rosterRemindSentKeys) ? b.rosterRemindSentKeys : [];
+        if (sentKeys.includes(key)) {
+          console.log(`[rosterRemind] 既送信スキップ ${bookingId} key=${key}`);
+          continue;
+        }
 
-      const title = `名簿未提出: ${guestName} (${checkin})`;
+        const propertyName = b.propertyName || tgt.propertyName;
+        const guestName = b.guestName || "名前未設定";
+        const checkin = b.checkIn || "";
+        const formUrl = `${APP_URL}/form/?propertyId=${tgt.propertyId}`;
 
-      // notifyByKey でチャネル別 (owner/group/staff/email/discord) に発射
-      const result = await notifyByKey(db, NOTIFY_TYPE, {
-        title,
-        body: defaultMsg,
-        vars,
-        propertyId: b.propertyId || null,
-      });
-      const anySuccess = Object.values(result.sent || {}).some(v => v && v !== 0);
+        const vars = {
+          date: checkin,
+          checkin,
+          property: propertyName,
+          guest: guestName,
+          url: formUrl,
+        };
 
-      if (anySuccess) {
-        sentCount++;
-        // 今日の日付を記録して同日の重複送信を防止
-        try {
-          await db.collection("bookings").doc(bookingId).update({
-            rosterRemindSentDate: today,
-          });
-        } catch (updateErr) {
-          console.warn(`名簿リマインド: 送信日記録失敗 (${bookingId}):`, updateErr.message);
+        const defaultMsg = [
+          `📋 名簿未提出リマインド (${tgt.beforeDays}日前)`,
+          ``,
+          `物件: ${propertyName}`,
+          `ゲスト: ${guestName}`,
+          `チェックイン: ${checkin}`,
+          ``,
+          `宿泊者名簿がまだ提出されていません。`,
+          `フォームURL: ${formUrl}`,
+        ].join("\n");
+
+        const title = `名簿未提出 (${tgt.beforeDays}日前): ${guestName} (${checkin})`;
+
+        const result = await notifyByKey(db, NOTIFY_TYPE, {
+          title,
+          body: defaultMsg,
+          vars,
+          propertyId: tgt.propertyId,
+        });
+        const anySuccess = Object.values(result.sent || {}).some(v => v && v !== 0);
+
+        if (anySuccess) {
+          sentTotal++;
+          try {
+            await db.collection("bookings").doc(bookingId).update({
+              rosterRemindSentKeys: admin.firestore.FieldValue.arrayUnion(key),
+            });
+          } catch (e) {
+            console.warn(`[rosterRemind] 送信記録失敗 ${bookingId}:`, e.message);
+          }
         }
       }
     }
 
-    console.log(`名簿リマインド完了: ${sentCount}/${targets.length}件送信`);
+    console.log(`[rosterRemind] 完了: ${sentTotal}件送信`);
   } catch (e) {
-    console.error("名簿リマインドエラー:", e);
+    console.error("[rosterRemind] エラー:", e);
     try {
-      const db2 = admin.firestore();
-      await db2.collection("error_logs").add({
+      await db.collection("error_logs").add({
         functionName: "rosterRemind",
         error: e.message,
         stack: e.stack?.slice(0, 500),
         severity: "warning",
         createdAt: new Date(),
       });
-    } catch (logErr) { /* 無視 */ }
+    } catch (_) { /* 無視 */ }
   }
 };
