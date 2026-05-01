@@ -982,9 +982,20 @@ const MyRecruitmentPage = {
           const cellBg = isHdToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : "#fff");
           if (r) {
             // 清掃 / 直前点検 バーをタップしたら対応する予約詳細を開く
-            const hasBid = !!r.bookingId;
+            // r.bookingId が空でも propBookings から日付一致で引き当てる
+            // 清掃 (cleaning_by_count) → CO 日 = recruitment.checkoutDate
+            // 直前点検 (pre_inspection) → CI 日 = recruitment.checkoutDate
+            let resolvedBid = r.bookingId || "";
+            if (!resolvedBid) {
+              const refDate = r.checkoutDate;
+              const tgt = (r.workType === "pre_inspection")
+                ? propBookings.find(b => b.checkIn === refDate)
+                : propBookings.find(b => b.checkOut === refDate);
+              if (tgt) resolvedBid = tgt.id;
+            }
+            const hasBid = !!resolvedBid;
             const cls = hasBid ? "text-center cal-date-hd" : "text-center";
-            const bidAttr = hasBid ? ` data-booking-id="${this.esc(r.bookingId)}" data-cal-date="${dd.dateStr}"` : "";
+            const bidAttr = hasBid ? ` data-booking-id="${this.esc(resolvedBid)}" data-cal-date="${dd.dateStr}"` : "";
             const cur = hasBid ? "cursor:pointer;" : "";
             html += `<td class="${cls}"${bidAttr} data-col-date="${dd.dateStr}" style="height:${propRowH};background:${cellBg};padding:1px;vertical-align:middle;${cur}">${this._recruitPill(r)}</td>`;
           } else {
