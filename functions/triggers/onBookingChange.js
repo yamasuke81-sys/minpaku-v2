@@ -284,8 +284,14 @@ module.exports = async function onBookingChange(event) {
       // - true→false (確定): guestName/guestCount が後追いで埋まる
       // - false→true (再ガード): emailVerifications の競合で再セットされた直後
       const pendingChanged = !!before.pendingApproval !== !!after.pendingApproval;
+      // 手動編集 (予約詳細モーダル等で人数等を直接編集) の場合も通知を抑止
+      const beforeManualMs = before.lastManualEditAt?.toMillis?.() || 0;
+      const afterManualMs = after.lastManualEditAt?.toMillis?.() || 0;
+      const manualEdited = afterManualMs > beforeManualMs;
       if (pendingChanged) {
         console.log(`[onBookingChange] pendingApproval 遷移 (${!!before.pendingApproval}→${!!after.pendingApproval}) のため booking_change 通知スキップ: ${event.params.bookingId}`);
+      } else if (manualEdited) {
+        console.log(`[onBookingChange] 手動編集 (lastManualEditAt 更新) のため booking_change 通知スキップ: ${event.params.bookingId}`);
       } else if (ciChanged || coChanged || countChanged || nameChanged) {
         // 変更点サマリを組み立て
         const changes = [];

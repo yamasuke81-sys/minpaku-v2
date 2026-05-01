@@ -1494,7 +1494,11 @@ const DashboardPage = {
             const realId = bookingId.slice(2);
             await db.collection("guestRegistrations").doc(realId).update({ guestCount: newCount });
           } else {
-            await db.collection("bookings").doc(bookingId).update({ guestCount: newCount });
+            // lastManualEditAt: onBookingChange 側で手動編集を識別して booking_change 通知を抑止する
+            await db.collection("bookings").doc(bookingId).update({
+              guestCount: newCount,
+              lastManualEditAt: firebase.firestore.FieldValue.serverTimestamp(),
+            });
           }
           // キャッシュを更新 (注入された bookings と、念のため DashboardPage 自身の bookings の双方)
           const idx = bookings.findIndex(bk => bk.id === bookingId);
