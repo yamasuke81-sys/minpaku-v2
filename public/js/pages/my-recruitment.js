@@ -1447,23 +1447,13 @@ const MyRecruitmentPage = {
     const isOwnerView = this.isOwnerView;
     container.querySelectorAll(".cal-date-hd").forEach(el => {
       el.addEventListener("click", () => {
-        let targetBooking = null;
+        // 物件行セル由来 (data-booking-id あり) のみ反応。
+        // 日付ヘッダー (th) 由来 = bookingId なし → 複数施設で曖昧なため無反応にする。
         const bookingId = el.dataset.bookingId;
-        if (bookingId) {
-          targetBooking = this.bookings.find(x => x.id === bookingId) || null;
-        }
-        if (!targetBooking) {
-          const dateStr = el.dataset.calDate;
-          const bs = bookingsByDate[dateStr];
-          if (!bs || !bs.length) return;
-          // 日付ヘッダータップ: その日が CI (チェックイン) の予約を最優先で表示
-          // 該当が無ければ middle (滞在中) → ending (CO) の順でフォールバック
-          const ciHit = bs.find(b => b.checkIn === dateStr);
-          const midHit = bs.find(b => b.checkIn && b.checkOut && b.checkIn < dateStr && dateStr < b.checkOut);
-          const coHit = bs.find(b => b.checkOut === dateStr);
-          const pick = ciHit || midHit || coHit || bs[0];
-          targetBooking = this.bookings.find(x => x.id === pick.id) || pick;
-        }
+        if (!bookingId) return;
+        const targetBooking = this.bookings.find(x => x.id === bookingId)
+          || (this._rawBookings && this._rawBookings.find(x => x.id === bookingId))
+          || null;
         if (!targetBooking) return;
 
         if (typeof DashboardPage !== "undefined" && DashboardPage.showBookingModal) {
