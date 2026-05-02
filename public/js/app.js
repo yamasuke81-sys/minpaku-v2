@@ -349,36 +349,100 @@ const App = {
     });
   },
 
-  /** サブオーナー impersonation 用プルダウン (Webアプリ管理者のみ) */
+  /** サブオーナー画面セクションの初期化 — 選択時にメニューを動的生成 */
   async initImpersonateSelect() {
-    const wrap = document.getElementById("ownerImpersonateWrap");
     const sel = document.getElementById("ownerImpersonateSelect");
-    if (!wrap || !sel) return;
+    if (!sel) return;
     if (!Auth.isOwner || !Auth.isOwner()) {
-      wrap.closest(".sidebar-section-body")?.classList.add("d-none");
-      const hdr = document.querySelector('.sidebar-section-toggle[data-section-group="subOwnerGroup"]');
-      if (hdr) hdr.classList.add("d-none");
+      // オーナー以外はサブオーナー画面セクションごと隠す
+      document.getElementById("subOwnerGroup")?.classList.add("d-none");
+      document.querySelector('.sidebar-section-toggle[data-section-group="subOwnerGroup"]')?.classList.add("d-none");
       return;
     }
     try {
       const list = await API.staff.list(true);
-      const subOwners = list
+      this._subOwnerList = list
         .filter(s => s.isSubOwner && s.active !== false && s.name)
         .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
-      const current = this.impersonating || "";
-      sel.innerHTML = '<option value="">— 選択してください —</option>' +
-        subOwners.map(s => `<option value="${s.id}" ${s.id === current ? "selected" : ""}>${this.escapeHtml(s.name)}</option>`).join("");
+      const current = this.impersonating || (() => { try { return localStorage.getItem("subOwnerPick") || ""; } catch (_) { return ""; } })();
+      sel.innerHTML = '<option value="">— 物件オーナーを選択 —</option>' +
+        this._subOwnerList.map(s => `<option value="${s.id}" ${s.id === current ? "selected" : ""}>${this.escapeHtml(s.name)}</option>`).join("");
       sel.addEventListener("change", (e) => {
         const v = e.target.value;
-        if (v) {
-          try { localStorage.setItem("impersonateAs", v); } catch (_) {}
-        } else {
-          try { localStorage.removeItem("impersonateAs"); } catch (_) {}
-        }
-        window.location.reload();
+        try { v ? localStorage.setItem("subOwnerPick", v) : localStorage.removeItem("subOwnerPick"); } catch (_) {}
+        this._renderSubOwnerMenuList(v);
       });
+      // 初期表示
+      if (current) this._renderSubOwnerMenuList(current);
     } catch (e) {
       console.warn("[impersonateSelect] 初期化失敗:", e.message);
+    }
+  },
+
+  /** 選択中サブオーナーが見られるメニューを羅列 + スタッフ画面ネストセクション表示制御 */
+  _renderSubOwnerMenuList(subOwnerId) {
+    const list = document.getElementById("subOwnerMenuList");
+    const staffToggle = document.getElementById("staffViewToggle");
+    const staffBody = document.getElementById("staffViewGroup");
+    if (!list) return;
+    if (!subOwnerId) {
+      list.innerHTML = "";
+      staffToggle?.classList.add("d-none");
+      staffBody?.classList.add("d-none");
+      return;
+    }
+    const subOwner = (this._subOwnerList || []).find(s => s.id === subOwnerId);
+    if (!subOwner) { list.innerHTML = ""; return; }
+    // ownerNav 内の data-sub-owner-show="1" 付きリンクを抽出してコピー
+    const links = Array.from(document.querySelectorAll('#ownerNav > a.nav-link[data-sub-owner-show="1"]'));
+    list.innerHTML = links.map(a => {
+      const href = a.getAttribute("href") || "#";
+      const target = a.getAttribute("target") ? ` target="${a.getAttribute("target")}"` : "";
+      return `<a class="nav-link sub-owner-menu-link" href="${href}"${target} data-sub-owner-id="${subOwnerId}">${a.innerHTML}</a>`;
+    }).join("");
+    list.querySelectorAll(".sub-owner-menu-link").forEach(a => {
+      a.addEventListener("click", (ev) => {
+        // impersonation を起動してから遷移
+        try { localStorage.setItem("impersonateAs", subOwnerId); } catch (_) {}
+        // 外部リンクはそのまま、ハッシュリンクはリロードして impersonation 反映
+        const href = a.getAttribute("href") || "";
+        if (href.startsWith("#")) {
+          ev.preventDefault();
+          location.hash = href.slice(1);
+          window.location.reload();
+        }
+      });
+    });
+    // スタッフ画面サブセクションを表示
+    staffToggle?.classList.remove("d-none");
+    staffBody?.classList.remove("d-none");
+    // スタッフ select をサブオーナー担当物件のスタッフに絞り込み
+    this._refreshStaffViewSelect(subOwner.ownedPropertyIds || []);
+  },
+
+  /** スタッフ select を「指定物件群を担当しているスタッフ」に絞り込み */
+  async _refreshStaffViewSelect(propertyIds) {
+    const sel = document.getElementById("ownerViewAsStaffSelect");
+    if (!sel) return;
+    try {
+      const all = this._viewAsStaffList && this._viewAsStaffList.length
+        ? this._viewAsStaffList
+        : (await API.staff.list(true))
+            .filter(s => !s.isSubOwner && !s.isOwner && s.active !== false && s.name)
+            .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+      const propSet = new Set(propertyIds);
+      const filtered = propSet.size === 0
+        ? all
+        : all.filter(s => Array.isArray(s.assignedPropertyIds) && s.assignedPropertyIds.some(pid => propSet.has(pid)));
+      const current = this.viewAsStaffId || "";
+      sel.innerHTML = '<option value="">— スタッフを選択 —</option>' +
+        filtered.map(s => `<option value="${s.id}" ${s.id === current ? "selected" : ""}>${this.escapeHtml(s.name)}</option>`).join("");
+      // 候補にない選択は解除
+      if (current && !filtered.find(s => s.id === current)) {
+        this.setViewAsStaff(null);
+      }
+    } catch (e) {
+      console.warn("[refreshStaffViewSelect] 失敗:", e.message);
     }
   },
 

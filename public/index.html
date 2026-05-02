@@ -58,30 +58,33 @@
       <a class="nav-link" href="#/settings" data-page="settings"><i class="bi bi-gear"></i> 設定</a>
 
       <div class="sidebar-section sidebar-section-toggle" data-section-group="subOwnerGroup">
-        <i class="bi bi-chevron-down section-chevron"></i> サブオーナー画面
+        <i class="bi bi-chevron-down section-chevron"></i> 物件オーナー画面
       </div>
       <div class="sidebar-section-body" id="subOwnerGroup">
-        <div class="px-3 py-2" id="ownerImpersonateWrap">
-          <select id="ownerImpersonateSelect" class="form-select form-select-sm" title="どのサブオーナーとして閲覧するか">
-            <option value="">— 選択してください —</option>
+        <div class="px-3 py-2">
+          <select id="ownerImpersonateSelect" class="form-select form-select-sm" title="どの物件オーナーとして閲覧するか">
+            <option value="">— 物件オーナーを選択 —</option>
           </select>
-          <div class="small text-light mt-1" style="opacity:0.65;font-size:0.7rem;">選択後にリロードして代理閲覧</div>
         </div>
-      </div>
+        <!-- 物件オーナーが見られるメニュー (選択時に動的生成) -->
+        <div id="subOwnerMenuList" class="px-1"></div>
 
-      <div class="sidebar-section sidebar-section-toggle" data-section-group="staffViewGroup">
-        <i class="bi bi-chevron-down section-chevron"></i> スタッフ画面
-      </div>
-      <div class="sidebar-section-body" id="staffViewGroup">
-        <div class="px-3 py-2" id="ownerViewAsStaffWrap">
-          <select id="ownerViewAsStaffSelect" class="form-select form-select-sm" title="どのスタッフ視点で見るか">
-            <option value="">自分（管理者）として閲覧</option>
-          </select>
+        <!-- スタッフ画面 (ネストアコーディオン) -->
+        <div class="sidebar-section sidebar-section-toggle sidebar-section-nested d-none" data-section-group="staffViewGroup" id="staffViewToggle">
+          <i class="bi bi-chevron-down section-chevron"></i> スタッフ画面
         </div>
-        <a class="nav-link d-none" href="#/my-dashboard" data-page="my-dashboard"><i class="bi bi-house-door"></i> マイページ</a>
-        <a class="nav-link" href="#/my-recruitment" data-page="my-recruitment" id="ownerNavMyRecruitment"><i class="bi bi-calendar-check"></i> 清掃スケジュール (スタッフ視点)</a>
-        <a class="nav-link" href="#/my-checklist" data-page="my-checklist" id="ownerNavMyChecklist"><i class="bi bi-clipboard-check"></i> チェックリスト</a>
-        <a class="nav-link" href="#/my-invoice-create" data-page="my-invoice-create"><i class="bi bi-receipt"></i> 請求書</a>
+        <div class="sidebar-section-body sidebar-section-nested-body d-none" id="staffViewGroup">
+          <div class="px-3 py-2">
+            <select id="ownerViewAsStaffSelect" class="form-select form-select-sm" title="どのスタッフ視点で見るか">
+              <option value="">— スタッフを選択 —</option>
+            </select>
+          </div>
+          <div id="staffViewMenuList" class="px-1">
+            <a class="nav-link" href="#/my-recruitment" data-page="my-recruitment" id="ownerNavMyRecruitment"><i class="bi bi-calendar-check"></i> 清掃スケジュール</a>
+            <a class="nav-link" href="#/my-checklist" data-page="my-checklist" id="ownerNavMyChecklist"><i class="bi bi-clipboard-check"></i> チェックリスト</a>
+            <a class="nav-link" href="#/my-invoice-create" data-page="my-invoice-create"><i class="bi bi-receipt"></i> 請求書</a>
+          </div>
+        </div>
       </div>
 
       <div class="sidebar-section">他部門</div>

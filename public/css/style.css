@@ -55,6 +55,8 @@ body { background: var(--bg); margin: 0; padding: 0; font-family: -apple-system,
 .sidebar-section-toggle .section-chevron { transition: transform 0.18s ease; font-size: 0.7rem; }
 .sidebar-section-toggle.collapsed .section-chevron { transform: rotate(-90deg); }
 .sidebar-section-body.d-none-collapsed { display: none !important; }
+.sidebar-section-nested { padding-left: 24px; font-size: 0.6rem; color: #64748b; }
+.sidebar-section-nested-body { padding-left: 12px; border-left: 2px solid rgba(255,255,255,0.06); margin-left: 14px; }
 
 .sidebar-footer {
   padding: 12px; border-top: 1px solid rgba(255,255,255,0.08);
