@@ -297,9 +297,18 @@
                       <input type="hidden" id="staffAddress">
                       <input type="hidden" id="staffCompanyName">
                     </div>
-                    <!-- 個別通知先 LINE/メール は削除 (LINE 連携セクションの LINE User ID と基本情報のメールで兼用) -->
-                    <input type="hidden" id="staffSubOwnerLineUserId">
-                    <input type="hidden" id="staffSubOwnerEmail">
+                    <!-- 物件オーナー専用の通知先 (基本情報側 LINE/メールと別運用にしたい場合) -->
+                    <div class="col-12">
+                      <hr class="my-2"><h6 class="mb-1"><i class="bi bi-bell"></i> 物件オーナー専用 通知先 <small class="text-muted">(任意・基本情報と別の宛先にしたい場合)</small></h6>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label">物件オーナー LINE User ID</label>
+                      <input type="text" class="form-control form-control-sm" id="staffSubOwnerLineUserId" placeholder="Uxxxxxxxxxx... (空欄なら基本情報の LINE を使用)">
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label">物件オーナー メール</label>
+                      <input type="email" class="form-control form-control-sm" id="staffSubOwnerEmail" placeholder="example@gmail.com (空欄なら基本情報のメールを使用)">
+                    </div>
                   </div>
                 </div>
               </div>
