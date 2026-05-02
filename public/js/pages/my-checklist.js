@@ -508,12 +508,11 @@ const MyChecklistPage = {
         if (!this.activeAreaId && this.checklist.templateSnapshot?.length) {
           this.activeAreaId = this.checklist.templateSnapshot[0].id;
         }
-        // templateSnapshot のタブ構造 (エリア数・各エリアID) が変わった場合のみ全体再構築
-        // エリア数と ID 配列のみ比較し、itemStates 等の細かな変化では再構築しない
-        // hasPendingWrites ガードを外し、ローカル即時反映を許可 (チェック操作での UX 向上)
-        const oldIds = (old?.templateSnapshot || []).map(a => a.id).join(",");
-        const newIds = (this.checklist.templateSnapshot || []).map(a => a.id).join(",");
-        const templateChanged = !old || oldIds !== newIds;
+        // templateSnapshot 自体が変わった場合のみ全体再構築 (項目追加/削除/見本写真変更も検知)
+        // itemStates 等の細かな変化では再構築しない (UX 維持)
+        const oldTmplHash = JSON.stringify(old?.templateSnapshot || null);
+        const newTmplHash = JSON.stringify(this.checklist.templateSnapshot || null);
+        const templateChanged = !old || oldTmplHash !== newTmplHash;
         if (templateChanged) {
           this.renderTree();
         } else {
@@ -2537,6 +2536,7 @@ const MyChecklistPage = {
             <div class="flex-grow-1 lh-base">
               <span style="font-size:15px;">${this.escapeHtml(it.name)}</span>
               ${it.memo ? `<div class="small text-muted mt-1">${this.escapeHtml(it.memo)}</div>` : ""}
+              ${this._renderInlineSampleThumbs(it, it.name)}
               ${othersEditing ? `<div class="small text-info mt-1"><i class="bi bi-person"></i> ${this.escapeHtml(editingBy.name||"他のスタッフ")}が編集中...</div>` : ""}
               ${st.checkedBy ? `<div class="small text-muted mt-1">✓ ${this.escapeHtml(st.checkedBy.name||"")} ${this.fmtTime(st.checkedAt)}</div>` : ""}
             </div>
@@ -2563,6 +2563,7 @@ const MyChecklistPage = {
     const allDone = tot > 0 && done === tot;
     // デフォルトは展開状態: チェック入力・再描画・タブ切替のたびに閉じられないよう
     // accordion-button から "collapsed" を外し、collapse に "show" を付ける
+    const catThumbs = this._renderInlineSampleThumbs(cat, cat.name);
     return `
       <div class="mcl-cat accordion mb-2" data-cat-id="${cat.id}">
         <div class="accordion-item">
@@ -2574,12 +2575,30 @@ const MyChecklistPage = {
           </h2>
           <div id="${collapseId}" class="accordion-collapse collapse show">
             <div class="accordion-body p-2">
+              ${catThumbs ? `<div class="px-1 pb-2">${catThumbs}</div>` : ""}
               ${this.renderChildren(cat)}
             </div>
           </div>
         </div>
       </div>
     `;
+  },
+
+  // 項目/カテゴリ直下の見本写真をインライン表示するサムネイル列を返す
+  _renderInlineSampleThumbs(node, label) {
+    const imgs = node.sampleImages || [];
+    const urls = imgs.map(i => i.url).filter(Boolean);
+    if (!urls.length && node.sampleImageUrl) urls.push(node.sampleImageUrl);
+    if (!urls.length) return "";
+    const labelEsc = this.escapeHtml(label || "");
+    const thumbs = urls.map(u => `
+      <img src="${this.escapeHtml(u)}" alt="見本" loading="lazy"
+           class="mcl-inline-sample-thumb"
+           data-sample-url="${this.escapeHtml(u)}"
+           data-sample-label="${labelEsc}"
+           style="width:64px;height:64px;object-fit:cover;border-radius:6px;cursor:zoom-in;border:1px solid #dee2e6;">
+    `).join("");
+    return `<div class="d-flex flex-wrap gap-1 mt-2" onclick="event.stopPropagation()">${thumbs}</div>`;
   },
 
   wireChildren(el) {
@@ -2615,6 +2634,18 @@ const MyChecklistPage = {
       cb.addEventListener("change", () => {
         const itemId = cb.closest("[data-item-id]").dataset.itemId;
         this.updateItemState(itemId, { needsRestock: cb.checked });
+      });
+    });
+
+    // インライン見本写真サムネイル → ライトボックス (同 el 内の全サムネをスライド)
+    const inlineThumbs = Array.from(el.querySelectorAll(".mcl-inline-sample-thumb"));
+    inlineThumbs.forEach(img => {
+      img.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const allUrls = inlineThumbs.map(t => t.dataset.sampleUrl);
+        const allLabels = inlineThumbs.map(t => t.dataset.sampleLabel);
+        const startIdx = inlineThumbs.indexOf(img);
+        this._openSampleLightbox(allUrls, allLabels, startIdx);
       });
     });
   },

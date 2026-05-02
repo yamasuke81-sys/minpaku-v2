@@ -1002,15 +1002,33 @@ const MyRecruitmentPage = {
       });
 
       // セクション見出し: スタッフ
+      const filterBtn = (mode, label, icon) => {
+        const active = this._staffFilter === mode;
+        return `<button type="button" class="ms-1 staff-filter-btn" data-filter="${mode}" style="border:1px solid ${active ? '#0d6efd' : '#ced4da'};background:${active ? '#0d6efd' : '#fff'};color:${active ? '#fff' : '#495057'};border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;cursor:pointer;">${active ? '✓ ' : ''}${label} <i class="bi ${icon}"></i></button>`;
+      };
       html += `<tr class="section-header"><td style="background:#eef5ff;font-weight:bold;font-size:13px;padding:6px 10px;" colspan="${allDates.length + 1}">
         <span class="section-content">
           <i class="bi bi-people"></i> スタッフ別 回答状況
           <button type="button" id="btnShowOnlyMe" class="ms-2" style="border:1px solid ${this._showOnlyMe ? '#0d6efd' : '#ced4da'};background:${this._showOnlyMe ? '#0d6efd' : '#fff'};color:${this._showOnlyMe ? '#fff' : '#495057'};border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;cursor:pointer;">
             ${this._showOnlyMe ? '✓ ' : ''}自分だけ <i class="bi bi-eye"></i>
           </button>
+          ${filterBtn("myProp", "自物件だけ", "bi-house-door")}
+          ${filterBtn("visibleProp", "表示中物件だけ", "bi-eye-fill")}
         </span>
       </td></tr>`;
     }
+
+    // 自物件 ID セット (オーナー=全物件, サブオーナー=ownedPropertyIds, スタッフ=staffDoc.assignedPropertyIds)
+    const myPropIdsSet = (() => {
+      if (this._isSubOwnerView) {
+        return new Set(this._ownedPropertyIds || []);
+      }
+      if (this.isOwnerView) {
+        return new Set(this.minpakuProperties.map(p => p.id));
+      }
+      const a = Array.isArray(this.staffDoc?.assignedPropertyIds) ? this.staffDoc.assignedPropertyIds : [];
+      return new Set(a);
+    })();
 
     // ===== スタッフ行 =====
     const isOwner = this.isOwnerView === true;
@@ -1043,6 +1061,12 @@ const MyRecruitmentPage = {
       const isMe = staff.id === this.staffId;
       // 「自分だけ」モード: 自分以外は描画しない
       if (this._showOnlyMe && !isMe) return;
+      // 「自物件だけ / 表示中物件だけ」フィルタ (自分自身は常に表示)
+      if (!isMe && this._staffFilter && this._staffFilter !== "all") {
+        const theirAssigned = Array.isArray(staff.assignedPropertyIds) ? staff.assignedPropertyIds : [];
+        const filterSet = this._staffFilter === "myProp" ? myPropIdsSet : visiblePropIds;
+        if (theirAssigned.length === 0 || !theirAssigned.some(pid => filterSet.has(pid))) return;
+      }
       const assigned = Array.isArray(staff.assignedPropertyIds) ? staff.assignedPropertyIds : [];
       const hasAssignments = assigned.length > 0;
       html += `<tr class="staff-row"><td class="fw-medium sticky-col" style="position:sticky;left:0;z-index:10;background:${isMe ? "#e3f2fd" : "#fff"};min-width:${stickyW};max-width:${stickyW};height:${cellH};font-size:14px;vertical-align:middle;padding:4px 10px 4px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3;">
@@ -1265,6 +1289,16 @@ const MyRecruitmentPage = {
       this._showOnlyMe = !this._showOnlyMe;
       this._saveSettings();
       this.renderCalendar();
+    });
+
+    // 「自物件だけ / 表示中物件だけ」フィルタ (同じボタンの再クリックで解除)
+    container.querySelectorAll(".staff-filter-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const mode = btn.dataset.filter;
+        this._staffFilter = (this._staffFilter === mode) ? "all" : mode;
+        this._saveSettings();
+        this.renderCalendar();
+      });
     });
 
     // 物件表示トグル (セル内の目アイコンボタン)
@@ -2082,6 +2116,7 @@ const MyRecruitmentPage = {
       const s = JSON.parse(raw);
       if (s.propertyVisibility && typeof s.propertyVisibility === "object") this._propertyVisibility = s.propertyVisibility;
       if (typeof s.showOnlyMe === "boolean") this._showOnlyMe = s.showOnlyMe;
+      if (typeof s.staffFilter === "string" && ["all","myProp","visibleProp"].includes(s.staffFilter)) this._staffFilter = s.staffFilter;
       if (typeof s.stickyW === "number" && s.stickyW >= 80 && s.stickyW <= 400) this._stickyW = s.stickyW;
     } catch (e) { /* ignore */ }
   },
@@ -2092,6 +2127,7 @@ const MyRecruitmentPage = {
       localStorage.setItem(key, JSON.stringify({
         propertyVisibility: this._propertyVisibility || {},
         showOnlyMe: !!this._showOnlyMe,
+        staffFilter: this._staffFilter || "all",
         stickyW: this._stickyW || 140,
       }));
     } catch (e) { /* ignore */ }

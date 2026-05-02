@@ -1094,6 +1094,18 @@ const PropertyChecklistPage = {
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 実行中...';
       try {
+        // 未保存の編集があれば先に保存（最新化はFirestore上の保存済み原紙を読むため）
+        if (this.dirty) {
+          await API.checklist.saveTemplateTree(this.propertyId, this.template);
+          this.dirty = false;
+          const saveBtn = document.getElementById("btnSave");
+          if (saveBtn) {
+            saveBtn.innerHTML = `<i class="bi bi-check2"></i> 保存`;
+            saveBtn.classList.remove("btn-warning");
+            saveBtn.classList.add("btn-success");
+            saveBtn.disabled = true;
+          }
+        }
         const result = await API.checklist.regenerate(this.propertyId, { alsoInProgress: scope === "inProgress" });
         modal.hide();
         const s = result.summary || {};

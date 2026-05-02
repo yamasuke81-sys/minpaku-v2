@@ -149,7 +149,8 @@ module.exports = async function morningBriefing(event) {
   // ■ 税理士資料
   if (taxDocsEntitiesSnap.size > 0) {
     text += `\n■ 税理士資料（${parseInt(currentYM.split("-")[1])}月分）\n`;
-    const dayOfMonth = new Date().getDate();
+    // JST の日付を取得 (Cloud Functions の TZ は UTC のため)
+    const dayOfMonth = new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCDate();
     const mfReminders = [];
 
     for (const doc of taxDocsEntitiesSnap.docs) {

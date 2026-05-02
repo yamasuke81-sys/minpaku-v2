@@ -13,9 +13,11 @@ function fmtDate(s) {
     const d = typeof s === "string" ? new Date(s + "T00:00:00")
       : (s && typeof s.toDate === "function" ? s.toDate() : new Date(s));
     if (isNaN(d.getTime())) return String(s);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
+    // JST (UTC+9) でフォーマット — Cloud Functions の実行 TZ は UTC のため
+    const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+    const y = jst.getUTCFullYear();
+    const m = String(jst.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(jst.getUTCDate()).padStart(2, "0");
     return `${y}/${m}/${day}`;
   } catch (e) { return String(s); }
 }
@@ -24,8 +26,9 @@ function fmtTime(ts) {
   try {
     const d = ts && typeof ts.toDate === "function" ? ts.toDate() : new Date(ts);
     if (isNaN(d.getTime())) return "";
-    const h = String(d.getHours()).padStart(2, "0");
-    const m = String(d.getMinutes()).padStart(2, "0");
+    const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+    const h = String(jst.getUTCHours()).padStart(2, "0");
+    const m = String(jst.getUTCMinutes()).padStart(2, "0");
     return `${h}:${m}`;
   } catch (e) { return ""; }
 }
