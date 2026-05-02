@@ -446,6 +446,14 @@ const CleaningFlowPage = {
       console.warn("properties 取得失敗:", e.message);
       this.properties = [];
     }
+    // サブオーナー本人/impersonation 中は所有物件のみ
+    if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
+      const owned = new Set(App.impersonatingData.ownedPropertyIds || []);
+      this.properties = this.properties.filter(p => owned.has(p.id));
+    } else if (typeof Auth !== "undefined" && Auth.isSubOwner && Auth.isSubOwner()) {
+      const owned = new Set(Array.isArray(Auth.currentUser?.ownedPropertyIds) ? Auth.currentUser.ownedPropertyIds : []);
+      this.properties = this.properties.filter(p => owned.has(p.id));
+    }
 
     try {
       const nDoc = await db.collection("settings").doc("notifications").get();

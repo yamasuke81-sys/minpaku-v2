@@ -122,6 +122,9 @@ const ChecklistPage = {
       if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
         const owned = App.impersonatingData.ownedPropertyIds || [];
         this.properties = this.properties.filter(p => owned.includes(p.id));
+      } else if (typeof Auth !== "undefined" && Auth.isSubOwner && Auth.isSubOwner()) {
+        const owned = Array.isArray(Auth.currentUser?.ownedPropertyIds) ? Auth.currentUser.ownedPropertyIds : [];
+        this.properties = this.properties.filter(p => owned.includes(p.id));
       }
       this.templates = {};
       tmplSnap.docs.forEach(d => { this.templates[d.id] = d.data(); });

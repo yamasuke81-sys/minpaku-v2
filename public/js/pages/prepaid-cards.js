@@ -181,6 +181,14 @@ const PrepaidCardsPage = {
       const assigned = new Set(this.staffDoc.assignedPropertyIds || []);
       this.properties = this.properties.filter(p => assigned.has(p.id));
     }
+    // サブオーナー本人ログイン時は所有物件のみに絞り込み
+    if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
+      const owned = new Set(App.impersonatingData.ownedPropertyIds || []);
+      this.properties = this.properties.filter(p => owned.has(p.id));
+    } else if (typeof Auth !== "undefined" && Auth.isSubOwner && Auth.isSubOwner()) {
+      const owned = new Set(Array.isArray(Auth.currentUser?.ownedPropertyIds) ? Auth.currentUser.ownedPropertyIds : []);
+      this.properties = this.properties.filter(p => owned.has(p.id));
+    }
 
     // Webアプリ管理者時のみスタッフ一覧を取得 (購入者プルダウン用)
     if (this.isOwnerLevel) {

@@ -137,7 +137,7 @@ const MyRecruitmentPage = {
         #myCalContainer thead th.sticky-col { z-index:15; }
         /* セクション見出しは横スクロールでも左端に貼り付けて常時読めるようにする */
         #myCalContainer tr.section-header > td { position:sticky; top:65px; left:0; z-index:8; }
-        #myCalContainer tr.section-header > td > .section-content { position:sticky; left:10px; display:inline-block; padding-left:4px; }
+        #myCalContainer tr.section-header > td > .section-content { position:sticky; left:10px; display:inline-flex; flex-wrap:wrap; align-items:center; gap:4px; padding-left:4px; max-width:calc(100vw - 30px); }
       </style>
       <div style="position:relative;">
         <!-- 現在スクロール位置の年月を固定表示するフローティングバッジ -->

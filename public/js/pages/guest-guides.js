@@ -75,7 +75,15 @@ const GuestGuidesPage = {
     try {
       const list = await API.properties.list(false);
       // 民泊物件のみ対象（type === "minpaku"、未設定は民泊扱いで互換維持）
-      const minpakuOnly = list.filter(p => !p.type || p.type === "minpaku");
+      let minpakuOnly = list.filter(p => !p.type || p.type === "minpaku");
+      // サブオーナー本人/impersonation 中は所有物件のみ
+      if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
+        const owned = new Set(App.impersonatingData.ownedPropertyIds || []);
+        minpakuOnly = minpakuOnly.filter(p => owned.has(p.id));
+      } else if (typeof Auth !== "undefined" && Auth.isSubOwner && Auth.isSubOwner()) {
+        const owned = new Set(Array.isArray(Auth.currentUser?.ownedPropertyIds) ? Auth.currentUser.ownedPropertyIds : []);
+        minpakuOnly = minpakuOnly.filter(p => owned.has(p.id));
+      }
       // propertyNumber 昇順
       this.propertyList = minpakuOnly.slice().sort((a, b) => {
         const av = a.propertyNumber == null ? Infinity : Number(a.propertyNumber);

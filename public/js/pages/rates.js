@@ -471,21 +471,21 @@ const RatesPage = {
     return `
       <div class="accordion-item" data-wi-id="${wi.id}">
         <h2 class="accordion-header" id="${headerId}">
-          <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}">
-            <div class="flex-grow-1 d-flex align-items-center">
-              <strong>${this.esc(wi.name)}</strong>
-              <span class="badge bg-light text-dark ms-2 border">${typeLabels[type] || type}</span>
+          <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}" style="flex-wrap:wrap;gap:6px;padding-right:8px;">
+            <div class="flex-grow-1 d-flex align-items-center flex-wrap" style="gap:4px;min-width:0;">
+              <strong style="white-space:nowrap;">${this.esc(wi.name)}</strong>
+              <span class="badge bg-light text-dark border">${typeLabels[type] || type}</span>
               ${rateMode === "common"
-                ? (shortLabel ? `<span class="badge bg-secondary ms-1">共通 ${shortLabel}</span>` : "")
-                : `<span class="badge bg-primary ms-1">スタッフ別</span>`}
-              ${timee > 0 ? `<span class="badge bg-info ms-1">タイミー ${timee.toLocaleString()}円/時</span>` : ""}
-              ${specialRates.length ? `<span class="badge bg-warning text-dark ms-1">特別料金 ${specialRates.length}件</span>` : ""}
+                ? (shortLabel ? `<span class="badge bg-secondary" style="white-space:normal;text-align:left;">共通 ${shortLabel}</span>` : "")
+                : `<span class="badge bg-primary">スタッフ別</span>`}
+              ${timee > 0 ? `<span class="badge bg-info">タイミー ${timee.toLocaleString()}円/時</span>` : ""}
+              ${specialRates.length ? `<span class="badge bg-warning text-dark">特別料金 ${specialRates.length}件</span>` : ""}
             </div>
-            <div>
-              <span class="btn btn-sm btn-link text-primary me-1" role="button" data-act="rename" data-item-id="${wi.id}" title="名前変更">
+            <div style="flex-shrink:0;display:inline-flex;align-items:center;gap:2px;">
+              <span class="btn btn-sm btn-link text-primary p-1" role="button" data-act="rename" data-item-id="${wi.id}" title="名前変更">
                 <i class="bi bi-pencil"></i>
               </span>
-              <span class="btn btn-sm btn-link text-danger me-3" role="button" data-act="delete" data-item-id="${wi.id}" title="削除">
+              <span class="btn btn-sm btn-link text-danger p-1 me-2" role="button" data-act="delete" data-item-id="${wi.id}" title="削除">
                 <i class="bi bi-trash"></i>
               </span>
             </div>
