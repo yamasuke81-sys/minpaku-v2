@@ -121,12 +121,12 @@ const App = {
     }
   },
 
-  /** impersonation 中は不要なスタッフ視点ナビを隠す */
+  /** impersonation 中の表示制御 (現状: 何もしない — スタッフ画面ネスト構造で全リンク常時表示) */
   _applyImpersonateNavVisibility() {
-    const hide = !!(this.impersonating && this.impersonatingData);
+    // 旧版では impersonation 中に「清掃スケジュール (スタッフ視点)」「チェックリスト」を
+    // 隠していたが、物件オーナー画面 > スタッフ画面のネスト構造に変わったため不要
     ["ownerNavMyRecruitment", "ownerNavMyChecklist"].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.classList.toggle("d-none", hide);
+      document.getElementById(id)?.classList.remove("d-none");
     });
   },
 
