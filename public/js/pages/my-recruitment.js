@@ -1355,9 +1355,8 @@ const MyRecruitmentPage = {
 
       if (isStaffView && myAssignedIds.length > 0) {
         // 担当物件で絞り込み (未設定なら全物件扱い)
-        const filtered = candidates.filter(r => myAssignedIds.includes(r.propertyId));
-        // 絞り込み後に件数0になる場合は絞り込みしない (フィルタ不整合の保険)
-        if (filtered.length > 0) candidates = filtered;
+        // 担当外の物件は選択肢に出さない (filtered.length === 0 でも絞る)
+        candidates = candidates.filter(r => myAssignedIds.includes(r.propertyId));
       }
 
       // フォールバック: 候補が空でセルに直接 recruitId が付いている場合はそれを採用

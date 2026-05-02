@@ -1109,12 +1109,23 @@ const RecruitmentPage = {
       btn.addEventListener("click", async () => {
         const staffId = btn.dataset.staffId;
         const staffName = btn.dataset.staffName;
-        const staffEmail = btn.dataset.staffEmail;
         const ok = (typeof window.showConfirm === "function")
           ? await window.showConfirm(`${staffName} さんの代理回答を取消しますか？ (未回答に戻ります)`, "代理回答取消")
           : window.confirm(`${staffName} さんの代理回答を取消しますか？`);
         if (!ok) return;
-        await submitProxy(staffId, staffName, staffEmail, null, "");
+        const recruitmentId = document.getElementById("detailRecruitId").value;
+        try {
+          await API.recruitments.cancelResponse(recruitmentId, staffId);
+          showToast("完了", `${staffName} の代理回答を取消しました`, "success");
+          const updated = await API.recruitments.get(recruitmentId);
+          const idx = this.recruitments.findIndex(r => r.id === recruitmentId);
+          if (idx >= 0) this.recruitments[idx] = updated;
+          this.renderResponseTable(updated);
+          this.renderSelectionActions(updated);
+          this.renderList();
+        } catch (e) {
+          showToast("エラー", `取消失敗: ${e.message}`, "error");
+        }
       });
     });
 
