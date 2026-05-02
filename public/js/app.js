@@ -446,6 +446,22 @@ const App = {
     staffBody?.classList.remove("d-none");
     // スタッフ select をサブオーナー担当物件のスタッフに絞り込み
     this._refreshStaffViewSelect(subOwner.ownedPropertyIds || []);
+    // スタッフ画面メニューリンク: viewAsStaff 未選択時はクリックを防ぐ
+    document.querySelectorAll("#staffViewMenuList a.nav-link").forEach(a => {
+      // 既存ハンドラは1度だけ登録
+      if (a.dataset.staffViewWired === "1") return;
+      a.dataset.staffViewWired = "1";
+      a.addEventListener("click", (ev) => {
+        if (!this.viewAsStaffId) {
+          ev.preventDefault();
+          if (typeof window.showAlert === "function") {
+            window.showAlert("「スタッフ画面」を開くには、まず上のプルダウンでスタッフを選択してください。", "スタッフ未選択");
+          } else {
+            alert("「スタッフ画面」を開くには、まず上のプルダウンでスタッフを選択してください。");
+          }
+        }
+      });
+    });
   },
 
   /** スタッフ select を「指定物件群を担当しているスタッフ」に絞り込み */

@@ -152,8 +152,8 @@ const MyChecklistPage = {
         return { ...c, _dateStr: ds };
       }).filter(c => c._dateStr);
 
-      // 担当物件フィルタ: ロール問わず staff ドキュメントの assignedPropertyIds (物件オーナーは
-      // ownedPropertyIds も考慮) で絞り込む。設定が無い場合のみフォールバックで全民泊物件を表示。
+      // 担当物件フィルタ: スタッフの assignedPropertyIds + ownedPropertyIds で絞り込み
+      // impersonating (物件オーナー代理閲覧中) なら所有物件と積集合
       let filteredProps = propSnap;
       try {
         const staffId = this._effectiveStaffId() || this.staffId;
@@ -164,9 +164,20 @@ const MyChecklistPage = {
             const sData = sd.data();
             const assigned = Array.isArray(sData.assignedPropertyIds) ? sData.assignedPropertyIds : [];
             const owned = Array.isArray(sData.ownedPropertyIds) ? sData.ownedPropertyIds : [];
-            const myIds = [...new Set([...assigned, ...owned])];
+            let myIds = [...new Set([...assigned, ...owned])];
+            // impersonating 中は当該物件オーナー所有物件と積集合
+            if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
+              const ownerOwned = new Set(App.impersonatingData.ownedPropertyIds || []);
+              myIds = myIds.filter(id => ownerOwned.has(id));
+            } else if (typeof Auth !== "undefined" && Auth.isSubOwner && Auth.isSubOwner()) {
+              const ownerOwned = new Set(Array.isArray(Auth.currentUser?.ownedPropertyIds) ? Auth.currentUser.ownedPropertyIds : []);
+              myIds = myIds.filter(id => ownerOwned.has(id));
+            }
             if (myIds.length > 0) {
               filteredProps = propSnap.filter(p => myIds.includes(p.id));
+            } else if (typeof App !== "undefined" && App.impersonating) {
+              // 物件オーナー所有物件と被るスタッフ担当が0件 → 表示対象なし
+              filteredProps = [];
             }
           }
         }
