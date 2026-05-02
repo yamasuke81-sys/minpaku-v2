@@ -22,33 +22,13 @@ async function addRecruitmentToActiveStaff(db, recruitmentId) {
     if (data.isOwner) continue;
     const list = Array.isArray(data.pendingRecruitmentIds) ? data.pendingRecruitmentIds : [];
     if (list.includes(recruitmentId)) continue;
-    const newList = [...list, recruitmentId];
+    // しきい値超過による自動非アクティブ化は無効化済み (2026-05-02)
+    // 追跡 (pendingRecruitmentIds 蓄積) のみ継続。active=false への自動降下と通知は行わない。
     const update = {
       pendingRecruitmentIds: FieldValue.arrayUnion(recruitmentId),
       updatedAt: FieldValue.serverTimestamp(),
     };
-    // しきい値超過 → 非アクティブ化
-    if (newList.length >= INACTIVE_THRESHOLD) {
-      update.active = false;
-      update.inactiveReason = `直近${INACTIVE_THRESHOLD}回の募集について回答がなかったため、非アクティブとなりました。`;
-      update.inactivatedAt = FieldValue.serverTimestamp();
-    }
     await doc.ref.update(update);
-
-    // notifyByKey で staff_inactive を ownerLine/groupLine/subOwner 系に一括送信
-    if (update.active === false) {
-      try {
-        const title = `スタッフ非アクティブ化: ${data.name}`;
-        const body = `⚠️ スタッフ非アクティブ化\n\n${data.name} さんを非アクティブに変更しました。\n理由: ${update.inactiveReason}`;
-        await notifyByKey(db, "staff_inactive", {
-          title,
-          body,
-          vars: { staff: data.name || "", reason: update.inactiveReason },
-        });
-      } catch (e) {
-        console.error("staff_inactive 通知エラー:", e);
-      }
-    }
   }
 }
 
