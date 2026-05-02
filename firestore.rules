@@ -53,10 +53,11 @@ service cloud.firestore {
                            'subOwnerLineUserId', 'subOwnerEmail', 'isOwner']));
     }
 
-    // 物件 — オーナーは全操作、サブオーナーは自所有物件のみ読み書き、スタッフは全件読み取り
+    // 物件 — read は全認証ユーザー (各画面が properties を全件クエリするため)
+    // write はオーナー全件、サブオーナーは自所有物件のみ
+    // ※ サブオーナーの「自物件のみ表示」は UI 側 (properties.js) の filter で実現
     match /properties/{propertyId} {
-      allow read: if isOwner() || isStaff()
-        || (isSubOwner() && propertyId in request.auth.token.ownedPropertyIds);
+      allow read: if isAuthenticated();
       allow create, delete: if isOwner();
       allow update: if isOwner()
         || (isSubOwner() && propertyId in request.auth.token.ownedPropertyIds);
