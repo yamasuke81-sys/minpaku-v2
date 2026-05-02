@@ -352,9 +352,12 @@ const LaundryPage = {
   },
 
   _filteredRecords() {
+    // 全非表示のときは何も表示しない (旧バージョンは「全件表示」で混乱を招いた)
+    if (!this.selectedPropertyIds || this.selectedPropertyIds.length === 0) return [];
     return this.records.filter(r =>
-      !r.propertyId || !this.selectedPropertyIds || this.selectedPropertyIds.length === 0 ||
-      this.selectedPropertyIds.includes(r.propertyId)
+      r.propertyId
+        ? this.selectedPropertyIds.includes(r.propertyId)
+        : true  // propertyId 不明な記録は常時表示 (オーナー判定は呼び出し側で別途絞り込み済み前提)
     );
   },
 

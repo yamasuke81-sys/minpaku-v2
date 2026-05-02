@@ -1512,10 +1512,9 @@ const ReservationFlowPage = {
   },
 
   _visibleProperties() {
-    return this.properties.filter(p =>
-      !this.selectedPropertyIds || this.selectedPropertyIds.length === 0 ||
-      this.selectedPropertyIds.includes(p.id)
-    );
+    // 全非表示のときは空配列を返す (「全部非表示=全件表示」になる旧バグを修正)
+    if (!this.selectedPropertyIds || this.selectedPropertyIds.length === 0) return [];
+    return this.properties.filter(p => this.selectedPropertyIds.includes(p.id));
   },
 
   // ========== スイムレーン描画 ==========

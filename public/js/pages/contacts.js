@@ -222,18 +222,22 @@ const ContactsPage = {
               <td class="small">Webアプリ管理者 LINE User ID</td>
               <td>
                 <div class="d-flex gap-2">
-                  <input class="form-control form-control-sm c-line-input" data-target="settings" data-field="lineOwnerUserId" value="${this._esc(s.lineOwnerUserId || "")}" placeholder="Uxxxxxxxxxx...">
+                  <input class="form-control form-control-sm c-line-input" id="lineOwnerUserIdInput" data-target="settings" data-field="lineOwnerUserId" value="${this._esc(s.lineOwnerUserId || "")}" placeholder="Uxxxxxxxxxx...">
+                  <button type="button" class="btn btn-sm btn-outline-info c-line-lookup-btn" data-input="lineOwnerUserIdInput" data-result="lineOwnerUserIdResult" data-type="user" title="アカウント名取得"><i class="bi bi-search"></i></button>
                   <button class="btn btn-sm btn-primary c-save-btn" data-target="settings" data-field="lineOwnerUserId">保存</button>
                 </div>
+                <div class="small mt-1" id="lineOwnerUserIdResult"></div>
               </td>
             </tr>
             <tr>
               <td class="small">グループ LINE ID (物件未指定時のフォールバック)</td>
               <td>
                 <div class="d-flex gap-2">
-                  <input class="form-control form-control-sm c-line-input" data-target="settings" data-field="lineGroupId" value="${this._esc(s.lineGroupId || "")}" placeholder="Cxxxxxxxxxx...">
+                  <input class="form-control form-control-sm c-line-input" id="lineGroupIdInput" data-target="settings" data-field="lineGroupId" value="${this._esc(s.lineGroupId || "")}" placeholder="Cxxxxxxxxxx...">
+                  <button type="button" class="btn btn-sm btn-outline-info c-line-lookup-btn" data-input="lineGroupIdInput" data-result="lineGroupIdResult" data-type="group" title="グループ名取得"><i class="bi bi-search"></i></button>
                   <button class="btn btn-sm btn-primary c-save-btn" data-target="settings" data-field="lineGroupId">保存</button>
                 </div>
+                <div class="small mt-1" id="lineGroupIdResult"></div>
               </td>
             </tr>
           </tbody>
@@ -377,6 +381,24 @@ const ContactsPage = {
     document.getElementById("btnVerifyMainToken")?.addEventListener("click", () => this._verifyLineToken("lineMainToken", "lineMainTokenResult"));
     document.getElementById("btnSaveMainToken")?.addEventListener("click", () => this._saveMainLineToken());
 
+    // LINE User ID / Group ID の名前取得
+    document.querySelectorAll(".c-line-lookup-btn").forEach(b => {
+      b.addEventListener("click", () => {
+        const input = document.getElementById(b.dataset.input);
+        const result = document.getElementById(b.dataset.result);
+        this._lookupLineProfile(b.dataset.type, input?.value || "", result);
+      });
+    });
+    // ページ表示時、ID 入力済みなら自動で名前取得 (起動時1回のみ)
+    setTimeout(() => {
+      const u = document.getElementById("lineOwnerUserIdInput");
+      const ur = document.getElementById("lineOwnerUserIdResult");
+      if (u && u.value.trim() && ur && !ur.textContent.trim()) this._lookupLineProfile("user", u.value, ur);
+      const g = document.getElementById("lineGroupIdInput");
+      const gr = document.getElementById("lineGroupIdResult");
+      if (g && g.value.trim() && gr && !gr.textContent.trim()) this._lookupLineProfile("group", g.value, gr);
+    }, 200);
+
     // 追加 Bot (ownerLineChannels)
     document.getElementById("btnAddOwnerLineChannel")?.addEventListener("click", () => this._addOwnerChannelRow());
     document.querySelectorAll(".c-owner-ch-remove").forEach(b => {
@@ -504,6 +526,31 @@ const ContactsPage = {
       showToast("エラー", e.message, "error");
     } finally {
       btn.disabled = false; btn.innerHTML = orig;
+    }
+  },
+
+  // ===== LINE プロフィール取得 (User ID / Group ID から名前を取得) =====
+  async _lookupLineProfile(type, id, resultEl) {
+    if (!resultEl) return;
+    const trimmed = (id || "").trim();
+    if (!trimmed) { resultEl.innerHTML = '<span class="text-muted">ID 未入力</span>'; return; }
+    resultEl.innerHTML = '<span class="text-muted"><span class="spinner-border spinner-border-sm"></span> 取得中...</span>';
+    try {
+      const res = await API._fetch("/api/notifications/lookup-line-profile", {
+        method: "POST",
+        body: JSON.stringify({ type, id: trimmed }),
+      });
+      if (res.ok && res.profile) {
+        const name = res.profile.displayName || "(名前なし)";
+        const pic = res.profile.pictureUrl
+          ? `<img src="${this._esc(res.profile.pictureUrl)}" style="width:20px;height:20px;border-radius:50%;vertical-align:middle;margin-right:4px;">`
+          : "";
+        resultEl.innerHTML = `<span class="text-success">${pic}<i class="bi bi-check-circle"></i> <strong>${this._esc(name)}</strong></span>`;
+      } else {
+        resultEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> ${this._esc(res.error || "取得失敗")}</span>`;
+      }
+    } catch (e) {
+      resultEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> ${this._esc(e.message)}</span>`;
     }
   },
 

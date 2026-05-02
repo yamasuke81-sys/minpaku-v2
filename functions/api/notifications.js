@@ -265,6 +265,43 @@ module.exports = function notificationsApi(db) {
     res.json({ success: sentCount > 0, sentCount, failCount, results });
   });
 
+  // LINE User ID / Group ID の表示名を取得
+  // POST /notifications/lookup-line-profile { type: "user"|"group", id, token? }
+  // token 省略時は settings/notifications.lineChannelToken を使用
+  router.post("/lookup-line-profile", requireOwner, async (req, res) => {
+    const { type, id } = req.body || {};
+    let { token } = req.body || {};
+    if (!type || !id) return res.status(400).json({ ok: false, error: "type と id は必須です" });
+    if (!["user", "group"].includes(type)) return res.status(400).json({ ok: false, error: "type は user|group" });
+    try {
+      if (!token) {
+        const ds = await db.collection("settings").doc("notifications").get();
+        token = (ds.exists && ds.data().lineChannelToken) || "";
+      }
+      if (!token) return res.status(400).json({ ok: false, error: "Bot トークンが未設定です" });
+      const url = type === "user"
+        ? `https://api.line.me/v2/bot/profile/${encodeURIComponent(id)}`
+        : `https://api.line.me/v2/bot/group/${encodeURIComponent(id)}/summary`;
+      const r = await fetch(url, { headers: { "Authorization": "Bearer " + token.trim() } });
+      if (r.status !== 200) {
+        let msg = `HTTP ${r.status}`;
+        try { const j = await r.json(); if (j && j.message) msg = j.message; } catch (_) {}
+        return res.json({ ok: false, error: msg, status: r.status });
+      }
+      const info = await r.json();
+      return res.json({
+        ok: true,
+        profile: {
+          displayName: info.displayName || info.groupName || "",
+          pictureUrl: info.pictureUrl || "",
+          statusMessage: info.statusMessage || "",
+        },
+      });
+    } catch (e) {
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   // LINE チャネルアクセストークンの検証 (Bot info を取得して妥当性を判断)
   // POST /notifications/verify-line-token { token: "..." }
   router.post("/verify-line-token", requireOwner, async (req, res) => {
