@@ -853,8 +853,11 @@ const MyRecruitmentPage = {
             <span class="badge" style="background:${p._color};color:#fff;">${p._num}</span> <i class="bi bi-eye text-muted"></i>
           </button>`).join("")
         : "";
-      // サブオーナーのみ「自物件だけ」フィルタを「物件名」セクションに表示
-      const myPropFilterBtn = (this._isSubOwnerView || (typeof App !== "undefined" && App.impersonating && App.impersonatingData))
+      // 「自物件だけ」: サブオーナー視点 (オーナー画面 + impersonating or sub_owner) のみ表示
+      // スタッフ画面 (_viewMode === "staff") では非表示
+      const isSubOwnerContext = this._viewMode === "owner" &&
+        (this._isSubOwnerView || (typeof App !== "undefined" && App.impersonating && App.impersonatingData));
+      const myPropFilterBtn = isSubOwnerContext
         ? (() => {
             const active = this._propFilter === "myProp";
             return `<button type="button" id="btnPropMyOnly" class="ms-2" style="border:1px solid ${active ? '#0d6efd' : '#ced4da'};background:${active ? '#0d6efd' : '#fff'};color:${active ? '#fff' : '#495057'};border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;cursor:pointer;">${active ? '✓ ' : ''}自物件だけ <i class="bi bi-house-door"></i></button>`;
@@ -1013,12 +1016,22 @@ const MyRecruitmentPage = {
       });
 
       // セクション見出し: スタッフ
+      // 「自分だけ」: 純粋管理者 (impersonate/viewAsStaff なし) では不要、それ以外は表示
+      const isPureOwner = this.isOwnerView && !this._isSubOwnerView
+        && !(typeof App !== "undefined" && App.impersonating && App.impersonatingData)
+        && !this._viewAsStaffId;
+      const showSelfBtn = !isPureOwner;
+      const selfBtnHtml = showSelfBtn
+        ? `<button type="button" id="btnShowOnlyMe" class="ms-2" style="border:1px solid ${this._showOnlyMe ? '#0d6efd' : '#ced4da'};background:${this._showOnlyMe ? '#0d6efd' : '#fff'};color:${this._showOnlyMe ? '#fff' : '#495057'};border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;cursor:pointer;">${this._showOnlyMe ? '✓ ' : ''}自分だけ <i class="bi bi-eye"></i></button>`
+        : "";
+      // 「表示中物件だけ」: 全モードで表示 (スタッフセクション)
+      const visiblePropActive = this._staffFilter === "visibleProp";
+      const visiblePropBtnHtml = `<button type="button" class="ms-1 staff-filter-btn" data-filter="visibleProp" style="border:1px solid ${visiblePropActive ? '#0d6efd' : '#ced4da'};background:${visiblePropActive ? '#0d6efd' : '#fff'};color:${visiblePropActive ? '#fff' : '#495057'};border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;cursor:pointer;">${visiblePropActive ? '✓ ' : ''}表示中物件だけ <i class="bi bi-eye-fill"></i></button>`;
       html += `<tr class="section-header"><td style="background:#eef5ff;font-weight:bold;font-size:13px;padding:6px 10px;" colspan="${allDates.length + 1}">
         <span class="section-content">
           <i class="bi bi-people"></i> スタッフ
-          <button type="button" id="btnShowOnlyMe" class="ms-2" style="border:1px solid ${this._showOnlyMe ? '#0d6efd' : '#ced4da'};background:${this._showOnlyMe ? '#0d6efd' : '#fff'};color:${this._showOnlyMe ? '#fff' : '#495057'};border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;cursor:pointer;">
-            ${this._showOnlyMe ? '✓ ' : ''}自分だけ <i class="bi bi-eye"></i>
-          </button>
+          ${selfBtnHtml}
+          ${visiblePropBtnHtml}
         </span>
       </td></tr>`;
     }
@@ -1297,20 +1310,39 @@ const MyRecruitmentPage = {
     });
 
     // 物件名セクションの「自物件だけ」ボタン (サブオーナー視点のみ表示)
-    // 自分の所有物件だけ目アイコン ON、他は OFF にして再描画
+    // トグル: 押すと自物件のみ ON / もう一度押すと押す前の表示状態に戻す
     document.getElementById("btnPropMyOnly")?.addEventListener("click", () => {
-      const ownedIds = (typeof App !== "undefined" && App.impersonating && App.impersonatingData)
-        ? new Set(App.impersonatingData.ownedPropertyIds || [])
-        : new Set(this._ownedPropertyIds || []);
-      const newVis = {};
-      this.minpakuProperties.forEach(p => { newVis[p.id] = ownedIds.has(p.id); });
-      // 全物件 OFF を回避: 1件もマッチしない場合は何もしない
-      if (Object.values(newVis).some(v => v)) {
+      if (this._propFilter === "myProp") {
+        // 解除: backup から復元
+        if (this._propertyVisibilityBackup) {
+          this._propertyVisibility = { ...this._propertyVisibilityBackup };
+        }
+        this._propFilter = "all";
+        this._propertyVisibilityBackup = null;
+      } else {
+        // 適用: 現在状態をbackupしてから自物件のみ ON
+        this._propertyVisibilityBackup = { ...(this._propertyVisibility || {}) };
+        const ownedIds = (typeof App !== "undefined" && App.impersonating && App.impersonatingData)
+          ? new Set(App.impersonatingData.ownedPropertyIds || [])
+          : new Set(this._ownedPropertyIds || []);
+        const newVis = {};
+        this.minpakuProperties.forEach(p => { newVis[p.id] = ownedIds.has(p.id); });
+        if (!Object.values(newVis).some(v => v)) return; // 全物件 OFF 回避
         this._propertyVisibility = newVis;
         this._propFilter = "myProp";
+      }
+      this._saveSettings();
+      this.renderCalendar();
+    });
+
+    // 「表示中物件だけ」フィルタ (スタッフセクション、staff-filter-btn 共通)
+    container.querySelectorAll(".staff-filter-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const mode = btn.dataset.filter;
+        this._staffFilter = (this._staffFilter === mode) ? "all" : mode;
         this._saveSettings();
         this.renderCalendar();
-      }
+      });
     });
 
     // 物件表示トグル (セル内の目アイコンボタン)
