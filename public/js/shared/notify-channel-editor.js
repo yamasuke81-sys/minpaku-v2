@@ -208,6 +208,7 @@
     const groupLine = ch.groupLine !== undefined ? !!ch.groupLine : (!!n.defaultGroupLine);
     const staffLine = ch.staffLine !== undefined ? !!ch.staffLine : (!!n.defaultStaffLine);
     const ownerEmail = ch.ownerEmail !== undefined ? !!ch.ownerEmail : (!!n.defaultEmail);
+    const propertyEmail = !!ch.propertyEmail;
     const subOwnerLine = !!ch.subOwnerLine;
     const subOwnerEmail = !!ch.subOwnerEmail;
     const staffEmail = !!ch.staffEmail;
@@ -282,7 +283,10 @@
               <div class="notify-target-group-title small fw-bold text-secondary border-bottom pb-1 mb-1 mt-3"><i class="bi bi-person-lines-fill"></i> スタッフ個別</div>
               ${_renderTargetRow(dk, "staffLine",      staffLine,      "bi-line text-info",                  "LINE",     "(送信元: LINE Bot)")}
               ${_renderTargetRow(dk, "staffEmail",     staffEmail,     "bi-envelope-fill text-info",         "メール",    "(送信元: 連携済み Gmail)")}
-              <!-- ④ グループ -->
+              <!-- ④ 物件 (物件単位の宛先) -->
+              <div class="notify-target-group-title small fw-bold text-secondary border-bottom pb-1 mb-1 mt-3"><i class="bi bi-building"></i> 物件</div>
+              ${_renderTargetRow(dk, "propertyEmail",  propertyEmail,  "bi-envelope-at text-primary",        "メール",    "(送信元: 物件単位の Gmail / 受信先: 同アドレス)")}
+              <!-- ⑤ グループ -->
               <div class="notify-target-group-title small fw-bold text-secondary border-bottom pb-1 mb-1 mt-3"><i class="bi bi-people-fill"></i> グループ</div>
               ${_renderTargetRow(dk, "groupLine",      groupLine,      "bi-line text-primary",               "LINE",     "(送信元: 物件別 LINE Bot)")}
               <!-- FCM (Web Push) は将来再検討。iOS 制約により導入保留 -->
@@ -568,6 +572,7 @@
       staffLine: get("staffLine"),
       staffEmail: get("staffEmail"),
       ownerEmail: get("ownerEmail"),
+      propertyEmail: get("propertyEmail"),
       subOwnerLine: get("subOwnerLine"),
       subOwnerEmail: get("subOwnerEmail"),
       discordOwner: get("discordOwner"),
