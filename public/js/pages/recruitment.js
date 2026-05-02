@@ -1049,7 +1049,7 @@ const RecruitmentPage = {
                 <button class="btn btn-outline-warning btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="△" title="△">△</button>
                 <button class="btn btn-outline-danger btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="×" title="×">×</button>
                 ${row.response !== "未回答" ? `
-                  <button class="btn btn-outline-secondary btn-respond-cancel" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" title="代理回答を取消"><i class="bi bi-x-lg"></i></button>
+                  <button class="btn btn-outline-danger btn-respond-cancel ms-1" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" title="この回答を削除して未回答に戻す"><i class="bi bi-trash"></i> 回答削除</button>
                 ` : ""}
               </div>
             ` : ""}
@@ -1104,19 +1104,19 @@ const RecruitmentPage = {
       });
     });
 
-    // 代理回答取消ボタン
+    // 回答削除ボタン
     tbody.querySelectorAll(".btn-respond-cancel").forEach(btn => {
       btn.addEventListener("click", async () => {
         const staffId = btn.dataset.staffId;
         const staffName = btn.dataset.staffName;
         const ok = (typeof window.showConfirm === "function")
-          ? await window.showConfirm(`${staffName} さんの代理回答を取消しますか？ (未回答に戻ります)`, "代理回答取消")
-          : window.confirm(`${staffName} さんの代理回答を取消しますか？`);
+          ? await window.showConfirm(`${staffName} さんの回答を削除しますか？ (未回答に戻ります)`, "回答削除")
+          : window.confirm(`${staffName} さんの回答を削除しますか？`);
         if (!ok) return;
         const recruitmentId = document.getElementById("detailRecruitId").value;
         try {
           await API.recruitments.cancelResponse(recruitmentId, staffId);
-          showToast("完了", `${staffName} の代理回答を取消しました`, "success");
+          showToast("完了", `${staffName} の回答を削除しました`, "success");
           const updated = await API.recruitments.get(recruitmentId);
           const idx = this.recruitments.findIndex(r => r.id === recruitmentId);
           if (idx >= 0) this.recruitments[idx] = updated;
