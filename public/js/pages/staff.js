@@ -773,6 +773,24 @@ const StaffPage = {
     document.getElementById("staffModalTitle").textContent = isEdit ? "スタッフ編集" : "スタッフ登録";
     document.getElementById("staffEditId").value = isEdit ? staff.id : "";
 
+    // 無効化/完全削除ボタン: 編集時のみ表示。active 状態でラベル切替
+    const btnDeact = document.getElementById("btnDeactivateStaff");
+    const btnDeactLabel = document.getElementById("btnDeactivateStaffLabel");
+    if (btnDeact) {
+      if (isEdit) {
+        btnDeact.classList.remove("d-none");
+        const isInactive = staff.active === false;
+        if (btnDeactLabel) btnDeactLabel.textContent = isInactive ? "完全削除" : "無効化";
+        btnDeact.onclick = async () => {
+          this.modal.hide();
+          await this.deleteStaff(staff);
+        };
+      } else {
+        btnDeact.classList.add("d-none");
+        btnDeact.onclick = null;
+      }
+    }
+
     document.getElementById("staffName").value = staff?.name || "";
     document.getElementById("staffEmail").value = staff?.email || "";
     document.getElementById("staffPhone").value = staff?.phone || "";
