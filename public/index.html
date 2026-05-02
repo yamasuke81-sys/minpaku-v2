@@ -841,6 +841,17 @@
               ここで連携した Gmail が、この物件に関する<strong>通知メール全般</strong>（宿泊者宛サンクスメール、名簿受信通知、その他の通知）の <strong>送信元 (From)</strong> になります。<br>
               空欄の場合は Webアプリ管理者の代表メールが送信元になります。通知設定で「物件 Gmail」を ON にすると、ここで連携したアドレスにも cc されます。
             </p>
+            <div class="alert alert-warning py-2 px-3 mb-2" style="font-size:0.8rem;">
+              <i class="bi bi-exclamation-triangle-fill text-warning"></i>
+              <strong>初回連携前に必須:</strong> 連携する Gmail アドレスを Google Cloud の OAuth テストユーザーに事前登録してください。未登録だと連携時に「アクセスをブロック」エラーになります。
+              <ol class="mb-1 mt-1 ps-3">
+                <li><a href="https://console.cloud.google.com/auth/audience?project=minpaku-v2" target="_blank" rel="noopener">Google Cloud → 対象 (Audience) 画面を開く <i class="bi bi-box-arrow-up-right" style="font-size:0.7rem;"></i></a></li>
+                <li>「テストユーザー」セクション → <strong>+ Add users</strong></li>
+                <li>連携したい Gmail アドレスを入力 → 保存</li>
+                <li>このページに戻って下の「連携」「別アカウントで再連携」ボタンを押す</li>
+              </ol>
+              <span class="text-muted">※ テストユーザーは最大 100 件まで登録可能</span>
+            </div>
             <!-- 連携状態エリア（properties.js が動的に更新） -->
             <div id="propertyGmailSection" class="mb-2">
               <div class="text-muted small">読み込み中...</div>
