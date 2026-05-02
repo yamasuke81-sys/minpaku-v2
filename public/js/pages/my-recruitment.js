@@ -440,8 +440,10 @@ const MyRecruitmentPage = {
     // 表示物件 = A ∪ B、表示スタッフ = X
     let impersonatedAllowedProps = null;
     let impersonatedAllowedStaff = null;
-    const isImpersonating = (typeof App !== "undefined" && App.impersonating && App.impersonatingData);
-    const isSubOwnerSelf = this._isSubOwnerView === true;
+    // viewAsStaff (特定スタッフ視点) が選ばれている場合は impersonating 絞込を無効化し、
+    // そのスタッフ自身の assignedPropertyIds で絞る (下の canFilter ロジックに任せる)
+    const isImpersonating = (typeof App !== "undefined" && App.impersonating && App.impersonatingData) && !this._viewAsStaffId;
+    const isSubOwnerSelf = this._isSubOwnerView === true && !this._viewAsStaffId;
     if (isImpersonating || isSubOwnerSelf) {
       const ownerOwnedIds = isImpersonating
         ? (App.impersonatingData.ownedPropertyIds || [])
@@ -494,7 +496,8 @@ const MyRecruitmentPage = {
     const assignedIds = Array.isArray(this.staffDoc?.assignedPropertyIds)
       ? this.staffDoc.assignedPropertyIds
       : (Auth.currentUser?.assignedPropertyIds || []);
-    const canFilter = !isOwner && Array.isArray(assignedIds) && assignedIds.length > 0 && assignedIds.length <= 10;
+    // viewAsStaff 中は管理者/物件オーナーでも当該スタッフの assignedPropertyIds で絞る
+    const canFilter = (!isOwner || !!this._viewAsStaffId) && Array.isArray(assignedIds) && assignedIds.length > 0 && assignedIds.length <= 10;
 
     // --- recruitments onSnapshot ---
     let recruitQuery = db.collection("recruitments");

@@ -214,10 +214,29 @@ const GuestsPage = {
 
   renderTable() {
     const tbody = document.getElementById("guestTableBody");
-    // 物件フィルタを適用 (propertyId がないレコードは常に表示)
-    const filtered = this.guestList.filter(g =>
-      !g.propertyId || this.selectedPropertyIds.length === 0 || this.selectedPropertyIds.includes(g.propertyId)
-    );
+    // 物件オーナー視点 (impersonating or sub_owner ログイン) の場合は所有物件のみに先絞り
+    let allowedPropIds = null;
+    if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
+      allowedPropIds = new Set(App.impersonatingData.ownedPropertyIds || []);
+    } else if (typeof Auth !== "undefined" && Auth.isSubOwner && Auth.isSubOwner()) {
+      allowedPropIds = new Set(Array.isArray(Auth.currentUser?.ownedPropertyIds) ? Auth.currentUser.ownedPropertyIds : []);
+    }
+    let filtered = this.guestList;
+    if (allowedPropIds) {
+      // 物件オーナー視点: 所有物件のみ (propertyId 不明なゲストは表示しない)
+      filtered = filtered.filter(g => g.propertyId && allowedPropIds.has(g.propertyId));
+    }
+    // UI 物件フィルタ (目アイコン)
+    if (this.selectedPropertyIds.length === 0) {
+      // 「全非表示」状態: 何も表示しない
+      filtered = [];
+    } else {
+      filtered = filtered.filter(g =>
+        g.propertyId
+          ? this.selectedPropertyIds.includes(g.propertyId)
+          : !allowedPropIds  // propertyId 不明はオーナー視点のみ表示
+      );
+    }
     // カウント表示も絞り込み後の件数に更新
     const countEl = document.getElementById("guestCount");
     if (countEl) countEl.textContent = `${filtered.length}件`;
