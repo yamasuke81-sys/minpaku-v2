@@ -446,12 +446,20 @@ const App = {
     staffBody?.classList.remove("d-none");
     // スタッフ select をサブオーナー担当物件のスタッフに絞り込み
     this._refreshStaffViewSelect(subOwner.ownedPropertyIds || []);
-    // スタッフ画面メニューリンク: viewAsStaff 未選択時はクリックを防ぐ
+    // スタッフ画面メニューリンク: viewAsStaff 未選択時のみクリックを防ぐ
+    // (UI の select 値と state の同期ずれ対策として、クリック時に select 値で強制同期)
     document.querySelectorAll("#staffViewMenuList a.nav-link").forEach(a => {
-      // 既存ハンドラは1度だけ登録
       if (a.dataset.staffViewWired === "1") return;
       a.dataset.staffViewWired = "1";
       a.addEventListener("click", (ev) => {
+        const sel = document.getElementById("ownerViewAsStaffSelect");
+        const uiVal = sel ? sel.value : "";
+        // select で何か選択されていれば state を上書き同期
+        if (uiVal && uiVal !== this.viewAsStaffId) {
+          this.setViewAsStaff(uiVal);
+        } else if (!uiVal && this.viewAsStaffId) {
+          this.setViewAsStaff(null);
+        }
         if (!this.viewAsStaffId) {
           ev.preventDefault();
           if (typeof window.showAlert === "function") {

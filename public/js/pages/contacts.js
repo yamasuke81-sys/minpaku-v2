@@ -483,10 +483,7 @@ const ContactsPage = {
     }
     resultEl.innerHTML = '<span class="text-muted"><span class="spinner-border spinner-border-sm"></span> 検証中...</span>';
     try {
-      const res = await API._fetch("/api/notifications/verify-line-token", {
-        method: "POST",
-        body: JSON.stringify({ token: token.trim() }),
-      });
+      const res = await this._callApi("/api/notifications/verify-line-token", { token: token.trim() });
       if (res.ok && res.botInfo) {
         resultEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> OK: <strong>${this._esc(res.botInfo.displayName || "(Bot 名なし)")}</strong> (${this._esc(res.botInfo.basicId || res.botInfo.userId || "")})</span>`;
       } else {
@@ -509,10 +506,7 @@ const ContactsPage = {
     try {
       // 検証 (トークンが入力されている場合のみ)
       if (token) {
-        const res = await API._fetch("/api/notifications/verify-line-token", {
-          method: "POST",
-          body: JSON.stringify({ token }),
-        });
+        const res = await this._callApi("/api/notifications/verify-line-token", { token });
         if (!res.ok) {
           resultEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> 検証失敗: ${this._esc(res.error || "")} — 保存を中止しました</span>`;
           throw new Error("検証失敗のため保存を中止");
@@ -529,6 +523,21 @@ const ContactsPage = {
     }
   },
 
+  // 認証付き fetch (API ヘルパーが無いため直書き)
+  async _callApi(path, body) {
+    const token = await firebase.auth().currentUser.getIdToken();
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+    const text = await res.text();
+    let data = {};
+    try { data = JSON.parse(text); } catch (_) {}
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  },
+
   // ===== LINE プロフィール取得 (User ID / Group ID から名前を取得) =====
   async _lookupLineProfile(type, id, resultEl) {
     if (!resultEl) return;
@@ -536,10 +545,7 @@ const ContactsPage = {
     if (!trimmed) { resultEl.innerHTML = '<span class="text-muted">ID 未入力</span>'; return; }
     resultEl.innerHTML = '<span class="text-muted"><span class="spinner-border spinner-border-sm"></span> 取得中...</span>';
     try {
-      const res = await API._fetch("/api/notifications/lookup-line-profile", {
-        method: "POST",
-        body: JSON.stringify({ type, id: trimmed }),
-      });
+      const res = await this._callApi("/api/notifications/lookup-line-profile", { type, id: trimmed });
       if (res.ok && res.profile) {
         const name = res.profile.displayName || "(名前なし)";
         const pic = res.profile.pictureUrl
