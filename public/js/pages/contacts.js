@@ -210,6 +210,32 @@ const ContactsPage = {
         <i class="bi bi-info-circle"></i> 物件別グループLINE は物件ごとに複数 Bot を登録可能です（物件編集→LINE連携）。
       </div>
 
+      <details class="mb-3">
+        <summary class="text-primary small" style="cursor:pointer;"><i class="bi bi-question-circle"></i> どの設定が何の通知に使われるか (用途マッピング)</summary>
+        <div class="card mt-2"><div class="card-body p-2">
+          <table class="table table-sm align-middle mb-0" style="font-size:12px;">
+            <thead class="table-light">
+              <tr><th style="width:30%;">設定欄</th><th style="width:35%;">使われる通知</th><th>備考</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>メイン Bot トークン</strong></td><td>管理者個人 LINE / スタッフ個人 LINE / 物件未指定の通知</td><td>大半の通知の送信元</td></tr>
+              <tr><td><strong>管理者 LINE User ID</strong></td><td>notifyOwner (管理者宛 LINE)</td><td>メイン Bot から送信</td></tr>
+              <tr><td><strong>グループ LINE ID (フォールバック)</strong></td><td>物件別 Bot 未設定時の通知の送信先</td><td>メイン Bot から送信</td></tr>
+              <tr><td><strong>追加 Bot (複数チャネル)</strong></td><td>同じ管理者宛に別 Bot からも通知 (上級設定)</td><td>普段は空のまま</td></tr>
+              <tr><td><strong>スタッフ用 lineUserId</strong></td><td>そのスタッフ個人宛 LINE (シフト確定など)</td><td>メイン Bot から送信</td></tr>
+              <tr><td><strong>物件オーナー用 subOwnerLineUserId</strong></td><td>物件オーナー個人宛 LINE</td><td>物件別 Bot 優先、なければメイン Bot</td></tr>
+              <tr><td><strong>物件別 LINE Bot</strong></td><td>その物件のグループ LINE 通知</td><td>各物件ごとに独立した Bot</td></tr>
+              <tr><td><strong>管理者通知メール (notifyEmails)</strong></td><td>管理者宛通知のメール同報</td><td>先頭が代表 (ownerEmail)</td></tr>
+              <tr><td><strong>スタッフ用 email</strong></td><td>スタッフ個人宛通知のメール</td><td>—</td></tr>
+              <tr><td><strong>物件オーナー用 subOwnerEmail</strong></td><td>物件オーナー個人宛通知のメール</td><td>—</td></tr>
+              <tr><td><strong>管理者 Discord Webhook</strong></td><td>管理者宛 Discord 通知</td><td>—</td></tr>
+              <tr><td><strong>物件オーナー個別 Discord</strong></td><td>その物件オーナー宛 Discord 通知</td><td>—</td></tr>
+            </tbody>
+          </table>
+          <p class="text-muted small mb-0 mt-1">通知ごとの ON/OFF や宛先指定は <a href="#/cleaning-flow">清掃フロー構成</a> / <a href="#/reservation-flow">予約フロー構成</a> の各通知行で変更します。</p>
+        </div></div>
+      </details>
+
       <h5 class="mt-3"><i class="bi bi-person-gear"></i> Webアプリ管理者 LINE (メイン Bot)</h5>
       <div class="card mb-3"><div class="card-body p-2">
         <p class="text-muted small mb-2">主に管理者向け通知 (notifyOwner) で使うチャネル。検証ボタンで LINE API に問い合わせて Bot 名を取得します。</p>
