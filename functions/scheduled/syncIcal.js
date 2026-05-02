@@ -217,11 +217,18 @@ async function syncIcal() {
           continue;
         }
 
-        // ゲスト名が空 + CLOSED/Not available/Blocked/Reserved → ブロック
+        // ゲスト名が空 + CLOSED/Not available/Blocked/Reserved → 通常はブロック扱い
+        // 例外: Booking.com かつメール照合未接続物件 → 匿名予約として取り込む
+        // (Booking.com 公開 iCal は実名を出さず "CLOSED - Not available" になるため、
+        //  メール照合できない物件では永久に予約が見えない問題を回避)
         if (!guestName && /not available|closed|blocked|reserved/i.test(summaryLower)) {
-          console.log(`[syncIcal] スキップ(ブロック): ${platform} ${checkIn}〜${checkOut} "${summary}"`);
-          skipped++;
-          continue;
+          const isBookingComUnverified = platform === "Booking.com" && !hasEmailVerification;
+          if (!isBookingComUnverified) {
+            console.log(`[syncIcal] スキップ(ブロック): ${platform} ${checkIn}〜${checkOut} "${summary}"`);
+            skipped++;
+            continue;
+          }
+          console.log(`[syncIcal] Booking.com匿名予約として取り込み (メール照合未接続): ${checkIn}〜${checkOut}`);
         }
         // ゲスト名が空でsummaryもない → スキップ
         if (!guestName && !summary) {
@@ -243,7 +250,11 @@ async function syncIcal() {
 
         // クロスプラットフォーム重複検出: 同じCI+COに別ソースの確定済み予約が既にある場合スキップ
         // 例: Booking.com実予約 + Airbnb売り止め → Airbnb側をスキップ
-        if (!guestName || /^(airbnb|booking|予約)$/i.test(guestName.trim())) {
+        // CLOSED/Not available のような匿名予約も曖昧扱い (Booking.com匿名取込分含む)
+        const isAmbiguousName = !guestName
+          || /^(airbnb|booking|予約)$/i.test(guestName.trim())
+          || /not available|closed|blocked|reserved/i.test(summaryLower);
+        if (isAmbiguousName) {
           const dupSnap = await db.collection("bookings")
             .where("checkIn", "==", checkIn)
             .where("status", "==", "confirmed")
@@ -266,8 +277,13 @@ async function syncIcal() {
         const existing = await docRef.get();
 
         // Booking.comのCLOSEDイベントはゲスト名を空にする（SUMMARYを使わない）
-        const resolvedGuestName = (!guestName && platform === "Booking.com")
-          ? "" : (guestName || event.summary || "");
+        // ただしメール照合未接続物件で取り込む場合は表示用プレースホルダを入れる
+        let resolvedGuestName;
+        if (!guestName && platform === "Booking.com") {
+          resolvedGuestName = hasEmailVerification ? "" : "Booking.com予約";
+        } else {
+          resolvedGuestName = guestName || event.summary || "";
+        }
 
         const bookingData = {
           guestName: resolvedGuestName,
