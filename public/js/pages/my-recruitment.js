@@ -22,14 +22,20 @@ const MyRecruitmentPage = {
 
   async render(container) {
     const authIsOwner = Auth.isOwner();
+    const authIsSubOwner = Auth.isSubOwner();
     // ビューモード判定: #/schedule → owner ビュー、#/my-recruitment → staff ビュー
     const _hash = (location.hash || "").split("?")[0];
     const isScheduleRoute = _hash === "#/schedule" || _hash.startsWith("#/schedule/");
     this._viewMode = isScheduleRoute ? "owner" : "staff";
-    // Webアプリ管理者機能表示の判定はこれ一本。スタッフログイン時は自動で false
-    this.isOwnerView = this._viewMode === "owner" && authIsOwner;
+    // Webアプリ管理者ビュー: オーナー本人 or サブオーナー (サブオーナーは自物件のみ代理操作可)
+    this.isOwnerView = this._viewMode === "owner" && (authIsOwner || authIsSubOwner);
+    // サブオーナー判定 + 所有物件IDリスト (代理操作可否の絞り込みに使用)
+    this._isSubOwnerView = this.isOwnerView && !authIsOwner && authIsSubOwner;
+    this._ownedPropertyIds = this._isSubOwnerView
+      ? (Array.isArray(Auth.currentUser?.ownedPropertyIds) ? Auth.currentUser.ownedPropertyIds : [])
+      : [];
     // 既存コード互換 (staffId 解決/非アクティブ判定など) 用のローカル変数
-    const isOwner = authIsOwner;
+    const isOwner = authIsOwner || authIsSubOwner;
     this.staffId = Auth.currentUser?.staffId;
 
     // Webアプリ管理者の場合: カスタムクレームに staffId が無くても、
@@ -1106,7 +1112,9 @@ const MyRecruitmentPage = {
 
           // 確定済み: Webアプリ管理者 or 自分の行 (確定されていなくても詳細閲覧は可能) → 常にクリック可能
           // 募集中/選定済: 自分の行 or Webアプリ管理者 → クリック可能
-          const clickable = isMe || isOwner;
+          // サブオーナーは所有物件 (ownedPropertyIds) の募集のみ代理操作可能
+          const isOwnedByMe = !this._isSubOwnerView || (prop && this._ownedPropertyIds.includes(prop.id));
+          const clickable = isMe || (isOwner && isOwnedByMe);
           const clickMode = (recruit.status === "スタッフ確定済み") ? "detail" : "respond";
           if (clickable && !cellClickTarget) {
             cellClickTarget = { recruitId: recruit.id, propId: prop ? prop.id : "", propName: prop ? prop.name : "", clickMode };
@@ -2231,8 +2239,12 @@ const MyRecruitmentPage = {
   },
 
   // アクティブ物件リストを取得 (displayOrder 順)
+  // サブオーナーは所有物件 (ownedPropertyIds) のみ返す → 予約/募集追加ダイアログで自物件のみ選択可能
   _getActiveProperties() {
-    const props = (this.minpakuProperties || []).filter(p => p.active !== false);
+    let props = (this.minpakuProperties || []).filter(p => p.active !== false);
+    if (this._isSubOwnerView) {
+      props = props.filter(p => this._ownedPropertyIds.includes(p.id));
+    }
     return props.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
   },
 

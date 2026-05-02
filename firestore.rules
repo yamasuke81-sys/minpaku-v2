@@ -140,12 +140,16 @@ service cloud.firestore {
             && (resource.data.propertyId == null
                 || resource.data.propertyId in get(/databases/$(database)/documents/staff/$(myStaffId())).data.assignedPropertyIds));
 
-      // 回答サブコレクション — スタッフは自分の回答を作成・更新、オーナー/サブオーナーは全操作
+      // 回答サブコレクション — スタッフは自分の回答を作成・更新、オーナーは全操作、サブオーナーは所有物件のみ
       match /responses/{responseId} {
         allow read: if isAuthenticated();
         allow create: if isAuthenticated();
-        allow update: if isOwner() || isSubOwner() || (isStaff() && resource.data.staffId == myStaffId());
-        allow delete: if isOwner() || isSubOwner() || (isStaff() && resource.data.staffId == myStaffId());
+        allow update: if isOwner()
+          || (isSubOwner() && isMyProperty(get(/databases/$(database)/documents/recruitments/$(recruitmentId)).data.propertyId))
+          || (isStaff() && resource.data.staffId == myStaffId());
+        allow delete: if isOwner()
+          || (isSubOwner() && isMyProperty(get(/databases/$(database)/documents/recruitments/$(recruitmentId)).data.propertyId))
+          || (isStaff() && resource.data.staffId == myStaffId());
       }
     }
 
