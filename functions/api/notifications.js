@@ -274,29 +274,61 @@ module.exports = function notificationsApi(db) {
     if (!type || !id) return res.status(400).json({ ok: false, error: "type と id は必須です" });
     if (!["user", "group"].includes(type)) return res.status(400).json({ ok: false, error: "type は user|group" });
     try {
-      if (!token) {
-        const ds = await db.collection("settings").doc("notifications").get();
-        token = (ds.exists && ds.data().lineChannelToken) || "";
-      }
-      if (!token) return res.status(400).json({ ok: false, error: "Bot トークンが未設定です" });
+      // 候補トークン群を構築 (token 指定があればそれを最優先)
+      const candidates = [];
+      if (token && token.trim()) candidates.push({ name: "(指定)", token: token.trim() });
+      const ds = await db.collection("settings").doc("notifications").get();
+      const sd = ds.exists ? ds.data() : {};
+      if (sd.lineChannelToken) candidates.push({ name: "メイン Bot", token: sd.lineChannelToken });
+      (Array.isArray(sd.ownerLineChannels) ? sd.ownerLineChannels : []).forEach((c, i) => {
+        if (c?.token) candidates.push({ name: c.name || `追加 Bot #${i+1}`, token: c.token });
+      });
+      // 物件別 Bot も候補に追加
+      const propsSnap = await db.collection("properties").get();
+      propsSnap.docs.forEach(d => {
+        const p = d.data();
+        const pname = p.name || d.id;
+        (Array.isArray(p.lineChannels) ? p.lineChannels : []).forEach((c, i) => {
+          if (c?.token) candidates.push({ name: `${pname} #${i+1}`, token: c.token });
+        });
+      });
+      // 重複トークンを除去
+      const seen = new Set();
+      const uniqCands = candidates.filter(c => { if (seen.has(c.token)) return false; seen.add(c.token); return true; });
+      if (uniqCands.length === 0) return res.status(400).json({ ok: false, error: "Bot トークンが未設定です" });
+
       const url = type === "user"
         ? `https://api.line.me/v2/bot/profile/${encodeURIComponent(id)}`
         : `https://api.line.me/v2/bot/group/${encodeURIComponent(id)}/summary`;
-      const r = await fetch(url, { headers: { "Authorization": "Bearer " + token.trim() } });
-      if (r.status !== 200) {
-        let msg = `HTTP ${r.status}`;
-        try { const j = await r.json(); if (j && j.message) msg = j.message; } catch (_) {}
-        return res.json({ ok: false, error: msg, status: r.status });
+
+      let lastErr = null;
+      const tried = [];
+      for (const cand of uniqCands) {
+        try {
+          const r = await fetch(url, { headers: { "Authorization": "Bearer " + cand.token.trim() } });
+          if (r.status === 200) {
+            const info = await r.json();
+            return res.json({
+              ok: true,
+              profile: {
+                displayName: info.displayName || info.groupName || "",
+                pictureUrl: info.pictureUrl || "",
+                statusMessage: info.statusMessage || "",
+              },
+              foundVia: cand.name,
+              tried: tried.concat([{ bot: cand.name, status: 200 }]),
+            });
+          }
+          tried.push({ bot: cand.name, status: r.status });
+          let msg = `HTTP ${r.status}`;
+          try { const j = await r.json(); if (j && j.message) msg = j.message; } catch (_) {}
+          lastErr = msg;
+        } catch (e) {
+          tried.push({ bot: cand.name, status: "error", message: e.message });
+          lastErr = e.message;
+        }
       }
-      const info = await r.json();
-      return res.json({
-        ok: true,
-        profile: {
-          displayName: info.displayName || info.groupName || "",
-          pictureUrl: info.pictureUrl || "",
-          statusMessage: info.statusMessage || "",
-        },
-      });
+      return res.json({ ok: false, error: lastErr || "見つかりませんでした", tried });
     } catch (e) {
       return res.status(500).json({ ok: false, error: e.message });
     }
