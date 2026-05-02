@@ -8,6 +8,8 @@
  *   - 物件別 LINE Bot: properties/{id}.lineChannels[] (読み取り+簡易編集、本格編集は物件編集モーダル)
  */
 
+const LINE_CHANNELS_MAX_CONTACTS = 2;
+
 const ContactsPage = {
   staff: [],
   properties: [],
@@ -281,26 +283,65 @@ const ContactsPage = {
       </div></div>
 
       <h5 class="mt-3"><i class="bi bi-buildings"></i> 物件別 LINE Bot (グループLINE 送信元)</h5>
+      <p class="text-muted small mb-2">この画面の編集は物件編集 (LINE 連携) と同期します。各 Bot は最大 ${LINE_CHANNELS_MAX_CONTACTS} 件まで登録可能。</p>
       <div class="card mb-3"><div class="card-body p-2">
         ${this.properties.length === 0
           ? '<div class="text-muted small">物件なし</div>'
-          : `<table class="table table-sm align-middle mb-0">
-              <thead class="table-light"><tr><th style="width:200px;">物件</th><th>登録 Bot 数</th><th>Bot 名</th><th style="width:120px;"></th></tr></thead>
-              <tbody>
-                ${this.properties.map(p => {
-                  const channels = Array.isArray(p.lineChannels) ? p.lineChannels : [];
-                  return `<tr>
-                    <td class="small fw-semibold">${this._esc(p.name || "(無名)")}</td>
-                    <td>${channels.length}</td>
-                    <td class="small">${channels.map(c => `<span class="badge bg-light text-dark border me-1">${this._esc(c.name || "(無名)")}</span>`).join("") || '<span class="text-muted">未登録</span>'}</td>
-                    <td><a href="#/properties" class="btn btn-sm btn-outline-secondary">編集 →</a></td>
-                  </tr>`;
-                }).join("")}
-              </tbody>
-            </table>`}
+          : this.properties.map(p => {
+              const channels = Array.isArray(p.lineChannels) ? p.lineChannels : [];
+              const collapseId = `prop-line-${p.id}`;
+              return `
+                <div class="border rounded mb-2" data-prop-id="${p.id}">
+                  <div class="d-flex align-items-center px-2 py-2 prop-line-header" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#${collapseId}">
+                    <i class="bi bi-chevron-down me-2"></i>
+                    <strong class="small">${this._esc(p.name || "(無名)")}</strong>
+                    <span class="badge bg-secondary ms-2">${channels.length} Bot</span>
+                    <span class="ms-2 small text-muted">${channels.map(c => this._esc(c.name || "(無名)")).join(" / ")}</span>
+                  </div>
+                  <div class="collapse" id="${collapseId}">
+                    <div class="px-2 pb-2 border-top pt-2 prop-line-body" data-prop-id="${p.id}">
+                      ${this._renderPropLineChannels(p.id, channels)}
+                    </div>
+                  </div>
+                </div>`;
+            }).join("")}
       </div></div>
     `;
     document.getElementById("linesArea").innerHTML = html;
+  },
+
+  /** 物件別 LINE channels の編集行 HTML */
+  _renderPropLineChannels(propId, channels) {
+    const rows = (channels.length ? channels : []).map((c, i) => `
+      <tr data-ch-idx="${i}">
+        <td><input class="form-control form-control-sm c-prop-ch-input" data-prop-id="${propId}" data-idx="${i}" data-field="name" value="${this._esc(c?.name || "")}" placeholder="例: 長浜清掃G通知"></td>
+        <td>
+          <div class="d-flex gap-1">
+            <input class="form-control form-control-sm c-prop-ch-input" data-prop-id="${propId}" data-idx="${i}" data-field="token" value="${this._esc(c?.token || "")}" placeholder="チャネルアクセストークン" type="password">
+            <button type="button" class="btn btn-sm btn-outline-info c-prop-ch-verify-token" data-prop-id="${propId}" data-idx="${i}" title="トークン検証"><i class="bi bi-shield-check"></i></button>
+          </div>
+          <div class="small text-muted prop-ch-token-result" data-prop-id="${propId}" data-idx="${i}"></div>
+        </td>
+        <td>
+          <div class="d-flex gap-1">
+            <input class="form-control form-control-sm c-prop-ch-input" data-prop-id="${propId}" data-idx="${i}" data-field="groupId" value="${this._esc(c?.groupId || "")}" placeholder="Cxxxxxxxx (グループ ID)">
+            <button type="button" class="btn btn-sm btn-outline-info c-prop-ch-lookup-group" data-prop-id="${propId}" data-idx="${i}" title="グループ名取得"><i class="bi bi-search"></i></button>
+          </div>
+          <div class="small text-muted prop-ch-group-result" data-prop-id="${propId}" data-idx="${i}"></div>
+        </td>
+        <td><button type="button" class="btn btn-sm btn-outline-danger c-prop-ch-remove" data-prop-id="${propId}" data-idx="${i}"><i class="bi bi-x-lg"></i></button></td>
+      </tr>
+    `).join("");
+    return `
+      <table class="table table-sm align-middle mb-2">
+        <thead class="table-light"><tr><th style="width:140px;">Bot 名</th><th>チャネルアクセストークン</th><th>グループ ID</th><th style="width:50px;"></th></tr></thead>
+        <tbody class="prop-ch-rows" data-prop-id="${propId}">${rows || `<tr><td colspan="4" class="text-muted small">未登録</td></tr>`}</tbody>
+      </table>
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary c-prop-ch-add" data-prop-id="${propId}"><i class="bi bi-plus"></i> Bot 追加</button>
+        <button type="button" class="btn btn-sm btn-primary ms-auto c-prop-ch-save" data-prop-id="${propId}"><i class="bi bi-check-lg"></i> この物件を保存</button>
+      </div>
+    `;
   },
 
   // ============================================================
@@ -413,6 +454,149 @@ const ContactsPage = {
       });
     });
     document.getElementById("btnSaveOwnerLineChannels")?.addEventListener("click", () => this._saveOwnerLineChannels());
+
+    // 物件別 LINE channels 編集
+    this._bindPropChannelEvents();
+  },
+
+  _bindPropChannelEvents() {
+    document.querySelectorAll(".c-prop-ch-add").forEach(b => {
+      b.addEventListener("click", () => this._addPropChannelRow(b.dataset.propId));
+    });
+    document.querySelectorAll(".c-prop-ch-remove").forEach(b => {
+      b.addEventListener("click", () => {
+        const tbody = b.closest("tbody.prop-ch-rows");
+        b.closest("tr")?.remove();
+        this._reindexPropChannelRows(tbody);
+      });
+    });
+    document.querySelectorAll(".c-prop-ch-verify-token").forEach(b => {
+      b.addEventListener("click", () => {
+        const propId = b.dataset.propId;
+        const idx = b.dataset.idx;
+        const tokenInput = document.querySelector(`.c-prop-ch-input[data-prop-id="${propId}"][data-idx="${idx}"][data-field="token"]`);
+        const resultEl = document.querySelector(`.prop-ch-token-result[data-prop-id="${propId}"][data-idx="${idx}"]`);
+        this._verifyLineTokenValue(tokenInput?.value || "", resultEl);
+      });
+    });
+    document.querySelectorAll(".c-prop-ch-lookup-group").forEach(b => {
+      b.addEventListener("click", () => {
+        const propId = b.dataset.propId;
+        const idx = b.dataset.idx;
+        const groupInput = document.querySelector(`.c-prop-ch-input[data-prop-id="${propId}"][data-idx="${idx}"][data-field="groupId"]`);
+        const resultEl = document.querySelector(`.prop-ch-group-result[data-prop-id="${propId}"][data-idx="${idx}"]`);
+        // この物件 channel の token をフォールバックトークンとして使う (空ならメイン Bot トークン)
+        const tokenInput = document.querySelector(`.c-prop-ch-input[data-prop-id="${propId}"][data-idx="${idx}"][data-field="token"]`);
+        this._lookupLineProfileWithToken("group", groupInput?.value || "", tokenInput?.value || "", resultEl);
+      });
+    });
+    document.querySelectorAll(".c-prop-ch-save").forEach(b => {
+      b.addEventListener("click", () => this._savePropChannels(b.dataset.propId));
+    });
+  },
+
+  _addPropChannelRow(propId) {
+    const tbody = document.querySelector(`tbody.prop-ch-rows[data-prop-id="${propId}"]`);
+    if (!tbody) return;
+    const existing = tbody.querySelectorAll("tr[data-ch-idx]");
+    if (existing.length >= LINE_CHANNELS_MAX_CONTACTS) {
+      showToast("確認", `この物件は最大 ${LINE_CHANNELS_MAX_CONTACTS} 件まで`, "warning");
+      return;
+    }
+    // プレースホルダー行 (未登録メッセージ) を消す
+    const empty = tbody.querySelector("tr td[colspan]");
+    if (empty) empty.parentElement.remove();
+    const idx = existing.length;
+    const tr = document.createElement("tr");
+    tr.dataset.chIdx = idx;
+    tr.innerHTML = `
+      <td><input class="form-control form-control-sm c-prop-ch-input" data-prop-id="${propId}" data-idx="${idx}" data-field="name" value="" placeholder="例: 長浜清掃G通知"></td>
+      <td>
+        <div class="d-flex gap-1">
+          <input class="form-control form-control-sm c-prop-ch-input" data-prop-id="${propId}" data-idx="${idx}" data-field="token" value="" placeholder="チャネルアクセストークン" type="password">
+          <button type="button" class="btn btn-sm btn-outline-info c-prop-ch-verify-token" data-prop-id="${propId}" data-idx="${idx}"><i class="bi bi-shield-check"></i></button>
+        </div>
+        <div class="small text-muted prop-ch-token-result" data-prop-id="${propId}" data-idx="${idx}"></div>
+      </td>
+      <td>
+        <div class="d-flex gap-1">
+          <input class="form-control form-control-sm c-prop-ch-input" data-prop-id="${propId}" data-idx="${idx}" data-field="groupId" value="" placeholder="Cxxxxxxxx (グループ ID)">
+          <button type="button" class="btn btn-sm btn-outline-info c-prop-ch-lookup-group" data-prop-id="${propId}" data-idx="${idx}"><i class="bi bi-search"></i></button>
+        </div>
+        <div class="small text-muted prop-ch-group-result" data-prop-id="${propId}" data-idx="${idx}"></div>
+      </td>
+      <td><button type="button" class="btn btn-sm btn-outline-danger c-prop-ch-remove" data-prop-id="${propId}" data-idx="${idx}"><i class="bi bi-x-lg"></i></button></td>
+    `;
+    tbody.appendChild(tr);
+    // 新しい行のハンドラを再bind
+    this._bindPropChannelEvents();
+  },
+
+  _reindexPropChannelRows(tbody) {
+    if (!tbody) return;
+    const propId = tbody.dataset.propId;
+    const rows = tbody.querySelectorAll("tr[data-ch-idx]");
+    rows.forEach((r, i) => {
+      r.dataset.chIdx = i;
+      r.querySelectorAll("[data-idx]").forEach(el => el.dataset.idx = i);
+    });
+    if (rows.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" class="text-muted small">未登録</td></tr>`;
+    }
+  },
+
+  async _savePropChannels(propId) {
+    const btn = document.querySelector(`.c-prop-ch-save[data-prop-id="${propId}"]`);
+    const orig = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    try {
+      const tbody = document.querySelector(`tbody.prop-ch-rows[data-prop-id="${propId}"]`);
+      const rows = tbody.querySelectorAll("tr[data-ch-idx]");
+      const channels = [];
+      rows.forEach(r => {
+        const name = r.querySelector('.c-prop-ch-input[data-field="name"]')?.value.trim() || "";
+        const token = r.querySelector('.c-prop-ch-input[data-field="token"]')?.value.trim() || "";
+        const groupId = r.querySelector('.c-prop-ch-input[data-field="groupId"]')?.value.trim() || "";
+        if (token || groupId || name) channels.push({ name, token, groupId, enabled: true });
+      });
+      // properties/{id}.lineChannels に保存 (物件編集と同期)
+      const updateData = { lineChannels: channels };
+      // 後方互換: lineChannels[0] を旧単一フィールドに反映
+      if (channels[0]) {
+        updateData.lineChannelToken = channels[0].token || "";
+        updateData.lineGroupId = channels[0].groupId || "";
+      }
+      await db.collection("properties").doc(propId).set(updateData, { merge: true });
+      // ローカル状態も更新
+      const local = this.properties.find(p => p.id === propId);
+      if (local) local.lineChannels = channels;
+      showToast("保存", `物件「${local?.name || propId}」の LINE Bot を ${channels.length} 件保存しました`, "success");
+    } catch (e) {
+      showToast("エラー", "保存失敗: " + e.message, "error");
+    } finally {
+      btn.disabled = false; btn.innerHTML = orig;
+    }
+  },
+
+  // トークン指定版の LINE プロフィール取得 (物件別 channel から)
+  async _lookupLineProfileWithToken(type, id, token, resultEl) {
+    if (!resultEl) return;
+    const trimmed = (id || "").trim();
+    if (!trimmed) { resultEl.innerHTML = '<span class="text-muted">ID 未入力</span>'; return; }
+    resultEl.innerHTML = '<span class="text-muted"><span class="spinner-border spinner-border-sm"></span> 取得中...</span>';
+    try {
+      const body = { type, id: trimmed };
+      if (token && token.trim()) body.token = token.trim();
+      const res = await this._callApi("/api/notifications/lookup-line-profile", body);
+      if (res.ok && res.profile) {
+        const name = res.profile.displayName || "(名前なし)";
+        resultEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> <strong>${this._esc(name)}</strong></span>`;
+      } else {
+        resultEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> ${this._esc(res.error || "取得失敗")}</span>`;
+      }
+    } catch (e) {
+      resultEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> ${this._esc(e.message)}</span>`;
+    }
   },
 
   // ===== notifyEmails =====
