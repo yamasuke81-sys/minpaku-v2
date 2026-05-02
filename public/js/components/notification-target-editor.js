@@ -646,6 +646,16 @@
 
     // 値部分のみ HTML を返す (3行目用)
     const buildValuePart = (field) => {
+      // propertyEmail: 物件の senderGmail (Gmail 連携アドレス) を表示
+      if (field === "propertyEmail") {
+        if (!propertyId) {
+          return `<span class="text-muted" style="font-size:0.72em;font-style:italic;">（物件未指定）</span>`;
+        }
+        const sender = propData.senderGmail || "";
+        return sender
+          ? `<span class="badge bg-success-subtle text-success border" style="font-size:0.72em;" title="${escapeHtml(sender)}"><i class="bi bi-envelope-fill"></i> ${escapeHtml(sender)}</span>`
+          : `<span class="text-muted" style="font-size:0.72em;font-style:italic;">（Gmail 連携が未設定 — 物件編集で連携してください）</span>`;
+      }
       // groupLine は物件の lineChannels を全件表示
       if (field === "groupLine") {
         return buildGroupLineBadge();
@@ -680,17 +690,19 @@
     // アクション部分のみ HTML を返す (1行目右端用)
     const buildActionPart = (field) => {
       const isStaff = (field === "staffLine" || field === "staffEmail");
-      // groupLine は物件編集でのみ変更するため ✏️ なし、↗ のみ
+      // groupLine / propertyEmail は物件編集でのみ変更するため ✏️ なし、↗ のみ
       const isGroupLine = (field === "groupLine");
-      // スタッフ個別 / groupLine は ✏️ なし、↗ のみ
-      const editBtn = (isStaff || isGroupLine) ? "" : `<button type="button" class="btn btn-link btn-sm p-0 notify-target-edit-btn"
+      const isPropertyEmail = (field === "propertyEmail");
+      // スタッフ個別 / groupLine / propertyEmail は ✏️ なし、↗ のみ
+      const editBtn = (isStaff || isGroupLine || isPropertyEmail) ? "" : `<button type="button" class="btn btn-link btn-sm p-0 notify-target-edit-btn"
            data-field="${field}"
            style="font-size:0.85em;line-height:1;"
            title="通知先を編集">✏️</button>`;
+      const jumpTitle = isPropertyEmail ? "物件編集を開いて Gmail 連携を変更" : "設定画面で開く";
       const jumpBtn = `<button type="button" class="btn btn-link btn-sm p-0 notify-target-jump-btn"
            data-field="${field}"
            style="font-size:0.85em;line-height:1;color:#6c757d;"
-           title="設定画面で開く"><i class="bi bi-box-arrow-up-right"></i></button>`;
+           title="${jumpTitle}"><i class="bi bi-box-arrow-up-right"></i></button>`;
       return `${editBtn}${jumpBtn}`;
     };
 
@@ -765,8 +777,8 @@
           // グローバル設定 → 通知設定タブ
           window.location.hash = "/notifications";
 
-        } else if (field === "groupLine") {
-          // グループLINE は物件単位 (properties.lineChannels) → 物件編集モーダルへ
+        } else if (field === "groupLine" || field === "propertyEmail") {
+          // グループLINE / 物件メール は物件単位 (properties.lineChannels / senderGmail) → 物件編集モーダルへ
           const pidEl = btn.closest("[data-pid]");
           const pid = pidEl ? pidEl.dataset.pid : null;
           if (pid) {
