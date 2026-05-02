@@ -112,7 +112,7 @@ const ContactsPage = {
       <div class="card mb-3"><div class="card-body p-2">
         <p class="text-muted small mb-2">先頭のアドレスが「代表メール」として旧コードからも参照されます。複数登録すると同報送信されます。</p>
         <table class="table table-sm align-middle mb-2">
-          <thead class="table-light"><tr><th style="width:90px;">区分</th><th>メールアドレス</th><th style="width:90px;">連携</th><th style="width:50px;"></th></tr></thead>
+          <thead class="table-light"><tr><th style="width:90px;">区分</th><th><span class="badge bg-success-subtle text-success border me-1">📨 受信先</span>メールアドレス</th><th style="width:90px;">連携</th><th style="width:50px;"></th></tr></thead>
           <tbody id="notifyEmailsRows">${emailRows}</tbody>
         </table>
         <div class="d-flex gap-2">
@@ -124,7 +124,7 @@ const ContactsPage = {
       <h5 class="mt-3"><i class="bi bi-people"></i> スタッフ / 物件オーナー</h5>
       <div class="card mb-3"><div class="card-body p-2">
         <table class="table table-sm align-middle mb-0">
-          <thead class="table-light"><tr><th style="width:140px;">名前</th><th style="width:90px;">区分</th><th>メール (送信元/通知用)</th><th>サブメール (物件オーナー用)</th><th style="width:80px;"></th></tr></thead>
+          <thead class="table-light"><tr><th style="width:140px;">名前</th><th style="width:90px;">区分</th><th><span class="badge bg-success-subtle text-success border me-1">📨 受信先</span>メール (通知用)</th><th><span class="badge bg-success-subtle text-success border me-1">📨 受信先</span>サブメール (物件オーナー用)</th><th style="width:80px;"></th></tr></thead>
           <tbody>
             ${this.staff.map(s => `
               <tr data-staff-id="${s.id}">
@@ -242,7 +242,7 @@ const ContactsPage = {
         <table class="table table-sm align-middle mb-0">
           <tbody>
             <tr>
-              <td class="small" style="width:200px;">チャネルアクセストークン</td>
+              <td class="small" style="width:200px;"><span class="badge bg-info-subtle text-info border me-1" title="送信元 (Bot から送る)">📤 送信元</span>チャネルアクセストークン</td>
               <td>
                 <div class="d-flex gap-2">
                   <input class="form-control form-control-sm" id="lineMainToken" type="password" value="${this._esc(s.lineChannelToken || "")}" placeholder="${tokenSet ? "(設定済 — 上書きする場合のみ入力)" : "Long-lived channel access token"}">
@@ -253,7 +253,7 @@ const ContactsPage = {
               </td>
             </tr>
             <tr>
-              <td class="small">Webアプリ管理者 LINE User ID</td>
+              <td class="small"><span class="badge bg-success-subtle text-success border me-1" title="この LINE 宛に通知が届く">📨 受信先</span>Webアプリ管理者 LINE User ID</td>
               <td>
                 <div class="d-flex gap-2">
                   <input class="form-control form-control-sm c-line-input" id="lineOwnerUserIdInput" data-target="settings" data-field="lineOwnerUserId" value="${this._esc(s.lineOwnerUserId || "")}" placeholder="Uxxxxxxxxxx...">
@@ -264,7 +264,7 @@ const ContactsPage = {
               </td>
             </tr>
             <tr>
-              <td class="small">グループ LINE ID (物件未指定時のフォールバック)</td>
+              <td class="small"><span class="badge bg-success-subtle text-success border me-1" title="このグループ宛に通知が届く">📨 受信先</span>グループ LINE ID (物件未指定時のフォールバック)</td>
               <td>
                 <div class="d-flex gap-2">
                   <input class="form-control form-control-sm c-line-input" id="lineGroupIdInput" data-target="settings" data-field="lineGroupId" value="${this._esc(s.lineGroupId || "")}" placeholder="Cxxxxxxxxxx...">
@@ -282,7 +282,7 @@ const ContactsPage = {
       <div class="card mb-3"><div class="card-body p-2">
         <p class="text-muted small mb-2">同じ管理者宛に異なる Bot からも通知したい場合に追加します。</p>
         <table class="table table-sm align-middle mb-2">
-          <thead class="table-light"><tr><th style="width:160px;">Bot 名</th><th>チャネルアクセストークン</th><th style="width:200px;">送信先 User ID (任意)</th><th style="width:50px;"></th></tr></thead>
+          <thead class="table-light"><tr><th style="width:160px;">Bot 名</th><th><span class="badge bg-info-subtle text-info border me-1">📤 送信元</span>チャネルアクセストークン</th><th style="width:200px;"><span class="badge bg-success-subtle text-success border me-1">📨 受信先</span>User ID (任意)</th><th style="width:50px;"></th></tr></thead>
           <tbody id="ownerLineChannelsRows">${channelRows}</tbody>
         </table>
         <div class="d-flex gap-2">
@@ -294,7 +294,7 @@ const ContactsPage = {
       <h5 class="mt-3"><i class="bi bi-people"></i> スタッフ / 物件オーナーの LINE User ID</h5>
       <div class="card mb-3"><div class="card-body p-2">
         <table class="table table-sm align-middle mb-0">
-          <thead class="table-light"><tr><th style="width:140px;">名前</th><th>スタッフ用 lineUserId</th><th>物件オーナー用 subOwnerLineUserId</th><th style="width:80px;"></th></tr></thead>
+          <thead class="table-light"><tr><th style="width:140px;">名前</th><th><span class="badge bg-success-subtle text-success border me-1">📨 受信先</span>スタッフ用 lineUserId</th><th><span class="badge bg-success-subtle text-success border me-1">📨 受信先</span>物件オーナー用 subOwnerLineUserId</th><th style="width:80px;"></th></tr></thead>
           <tbody>
             ${this.staff.map(staff => `
               <tr data-staff-id="${staff.id}">
@@ -377,7 +377,7 @@ const ContactsPage = {
     `).join("");
     return `
       <table class="table table-sm align-middle mb-2">
-        <thead class="table-light"><tr><th style="width:140px;">Bot 名</th><th>チャネルアクセストークン</th><th>グループ ID</th><th style="width:50px;"></th></tr></thead>
+        <thead class="table-light"><tr><th style="width:140px;">Bot 名</th><th><span class="badge bg-info-subtle text-info border me-1">📤 送信元</span>チャネルアクセストークン</th><th><span class="badge bg-success-subtle text-success border me-1">📨 受信先</span>グループ ID</th><th style="width:50px;"></th></tr></thead>
         <tbody class="prop-ch-rows" data-prop-id="${propId}">${rows || `<tr><td colspan="4" class="text-muted small">未登録</td></tr>`}</tbody>
       </table>
       <div class="d-flex gap-2">
@@ -402,14 +402,14 @@ const ContactsPage = {
         <table class="table table-sm align-middle mb-0">
           <tbody>
             <tr>
-              <td class="small" style="width:200px;">Webhook URL (Webアプリ管理者宛)</td>
+              <td class="small" style="width:200px;"><span class="badge bg-success-subtle text-success border me-1">📨 受信先</span>Webhook URL (Webアプリ管理者宛)</td>
               <td><div class="d-flex gap-2">
                 <input class="form-control form-control-sm c-discord-input" data-target="settings" data-field="discordOwnerWebhookUrl" value="${this._esc(s.discordOwnerWebhookUrl || "")}" placeholder="https://discord.com/api/webhooks/...">
                 <button class="btn btn-sm btn-primary c-save-btn" data-target="settings" data-field="discordOwnerWebhookUrl">保存</button>
               </div></td>
             </tr>
             <tr>
-              <td class="small">Webhook URL (物件オーナー全体宛・フォールバック)</td>
+              <td class="small"><span class="badge bg-success-subtle text-success border me-1">📨 受信先</span>Webhook URL (物件オーナー全体宛・フォールバック)</td>
               <td><div class="d-flex gap-2">
                 <input class="form-control form-control-sm c-discord-input" data-target="settings" data-field="discordSubOwnerWebhookUrl" value="${this._esc(s.discordSubOwnerWebhookUrl || "")}" placeholder="https://discord.com/api/webhooks/...">
                 <button class="btn btn-sm btn-primary c-save-btn" data-target="settings" data-field="discordSubOwnerWebhookUrl">保存</button>
@@ -422,7 +422,7 @@ const ContactsPage = {
       <h5 class="mt-3"><i class="bi bi-person-badge"></i> 物件オーナー個別 Discord Webhook</h5>
       <div class="card mb-3"><div class="card-body p-2">
         <table class="table table-sm align-middle mb-0">
-          <thead class="table-light"><tr><th style="width:200px;">物件オーナー</th><th>Webhook URL</th><th style="width:80px;"></th></tr></thead>
+          <thead class="table-light"><tr><th style="width:200px;">物件オーナー</th><th><span class="badge bg-success-subtle text-success border me-1">📨 受信先</span>Webhook URL</th><th style="width:80px;"></th></tr></thead>
           <tbody>
             ${this.staff.filter(s => s.isSubOwner).map(staff => `
               <tr data-staff-id="${staff.id}">
