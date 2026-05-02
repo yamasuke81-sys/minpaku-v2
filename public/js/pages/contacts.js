@@ -627,7 +627,11 @@ const ContactsPage = {
       const res = await this._callApi("/api/notifications/lookup-line-profile", body);
       if (res.ok && res.profile) {
         const name = res.profile.displayName || "(名前なし)";
-        resultEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> <strong>${this._esc(name)}</strong></span>`;
+        const pic = res.profile.pictureUrl
+          ? `<img src="${this._esc(res.profile.pictureUrl)}" style="width:20px;height:20px;border-radius:50%;vertical-align:middle;margin-right:4px;">`
+          : "";
+        const via = res.foundVia ? ` <span class="text-muted" style="font-size:10px;">(via ${this._esc(res.foundVia)})</span>` : "";
+        resultEl.innerHTML = `<span class="text-success">${pic}<i class="bi bi-check-circle"></i> <strong>${this._esc(name)}</strong>${via}</span>`;
       } else {
         resultEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> ${this._esc(res.error || "取得失敗")}</span>`;
       }
@@ -775,9 +779,13 @@ const ContactsPage = {
         const pic = res.profile.pictureUrl
           ? `<img src="${this._esc(res.profile.pictureUrl)}" style="width:20px;height:20px;border-radius:50%;vertical-align:middle;margin-right:4px;">`
           : "";
-        resultEl.innerHTML = `<span class="text-success">${pic}<i class="bi bi-check-circle"></i> <strong>${this._esc(name)}</strong></span>`;
+        const via = res.foundVia ? ` <span class="text-muted" style="font-size:10px;">(via ${this._esc(res.foundVia)})</span>` : "";
+        resultEl.innerHTML = `<span class="text-success">${pic}<i class="bi bi-check-circle"></i> <strong>${this._esc(name)}</strong>${via}</span>`;
       } else {
-        resultEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> ${this._esc(res.error || "取得失敗")}</span>`;
+        const triedTxt = Array.isArray(res.tried) && res.tried.length
+          ? ` <span class="text-muted" style="font-size:10px;">(試行: ${res.tried.length} Bot)</span>`
+          : "";
+        resultEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> ${this._esc(res.error || "取得失敗")}${triedTxt}</span>`;
       }
     } catch (e) {
       resultEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> ${this._esc(e.message)}</span>`;
