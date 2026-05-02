@@ -302,6 +302,15 @@ const App = {
     if (ownerNav) ownerNav.classList.toggle("d-none", role === "staff");
     if (staffNav) staffNav.classList.toggle("d-none", role !== "staff");
 
+    // サブオーナーは ownerNav 内の許可項目 (data-sub-owner-show="1") のみ表示
+    // セクション divider (sidebar-section) と未許可リンクは隠す
+    if (ownerNav && role === "sub_owner") {
+      ownerNav.querySelectorAll(":scope > *").forEach(el => {
+        const allowed = el.matches(".nav-link[data-sub-owner-show]");
+        if (!allowed) el.style.display = "none";
+      });
+    }
+
     // スタッフ側のプリカ管理タブ: 担当物件に紐づくカードがある場合のみ表示
     if (role === "staff") this._maybeShowStaffPrepaidNav();
 
@@ -362,6 +371,19 @@ const App = {
     // デフォルトページ: スタッフ→my-recruitment、それ以外→schedule
     const defaultPage = role === "staff" ? "my-recruitment" : "schedule";
     const pageName = path[0] || defaultPage;
+
+    // サブオーナー: 許可外ページへの直打ちを #/schedule にリダイレクト
+    if (role === "sub_owner") {
+      const subOwnerAllowed = new Set([
+        "schedule", "properties", "staff", "guests", "guest-guides",
+        "recruitment", "laundry", "checklist", "prepaid-cards",
+        "reservation-flow", "cleaning-flow", "rates", "invoices",
+      ]);
+      if (!subOwnerAllowed.has(pageName)) {
+        location.hash = "#/schedule";
+        return;
+      }
+    }
 
     // ロール別ページマップ選択（Webアプリ管理者/物件オーナーはスタッフページにもアクセス可能）
     const availablePages = role === "staff"

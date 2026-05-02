@@ -106,6 +106,19 @@ const StaffPage = {
   async loadStaff(activeOnly) {
     try {
       this.staffList = await API.staff.list(activeOnly);
+      // サブオーナー本人ログイン: 自所有物件を担当しているスタッフのみ表示
+      if (Auth.isSubOwner()) {
+        const owned = Array.isArray(Auth.currentUser?.ownedPropertyIds)
+          ? Auth.currentUser.ownedPropertyIds : [];
+        const ownedSet = new Set(owned);
+        this.staffList = this.staffList.filter(s => {
+          const assigned = Array.isArray(s.assignedPropertyIds) ? s.assignedPropertyIds : [];
+          return assigned.some(pid => ownedSet.has(pid));
+        });
+        // スタッフ登録ボタンを非表示 (新規スタッフ作成はオーナーのみ)
+        const btnAdd = document.getElementById("btnAddStaff");
+        if (btnAdd) btnAdd.style.display = "none";
+      }
       this.renderTable();
       // this.renderCalendar();  // 横カレンダーは清掃スケジュールタブに統合
     } catch (e) {
@@ -810,9 +823,10 @@ const StaffPage = {
     // 担当物件チェックボックス(民泊物件のみ、デフォルト外れ)
     this.renderPropertyCheckboxes(staff?.assignedPropertyIds || []);
 
-    // 物件オーナーセクション（編集時のみ表示）
+    // 物件オーナーセクション（編集時のみ表示・オーナー本人のみ操作可）
+    // サブオーナー本人ログイン時は他人をサブオーナー化する操作を一切禁止する
     const subOwnerSection = document.getElementById("staffSubOwnerSection");
-    if (isEdit) {
+    if (isEdit && !Auth.isSubOwner()) {
       subOwnerSection.classList.remove("d-none");
       const isSubOwnerEl = document.getElementById("staffIsSubOwner");
       isSubOwnerEl.checked = !!staff?.isSubOwner;

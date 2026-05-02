@@ -165,6 +165,15 @@ const PropertiesPage = {
         const owned = App.impersonatingData.ownedPropertyIds || [];
         this.propertyList = this.propertyList.filter(p => owned.includes(p.id));
       }
+      // サブオーナー本人ログイン: 所有物件のみ表示
+      if (Auth.isSubOwner()) {
+        const owned = Array.isArray(Auth.currentUser?.ownedPropertyIds)
+          ? Auth.currentUser.ownedPropertyIds : [];
+        this.propertyList = this.propertyList.filter(p => owned.includes(p.id));
+        // 物件登録ボタンを非表示 (新規物件作成はオーナーのみ)
+        const btnAdd = document.getElementById("btnAddProperty");
+        if (btnAdd) btnAdd.style.display = "none";
+      }
       // Webアプリ管理者候補 (isOwner or isSubOwner の staff) を取得
       await this._loadOwnerStaffOptions();
       this.renderCards();

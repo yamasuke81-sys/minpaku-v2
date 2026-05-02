@@ -34,21 +34,32 @@ service cloud.firestore {
       return isOwner() || (isSubOwner() && pid in request.auth.token.ownedPropertyIds);
     }
 
-    // スタッフマスタ — オーナーのみ書き込み
+    // スタッフマスタ — オーナーは全操作、サブオーナーは自所有物件担当スタッフのみ更新可
     // スタッフ/サブオーナーは自分のデータ + アクティブスタッフ全員の名前/IDを読み取り可能
     // (my-recruitment のカレンダーでスタッフ一覧を表示するために必要)
+    // サブオーナー権限昇格防止: isSubOwner / ownedPropertyIds / role / authUid 等の更新は不可
     match /staff/{staffId} {
       allow read: if isOwner()
         || isSubOwner()
         || (isStaff() && myStaffId() == staffId)
         || (isStaff() && resource.data.active == true);
-      allow write: if isOwner();
+      allow create, delete: if isOwner();
+      allow update: if isOwner()
+        || (isSubOwner()
+            && resource.data.assignedPropertyIds is list
+            && resource.data.assignedPropertyIds.hasAny(request.auth.token.ownedPropertyIds)
+            && !request.resource.data.diff(resource.data).affectedKeys()
+                  .hasAny(['isSubOwner', 'ownedPropertyIds', 'role', 'authUid',
+                           'subOwnerLineUserId', 'subOwnerEmail', 'isOwner']));
     }
 
-    // 物件 — オーナーのみ書き込み、スタッフ/サブオーナーは読み取りのみ
+    // 物件 — オーナーは全操作、サブオーナーは自所有物件のみ読み書き、スタッフは全件読み取り
     match /properties/{propertyId} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner();
+      allow read: if isOwner() || isStaff()
+        || (isSubOwner() && propertyId in request.auth.token.ownedPropertyIds);
+      allow create, delete: if isOwner();
+      allow update: if isOwner()
+        || (isSubOwner() && propertyId in request.auth.token.ownedPropertyIds);
     }
 
     // 予約 — オーナーは全操作、サブオーナーは所有物件のみ読み書き、スタッフは読み取りのみ
