@@ -313,6 +313,7 @@ function resolveNotifyTargets(settings, notifyType, propertyOverrides = {}) {
   const allOff = {
     enabled: false,
     ownerLine: false, groupLine: false, staffLine: false, staffEmail: false, ownerEmail: false,
+    propertyEmail: false,
     subOwnerLine: false, subOwnerEmail: false, discordOwner: false, discordSubOwner: false,
     fcmStaff: false, fcmOwner: false,
     sendToGroup: false, sendToIndividual: false,
@@ -329,6 +330,7 @@ function resolveNotifyTargets(settings, notifyType, propertyOverrides = {}) {
   const staffLine       = !!ov.staffLine;
   const staffEmail      = !!ov.staffEmail;
   const ownerEmail      = !!ov.ownerEmail;
+  const propertyEmail   = !!ov.propertyEmail;
   const subOwnerLine    = !!ov.subOwnerLine;
   const subOwnerEmail   = !!ov.subOwnerEmail;
   const discordOwner    = !!ov.discordOwner;
@@ -338,7 +340,7 @@ function resolveNotifyTargets(settings, notifyType, propertyOverrides = {}) {
 
   return {
     enabled: true,
-    ownerLine, groupLine, staffLine, staffEmail, ownerEmail,
+    ownerLine, groupLine, staffLine, staffEmail, ownerEmail, propertyEmail,
     subOwnerLine, subOwnerEmail, discordOwner, discordSubOwner,
     fcmStaff, fcmOwner,
     sendToGroup: groupLine,
@@ -1214,6 +1216,28 @@ async function notifyByKey(db, notifyKey, options = {}) {
         }
         sent.ownerEmail = okCount;
       } catch (e) { errors.push({ channel: "ownerEmail", error: e.message }); }
+    })());
+  }
+
+  // (e2) 物件 Gmail (cc): 物件単位で Gmail 連携した送信元アドレス自身に cc
+  if (targets.propertyEmail && propertyId) {
+    tasks.push((async () => {
+      try {
+        const pDoc = await db.collection("properties").doc(propertyId).get();
+        const propertyGmail = pDoc.exists ? (pDoc.data().senderGmail || "") : "";
+        if (!propertyGmail) {
+          errors.push({ channel: "propertyEmail", error: "物件に Gmail 連携が未設定" });
+          return;
+        }
+        const baseText = typeof resolvedBody === "string" ? resolvedBody : `[Flex] ${title}`;
+        const text = extraEmailFooter && !baseText.includes(extraEmailFooter)
+          ? baseText + extraEmailFooter
+          : baseText;
+        // 物件 Gmail を送信元 (fromEmail) に指定すると、その同じアドレス宛に届くと
+        // 同一受信箱になるが、Gmail OAuth は自分自身宛にも送れるため問題なし
+        await sendNotificationEmail_(propertyGmail, title, text, propertyGmail);
+        sent.propertyEmail = 1;
+      } catch (e) { errors.push({ channel: "propertyEmail", error: e.message }); }
     })());
   }
 
