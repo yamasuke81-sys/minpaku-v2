@@ -771,11 +771,12 @@ const CleaningFlowPage = {
 
     // ---- ブール型フィールド ----
     const boolFields = [
-      { field: "enabled",    label: "有効/無効",        icon: "bi-power",             globalVal: globalCh.enabled !== false },
-      { field: "ownerLine",  label: "Webアプリ管理者LINE",     icon: "bi-person-circle",     globalVal: globalCh.ownerLine !== false },
-      { field: "groupLine",  label: "グループLINE",     icon: "bi-people-fill",       globalVal: !!globalCh.groupLine },
-      { field: "staffLine",  label: "スタッフLINE",     icon: "bi-person-lines-fill", globalVal: !!globalCh.staffLine },
-      { field: "ownerEmail", label: "Webアプリ管理者メール",   icon: "bi-envelope",          globalVal: !!globalCh.ownerEmail },
+      { field: "enabled",       label: "有効/無効",        icon: "bi-power",             globalVal: globalCh.enabled !== false },
+      { field: "ownerLine",     label: "Webアプリ管理者LINE",     icon: "bi-person-circle",     globalVal: globalCh.ownerLine !== false },
+      { field: "groupLine",     label: "グループLINE",     icon: "bi-people-fill",       globalVal: !!globalCh.groupLine },
+      { field: "staffLine",     label: "スタッフLINE",     icon: "bi-person-lines-fill", globalVal: !!globalCh.staffLine },
+      { field: "ownerEmail",    label: "Webアプリ管理者メール",   icon: "bi-envelope",          globalVal: !!globalCh.ownerEmail },
+      { field: "propertyEmail", label: "物件メール (cc)",  icon: "bi-envelope-at",       globalVal: !!globalCh.propertyEmail },
     ];
 
     const boolRows = boolFields.map(({ field, label, icon, globalVal }) => {
@@ -903,10 +904,11 @@ const CleaningFlowPage = {
       : [{ mode: ch.mode || "event", timing: ch.timing || nd.defaultTiming || "immediate", timingMinutes: ch.timingMinutes || "", beforeDays: ch.beforeDays || 3, beforeTime: ch.beforeTime || "09:00", schedulePattern: ch.schedulePattern || "monthEnd", scheduleDay: ch.scheduleDay || 1, scheduleDow: ch.scheduleDow || 0, scheduleTime: ch.scheduleTime || "09:00" }];
 
     // 送信先チェックボックス
-    const ownerLine  = ch.ownerLine  !== undefined ? ch.ownerLine  !== false : true;
-    const groupLine  = ch.groupLine  !== undefined ? !!ch.groupLine  : false;
-    const staffLine  = ch.staffLine  !== undefined ? !!ch.staffLine  : false;
-    const ownerEmail = ch.ownerEmail !== undefined ? !!ch.ownerEmail : false;
+    const ownerLine     = ch.ownerLine     !== undefined ? ch.ownerLine     !== false : true;
+    const groupLine     = ch.groupLine     !== undefined ? !!ch.groupLine     : false;
+    const staffLine     = ch.staffLine     !== undefined ? !!ch.staffLine     : false;
+    const ownerEmail    = ch.ownerEmail    !== undefined ? !!ch.ownerEmail    : false;
+    const propertyEmail = ch.propertyEmail !== undefined ? !!ch.propertyEmail : false;
     const discordOwner = !!ch.discordOwner;
     const discordSubOwner = !!ch.discordSubOwner;
 
@@ -941,6 +943,10 @@ const CleaningFlowPage = {
             <label class="form-check form-check-inline mb-0 small">
               <input class="form-check-input rf-notif-field" type="checkbox" data-notif-key="${key}" data-field="ownerEmail" ${ownerEmail ? "checked" : ""}>
               <span><i class="bi bi-envelope text-warning"></i> Webアプリ管理者メール</span>
+            </label>
+            <label class="form-check form-check-inline mb-0 small">
+              <input class="form-check-input rf-notif-field" type="checkbox" data-notif-key="${key}" data-field="propertyEmail" ${propertyEmail ? "checked" : ""}>
+              <span><i class="bi bi-envelope-at text-primary"></i> 物件メール</span>
             </label>
             <label class="form-check form-check-inline mb-0 small">
               <input class="form-check-input rf-notif-field" type="checkbox" data-notif-key="${key}" data-field="discordOwner" ${discordOwner ? "checked" : ""}>
@@ -1134,6 +1140,7 @@ const CleaningFlowPage = {
       staffLine:       !!channelData.staffLine,
       staffEmail:      !!channelData.staffEmail,
       ownerEmail:      !!channelData.ownerEmail,
+      propertyEmail:   !!channelData.propertyEmail,
       subOwnerLine:    !!channelData.subOwnerLine,
       subOwnerEmail:   !!channelData.subOwnerEmail,
       discordOwner:    !!channelData.discordOwner,
@@ -1489,6 +1496,7 @@ const CleaningFlowPage = {
       groupLine:      get("groupLine"),
       staffLine:      get("staffLine"),
       ownerEmail:     get("ownerEmail"),
+      propertyEmail:  get("propertyEmail"),
       discordOwner:   get("discordOwner"),
       discordSubOwner: get("discordSubOwner"),
       customMessage:  ta ? ta.value : "",

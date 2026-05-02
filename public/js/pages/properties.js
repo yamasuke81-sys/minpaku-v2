@@ -457,6 +457,12 @@ const PropertiesPage = {
     );
     this._bindOwnerStaffChange();
 
+    // メール送信元フィールド
+    const notifEmailEl = document.getElementById("propertyNotificationEmail");
+    const notifEmailNameEl = document.getElementById("propertyNotificationEmailName");
+    if (notifEmailEl) notifEmailEl.value = property?.notificationEmail || "";
+    if (notifEmailNameEl) notifEmailNameEl.value = property?.notificationEmailName || "";
+
     // LINE 連携フィールド
     document.getElementById("propertyLineEnabled").checked = !!property?.lineEnabled;
 
@@ -644,6 +650,9 @@ const PropertiesPage = {
       // Webアプリ管理者 (請求書宛名用 staff ID) + 名義 (billingProfile ID)
       ownerStaffId: document.getElementById("propertyOwnerStaffId")?.value || null,
       ownerBillingProfileId: document.getElementById("propertyOwnerBillingProfileId")?.value || null,
+      // メール送信元
+      notificationEmail: (document.getElementById("propertyNotificationEmail")?.value || "").trim(),
+      notificationEmailName: (document.getElementById("propertyNotificationEmailName")?.value || "").trim(),
       // LINE 連携フィールド
       lineEnabled: document.getElementById("propertyLineEnabled").checked,
       lineChannels: this._collectLineChannels(),
@@ -780,6 +789,9 @@ const PropertiesPage = {
       // Webアプリ管理者 (請求書宛名用 staff ID) + 名義 (billingProfile ID)
       ownerStaffId: document.getElementById("propertyOwnerStaffId")?.value || null,
       ownerBillingProfileId: document.getElementById("propertyOwnerBillingProfileId")?.value || null,
+      // メール送信元
+      notificationEmail: (document.getElementById("propertyNotificationEmail")?.value || "").trim(),
+      notificationEmailName: (document.getElementById("propertyNotificationEmailName")?.value || "").trim(),
       lineEnabled: document.getElementById("propertyLineEnabled").checked,
       lineChannels: this._collectLineChannels(),
       // 配信モード（single / rotate / fallback）、未選択時は fallback
