@@ -78,9 +78,27 @@ const ContactsPage = {
         : `<span class="badge bg-secondary-subtle text-secondary border ms-1" title="Gmail未連携">未連携</span>`;
     };
 
-    // Web管理者
+    // Web管理者: notifyEmails[] (複数) を主、最初の1件を ownerEmail として自動同期
     const webAdmin = this.notifSettings || {};
-    const webAdminEmail = webAdmin.ownerEmail || (Array.isArray(webAdmin.notifyEmails) ? webAdmin.notifyEmails[0] : "") || "";
+    const notifyEmails = Array.isArray(webAdmin.notifyEmails) ? webAdmin.notifyEmails.filter(Boolean) : [];
+    // 旧 ownerEmail を notifyEmails の先頭に取り込む (重複は除去)
+    if (webAdmin.ownerEmail && !notifyEmails.includes(webAdmin.ownerEmail)) {
+      notifyEmails.unshift(webAdmin.ownerEmail);
+    }
+    if (notifyEmails.length === 0) notifyEmails.push("");
+
+    const emailRows = notifyEmails.map((mail, idx) => `
+      <tr data-email-idx="${idx}">
+        <td class="small text-muted" style="width:90px;">
+          ${idx === 0 ? '<span class="badge bg-primary">代表</span>' : `<span class="badge bg-secondary">追加 ${idx}</span>`}
+        </td>
+        <td><input class="form-control form-control-sm c-notify-email-input" data-idx="${idx}" value="${this._esc(mail)}" placeholder="example@gmail.com"></td>
+        <td>${linkedBadge(mail)}</td>
+        <td>
+          ${idx > 0 ? `<button type="button" class="btn btn-sm btn-outline-danger c-notify-email-remove" data-idx="${idx}" title="この行を削除"><i class="bi bi-x-lg"></i></button>` : ""}
+        </td>
+      </tr>
+    `).join("");
 
     let html = `
       <div class="alert alert-info py-2 small">
@@ -88,19 +106,17 @@ const ContactsPage = {
         <a href="#/email-verification" class="ms-2 text-decoration-none"><i class="bi bi-google"></i> Gmail 連携 →</a>
       </div>
 
-      <h5 class="mt-3"><i class="bi bi-person-gear"></i> Webアプリ管理者</h5>
+      <h5 class="mt-3"><i class="bi bi-person-gear"></i> Webアプリ管理者の通知メール</h5>
       <div class="card mb-3"><div class="card-body p-2">
-        <table class="table table-sm align-middle mb-0">
-          <thead class="table-light"><tr><th style="width:200px;">用途</th><th>メールアドレス</th><th style="width:140px;">連携</th><th style="width:80px;"></th></tr></thead>
-          <tbody>
-            <tr>
-              <td class="small">通知受信用 (settings/notifications.ownerEmail)</td>
-              <td><input class="form-control form-control-sm c-email-input" data-target="settings" data-field="ownerEmail" value="${this._esc(webAdminEmail)}"></td>
-              <td>${linkedBadge(webAdminEmail)}</td>
-              <td><button class="btn btn-sm btn-primary c-save-btn" data-target="settings" data-field="ownerEmail">保存</button></td>
-            </tr>
-          </tbody>
+        <p class="text-muted small mb-2">先頭のアドレスが「代表メール」として旧コードからも参照されます。複数登録すると同報送信されます。</p>
+        <table class="table table-sm align-middle mb-2">
+          <thead class="table-light"><tr><th style="width:90px;">区分</th><th>メールアドレス</th><th style="width:90px;">連携</th><th style="width:50px;"></th></tr></thead>
+          <tbody id="notifyEmailsRows">${emailRows}</tbody>
         </table>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="btnAddNotifyEmail"><i class="bi bi-plus"></i> 追加</button>
+          <button type="button" class="btn btn-sm btn-primary ms-auto" id="btnSaveNotifyEmails"><i class="bi bi-check-lg"></i> 一括保存</button>
+        </div>
       </div></div>
 
       <h5 class="mt-3"><i class="bi bi-people"></i> スタッフ / 物件オーナー</h5>
@@ -163,18 +179,45 @@ const ContactsPage = {
   // ============================================================
   renderLines() {
     const s = this.notifSettings || {};
-    const tokenStat = s.lineChannelToken ? `<span class="badge bg-success-subtle text-success border">設定済</span>` : `<span class="badge bg-danger-subtle text-danger border">未設定</span>`;
+    const tokenSet = !!s.lineChannelToken;
+    const ownerChannels = Array.isArray(s.ownerLineChannels) ? s.ownerLineChannels : [];
+
+    const channelRows = ownerChannels.map((c, idx) => `
+      <tr data-ch-idx="${idx}">
+        <td><input class="form-control form-control-sm c-owner-ch-input" data-idx="${idx}" data-field="name" value="${this._esc(c?.name || "")}" placeholder="例: 清掃G通知"></td>
+        <td>
+          <div class="d-flex gap-1">
+            <input class="form-control form-control-sm c-owner-ch-input" data-idx="${idx}" data-field="token" value="${this._esc(c?.token || "")}" placeholder="チャネルアクセストークン" type="password">
+            <button type="button" class="btn btn-sm btn-outline-info c-owner-ch-verify" data-idx="${idx}" title="トークン検証"><i class="bi bi-shield-check"></i></button>
+          </div>
+          <div class="small text-muted owner-ch-verify-result" data-idx="${idx}"></div>
+        </td>
+        <td><input class="form-control form-control-sm c-owner-ch-input" data-idx="${idx}" data-field="userId" value="${this._esc(c?.userId || "")}" placeholder="Uxxxxxxxx (任意)"></td>
+        <td><button type="button" class="btn btn-sm btn-outline-danger c-owner-ch-remove" data-idx="${idx}" title="削除"><i class="bi bi-x-lg"></i></button></td>
+      </tr>
+    `).join("");
 
     let html = `
       <div class="alert alert-info py-2 small">
         <i class="bi bi-info-circle"></i> 物件別グループLINE は物件ごとに複数 Bot を登録可能です（物件編集→LINE連携）。
       </div>
 
-      <h5 class="mt-3"><i class="bi bi-person-gear"></i> Webアプリ管理者LINE</h5>
+      <h5 class="mt-3"><i class="bi bi-person-gear"></i> Webアプリ管理者 LINE (メイン Bot)</h5>
       <div class="card mb-3"><div class="card-body p-2">
+        <p class="text-muted small mb-2">主に管理者向け通知 (notifyOwner) で使うチャネル。検証ボタンで LINE API に問い合わせて Bot 名を取得します。</p>
         <table class="table table-sm align-middle mb-0">
           <tbody>
-            <tr><td class="small" style="width:200px;">LINE Bot Channel Token</td><td>${tokenStat} <a href="#/notifications" class="ms-2 small">設定→</a></td></tr>
+            <tr>
+              <td class="small" style="width:200px;">チャネルアクセストークン</td>
+              <td>
+                <div class="d-flex gap-2">
+                  <input class="form-control form-control-sm" id="lineMainToken" type="password" value="${this._esc(s.lineChannelToken || "")}" placeholder="${tokenSet ? "(設定済 — 上書きする場合のみ入力)" : "Long-lived channel access token"}">
+                  <button type="button" class="btn btn-sm btn-outline-info" id="btnVerifyMainToken"><i class="bi bi-shield-check"></i> 検証</button>
+                  <button type="button" class="btn btn-sm btn-primary" id="btnSaveMainToken"><i class="bi bi-check-lg"></i> 保存</button>
+                </div>
+                <div class="small mt-1" id="lineMainTokenResult"></div>
+              </td>
+            </tr>
             <tr>
               <td class="small">Webアプリ管理者 LINE User ID</td>
               <td>
@@ -185,7 +228,7 @@ const ContactsPage = {
               </td>
             </tr>
             <tr>
-              <td class="small">グローバル Group ID (物件未指定時のフォールバック)</td>
+              <td class="small">グループ LINE ID (物件未指定時のフォールバック)</td>
               <td>
                 <div class="d-flex gap-2">
                   <input class="form-control form-control-sm c-line-input" data-target="settings" data-field="lineGroupId" value="${this._esc(s.lineGroupId || "")}" placeholder="Cxxxxxxxxxx...">
@@ -195,6 +238,19 @@ const ContactsPage = {
             </tr>
           </tbody>
         </table>
+      </div></div>
+
+      <h5 class="mt-3"><i class="bi bi-collection"></i> 追加 Bot (複数チャネル)</h5>
+      <div class="card mb-3"><div class="card-body p-2">
+        <p class="text-muted small mb-2">同じ管理者宛に異なる Bot からも通知したい場合に追加します。</p>
+        <table class="table table-sm align-middle mb-2">
+          <thead class="table-light"><tr><th style="width:160px;">Bot 名</th><th>チャネルアクセストークン</th><th style="width:200px;">送信先 User ID (任意)</th><th style="width:50px;"></th></tr></thead>
+          <tbody id="ownerLineChannelsRows">${channelRows}</tbody>
+        </table>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="btnAddOwnerLineChannel"><i class="bi bi-plus"></i> 追加 Bot を追加</button>
+          <button type="button" class="btn btn-sm btn-primary ms-auto" id="btnSaveOwnerLineChannels"><i class="bi bi-check-lg"></i> 一括保存</button>
+        </div>
       </div></div>
 
       <h5 class="mt-3"><i class="bi bi-people"></i> スタッフ / 物件オーナーの LINE User ID</h5>
@@ -309,6 +365,202 @@ const ContactsPage = {
     document.querySelectorAll(".c-token-delete-btn").forEach(btn => {
       btn.addEventListener("click", () => this.deleteToken(btn));
     });
+
+    // notifyEmails 一括管理
+    document.getElementById("btnAddNotifyEmail")?.addEventListener("click", () => this._addNotifyEmailRow());
+    document.querySelectorAll(".c-notify-email-remove").forEach(b => {
+      b.addEventListener("click", () => { b.closest("tr")?.remove(); this._reindexNotifyEmailRows(); });
+    });
+    document.getElementById("btnSaveNotifyEmails")?.addEventListener("click", () => this._saveNotifyEmails());
+
+    // メイン Bot トークン
+    document.getElementById("btnVerifyMainToken")?.addEventListener("click", () => this._verifyLineToken("lineMainToken", "lineMainTokenResult"));
+    document.getElementById("btnSaveMainToken")?.addEventListener("click", () => this._saveMainLineToken());
+
+    // 追加 Bot (ownerLineChannels)
+    document.getElementById("btnAddOwnerLineChannel")?.addEventListener("click", () => this._addOwnerChannelRow());
+    document.querySelectorAll(".c-owner-ch-remove").forEach(b => {
+      b.addEventListener("click", () => { b.closest("tr")?.remove(); this._reindexOwnerChannelRows(); });
+    });
+    document.querySelectorAll(".c-owner-ch-verify").forEach(b => {
+      b.addEventListener("click", () => {
+        const idx = b.dataset.idx;
+        const tokenInput = document.querySelector(`input.c-owner-ch-input[data-idx="${idx}"][data-field="token"]`);
+        const resultEl = document.querySelector(`.owner-ch-verify-result[data-idx="${idx}"]`);
+        this._verifyLineTokenValue(tokenInput?.value || "", resultEl);
+      });
+    });
+    document.getElementById("btnSaveOwnerLineChannels")?.addEventListener("click", () => this._saveOwnerLineChannels());
+  },
+
+  // ===== notifyEmails =====
+  _addNotifyEmailRow() {
+    const tbody = document.getElementById("notifyEmailsRows");
+    if (!tbody) return;
+    const idx = tbody.querySelectorAll("tr").length;
+    const tr = document.createElement("tr");
+    tr.dataset.emailIdx = idx;
+    tr.innerHTML = `
+      <td class="small text-muted"><span class="badge bg-secondary">追加 ${idx}</span></td>
+      <td><input class="form-control form-control-sm c-notify-email-input" data-idx="${idx}" value="" placeholder="example@gmail.com"></td>
+      <td></td>
+      <td><button type="button" class="btn btn-sm btn-outline-danger c-notify-email-remove" data-idx="${idx}"><i class="bi bi-x-lg"></i></button></td>
+    `;
+    tbody.appendChild(tr);
+    tr.querySelector(".c-notify-email-remove").addEventListener("click", () => { tr.remove(); this._reindexNotifyEmailRows(); });
+  },
+  _reindexNotifyEmailRows() {
+    const rows = document.querySelectorAll("#notifyEmailsRows tr");
+    rows.forEach((r, i) => {
+      r.dataset.emailIdx = i;
+      const badge = r.querySelector("td:first-child");
+      if (badge) badge.innerHTML = i === 0
+        ? '<span class="badge bg-primary">代表</span>'
+        : `<span class="badge bg-secondary">追加 ${i}</span>`;
+      const input = r.querySelector(".c-notify-email-input");
+      if (input) input.dataset.idx = i;
+    });
+  },
+  async _saveNotifyEmails() {
+    const btn = document.getElementById("btnSaveNotifyEmails");
+    const orig = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    try {
+      const inputs = document.querySelectorAll("#notifyEmailsRows .c-notify-email-input");
+      const emails = Array.from(inputs).map(i => (i.value || "").trim()).filter(Boolean);
+      // 重複除去 (順序維持)
+      const uniq = [...new Set(emails)];
+      const ownerEmail = uniq[0] || "";
+      await db.collection("settings").doc("notifications").set({
+        notifyEmails: uniq,
+        ownerEmail: ownerEmail, // 旧コード互換のため自動同期
+      }, { merge: true });
+      this.notifSettings = { ...(this.notifSettings || {}), notifyEmails: uniq, ownerEmail };
+      showToast("保存", `通知メール ${uniq.length} 件を保存しました (代表: ${ownerEmail || "なし"})`, "success");
+      // 再描画して連携バッジ更新
+      this.renderEmails();
+      this.bindEvents();
+    } catch (e) {
+      showToast("エラー", "保存失敗: " + e.message, "error");
+    } finally {
+      btn.disabled = false; btn.innerHTML = orig;
+    }
+  },
+
+  // ===== LINE トークン検証 =====
+  async _verifyLineToken(inputId, resultElId) {
+    const input = document.getElementById(inputId);
+    const resultEl = document.getElementById(resultElId);
+    return this._verifyLineTokenValue(input?.value || "", resultEl);
+  },
+  async _verifyLineTokenValue(token, resultEl) {
+    if (!resultEl) return;
+    if (!token || !token.trim()) {
+      resultEl.innerHTML = '<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> トークンが空です</span>';
+      return;
+    }
+    resultEl.innerHTML = '<span class="text-muted"><span class="spinner-border spinner-border-sm"></span> 検証中...</span>';
+    try {
+      const res = await API._fetch("/api/notifications/verify-line-token", {
+        method: "POST",
+        body: JSON.stringify({ token: token.trim() }),
+      });
+      if (res.ok && res.botInfo) {
+        resultEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> OK: <strong>${this._esc(res.botInfo.displayName || "(Bot 名なし)")}</strong> (${this._esc(res.botInfo.basicId || res.botInfo.userId || "")})</span>`;
+      } else {
+        resultEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> 無効: ${this._esc(res.error || "不明なエラー")}</span>`;
+      }
+    } catch (e) {
+      resultEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> 検証エラー: ${this._esc(e.message)}</span>`;
+    }
+  },
+  async _saveMainLineToken() {
+    const btn = document.getElementById("btnSaveMainToken");
+    const input = document.getElementById("lineMainToken");
+    const resultEl = document.getElementById("lineMainTokenResult");
+    const token = (input?.value || "").trim();
+    if (!token) {
+      showToast("確認", "トークンが空です。空のまま保存するとメイン Bot 通知が無効化されます。", "warning");
+    }
+    const orig = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    try {
+      // 検証 (トークンが入力されている場合のみ)
+      if (token) {
+        const res = await API._fetch("/api/notifications/verify-line-token", {
+          method: "POST",
+          body: JSON.stringify({ token }),
+        });
+        if (!res.ok) {
+          resultEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> 検証失敗: ${this._esc(res.error || "")} — 保存を中止しました</span>`;
+          throw new Error("検証失敗のため保存を中止");
+        }
+        resultEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> 検証成功 (${this._esc(res.botInfo?.displayName || "")})</span>`;
+      }
+      await db.collection("settings").doc("notifications").set({ lineChannelToken: token }, { merge: true });
+      if (this.notifSettings) this.notifSettings.lineChannelToken = token;
+      showToast("保存", "メイン Bot トークンを保存しました", "success");
+    } catch (e) {
+      showToast("エラー", e.message, "error");
+    } finally {
+      btn.disabled = false; btn.innerHTML = orig;
+    }
+  },
+
+  // ===== ownerLineChannels =====
+  _addOwnerChannelRow() {
+    const tbody = document.getElementById("ownerLineChannelsRows");
+    if (!tbody) return;
+    const idx = tbody.querySelectorAll("tr").length;
+    const tr = document.createElement("tr");
+    tr.dataset.chIdx = idx;
+    tr.innerHTML = `
+      <td><input class="form-control form-control-sm c-owner-ch-input" data-idx="${idx}" data-field="name" value="" placeholder="例: 清掃G通知"></td>
+      <td>
+        <div class="d-flex gap-1">
+          <input class="form-control form-control-sm c-owner-ch-input" data-idx="${idx}" data-field="token" value="" placeholder="チャネルアクセストークン" type="password">
+          <button type="button" class="btn btn-sm btn-outline-info c-owner-ch-verify" data-idx="${idx}"><i class="bi bi-shield-check"></i></button>
+        </div>
+        <div class="small text-muted owner-ch-verify-result" data-idx="${idx}"></div>
+      </td>
+      <td><input class="form-control form-control-sm c-owner-ch-input" data-idx="${idx}" data-field="userId" value="" placeholder="Uxxxxxxxx (任意)"></td>
+      <td><button type="button" class="btn btn-sm btn-outline-danger c-owner-ch-remove" data-idx="${idx}"><i class="bi bi-x-lg"></i></button></td>
+    `;
+    tbody.appendChild(tr);
+    tr.querySelector(".c-owner-ch-remove").addEventListener("click", () => { tr.remove(); this._reindexOwnerChannelRows(); });
+    tr.querySelector(".c-owner-ch-verify").addEventListener("click", () => {
+      const tokenInput = tr.querySelector('.c-owner-ch-input[data-field="token"]');
+      const resultEl = tr.querySelector(".owner-ch-verify-result");
+      this._verifyLineTokenValue(tokenInput?.value || "", resultEl);
+    });
+  },
+  _reindexOwnerChannelRows() {
+    document.querySelectorAll("#ownerLineChannelsRows tr").forEach((r, i) => {
+      r.dataset.chIdx = i;
+      r.querySelectorAll(".c-owner-ch-input,.c-owner-ch-remove,.c-owner-ch-verify,.owner-ch-verify-result").forEach(el => el.dataset.idx = i);
+    });
+  },
+  async _saveOwnerLineChannels() {
+    const btn = document.getElementById("btnSaveOwnerLineChannels");
+    const orig = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    try {
+      const rows = document.querySelectorAll("#ownerLineChannelsRows tr");
+      const channels = [];
+      rows.forEach(r => {
+        const name = r.querySelector('.c-owner-ch-input[data-field="name"]')?.value.trim() || "";
+        const token = r.querySelector('.c-owner-ch-input[data-field="token"]')?.value.trim() || "";
+        const userId = r.querySelector('.c-owner-ch-input[data-field="userId"]')?.value.trim() || "";
+        if (token) channels.push({ name, token, userId });
+      });
+      await db.collection("settings").doc("notifications").set({ ownerLineChannels: channels }, { merge: true });
+      if (this.notifSettings) this.notifSettings.ownerLineChannels = channels;
+      showToast("保存", `追加 Bot ${channels.length} 件を保存しました`, "success");
+    } catch (e) {
+      showToast("エラー", "保存失敗: " + e.message, "error");
+    } finally {
+      btn.disabled = false; btn.innerHTML = orig;
+    }
   },
 
   async deleteToken(btn) {

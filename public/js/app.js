@@ -317,6 +317,9 @@ const App = {
     // サイドバーセクションの折りたたみ初期化
     this._initSidebarSectionToggles();
 
+    // 上部 (管理者用) メニューをタッチしたら代理閲覧を解除
+    this._wireOwnerNavExitImpersonation();
+
     // impersonation 初期化（Webアプリ管理者のみ）
     this.initImpersonation().then(() => {
       // viewAsStaff プルダウン (impersonation と排他)
@@ -324,6 +327,27 @@ const App = {
       // サブオーナー impersonation プルダウン
       this.initImpersonateSelect();
       this.route();
+    });
+  },
+
+  /** 上部の管理者用メニューをクリックしたら代理閲覧を解除する
+   *  (subOwnerGroup 内のリンクは別ハンドラで impersonation を起動するので除外) */
+  _wireOwnerNavExitImpersonation() {
+    const ownerNav = document.getElementById("ownerNav");
+    if (!ownerNav) return;
+    ownerNav.querySelectorAll(":scope > a.nav-link").forEach(a => {
+      a.addEventListener("click", () => {
+        if (!this.impersonating) return;
+        try { localStorage.removeItem("impersonateAs"); } catch (_) {}
+        this.impersonating = null;
+        this.impersonatingData = null;
+        document.getElementById("impersonateBanner")?.remove();
+        // 物件オーナー画面の select も初期化
+        const sel = document.getElementById("ownerImpersonateSelect");
+        if (sel) sel.value = "";
+        this._renderSubOwnerMenuList("");
+        this._applyImpersonateNavVisibility();
+      });
     });
   },
 

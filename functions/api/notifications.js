@@ -265,5 +265,41 @@ module.exports = function notificationsApi(db) {
     res.json({ success: sentCount > 0, sentCount, failCount, results });
   });
 
+  // LINE チャネルアクセストークンの検証 (Bot info を取得して妥当性を判断)
+  // POST /notifications/verify-line-token { token: "..." }
+  router.post("/verify-line-token", requireOwner, async (req, res) => {
+    const { token } = req.body || {};
+    if (!token || typeof token !== "string") {
+      return res.status(400).json({ ok: false, error: "token は必須です" });
+    }
+    try {
+      const r = await fetch("https://api.line.me/v2/bot/info", {
+        method: "GET",
+        headers: { "Authorization": "Bearer " + token.trim() },
+      });
+      if (r.status === 200) {
+        const info = await r.json();
+        return res.json({
+          ok: true,
+          botInfo: {
+            displayName: info.displayName || "",
+            userId: info.userId || "",
+            basicId: info.basicId || "",
+            premiumId: info.premiumId || "",
+            pictureUrl: info.pictureUrl || "",
+          },
+        });
+      }
+      let errMsg = "トークンが無効です (HTTP " + r.status + ")";
+      try {
+        const j = await r.json();
+        if (j && j.message) errMsg = j.message;
+      } catch (_) {}
+      return res.json({ ok: false, error: errMsg, status: r.status });
+    } catch (e) {
+      return res.status(500).json({ ok: false, error: "検証中にエラー: " + e.message });
+    }
+  });
+
   return router;
 };
