@@ -74,8 +74,8 @@ const GuestGuidesPage = {
   async loadProperties() {
     try {
       const list = await API.properties.list(false);
-      // 民泊物件のみ対象（type === "minpaku"、未設定は民泊扱いで互換維持）
-      let minpakuOnly = list.filter(p => !p.type || p.type === "minpaku");
+      // 民泊物件のみ対象 (type === "minpaku" を厳密に判定)
+      let minpakuOnly = list.filter(p => p.type === "minpaku");
       // サブオーナー本人/impersonation 中は所有物件のみ
       if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
         const owned = new Set(App.impersonatingData.ownedPropertyIds || []);

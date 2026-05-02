@@ -402,14 +402,25 @@ const App = {
     }).join("");
     list.querySelectorAll(".sub-owner-menu-link").forEach(a => {
       a.addEventListener("click", (ev) => {
-        // impersonation を起動してから遷移
-        try { localStorage.setItem("impersonateAs", subOwnerId); } catch (_) {}
-        // 外部リンクはそのまま、ハッシュリンクはリロードして impersonation 反映
         const href = a.getAttribute("href") || "";
-        if (href.startsWith("#")) {
-          ev.preventDefault();
-          location.hash = href.slice(1);
-          window.location.reload();
+        // 外部リンク (target=_blank) はそのまま
+        if (a.getAttribute("target")) {
+          try { localStorage.setItem("impersonateAs", subOwnerId); } catch (_) {}
+          return;
+        }
+        // ハッシュリンク: リロードせずに impersonation を即座に切り替えてページ遷移
+        ev.preventDefault();
+        const subOwner = (this._subOwnerList || []).find(s => s.id === subOwnerId);
+        if (!subOwner) return;
+        try { localStorage.setItem("impersonateAs", subOwnerId); } catch (_) {}
+        this.impersonating = subOwnerId;
+        this.impersonatingData = subOwner;
+        this._showImpersonateBanner(subOwner);
+        // ハッシュ遷移 (同じハッシュでも route が動くよう一旦変えて戻す)
+        if (location.hash === href) {
+          this.route();
+        } else {
+          location.hash = href;
         }
       });
     });

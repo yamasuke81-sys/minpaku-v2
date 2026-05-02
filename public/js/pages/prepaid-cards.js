@@ -52,6 +52,17 @@ const PrepaidCardsPage = {
         ? 'コインランドリー店舗ごとに頭文字を設定し、番号は自動で3桁連番が付与されます。残高は洗濯物を出した時に自動減算されます。'
         : '閲覧のみ。変更はWebアプリ管理者にお問い合わせください。'}</p>
 
+      <!-- 物件フィルタ (ページ最上部に固定) -->
+      <div id="propEyeFilterHost-prepaidCards" class="mb-2"></div>
+      <div class="row g-2 align-items-end mb-3">
+        <div class="col-md-4">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="showUsedCards">
+            <label class="form-check-label small" for="showUsedCards">使用済み(残高0)のカードも表示</label>
+          </div>
+        </div>
+      </div>
+
       <!-- チャージ額 → 残高 ルール (店舗別、プリカ購入時に適用) -->
       ${this.isOwnerLevel ? `
       <div class="card mb-3">
@@ -65,17 +76,6 @@ const PrepaidCardsPage = {
           <button class="btn btn-sm btn-primary mt-1 ms-2" id="btnSaveChargeRules"><i class="bi bi-check"></i> 保存</button>
         </div>
       </div>` : ''}
-
-      <!-- 物件フィルタ (目アイコン型) -->
-      <div id="propEyeFilterHost-prepaidCards"></div>
-      <div class="row g-2 align-items-end mb-3">
-        <div class="col-md-4">
-          <div class="form-check form-switch">
-            <input class="form-check-input" type="checkbox" id="showUsedCards">
-            <label class="form-check-label small" for="showUsedCards">使用済み(残高0)のカードも表示</label>
-          </div>
-        </div>
-      </div>
 
       <div id="prepaidList" class="row g-3">
         <div class="col-12 text-muted">読込中...</div>

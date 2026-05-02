@@ -1277,18 +1277,27 @@ const CleaningFlowPage = {
             <div class="modal-body">
               <p class="small text-muted mb-2">コピー元の物件を選択してください。現在の設定は上書きされます。</p>
               <div class="mb-3 border rounded p-2">${optionsHtml}</div>
-              <div class="mb-2 fw-semibold small">コピー対象:</div>
+              <div class="mb-2 fw-semibold small">コピー対象を選んでください:</div>
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="cfImportChkOverrides" checked>
-                <label class="form-check-label small" for="cfImportChkOverrides">channelOverrides (通知の物件別設定)</label>
+                <label class="form-check-label small" for="cfImportChkOverrides">
+                  <strong>通知設定 (物件別の ON/OFF・宛先・タイミング)</strong>
+                  <div class="text-muted" style="font-size:11px;">各通知種別の有効化、送信先、何日前何時など</div>
+                </label>
               </div>
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="cfImportChkFlow">
-                <label class="form-check-label small" for="cfImportChkFlow">cleaningFlow (フロー memo)</label>
+                <label class="form-check-label small" for="cfImportChkFlow">
+                  <strong>清掃フローのメモ</strong>
+                  <div class="text-muted" style="font-size:11px;">各ステップに書いた手順メモをそのままコピー</div>
+                </label>
               </div>
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="cfImportChkFields">
-                <label class="form-check-label small" for="cfImportChkFields">showNoiseAgreement / miniGameEnabled / customFormEnabled</label>
+                <label class="form-check-label small" for="cfImportChkFields">
+                  <strong>その他の物件設定</strong>
+                  <div class="text-muted" style="font-size:11px;">騒音同意ON/OFF・ミニゲームON/OFF・カスタムフォームON/OFF</div>
+                </label>
               </div>
               <p class="text-warning small mt-2 mb-0"><i class="bi bi-exclamation-triangle"></i> コピー先「${this._esc(targetProp.name)}」の対象フィールドが上書きされます。</p>
             </div>
