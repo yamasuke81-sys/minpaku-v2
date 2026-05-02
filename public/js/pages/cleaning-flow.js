@@ -776,7 +776,7 @@ const CleaningFlowPage = {
       { field: "groupLine",     label: "グループLINE",     icon: "bi-people-fill",       globalVal: !!globalCh.groupLine },
       { field: "staffLine",     label: "スタッフLINE",     icon: "bi-person-lines-fill", globalVal: !!globalCh.staffLine },
       { field: "ownerEmail",    label: "Webアプリ管理者メール",   icon: "bi-envelope",          globalVal: !!globalCh.ownerEmail },
-      { field: "propertyEmail", label: "物件メール (cc)",  icon: "bi-envelope-at",       globalVal: !!globalCh.propertyEmail },
+      { field: "propertyEmail", label: "物件 Gmail (cc)", icon: "bi-envelope-at",       globalVal: !!globalCh.propertyEmail },
     ];
 
     const boolRows = boolFields.map(({ field, label, icon, globalVal }) => {
@@ -946,7 +946,7 @@ const CleaningFlowPage = {
             </label>
             <label class="form-check form-check-inline mb-0 small">
               <input class="form-check-input rf-notif-field" type="checkbox" data-notif-key="${key}" data-field="propertyEmail" ${propertyEmail ? "checked" : ""}>
-              <span><i class="bi bi-envelope-at text-primary"></i> 物件メール</span>
+              <span><i class="bi bi-envelope-at text-primary"></i> 物件 Gmail</span>
             </label>
             <label class="form-check form-check-inline mb-0 small">
               <input class="form-check-input rf-notif-field" type="checkbox" data-notif-key="${key}" data-field="discordOwner" ${discordOwner ? "checked" : ""}>

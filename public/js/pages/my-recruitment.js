@@ -853,9 +853,17 @@ const MyRecruitmentPage = {
             <span class="badge" style="background:${p._color};color:#fff;">${p._num}</span> <i class="bi bi-eye text-muted"></i>
           </button>`).join("")
         : "";
+      // サブオーナーのみ「自物件だけ」フィルタを「物件名」セクションに表示
+      const myPropFilterBtn = (this._isSubOwnerView || (typeof App !== "undefined" && App.impersonating && App.impersonatingData))
+        ? (() => {
+            const active = this._propFilter === "myProp";
+            return `<button type="button" id="btnPropMyOnly" class="ms-2" style="border:1px solid ${active ? '#0d6efd' : '#ced4da'};background:${active ? '#0d6efd' : '#fff'};color:${active ? '#fff' : '#495057'};border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;cursor:pointer;">${active ? '✓ ' : ''}自物件だけ <i class="bi bi-house-door"></i></button>`;
+          })()
+        : "";
       html += `<tr class="section-header"><td style="background:#eef5ff;font-weight:bold;font-size:13px;padding:6px 10px;" colspan="${allDates.length + 1}">
         <span class="section-content">
-          <i class="bi bi-building"></i> 物件別 宿泊・募集状況
+          <i class="bi bi-building"></i> 物件名
+          ${myPropFilterBtn}
           ${hiddenProps.length ? `<span class="text-muted ms-2" style="font-weight:normal;font-size:11px;">非表示${hiddenProps.length}件:</span>${restoreButtons}` : `<small class="text-muted ms-2">(目のアイコンで表示切替)</small>`}
         </span>
       </td></tr>`;
