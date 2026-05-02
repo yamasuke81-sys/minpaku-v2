@@ -250,6 +250,18 @@ const DashboardPage = {
         this.propertyFilter[p.id] = this.selectedPropertyIds.includes(p.id);
       });
 
+      // サブオーナー (impersonating 中も含む) は所有物件のみに絞り込み
+      let allowedPropIds = null;
+      if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
+        allowedPropIds = new Set(App.impersonatingData.ownedPropertyIds || []);
+      } else if (typeof Auth !== "undefined" && Auth.isSubOwner && Auth.isSubOwner()) {
+        allowedPropIds = new Set(Array.isArray(Auth.currentUser?.ownedPropertyIds) ? Auth.currentUser.ownedPropertyIds : []);
+      }
+      if (allowedPropIds) {
+        this.properties = this.properties.filter(p => allowedPropIds.has(p.id));
+        bookings = bookings.filter(b => !b.propertyId || allowedPropIds.has(b.propertyId));
+        recruitments = recruitments.filter(r => !r.propertyId || allowedPropIds.has(r.propertyId));
+      }
       this.bookings = bookings;
       this.recruitments = recruitments;
       this.staffList = staff;

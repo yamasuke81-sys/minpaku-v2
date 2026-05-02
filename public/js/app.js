@@ -228,14 +228,8 @@ const App = {
       wrap.classList.add("d-none");
       return;
     }
-    // impersonation中は viewAsStaff を排他で無効化
-    if (this.impersonating) {
-      wrap.classList.add("d-none");
-      this.viewAsStaffId = null;
-      this.viewAsStaffName = null;
-      try { localStorage.removeItem("viewAsStaffId"); } catch (_) {}
-      return;
-    }
+    // impersonating 中も viewAsStaff は使う (物件オーナー画面 > スタッフ画面で選択)
+    // ただし候補は impersonating 中は _refreshStaffViewSelect で物件オーナーの担当物件のスタッフのみに絞る
     try {
       const list = await API.staff.list(true);
       // 物件オーナー(isSubOwner) と 自分(isOwner) は除外、active のみ、displayOrder順
@@ -269,10 +263,9 @@ const App = {
 
   /** my-* ページが「効果的な staffId」を取得するためのヘルパー。
    *  管理者かつ viewAsStaff 設定中、かつ現在ページが対象3ページの時のみ viewAsStaffId を返す。
-   *  それ以外（schedule タブ等）は null を返してスタッフ視点の影響を出さない。 */
+   *  impersonating 中も viewAsStaff は有効 (物件オーナー画面 > スタッフ画面のネスト構造)。 */
   getViewAsStaffId() {
     if (!Auth.isOwner()) return null;
-    if (this.impersonating) return null;
     if (!this.VIEW_AS_TARGET_PAGES.includes(this.currentPage)) return null;
     return this.viewAsStaffId || null;
   },
