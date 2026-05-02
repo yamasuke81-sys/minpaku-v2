@@ -1336,10 +1336,15 @@ const MyRecruitmentPage = {
     });
 
     // 「表示中物件だけ」フィルタ (スタッフセクション、staff-filter-btn 共通)
+    // 多重バインド防止: dataset.wired でガード (renderCalendar 二重呼出時にトグルが相殺されるバグ対策)
     container.querySelectorAll(".staff-filter-btn").forEach(btn => {
+      if (btn.dataset.wired === "1") return;
+      btn.dataset.wired = "1";
       btn.addEventListener("click", () => {
         const mode = btn.dataset.filter;
-        this._staffFilter = (this._staffFilter === mode) ? "all" : mode;
+        const newVal = (this._staffFilter === mode) ? "all" : mode;
+        console.log("[staffFilter]", this._staffFilter, "→", newVal);
+        this._staffFilter = newVal;
         this._saveSettings();
         this.renderCalendar();
       });
