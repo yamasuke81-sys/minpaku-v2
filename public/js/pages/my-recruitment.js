@@ -1013,18 +1013,12 @@ const MyRecruitmentPage = {
       });
 
       // セクション見出し: スタッフ
-      const filterBtn = (mode, label, icon) => {
-        const active = this._staffFilter === mode;
-        return `<button type="button" class="ms-1 staff-filter-btn" data-filter="${mode}" style="border:1px solid ${active ? '#0d6efd' : '#ced4da'};background:${active ? '#0d6efd' : '#fff'};color:${active ? '#fff' : '#495057'};border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;cursor:pointer;">${active ? '✓ ' : ''}${label} <i class="bi ${icon}"></i></button>`;
-      };
       html += `<tr class="section-header"><td style="background:#eef5ff;font-weight:bold;font-size:13px;padding:6px 10px;" colspan="${allDates.length + 1}">
         <span class="section-content">
-          <i class="bi bi-people"></i> スタッフ別 回答状況
+          <i class="bi bi-people"></i> スタッフ
           <button type="button" id="btnShowOnlyMe" class="ms-2" style="border:1px solid ${this._showOnlyMe ? '#0d6efd' : '#ced4da'};background:${this._showOnlyMe ? '#0d6efd' : '#fff'};color:${this._showOnlyMe ? '#fff' : '#495057'};border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;cursor:pointer;">
             ${this._showOnlyMe ? '✓ ' : ''}自分だけ <i class="bi bi-eye"></i>
           </button>
-          ${filterBtn("myProp", "自物件だけ", "bi-house-door")}
-          ${filterBtn("visibleProp", "表示中物件だけ", "bi-eye-fill")}
         </span>
       </td></tr>`;
     }
@@ -1302,14 +1296,21 @@ const MyRecruitmentPage = {
       this.renderCalendar();
     });
 
-    // 「自物件だけ / 表示中物件だけ」フィルタ (同じボタンの再クリックで解除)
-    container.querySelectorAll(".staff-filter-btn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const mode = btn.dataset.filter;
-        this._staffFilter = (this._staffFilter === mode) ? "all" : mode;
+    // 物件名セクションの「自物件だけ」ボタン (サブオーナー視点のみ表示)
+    // 自分の所有物件だけ目アイコン ON、他は OFF にして再描画
+    document.getElementById("btnPropMyOnly")?.addEventListener("click", () => {
+      const ownedIds = (typeof App !== "undefined" && App.impersonating && App.impersonatingData)
+        ? new Set(App.impersonatingData.ownedPropertyIds || [])
+        : new Set(this._ownedPropertyIds || []);
+      const newVis = {};
+      this.minpakuProperties.forEach(p => { newVis[p.id] = ownedIds.has(p.id); });
+      // 全物件 OFF を回避: 1件もマッチしない場合は何もしない
+      if (Object.values(newVis).some(v => v)) {
+        this._propertyVisibility = newVis;
+        this._propFilter = "myProp";
         this._saveSettings();
         this.renderCalendar();
-      });
+      }
     });
 
     // 物件表示トグル (セル内の目アイコンボタン)

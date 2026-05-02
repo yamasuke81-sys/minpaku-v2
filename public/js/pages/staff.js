@@ -106,6 +106,15 @@ const StaffPage = {
   async loadStaff(activeOnly) {
     try {
       this.staffList = await API.staff.list(activeOnly);
+      // 重複 ID 除去 (Firestore 上の重複ドキュメントが画面に二重表示されるのを防ぐ)
+      const seenIds = new Set();
+      const dups = [];
+      this.staffList = this.staffList.filter(s => {
+        if (seenIds.has(s.id)) { dups.push(s.id); return false; }
+        seenIds.add(s.id);
+        return true;
+      });
+      if (dups.length) console.warn("[staff] 重複 ID を表示から除去:", dups);
       // サブオーナー本人ログイン: 自所有物件を担当しているスタッフのみ表示
       if (Auth.isSubOwner()) {
         const owned = Array.isArray(Auth.currentUser?.ownedPropertyIds)
@@ -921,6 +930,21 @@ const StaffPage = {
   },
 
   async saveStaff() {
+    // 二重押下防止 (連打で同名スタッフが2件作られる問題の対策)
+    if (this._saving) return;
+    this._saving = true;
+    const saveBtn = document.getElementById("btnSaveStaff");
+    const origBtnHtml = saveBtn ? saveBtn.innerHTML : "";
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 保存中...'; }
+    try {
+      await this._saveStaffInner();
+    } finally {
+      this._saving = false;
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = origBtnHtml; }
+    }
+  },
+
+  async _saveStaffInner() {
     const id = document.getElementById("staffEditId").value;
     const name = document.getElementById("staffName").value.trim();
 
