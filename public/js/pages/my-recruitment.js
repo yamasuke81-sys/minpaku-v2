@@ -433,18 +433,22 @@ const MyRecruitmentPage = {
       db.collection("staff").where("active", "==", true).get(),
     ]);
 
-    // impersonation (メインWebアプリ管理者が物件オーナー代理閲覧中) の絞り込み
-    // A = 自分(物件オーナー)が owned の物件
+    // 物件オーナー視点での絞り込み (impersonation または サブオーナー本人ログイン)
+    // A = オーナーが owned の物件
     // X = A のいずれかを担当するスタッフ
     // B = X が担当している別の物件 (A に含まれない物件も含む)
     // 表示物件 = A ∪ B、表示スタッフ = X
     let impersonatedAllowedProps = null;
     let impersonatedAllowedStaff = null;
-    if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
-      const ownedA = new Set(App.impersonatingData.ownedPropertyIds || []);
+    const isImpersonating = (typeof App !== "undefined" && App.impersonating && App.impersonatingData);
+    const isSubOwnerSelf = this._isSubOwnerView === true;
+    if (isImpersonating || isSubOwnerSelf) {
+      const ownerOwnedIds = isImpersonating
+        ? (App.impersonatingData.ownedPropertyIds || [])
+        : (this._ownedPropertyIds || []);
+      const ownedA = new Set(ownerOwnedIds);
       // 全 active staff から X を抽出
-      const allActiveStaff = (await db.collection("staff").where("active", "==", true).get())
-        .docs.map(d => ({ id: d.id, ...d.data() }));
+      const allActiveStaff = staffSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       const staffX = allActiveStaff.filter(s => {
         const assigned = Array.isArray(s.assignedPropertyIds) ? s.assignedPropertyIds : [];
         return assigned.some(pid => ownedA.has(pid));
