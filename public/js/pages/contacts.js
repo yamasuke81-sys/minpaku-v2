@@ -194,7 +194,13 @@ const ContactsPage = {
           </div>
           <div class="small text-muted owner-ch-verify-result" data-idx="${idx}"></div>
         </td>
-        <td><input class="form-control form-control-sm c-owner-ch-input" data-idx="${idx}" data-field="userId" value="${this._esc(c?.userId || "")}" placeholder="Uxxxxxxxx (任意)"></td>
+        <td>
+          <div class="d-flex gap-1">
+            <input class="form-control form-control-sm c-owner-ch-input" data-idx="${idx}" data-field="userId" value="${this._esc(c?.userId || "")}" placeholder="Uxxxxxxxx (任意)">
+            <button type="button" class="btn btn-sm btn-outline-info c-owner-ch-lookup-user" data-idx="${idx}" title="アカウント名取得"><i class="bi bi-search"></i></button>
+          </div>
+          <div class="small text-muted owner-ch-user-result" data-idx="${idx}"></div>
+        </td>
         <td><button type="button" class="btn btn-sm btn-outline-danger c-owner-ch-remove" data-idx="${idx}" title="削除"><i class="bi bi-x-lg"></i></button></td>
       </tr>
     `).join("");
@@ -268,11 +274,19 @@ const ContactsPage = {
               <tr data-staff-id="${staff.id}">
                 <td class="small">${this._esc(staff.name || "(無名)")}</td>
                 <td>
-                  <input class="form-control form-control-sm c-line-input" data-target="staff" data-staff-id="${staff.id}" data-field="lineUserId" value="${this._esc(staff.lineUserId || "")}" placeholder="Uxxxxxxxxxx...">
+                  <div class="d-flex gap-1">
+                    <input class="form-control form-control-sm c-line-input" id="staffLine_${staff.id}" data-target="staff" data-staff-id="${staff.id}" data-field="lineUserId" value="${this._esc(staff.lineUserId || "")}" placeholder="Uxxxxxxxxxx...">
+                    <button type="button" class="btn btn-sm btn-outline-info c-staff-line-lookup" data-input="staffLine_${staff.id}" data-result="staffLineRes_${staff.id}" title="アカウント名取得"><i class="bi bi-search"></i></button>
+                  </div>
+                  <div class="small mt-1" id="staffLineRes_${staff.id}"></div>
                 </td>
                 <td>
                   ${staff.isSubOwner ? `
-                    <input class="form-control form-control-sm c-line-input" data-target="staff" data-staff-id="${staff.id}" data-field="subOwnerLineUserId" value="${this._esc(staff.subOwnerLineUserId || "")}" placeholder="Uxxxxxxxxxx...">
+                    <div class="d-flex gap-1">
+                      <input class="form-control form-control-sm c-line-input" id="subOwnLine_${staff.id}" data-target="staff" data-staff-id="${staff.id}" data-field="subOwnerLineUserId" value="${this._esc(staff.subOwnerLineUserId || "")}" placeholder="Uxxxxxxxxxx...">
+                      <button type="button" class="btn btn-sm btn-outline-info c-staff-line-lookup" data-input="subOwnLine_${staff.id}" data-result="subOwnLineRes_${staff.id}" title="アカウント名取得"><i class="bi bi-search"></i></button>
+                    </div>
+                    <div class="small mt-1" id="subOwnLineRes_${staff.id}"></div>
                   ` : '<span class="text-muted small">—</span>'}
                 </td>
                 <td><button class="btn btn-sm btn-primary c-save-row-btn" data-target="staff" data-staff-id="${staff.id}">保存</button></td>
@@ -283,11 +297,13 @@ const ContactsPage = {
       </div></div>
 
       <h5 class="mt-3"><i class="bi bi-buildings"></i> 物件別 LINE Bot (グループLINE 送信元)</h5>
-      <p class="text-muted small mb-2">この画面の編集は物件編集 (LINE 連携) と同期します。各 Bot は最大 ${LINE_CHANNELS_MAX_CONTACTS} 件まで登録可能。</p>
-      <div class="card mb-3"><div class="card-body p-2">
-        ${this.properties.length === 0
-          ? '<div class="text-muted small">物件なし</div>'
-          : this.properties.map(p => {
+      <p class="text-muted small mb-2">この画面の編集は物件編集 (LINE 連携) と同期します。各 Bot は最大 ${LINE_CHANNELS_MAX_CONTACTS} 件まで登録可能。民泊物件のみ表示。</p>
+      ${(() => {
+        const minpaku = this.properties.filter(p => p.type === "minpaku");
+        return `<div class="card mb-3"><div class="card-body p-2">
+        ${minpaku.length === 0
+          ? '<div class="text-muted small">民泊物件なし</div>'
+          : minpaku.map(p => {
               const channels = Array.isArray(p.lineChannels) ? p.lineChannels : [];
               const collapseId = `prop-line-${p.id}`;
               return `
@@ -305,7 +321,8 @@ const ContactsPage = {
                   </div>
                 </div>`;
             }).join("")}
-      </div></div>
+      </div></div>`;
+      })()}
     `;
     document.getElementById("linesArea").innerHTML = html;
   },
@@ -454,6 +471,26 @@ const ContactsPage = {
       });
     });
     document.getElementById("btnSaveOwnerLineChannels")?.addEventListener("click", () => this._saveOwnerLineChannels());
+
+    // 追加 Bot の userId 検索
+    document.querySelectorAll(".c-owner-ch-lookup-user").forEach(b => {
+      b.addEventListener("click", () => {
+        const idx = b.dataset.idx;
+        const userInput = document.querySelector(`.c-owner-ch-input[data-idx="${idx}"][data-field="userId"]`);
+        const tokenInput = document.querySelector(`.c-owner-ch-input[data-idx="${idx}"][data-field="token"]`);
+        const resultEl = document.querySelector(`.owner-ch-user-result[data-idx="${idx}"]`);
+        this._lookupLineProfileWithToken("user", userInput?.value || "", tokenInput?.value || "", resultEl);
+      });
+    });
+
+    // スタッフ / 物件オーナーの LINE User ID 検索
+    document.querySelectorAll(".c-staff-line-lookup").forEach(b => {
+      b.addEventListener("click", () => {
+        const input = document.getElementById(b.dataset.input);
+        const result = document.getElementById(b.dataset.result);
+        this._lookupLineProfile("user", input?.value || "", result);
+      });
+    });
 
     // 物件別 LINE channels 編集
     this._bindPropChannelEvents();
@@ -669,7 +706,10 @@ const ContactsPage = {
     try {
       const res = await this._callApi("/api/notifications/verify-line-token", { token: token.trim() });
       if (res.ok && res.botInfo) {
-        resultEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> OK: <strong>${this._esc(res.botInfo.displayName || "(Bot 名なし)")}</strong> (${this._esc(res.botInfo.basicId || res.botInfo.userId || "")})</span>`;
+        const pic = res.botInfo.pictureUrl
+          ? `<img src="${this._esc(res.botInfo.pictureUrl)}" style="width:20px;height:20px;border-radius:50%;vertical-align:middle;margin-right:4px;">`
+          : "";
+        resultEl.innerHTML = `<span class="text-success">${pic}<i class="bi bi-check-circle"></i> OK: <strong>${this._esc(res.botInfo.displayName || "(Bot 名なし)")}</strong> (${this._esc(res.botInfo.basicId || res.botInfo.userId || "")})</span>`;
       } else {
         resultEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> 無効: ${this._esc(res.error || "不明なエラー")}</span>`;
       }
