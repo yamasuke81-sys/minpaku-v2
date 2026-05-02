@@ -314,12 +314,72 @@ const App = {
     // スタッフ側のプリカ管理タブ: 担当物件に紐づくカードがある場合のみ表示
     if (role === "staff") this._maybeShowStaffPrepaidNav();
 
+    // サイドバーセクションの折りたたみ初期化
+    this._initSidebarSectionToggles();
+
     // impersonation 初期化（Webアプリ管理者のみ）
     this.initImpersonation().then(() => {
       // viewAsStaff プルダウン (impersonation と排他)
       this.initViewAsStaffSelect();
+      // サブオーナー impersonation プルダウン
+      this.initImpersonateSelect();
       this.route();
     });
+  },
+
+  /** スタッフ画面/サブオーナー画面セクションの折りたたみ */
+  _initSidebarSectionToggles() {
+    document.querySelectorAll(".sidebar-section-toggle").forEach(hdr => {
+      const groupId = hdr.dataset.sectionGroup;
+      const body = document.getElementById(groupId);
+      if (!body) return;
+      const storeKey = "sidebarSection_" + groupId;
+      const stored = localStorage.getItem(storeKey);
+      const collapsed = stored === "1";
+      if (collapsed) {
+        hdr.classList.add("collapsed");
+        body.classList.add("d-none-collapsed");
+      }
+      hdr.addEventListener("click", () => {
+        const nowCollapsed = !hdr.classList.contains("collapsed");
+        hdr.classList.toggle("collapsed", nowCollapsed);
+        body.classList.toggle("d-none-collapsed", nowCollapsed);
+        try { localStorage.setItem(storeKey, nowCollapsed ? "1" : "0"); } catch (_) {}
+      });
+    });
+  },
+
+  /** サブオーナー impersonation 用プルダウン (Webアプリ管理者のみ) */
+  async initImpersonateSelect() {
+    const wrap = document.getElementById("ownerImpersonateWrap");
+    const sel = document.getElementById("ownerImpersonateSelect");
+    if (!wrap || !sel) return;
+    if (!Auth.isOwner || !Auth.isOwner()) {
+      wrap.closest(".sidebar-section-body")?.classList.add("d-none");
+      const hdr = document.querySelector('.sidebar-section-toggle[data-section-group="subOwnerGroup"]');
+      if (hdr) hdr.classList.add("d-none");
+      return;
+    }
+    try {
+      const list = await API.staff.list(true);
+      const subOwners = list
+        .filter(s => s.isSubOwner && s.active !== false && s.name)
+        .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+      const current = this.impersonating || "";
+      sel.innerHTML = '<option value="">— 選択してください —</option>' +
+        subOwners.map(s => `<option value="${s.id}" ${s.id === current ? "selected" : ""}>${this.escapeHtml(s.name)}</option>`).join("");
+      sel.addEventListener("change", (e) => {
+        const v = e.target.value;
+        if (v) {
+          try { localStorage.setItem("impersonateAs", v); } catch (_) {}
+        } else {
+          try { localStorage.removeItem("impersonateAs"); } catch (_) {}
+        }
+        window.location.reload();
+      });
+    } catch (e) {
+      console.warn("[impersonateSelect] 初期化失敗:", e.message);
+    }
   },
 
   // スタッフの担当物件に紐づくプリカが存在する時だけサイドバーに「プリカ管理」を表示

@@ -50,6 +50,11 @@ body { background: var(--bg); margin: 0; padding: 0; font-family: -apple-system,
 .sidebar-nav .nav-link i { font-size: 1.1rem; width: 20px; text-align: center; flex-shrink: 0; }
 
 .sidebar-section { padding: 16px 12px 4px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: #475569; font-weight: 700; }
+.sidebar-section-toggle { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 4px; }
+.sidebar-section-toggle:hover { color: #94a3b8; }
+.sidebar-section-toggle .section-chevron { transition: transform 0.18s ease; font-size: 0.7rem; }
+.sidebar-section-toggle.collapsed .section-chevron { transform: rotate(-90deg); }
+.sidebar-section-body.d-none-collapsed { display: none !important; }
 
 .sidebar-footer {
   padding: 12px; border-top: 1px solid rgba(255,255,255,0.08);
