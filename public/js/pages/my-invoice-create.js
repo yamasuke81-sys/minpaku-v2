@@ -565,11 +565,11 @@ const MyInvoiceCreatePage = {
         : "";
       return `
       <tr${trCls}>
-        <td class="small">${this._esc(r.date || "")}</td>
-        <td class="small">${catHtml}</td>
-        <td class="text-end small">¥${Number(r.unitPrice || 0).toLocaleString()}</td>
-        <td class="text-muted small">${this._esc(r.note || "")}</td>
-        <td class="text-end">${excludeBtn}</td>
+        <td class="small" style="white-space:nowrap;">${this._esc(r.date || "")}</td>
+        <td class="small" style="white-space:nowrap;">${catHtml}</td>
+        <td class="text-end small" style="white-space:nowrap;">¥${Number(r.unitPrice || 0).toLocaleString()}</td>
+        <td class="text-muted small" style="white-space:nowrap;">${this._esc(r.note || "")}</td>
+        <td class="text-end" style="white-space:nowrap;">${excludeBtn}</td>
       </tr>
     `;
     }).join("");
@@ -595,7 +595,7 @@ const MyInvoiceCreatePage = {
         <details class="mt-2">
           <summary class="text-muted small" style="cursor:pointer;">除外済み ${excludedRows.length}件 ▸</summary>
           <div class="table-responsive mt-2">
-            <table class="table table-sm table-borderless align-middle mb-0">
+            <table class="table table-sm table-borderless align-middle mb-0" style="min-width:640px;">
               <tbody>${exBody}</tbody>
             </table>
           </div>
@@ -605,14 +605,14 @@ const MyInvoiceCreatePage = {
 
     el.innerHTML = `
       <div class="table-responsive">
-        <table class="table table-sm table-hover align-middle mb-0">
+        <table class="table table-sm table-hover align-middle mb-0" style="min-width:640px;">
           <thead class="table-light">
             <tr>
-              <th style="width:110px;">日付</th>
-              <th>項目</th>
-              <th class="text-end" style="width:110px;">単価</th>
-              <th>備考</th>
-              <th style="width:100px;"></th>
+              <th style="width:110px; white-space:nowrap;">日付</th>
+              <th style="min-width:120px; white-space:nowrap;">項目</th>
+              <th class="text-end" style="width:110px; white-space:nowrap;">単価</th>
+              <th style="min-width:140px;">備考</th>
+              <th style="width:100px; white-space:nowrap;"></th>
             </tr>
           </thead>
           <tbody>${body}</tbody>

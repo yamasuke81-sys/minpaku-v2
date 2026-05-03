@@ -127,15 +127,17 @@ async function emailVerificationCore(db, opts = {}) {
     errors: [],
   };
 
-  // 1. アクティブ物件の verificationEmails[] を全部集める
+  // 1. アクティブ物件の verificationEmails[] を全部集める (ownerId も保持)
   const propsSnap = await db.collection("properties").where("active", "==", true).get();
   const verificationTargets = [];
   for (const p of propsSnap.docs) {
-    const veList = Array.isArray(p.data().verificationEmails) ? p.data().verificationEmails : [];
+    const pData = p.data();
+    const veList = Array.isArray(pData.verificationEmails) ? pData.verificationEmails : [];
     for (const ve of veList) {
       if (ve && ve.email) {
         verificationTargets.push({
           propertyId: p.id,
+          ownerId: pData.ownerId || "",  // サブオーナー対応スコープ用
           platform: ve.platform || "Unknown",
           email: ve.email,
         });
@@ -168,10 +170,27 @@ async function emailVerificationCore(db, opts = {}) {
   }
 
   // 4. アカウントごとに巡回
-  const uniqueEmails = [...new Set(verificationTargets.map((t) => t.email))];
+  // サブオーナー対応: 各トークンの ownerId に紐づく物件 (verificationTargets) のみを処理対象にする
+  // - tokenData.ownerId が無いトークンは「未帰属」として警告ログのみ (照合スキップ)
+  // - サブオーナーの Gmail でメインオーナー物件のメールを処理しない / 逆も
   for (const tokenDoc of tokensSnap.docs) {
     const tokenData = tokenDoc.data();
     if (!tokenData.refreshToken) continue;
+    const tokenOwnerId = tokenData.ownerId || "";
+    if (!tokenOwnerId) {
+      log.warn && log.warn(`[emailVerification] token.ownerId 未設定のためスキップ: ${tokenData.email || tokenDoc.id}`);
+      result.skipped++;
+      continue;
+    }
+
+    // このトークンのオーナーが所有する verificationTargets だけに絞る
+    const myTargets = verificationTargets.filter((t) => t.ownerId === tokenOwnerId);
+    if (myTargets.length === 0) {
+      log.info && log.info(`[emailVerification] owner=${tokenOwnerId} に紐づく verificationEmails 無し (${tokenData.email})`);
+      continue;
+    }
+    const myUniqueEmails = [...new Set(myTargets.map((t) => t.email))];
+
     try {
       const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
       oauth2Client.setCredentials({ refresh_token: tokenData.refreshToken });
@@ -179,7 +198,7 @@ async function emailVerificationCore(db, opts = {}) {
 
       // ラベル機能は gmail.modify スコープが必要なため使用しない。
       // 重複処理は emailVerifications/{messageId} のドキュメント存在チェックで防ぐ。
-      const query = buildGmailQuery(uniqueEmails, null);
+      const query = buildGmailQuery(myUniqueEmails, null);
       if (!query) continue;
 
       const listRes = await gmail.users.messages.list({
@@ -213,7 +232,8 @@ async function emailVerificationCore(db, opts = {}) {
           const dateHeader = getHeader(headers, "Date") || "";
           const bodyText = extractBody(detail.data.payload, true);
           const bodyHtml = extractBody(detail.data.payload, false);
-          const matched = matchVerificationTarget(toHeader, verificationTargets);
+          // myTargets のみで照合 (他オーナーの物件メアドにヒットさせない)
+          const matched = matchVerificationTarget(toHeader, myTargets);
           const propertyId = matched ? matched.propertyId : null;
           // platform は from ヘッダから判定する (verificationTargets に同じメアドを
           // 複数 platform で登録した場合でも正しく識別するため)
@@ -243,13 +263,27 @@ async function emailVerificationCore(db, opts = {}) {
 
           if (extractedInfo && extractedInfo.reservationCode) {
             // 関連する bookings を取得 (propertyId でスコープできればそれで絞る)
+            // サブオーナー対応: propertyId 不明時も「このオーナーの物件」に限定して横断
             try {
-              let bookingsQuery = db.collection("bookings");
+              let bookingsArr = [];
               if (propertyId) {
-                bookingsQuery = bookingsQuery.where("propertyId", "==", propertyId);
+                const snap = await db.collection("bookings")
+                  .where("propertyId", "==", propertyId).limit(500).get();
+                bookingsArr = snap.docs.map((d) => ({ id: d.id, data: d.data() }));
+              } else {
+                // 共用メアド等 To ヘッダで物件特定できなかった場合: このオーナーの全物件 bookings から探す
+                const myPropertyIds = myTargets.map((t) => t.propertyId);
+                const uniquePids = [...new Set(myPropertyIds)];
+                // Firestore "in" は 30 件まで。それを超える場合は分割クエリ
+                const chunks = [];
+                for (let i = 0; i < uniquePids.length; i += 30) chunks.push(uniquePids.slice(i, i + 30));
+                for (const chunk of chunks) {
+                  if (chunk.length === 0) continue;
+                  const snap = await db.collection("bookings")
+                    .where("propertyId", "in", chunk).limit(500).get();
+                  bookingsArr.push(...snap.docs.map((d) => ({ id: d.id, data: d.data() })));
+                }
               }
-              const bookingsSnap = await bookingsQuery.limit(500).get();
-              const bookingsArr = bookingsSnap.docs.map((d) => ({ id: d.id, data: d.data() }));
               bookingMatch = findBookingMatch(bookingsArr, extractedInfo, propertyId);
 
               if (bookingMatch && bookingMatch.id) {

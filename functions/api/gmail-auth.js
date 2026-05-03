@@ -36,20 +36,21 @@ module.exports = function gmailAuthApi(db) {
     return "default";
   }
 
-  // state = `${context}|${email}|${propertyId}` 形式
-  // 旧仕様 (email 単体) は default として後方互換
+  // state = `${context}|${email}|${propertyId}|${ownerId}` 形式
+  // 旧仕様 (email 単体 / ownerId 無し) は後方互換で受ける
   function parseState_(state) {
-    if (!state) return { context: "default", email: "", propertyId: "" };
+    if (!state) return { context: "default", email: "", propertyId: "", ownerId: "" };
     const parts = state.split("|");
     const ctx = parts[0];
     if (ctx !== "default" && ctx !== "emailVerification" && ctx !== "property") {
       // 旧仕様: state = email のみ
-      return { context: "default", email: state, propertyId: "" };
+      return { context: "default", email: state, propertyId: "", ownerId: "" };
     }
     return {
       context: ctx,
       email: parts[1] || "",
       propertyId: parts[2] || "",
+      ownerId: parts[3] || "",
     };
   }
 
@@ -120,6 +121,16 @@ module.exports = function gmailAuthApi(db) {
       const email = req.query.email || "";
       const context = normalizeContext_(req.query.context);
       const propertyId = req.query.propertyId || "";
+      // ownerId: サブオーナー対応で必須化したいが、後方互換のため未指定時は callback で解決
+      // - property context: 物件の ownerId を引く
+      // - emailVerification context: 明示指定 or メインオーナー fallback
+      let ownerId = req.query.ownerId || "";
+      if (!ownerId && context === "property" && propertyId) {
+        try {
+          const pDoc = await db.collection("properties").doc(propertyId).get();
+          if (pDoc.exists) ownerId = pDoc.data().ownerId || "";
+        } catch (_) { /* ignore */ }
+      }
       const oauth2Client = await getOrCreateOAuthClient_();
       if (!oauth2Client) {
         return res.status(400).send(`
@@ -146,8 +157,8 @@ module.exports = function gmailAuthApi(db) {
         prompt: "consent",       // 毎回同意画面を表示（リフレッシュトークン確実に取得）
         scope: scopes,
         login_hint: email,
-        // コールバックで context + email + propertyId を受け取る
-        state: `${context}|${email}|${propertyId}`,
+        // コールバックで context + email + propertyId + ownerId を受け取る
+        state: `${context}|${email}|${propertyId}|${ownerId}`,
       });
 
       res.redirect(authUrl);
@@ -164,8 +175,23 @@ module.exports = function gmailAuthApi(db) {
   router.get("/callback", async (req, res) => {
     try {
       const { code, state, error } = req.query;
-      const { context, email, propertyId } = parseState_(state);
+      const { context, email, propertyId, ownerId: stateOwnerId } = parseState_(state);
       const back = returnLink_(context, propertyId);
+
+      // ownerId 解決: state 優先、無ければ propertyId からの逆引き、最後にメインオーナー fallback
+      let ownerId = stateOwnerId || "";
+      if (!ownerId && propertyId) {
+        try {
+          const pDoc = await db.collection("properties").doc(propertyId).get();
+          if (pDoc.exists) ownerId = pDoc.data().ownerId || "";
+        } catch (_) { /* ignore */ }
+      }
+      if (!ownerId) {
+        try {
+          const ownerSnap = await db.collection("staff").where("isOwner", "==", true).limit(1).get();
+          if (!ownerSnap.empty) ownerId = ownerSnap.docs[0].id;
+        } catch (_) { /* ignore */ }
+      }
 
       if (error) {
         return res.send(`<html><body style="font-family:sans-serif;padding:20px;">
@@ -204,6 +230,9 @@ module.exports = function gmailAuthApi(db) {
         expiryDate: tokens.expiry_date,
         scope: tokens.scope,
         context, // 参考情報として保持
+        // ownerId: サブオーナー対応スコープ限定 (このトークンの帰属オーナー)
+        // メール照合・送信時にこのトークンが処理対象とする物件を絞るためのキー
+        ownerId: ownerId || "",
         savedAt: new Date(),
       };
 

@@ -70,6 +70,9 @@ module.exports = function propertiesApi(db) {
 
       const data = {
         name: String(body.name).trim(),
+        // ownerId: 物件オーナーの staff doc id (サブオーナー対応)
+        // 未指定時は req.user.staffId (作成者) にフォールバック
+        ownerId: body.ownerId ? String(body.ownerId).trim() : (req.user.staffId || ""),
         type: ["minpaku", "rental", "other"].includes(body.type) ? body.type : "minpaku",
         beds24PropertyId: body.beds24PropertyId ? String(body.beds24PropertyId).trim() : "",
         address: body.address ? String(body.address).trim() : "",
@@ -128,6 +131,10 @@ module.exports = function propertiesApi(db) {
       const { body } = req;
       const data = {};
       if (body.name !== undefined) data.name = String(body.name).trim();
+      // ownerId は メインオーナーのみ変更可 (サブオーナーが他人に付け替えるのを防ぐ)
+      if (body.ownerId !== undefined && req.user.role === "owner") {
+        data.ownerId = String(body.ownerId).trim();
+      }
       if (body.type !== undefined && ["minpaku", "rental", "other"].includes(body.type)) data.type = body.type;
       if (body.beds24PropertyId !== undefined) data.beds24PropertyId = String(body.beds24PropertyId).trim();
       if (body.address !== undefined) data.address = String(body.address).trim();
