@@ -978,7 +978,16 @@ const RecruitmentPage = {
           <td>${respBadge(row.response)}</td>
           <td class="small text-muted d-none d-md-table-cell">${respondedStr}</td>
           <td>
-            ${canRespond ? `
+            ${canRespond ? (isMeRow ? `
+              <div class="btn-group">
+                <button class="btn btn-success btn-resp-prominent btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="◎" title="OK">◎</button>
+                <button class="btn btn-warning btn-resp-prominent btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="△" title="条件付">△</button>
+                <button class="btn btn-danger btn-resp-prominent btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="×" title="NG">×</button>
+                ${row.response !== "未回答" ? `
+                  <button class="btn btn-outline-secondary btn-respond-cancel ms-2" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" title="この回答を削除して未回答に戻す"><i class="bi bi-trash"></i></button>
+                ` : ""}
+              </div>
+            ` : `
               <div class="btn-group btn-group-sm">
                 <button class="btn btn-outline-success btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="◎" title="◎">◎</button>
                 <button class="btn btn-outline-warning btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="△" title="△">△</button>
@@ -987,7 +996,7 @@ const RecruitmentPage = {
                   <button class="btn btn-outline-danger btn-respond-cancel ms-1" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" title="この回答を削除して未回答に戻す"><i class="bi bi-trash"></i> 回答削除</button>
                 ` : ""}
               </div>
-            ` : ""}
+            `) : ""}
           </td>
         </tr>
         ${memoRow}
