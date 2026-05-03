@@ -123,18 +123,20 @@ const MyInvoiceCreatePage = {
       <div class="card mb-3">
         <div class="card-body">
           <h6 class="mb-2">追加明細</h6>
-          <table class="table table-sm align-middle">
-            <thead>
-              <tr>
-                <th style="width:150px;">日付</th>
-                <th style="min-width:220px;">項目</th>
-                <th style="width:140px;">金額(円)</th>
-                <th>メモ</th>
-                <th style="width:60px;"></th>
-              </tr>
-            </thead>
-            <tbody id="manualRows"></tbody>
-          </table>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle" style="min-width:720px;">
+              <thead>
+                <tr>
+                  <th style="width:150px;">日付</th>
+                  <th style="min-width:200px;">項目</th>
+                  <th style="width:140px;">金額(円)</th>
+                  <th style="min-width:180px;">メモ</th>
+                  <th style="width:60px;"></th>
+                </tr>
+              </thead>
+              <tbody id="manualRows"></tbody>
+            </table>
+          </div>
           <button class="btn btn-sm btn-outline-secondary" id="btnAddRow"><i class="bi bi-plus"></i> 行を追加</button>
         </div>
       </div>

@@ -466,86 +466,12 @@ const RecruitmentPage = {
       return;
     }
 
-    // 自分の staffId / name / email を特定 (Webアプリ管理者も自分の staff ドキュメント扱い)
-    let myStaffId = Auth.currentUser.staffId;
-    let myStaff = null;
-    if (!this.staffList || !this.staffList.length) {
-      this.staffList = await API.staff.list(true);
-    }
-    if (myStaffId) {
-      myStaff = this.staffList.find(s => s.id === myStaffId);
-    }
-    // Webアプリ管理者で staffId クレームが無い場合、authUid で staff コレクションから解決
-    if (!myStaff && Auth.isOwner && Auth.isOwner() && Auth.currentUser.uid) {
-      myStaff = this.staffList.find(s => s.authUid === Auth.currentUser.uid);
-      if (myStaff) myStaffId = myStaff.id;
-    }
-    if (!myStaff) return;
-
-    const responses = recruitment.responses || [];
-    const myEmail = (myStaff.email || "").toLowerCase();
-    const mine = responses.find(r => {
-      if (r.staffId && myStaffId && r.staffId === myStaffId) return true;
-      if (r.staffName && myStaff.name && r.staffName === myStaff.name) return true;
-      if (r.staffEmail && myEmail && r.staffEmail.toLowerCase() === myEmail) return true;
-      return false;
-    });
-
-    area.classList.remove("d-none");
-    if (mine) {
-      // 既回答表示 + 取消
-      const respLabel = mine.response === "◎" ? '<span class="badge bg-success">◎ OK</span>'
-        : mine.response === "△" ? '<span class="badge bg-warning text-dark">△ 条件付</span>'
-        : mine.response === "×" ? '<span class="badge bg-danger">× NG</span>'
-        : `<span class="badge bg-secondary">${this.escapeHtml(mine.response || "-")}</span>`;
-      area.innerHTML = `
-        <div class="border rounded p-2 bg-light">
-          <div class="d-flex align-items-center gap-2 flex-wrap">
-            <strong>あなたの回答:</strong> ${respLabel}
-            ${mine.memo ? `<span class="small text-muted">（理由: ${this.escapeHtml(mine.memo)}）</span>` : ""}
-            <button class="btn btn-sm btn-outline-secondary ms-auto" id="btnMyRespCancel">
-              <i class="bi bi-x-lg"></i> 取消 (未回答に戻す)
-            </button>
-          </div>
-        </div>`;
-      document.getElementById("btnMyRespCancel").addEventListener("click", async () => {
-        await this._submitMyResponse(recruitment, myStaff, null, null);
-      });
-    } else {
-      area.innerHTML = `
-        <div class="border rounded p-2 bg-light">
-          <div class="small text-muted mb-2"><i class="bi bi-hand-index"></i> あなたの回答を選択してください</div>
-          <div class="d-flex gap-2 flex-wrap">
-            <button type="button" class="btn btn-success" data-resp="◎">◎ OK</button>
-            <button type="button" class="btn btn-warning" data-resp="△">△ 条件付</button>
-            <button type="button" class="btn btn-danger" data-resp="×">× NG</button>
-          </div>
-          <div id="myRespTriangleArea" class="d-none mt-2">
-            ${this._buildTriangleReasonHtml({ prefix: "myResp", submitLabel: "△ で送信" })}
-          </div>
-        </div>`;
-      area.querySelectorAll('button[data-resp]').forEach(btn => {
-        btn.addEventListener("click", async () => {
-          const resp = btn.dataset.resp;
-          if (resp === "△") {
-            area.querySelector("#myRespTriangleArea").classList.remove("d-none");
-            area.querySelector("#myRespTriangleReason").focus();
-          } else {
-            await this._submitMyResponse(recruitment, myStaff, resp, "");
-          }
-        });
-      });
-      // 候補プリセット + キャンセル + 送信
-      this._bindTriangleReasonUI(area, "myResp", {
-        onCancel: () => { area.querySelector("#myRespTriangleArea").classList.add("d-none"); },
-        onSubmit: async (reason) => {
-          await this._submitMyResponse(recruitment, myStaff, "△", reason);
-        },
-      });
-    }
+    // 確定前は上部「あなたの回答」セクションは表示しない。
+    // 自分の回答はスタッフ回答 / 選定 表の自分の行から直接操作する。
   },
 
   // 自分の回答を Firestore に書き込み (response=null で取消)
+  // 確定後の change request フローや旧 API 互換のため残置
   async _submitMyResponse(recruitment, myStaff, response, memo) {
     try {
       const ref = db.collection("recruitments").doc(recruitment.id);
@@ -919,8 +845,15 @@ const RecruitmentPage = {
     // スタッフビュー時: 選定列とテーブルヘッダ「選定」を非表示
     const theadSelectTh = document.querySelector('#responseTableBody')?.parentElement?.querySelector('thead th:first-child');
     if (theadSelectTh) theadSelectTh.style.display = isStaffView ? "none" : "";
-    // 自分のstaffIdを特定 (スタッフビュー時、自分の行のみ代理回答ボタンを出す)
-    const myStaffId = (typeof Auth !== "undefined" && Auth.currentUser) ? Auth.currentUser.staffId : null;
+    // 自分のstaffIdを特定 (スタッフビュー時、自分の行のみ回答ボタンを出す)
+    // impersonate / viewAsStaff 中はそちらの staffId を優先 (App.getViewAsStaffId)
+    let myStaffId = null;
+    if (typeof App !== "undefined" && typeof App.getViewAsStaffId === "function") {
+      myStaffId = App.getViewAsStaffId() || null;
+    }
+    if (!myStaffId && typeof Auth !== "undefined" && Auth.currentUser) {
+      myStaffId = Auth.currentUser.staffId || null;
+    }
 
     // 回答マップ (staffId優先、staffName フォールバック)
     // 同一メールを複数スタッフで共有するケースで誤検知するため email 照合は使わない
@@ -1007,11 +940,13 @@ const RecruitmentPage = {
         ? ((typeof formatTimeShort === "function") ? formatTimeShort(row.respondedAt)
             : (row.respondedAt.toDate ? row.respondedAt.toDate().toLocaleString("ja-JP") : String(row.respondedAt)))
         : "";
-      // A4 で自分の回答はモーダル上部に集約したので、テーブル内の自分行の回答ボタンは非表示にする
-      // Webアプリ管理者ビュー時は他スタッフへの代理回答のみ可 (自分の行は上部で操作)
+      // 自分の行はインラインで回答ボタンを出す (上部「あなたの回答」セクションは廃止)
+      // スタッフビューでも自分の行は ◎/△/× 操作可
       const isMeRow = myStaffId && s.id === myStaffId;
-      // オーナーは確定後も代理回答可。スタッフは確定で全面ロック。
-      const canRespond = !isStaffView && !isMeRow && (!confirmed || (Auth.isOwner && Auth.isOwner()));
+      // オーナーは確定後も代理回答可。スタッフは確定で全面ロック (ただし自分の行は変更要望フロー側)。
+      // canRespond 判定: 確定前なら自分の行 + (オーナーなら他人の行も) 可
+      const canRespond = (!confirmed || (Auth.isOwner && Auth.isOwner()))
+        && (isMeRow || !isStaffView);
       const selectCell = isStaffView ? "" : `
         <td>
           <input class="form-check-input staff-select-cb" type="checkbox"
