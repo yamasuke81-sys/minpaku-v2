@@ -1633,6 +1633,16 @@ const MyRecruitmentPage = {
     }
     const inOwnedScope = (r) => !ownedOnlyIds || ownedOnlyIds.has(r.propertyId);
 
+    // タイムスタンプ正規化 (Firestore Timestamp / Date / number / string を ms に)
+    const toMs = (v) => {
+      if (!v) return 0;
+      if (typeof v === "number") return v;
+      if (v.toMillis) return v.toMillis();
+      if (v.toDate) return v.toDate().getTime();
+      const d = new Date(v);
+      return isNaN(d.getTime()) ? 0 : d.getTime();
+    };
+
     // --- A. Webアプリ管理者向け要対応 ---
     const ownerItems = [];
     if (isOwner) {
@@ -1646,12 +1656,16 @@ const MyRecruitmentPage = {
         const isPast = coDate < today;
         const propName = r.propertyName || this.propertyMap?.[r.propertyId]?.name || "";
         const label = propName ? `${coDate} ${propName}` : coDate;
+        // タイムスタンプ: 選定済→updatedAt, 回答あり→最新回答時刻, 回答なし→createdAt
+        const updatedMs = toMs(r.updatedAt);
+        const createdMs = toMs(r.createdAt);
+        const lastRespMs = responses.reduce((m, v) => Math.max(m, toMs(v.respondedAt)), 0);
         if (r.status === "選定済") {
-          ownerItems.push({ icon: "bi-check2-circle", color: "info", text: `${label} — スタッフ選定済み → 確定してください`, id: r.id, notifId: `action-recruit-selected-${r.id}` });
+          ownerItems.push({ icon: "bi-check2-circle", color: "info", text: `${label} — スタッフ選定済み → 確定してください`, id: r.id, notifId: `action-recruit-selected-${r.id}`, sortMs: updatedMs || createdMs });
         } else if (maru > 0) {
-          ownerItems.push({ icon: "bi-person-plus", color: "warning", text: `${label} — ◎${maru}名回答あり → スタッフを選定してください`, id: r.id, notifId: `action-recruit-pending-${r.id}` });
+          ownerItems.push({ icon: "bi-person-plus", color: "warning", text: `${label} — ◎${maru}名回答あり → スタッフを選定してください`, id: r.id, notifId: `action-recruit-pending-${r.id}`, sortMs: lastRespMs || updatedMs || createdMs });
         } else if (!isPast) {
-          ownerItems.push({ icon: "bi-exclamation-triangle", color: "danger", text: `${label} — 回答なし！スタッフに連絡してください`, id: r.id, notifId: `action-no-response-${r.id}` });
+          ownerItems.push({ icon: "bi-exclamation-triangle", color: "danger", text: `${label} — 回答なし！スタッフに連絡してください`, id: r.id, notifId: `action-no-response-${r.id}`, sortMs: createdMs });
         }
       });
 
@@ -1672,20 +1686,15 @@ const MyRecruitmentPage = {
             text: `${name} さんが ${coDisp}${propName ? " " + propName : ""} の回答変更を希望: ${reason}`,
             id: r.id,
             notifId: `action-change-request-${r.id}-${cr.staffId}`,
+            sortMs: toMs(cr.requestedAt) || toMs(cr.createdAt) || toMs(r.updatedAt),
           });
         });
       });
+      // 新しい順にソート
+      ownerItems.sort((a, b) => (b.sortMs || 0) - (a.sortMs || 0));
     }
 
     // --- B. 全員向けお知らせ (24h 以内) ---
-    const toMs = (v) => {
-      if (!v) return 0;
-      if (typeof v === "number") return v;
-      if (v.toMillis) return v.toMillis();
-      if (v.toDate) return v.toDate().getTime();
-      const d = new Date(v);
-      return isNaN(d.getTime()) ? 0 : d.getTime();
-    };
     const staffItems = [];
     this.recruitments.forEach(r => {
       if (!inOwnedScope(r)) return;
@@ -1742,6 +1751,14 @@ const MyRecruitmentPage = {
     const visibleOwnerItems = ownerItems.filter(a => !isRead(a.notifId));
     const visibleStaffItems = staffItems.filter(a => !isRead(a.notifId));
 
+    // タイムスタンプを "YYYY/MM/DD HH:MM" 標準形式で表示
+    const fmtTs = (ms) => {
+      if (!ms) return "";
+      const d = new Date(ms);
+      const pad = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+
     let html = "";
     if (isOwner && visibleOwnerItems.length > 0) {
       html += `
@@ -1752,14 +1769,15 @@ const MyRecruitmentPage = {
           </div>
           <div class="list-group list-group-flush">
             ${visibleOwnerItems.map(a => `
-              <div class="list-group-item d-flex align-items-center" data-notif-row="${this.esc(a.notifId)}">
-                <button class="btn btn-link text-start p-0 flex-grow-1 d-flex align-items-center text-decoration-none to-action-item"
+              <div class="list-group-item d-flex align-items-center py-2" data-notif-row="${this.esc(a.notifId)}">
+                <button class="btn btn-link text-start p-0 flex-grow-1 d-flex align-items-center text-decoration-none to-action-item small"
                   data-id="${this.esc(a.id)}">
-                  <i class="bi ${a.icon} text-${a.color} me-2 fs-5"></i>
+                  <i class="bi ${a.icon} text-${a.color} me-2"></i>
                   <span class="text-body">${this.esc(a.text)}</span>
+                  ${a.sortMs ? `<span class="text-muted ms-2" style="font-size:0.75rem; white-space:nowrap;">${fmtTs(a.sortMs)}</span>` : ""}
                   <i class="bi bi-chevron-right ms-2"></i>
                 </button>
-                <button type="button" class="btn btn-outline-secondary btn-sm ms-2 notif-read-btn" data-notif-id="${this.esc(a.notifId)}" title="既読にする"><i class="bi bi-check-lg"></i> 既読</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm ms-2 notif-read-btn" data-notif-id="${this.esc(a.notifId)}" title="既読にする"><i class="bi bi-check-lg"></i></button>
               </div>
             `).join("")}
           </div>
@@ -1774,10 +1792,11 @@ const MyRecruitmentPage = {
           </div>
           <div class="list-group list-group-flush">
             ${visibleStaffItems.map(a => `
-              <div class="list-group-item d-flex align-items-center" data-notif-row="${this.esc(a.notifId)}">
-                <i class="bi ${a.icon} text-${a.color} me-2 fs-5"></i>
+              <div class="list-group-item d-flex align-items-center py-2 small" data-notif-row="${this.esc(a.notifId)}">
+                <i class="bi ${a.icon} text-${a.color} me-2"></i>
                 <span class="flex-grow-1">${this.esc(a.text)}</span>
-                <button type="button" class="btn btn-outline-secondary btn-sm ms-2 notif-read-btn" data-notif-id="${this.esc(a.notifId)}" title="既読にする"><i class="bi bi-check-lg"></i> 既読</button>
+                ${a.sortMs ? `<span class="text-muted ms-2" style="font-size:0.75rem; white-space:nowrap;">${fmtTs(a.sortMs)}</span>` : ""}
+                <button type="button" class="btn btn-outline-secondary btn-sm ms-2 notif-read-btn" data-notif-id="${this.esc(a.notifId)}" title="既読にする"><i class="bi bi-check-lg"></i></button>
               </div>
             `).join("")}
           </div>
