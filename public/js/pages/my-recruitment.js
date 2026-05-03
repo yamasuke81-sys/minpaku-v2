@@ -1620,10 +1620,24 @@ const MyRecruitmentPage = {
     const now = Date.now();
     const H24 = 24 * 3600 * 1000;
 
+    // サブオーナー視点 (本人 or impersonate中) は「自分の所有物件」のみ通知対象
+    // (this.recruitments には共有スタッフ経由で他オーナー物件も入っているため再フィルタが必要)
+    const isImpersonatingSubOwner = (typeof App !== "undefined" && App.impersonating
+      && App.impersonatingData && Array.isArray(App.impersonatingData.ownedPropertyIds));
+    const isSubOwnerSelf = this._isSubOwnerView === true && !this._viewAsStaffId;
+    let ownedOnlyIds = null;
+    if (isImpersonatingSubOwner) {
+      ownedOnlyIds = new Set(App.impersonatingData.ownedPropertyIds || []);
+    } else if (isSubOwnerSelf) {
+      ownedOnlyIds = new Set(this._ownedPropertyIds || []);
+    }
+    const inOwnedScope = (r) => !ownedOnlyIds || ownedOnlyIds.has(r.propertyId);
+
     // --- A. Webアプリ管理者向け要対応 ---
     const ownerItems = [];
     if (isOwner) {
       this.recruitments.forEach(r => {
+        if (!inOwnedScope(r)) return;
         if (r.status !== "募集中" && r.status !== "選定済") return;
         const coDate = r.checkoutDate;
         if (!coDate || coDate > soonStr) return;
@@ -1643,6 +1657,7 @@ const MyRecruitmentPage = {
 
       // 回答変更要望 (Task 8): 確定済み募集でも changeRequests があれば要対応に表示
       this.recruitments.forEach(r => {
+        if (!inOwnedScope(r)) return;
         const reqs = Array.isArray(r.changeRequests) ? r.changeRequests : [];
         if (!reqs.length) return;
         const propName = r.propertyName || this.propertyMap?.[r.propertyId]?.name || "";
@@ -1673,6 +1688,7 @@ const MyRecruitmentPage = {
     };
     const staffItems = [];
     this.recruitments.forEach(r => {
+      if (!inOwnedScope(r)) return;
       const propName = r.propertyName || this.propertyMap?.[r.propertyId]?.name || "";
       const coRaw = r.checkoutDate || "";
       const co = coRaw && typeof formatDateFull === "function" ? formatDateFull(coRaw) : coRaw;
@@ -1703,6 +1719,7 @@ const MyRecruitmentPage = {
     // 注: this.recruitments は既にフィルタ済。cancelled は除外されているため、生の Firestore snapshot からの情報が無い
     // → 代替として this._rawRecruitmentsAll (無ければスキップ)
     (this._rawRecruitmentsAll || []).forEach(r => {
+      if (!inOwnedScope(r)) return;
       const s = String(r.status || "");
       if (!["cancelled", "キャンセル", "キャンセル済み"].includes(s)) return;
       const updatedMs = toMs(r.updatedAt);
