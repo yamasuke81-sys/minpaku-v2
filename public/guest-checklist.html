@@ -60,6 +60,19 @@
   }
   .gc-supply-row label { color:#b45309; font-size:0.85rem; cursor:pointer; margin:0; }
 
+  /* インライン見本写真サムネ (item 内) */
+  .gc-thumbs { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .gc-thumb-wrap { position:relative; display:inline-block; }
+  .gc-thumb {
+    width:64px; height:64px; object-fit:cover; border-radius:6px;
+    border:1px solid #e2e8f0; cursor:zoom-in; display:block;
+  }
+  .gc-thumb-extra {
+    position:absolute; inset:0; background:rgba(0,0,0,0.55); color:#fff;
+    display:flex; align-items:center; justify-content:center;
+    font-weight:700; font-size:14px; border-radius:6px; pointer-events:none;
+  }
+
   .gc-cat { margin-bottom:8px; border:1px solid #e2e8f0; border-radius:10px; overflow:hidden; background:#fff; }
   .gc-cat-header {
     display:flex; align-items:center; padding:10px 14px;
@@ -255,6 +268,15 @@
     return n;
   }
 
+  // item に紐づく見本写真 URL の配列を返す
+  function itemSampleUrls(it) {
+    const out = [];
+    const imgs = it.sampleImages || [];
+    imgs.forEach(i => { if (i?.url) out.push(i.url); });
+    if (out.length === 0 && it.sampleImageUrl) out.push(it.sampleImageUrl);
+    return out;
+  }
+
   function renderItem(it) {
     const st = itemStates[it.id] || {};
     const checked = !!st.checked;
@@ -263,6 +285,27 @@
     const checkedBy = (checked && st.checkedBy)
       ? `<div class="gc-item-checkedby"><i class="bi bi-check-circle"></i> ${esc(st.checkedBy.name||"")} ${fmtTime(st.checkedBy.at || (st.checkedAt?.toMillis?.() || 0))}</div>`
       : "";
+    // 最大 2 枚の見本写真サムネ。3 枚以上ある場合は 2 枚目に "+N" オーバーレイ
+    let thumbs = "";
+    const urls = itemSampleUrls(it);
+    if (urls.length > 0) {
+      const MAX = 2;
+      const visible = urls.slice(0, MAX);
+      const extra = Math.max(0, urls.length - MAX);
+      const allUrlsJson = esc(JSON.stringify(urls));
+      thumbs = `<div class="gc-thumbs" data-stop="1">` + visible.map((u, i) => {
+        const overlay = (i === MAX - 1 && extra > 0)
+          ? `<div class="gc-thumb-extra">+${extra}</div>` : "";
+        return `<div class="gc-thumb-wrap">
+          <img src="${esc(u)}" loading="lazy" class="gc-thumb"
+               data-thumb-url="${esc(u)}"
+               data-thumb-label="${esc(it.name)}"
+               data-thumb-all="${allUrlsJson}"
+               data-thumb-idx="${i}">
+          ${overlay}
+        </div>`;
+      }).join("") + `</div>`;
+    }
     const supply = it.supplyItem ? `
       <div class="gc-supply-row" data-stop="1">
         <input class="form-check-input gc-restock" type="checkbox" id="sup-${esc(it.id)}" data-restock-id="${esc(it.id)}"
@@ -276,6 +319,7 @@
         <div class="gc-item-body">
           <div class="gc-item-name">${esc(it.name)}</div>
           ${memo}
+          ${thumbs}
           ${checkedBy}
           ${supply}
         </div>
@@ -468,6 +512,19 @@
     });
     content.querySelectorAll('[data-stop="1"]').forEach(el => {
       el.addEventListener("click", (ev) => ev.stopPropagation());
+    });
+    // 見本写真サムネ → ライトボックス
+    content.querySelectorAll(".gc-thumb").forEach(img => {
+      img.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        let urls;
+        try { urls = JSON.parse(img.dataset.thumbAll || "[]"); }
+        catch (e) { urls = [img.dataset.thumbUrl]; }
+        const label = img.dataset.thumbLabel || "";
+        const labels = urls.map(() => label);
+        const idx = parseInt(img.dataset.thumbIdx || "0", 10);
+        openLightbox(urls, labels, idx);
+      });
     });
     content.querySelectorAll(".gc-restock").forEach(cb => {
       cb.addEventListener("change", async () => {
