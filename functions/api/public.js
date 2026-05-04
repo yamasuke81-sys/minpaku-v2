@@ -98,4 +98,56 @@ router.get("/guest-allocation/:token", async (req, res) => {
   }
 });
 
+// POST /public/upload-failed
+// ゲストフォームのパスポート写真アップロード失敗を記録 + 管理者へ通知
+// body: { propertyId, propertyName, guestEmail, guestName, errorMessage, attemptCount }
+router.post("/upload-failed", express.json(), async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const { propertyId, propertyName, guestEmail, guestName, errorMessage, attemptCount } = req.body || {};
+    const safeMsg = String(errorMessage || "").slice(0, 500);
+    const attempt = parseInt(attemptCount || 1, 10);
+
+    // 1) error_logs に記録 (運用診断用)
+    await db.collection("error_logs").add({
+      type: "passport_upload_failed",
+      functionName: "guest_form",
+      message: `パスポート写真アップロード失敗 (試行 ${attempt}回目): ${safeMsg}`,
+      propertyId: propertyId || null,
+      propertyName: propertyName || "",
+      guestName: guestName || "",
+      guestEmail: guestEmail || "",
+      attemptCount: attempt,
+      severity: attempt >= 3 ? "high" : "warning",
+      createdAt: new Date(),
+    });
+
+    // 2) 管理者へ通知 (3回目以降のみ通知 → 過剰通知を防ぐ)
+    if (attempt >= 3) {
+      try {
+        const { notifyByKey } = require("../utils/lineNotify");
+        await notifyByKey(db, "passport_upload_failed", {
+          title: `パスポート写真 アップロード失敗 (3回目)`,
+          body: `📷 パスポート写真のアップロードに繰り返し失敗しています\n\n物件: ${propertyName || "(不明)"}\nゲスト: ${guestName || "(不明)"} ${guestEmail ? "(" + guestEmail + ")" : ""}\nエラー: ${safeMsg}\n\nゲストにフォローアップしてください。`,
+          vars: {
+            property: propertyName || "",
+            guest: guestName || "",
+            email: guestEmail || "",
+            error: safeMsg,
+          },
+          propertyId: propertyId || null,
+        });
+      } catch (notifyErr) {
+        console.warn("[upload-failed] 管理者通知失敗:", notifyErr.message);
+      }
+    }
+
+    res.json({ ok: true, attemptCount: attempt });
+  } catch (e) {
+    console.error("[public/upload-failed]", e);
+    // ゲスト側のフォーム送信を妨げないよう 200 で返す
+    res.status(200).json({ ok: false, error: e.message });
+  }
+});
+
 module.exports = router;

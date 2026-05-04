@@ -332,6 +332,17 @@ module.exports = async function onGuestFormSubmit(event) {
     },
     propertyId: data.propertyId || null,
   });
+  // 診断用: notifyByKey の戻り値 (sent/errors) を guestRegistrations 自身にも記録
+  // 成功時も含めて毎回保存 → 管理画面から「いつ何が送れたか」を確認可能
+  try {
+    await db.collection("guestRegistrations").doc(guestId).update({
+      rosterNotifyResult: {
+        sent: notifyResult?.sent || {},
+        errors: notifyResult?.errors || [],
+        at: new Date(),
+      },
+    });
+  } catch (_) { /* 診断書き込み失敗は無視 */ }
   // notifyByKey が握りつぶしたチャネル別エラーを error_logs に記録 (運用診断用)
   if (notifyResult && Array.isArray(notifyResult.errors) && notifyResult.errors.length > 0) {
     try {
@@ -346,6 +357,7 @@ module.exports = async function onGuestFormSubmit(event) {
     } catch (_) { /* ログ書き込み失敗は無視 */ }
     console.warn("[roster_received] チャネル別エラー:", JSON.stringify(notifyResult.errors));
   }
+  console.log(`[roster_received] sent=${JSON.stringify(notifyResult?.sent || {})} errors=${(notifyResult?.errors || []).length}`);
 
   // === 4. bookingsコレクションとの照合・情報補完 ===
   try {

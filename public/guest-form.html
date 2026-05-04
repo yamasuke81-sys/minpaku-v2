@@ -1453,6 +1453,17 @@
       const uploadFailMsg = currentLang === "ja"
         ? "パスポート写真のアップロードに失敗しました。通信状況を確認してもう一度送信してください。"
         : "Passport photo upload failed. Please check your connection and try again.";
+      // 3 回目以降で表示する代替案内 (ホストへ連絡)
+      const escalateMsgJa = "アップロードが3回連続で失敗しました。\n\nしばらく経ってからお試しいただくか、ご予約サイト(Airbnb / Booking.com 等)のメッセージ機能でホストにご連絡ください。\nホスト側で別途パスポート写真の受け取り方法をご案内します。";
+      const escalateMsgEn = "Upload failed 3 times in a row.\n\nPlease try again later, or contact your host via the booking site (Airbnb / Booking.com etc.) message function.\nThe host will guide you through an alternative way to send your passport photo.";
+      const escalateMsg = currentLang === "ja" ? escalateMsgJa : escalateMsgEn;
+
+      // sessionStorage で連続失敗回数を管理 (このタブが開いている間のみ保持)
+      const FAIL_KEY = "passportUploadFailCount";
+      const getFailCount = () => parseInt(sessionStorage.getItem(FAIL_KEY) || "0", 10);
+      const incFailCount = () => { const n = getFailCount() + 1; sessionStorage.setItem(FAIL_KEY, String(n)); return n; };
+      const resetFailCount = () => sessionStorage.removeItem(FAIL_KEY);
+
       for (const inp of inputs) {
         if (inp.files && inp.files[0]) {
           try {
@@ -1463,13 +1474,37 @@
             urls.push(await ref.getDownloadURL());
             photoIndex++;
           } catch (e) {
-            // 失敗を呼出側に伝播 → submit ハンドラの catch で showFormError 表示
             console.error("[uploadPassportPhotos] 失敗:", e);
+            const attemptCount = incFailCount();
+            // バックエンドにも記録 (3回目以降は管理者通知)
+            try {
+              const repName = document.querySelector(".guest-block .g-name")?.value?.trim() || "";
+              const repEmail = document.querySelector(".guest-block .g-email")?.value?.trim() || "";
+              const propName = document.getElementById("propertyName")?.textContent?.trim() || "";
+              const propIdMatch = location.search.match(/[?&]propertyId=([^&]+)/) || location.hash.match(/propertyId=([^&]+)/);
+              const propId = propIdMatch ? decodeURIComponent(propIdMatch[1]) : "";
+              fetch("/api/public/upload-failed", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  propertyId: propId, propertyName: propName,
+                  guestName: repName, guestEmail: repEmail,
+                  errorMessage: e.message || String(e),
+                  attemptCount,
+                }),
+              }).catch(() => {});
+            } catch (_) {}
+            // 失敗を呼出側に伝播 → submit ハンドラの catch で showFormError 表示
             const detail = e && e.message ? `\n(${e.message})` : "";
-            throw new Error(uploadFailMsg + detail);
+            const finalMsg = attemptCount >= 3
+              ? `${escalateMsg}${detail}`
+              : `${uploadFailMsg}${detail}`;
+            throw new Error(finalMsg);
           }
         }
       }
+      // 全件成功 → 連続失敗カウントをリセット
+      resetFailCount();
       return urls;
     }
 
