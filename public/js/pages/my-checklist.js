@@ -676,6 +676,15 @@ const MyChecklistPage = {
         <div style="display:flex;gap:6px;">
           ${topTabsHtml}
         </div>
+        <div style="display:flex;gap:6px;align-items:center;padding:6px 0 4px;border-top:1px dashed #f0f0f0;margin-top:6px;">
+          <span class="text-muted" style="font-size:11px;flex-shrink:0;"><i class="bi bi-people"></i> ヘルパー連携:</span>
+          <button type="button" id="mclHelperCopyBtn" class="btn btn-sm btn-outline-primary" style="font-size:12px;padding:2px 10px;">
+            <i class="bi bi-clipboard"></i> URL コピー
+          </button>
+          <button type="button" id="mclHelperQrBtn" class="btn btn-sm btn-primary" style="font-size:12px;padding:2px 10px;">
+            <i class="bi bi-qr-code"></i> QR 表示
+          </button>
+        </div>
       </div>
       <div id="mclChecklistTopComplete" class="px-2 pt-2" style="background:#fff;${this.activeTopTab === 'checklist' ? '' : 'display:none;'}"></div>
       <div class="mcl-area-tabs-wrap" style="background:#f8f9fa;border-bottom:1px solid #dee2e6;padding:4px 4px;${this.activeTopTab === 'checklist' ? '' : 'display:none;'}">
@@ -715,7 +724,78 @@ const MyChecklistPage = {
       });
     });
 
+    // ヘルパー連携ボタン (URL コピー / QR 表示)
+    this._wireHelperButtons(c);
+
     this._renderActiveTopTab();
+  },
+
+  // ヘルパー用 URL コピー + QR 表示
+  _wireHelperButtons(c) {
+    const propertyId = c?.propertyId;
+    const propertyName = c?.propertyName || "";
+    if (!propertyId) return;
+    const url = `${location.origin}/guest-checklist.html?p=${encodeURIComponent(propertyId)}` +
+      (propertyName ? `&n=${encodeURIComponent(propertyName)}` : "");
+    const copyBtn = document.getElementById("mclHelperCopyBtn");
+    const qrBtn = document.getElementById("mclHelperQrBtn");
+    if (copyBtn) {
+      copyBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(url);
+          const orig = copyBtn.innerHTML;
+          copyBtn.innerHTML = '<i class="bi bi-check-lg"></i> コピー済';
+          copyBtn.classList.remove("btn-outline-primary");
+          copyBtn.classList.add("btn-success");
+          setTimeout(() => {
+            copyBtn.innerHTML = orig;
+            copyBtn.classList.remove("btn-success");
+            copyBtn.classList.add("btn-outline-primary");
+          }, 1500);
+        } catch (e) {
+          alert("URL: " + url);
+        }
+      });
+    }
+    if (qrBtn) {
+      qrBtn.addEventListener("click", () => {
+        // 既存の guestChecklistQrModal (index.html) を流用
+        const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=${encodeURIComponent(url)}`;
+        const nameEl = document.getElementById("guestQrPropertyName");
+        const imgEl = document.getElementById("guestQrImg");
+        const urlEl = document.getElementById("guestQrUrl");
+        const dlBtn = document.getElementById("btnGuestQrDownload");
+        if (!nameEl || !imgEl || !urlEl || !dlBtn) return;
+        nameEl.textContent = propertyName || "ヘルパー用チェックリスト";
+        imgEl.src = qrSrc;
+        urlEl.textContent = url;
+        const fresh = dlBtn.cloneNode(true);
+        dlBtn.parentNode.replaceChild(fresh, dlBtn);
+        fresh.addEventListener("click", async () => {
+          fresh.disabled = true;
+          fresh.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 取得中...';
+          try {
+            const res = await fetch(qrSrc);
+            const blob = await res.blob();
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            const safeName = (propertyName || "helper-checklist").replace(/[\/\\:*?"<>|]/g, "_");
+            a.download = `QR_${safeName}.png`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+          } catch (e) {
+            alert("ダウンロード失敗: " + e.message);
+          } finally {
+            fresh.disabled = false;
+            fresh.innerHTML = '<i class="bi bi-download"></i> PNG ダウンロード';
+          }
+        });
+        const modalEl = document.getElementById("guestChecklistQrModal");
+        if (modalEl) bootstrap.Modal.getOrCreateInstance(modalEl).show();
+      });
+    }
   },
 
   // 上位タブのスタイル更新

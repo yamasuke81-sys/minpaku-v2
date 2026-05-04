@@ -17,7 +17,7 @@
   .container { max-width:760px; padding:0 10px; }
 
   .area-tabs {
-    position:sticky; top:42px; z-index:20;
+    position:sticky; top:88px; z-index:20;
     background:#fff; padding:8px 4px; border-bottom:1px solid #e2e8f0;
     overflow-x:auto; white-space:nowrap; -webkit-overflow-scrolling:touch;
   }
@@ -84,6 +84,45 @@
   .progress-fixed .progress { height:8px; }
 
   .empty-state, .loading { padding:40px 20px; text-align:center; color:#64748b; }
+
+  /* 上位タブ (チェックリスト / 見本写真) */
+  .top-tabs {
+    position:sticky; top:42px; z-index:21;
+    display:flex; gap:6px; padding:8px 10px 0; background:#fff;
+  }
+  .top-tab {
+    flex:1; padding:8px 6px; border:1px solid #dee2e6; border-bottom:none;
+    background:#f8fafc; color:#475569; font-weight:600; font-size:0.9rem;
+    border-radius:8px 8px 0 0; cursor:pointer; text-align:center;
+  }
+  .top-tab.active { background:#2c3e50; color:#fff; border-color:#2c3e50; }
+
+  /* 見本写真グリッド */
+  .photo-section .photo-group { margin-bottom:16px; }
+  .photo-section .photo-label { font-size:0.78rem; color:#64748b; margin-bottom:4px; }
+  .photo-section .photo-grid { display:flex; flex-wrap:wrap; gap:6px; }
+  .photo-section .photo-thumb {
+    width:100px; height:100px; object-fit:cover; border-radius:8px;
+    border:1px solid #e2e8f0; cursor:pointer;
+  }
+  .lightbox-overlay {
+    position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:9999;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    user-select:none;
+  }
+  .lightbox-overlay img { max-width:95vw; max-height:75vh; border-radius:8px; object-fit:contain; }
+  .lightbox-close {
+    position:absolute; top:12px; right:16px; background:none; border:none;
+    color:#fff; font-size:2rem; cursor:pointer;
+  }
+  .lightbox-controls { display:flex; align-items:center; gap:16px; margin-top:12px; }
+  .lightbox-btn {
+    background:rgba(255,255,255,0.15); border:none; color:#fff;
+    font-size:1.4rem; border-radius:50%; width:44px; height:44px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .lightbox-counter { color:#fff; font-size:13px; min-width:50px; text-align:center; }
+  .lightbox-label { color:#ccc; font-size:12px; margin-bottom:8px; max-width:90vw; text-align:center; }
   .toast-fixed {
     position:fixed; top:60px; left:50%; transform:translateX(-50%);
     background:#1e293b; color:#fff; padding:8px 14px; border-radius:8px;
@@ -97,6 +136,11 @@
 
 <div class="header-bar">
   <h1><i class="bi bi-clipboard-check"></i> <span id="propName">清掃チェックリスト</span></h1>
+</div>
+
+<div id="topTabs" class="top-tabs d-none">
+  <div class="top-tab active" data-top-tab="checklist"><i class="bi bi-check2-square"></i> チェックリスト</div>
+  <div class="top-tab" data-top-tab="photos"><i class="bi bi-camera"></i> 見本写真 <span id="photoCount" class="badge bg-secondary" style="font-size:0.65rem;"></span></div>
 </div>
 
 <div id="areaTabs" class="area-tabs d-none"></div>
@@ -134,6 +178,9 @@
 
   const content = document.getElementById("content");
   const areaTabsEl = document.getElementById("areaTabs");
+  const topTabsEl = document.getElementById("topTabs");
+  const photoCountEl = document.getElementById("photoCount");
+  let activeTopTab = "checklist"; // "checklist" | "photos"
   const progressBar = document.getElementById("progressBar");
   const checkedCountEl = document.getElementById("checkedCount");
   const totalCountEl = document.getElementById("totalCount");
@@ -297,6 +344,117 @@
     wireArea(area);
   }
 
+  // === 見本写真の収集 (templateSnapshot 内の sampleImages / sampleImageUrl を再帰探索) ===
+  function collectSamples() {
+    const all = [];
+    const walk = (node, pathParts) => {
+      const imgs = node.sampleImages || [];
+      if (!imgs.length && node.sampleImageUrl) {
+        all.push({ label: pathParts.join(" › "), url: node.sampleImageUrl });
+      }
+      imgs.forEach(img => {
+        all.push({ label: pathParts.join(" › "), url: img.url });
+      });
+      (node.taskTypes || []).forEach(c => walk(c, [...pathParts, c.name]));
+      (node.subCategories || []).forEach(c => walk(c, [...pathParts, c.name]));
+      (node.subSubCategories || []).forEach(c => walk(c, [...pathParts, c.name]));
+      [...(node.directItems || []), ...(node.items || [])].forEach(it => {
+        const itImgs = it.sampleImages || [];
+        if (!itImgs.length && it.sampleImageUrl) {
+          all.push({ label: [...pathParts, it.name].join(" › "), url: it.sampleImageUrl });
+        }
+        itImgs.forEach(img => {
+          all.push({ label: [...pathParts, it.name].join(" › "), url: img.url });
+        });
+      });
+    };
+    areas.forEach(a => walk(a, [a.name]));
+    return all;
+  }
+
+  function renderPhotos() {
+    const samples = collectSamples();
+    if (samples.length === 0) {
+      content.className = "empty-state";
+      content.innerHTML = `<i class="bi bi-camera fs-1 text-muted"></i><p class="mt-2">見本写真は登録されていません</p>`;
+      return;
+    }
+    // 連続する同一ラベルをグループ化
+    const grouped = [];
+    samples.forEach(s => {
+      const last = grouped[grouped.length - 1];
+      if (last && last.label === s.label) last.urls.push(s.url);
+      else grouped.push({ label: s.label, urls: [s.url] });
+    });
+    content.className = "photo-section";
+    content.innerHTML = grouped.map(g => `
+      <div class="photo-group">
+        <div class="photo-label">${esc(g.label)}</div>
+        <div class="photo-grid">
+          ${g.urls.map(u => `<img class="photo-thumb" src="${esc(u)}" loading="lazy" data-url="${esc(u)}" data-label="${esc(g.label)}">`).join("")}
+        </div>
+      </div>
+    `).join("");
+    // ライトボックス
+    const allUrls = samples.map(s => s.url);
+    const allLabels = samples.map(s => s.label);
+    content.querySelectorAll(".photo-thumb").forEach((img, idx) => {
+      img.addEventListener("click", () => openLightbox(allUrls, allLabels, samples.findIndex(s => s.url === img.dataset.url)));
+    });
+  }
+
+  function openLightbox(urls, labels, startIdx) {
+    const ex = document.getElementById("gcLightbox");
+    if (ex) ex.remove();
+    let cur = startIdx;
+    const total = urls.length;
+    const overlay = document.createElement("div");
+    overlay.id = "gcLightbox";
+    overlay.className = "lightbox-overlay";
+    overlay.innerHTML = `
+      <button class="lightbox-close" id="gcLbClose">&times;</button>
+      <div class="lightbox-label" id="gcLbLabel"></div>
+      <img id="gcLbImg">
+      <div class="lightbox-controls">
+        <button class="lightbox-btn" id="gcLbPrev">&lsaquo;</button>
+        <span class="lightbox-counter" id="gcLbCounter"></span>
+        <button class="lightbox-btn" id="gcLbNext">&rsaquo;</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const imgEl = document.getElementById("gcLbImg");
+    const labelEl = document.getElementById("gcLbLabel");
+    const counterEl = document.getElementById("gcLbCounter");
+    const show = (i) => {
+      cur = (i + total) % total;
+      imgEl.src = urls[cur];
+      labelEl.textContent = labels[cur] || "";
+      counterEl.textContent = `${cur+1} / ${total}`;
+    };
+    show(cur);
+    document.getElementById("gcLbPrev").addEventListener("click", e => { e.stopPropagation(); show(cur-1); });
+    document.getElementById("gcLbNext").addEventListener("click", e => { e.stopPropagation(); show(cur+1); });
+    document.getElementById("gcLbClose").addEventListener("click", () => overlay.remove());
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+  }
+
+  function switchTopTab(tab) {
+    activeTopTab = tab;
+    topTabsEl.querySelectorAll(".top-tab").forEach(t => {
+      t.classList.toggle("active", t.dataset.topTab === tab);
+    });
+    if (tab === "checklist") {
+      areaTabsEl.classList.remove("d-none");
+      renderActiveArea();
+    } else {
+      areaTabsEl.classList.add("d-none");
+      renderPhotos();
+    }
+  }
+  topTabsEl.querySelectorAll(".top-tab").forEach(t => {
+    t.addEventListener("click", () => switchTopTab(t.dataset.topTab));
+  });
+
   function wireArea(area) {
     content.querySelectorAll("[data-cat-toggle]").forEach(h => {
       h.addEventListener("click", (ev) => {
@@ -424,7 +582,14 @@
             return;
           }
           renderTabs();
-          renderActiveArea();
+          // 写真件数バッジ更新
+          const photoN = collectSamples().length;
+          if (photoN > 0) photoCountEl.textContent = String(photoN);
+          else photoCountEl.textContent = "";
+          topTabsEl.classList.remove("d-none");
+          // 現在のタブに応じて再描画
+          if (activeTopTab === "checklist") renderActiveArea();
+          else renderPhotos();
           updateProgress();
           progressBar.classList.remove("d-none");
           liveStatus.innerHTML = `<i class="bi bi-broadcast text-success"></i> 同期中`;
