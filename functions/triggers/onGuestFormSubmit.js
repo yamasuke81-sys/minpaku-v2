@@ -316,7 +316,7 @@ module.exports = async function onGuestFormSubmit(event) {
 
   // roster_received 通知 (通知設定タブで編集可能)
   // notifyByKey でチャネル別 (ownerLine/groupLine/staffLine/ownerEmail/...) に発射
-  await notifyByKey(db, "roster_received", {
+  const notifyResult = await notifyByKey(db, "roster_received", {
     title: `名簿受信: ${guestName}`,
     body: lineText + guestPageBlock,
     // customMessage で本文置換されても名簿リンクは必ずメールに残す
@@ -332,6 +332,20 @@ module.exports = async function onGuestFormSubmit(event) {
     },
     propertyId: data.propertyId || null,
   });
+  // notifyByKey が握りつぶしたチャネル別エラーを error_logs に記録 (運用診断用)
+  if (notifyResult && Array.isArray(notifyResult.errors) && notifyResult.errors.length > 0) {
+    try {
+      await db.collection("error_logs").add({
+        functionName: "onGuestFormSubmit_roster_received",
+        message: `notifyByKey errors: ${JSON.stringify(notifyResult.errors).slice(0, 800)}`,
+        sent: notifyResult.sent || {},
+        propertyId: data.propertyId || null,
+        guestName,
+        createdAt: new Date(),
+      });
+    } catch (_) { /* ログ書き込み失敗は無視 */ }
+    console.warn("[roster_received] チャネル別エラー:", JSON.stringify(notifyResult.errors));
+  }
 
   // === 4. bookingsコレクションとの照合・情報補完 ===
   try {

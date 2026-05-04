@@ -34,4 +34,4 @@ window.FCM_VAPID_KEY = "BNQ2p2-IZDYu4Ru5PvMzKtZWbuZ5pq07ln8SJL-gat-Ky85EjIYNVuDY
 // LIFF ID (LINE Developers Console → LIFFタブ → LIFF URL の末尾ID "XXXXX-YYYYY")
 // スタッフが LINE アプリから直接開いたとき自動ログインに使用
 // 空文字のままでは LIFF 初期化をスキップ（設定するまで従来フローが維持される）
-window.LIFF_ID = "2009790221-Bxim7qIG";
+window.LIFF_ID = "";
