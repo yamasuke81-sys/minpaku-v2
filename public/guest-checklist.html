@@ -7,60 +7,100 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 <style>
-  body { background:#f8fafc; padding-bottom:80px; }
+  body { background:#f8fafc; padding-bottom:90px; }
   .header-bar {
-    position:sticky; top:0; z-index:10;
+    position:sticky; top:0; z-index:30;
     background: linear-gradient(135deg, #ff7a18 0%, #ff5e62 25%, #af3fff 55%, #2196f3 100%);
-    color:#fff; padding:12px 16px; box-shadow:0 2px 8px rgba(0,0,0,0.15);
+    color:#fff; padding:10px 16px; box-shadow:0 2px 8px rgba(0,0,0,0.15);
   }
-  .header-bar h1 { font-size:1.1rem; margin:0; font-weight:700; }
-  .header-bar .sub { font-size:0.8rem; opacity:0.9; }
-  .container { max-width:720px; }
-  .area-card { margin-top:12px; }
-  .area-name { background:#1e293b; color:#fff; padding:8px 12px; border-radius:8px 8px 0 0; font-weight:700; }
-  .tasktype-name { background:#e2e8f0; padding:6px 12px; font-weight:600; font-size:0.95rem; }
-  .subcat-name { background:#f1f5f9; padding:4px 12px 4px 24px; font-weight:500; font-size:0.9rem; color:#475569; }
-  .item-row {
-    display:flex; align-items:flex-start; padding:10px 12px; border-bottom:1px solid #e2e8f0;
-    cursor:pointer; user-select:none; transition:background 0.1s;
+  .header-bar h1 { font-size:1.05rem; margin:0; font-weight:700; }
+  .header-bar .sub { font-size:0.75rem; opacity:0.9; }
+  .container { max-width:760px; padding:0 10px; }
+
+  /* エリアタブ */
+  .area-tabs {
+    position:sticky; top:54px; z-index:20;
+    background:#fff; padding:8px 4px; border-bottom:1px solid #e2e8f0;
+    overflow-x:auto; white-space:nowrap; -webkit-overflow-scrolling:touch;
   }
-  .item-row:hover { background:#f8fafc; }
-  .item-row.checked { background:#f0fdf4; }
-  .item-row.checked .item-name { text-decoration:line-through; color:#94a3b8; }
-  .item-check {
-    flex-shrink:0; width:28px; height:28px; border:2px solid #cbd5e1; border-radius:6px;
-    margin-right:12px; display:flex; align-items:center; justify-content:center;
-    background:#fff; transition:all 0.15s;
+  .area-tabs .area-tab {
+    display:inline-flex; align-items:center; gap:6px;
+    padding:6px 14px; margin-right:6px; border-radius:999px;
+    background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;
+    cursor:pointer; font-size:0.9rem; font-weight:500;
   }
-  .item-row.checked .item-check { background:#22c55e; border-color:#22c55e; }
-  .item-check i { color:#fff; font-size:1.1rem; opacity:0; transition:opacity 0.1s; }
-  .item-row.checked .item-check i { opacity:1; }
-  .item-name { flex-grow:1; font-size:0.95rem; line-height:1.4; padding-top:2px; }
-  .item-name .supply-badge {
-    background:#fef3c7; color:#92400e; padding:1px 6px; border-radius:4px;
-    font-size:0.7rem; margin-left:6px; font-weight:600;
+  .area-tabs .area-tab.active { background:#3b82f6; color:#fff; border-color:#3b82f6; }
+  .area-tabs .area-tab .tab-count { font-size:0.75rem; opacity:0.85; }
+  .area-tabs .area-tab.all-done { background:#22c55e; color:#fff; border-color:#22c55e; }
+
+  /* エリア内 全チェック / 全展開 */
+  .area-controls { padding:8px 4px; display:flex; gap:6px; flex-wrap:wrap; }
+
+  /* アイテム (タップでトグル) */
+  .gc-item {
+    background:#fff; border:1px solid #e2e8f0; border-radius:10px;
+    padding:12px 14px; margin-bottom:8px; display:flex; gap:12px;
+    cursor:pointer; user-select:none; -webkit-tap-highlight-color:transparent;
+    transition:background 0.1s;
   }
+  .gc-item.checked { background:#f0fdf4; border-color:#bbf7d0; }
+  .gc-item.checked .gc-item-name { color:#94a3b8; text-decoration:line-through; }
+  .gc-checkbox {
+    flex-shrink:0; width:24px; height:24px; border:2px solid #cbd5e1; border-radius:6px;
+    display:flex; align-items:center; justify-content:center;
+    background:#fff; margin-top:2px; transition:all 0.15s;
+  }
+  .gc-item.checked .gc-checkbox { background:#22c55e; border-color:#22c55e; }
+  .gc-checkbox i { color:#fff; font-size:0.95rem; opacity:0; }
+  .gc-item.checked .gc-checkbox i { opacity:1; }
+  .gc-item-body { flex-grow:1; min-width:0; }
+  .gc-item-name { font-size:0.95rem; line-height:1.4; }
+  .gc-item-memo { font-size:0.8rem; color:#64748b; margin-top:4px; }
+  .gc-supply-row {
+    margin-top:8px; padding-top:8px; border-top:1px dashed #fde68a;
+    display:flex; align-items:center; gap:8px;
+  }
+  .gc-supply-row label { color:#b45309; font-size:0.85rem; cursor:pointer; margin:0; }
+
+  /* カテゴリ (アコーディオン) */
+  .gc-cat { margin-bottom:8px; border:1px solid #e2e8f0; border-radius:10px; overflow:hidden; background:#fff; }
+  .gc-cat-header {
+    display:flex; align-items:center; padding:10px 14px;
+    background:#f8fafc; cursor:pointer; user-select:none;
+    font-weight:600; font-size:0.95rem;
+  }
+  .gc-cat-header.all-done { background:#dcfce7; color:#166534; }
+  .gc-cat-header .gc-cat-toggle { margin-left:auto; transition:transform 0.2s; }
+  .gc-cat.collapsed .gc-cat-toggle { transform:rotate(-90deg); }
+  .gc-cat-body { padding:8px 10px 4px; }
+  .gc-cat.collapsed .gc-cat-body { display:none; }
+  .gc-cat-badge {
+    background:#94a3b8; color:#fff; border-radius:999px;
+    padding:1px 8px; font-size:0.7rem; font-weight:600; margin-left:8px;
+  }
+  .gc-cat-header.all-done .gc-cat-badge { background:#16a34a; }
+
+  /* 進捗 */
   .progress-fixed {
     position:fixed; bottom:0; left:0; right:0; background:#fff;
-    padding:12px 16px; box-shadow:0 -2px 8px rgba(0,0,0,0.1); z-index:20;
+    padding:10px 16px; box-shadow:0 -2px 8px rgba(0,0,0,0.1); z-index:25;
   }
   .progress-fixed .progress { height:8px; }
-  .reset-btn {
-    background:none; border:none; color:#94a3b8; font-size:0.8rem;
-    text-decoration:underline; cursor:pointer;
-  }
-  .empty-state { padding:40px 20px; text-align:center; color:#64748b; }
-  .loading { padding:40px 20px; text-align:center; color:#94a3b8; }
+  .reset-btn { background:none; border:none; color:#94a3b8; font-size:0.78rem; text-decoration:underline; cursor:pointer; }
+
+  .empty-state, .loading { padding:40px 20px; text-align:center; color:#64748b; }
 </style>
 </head>
 <body>
 
 <div class="header-bar">
   <h1><i class="bi bi-clipboard-check"></i> <span id="propName">清掃チェックリスト</span></h1>
-  <div class="sub">タップしてチェック (端末内に保存されます)</div>
+  <div class="sub">タップでチェック (端末内に保存)</div>
 </div>
 
-<div class="container">
+<div id="areaTabs" class="area-tabs d-none"></div>
+
+<div class="container pt-2">
   <div id="content" class="loading">
     <div class="spinner-border text-primary" role="status"></div>
     <div class="mt-2">読み込み中...</div>
@@ -69,8 +109,8 @@
 
 <div class="progress-fixed d-none" id="progressBar">
   <div class="d-flex align-items-center mb-1">
-    <span class="small fw-bold flex-grow-1"><span id="checkedCount">0</span> / <span id="totalCount">0</span> 完了</span>
-    <button class="reset-btn" id="resetBtn"><i class="bi bi-arrow-counterclockwise"></i> リセット</button>
+    <span class="small fw-bold flex-grow-1"><span id="checkedCount">0</span> / <span id="totalCount">0</span> 完了 (全エリア)</span>
+    <button class="reset-btn" id="resetBtn"><i class="bi bi-arrow-counterclockwise"></i> 全リセット</button>
   </div>
   <div class="progress">
     <div class="progress-bar bg-success" id="progressFill" style="width:0%"></div>
@@ -79,7 +119,7 @@
 
 <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore-compat.js"></script>
-<script src="js/firebase-config.js?v=0504c"></script>
+<script src="js/firebase-config.js?v=0504d"></script>
 <script>
 (function() {
   const params = new URLSearchParams(location.search);
@@ -88,6 +128,7 @@
   if (propertyName) document.getElementById("propName").textContent = propertyName;
 
   const content = document.getElementById("content");
+  const areaTabsEl = document.getElementById("areaTabs");
   const progressBar = document.getElementById("progressBar");
   const checkedCountEl = document.getElementById("checkedCount");
   const totalCountEl = document.getElementById("totalCount");
@@ -95,70 +136,187 @@
   const resetBtn = document.getElementById("resetBtn");
 
   const STORAGE_KEY = `guestChecklist_${propertyId}`;
+  const COLLAPSED_KEY = `guestChecklistCollapsed_${propertyId}`;
   let checkedSet = new Set();
+  let collapsedSet = new Set();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) checkedSet = new Set(JSON.parse(raw));
+    const c = localStorage.getItem(COLLAPSED_KEY);
+    if (c) collapsedSet = new Set(JSON.parse(c));
   } catch (e) {}
 
-  function saveState() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify([...checkedSet])); } catch (e) {}
-  }
+  function saveChecked() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify([...checkedSet])); } catch (e) {} }
+  function saveCollapsed() { try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsedSet])); } catch (e) {} }
 
   function esc(s) {
     return String(s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
   }
 
-  function renderItem(item, idPrefix) {
-    const itemId = `${idPrefix}_${item.id}`;
-    const checked = checkedSet.has(itemId);
-    const supply = item.supplyItem ? '<span class="supply-badge">補充</span>' : "";
+  let areas = [];
+  let activeAreaId = null;
+
+  // === ノードのアイテム/カテゴリを sortOrder 順に混在ソートして配列化 ===
+  function getSortedChildren(node) {
+    const items = (node.directItems || node.items || []).map(it => ({
+      kind: "item", sortOrder: it.sortOrder || 0, data: it,
+    }));
+    const catField = node.taskTypes ? "taskTypes"
+                  : node.subCategories ? "subCategories"
+                  : node.subSubCategories ? "subSubCategories"
+                  : null;
+    const cats = catField ? (node[catField] || []).map(c => ({
+      kind: "cat", sortOrder: c.sortOrder || 0, data: c,
+    })) : [];
+    return [...items, ...cats].sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+
+  // 再帰的に全アイテム数 / チェック済数を集計
+  function countItems(node) {
+    let n = 0;
+    const walk = (x) => {
+      (x.directItems || x.items || []).forEach(() => n++);
+      (x.taskTypes || []).forEach(walk);
+      (x.subCategories || []).forEach(walk);
+      (x.subSubCategories || []).forEach(walk);
+    };
+    walk(node);
+    return n;
+  }
+  function countChecked(node) {
+    let n = 0;
+    const walk = (x) => {
+      (x.directItems || x.items || []).forEach(it => { if (checkedSet.has(it.id)) n++; });
+      (x.taskTypes || []).forEach(walk);
+      (x.subCategories || []).forEach(walk);
+      (x.subSubCategories || []).forEach(walk);
+    };
+    walk(node);
+    return n;
+  }
+
+  // === レンダリング ===
+  function renderItem(it) {
+    const checked = checkedSet.has(it.id);
+    const memo = it.memo ? `<div class="gc-item-memo">${esc(it.memo)}</div>` : "";
+    const supply = it.supplyItem ? `
+      <div class="gc-supply-row" data-stop="1">
+        <input class="form-check-input gc-restock" type="checkbox" id="sup-${esc(it.id)}" data-restock-id="${esc(it.id)}"
+               ${checkedSet.has("restock_" + it.id) ? "checked" : ""} style="width:18px;height:18px;margin:0;">
+        <label for="sup-${esc(it.id)}"><i class="bi bi-exclamation-triangle"></i> 要補充</label>
+      </div>
+    ` : "";
     return `
-      <div class="item-row${checked ? " checked" : ""}" data-id="${esc(itemId)}">
-        <div class="item-check"><i class="bi bi-check-lg"></i></div>
-        <div class="item-name">${esc(item.name)}${supply}</div>
-      </div>`;
+      <div class="gc-item${checked ? " checked" : ""}" data-item-id="${esc(it.id)}">
+        <div class="gc-checkbox"><i class="bi bi-check-lg"></i></div>
+        <div class="gc-item-body">
+          <div class="gc-item-name">${esc(it.name)}</div>
+          ${memo}
+          ${supply}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderCat(cat) {
+    const total = countItems(cat);
+    const done = countChecked(cat);
+    const allDone = total > 0 && done === total;
+    const isCollapsed = collapsedSet.has(cat.id);
+    const children = getSortedChildren(cat);
+    return `
+      <div class="gc-cat${isCollapsed ? " collapsed" : ""}" data-cat-id="${esc(cat.id)}">
+        <div class="gc-cat-header${allDone ? " all-done" : ""}" data-cat-toggle="${esc(cat.id)}">
+          <span>${esc(cat.name)}</span>
+          <span class="gc-cat-badge">${done}/${total}</span>
+          <span class="gc-cat-toggle"><i class="bi bi-chevron-down"></i></span>
+        </div>
+        <div class="gc-cat-body">
+          ${children.map(c => c.kind === "item" ? renderItem(c.data) : renderCat(c.data)).join("")}
+        </div>
+      </div>
+    `;
   }
 
   function renderArea(area) {
-    let html = `<div class="area-card card shadow-sm"><div class="area-name">${esc(area.name)}</div>`;
-    const aPrefix = `a_${area.id}`;
-    // directItems
-    const directs = (area.directItems || []).slice().sort((x,y)=>(x.sortOrder||0)-(y.sortOrder||0));
-    directs.forEach(it => { html += renderItem(it, aPrefix); });
-    // taskTypes
-    const tts = (area.taskTypes || []).slice().sort((x,y)=>(x.sortOrder||0)-(y.sortOrder||0));
-    tts.forEach(tt => {
-      html += `<div class="tasktype-name">${esc(tt.name)}</div>`;
-      const ttPrefix = `${aPrefix}_t_${tt.id}`;
-      const ttd = (tt.directItems || []).slice().sort((x,y)=>(x.sortOrder||0)-(y.sortOrder||0));
-      ttd.forEach(it => { html += renderItem(it, ttPrefix); });
-      const subcats = (tt.subCategories || []).slice().sort((x,y)=>(x.sortOrder||0)-(y.sortOrder||0));
-      subcats.forEach(sc => {
-        html += `<div class="subcat-name">${esc(sc.name)}</div>`;
-        const scPrefix = `${ttPrefix}_s_${sc.id}`;
-        const scd = (sc.directItems || []).slice().sort((x,y)=>(x.sortOrder||0)-(y.sortOrder||0));
-        scd.forEach(it => { html += renderItem(it, scPrefix); });
+    const total = countItems(area);
+    const done = countChecked(area);
+    const allCheckedHere = total > 0 && done === total;
+    const children = getSortedChildren(area);
+    return `
+      <div class="area-controls">
+        <button type="button" class="btn btn-sm btn-outline-primary" id="btnToggleAllArea" data-all-checked="${allCheckedHere ? '1' : '0'}">
+          <i class="bi bi-check2-square"></i> ${allCheckedHere ? "このエリアの全チェックを外す" : "このエリア全チェック"}
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnToggleAllExpand">
+          <i class="bi bi-arrows-expand"></i> 全展開/折りたたみ
+        </button>
+      </div>
+      ${children.map(c => c.kind === "item" ? renderItem(c.data) : renderCat(c.data)).join("")}
+    `;
+  }
+
+  function renderTabs() {
+    areaTabsEl.innerHTML = areas.map(a => {
+      const total = countItems(a);
+      const done = countChecked(a);
+      const allDone = total > 0 && done === total;
+      const active = a.id === activeAreaId;
+      return `<span class="area-tab${active ? ' active' : ''}${allDone && !active ? ' all-done' : ''}" data-area-id="${esc(a.id)}">
+        ${esc(a.name)} <span class="tab-count">${done}/${total}</span>
+      </span>`;
+    }).join("");
+    areaTabsEl.classList.remove("d-none");
+    areaTabsEl.querySelectorAll(".area-tab").forEach(t => {
+      t.addEventListener("click", () => {
+        activeAreaId = t.dataset.areaId;
+        renderActiveArea();
+        renderTabs();
+        // タブを画面内に
+        t.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
       });
     });
-    html += `</div>`;
-    return html;
   }
 
-  function updateProgress() {
-    const allItems = document.querySelectorAll(".item-row");
-    const checked = document.querySelectorAll(".item-row.checked");
-    const total = allItems.length;
-    const cnt = checked.length;
-    checkedCountEl.textContent = cnt;
-    totalCountEl.textContent = total;
-    progressFill.style.width = total > 0 ? `${(cnt/total*100).toFixed(0)}%` : "0%";
+  function renderActiveArea() {
+    const area = areas.find(a => a.id === activeAreaId);
+    if (!area) return;
+    content.className = "";
+    content.innerHTML = renderArea(area);
+    wireArea(area);
   }
 
-  function attachClicks() {
-    document.querySelectorAll(".item-row").forEach(row => {
-      row.addEventListener("click", () => {
-        const id = row.dataset.id;
+  function wireArea(area) {
+    // カテゴリトグル
+    content.querySelectorAll("[data-cat-toggle]").forEach(h => {
+      h.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const id = h.dataset.catToggle;
+        if (collapsedSet.has(id)) collapsedSet.delete(id);
+        else collapsedSet.add(id);
+        saveCollapsed();
+        h.parentElement.classList.toggle("collapsed");
+      });
+    });
+    // 要補充クリックバブリング止め
+    content.querySelectorAll('[data-stop="1"]').forEach(el => {
+      el.addEventListener("click", (ev) => ev.stopPropagation());
+    });
+    // 要補充トグル (item チェックとは独立した状態を保存: "restock_" prefix)
+    content.querySelectorAll(".gc-restock").forEach(cb => {
+      cb.addEventListener("change", () => {
+        const id = "restock_" + cb.dataset.restockId;
+        if (cb.checked) checkedSet.add(id);
+        else checkedSet.delete(id);
+        saveChecked();
+      });
+    });
+    // アイテムタップ
+    content.querySelectorAll(".gc-item").forEach(row => {
+      row.addEventListener("click", (ev) => {
+        // 要補充行のクリックは無視 (上の stop ハンドラで止まる想定)
+        if (ev.target.closest('[data-stop="1"]')) return;
+        const id = row.dataset.itemId;
         if (checkedSet.has(id)) {
           checkedSet.delete(id);
           row.classList.remove("checked");
@@ -166,17 +324,70 @@
           checkedSet.add(id);
           row.classList.add("checked");
         }
-        saveState();
-        updateProgress();
+        saveChecked();
+        updateAfterChange();
       });
     });
+    // 全チェック / 全外し
+    content.querySelector("#btnToggleAllArea")?.addEventListener("click", () => {
+      const allChecked = content.querySelector("#btnToggleAllArea").dataset.allChecked === "1";
+      const walk = (x) => {
+        (x.directItems || x.items || []).forEach(it => {
+          if (allChecked) checkedSet.delete(it.id);
+          else checkedSet.add(it.id);
+        });
+        (x.taskTypes || []).forEach(walk);
+        (x.subCategories || []).forEach(walk);
+        (x.subSubCategories || []).forEach(walk);
+      };
+      walk(area);
+      saveChecked();
+      renderActiveArea();
+      renderTabs();
+      updateProgress();
+    });
+    // 全展開 / 全折りたたみ
+    content.querySelector("#btnToggleAllExpand")?.addEventListener("click", () => {
+      // 現在エリア内のカテゴリ ID 全部
+      const catIds = [];
+      const walk = (x) => {
+        (x.taskTypes || []).forEach(c => { catIds.push(c.id); walk(c); });
+        (x.subCategories || []).forEach(c => { catIds.push(c.id); walk(c); });
+        (x.subSubCategories || []).forEach(c => { catIds.push(c.id); walk(c); });
+      };
+      walk(area);
+      // 1つでも展開状態があれば全部閉じる、そうでなければ全部開く
+      const anyOpen = catIds.some(id => !collapsedSet.has(id));
+      catIds.forEach(id => {
+        if (anyOpen) collapsedSet.add(id);
+        else collapsedSet.delete(id);
+      });
+      saveCollapsed();
+      renderActiveArea();
+    });
+  }
+
+  function updateAfterChange() {
+    // カテゴリのバッジを更新するために active area を再描画
+    renderActiveArea();
+    renderTabs();
+    updateProgress();
+  }
+
+  function updateProgress() {
+    let total = 0, cnt = 0;
+    areas.forEach(a => { total += countItems(a); cnt += countChecked(a); });
+    checkedCountEl.textContent = cnt;
+    totalCountEl.textContent = total;
+    progressFill.style.width = total > 0 ? `${(cnt/total*100).toFixed(0)}%` : "0%";
   }
 
   resetBtn.addEventListener("click", () => {
     if (!confirm("チェックを全部リセットしますか?")) return;
     checkedSet.clear();
-    saveState();
-    document.querySelectorAll(".item-row.checked").forEach(r => r.classList.remove("checked"));
+    saveChecked();
+    renderActiveArea();
+    renderTabs();
     updateProgress();
   });
 
@@ -194,15 +405,15 @@
         return;
       }
       const data = doc.data();
-      const areas = (data.areas || []).slice().sort((x,y)=>(x.sortOrder||0)-(y.sortOrder||0));
+      areas = (data.areas || []).slice().sort((x,y) => (x.sortOrder||0) - (y.sortOrder||0));
       if (areas.length === 0) {
         content.className = "empty-state";
         content.innerHTML = `<i class="bi bi-inbox fs-1 text-muted"></i><p class="mt-2">チェック項目がありません</p>`;
         return;
       }
-      content.className = "";
-      content.innerHTML = areas.map(renderArea).join("");
-      attachClicks();
+      activeAreaId = areas[0].id;
+      renderTabs();
+      renderActiveArea();
       updateProgress();
       progressBar.classList.remove("d-none");
     })
