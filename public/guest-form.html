@@ -1450,16 +1450,23 @@
       // ゲストIDはフォーム送信時に一時生成（Firestore保存後に実IDへのコピーは不要）
       const tempGuestId = `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       let photoIndex = 0;
+      const uploadFailMsg = currentLang === "ja"
+        ? "パスポート写真のアップロードに失敗しました。通信状況を確認してもう一度送信してください。"
+        : "Passport photo upload failed. Please check your connection and try again.";
       for (const inp of inputs) {
         if (inp.files && inp.files[0]) {
           try {
             const f = inp.files[0];
             const safeName = `photo${photoIndex}_${Date.now()}.${f.name.split(".").pop() || "jpg"}`;
             const ref = storage.ref(`passport-photos/${tempGuestId}/${safeName}`);
-            await ref.put(f); urls.push(await ref.getDownloadURL()); photoIndex++;
+            await ref.put(f);
+            urls.push(await ref.getDownloadURL());
+            photoIndex++;
           } catch (e) {
-            console.warn("写真アップロード失敗（スキップ）:", e.message);
-            urls.push(""); // アップロード失敗時は空文字で続行
+            // 失敗を呼出側に伝播 → submit ハンドラの catch で showFormError 表示
+            console.error("[uploadPassportPhotos] 失敗:", e);
+            const detail = e && e.message ? `\n(${e.message})` : "";
+            throw new Error(uploadFailMsg + detail);
           }
         }
       }
