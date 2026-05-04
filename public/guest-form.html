@@ -1472,6 +1472,52 @@
       } catch (e) { console.warn("予約情報取得失敗:", e); }
     }
 
+    /**
+     * 画像をクライアント側でリサイズ → Blob 返す
+     * 完全にブラウザ内処理 (Canvas API、外部API なし、トークン消費なし)
+     * 長辺 maxDim px に縮小、JPEG quality 0.85 で出力
+     * パスポート文字情報 (MRZ含む) は十分判読可能
+     */
+    async function resizeImageToBlob(file, maxDim = 1800, quality = 0.85) {
+      // 既に十分小さい (1MB 未満) なら何もせずそのまま使用
+      if (file.size < 1024 * 1024) return file;
+      try {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(fr.result);
+          fr.onerror = () => reject(fr.error || new Error("FileReader 失敗"));
+          fr.readAsDataURL(file);
+        });
+        const img = await new Promise((resolve, reject) => {
+          const i = new Image();
+          i.onload = () => resolve(i);
+          i.onerror = () => reject(new Error("画像デコード失敗"));
+          i.src = dataUrl;
+        });
+        let { width, height } = img;
+        const longEdge = Math.max(width, height);
+        if (longEdge > maxDim) {
+          const ratio = maxDim / longEdge;
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        const blob = await new Promise((resolve, reject) => {
+          canvas.toBlob((b) => b ? resolve(b) : reject(new Error("toBlob 失敗")), "image/jpeg", quality);
+        });
+        // 元ファイルより大きくなる稀なケースは元を使う
+        return blob.size < file.size ? blob : file;
+      } catch (e) {
+        // リサイズ失敗 → 元ファイルでアップロード続行
+        console.warn("[resizeImageToBlob] リサイズ失敗、元ファイル使用:", e.message);
+        return file;
+      }
+    }
+
     async function uploadPassportPhotos() {
       const inputs = document.querySelectorAll(".g-passport-photo"), urls = [];
       // ゲストIDはフォーム送信時に一時生成（Firestore保存後に実IDへのコピーは不要）
@@ -1494,10 +1540,14 @@
       for (const inp of inputs) {
         if (inp.files && inp.files[0]) {
           try {
-            const f = inp.files[0];
-            const safeName = `photo${photoIndex}_${Date.now()}.${f.name.split(".").pop() || "jpg"}`;
+            const original = inp.files[0];
+            // クライアント側でリサイズ (5MB 制限回避 + 通信量削減)
+            const f = await resizeImageToBlob(original);
+            // リサイズ後は image/jpeg なので拡張子を jpg 固定
+            const ext = (f === original) ? (original.name.split(".").pop() || "jpg") : "jpg";
+            const safeName = `photo${photoIndex}_${Date.now()}.${ext}`;
             const ref = storage.ref(`passport-photos/${tempGuestId}/${safeName}`);
-            await ref.put(f);
+            await ref.put(f, { contentType: f.type || "image/jpeg" });
             urls.push(await ref.getDownloadURL());
             photoIndex++;
           } catch (e) {
