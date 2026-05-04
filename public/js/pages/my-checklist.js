@@ -655,9 +655,9 @@ const MyChecklistPage = {
       return `
         <li class="nav-item">
           <a class="nav-link ${isActive ? "active" : ""}" href="#" data-area-id="${a.id}"
-             style="${tabStyle}font-weight:600;">
+             style="${tabStyle}font-weight:600;font-size:12px;padding:5px 10px;">
             ${this.escapeHtml(a.name)}
-            <span class="badge ${badgeCls} ms-1">${done}/${total}</span>
+            <span class="badge ${badgeCls} ms-1" style="font-size:9px;">${done}/${total}</span>
           </a>
         </li>
       `;
@@ -2672,8 +2672,8 @@ const MyChecklistPage = {
           ${it.supplyItem ? `
             <div class="d-flex align-items-center mt-2" onclick="event.stopPropagation()">
               <input class="form-check-input mcl-restock flex-shrink-0" type="checkbox" id="sup-${it.id}"
-                     ${needsRestock ? "checked" : ""} style="width:20px;height:20px;margin:0;">
-              <label class="text-warning ms-2 mb-0" for="sup-${it.id}" style="cursor:pointer;">
+                     ${needsRestock ? "checked" : ""} style="width:16px;height:16px;margin:0;">
+              <label class="text-warning ms-2 mb-0" for="sup-${it.id}" style="cursor:pointer;font-size:11px;">
                 <i class="bi bi-exclamation-triangle"></i> 要補充
               </label>
             </div>
