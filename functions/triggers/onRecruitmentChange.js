@@ -4,6 +4,7 @@
  * - 物件の selectionMethod が "firstCome" で新規◎回答 → 即自動確定
  */
 const { notifyByKey, resolveNotifyTargets, getNotificationSettings_ } = require("../utils/lineNotify");
+const { workLabel } = require("../utils/workType");
 
 module.exports = async function onRecruitmentChange(event) {
   const admin = require("firebase-admin");
@@ -124,7 +125,7 @@ module.exports = async function onRecruitmentChange(event) {
         body: `⚡ 早い者勝ちルールにより自動確定\n\n` +
           `日付: ${checkoutDate}${propertyName ? ` (${propertyName})` : ""}\n` +
           `担当: ${staffName}\n`,
-        vars: { date: checkoutDate, property: propertyName, staff: staffName, response, count: afterResponses.length },
+        vars: { date: checkoutDate, property: propertyName, staff: staffName, response, count: afterResponses.length, work: workLabel(after.workType), workType: after.workType || "cleaning" },
         propertyId: propertyId || null,
       });
       return;
@@ -152,7 +153,7 @@ module.exports = async function onRecruitmentChange(event) {
   await notifyByKey(db, "recruit_response", {
     title: `募集回答: ${checkoutDate}`,
     body: text,
-    vars: { date: checkoutDate, property: propertyName, staff: staffName, response, count: available.length },
+    vars: { date: checkoutDate, property: propertyName, staff: staffName, response, count: available.length, work: workLabel(after.workType), workType: after.workType || "cleaning" },
     propertyId: propertyId || null,
   });
 };

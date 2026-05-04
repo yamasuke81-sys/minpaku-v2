@@ -15,6 +15,7 @@
  */
 const admin = require("firebase-admin");
 const { notifyByKey } = require("../utils/lineNotify");
+const { workLabel } = require("../utils/workType");
 
 const NOTIFY_TYPE = "recruit_remind";
 
@@ -125,6 +126,8 @@ module.exports = async function recruitReminder() {
           checkoutDate: r.checkoutDate,
           property: r.propertyName || tgt.propertyName,
           propertyName: r.propertyName || tgt.propertyName,
+          work: workLabel(r.workType),
+          workType: r.workType || "cleaning",
           url: recruitUrl,
           count: String(responses.length),
         };

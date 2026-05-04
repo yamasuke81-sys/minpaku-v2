@@ -68,6 +68,7 @@
       { name: "property", label: "物件名",          sample: "長浜民泊A",     source: "checklist.propertyName" },
       { name: "staff",    label: "スタッフ名",       sample: "山田太郎",      source: "checklist.staffName" },
       { name: "time",     label: "完了時刻",        sample: "14:30",        source: "checklist.completedAt" },
+      { name: "work",     label: "作業内容",         sample: "清掃",         source: "checklist.workType (清掃 / 直前点検)" },
       { name: "url",      label: "チェックリストURL", sample: "https://minpaku-v2.web.app/#/my-checklist/xxx", source: "自動生成 (該当シフトのチェックリストページ)" },
     ],
     laundry: [
@@ -75,6 +76,7 @@
       { name: "property", label: "物件名",          sample: "長浜民泊A",     source: "checklist.propertyName" },
       { name: "staff",    label: "担当スタッフ",     sample: "山田太郎",     source: "checklist.laundry.*.by.name" },
       { name: "time",     label: "実施時刻",         sample: "19:30",       source: "checklist.laundry.*.at" },
+      { name: "work",     label: "作業内容",         sample: "清掃",         source: "checklist.workType" },
       { name: "url",      label: "チェックリストURL", sample: "https://minpaku-v2.web.app/#/my-checklist/xxx", source: "自動生成 (該当シフトのチェックリストページ)" },
     ],
     inspection: [
@@ -83,6 +85,7 @@
       { name: "guest",    label: "ゲスト名",         sample: "John Smith",  source: "booking.guestName" },
       { name: "checkin",  label: "チェックイン日",   sample: "2026/04/20",   source: "booking.checkIn" },
       { name: "checkout", label: "チェックアウト日",  sample: "2026/04/22",  source: "booking.checkOut" },
+      { name: "work",     label: "作業内容",         sample: "直前点検",      source: "固定: 直前点検" },
     ],
   };
 

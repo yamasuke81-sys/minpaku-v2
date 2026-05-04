@@ -30,6 +30,7 @@ const {
   resolveNotifyTargets,
   getNotificationSettings_,
 } = require("../utils/lineNotify");
+const { workLabel } = require("../utils/workType");
 
 // laundry フィールド値が「設定済み」か判定
 // 新形式 {at, by} / 旧形式 Timestamp / null / undefined に対応
@@ -443,6 +444,8 @@ module.exports = async (event) => {
         property: propertyName,
         staff: staffName,
         time: timeStr,
+        work: workLabel(after.workType),
+        workType: after.workType || "cleaning",
         url: checklistUrl,
       };
 

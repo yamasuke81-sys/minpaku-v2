@@ -106,6 +106,8 @@ module.exports = async function sendInspectionReminder() {
           guest: b.guestName || "ゲスト",
           checkin: fmtDate(b.checkIn),
           checkout: fmtDate(b.checkOut),
+          work: "直前点検",
+          workType: "pre_inspection",
         };
         const body = `🔍 直前点検リマインド (${tgt.beforeDays}日前)\n\n${fmtDate(b.checkIn)} チェックイン前の点検をお忘れなく\n物件: ${tgt.propertyName}\nゲスト: ${b.guestName || ""}`;
 

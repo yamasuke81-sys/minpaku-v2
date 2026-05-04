@@ -19,6 +19,7 @@
  */
 const admin = require("firebase-admin");
 const { notifyByKey } = require("../utils/lineNotify");
+const { workLabel } = require("../utils/workType");
 
 const APP_URL = "https://minpaku-v2.web.app";
 const NOTIFY_TYPE = "staff_undecided";
@@ -105,6 +106,7 @@ module.exports = async function staffUndecidedRemind() {
           vars: {
             date: r.checkoutDate, property: propertyName, url: recruitUrl,
             staff: "", count: String((r.responses || []).length),
+            work: workLabel(r.workType), workType: r.workType || "cleaning",
           },
           propertyId: tgt.propertyId,
         });
@@ -152,6 +154,7 @@ module.exports = async function staffUndecidedRemind() {
           vars: {
             date: r.checkoutDate, property: propertyName, url: recruitUrl,
             staff: "", count: String((r.responses || []).length),
+            work: workLabel(r.workType), workType: r.workType || "cleaning",
           },
           propertyId: r.propertyId || null,
         });

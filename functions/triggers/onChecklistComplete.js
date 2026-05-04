@@ -6,6 +6,7 @@
  * 処理C: スタッフにランドリー入力リマインドLINE通知 (通知 type: laundry_reminder)
  */
 const { notifyOwner, notifyStaff, notifyByKey, getNotificationSettings_ } = require("../utils/lineNotify");
+const { workLabel } = require("../utils/workType");
 
 function fmtDate(s) {
   if (!s) return "";
@@ -92,6 +93,8 @@ module.exports = async function onChecklistComplete(event) {
       property: propertyName || "",
       staff: staffName || "",
       time: timeStr,
+      work: workLabel(after.workType),
+      workType: after.workType || "cleaning",
       url: checklistUrl,
     };
     const ownerMsg = `✨ 清掃完了\n\n${dateStr} ${propertyName || ""}\n${staffName || "スタッフ"}さんが${timeStr}に清掃を完了しました。\n詳細: ${checklistUrl}`;
@@ -120,6 +123,8 @@ module.exports = async function onChecklistComplete(event) {
       date: dateStr,
       property: propertyName || "",
       staff: staffName || "",
+      work: workLabel(after.workType),
+      workType: after.workType || "cleaning",
       url: checklistUrl,
     };
     const staffMsg = `🧺 ランドリーを使用した場合は記録をお願いします\n\n${dateStr} ${propertyName || ""}\n入力: ${checklistUrl}`;
