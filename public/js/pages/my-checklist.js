@@ -1640,8 +1640,8 @@ const MyChecklistPage = {
           </div>
         </div>`
       : `
-        <button type="button" class="btn btn-success" id="mclCompleteBtn" style="font-size:11px;padding:4px 8px;line-height:1.1;min-width:48px;white-space:nowrap;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;">
-          <i class="bi bi-check2-circle" style="font-size:18px;"></i>
+        <button type="button" class="btn btn-success" id="mclCompleteBtn" style="font-size:12px;padding:4px 10px;line-height:1.1;min-width:48px;white-space:nowrap;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-weight:700;">
+          <span>清掃</span>
           <span>完了</span>
         </button>`;
 
@@ -2662,8 +2662,8 @@ const MyChecklistPage = {
                    ${checked ? "checked" : ""}
                    style="width:22px;height:22px;margin-top:2px;pointer-events:none;">
             <div class="flex-grow-1 lh-base">
-              <span style="font-size:15px;">${this.escapeHtml(it.name)}</span>
-              ${it.memo ? `<div class="small text-muted mt-1">${this.escapeHtml(it.memo)}</div>` : ""}
+              <span style="font-size:13px;">${this.escapeHtml(it.name)}</span>
+              ${it.memo ? `<div class="small text-muted mt-1" style="font-size:11px;">${this.escapeHtml(it.memo)}</div>` : ""}
               ${this._renderInlineSampleThumbs(it, it.name)}
               ${othersEditing ? `<div class="small text-info mt-1"><i class="bi bi-person"></i> ${this.escapeHtml(editingBy.name||"他のスタッフ")}が編集中...</div>` : ""}
               ${st.checkedBy ? `<div class="small text-muted mt-1">✓ ${this.escapeHtml(st.checkedBy.name||"")} ${this.fmtTime(st.checkedAt)}</div>` : ""}
@@ -2696,9 +2696,9 @@ const MyChecklistPage = {
       <div class="mcl-cat accordion mb-2" data-cat-id="${cat.id}">
         <div class="accordion-item">
           <h2 class="accordion-header">
-            <button class="accordion-button ${allDone ? 'bg-success bg-opacity-10' : ''}" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}">
+            <button class="accordion-button ${allDone ? 'bg-success bg-opacity-10' : ''}" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}" style="font-size:13px;padding:8px 12px;">
               ${this.escapeHtml(cat.name)}
-              <span class="badge ${allDone ? 'bg-success' : 'bg-secondary'} ms-2">${done}/${tot}</span>
+              <span class="badge ${allDone ? 'bg-success' : 'bg-secondary'} ms-2" style="font-size:10px;">${done}/${tot}</span>
             </button>
           </h2>
           <div id="${collapseId}" class="accordion-collapse collapse show">
