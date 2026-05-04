@@ -24,7 +24,7 @@
   <div class="app-topbar">
     <button class="btn btn-sm" id="btnToggleSidebar"><i class="bi bi-list fs-5"></i></button>
     <span class="fw-bold"><i class="bi bi-house-door"></i> 民泊管理</span>
-    <span class="badge bg-secondary" id="appVersionMobile">v0504k</span>
+    <span class="badge bg-secondary" id="appVersionMobile">v0504l</span>
   </div>
 
   <!-- サイドバー背景（モバイル） -->
@@ -34,7 +34,7 @@
   <aside class="app-sidebar" id="appSidebar">
     <div class="sidebar-brand">
       <h5><i class="bi bi-house-door"></i> 民泊管理</h5>
-      <small>v0504k</small>
+      <small>v0504l</small>
     </div>
     <nav class="sidebar-nav" id="ownerNav">
       <a class="nav-link" href="#/schedule" data-page="schedule" data-sub-owner-show="1"><i class="bi bi-calendar-check"></i> 予約・清掃スケジュール</a>
@@ -670,6 +670,11 @@
                 <i class="bi bi-plus-lg"></i> Bot を追加（最大2）
               </button>
 
+              <!-- LINE User ID 取得ボタン -->
+              <button type="button" class="btn btn-outline-primary btn-sm mt-1 ms-1" id="btnFetchLineUsers">
+                <i class="bi bi-people"></i> 📥 最近メッセージしたユーザーから取得
+              </button>
+
               <!-- 設定手順アコーディオン (超詳細版) -->
               <div class="mt-3">
                 <button class="btn btn-link btn-sm p-0 text-decoration-none" type="button" data-bs-toggle="collapse" data-bs-target="#lineSetupGuide">
@@ -884,6 +889,31 @@
           <button type="button" class="btn btn-primary" id="btnSaveProperty">
             <i class="bi bi-check-lg"></i> 保存
           </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LINE 最近ユーザー取得モーダル -->
+  <div class="modal fade" id="lineRecentUsersModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-people"></i> 最近メッセージしたユーザー</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-info py-2 px-3 small mb-2">
+            <i class="bi bi-info-circle"></i>
+            この物件の Group ID で受信した直近 14日間 のメッセージから抽出した LINE User ID 一覧です。
+            「コピー」でクリップボードへ、「→ スタッフへ紐付け」でスタッフ管理画面へ移動して LINE User ID 欄に自動入力します。
+          </div>
+          <div id="lineRecentUsersBody">
+            <div class="text-center text-muted py-4"><div class="spinner-border"></div><div class="mt-2 small">読み込み中...</div></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button>
         </div>
       </div>
     </div>

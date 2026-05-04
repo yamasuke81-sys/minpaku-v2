@@ -273,5 +273,134 @@ module.exports = function propertiesApi(db) {
     }
   });
 
+  // ============================================================
+  // GET /properties/:id/line-recent-users
+  // 物件に紐づく LINE Bot (lineChannels[].groupId) で
+  // 直近受信した line_webhook_logs から userId 一覧を抽出 + LINE 表示名解決
+  //  ?days=7 (デフォルト 14)
+  // 返却: [{ userId, displayName, pictureUrl, lastMessage, lastReceivedAt, source }]
+  // ============================================================
+  router.get("/:id/line-recent-users", async (req, res) => {
+    try {
+      if (req.user.role !== "owner" && req.user.role !== "sub_owner") {
+        return res.status(403).json({ error: "権限がありません" });
+      }
+      const pid = req.params.id;
+      const days = Math.min(60, parseInt(req.query.days || "14", 10));
+      const dbRef = collection.firestore;
+
+      // 1. 物件情報を取得 → groupIds + bot tokens を集める
+      const propDoc = await dbRef.collection("properties").doc(pid).get();
+      if (!propDoc.exists) return res.status(404).json({ error: "物件が見つかりません" });
+
+      // sub_owner は所有物件のみ
+      if (req.user.role === "sub_owner") {
+        const owned = req.user.ownedPropertyIds || [];
+        if (!owned.includes(pid)) return res.status(403).json({ error: "この物件のアクセス権がありません" });
+      }
+
+      const data = propDoc.data();
+      const channels = Array.isArray(data.lineChannels) ? data.lineChannels : [];
+      const groupIds = channels.map(c => c.groupId).filter(Boolean);
+      const tokens = channels.map(c => c.token).filter(Boolean);
+
+      if (groupIds.length === 0) {
+        return res.json({ users: [], note: "この物件には Group ID が登録されていません" });
+      }
+
+      // 2. line_webhook_logs から該当 groupId の userId を抽出 (直近 N 日)
+      const sinceMs = Date.now() - days * 86400 * 1000;
+      const logs = [];
+      for (const gid of groupIds) {
+        const snap = await dbRef.collection("line_webhook_logs")
+          .where("groupId", "==", gid)
+          .get();
+        snap.forEach(d => {
+          const x = d.data();
+          const t = x.receivedAt?.toMillis ? x.receivedAt.toMillis() : (x.receivedAt?.toDate?.().getTime?.() || 0);
+          if (t < sinceMs) return;
+          if (!x.userId) return;
+          logs.push({ userId: x.userId, groupId: gid, messageText: x.messageText || "", receivedAt: t });
+        });
+      }
+
+      // 3. userId ごとに最新メッセージを抽出
+      const byUser = new Map();
+      for (const l of logs) {
+        const cur = byUser.get(l.userId);
+        if (!cur || cur.receivedAt < l.receivedAt) byUser.set(l.userId, l);
+      }
+
+      // 4. LINE Bot Profile API で displayName 解決 (各 token を順次トライ)
+      // Node 22 の built-in fetch を使用
+      const users = [];
+      for (const [userId, info] of byUser.entries()) {
+        let displayName = "";
+        let pictureUrl = "";
+        for (const token of tokens) {
+          try {
+            const r = await fetch(`https://api.line.me/v2/bot/profile/${userId}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!r.ok) continue;
+            const resp = await r.json();
+            if (resp && resp.displayName) {
+              displayName = resp.displayName;
+              pictureUrl = resp.pictureUrl || "";
+              break;
+            }
+          } catch (e) { /* 次の token を試す */ }
+        }
+        // group 内 profile も試す (1on1 friend ではない場合)
+        if (!displayName) {
+          for (const token of tokens) {
+            try {
+              const r = await fetch(`https://api.line.me/v2/bot/group/${info.groupId}/member/${userId}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (!r.ok) continue;
+              const resp = await r.json();
+              if (resp && resp.displayName) {
+                displayName = resp.displayName;
+                pictureUrl = resp.pictureUrl || "";
+                break;
+              }
+            } catch (e) { /* skip */ }
+          }
+        }
+        users.push({
+          userId,
+          displayName: displayName || "(取得不可)",
+          pictureUrl,
+          lastMessage: info.messageText.slice(0, 100),
+          lastReceivedAt: info.receivedAt,
+          groupId: info.groupId,
+        });
+      }
+      // 最新順
+      users.sort((a, b) => b.lastReceivedAt - a.lastReceivedAt);
+
+      // 既に staff に紐付いてる userId はマーク
+      const staffSnap = await dbRef.collection("staff").get();
+      const linkedMap = new Map();
+      staffSnap.forEach(d => {
+        const s = d.data();
+        if (s.lineUserId) linkedMap.set(s.lineUserId, { staffId: d.id, staffName: s.name || "" });
+      });
+      users.forEach(u => {
+        const linked = linkedMap.get(u.userId);
+        if (linked) {
+          u.linkedStaffId = linked.staffId;
+          u.linkedStaffName = linked.staffName;
+        }
+      });
+
+      res.json({ users });
+    } catch (e) {
+      console.error("[line-recent-users] エラー:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   return router;
 };

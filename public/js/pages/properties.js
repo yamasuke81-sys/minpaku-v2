@@ -1151,6 +1151,12 @@ const PropertiesPage = {
         }
       });
     }
+    // 「📥 最近メッセージしたユーザーから取得」ボタン
+    const fetchBtn = document.getElementById("btnFetchLineUsers");
+    if (fetchBtn && !fetchBtn.dataset.chBound) {
+      fetchBtn.dataset.chBound = "1";
+      fetchBtn.addEventListener("click", () => this._openLineRecentUsersModal());
+    }
 
     // リストコンテナへの委譲（削除・入力変更）
     const container = document.getElementById("lineChannelsList");
@@ -1427,6 +1433,107 @@ const PropertiesPage = {
     container.querySelector("#btnShowGuestQr").addEventListener("click", () => {
       this._openGuestQrModal(url, propertyName);
     });
+  },
+
+  /** LINE 最近ユーザー取得モーダル */
+  async _openLineRecentUsersModal() {
+    const pid = this._currentEditingPropertyId || this.editingId;
+    if (!pid) {
+      alert("先に物件を保存してください");
+      return;
+    }
+    const modalEl = document.getElementById("lineRecentUsersModal");
+    const body = document.getElementById("lineRecentUsersBody");
+    if (!modalEl || !body) return;
+    body.innerHTML = `<div class="text-center text-muted py-4"><div class="spinner-border"></div><div class="mt-2 small">読み込み中...</div></div>`;
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    try {
+      const result = await API.fetch(`/properties/${pid}/line-recent-users?days=14`);
+      const users = result.users || [];
+      if (users.length === 0) {
+        body.innerHTML = `
+          <div class="empty-state text-center text-muted py-4">
+            <i class="bi bi-inbox fs-2"></i>
+            <p class="mt-2 mb-0">直近 14 日間にこの物件の Group LINE で受信したメッセージはありません。</p>
+            <p class="small mt-2">${result.note ? this.escapeHtml(result.note) : "スタッフに公式アカウントへ参加 → 何かメッセージを送ってもらってください。"}</p>
+          </div>`;
+        return;
+      }
+      body.innerHTML = `
+        <table class="table table-sm align-middle">
+          <thead class="table-light">
+            <tr>
+              <th style="width:50px;"></th>
+              <th>名前</th>
+              <th>LINE User ID</th>
+              <th>最終発言</th>
+              <th class="text-end">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${users.map(u => {
+              const linked = u.linkedStaffName
+                ? `<span class="badge bg-success ms-1" title="既に ${this.escapeHtml(u.linkedStaffName)} に紐付け済">紐付済</span>`
+                : "";
+              const date = u.lastReceivedAt ? new Date(u.lastReceivedAt).toLocaleString("ja-JP", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+              return `
+                <tr>
+                  <td>${u.pictureUrl
+                    ? `<img src="${this.escapeHtml(u.pictureUrl)}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;">`
+                    : `<div style="width:36px;height:36px;border-radius:50%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;"><i class="bi bi-person text-muted"></i></div>`}</td>
+                  <td><strong>${this.escapeHtml(u.displayName)}</strong>${linked}</td>
+                  <td><code style="font-size:11px;word-break:break-all;">${this.escapeHtml(u.userId)}</code></td>
+                  <td class="small text-muted">
+                    <div>${this.escapeHtml(u.lastMessage || "")}</div>
+                    <div style="font-size:10px;">${date}</div>
+                  </td>
+                  <td class="text-end">
+                    <button class="btn btn-sm btn-outline-primary line-user-copy" data-uid="${this.escapeHtml(u.userId)}" title="User ID をコピー">
+                      <i class="bi bi-clipboard"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-success ms-1 line-user-link" data-uid="${this.escapeHtml(u.userId)}" data-name="${this.escapeHtml(u.displayName)}" title="スタッフ管理へ移動して紐付け">
+                      <i class="bi bi-link-45deg"></i> 紐付け
+                    </button>
+                  </td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        </table>
+      `;
+      // コピー
+      body.querySelectorAll(".line-user-copy").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(btn.dataset.uid);
+            btn.innerHTML = '<i class="bi bi-check-lg"></i>';
+            btn.classList.remove("btn-outline-primary");
+            btn.classList.add("btn-success");
+            setTimeout(() => {
+              btn.innerHTML = '<i class="bi bi-clipboard"></i>';
+              btn.classList.remove("btn-success");
+              btn.classList.add("btn-outline-primary");
+            }, 1500);
+          } catch (e) {
+            alert("LINE User ID:\n" + btn.dataset.uid);
+          }
+        });
+      });
+      // 紐付け → スタッフ管理ページへ uid と name を持って遷移
+      body.querySelectorAll(".line-user-link").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const uid = btn.dataset.uid;
+          const name = btn.dataset.name;
+          // クリップボードに先にコピー
+          navigator.clipboard?.writeText?.(uid).catch(() => {});
+          bootstrap.Modal.getInstance(modalEl)?.hide();
+          this.modal?.hide();
+          location.hash = `#/staff?prefillLineUserId=${encodeURIComponent(uid)}&prefillName=${encodeURIComponent(name)}`;
+        });
+      });
+    } catch (e) {
+      body.innerHTML = `<div class="alert alert-danger small">取得失敗: ${this.escapeHtml(e.message)}</div>`;
+    }
   },
 
   /** QR コードモーダルを開く (qrserver.com API 使用) */
