@@ -248,12 +248,15 @@ async function renderInvoicePdfBuffer(invoice, staff, client, propertyMap) {
     const shifts = invoice.details?.shifts || [];
     shifts.forEach((s) => {
       const propName = propertyMap[s.propertyId] || s.propertyId || "";
-      let label = `清掃 ${propName}`;
-      if (s.workType === "pre_inspection") label = `直前点検 ${propName}`;
+      const cnt = s.staffCountOnDay || 1;
+      let label = `清掃${cnt}人作業`;
+      if (s.workType === "pre_inspection") label = "直前点検";
       else if (s.workType === "laundry_put_out") label = s.workItemName || `ランドリー出し`;
       else if (s.workType === "laundry_collected") label = s.workItemName || `ランドリー受取`;
       else if (s.workType === "laundry_expense") label = s.workItemName || `ランドリー立替`;
-      else if (s.workType === "other") label = `その他作業 ${propName}`;
+      else if (s.workType === "other") label = `その他作業`;
+      // 物件名は memo 側に集約 (label は作業内容を簡潔に保つ)
+      void propName;
       let memo = s.memo || "";
       if (s.isTimee && s.timeeDetail) {
         const td = s.timeeDetail;
@@ -475,12 +478,14 @@ async function generateInvoicePdf_(db, invoiceId) {
     const shifts = _filtered.shifts;
     shifts.forEach((s) => {
       const propName = propertyMap[s.propertyId] || s.propertyId || "";
-      let label = `清掃 ${propName}`;
-      if (s.workType === "pre_inspection") label = `直前点検 ${propName}`;
+      const cnt = s.staffCountOnDay || 1;
+      let label = `清掃${cnt}人作業`;
+      if (s.workType === "pre_inspection") label = "直前点検";
       else if (s.workType === "laundry_put_out") label = s.workItemName || `ランドリー出し`;
       else if (s.workType === "laundry_collected") label = s.workItemName || `ランドリー受取`;
       else if (s.workType === "laundry_expense") label = s.workItemName || `ランドリー立替`;
-      else if (s.workType === "other") label = `その他作業 ${propName}`;
+      else if (s.workType === "other") label = `その他作業`;
+      void propName;
       let memo = s.memo || "";
       if (s.isTimee && s.timeeDetail) {
         const td = s.timeeDetail;
