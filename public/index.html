@@ -24,7 +24,7 @@
   <div class="app-topbar">
     <button class="btn btn-sm" id="btnToggleSidebar"><i class="bi bi-list fs-5"></i></button>
     <span class="fw-bold"><i class="bi bi-house-door"></i> 民泊管理</span>
-    <span class="badge bg-secondary" id="appVersionMobile">v0504c</span>
+    <span class="badge bg-secondary" id="appVersionMobile">v0504d</span>
   </div>
 
   <!-- サイドバー背景（モバイル） -->
@@ -34,7 +34,7 @@
   <aside class="app-sidebar" id="appSidebar">
     <div class="sidebar-brand">
       <h5><i class="bi bi-house-door"></i> 民泊管理</h5>
-      <small>v0504c</small>
+      <small>v0504d</small>
     </div>
     <nav class="sidebar-nav" id="ownerNav">
       <a class="nav-link" href="#/schedule" data-page="schedule" data-sub-owner-show="1"><i class="bi bi-calendar-check"></i> 予約・清掃スケジュール</a>
@@ -858,13 +858,13 @@
             </div>
           </div>
 
-          <!-- ⑨ ゲスト用チェックリスト URL / QR -->
+          <!-- ⑨ ヘルパー用チェックリスト URL / QR -->
           <div class="col-12"><hr></div>
           <div class="col-12">
-            <h6 class="mb-2"><i class="bi bi-qr-code text-primary"></i> ゲスト用チェックリスト</h6>
+            <h6 class="mb-2"><i class="bi bi-qr-code text-primary"></i> ヘルパー用チェックリスト</h6>
             <p class="text-muted small mb-2">
-              ゲストがログイン不要でアクセスできるチェックリスト URL です。<br>
-              QR コードを部屋に掲示するか、サンクスメールに URL を載せて使ってください。チェック状態はゲストの端末内のみに保存されます。
+              清掃ヘルパー (タイミー要員など) がログイン不要でアクセスできるチェックリスト URL です。<br>
+              QR コードを現場に掲示するか、URL を直接共有して使ってください。<strong>チェック内容は正規スタッフのチェックリストとリアルタイム同期</strong>されます。
             </p>
             <div id="propertyGuestChecklistSection" class="mb-2">
               <div class="text-muted small">物件を保存してから利用できます。</div>
@@ -883,12 +883,12 @@
     </div>
   </div>
 
-  <!-- ゲスト用チェックリスト QR モーダル -->
+  <!-- ヘルパー用チェックリスト QR モーダル -->
   <div class="modal fade" id="guestChecklistQrModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title"><i class="bi bi-qr-code"></i> ゲスト用 QR コード</h5>
+          <h5 class="modal-title"><i class="bi bi-qr-code"></i> ヘルパー用 QR コード</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body text-center">

@@ -513,7 +513,7 @@ const PropertiesPage = {
       if (gmailSection) gmailSection.innerHTML = '<p class="text-muted small">物件を保存してから Gmail を連携してください。</p>';
     }
 
-    // --- ゲスト用チェックリスト URL/QR セクション (編集時のみ) ---
+    // --- ヘルパー用チェックリスト URL/QR セクション (編集時のみ) ---
     const gcSection = document.getElementById("propertyGuestChecklistSection");
     if (gcSection) {
       if (isEdit && property.id) {
@@ -1381,7 +1381,7 @@ const PropertiesPage = {
   // ---- Gmail 連携（物件単位） ----
 
   /**
-   * ゲスト用チェックリスト URL/QR セクション
+   * ヘルパー用チェックリスト URL/QR セクション
    * - URL コピー
    * - QR コード表示モーダル (PNG ダウンロード可)
    */
@@ -1432,7 +1432,7 @@ const PropertiesPage = {
   /** QR コードモーダルを開く (qrserver.com API 使用) */
   _openGuestQrModal(url, propertyName) {
     const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=${encodeURIComponent(url)}`;
-    document.getElementById("guestQrPropertyName").textContent = propertyName || "ゲスト用チェックリスト";
+    document.getElementById("guestQrPropertyName").textContent = propertyName || "ヘルパー用チェックリスト";
     document.getElementById("guestQrImg").src = qrSrc;
     document.getElementById("guestQrUrl").textContent = url;
     const dlBtn = document.getElementById("btnGuestQrDownload");
@@ -1447,7 +1447,7 @@ const PropertiesPage = {
         const blob = await res.blob();
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        const safeName = (propertyName || "guest-checklist").replace(/[\/\\:*?"<>|]/g, "_");
+        const safeName = (propertyName || "helper-checklist").replace(/[\/\\:*?"<>|]/g, "_");
         a.download = `QR_${safeName}.png`;
         document.body.appendChild(a);
         a.click();
