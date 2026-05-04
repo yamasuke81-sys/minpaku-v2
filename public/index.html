@@ -24,7 +24,7 @@
   <div class="app-topbar">
     <button class="btn btn-sm" id="btnToggleSidebar"><i class="bi bi-list fs-5"></i></button>
     <span class="fw-bold"><i class="bi bi-house-door"></i> 民泊管理</span>
-    <span class="badge bg-secondary" id="appVersionMobile">v0505s</span>
+    <span class="badge bg-secondary" id="appVersionMobile">v0505t</span>
   </div>
 
   <!-- サイドバー背景（モバイル） -->
@@ -34,7 +34,7 @@
   <aside class="app-sidebar" id="appSidebar">
     <div class="sidebar-brand">
       <h5><i class="bi bi-house-door"></i> 民泊管理</h5>
-      <small>v0505s</small>
+      <small>v0505t</small>
     </div>
     <nav class="sidebar-nav" id="ownerNav">
       <a class="nav-link" href="#/schedule" data-page="schedule" data-sub-owner-show="1"><i class="bi bi-calendar-check"></i> 予約・清掃スケジュール</a>
@@ -1726,6 +1726,39 @@
         message: (r && r.message) ? r.message : String(r),
         stack: (r && r.stack) ? String(r.stack).slice(0, 2000) : "",
       });
+    });
+  })();
+
+  // ===== バージョン自動チェック (キャッシュ突破) =====
+  // /version.json を 5 分おきにチェックし、現在表示中バージョンと違ったら
+  // 強制リロード (location.reload(true)) で新バージョンを取得
+  // → スタッフがキャッシュ削除しなくても自動で最新版に追従
+  (function() {
+    const CURRENT = (document.getElementById("appVersionMobile")?.textContent || "").trim();
+    if (!CURRENT) return;
+    let _checking = false;
+    async function checkVersion() {
+      if (_checking) return;
+      _checking = true;
+      try {
+        // クエリで cache を確実に回避
+        const res = await fetch("/version.json?t=" + Date.now(), { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        const latest = String(data.version || "").trim();
+        if (latest && latest !== CURRENT) {
+          console.log("[version] new version detected:", latest, "current:", CURRENT, "→ reload");
+          // 強制リロード (キャッシュバイパス)
+          location.reload();
+        }
+      } catch (_) { /* 無視 */ }
+      finally { _checking = false; }
+    }
+    // 初回 30 秒後 + 以後 5 分おき + ページ復帰時にもチェック
+    setTimeout(checkVersion, 30 * 1000);
+    setInterval(checkVersion, 5 * 60 * 1000);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") checkVersion();
     });
   })();
   // サイドバートグル（PC: collapsed切替 / モバイル: show切替）
