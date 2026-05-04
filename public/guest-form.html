@@ -907,7 +907,7 @@
       const v = val.trim().toLowerCase();
       return ["日本","japan","japanese","jp",""].includes(v);
     }
-    function renderGuestInputs() {
+    function renderGuestInputs(skipSave) {
       // capacity 上限（物件設定があればそれを使用、なければ20）
       const maxGuests = (_propertyConfig && _propertyConfig.capacity) ? Math.min(_propertyConfig.capacity, 20) : 20;
       const el = document.getElementById("f_guestCount");
@@ -915,7 +915,8 @@
       const count = Math.min(Math.max(1, parseInt(el.value) || 1), maxGuests);
       const container = document.getElementById("guestInputList");
       const t = i18n[currentLang];
-      saveGuestData();
+      // skipSave=true は prefill 直後の呼出 (guestData 既に正規データ → DOM 空値で上書きしない)
+      if (!skipSave) saveGuestData();
       let html = "";
       for (let i = 0; i < count; i++) {
         const n = i + 1, isRep = i === 0;
@@ -1435,7 +1436,8 @@
             const el = document.getElementById("f_guestCount");
             if (el) el.value = d.guestCount;
           }
-          renderGuestInputs();
+          // prefill データ保護のため saveGuestData をスキップ
+          renderGuestInputs(true);
         }
 
         // 予約情報バナー
