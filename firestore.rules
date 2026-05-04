@@ -108,7 +108,9 @@ service cloud.firestore {
     // チェックリスト — 読取は全スタッフ+サブオーナー+オーナー可(履歴確認用)
     // 更新: 割当済みスタッフ OR 担当物件に紐づくスタッフ (シフト未確定時でも操作可能)
     match /checklists/{checklistId} {
-      allow read: if isOwner() || isSubOwner() || isStaff();
+      // ヘルパー (認証なし) からの onSnapshot リアルタイム購読を許可するため public read
+      // 書き込みは引き続き制限 (Cloud Function 経由 = admin 権限で実行)
+      allow read: if true;
       allow create: if isAuthenticated();
       allow update: if isOwner()
         || (isStaff() && (

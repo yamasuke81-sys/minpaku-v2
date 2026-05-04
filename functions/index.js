@@ -83,6 +83,10 @@ app.use("/gmail-auth", gmailAuthApi(db));
 const guestEditApi = require("./api/guest-edit");
 app.use("/guest-edit", guestEditApi(db));
 
+// ========== 臨時スタッフ向けチェックリスト API（認証不要） ==========
+const helperChecklistApi = require("./api/helper-checklist");
+app.use("/helper-checklist", helperChecklistApi(db));
+
 // ========== 認証API（招待・LINEログイン・ロール管理） ==========
 // 一部エンドポイントは認証不要（line-callback, accept-invite, invite-info）
 // invite, set-role, link-line は内部で認証チェック
