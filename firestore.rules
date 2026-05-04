@@ -121,9 +121,10 @@ service cloud.firestore {
       allow delete: if isOwner();
     }
 
-    // チェックリストテンプレート — オーナーのみ書き込み、全員読み取り
+    // チェックリストテンプレート — オーナーのみ書き込み、誰でも読み取り (ゲスト用未認証 URL 対応)
+    // ゲストが /guest-checklist.html?p={pid} で QR から閲覧可能にする
     match /checklistTemplates/{templateId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow write: if isOwner();
     }
 
