@@ -24,7 +24,7 @@
   <div class="app-topbar">
     <button class="btn btn-sm" id="btnToggleSidebar"><i class="bi bi-list fs-5"></i></button>
     <span class="fw-bold"><i class="bi bi-house-door"></i> 民泊管理</span>
-    <span class="badge bg-secondary" id="appVersionMobile">v0505j</span>
+    <span class="badge bg-secondary" id="appVersionMobile">v0505k</span>
   </div>
 
   <!-- サイドバー背景（モバイル） -->
@@ -34,7 +34,7 @@
   <aside class="app-sidebar" id="appSidebar">
     <div class="sidebar-brand">
       <h5><i class="bi bi-house-door"></i> 民泊管理</h5>
-      <small>v0505j</small>
+      <small>v0505k</small>
     </div>
     <nav class="sidebar-nav" id="ownerNav">
       <a class="nav-link" href="#/schedule" data-page="schedule" data-sub-owner-show="1"><i class="bi bi-calendar-check"></i> 予約・清掃スケジュール</a>
@@ -1221,19 +1221,27 @@
           </div>
 
           <hr>
-          <h6 class="mb-3"><i class="bi bi-check2-square"></i> 同意状況</h6>
+          <h6 class="mb-3"><i class="bi bi-check2-square"></i> 同意状況・提出ステータス</h6>
           <div class="row g-3">
-            <div class="col-md-6">
+            <div class="col-md-4">
               <div class="form-check">
                 <input type="checkbox" class="form-check-input" id="guestNoiseAgree">
                 <label class="form-check-label" for="guestNoiseAgree">騒音ルール 同意</label>
               </div>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-4">
               <div class="form-check">
                 <input type="checkbox" class="form-check-input" id="guestHouseRuleAgree">
                 <label class="form-check-label" for="guestHouseRuleAgree">ハウスルール 同意</label>
               </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small mb-0">提出ステータス</label>
+              <select class="form-select form-select-sm" id="guestSubmittedManual">
+                <option value="">自動 (source=guest_form なら提出済)</option>
+                <option value="true">提出済 (手動)</option>
+                <option value="false">未提出 (手動)</option>
+              </select>
             </div>
           </div>
 

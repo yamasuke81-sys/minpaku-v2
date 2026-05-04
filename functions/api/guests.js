@@ -307,6 +307,12 @@ function validateGuestData(body, isUpdate = false) {
   // データソース
   if (body.source !== undefined) data.source = String(body.source).trim();
   if (body.formResponseRow !== undefined) data.formResponseRow = Number(body.formResponseRow) || 0;
+  // 提出ステータス手動オーバーライド (true=提出済 / false=未提出 / null=自動判定)
+  if (body.submittedManual !== undefined) {
+    data.submittedManual = body.submittedManual === null
+      ? null
+      : !!body.submittedManual;
+  }
   // デフォルト値
   if (!isUpdate) {
     if (!data.source) data.source = "manual";

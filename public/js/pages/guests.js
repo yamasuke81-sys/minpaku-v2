@@ -260,11 +260,16 @@ const GuestsPage = {
       const totalGuests = g.guestCount || 0;
       const companionCount = (g.guests || []).length;
       const sourceIcon = this.getSourceIcon(g.source);
-      // 提出済み判定: guest_form 由来 = ゲスト自身がフォーム提出した名簿
-      const isSubmitted = g.source === "guest_form";
+      // 提出済み判定:
+      //   1. submittedManual が明示されていればそれを優先
+      //   2. なければ source === "guest_form" で自動判定
+      const isSubmitted = (g.submittedManual === true || g.submittedManual === false)
+        ? g.submittedManual
+        : g.source === "guest_form";
+      const overrideMark = (g.submittedManual === true || g.submittedManual === false) ? "*" : "";
       const submittedBadge = isSubmitted
-        ? `<span class="badge bg-success ms-1" title="ゲストがフォーム提出済み"><i class="bi bi-check-circle-fill"></i> 提出済</span>`
-        : `<span class="badge bg-secondary ms-1" title="ゲスト未提出 (手動/インポート)"><i class="bi bi-circle"></i> 未提出</span>`;
+        ? `<span class="badge bg-success ms-1 btn-toggle-submitted" data-id="${g.id}" data-cur="1" style="cursor:pointer;" title="クリックで未提出に変更${overrideMark ? ' (手動設定中)' : ''}"><i class="bi bi-check-circle-fill"></i> 提出済${overrideMark}</span>`
+        : `<span class="badge bg-secondary ms-1 btn-toggle-submitted" data-id="${g.id}" data-cur="0" style="cursor:pointer;" title="クリックで提出済に変更${overrideMark ? ' (手動設定中)' : ''}"><i class="bi bi-circle"></i> 未提出${overrideMark}</span>`;
       const prop = propMap[g.propertyId];
       const propCell = prop
         ? renderPropertyNumberBadge(prop)
@@ -299,12 +304,28 @@ const GuestsPage = {
       `;
     }).join("");
 
-    // 行全体クリックで詳細モーダルを開く (操作ボタン列はバブリング抑止)
+    // 行全体クリックで詳細モーダルを開く (操作ボタン列・提出ステータスバッジはバブリング抑止)
     tbody.querySelectorAll(".guest-row").forEach(tr => {
       tr.addEventListener("click", (ev) => {
         if (ev.target.closest(".guest-actions")) return; // 編集/削除ボタンは除外
+        if (ev.target.closest(".btn-toggle-submitted")) return; // 提出ステータスバッジは除外
         const id = tr.dataset.id;
         if (id) this.showDetail(id);
+      });
+    });
+    // 提出ステータスバッジ クリック → 提出済/未提出 をトグル
+    tbody.querySelectorAll(".btn-toggle-submitted").forEach(badge => {
+      badge.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = badge.dataset.id;
+        const newVal = badge.dataset.cur !== "1"; // 現在「提出済」なら未提出へ
+        try {
+          await API.guests.update(id, { submittedManual: newVal });
+          showToast("更新", `提出ステータスを「${newVal ? "提出済" : "未提出"}」に変更しました`, "success");
+          await this.loadGuests();
+        } catch (e) {
+          showToast("エラー", `更新失敗: ${e.message}`, "error");
+        }
       });
     });
     tbody.querySelectorAll(".btn-edit-guest").forEach(btn => {
@@ -666,6 +687,9 @@ const GuestsPage = {
     // 同意
     setChk("guestNoiseAgree",      guest?.noiseAgree);
     setChk("guestHouseRuleAgree",  guest?.houseRuleAgree);
+    // 提出ステータス手動オーバーライド
+    const sm = guest?.submittedManual;
+    setVal("guestSubmittedManual", sm === true ? "true" : (sm === false ? "false" : ""));
 
     // 同行者リスト
     const companionBody = document.getElementById("companionTableBody");
@@ -773,6 +797,13 @@ const GuestsPage = {
       // 同意
       noiseAgree: document.getElementById("guestNoiseAgree").checked,
       houseRuleAgree: document.getElementById("guestHouseRuleAgree").checked,
+      // 提出ステータス手動オーバーライド ("" = 自動 = null, "true"/"false")
+      submittedManual: (() => {
+        const v = document.getElementById("guestSubmittedManual").value;
+        if (v === "true") return true;
+        if (v === "false") return false;
+        return null;
+      })(),
       // 同行者 (companions only) と allGuests (全員) 両方
       guests,
       allGuests,
