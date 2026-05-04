@@ -42,6 +42,15 @@ const MyChecklistPage = {
           </a>
           <h6 class="mb-0 flex-grow-1" id="mclHeader" style="display:flex;align-items:center;min-width:0;font-size:14px;">チェックリスト</h6>
           <span id="mclStatus" style="display:none;"></span>
+          <!-- ヘルパー連携: 日付見出し行の右端に配置 -->
+          <div class="ms-2 d-flex gap-1 flex-shrink-0">
+            <button type="button" id="mclHelperCopyBtn" class="btn btn-sm btn-outline-primary" title="ヘルパー用 URL をコピー" style="font-size:11px;padding:3px 8px;">
+              <i class="bi bi-clipboard"></i>
+            </button>
+            <button type="button" id="mclHelperQrBtn" class="btn btn-sm btn-primary" title="ヘルパー用 QR を表示" style="font-size:11px;padding:3px 8px;">
+              <i class="bi bi-qr-code"></i>
+            </button>
+          </div>
         </div>
       </div>
       <div class="mcl-page-header-spacer"></div>
@@ -676,21 +685,18 @@ const MyChecklistPage = {
         <div style="display:flex;gap:6px;">
           ${topTabsHtml}
         </div>
-        <div style="display:flex;gap:6px;align-items:center;padding:6px 0 4px;border-top:1px dashed #f0f0f0;margin-top:6px;">
-          <span class="text-muted" style="font-size:11px;flex-shrink:0;"><i class="bi bi-people"></i> ヘルパー連携:</span>
-          <button type="button" id="mclHelperCopyBtn" class="btn btn-sm btn-outline-primary" style="font-size:12px;padding:2px 10px;">
-            <i class="bi bi-clipboard"></i> URL コピー
-          </button>
-          <button type="button" id="mclHelperQrBtn" class="btn btn-sm btn-primary" style="font-size:12px;padding:2px 10px;">
-            <i class="bi bi-qr-code"></i> QR 表示
-          </button>
-        </div>
       </div>
-      <div id="mclChecklistTopComplete" class="px-2 pt-2" style="background:#fff;${this.activeTopTab === 'checklist' ? '' : 'display:none;'}"></div>
+      <!-- 旧 mclChecklistTopComplete は廃止 (清掃完了ボタンは area-tabs 行に移設) -->
+      <div id="mclChecklistTopComplete" style="display:none;"></div>
       <div class="mcl-area-tabs-wrap" style="background:#f8f9fa;border-bottom:1px solid #dee2e6;padding:4px 4px;${this.activeTopTab === 'checklist' ? '' : 'display:none;'}">
-        <ul class="nav nav-pills flex-nowrap overflow-auto mb-0" style="white-space:nowrap;gap:8px;">
-          ${areaTabs}
-        </ul>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <!-- 清掃完了ボタン: 常時表示 (sticky / flex-shrink:0) -->
+          <div id="mclStickyComplete" style="flex-shrink:0;"></div>
+          <!-- エリアタブ: 横スクロール可 -->
+          <ul class="nav nav-pills flex-nowrap overflow-auto mb-0" style="white-space:nowrap;gap:8px;flex:1;min-width:0;">
+            ${areaTabs}
+          </ul>
+        </div>
       </div>
       <div id="mclTopTabContent"></div>
     `;
@@ -1082,12 +1088,12 @@ const MyChecklistPage = {
     const allChecked = total > 0 && done === total;
     el.innerHTML = `
       <div id="mclAreaContent">
-        <div class="d-flex gap-2 mb-1 mt-1 flex-wrap">
-          <button type="button" class="btn btn-sm btn-outline-primary mcl-toggle-all-check" data-all-checked="${allChecked ? '1' : '0'}">
+        <div class="d-flex gap-1 mb-1 mt-1 flex-wrap">
+          <button type="button" class="btn btn-outline-primary mcl-toggle-all-check" data-all-checked="${allChecked ? '1' : '0'}" style="font-size:10px;padding:2px 8px;">
             <i class="bi bi-check2-square"></i> ${allChecked ? '全チェック外し' : '全チェック'}
           </button>
-          <button type="button" class="btn btn-sm btn-outline-secondary mcl-toggle-all-expand">
-            <i class="bi bi-arrows-expand"></i> 全展開/全折りたたみ
+          <button type="button" class="btn btn-outline-secondary mcl-toggle-all-expand" style="font-size:10px;padding:2px 8px;">
+            <i class="bi bi-arrows-expand"></i> 全展開/折りたたみ
           </button>
         </div>
         ${this.renderChildren(area)}
@@ -1627,32 +1633,25 @@ const MyChecklistPage = {
           </div>
         </div>`
       : `
-        <div class="card ${allDone ? 'border-success' : ''}">
-          <div class="card-body p-2">
-            ${allDone ? `
-              <div class="alert alert-success py-2 small mb-2">
-                <i class="bi bi-check-circle"></i> 全項目チェック済み (${done}/${total})。完了処理を行えます。
-              </div>` : ''}
-            <button type="button" class="btn btn-success btn-lg w-100" id="mclCompleteBtn">
-              <i class="bi bi-check2-circle"></i> 清掃完了にする
-            </button>
-          </div>
-        </div>`;
+        <button type="button" class="btn btn-success btn-sm" id="mclCompleteBtn" style="font-size:12px;padding:4px 10px;white-space:nowrap;">
+          <i class="bi bi-check2-circle"></i> 清掃完了
+        </button>`;
 
     // タブに応じて表示切替:
     //  - タブ2 (清掃チェックリスト) → 清掃完了ボタンを上部スロット (mclChecklistTopComplete) に表示
     //    大カテゴリタブの上に常時表示し、最下部までスクロールしなくてもアクセス可能にする
     //  - タブ4 (ランドリー) → mclFooter にランドリーのみ
     //  - 旧構造互換 (どちらも取れる場合) → 両方を mclFooter に
-    const elTop = document.getElementById("mclChecklistTopComplete");
+    // 清掃完了ボタン: area-tabs 行の sticky スロットに出力 (チェックリストタブ時のみ)
+    const elSticky = document.getElementById("mclStickyComplete");
     if (this.activeTopTab === "laundry") {
-      if (elTop) elTop.innerHTML = "";
+      if (elSticky) elSticky.innerHTML = "";
       el.innerHTML = laundrySection || `<div class="alert alert-secondary">ランドリー設定がありません</div>`;
     } else if (this.activeTopTab === "checklist") {
-      if (elTop) elTop.innerHTML = completeSection;
+      if (elSticky) elSticky.innerHTML = completeSection;
       el.innerHTML = "";
     } else {
-      if (elTop) elTop.innerHTML = "";
+      if (elSticky) elSticky.innerHTML = "";
       el.innerHTML = completeSection + laundrySection;
     }
 
