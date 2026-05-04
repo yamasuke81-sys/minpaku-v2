@@ -113,6 +113,8 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isAuthenticated();
       allow update: if isOwner()
+        // サブオーナー: 所有物件のチェックリストは全て更新可
+        || (isSubOwner() && resource.data.propertyId in request.auth.token.ownedPropertyIds)
         || (isStaff() && (
             resource.data.staffId == myStaffId()
             || (resource.data.staffIds is list && myStaffId() in resource.data.staffIds)
