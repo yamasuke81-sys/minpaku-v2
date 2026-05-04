@@ -20,7 +20,7 @@ const GuestsPage = {
             <i class="bi bi-gear"></i> 設定
           </button>
           <button class="btn btn-outline-info me-2" id="btnImportGas" title="GAS版スプレッドシートから指定期間をインポート">
-            <i class="bi bi-cloud-download"></i> GASインポート
+            <i class="bi bi-cloud-download"></i> インポート
           </button>
           <button class="btn btn-primary" id="btnAddGuest">
             <i class="bi bi-plus-lg"></i> 手動登録
@@ -375,7 +375,7 @@ const GuestsPage = {
     const body = document.getElementById("guestDetailBody");
     body.innerHTML = html;
     document.querySelector("#guestDetailModal .modal-title").innerHTML =
-      '<i class="bi bi-cloud-download"></i> GAS版宿泊者名簿 取り込み';
+      '<i class="bi bi-cloud-download"></i> 宿泊者名簿 インポート';
     this.detailModal.show();
 
     setTimeout(() => {
@@ -628,21 +628,46 @@ const GuestsPage = {
       propSel.value = guest?.propertyId || "";
     }
 
-    document.getElementById("guestNameInput").value = guest?.guestName || "";
-    document.getElementById("guestNationality").value = guest?.nationality || "日本";
-    document.getElementById("guestAddress").value = guest?.address || "";
-    document.getElementById("guestPhone").value = guest?.phone || "";
-    document.getElementById("guestEmail").value = guest?.email || "";
-    document.getElementById("guestPassport").value = guest?.passportNumber || "";
-    document.getElementById("guestPurpose").value = guest?.purpose || "";
-    document.getElementById("guestCheckIn").value = guest?.checkIn || "";
-    document.getElementById("guestCheckOut").value = guest?.checkOut || "";
-    document.getElementById("guestCountInput").value = guest?.guestCount || "";
-    document.getElementById("guestCountInfants").value = guest?.guestCountInfants || "";
-    document.getElementById("guestBookingSite").value = guest?.bookingSite || "";
-    document.getElementById("guestBBQ").value = guest?.bbq || "";
-    document.getElementById("guestParking").value = guest?.parking || "";
-    document.getElementById("guestMemoInput").value = guest?.memo || "";
+    // 代表者の年齢: top-level age または allGuests[0].age または guests[0].age から
+    const repAge = guest?.age || guest?.allGuests?.[0]?.age || "";
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v ?? ""; };
+    const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+
+    setVal("guestNameInput",       guest?.guestName);
+    setVal("guestAge",             repAge);
+    setVal("guestNationality",     guest?.nationality || "日本");
+    setVal("guestAddress",         guest?.address);
+    setVal("guestPhone",           guest?.phone);
+    setVal("guestEmail",           guest?.email);
+    setVal("guestPassport",        guest?.passportNumber);
+    setVal("guestPassportPhotoUrl",guest?.passportPhotoUrl);
+    setVal("guestPurpose",         guest?.purpose);
+    setVal("guestCheckIn",         guest?.checkIn);
+    setVal("guestCheckOut",        guest?.checkOut);
+    setVal("guestCheckInTime",     guest?.checkInTime);
+    setVal("guestCheckOutTime",    guest?.checkOutTime);
+    setVal("guestCountInput",      guest?.guestCount);
+    setVal("guestCountInfants",    guest?.guestCountInfants);
+    setVal("guestBookingSite",     guest?.bookingSite);
+    setVal("guestBBQ",             guest?.bbq);
+    setVal("guestBedChoice",       guest?.bedChoice);
+    setVal("guestParking",         guest?.parking);
+    setVal("guestMemoInput",       guest?.memo);
+    // 交通・駐車場
+    setVal("guestTransport",       guest?.transport);
+    setVal("guestCarCount",        guest?.carCount);
+    const vt = Array.isArray(guest?.vehicleTypes) ? guest.vehicleTypes.join(", ") : (guest?.vehicleTypes || "");
+    setVal("guestVehicleTypes",    vt);
+    setVal("guestPaidParking",     guest?.paidParking);
+    // 緊急連絡先
+    setVal("guestEmergencyName",   guest?.emergencyName);
+    setVal("guestEmergencyPhone",  guest?.emergencyPhone);
+    // 前後泊
+    setVal("guestPreviousStay",    guest?.previousStay);
+    setVal("guestNextStay",        guest?.nextStay);
+    // 同意
+    setChk("guestNoiseAgree",      guest?.noiseAgree);
+    setChk("guestHouseRuleAgree",  guest?.houseRuleAgree);
 
     // 同行者リスト
     const companionBody = document.getElementById("companionTableBody");
@@ -661,7 +686,9 @@ const GuestsPage = {
       <td><input type="text" class="form-control form-control-sm comp-name" value="${this.escapeHtml(data?.name || "")}"></td>
       <td><input type="text" class="form-control form-control-sm comp-age" value="${this.escapeHtml(data?.age || "")}" style="width:60px"></td>
       <td><input type="text" class="form-control form-control-sm comp-nationality" value="${this.escapeHtml(data?.nationality || "日本")}"></td>
+      <td><input type="text" class="form-control form-control-sm comp-address" value="${this.escapeHtml(data?.address || "")}"></td>
       <td><input type="text" class="form-control form-control-sm comp-passport" value="${this.escapeHtml(data?.passportNumber || "")}"></td>
+      <td><input type="url" class="form-control form-control-sm comp-passport-url" value="${this.escapeHtml(data?.passportPhotoUrl || "")}" placeholder="https://..."></td>
       <td><button class="btn btn-sm btn-outline-danger btn-remove-comp"><i class="bi bi-x"></i></button></td>
     `;
     row.querySelector(".btn-remove-comp").addEventListener("click", () => row.remove());
@@ -685,7 +712,9 @@ const GuestsPage = {
           name,
           age: row.querySelector(".comp-age").value.trim(),
           nationality: row.querySelector(".comp-nationality").value.trim() || "日本",
+          address: row.querySelector(".comp-address").value.trim(),
           passportNumber: row.querySelector(".comp-passport").value.trim(),
+          passportPhotoUrl: row.querySelector(".comp-passport-url").value.trim(),
         });
       }
     });
@@ -694,23 +723,61 @@ const GuestsPage = {
     const propertyId = document.getElementById("guestPropertyId")?.value || "";
     const propertyName = (this.properties || []).find(p => p.id === propertyId)?.name || "";
 
+    // 車種 (カンマ区切り → 配列)
+    const vtRaw = document.getElementById("guestVehicleTypes").value.trim();
+    const vehicleTypes = vtRaw ? vtRaw.split(/[、,]\s*/).filter(Boolean) : [];
+
+    // 代表者の年齢: top-level age + allGuests[0].age 両方に反映
+    const repAge = document.getElementById("guestAge").value.trim();
+    const repName = guestName;
+    const repNationality = document.getElementById("guestNationality").value.trim() || "日本";
+    const repAddress = document.getElementById("guestAddress").value.trim();
+    const repPassport = document.getElementById("guestPassport").value.trim();
+    const repPassportPhotoUrl = document.getElementById("guestPassportPhotoUrl").value.trim();
+    const allGuests = [
+      { name: repName, age: repAge, nationality: repNationality, address: repAddress,
+        passportNumber: repPassport, passportPhotoUrl: repPassportPhotoUrl },
+      ...guests,
+    ];
+
     const data = {
       guestName,
-      nationality: document.getElementById("guestNationality").value.trim() || "日本",
-      address: document.getElementById("guestAddress").value.trim(),
+      age: repAge,
+      nationality: repNationality,
+      address: repAddress,
       phone: document.getElementById("guestPhone").value.trim(),
       email: document.getElementById("guestEmail").value.trim(),
-      passportNumber: document.getElementById("guestPassport").value.trim(),
+      passportNumber: repPassport,
+      passportPhotoUrl: repPassportPhotoUrl,
       purpose: document.getElementById("guestPurpose").value.trim(),
       checkIn: document.getElementById("guestCheckIn").value,
       checkOut: document.getElementById("guestCheckOut").value,
+      checkInTime: document.getElementById("guestCheckInTime").value,
+      checkOutTime: document.getElementById("guestCheckOutTime").value,
       guestCount: Number(document.getElementById("guestCountInput").value) || 0,
       guestCountInfants: Number(document.getElementById("guestCountInfants").value) || 0,
       bookingSite: document.getElementById("guestBookingSite").value.trim(),
       bbq: document.getElementById("guestBBQ").value.trim(),
+      bedChoice: document.getElementById("guestBedChoice").value.trim(),
       parking: document.getElementById("guestParking").value.trim(),
       memo: document.getElementById("guestMemoInput").value.trim(),
+      // 交通・駐車場
+      transport: document.getElementById("guestTransport").value.trim(),
+      carCount: Number(document.getElementById("guestCarCount").value) || 0,
+      vehicleTypes,
+      paidParking: document.getElementById("guestPaidParking").value.trim(),
+      // 緊急連絡先
+      emergencyName: document.getElementById("guestEmergencyName").value.trim(),
+      emergencyPhone: document.getElementById("guestEmergencyPhone").value.trim(),
+      // 前後泊
+      previousStay: document.getElementById("guestPreviousStay").value.trim(),
+      nextStay: document.getElementById("guestNextStay").value.trim(),
+      // 同意
+      noiseAgree: document.getElementById("guestNoiseAgree").checked,
+      houseRuleAgree: document.getElementById("guestHouseRuleAgree").checked,
+      // 同行者 (companions only) と allGuests (全員) 両方
       guests,
+      allGuests,
       ...(propertyId ? { propertyId, propertyName } : {}),
     };
 
