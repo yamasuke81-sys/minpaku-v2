@@ -1448,7 +1448,16 @@ const PropertiesPage = {
     body.innerHTML = `<div class="text-center text-muted py-4"><div class="spinner-border"></div><div class="mt-2 small">読み込み中...</div></div>`;
     bootstrap.Modal.getOrCreateInstance(modalEl).show();
     try {
-      const result = await API.fetch(`/properties/${pid}/line-recent-users?days=14`);
+      const CF_BASE = "https://api-5qrfx7ujcq-an.a.run.app";
+      const token = await firebase.auth().currentUser.getIdToken();
+      const res = await fetch(`${CF_BASE}/properties/${encodeURIComponent(pid)}/line-recent-users?days=14`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || `HTTP ${res.status}`);
+      }
+      const result = await res.json();
       const users = result.users || [];
       if (users.length === 0) {
         body.innerHTML = `
