@@ -513,6 +513,16 @@ const PropertiesPage = {
       if (gmailSection) gmailSection.innerHTML = '<p class="text-muted small">物件を保存してから Gmail を連携してください。</p>';
     }
 
+    // --- ゲスト用チェックリスト URL/QR セクション (編集時のみ) ---
+    const gcSection = document.getElementById("propertyGuestChecklistSection");
+    if (gcSection) {
+      if (isEdit && property.id) {
+        this._renderGuestChecklistSection(gcSection, property.id, property.name || "");
+      } else {
+        gcSection.innerHTML = '<div class="text-muted small">物件を保存してから利用できます。</div>';
+      }
+    }
+
     // --- タイミー時給ページへのリンクボタン ---
     // モーダルを閉じてから #/rates?propertyId=xxx へ遷移する
     const btnGoToRates = document.getElementById("btnGoToRates");
@@ -1369,6 +1379,90 @@ const PropertiesPage = {
   },
 
   // ---- Gmail 連携（物件単位） ----
+
+  /**
+   * ゲスト用チェックリスト URL/QR セクション
+   * - URL コピー
+   * - QR コード表示モーダル (PNG ダウンロード可)
+   */
+  _renderGuestChecklistSection(container, propertyId, propertyName) {
+    const url = `${location.origin}/guest-checklist.html?p=${encodeURIComponent(propertyId)}` +
+      (propertyName ? `&n=${encodeURIComponent(propertyName)}` : "");
+    container.innerHTML = `
+      <div class="input-group input-group-sm mb-2">
+        <input type="text" class="form-control" id="guestChecklistUrlInput" value="${url}" readonly>
+        <button class="btn btn-outline-primary" id="btnCopyGuestUrl" title="URL をコピー">
+          <i class="bi bi-clipboard"></i> コピー
+        </button>
+        <a class="btn btn-outline-secondary" href="${url}" target="_blank" rel="noopener" title="新しいタブで開く">
+          <i class="bi bi-box-arrow-up-right"></i> 開く
+        </a>
+        <button class="btn btn-primary" id="btnShowGuestQr" title="QR を表示">
+          <i class="bi bi-qr-code"></i> QR
+        </button>
+      </div>
+    `;
+    // コピー
+    const copyBtn = container.querySelector("#btnCopyGuestUrl");
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(url);
+        copyBtn.innerHTML = '<i class="bi bi-check-lg"></i> コピー済';
+        copyBtn.classList.remove("btn-outline-primary");
+        copyBtn.classList.add("btn-success");
+        setTimeout(() => {
+          copyBtn.innerHTML = '<i class="bi bi-clipboard"></i> コピー';
+          copyBtn.classList.remove("btn-success");
+          copyBtn.classList.add("btn-outline-primary");
+        }, 1500);
+      } catch (e) {
+        // フォールバック: input を選択
+        const input = container.querySelector("#guestChecklistUrlInput");
+        input.select();
+        document.execCommand("copy");
+        alert("URL をコピーしました");
+      }
+    });
+    // QR 表示
+    container.querySelector("#btnShowGuestQr").addEventListener("click", () => {
+      this._openGuestQrModal(url, propertyName);
+    });
+  },
+
+  /** QR コードモーダルを開く (qrserver.com API 使用) */
+  _openGuestQrModal(url, propertyName) {
+    const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=${encodeURIComponent(url)}`;
+    document.getElementById("guestQrPropertyName").textContent = propertyName || "ゲスト用チェックリスト";
+    document.getElementById("guestQrImg").src = qrSrc;
+    document.getElementById("guestQrUrl").textContent = url;
+    const dlBtn = document.getElementById("btnGuestQrDownload");
+    // 古いリスナを除去するためにクローン差し替え
+    const fresh = dlBtn.cloneNode(true);
+    dlBtn.parentNode.replaceChild(fresh, dlBtn);
+    fresh.addEventListener("click", async () => {
+      fresh.disabled = true;
+      fresh.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 取得中...';
+      try {
+        const res = await fetch(qrSrc);
+        const blob = await res.blob();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        const safeName = (propertyName || "guest-checklist").replace(/[\/\\:*?"<>|]/g, "_");
+        a.download = `QR_${safeName}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      } catch (e) {
+        alert("ダウンロードに失敗しました: " + e.message);
+      } finally {
+        fresh.disabled = false;
+        fresh.innerHTML = '<i class="bi bi-download"></i> PNG ダウンロード';
+      }
+    });
+    const modalEl = document.getElementById("guestChecklistQrModal");
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+  },
 
   /**
    * Gmail 連携セクションを描画する
