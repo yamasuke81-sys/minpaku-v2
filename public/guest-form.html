@@ -991,6 +991,7 @@
     // ===== 隣家駐車場チェックボックスのrequired連動 =====
     function updateNeighborAgreeRequired(visible) {
       const cb = document.getElementById("f_neighborAgree");
+      if (!cb) return; // 物件設定で非表示の場合は要素自体が存在しない
       cb.required = visible;
       if (!visible) cb.checked = false;
     }
