@@ -24,7 +24,7 @@
   <div class="app-topbar">
     <button class="btn btn-sm" id="btnToggleSidebar"><i class="bi bi-list fs-5"></i></button>
     <span class="fw-bold"><i class="bi bi-house-door"></i> 民泊管理</span>
-    <span class="badge bg-secondary" id="appVersionMobile">v0505r</span>
+    <span class="badge bg-secondary" id="appVersionMobile">v0505s</span>
   </div>
 
   <!-- サイドバー背景（モバイル） -->
@@ -34,7 +34,7 @@
   <aside class="app-sidebar" id="appSidebar">
     <div class="sidebar-brand">
       <h5><i class="bi bi-house-door"></i> 民泊管理</h5>
-      <small>v0505r</small>
+      <small>v0505s</small>
     </div>
     <nav class="sidebar-nav" id="ownerNav">
       <a class="nav-link" href="#/schedule" data-page="schedule" data-sub-owner-show="1"><i class="bi bi-calendar-check"></i> 予約・清掃スケジュール</a>
@@ -1689,6 +1689,45 @@
   <script src="js/pages/my-invoice-create.js?v=0426a"></script>
   <script src="js/app.js?v=0426b"></script>
   <script>
+  // ===== グローバルエラー収集 (リモート診断用) =====
+  // window.onerror / unhandledrejection を Firestore client_errors に記録
+  // Mac なしでスマホ Safari のエラーをサーバー側から確認可能にする
+  (function() {
+    let _lastSent = 0;
+    function logClientError(payload) {
+      const now = Date.now();
+      if (now - _lastSent < 1000) return; // 連続エラーは 1秒スロットル
+      _lastSent = now;
+      try {
+        if (typeof firebase === "undefined" || !firebase.firestore) return;
+        firebase.firestore().collection("client_errors").add({
+          ...payload,
+          ua: navigator.userAgent,
+          url: location.href,
+          uid: firebase.auth?.()?.currentUser?.uid || null,
+          createdAt: new Date(),
+        }).catch(() => {});
+      } catch (_) {}
+    }
+    window.addEventListener("error", (e) => {
+      logClientError({
+        type: "window.error",
+        message: e.message || String(e.error || e),
+        source: e.filename || "",
+        lineno: e.lineno || 0,
+        colno: e.colno || 0,
+        stack: (e.error && e.error.stack) ? String(e.error.stack).slice(0, 2000) : "",
+      });
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      const r = e.reason;
+      logClientError({
+        type: "unhandledrejection",
+        message: (r && r.message) ? r.message : String(r),
+        stack: (r && r.stack) ? String(r.stack).slice(0, 2000) : "",
+      });
+    });
+  })();
   // サイドバートグル（PC: collapsed切替 / モバイル: show切替）
   document.getElementById('btnToggleSidebar')?.addEventListener('click', () => {
     const sidebar = document.getElementById('appSidebar');

@@ -898,10 +898,17 @@ const MyChecklistPage = {
 
       let staffNames = [];
       try {
-        const shiftsSnap = await db.collection("shifts")
+        // スタッフ権限では shifts の自由 query が permission-denied になる
+        // → 自分のシフトのみに絞ったクエリにする
+        const myStaffId = Auth.currentUser?.staffId;
+        const myRole = Auth.currentUser?.role;
+        let q = db.collection("shifts")
           .where("propertyId", "==", c.propertyId)
-          .where("date", "==", c.checkoutDate)
-          .get();
+          .where("date", "==", c.checkoutDate);
+        if (myRole === "staff" && myStaffId) {
+          q = q.where("staffId", "==", myStaffId);
+        }
+        const shiftsSnap = await q.get();
         const staffIds = new Set();
         shiftsSnap.docs.forEach(d => {
           const s = d.data();

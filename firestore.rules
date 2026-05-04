@@ -132,6 +132,14 @@ service cloud.firestore {
       allow delete: if isOwner();
     }
 
+    // クライアント側エラー収集 (リモート診断用)
+    // - 全ユーザー (認証/未認証問わず) が write 可能
+    // - read はオーナーのみ
+    match /client_errors/{id} {
+      allow create: if true;
+      allow read: if isOwner();
+    }
+
     // チェックリストテンプレート — オーナーのみ書き込み、誰でも読み取り (ゲスト用未認証 URL 対応)
     // ゲストが /guest-checklist.html?p={pid} で QR から閲覧可能にする
     match /checklistTemplates/{templateId} {
