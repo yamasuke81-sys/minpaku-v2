@@ -240,7 +240,7 @@ const MyInvoiceCreatePage = {
     document.getElementById("btnSubmitInvoice").addEventListener("click", () => this.submit());
     document.getElementById("btnPreviewPdf").addEventListener("click", () => this.previewPdf());
 
-    // プレビューモーダルが閉じたら iframe の Blob URL を解放
+    // プレビューモーダルが閉じたら iframe の Blob URL を解放 + backdrop クリーンアップ
     document.getElementById("pdfPreviewModal").addEventListener("hidden.bs.modal", () => {
       if (this._previewBlobUrl) {
         URL.revokeObjectURL(this._previewBlobUrl);
@@ -248,6 +248,23 @@ const MyInvoiceCreatePage = {
       }
       const ifr = document.getElementById("pdfPreviewIframe");
       if (ifr) ifr.src = "about:blank";
+      // 念のため backdrop と body class を強制削除 (PDF ビューア起動で
+      // ライフサイクルが切れて backdrop が残るバグへの保険)
+      document.querySelectorAll(".modal-backdrop").forEach(el => el.remove());
+      document.body.classList.remove("modal-open");
+      document.body.style.overflow = "";
+      document.body.style.paddingRight = "";
+    });
+    // タブ復帰時に backdrop が残っていたら強制掃除
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "visible") return;
+      const modalEl = document.getElementById("pdfPreviewModal");
+      if (modalEl && !modalEl.classList.contains("show")) {
+        document.querySelectorAll(".modal-backdrop").forEach(el => el.remove());
+        document.body.classList.remove("modal-open");
+        document.body.style.overflow = "";
+        document.body.style.paddingRight = "";
+      }
     });
     // 歯車アイコン: 請求書記載情報モーダルを開く
     document.getElementById("btnStaffInfoSettings").addEventListener("click", () => this.toggleStaffInfo(true));
@@ -873,6 +890,20 @@ const MyInvoiceCreatePage = {
       // 直前に貼ってあった Blob URL があれば解放
       if (this._previewBlobUrl) URL.revokeObjectURL(this._previewBlobUrl);
       this._previewBlobUrl = URL.createObjectURL(blob);
+      // モバイル判定: iframe で PDF 表示できないため新タブで直接開く
+      const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+      if (isMobile) {
+        // 新タブで PDF を開く (モーダル経由しない → backdrop 残り問題も回避)
+        const a = document.createElement("a");
+        a.href = this._previewBlobUrl;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.download = `invoice_preview_${ym}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        return;
+      }
       const ifr = document.getElementById("pdfPreviewIframe");
       ifr.src = this._previewBlobUrl;
       document.getElementById("btnPdfOpenNewTab").href = this._previewBlobUrl;
