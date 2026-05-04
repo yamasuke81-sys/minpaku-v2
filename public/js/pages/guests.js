@@ -20,7 +20,7 @@ const GuestsPage = {
             <i class="bi bi-gear"></i> 設定
           </button>
           <button class="btn btn-outline-info me-2" id="btnImportGas" title="GAS版スプレッドシートから指定期間をインポート">
-            <i class="bi bi-cloud-download"></i> インポート
+            <i class="bi bi-cloud-download"></i> GASインポート
           </button>
           <button class="btn btn-primary" id="btnAddGuest">
             <i class="bi bi-plus-lg"></i> 手動登録
@@ -270,7 +270,7 @@ const GuestsPage = {
         ? renderPropertyNumberBadge(prop)
         : `<span class="text-muted small">-</span>`;
       return `
-        <tr data-id="${g.id}" class="guest-row ${g._coMismatch ? "table-warning" : ""}">
+        <tr data-id="${g.id}" class="guest-row ${g._coMismatch ? "table-warning" : ""}" style="cursor:pointer;" title="クリックで詳細を表示">
           <td>${formatDate(g.checkIn)}${g.checkInTime ? `<br><small class="text-muted">${this.escapeHtml(g.checkInTime)}</small>` : ""}</td>
           <td>${propCell}</td>
           <td>
@@ -285,11 +285,8 @@ const GuestsPage = {
           </td>
           <td class="d-none d-md-table-cell">${sourceIcon}</td>
           <td class="d-none d-lg-table-cell">${this.escapeHtml(g.phone || "-")}</td>
-          <td>
+          <td class="guest-actions">
             <div class="btn-group btn-group-sm">
-              <button class="btn btn-outline-primary btn-view" title="詳細">
-                <i class="bi bi-eye"></i>
-              </button>
               <button class="btn btn-outline-secondary btn-edit-guest" title="編集">
                 <i class="bi bi-pencil"></i>
               </button>
@@ -302,11 +299,12 @@ const GuestsPage = {
       `;
     }).join("");
 
-    // イベントバインド
-    tbody.querySelectorAll(".btn-view").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const id = btn.closest("tr").dataset.id;
-        this.showDetail(id);
+    // 行全体クリックで詳細モーダルを開く (操作ボタン列はバブリング抑止)
+    tbody.querySelectorAll(".guest-row").forEach(tr => {
+      tr.addEventListener("click", (ev) => {
+        if (ev.target.closest(".guest-actions")) return; // 編集/削除ボタンは除外
+        const id = tr.dataset.id;
+        if (id) this.showDetail(id);
       });
     });
     tbody.querySelectorAll(".btn-edit-guest").forEach(btn => {
@@ -375,7 +373,7 @@ const GuestsPage = {
     const body = document.getElementById("guestDetailBody");
     body.innerHTML = html;
     document.querySelector("#guestDetailModal .modal-title").innerHTML =
-      '<i class="bi bi-cloud-download"></i> 宿泊者名簿 インポート';
+      '<i class="bi bi-cloud-download"></i> GAS版宿泊者名簿 取り込み';
     this.detailModal.show();
 
     setTimeout(() => {
@@ -800,6 +798,10 @@ const GuestsPage = {
   showDetail(id) {
     const g = this.guestList.find(x => x.id === id);
     if (!g) return;
+
+    // タイトルを「宿泊者情報詳細」に設定 (同 modal を GAS インポートで上書きされた状態を戻す)
+    document.querySelector("#guestDetailModal .modal-title").innerHTML =
+      '<i class="bi bi-person-vcard"></i> 宿泊者情報詳細';
 
     const body = document.getElementById("guestDetailBody");
     const companions = g.guests || [];
