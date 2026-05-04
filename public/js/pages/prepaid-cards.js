@@ -24,12 +24,13 @@ const PrepaidCardsPage = {
 
   async render(container) {
     const role = (Auth.currentUser && Auth.currentUser.role) || "owner";
+    this.role = role;
     // スタッフも「追加」操作を許可 (ランドリー購入時の登録フロー)
     this.canEdit = role === "owner" || role === "sub_owner" || role === "staff";
     this.isOwnerLevel = role === "owner" || role === "sub_owner";
 
-    // スタッフ/物件オーナー時は自身の担当物件を取得
-    if (!this.canEdit || role === "sub_owner") {
+    // スタッフ/サブオーナー時は自身のドキュメントを取得 (担当物件絞り込み用)
+    if (role === "staff" || role === "sub_owner") {
       try {
         const staffId = Auth.currentUser.staffId;
         if (staffId) {
@@ -90,32 +91,36 @@ const PrepaidCardsPage = {
               <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
+              <!-- ① 利用物件 (担当物件のみ、複数選択可) -->
+              <div class="mb-3">
+                <label class="form-label">利用物件 (複数選択可) <span class="text-danger">*</span></label>
+                <div id="newPrepaidProperties" class="d-flex flex-wrap gap-2 border rounded p-2"></div>
+              </div>
+              <!-- ② 提出先 -->
               <div class="mb-3">
                 <label class="form-label">提出先 (コインランドリー) <span class="text-danger">*</span></label>
                 <select class="form-select" id="newPrepaidDepot">
                   <option value="">-- 選択 --</option>
                 </select>
               </div>
-              <div class="mb-3" id="newPrepaidPrefixWrap">
-                <label class="form-label">カード番号の頭文字 <span class="text-danger">*</span></label>
-                <input type="text" class="form-control" id="newPrepaidPrefix" placeholder="例: 小柴">
-                <div class="form-text">この頭文字 + 3桁連番で自動採番されます (例: 小柴001, 小柴002)</div>
-              </div>
+              <!-- ③ カード番号 (自動採番表示) -->
               <div class="mb-3">
-                <label class="form-label">採番されるカード番号</label>
+                <label class="form-label">カード番号</label>
                 <input type="text" class="form-control" id="newPrepaidNumber" readonly style="background:#f8f9fa;">
               </div>
-              <div class="row g-2 mb-3">
-                <div class="col-6">
-                  <label class="form-label">購入金額 (円)</label>
-                  <input type="number" class="form-control" id="newPrepaidCharge" min="0" value="2000">
-                  <div class="form-text small">チャージ額ルールが設定されていれば残高が自動計算されます</div>
-                </div>
-                <div class="col-6">
-                  <label class="form-label">残高 (円) <span class="text-danger">*</span></label>
-                  <input type="number" class="form-control" id="newPrepaidBalance" min="0" value="2200">
-                </div>
+              <!-- ④ 番号の頭文字 (自動で 3桁連番) -->
+              <div class="mb-3" id="newPrepaidPrefixWrap">
+                <label class="form-label">番号の頭文字 <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" id="newPrepaidPrefix" placeholder="例: 小柴">
+                <div class="form-text">この頭文字 + 自動で 3桁連番が付与されます (例: 小柴001, 小柴002)</div>
               </div>
+              <!-- ⑤ 残高 (デフォルト 2200円) -->
+              <div class="mb-3">
+                <label class="form-label">残高 (円) <span class="text-danger">*</span></label>
+                <input type="number" class="form-control" id="newPrepaidBalance" min="0" value="2200">
+              </div>
+              <!-- 購入金額 (内部計算用、隠しフィールドとして保持) -->
+              <input type="hidden" id="newPrepaidCharge" value="2000">
               <!-- 購入者選択 (Webアプリ管理者のみ表示。スタッフ/物件オーナーは自動で自分) -->
               <div class="mb-3 d-none" id="newPrepaidPurchaserWrap">
                 <label class="form-label">購入者 <span class="text-danger">*</span></label>
@@ -123,10 +128,6 @@ const PrepaidCardsPage = {
                   <option value="">-- 選択 --</option>
                 </select>
                 <div class="form-text small">購入者の月次請求書に立替として自動計上されます</div>
-              </div>
-              <div class="mb-3">
-                <label class="form-label">利用物件 (複数選択可)</label>
-                <div id="newPrepaidProperties" class="d-flex flex-wrap gap-2 border rounded p-2"></div>
               </div>
               <div class="mb-0">
                 <label class="form-label">メモ</label>
@@ -176,8 +177,8 @@ const PrepaidCardsPage = {
       }
     } catch (_) { this.properties = []; }
 
-    // スタッフ時は担当物件で絞り込み
-    if (!this.canEdit && this.staffDoc) {
+    // スタッフ時は担当物件で絞り込み (canEdit=true のスタッフでも適用)
+    if (this.role === "staff" && this.staffDoc) {
       const assigned = new Set(this.staffDoc.assignedPropertyIds || []);
       this.properties = this.properties.filter(p => assigned.has(p.id));
     }
@@ -320,8 +321,8 @@ const PrepaidCardsPage = {
       .map((c, _idx) => ({ c, _idx }))
       .filter(({ c }) => showUsed || (Number(c.balance) || 0) > 0)
       .filter(({ c }) => {
-        // スタッフ時は担当物件に紐づくカードのみ
-        if (!this.canEdit && this.staffDoc) {
+        // スタッフ時は担当物件に紐づくカードのみ (canEdit=true のスタッフでも適用)
+        if (this.role === "staff" && this.staffDoc) {
           const assigned = new Set(this.staffDoc.assignedPropertyIds || []);
           return (c.propertyIds || []).some(pid => assigned.has(pid));
         }
@@ -484,7 +485,9 @@ const PrepaidCardsPage = {
     prefixInput.value = "";
     numberInput.value = "";
     chargeInput.value = 2000;
-    balanceInput.value = this._resolveBalance(2000, depotSel.value);
+    // 残高デフォルトは 2200 (チャージ額ルールがあれば優先)
+    const resolvedBal = this._resolveBalance(2000, depotSel.value);
+    balanceInput.value = resolvedBal || 2200;
     memoInput.value = "";
 
     // 購入者プルダウン: Webアプリ管理者のみ表示、スタッフ/物件オーナーは非表示で自動決定

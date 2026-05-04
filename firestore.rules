@@ -50,7 +50,14 @@ service cloud.firestore {
             && resource.data.assignedPropertyIds.hasAny(request.auth.token.ownedPropertyIds)
             && !request.resource.data.diff(resource.data).affectedKeys()
                   .hasAny(['isSubOwner', 'ownedPropertyIds', 'role', 'authUid',
-                           'subOwnerLineUserId', 'subOwnerEmail', 'isOwner']));
+                           'subOwnerLineUserId', 'subOwnerEmail', 'isOwner']))
+        // スタッフが自分自身のプロフィール (氏名/電話/住所/メール/口座情報等) を更新可能
+        // ただし権限昇格防止のため特定フィールドは変更不可
+        || (isStaff() && myStaffId() == staffId
+            && !request.resource.data.diff(resource.data).affectedKeys()
+                  .hasAny(['isSubOwner', 'ownedPropertyIds', 'role', 'authUid',
+                           'isOwner', 'assignedPropertyIds', 'active', 'displayOrder',
+                           'lineUserId', 'staffId']));
     }
 
     // 物件 — read は全認証ユーザー (各画面が properties を全件クエリするため)
