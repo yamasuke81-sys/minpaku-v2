@@ -536,6 +536,13 @@ const MyChecklistPage = {
         if (templateChanged) {
           this.renderTree();
         } else {
+          // 楽観 UI 直後の自分自身の書き込みは再描画スキップ (チラツキ防止)
+          // バッジだけ軽量更新する
+          if (this._suppressRerenderUntil && Date.now() < this._suppressRerenderUntil) {
+            this._updateHeaderStatus();
+            this._updateTabBadges();
+            return;
+          }
           // 差分更新: スクロール位置を保持しながらバッジ・コンテンツ・タブスタイルを一括更新
           // requestAnimationFrame 1回にまとめて余分な reflow を最小化
           const prevScrollY = window.scrollY;
@@ -1633,8 +1640,9 @@ const MyChecklistPage = {
           </div>
         </div>`
       : `
-        <button type="button" class="btn btn-success btn-sm" id="mclCompleteBtn" style="font-size:12px;padding:4px 10px;white-space:nowrap;">
-          <i class="bi bi-check2-circle"></i> 清掃完了
+        <button type="button" class="btn btn-success" id="mclCompleteBtn" style="font-size:11px;padding:4px 8px;line-height:1.1;min-width:48px;white-space:nowrap;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;">
+          <i class="bi bi-check2-circle" style="font-size:18px;"></i>
+          <span>完了</span>
         </button>`;
 
     // タブに応じて表示切替:
@@ -1643,12 +1651,16 @@ const MyChecklistPage = {
     //  - タブ4 (ランドリー) → mclFooter にランドリーのみ
     //  - 旧構造互換 (どちらも取れる場合) → 両方を mclFooter に
     // 清掃完了ボタン: area-tabs 行の sticky スロットに出力 (チェックリストタブ時のみ)
+    // ※ snapshot 連発時の差分更新では elSticky は触らない (innerHTML 入れ替えがちらつき要因)
     const elSticky = document.getElementById("mclStickyComplete");
     if (this.activeTopTab === "laundry") {
-      if (elSticky) elSticky.innerHTML = "";
+      if (elSticky && elSticky.innerHTML !== "") elSticky.innerHTML = "";
       el.innerHTML = laundrySection || `<div class="alert alert-secondary">ランドリー設定がありません</div>`;
     } else if (this.activeTopTab === "checklist") {
-      if (elSticky) elSticky.innerHTML = completeSection;
+      // 既存と同じ HTML なら触らない (差分更新でちらつき防止)
+      if (elSticky && elSticky.innerHTML.trim() !== completeSection.trim()) {
+        elSticky.innerHTML = completeSection;
+      }
       el.innerHTML = "";
     } else {
       if (elSticky) elSticky.innerHTML = "";
@@ -2557,6 +2569,31 @@ const MyChecklistPage = {
     if (!ids.length) return;
 
     const newChecked = !currentlyAllChecked;
+    // 楽観 UI 更新: DOM を直接トグル (チラツキ防止) + 次のスナップショット 800ms は再描画スキップ
+    this._suppressRerenderUntil = Date.now() + 800;
+    ids.forEach(id => {
+      // local state を即更新
+      if (this.checklist?.itemStates) {
+        const cur = this.checklist.itemStates[id] || {};
+        this.checklist.itemStates[id] = { ...cur, checked: newChecked };
+      }
+      // DOM カード class 即トグル
+      const card = document.querySelector(`.mcl-item[data-item-id="${CSS.escape(id)}"]`);
+      if (card) {
+        card.classList.toggle("bg-success", newChecked);
+        card.classList.toggle("bg-opacity-10", newChecked);
+        const cb = card.querySelector(".mcl-check");
+        if (cb) cb.checked = newChecked;
+      }
+    });
+    // ボタンラベル + バッジを即時更新
+    this._updateTabBadges();
+    const toggleBtn = document.querySelector(".mcl-toggle-all-check");
+    if (toggleBtn) {
+      toggleBtn.dataset.allChecked = newChecked ? "1" : "0";
+      toggleBtn.innerHTML = `<i class="bi bi-check2-square"></i> ${newChecked ? '全チェック外し' : '全チェック'}`;
+    }
+
     const patch = {};
     const checker = newChecked ? {
       name: this.staffDoc?.name || "",
@@ -2576,6 +2613,7 @@ const MyChecklistPage = {
     try {
       await firebase.firestore().collection("checklists").doc(this.checklistId).update(patch);
     } catch (e) {
+      this._suppressRerenderUntil = 0;
       showToast("エラー", e.message, "error");
     }
   },
