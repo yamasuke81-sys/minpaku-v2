@@ -115,7 +115,8 @@ module.exports = function guestEditApi(db) {
       const guestName = mergedData.guestName || "名前不明";
       const checkIn = mergedData.checkIn || "?";
       const checkOut = mergedData.checkOut || "?";
-      const editUrl = `${APP_URL}/guest-form.html?edit=${currentData.editToken}`;
+      // propertyId を URL に含める → guest-form.html の <head> 早期テーマで青背景フラッシュ防止
+      const editUrl = `${APP_URL}/guest-form.html?edit=${currentData.editToken}${currentData.propertyId ? `&propertyId=${encodeURIComponent(currentData.propertyId)}` : ""}`;
       const confirmUrl = `${APP_URL}/#/guests`;
 
       const templates = await getTemplates(db);
