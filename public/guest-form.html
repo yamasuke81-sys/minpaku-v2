@@ -932,10 +932,30 @@
           html += `<div class="col-md-5 mt-1"><label class="form-label small">${t.g_phone} <span class="required-mark">*</span></label><input type="tel" class="form-control form-control-sm g-phone" required value="${esc(s.phone || "")}"></div>
           <div class="col-md-6 mt-1"><label class="form-label small">${t.g_email} <span class="required-mark">*</span></label><input type="email" class="form-control form-control-sm g-email" required value="${esc(s.email || "")}" placeholder="${currentLang === "en" ? "Required — guide and edit link will be sent here" : "必須 — ガイド・編集リンクを送信します"}"></div>`;
         }
-        html += `<div class="col-12 mt-1 passport-section" style="${showPP ? '' : 'display:none'}">
+        // 既存パスポート写真がある場合: サムネ表示 + 「変更する場合のみ再アップロード」案内
+        // → 新規アップロード必須を解除 (写真維持できる)
+        const existingPP = s.passportPhotoUrl || "";
+        const ppRequired = showPP && !existingPP;
+        const existingPPLabelJa = "登録済の写真:";
+        const existingPPLabelEn = "Registered photo:";
+        const existingPPHintJa = "変更する場合のみ、新しい写真を選択してください。";
+        const existingPPHintEn = "Select a new photo only if you want to replace it.";
+        const existingPPLabel = currentLang === "ja" ? existingPPLabelJa : existingPPLabelEn;
+        const existingPPHint = currentLang === "ja" ? existingPPHintJa : existingPPHintEn;
+        const existingPPBlock = existingPP ? `
+          <div class="mt-1 mb-1 p-2 bg-light border rounded small">
+            <div class="text-muted mb-1">${existingPPLabel}</div>
+            <a href="${esc(existingPP)}" target="_blank" rel="noopener">
+              <img src="${esc(existingPP)}" alt="passport" style="max-width:140px;max-height:100px;object-fit:contain;border:1px solid #dee2e6;border-radius:4px;">
+            </a>
+            <div class="text-muted mt-1" style="font-size:0.75rem;">${existingPPHint}</div>
+          </div>
+        ` : "";
+        html += `<div class="col-12 mt-1 passport-section" style="${showPP ? '' : 'display:none'}" data-existing-pp="${esc(existingPP)}">
           <div class="alert alert-info py-1 px-2 small mb-1">${t.g_passportRequired}</div>
           <label class="form-label small">${t.g_passport} <span class="required-mark">*</span></label><input type="text" class="form-control form-control-sm g-passport" ${showPP ? 'required' : ''} value="${esc(s.passport || "")}">
-          <label class="form-label small mt-1">${t.g_passportPhoto} <span class="required-mark">*</span></label><input type="file" class="form-control form-control-sm g-passport-photo" accept="image/*" capture="environment" ${showPP ? 'required' : ''}>
+          ${existingPPBlock}
+          <label class="form-label small mt-1">${t.g_passportPhoto}${ppRequired ? ' <span class="required-mark">*</span>' : ''}</label><input type="file" class="form-control form-control-sm g-passport-photo" accept="image/*" capture="environment" ${ppRequired ? 'required' : ''}>
         </div></div></div>`;
       }
       container.innerHTML = html;
@@ -1384,6 +1404,7 @@
               phone: d.phone || "",
               email: d.email || "",
               passport: d.passportNumber || "",
+              passportPhotoUrl: d.passportPhotoUrl || "",
             };
             const companions = Array.isArray(d.guests) ? d.guests.map(g => ({
               name: g.name || "",
@@ -1393,6 +1414,7 @@
               phone: g.phone || "",
               email: g.email || "",
               passport: g.passportNumber || "",
+              passportPhotoUrl: g.passportPhotoUrl || "",
             })) : [];
             all = [rep, ...companions];
           }
@@ -1405,6 +1427,7 @@
             phone:       g.phone       || "",
             email:       g.email       || "",
             passport:    g.passport    || g.passportNumber || "",
+            passportPhotoUrl: g.passportPhotoUrl || "",
           }));
           if (d.guestCount) {
             const el = document.getElementById("f_guestCount");
@@ -2023,7 +2046,13 @@
           if (isRep) { g.phone = block.querySelector(".g-phone")?.value.trim()||""; g.email = block.querySelector(".g-email")?.value.trim()||""; }
           const pp = block.querySelector(".g-passport"); if (pp && pp.value.trim()) g.passportNumber = pp.value.trim();
           const pph = block.querySelector(".g-passport-photo");
-          if (pph && pph.files && pph.files[0]) { g.passportPhotoUrl = ppUrls[phIdx]||""; phIdx++; }
+          if (pph && pph.files && pph.files[0]) {
+            g.passportPhotoUrl = ppUrls[phIdx]||""; phIdx++;
+          } else {
+            // 編集モード: 新規アップロードがなければ既存 URL を維持
+            const existing = block.querySelector(".passport-section")?.dataset?.existingPp || "";
+            if (existing) g.passportPhotoUrl = existing;
+          }
           guests.push(g);
         });
         const rep = guests[0]||{}, companions = guests.slice(1);
