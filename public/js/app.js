@@ -554,6 +554,10 @@ const App = {
         "schedule", "properties", "staff", "guests", "guest-guides",
         "recruitment", "laundry", "checklist", "prepaid-cards",
         "reservation-flow", "cleaning-flow", "rates", "invoices",
+        // チェックリスト管理画面 (#/checklist) からの遷移先・募集詳細からの遷移先
+        "my-checklist", "property-checklist",
+        // スタッフ向け画面 (物件オーナーがスタッフ視点で見る場合に必要)
+        "my-recruitment", "my-dashboard", "my-invoice-create",
       ]);
       if (!subOwnerAllowed.has(pageName)) {
         location.hash = "#/schedule";
