@@ -42,7 +42,13 @@ async function translateOne_(text, apiKey) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 2048 },
+      generationConfig: {
+        temperature: 0.2,
+        // 2.5 系は thinking が出力枠を消費するため余裕を持って設定
+        maxOutputTokens: 8192,
+        // 翻訳には思考不要 → thinking 無効化 (出力切れ防止)
+        thinkingConfig: { thinkingBudget: 0 },
+      },
     }),
   });
   if (!res.ok) {
