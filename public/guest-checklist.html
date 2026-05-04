@@ -480,6 +480,9 @@
     document.getElementById("gcLbNext").addEventListener("click", e => { e.stopPropagation(); show(cur+1); });
     document.getElementById("gcLbClose").addEventListener("click", () => overlay.remove());
     overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+    // 画像本体タップでも閉じる
+    imgEl.style.cursor = "zoom-out";
+    imgEl.addEventListener("click", (e) => { e.stopPropagation(); overlay.remove(); });
   }
 
   function switchTopTab(tab) {
