@@ -300,6 +300,14 @@ async function renderInvoicePdfBuffer(invoice, staff, client, propertyMap) {
       });
     });
 
+    // 日付昇順ソート (空日付は末尾)
+    rows.sort((a, b) => {
+      if (!a.date && !b.date) return 0;
+      if (!a.date) return 1;
+      if (!b.date) return -1;
+      return a.date.localeCompare(b.date);
+    });
+
     // テーブル
     setFont(10);
     const col = { date: leftX, label: leftX + 90, amount: leftX + 400 };
@@ -524,6 +532,14 @@ async function generateInvoicePdf_(db, invoiceId) {
         memo: item.memo || "",
         section: "manual",
       });
+    });
+
+    // 日付昇順ソート (空日付は末尾)
+    rows.sort((a, b) => {
+      if (!a.date && !b.date) return 0;
+      if (!a.date) return 1;
+      if (!b.date) return -1;
+      return a.date.localeCompare(b.date);
     });
 
     // テーブル描画
@@ -1504,7 +1520,15 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
     total: adjTotal,
     shiftCount: rawShifts.length,
     byProperty,
-    rows,
+    // 日付昇順ソート (空日付は末尾) — 画面プレビュー用
+    rows: rows.slice().sort((a, b) => {
+      const da = a.date || "";
+      const db = b.date || "";
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      return String(da).localeCompare(String(db));
+    }),
     excludedRows,
   };
 }
