@@ -1,21 +1,17 @@
 /**
  * キャンセル予約一覧
  * - bookings コレクションから status="cancelled" を表示
- * - 物件フィルタ・期間フィルタ
- * - 各行に「予約詳細」「キャンセル取消」ボタン
- *
- * キャンセル取消は `manualOverride=true` を立てて以後 iCal 同期から保護。
+ * - 物件フィルタ: 番号バッジ + 目アイコンで表示/非表示切替 (他タブと統一)
+ * - サブオーナー権限: 自分の ownedPropertyIds の物件のみ閲覧可能
+ * - 各行に「キャンセル取消」ボタン
  */
 const CancelledBookingsPage = {
   state: {
     bookings: [],
     properties: [],
-    filterPropertyId: "",
+    propertyVisibility: {}, // { propertyId: true|false } true=表示
     filterRange: "future", // future | past3m | all
-    sortKey: "cancelledAt",
-    sortDir: "desc",
   },
-  _unsubs: [],
 
   async render(container) {
     container.innerHTML = `
@@ -25,14 +21,13 @@ const CancelledBookingsPage = {
       </div>
       <div class="card mb-3">
         <div class="card-body py-2">
+          <div class="mb-2">
+            <small class="text-muted me-2"><i class="bi bi-building"></i> 物件:</small>
+            <span id="cbPropertyFilter"></span>
+            <small class="text-muted ms-2">(目アイコンで表示切替)</small>
+          </div>
           <div class="row g-2 align-items-center">
-            <div class="col-md-4">
-              <label class="form-label small mb-1">物件</label>
-              <select class="form-select form-select-sm" id="cbFilterProperty">
-                <option value="">すべて</option>
-              </select>
-            </div>
-            <div class="col-md-4">
+            <div class="col-md-6">
               <label class="form-label small mb-1">期間 (チェックイン基準)</label>
               <select class="form-select form-select-sm" id="cbFilterRange">
                 <option value="future">今日以降</option>
@@ -40,7 +35,7 @@ const CancelledBookingsPage = {
                 <option value="all">すべて</option>
               </select>
             </div>
-            <div class="col-md-4 text-end">
+            <div class="col-md-6 text-end">
               <button class="btn btn-sm btn-outline-secondary" id="cbReload"><i class="bi bi-arrow-clockwise"></i> 再読込</button>
             </div>
           </div>
@@ -71,10 +66,6 @@ const CancelledBookingsPage = {
   },
 
   _bindUI(container) {
-    container.querySelector("#cbFilterProperty").addEventListener("change", (e) => {
-      this.state.filterPropertyId = e.target.value;
-      this._render();
-    });
     container.querySelector("#cbFilterRange").addEventListener("change", (e) => {
       this.state.filterRange = e.target.value;
       this._render();
@@ -82,28 +73,95 @@ const CancelledBookingsPage = {
     container.querySelector("#cbReload").addEventListener("click", () => this._load());
   },
 
+  /**
+   * サブオーナー impersonation 中なら自分の ownedPropertyIds に絞る
+   * 通常オーナーなら全物件
+   */
+  _getAllowedPropertyIds() {
+    // impersonation 中 (オーナーがサブオーナー視点で閲覧 or サブオーナー本人ログイン)
+    if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
+      const ids = App.impersonatingData.ownedPropertyIds || [];
+      return new Set(ids);
+    }
+    // カスタムクレーム role=sub_owner なら staff doc から ownedPropertyIds を取得
+    if (typeof Auth !== "undefined" && Auth.role && Auth.role() === "sub_owner") {
+      const ids = (Auth.user && Auth.user.ownedPropertyIds) || [];
+      return new Set(ids);
+    }
+    return null; // null = 全物件許可
+  },
+
   async _load() {
     const db = firebase.firestore();
     try {
-      // 物件取得
+      // 物件取得 (active のみ)
       const propsSnap = await db.collection("properties").where("active", "==", true).get();
-      this.state.properties = propsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const sel = document.getElementById("cbFilterProperty");
-      if (sel) {
-        sel.innerHTML = '<option value="">すべて</option>' +
-          this.state.properties.map(p => `<option value="${this._esc(p.id)}">${this._esc(p.name || p.id)}</option>`).join("");
-        sel.value = this.state.filterPropertyId;
+      let allProps = propsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      // サブオーナー権限チェック
+      const allowed = this._getAllowedPropertyIds();
+      if (allowed) {
+        allProps = allProps.filter(p => allowed.has(p.id));
       }
+
+      // displayOrder でソート
+      allProps.sort((a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999));
+      this.state.properties = allProps;
+
+      // 初期表示状態: 全物件 visible (state がまだなければ)
+      allProps.forEach(p => {
+        if (this.state.propertyVisibility[p.id] === undefined) {
+          this.state.propertyVisibility[p.id] = true;
+        }
+      });
+
+      this._renderPropertyFilter();
 
       // cancelled な bookings 取得
       const snap = await db.collection("bookings").where("status", "==", "cancelled").get();
-      this.state.bookings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      let bookings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      // サブオーナー権限で物件絞り込み (bookings 側)
+      if (allowed) {
+        bookings = bookings.filter(b => allowed.has(b.propertyId));
+      }
+      this.state.bookings = bookings;
       this._render();
     } catch (e) {
       console.error("[cancelled-bookings] load error:", e);
       const tbody = document.getElementById("cbTbody");
       if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="text-danger text-center py-4">読み込み失敗: ${this._esc(e.message || String(e))}</td></tr>`;
     }
+  },
+
+  _renderPropertyFilter() {
+    const wrap = document.getElementById("cbPropertyFilter");
+    if (!wrap) return;
+    if (this.state.properties.length === 0) {
+      wrap.innerHTML = '<small class="text-muted">対象物件なし</small>';
+      return;
+    }
+    wrap.innerHTML = this.state.properties.map(p => {
+      const num = p.propertyNumber || "";
+      const color = p.color || "#6c757d";
+      const visible = this.state.propertyVisibility[p.id] !== false;
+      const eyeIcon = visible ? "bi-eye" : "bi-eye-slash";
+      const opacity = visible ? "1" : "0.45";
+      return `<button type="button" class="cb-prop-toggle ms-1" data-prop-id="${this._esc(p.id)}"
+                title="${this._esc(p.name)} ${visible ? '(表示中 - クリックで非表示)' : '(非表示 - クリックで表示)'}"
+                style="border:1px solid #ced4da;background:#fff;border-radius:4px;padding:2px 6px;font-size:12px;cursor:pointer;opacity:${opacity};">
+                <span class="badge" style="background:${color};color:#fff;">${this._esc(num)}</span>
+                <i class="bi ${eyeIcon} text-muted"></i>
+              </button>`;
+    }).join("");
+    wrap.querySelectorAll(".cb-prop-toggle").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const pid = btn.dataset.propId;
+        this.state.propertyVisibility[pid] = !(this.state.propertyVisibility[pid] !== false);
+        this._renderPropertyFilter();
+        this._render();
+      });
+    });
   },
 
   _render() {
@@ -124,16 +182,10 @@ const CancelledBookingsPage = {
     } else if (this.state.filterRange === "past3m") {
       list = list.filter(b => (b.checkIn || "") >= past3mDate);
     }
-    // 物件フィルタ
-    if (this.state.filterPropertyId) {
-      list = list.filter(b => b.propertyId === this.state.filterPropertyId);
-    }
-    // ソート (キャンセル日時 降順、未設定は最後尾)
-    list.sort((a, b) => {
-      const aMs = this._toMs(a.cancelledAt);
-      const bMs = this._toMs(b.cancelledAt);
-      return bMs - aMs;
-    });
+    // 物件フィルタ (visibility)
+    list = list.filter(b => this.state.propertyVisibility[b.propertyId] !== false);
+    // ソート (キャンセル日時 降順)
+    list.sort((a, b) => this._toMs(b.cancelledAt) - this._toMs(a.cancelledAt));
 
     if (summary) summary.textContent = `${list.length} 件`;
 
@@ -166,7 +218,6 @@ const CancelledBookingsPage = {
       </tr>`;
     }).join("");
 
-    // クリックハンドラ
     tbody.querySelectorAll(".cb-restore").forEach(btn => {
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
@@ -192,7 +243,6 @@ const CancelledBookingsPage = {
             updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
           });
           showToast("復元", `${b.guestName || "予約"} を復元しました`, "success");
-          // ローカルから除外して再描画
           this.state.bookings = this.state.bookings.filter(x => x.id !== bookingId);
           this._render();
         } catch (err) {
@@ -237,8 +287,5 @@ const CancelledBookingsPage = {
     return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   },
 
-  cleanup() {
-    this._unsubs.forEach(u => { try { u(); } catch (_) {} });
-    this._unsubs = [];
-  },
+  cleanup() {},
 };
