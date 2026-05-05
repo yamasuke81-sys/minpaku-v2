@@ -104,8 +104,14 @@ const CancelledBookingsPage = {
         allProps = allProps.filter(p => allowed.has(p.id));
       }
 
-      // displayOrder でソート
-      allProps.sort((a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999));
+      // propertyNumber 順 (1, 2, 3, 4...) でソート、未設定は末尾
+      allProps.sort((a, b) => {
+        const an = parseInt(a.propertyNumber, 10);
+        const bn = parseInt(b.propertyNumber, 10);
+        const av = isNaN(an) ? 9999 : an;
+        const bv = isNaN(bn) ? 9999 : bn;
+        return av - bv;
+      });
       this.state.properties = allProps;
 
       // 初期表示状態: 全物件 visible (state がまだなければ)
