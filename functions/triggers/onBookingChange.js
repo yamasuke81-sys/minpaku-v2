@@ -418,6 +418,17 @@ module.exports = async function onBookingChange(event) {
     if (nowCancelled) return;
   }
 
+  // ========== 重要ガード: cancelled 予約には後続処理 (募集生成等) を一切しない ==========
+  // before/after どちらも cancelled の状態でも、emailVerification によるメタ更新
+  // (emailVerifiedAt / emailMessageId 等) でこのトリガーは再発火する。
+  // cancelled-block (L260〜) は `nowCancelled && !wasCancelled` 条件でしか入らないため、
+  // 既キャンセル予約のメタ更新は素通りして、後続の募集生成ロジックまで到達してしまう。
+  // → ここで一律 return することで「キャンセル予約に対する募集の誤生成」を確実に防ぐ。
+  if (nowCancelled) {
+    console.log(`予約 ${event.params.bookingId}: cancelled 状態のため後続処理スキップ`);
+    return;
+  }
+
   const { checkIn, checkOut, propertyId, guestName, source, bookingId: bookingIdFromData } = after;
   // bookingId はドキュメントIDから取得
   const bookingId = event.params.bookingId;

@@ -178,12 +178,23 @@ module.exports = function gmailAuthApi(db) {
       const { context, email, propertyId, ownerId: stateOwnerId } = parseState_(state);
       const back = returnLink_(context, propertyId);
 
-      // ownerId 解決: state 優先、無ければ propertyId からの逆引き、最後にメインオーナー fallback
+      // ownerId 解決: state 優先、無ければ propertyId からの逆引き、
+      // 次に「emailVerification context で物件全部が同じ ownerId なら」その値、
+      // 最後に staff isOwner fallback
       let ownerId = stateOwnerId || "";
       if (!ownerId && propertyId) {
         try {
           const pDoc = await db.collection("properties").doc(propertyId).get();
           if (pDoc.exists) ownerId = pDoc.data().ownerId || "";
+        } catch (_) { /* ignore */ }
+      }
+      // emailVerification context で物件 ownerId が一意ならそれを使う
+      // (サブオーナー機能未使用時、staff doc id と物件 ownerId が異なるケース対策)
+      if (!ownerId && context === "emailVerification") {
+        try {
+          const propsSnap = await db.collection("properties").where("active", "==", true).get();
+          const ownerIds = new Set(propsSnap.docs.map(d => d.data().ownerId).filter(Boolean));
+          if (ownerIds.size === 1) ownerId = [...ownerIds][0];
         } catch (_) { /* ignore */ }
       }
       if (!ownerId) {
