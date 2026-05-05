@@ -121,6 +121,15 @@ function toDateStr(d) {
 }
 
 /**
+ * 今日の JST 日付を YYYY-MM-DD で返す
+ */
+function toJSTDate(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  return jst.toISOString().slice(0, 10);
+}
+
+/**
  * メイン同期処理
  */
 async function syncIcal() {
