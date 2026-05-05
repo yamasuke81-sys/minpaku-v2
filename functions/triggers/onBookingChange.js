@@ -365,25 +365,50 @@ module.exports = async function onBookingChange(event) {
       }
     }
     // booking_cancel 通知: キャンセル化時にオーナーへ通知
+    // ただし「同じ propertyId の重なる期間に別の active 予約が存在する」場合は
+    // 重複ドキュメントの片付け (Reserved プレースホルダ→確定降下で別 icalUid のドキュメントが
+    // 新規作成され、古い方が iCal フィードから消えて自動キャンセル化される等) と判定して通知をスキップ。
+    // 実キャンセル (ゲストの取消) ではない誤通知を防ぐ。
     if (nowCancelled && after) {
       try {
-        const propName = after.propertyName || "";
-        const nights = (after.checkIn && after.checkOut)
-          ? Math.max(0, (new Date(after.checkOut) - new Date(after.checkIn)) / 86400000)
-          : "";
-        await notifyByKey(db, "booking_cancel", {
-          title: `予約キャンセル: ${after.checkIn}〜${after.checkOut}`,
-          body: `❌ 予約キャンセル\n\n${after.checkIn}〜${after.checkOut} ${propName}\nゲスト: ${after.guestName || "不明"}（${after.source || "不明"}）\n予約がキャンセルされました。`,
-          vars: {
-            checkin: after.checkIn || "",
-            date: after.checkOut || "",
-            property: propName,
-            guest: after.guestName || "",
-            site: after.source || "",
-            nights: String(nights),
-          },
-          propertyId: after.propertyId || null,
-        });
+        let suppressCancelNotify = false;
+        if (after.propertyId && after.checkIn && after.checkOut) {
+          const dupSnap = await db.collection("bookings")
+            .where("propertyId", "==", after.propertyId)
+            .where("status", "==", "confirmed")
+            .get();
+          for (const d of dupSnap.docs) {
+            if (d.id === event.params.bookingId) continue;
+            const dd = d.data();
+            if (dd.pendingApproval === true) continue;
+            if (!dd.checkIn || !dd.checkOut) continue;
+            // 期間重複: 1日でも重なれば重複扱い
+            if (after.checkIn <= dd.checkOut && after.checkOut >= dd.checkIn) {
+              suppressCancelNotify = true;
+              console.log(`[onBookingChange] 重複期間に active 予約あり → cancel 通知スキップ: ${event.params.bookingId} (vs ${d.id})`);
+              break;
+            }
+          }
+        }
+        if (!suppressCancelNotify) {
+          const propName = after.propertyName || "";
+          const nights = (after.checkIn && after.checkOut)
+            ? Math.max(0, (new Date(after.checkOut) - new Date(after.checkIn)) / 86400000)
+            : "";
+          await notifyByKey(db, "booking_cancel", {
+            title: `予約キャンセル: ${after.checkIn}〜${after.checkOut}`,
+            body: `❌ 予約キャンセル\n\n${after.checkIn}〜${after.checkOut} ${propName}\nゲスト: ${after.guestName || "不明"}（${after.source || "不明"}）\n予約がキャンセルされました。`,
+            vars: {
+              checkin: after.checkIn || "",
+              date: after.checkOut || "",
+              property: propName,
+              guest: after.guestName || "",
+              site: after.source || "",
+              nights: String(nights),
+            },
+            propertyId: after.propertyId || null,
+          });
+        }
       } catch (e) {
         console.error("[onBookingChange] booking_cancel 通知エラー:", e);
       }

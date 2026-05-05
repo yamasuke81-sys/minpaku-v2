@@ -207,23 +207,39 @@ const DashboardPage = {
 
       // 1) bookings/ コレクション（iCal同期 or BEDS24）— 最優先
       // pendingApproval=true (Airbnb 予約承認待ち) も除外: 確定後に再 ingest される
-      const rawBookings = bookingSnap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .filter(b => b.status !== "cancelled" && b.pendingApproval !== true);
+      // status のキャンセル判定は日本語表記 (キャンセル/キャンセル済み) も含めて統一
+      const isCancelledStatus = (s) => {
+        const x = String(s || "").toLowerCase();
+        return x.includes("cancel") || s === "キャンセル" || s === "キャンセル済み";
+      };
+      const allBookingDocs = bookingSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const allBookingsById = new Map(allBookingDocs.map(b => [b.id, b]));
+      const rawBookings = allBookingDocs
+        .filter(b => !isCancelledStatus(b.status) && b.pendingApproval !== true);
       rawBookings.forEach(b => addBooking(b, "bookings"));
 
       // 2) guestRegistrations/（名簿フォーム）— 補完
+      // bookingId が cancelled / 削除済 / 保留中 booking を指す名簿はスキップ
+      // (キャンセル予約の名簿が同日新規予約に流用されないようにする)
       const guests = guestSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      guests.forEach(g => addBooking({
-        id: "g_" + g.id,
-        guestName: g.guestName || "",
-        checkIn: g.checkIn, checkOut: g.checkOut,
-        guestCount: g.guestCount || 0,
-        source: g.bookingSite || g.source || "名簿",
-        nationality: g.nationality || "",
-        bbq: g.bbq || "", parking: g.parking || "",
-        memo: g.memo || "",
-      }, "guestRegistrations"));
+      guests.forEach(g => {
+        if (g.bookingId) {
+          const linked = allBookingsById.get(g.bookingId);
+          if (!linked) return;
+          if (isCancelledStatus(linked.status)) return;
+          if (linked.pendingApproval === true) return;
+        }
+        addBooking({
+          id: "g_" + g.id,
+          guestName: g.guestName || "",
+          checkIn: g.checkIn, checkOut: g.checkOut,
+          guestCount: g.guestCount || 0,
+          source: g.bookingSite || g.source || "名簿",
+          nationality: g.nationality || "",
+          bbq: g.bbq || "", parking: g.parking || "",
+          memo: g.memo || "",
+        }, "guestRegistrations");
+      });
 
       const bookings = Array.from(bookingMap.values());
 

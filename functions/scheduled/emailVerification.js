@@ -416,9 +416,76 @@ async function emailVerificationCore(db, opts = {}) {
       }
     } catch (e) {
       result.errors.push(`account ${tokenData.email || "unknown"}: ${e.message}`);
+      // OAuth トークン失効 (invalid_grant) を検知 → 管理者へ LINE 通知 (1日1回までに抑制)
+      // メール照合機能の停止に気付かず数日経過すると、キャンセル/確定メールが取り込まれず
+      // カレンダー/通知が壊れる事故になるため、即座に再認可を促す
+      if (/invalid_grant/i.test(String(e.message || ""))) {
+        try {
+          await notifyOAuthFailure_(db, tokenData.email || tokenDoc.id, e.message);
+        } catch (nerr) {
+          console.error("[emailVerification] notifyOAuthFailure_ error:", nerr.message);
+        }
+      }
     }
   }
   return result;
+}
+
+/**
+ * OAuth トークン失効を管理者の LINE に通知 (1日1回までの抑制付き)
+ *   settings/oauthAlerts/{accountKey} に lastNotifiedAt を記録
+ *   24h 以内なら通知スキップ (連続実行でループしないように)
+ */
+async function notifyOAuthFailure_(db, accountEmail, errorMessage) {
+  const admin = require("firebase-admin");
+  const { sendLineMessage } = require("../utils/lineNotify");
+
+  const accountKey = (accountEmail || "unknown").replace(/[@.]/g, "_");
+  const flagRef = db.collection("settings").doc("oauthAlerts").collection("byAccount").doc(accountKey);
+  const flag = await flagRef.get();
+  if (flag.exists) {
+    const lastAt = flag.data().lastNotifiedAt;
+    const lastMs = lastAt && lastAt.toMillis ? lastAt.toMillis() : 0;
+    if (Date.now() - lastMs < 24 * 60 * 60 * 1000) {
+      // 24h 以内に通知済み → スキップ
+      await flagRef.set({ lastError: errorMessage, lastErrorAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+      return;
+    }
+  }
+
+  // settings/notifications から LINE 送信先を取得
+  const nsDoc = await db.collection("settings").doc("notifications").get();
+  if (!nsDoc.exists) return;
+  const ns = nsDoc.data();
+  const channelToken = ns.lineChannelToken || ns.lineToken;
+  const ownerUserId = ns.lineOwnerUserId || ns.lineOwnerId || ns.ownerUserId;
+  if (!channelToken || !ownerUserId) {
+    console.warn("[notifyOAuthFailure_] LINE 設定なし。スキップ");
+    return;
+  }
+
+  const reauthUrl = `https://api-5qrfx7ujcq-an.a.run.app/gmail-auth/start?context=emailVerification&email=${encodeURIComponent(accountEmail)}`;
+  const text = [
+    "⚠️ メール照合 Gmail OAuth が失効しました",
+    "",
+    `アカウント: ${accountEmail}`,
+    `エラー: ${errorMessage}`,
+    "",
+    "→ メール照合 (キャンセル/確定/変更検知) が止まっています。下記から再認可してください:",
+    "",
+    reauthUrl,
+    "",
+    "※ Google Cloud Console → OAuth 同意画面を「本番環境 (In production)」にしておくと、再失効を防げます。",
+  ].join("\n");
+
+  await sendLineMessage(channelToken, ownerUserId, text);
+  await flagRef.set({
+    lastNotifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+    lastError: errorMessage,
+    lastErrorAt: admin.firestore.FieldValue.serverTimestamp(),
+    accountEmail,
+  }, { merge: true });
+  console.log(`[notifyOAuthFailure_] 通知送信完了: ${accountEmail}`);
 }
 
 // ======================================================

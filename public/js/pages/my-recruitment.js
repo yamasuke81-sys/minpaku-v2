@@ -627,6 +627,9 @@ const MyRecruitmentPage = {
         const ci = g.checkIn;
         if (!ci) return;
         const entry = {
+          // bookingId を保持: ドット判定で予約バー (booking.id) と一致確認するため
+          // (キャンセル予約の名簿が同日新規予約の名簿として誤認されるのを防ぐ)
+          bookingId: g.bookingId || "",
           guestCount: g.guestCount || 0,
           guestCountInfants: g.guestCountInfants || 0,
           checkIn: g.checkIn, checkOut: g.checkOut,
@@ -964,13 +967,19 @@ const MyRecruitmentPage = {
             // (1) 予約自体がプレースホルダー名 (Reserved 等) なら名簿未記入扱い
             // (2) 物件IDがあれば propertyId+CI の複合キーで照合、無ければ CI 単独
             // (3) guestRegistration 側もプレースホルダー名なら未記入扱い
+            // (4) 名簿の bookingId が予約バーの id と一致しない場合は別予約の名簿とみなして未記入扱い
+            //     (キャンセル予約の名簿が同日新規予約の名簿に誤認されるのを防ぐ)
             let hasGuest = false;
             if (!isPlaceholder(starting.guestName)) {
               const key = starting.propertyId
                 ? `${starting.propertyId}_${starting.checkIn}`
                 : starting.checkIn;
               const g = this.guestMap[key];
-              if (g && !isPlaceholder(g.guestName)) hasGuest = true;
+              if (g && !isPlaceholder(g.guestName)) {
+                // bookingId が登録されている名簿は、対応する booking と一致する場合のみ「あり」
+                // bookingId が無い名簿 (手入力等) は従来通り日付一致で「あり」
+                if (!g.bookingId || g.bookingId === starting.id) hasGuest = true;
+              }
             }
             const dotColor = hasGuest ? "#198754" : "#dc3545";
             const dotTitle = hasGuest ? "名簿提出済み" : "名簿未提出";

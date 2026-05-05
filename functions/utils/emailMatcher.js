@@ -217,6 +217,34 @@ function decideBookingUpdate(booking, parsedInfo, messageId, emailReceivedAt, th
     }
   }
 
+  // ---- change-approved / changed 処理 (予約日変更) ----
+  // Airbnb の change-approved (予約変更承認) や Booking.com の changed (予約変更) で
+  // 新しい checkIn / checkOut / guestCount がメール本文から取得できた場合は bookings 反映。
+  // 本文に新日付が含まれず取得できない場合は素通り (記録のみ)。
+  // CI/CO の変化は onBookingChange トリガーが booking_change 通知を発火するので自動連動。
+  if (parsedInfo.kind === "change-approved" || parsedInfo.kind === "changed") {
+    if (booking.manualOverride !== true) {
+      const newCi = parsedInfo.checkIn && parsedInfo.checkIn.date;
+      const newCo = parsedInfo.checkOut && parsedInfo.checkOut.date;
+      if (newCi && booking.checkIn !== newCi) {
+        updates.checkIn = newCi;
+      }
+      if (newCo && booking.checkOut !== newCo) {
+        updates.checkOut = newCo;
+      }
+      // 人数も新値が取得できたら上書き (キャンセル/確定と異なり「既存が0のみ」ガードを外す)
+      if (parsedInfo.guestCount && parsedInfo.guestCount.total > 0
+          && booking.guestCount !== parsedInfo.guestCount.total) {
+        updates.guestCount = parsedInfo.guestCount.total;
+      }
+      if (updates.checkIn || updates.checkOut || updates.guestCount) {
+        updates.changeSource = "email";
+      }
+    } else {
+      updates._emailVerificationNote = "manualOverride=true のため変更反映スキップ";
+    }
+  }
+
   return { updates, skippedReason: null };
 }
 
