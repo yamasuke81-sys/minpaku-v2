@@ -378,17 +378,26 @@ const MyRecruitmentPage = {
     // 1) bookings コレクション - 最優先
     rawBookings.forEach(b => addBooking(b, "bookings"));
     // 2) guestRegistrations - 補完 (bookings 側に無い予約を拾う)
-    rawGuests.forEach(g => addBooking({
-      id: "g_" + g.id,
-      guestName: g.guestName || "",
-      checkIn: g.checkIn, checkOut: g.checkOut,
-      guestCount: g.guestCount || 0,
-      source: g.bookingSite || g.source || "名簿",
-      propertyId: g.propertyId || "",
-      nationality: g.nationality || "",
-      bbq: g.bbq || "", parking: g.parking || "",
-      memo: g.memo || "",
-    }, "guestRegistrations"));
+    //    ただし bookings 側で cancelled の予約に紐づく名簿はスキップ
+    //    (キャンセル済予約の名簿だけ残ってカレンダーに表示される問題への対策)
+    const cancelledKeys = this._cancelledBookingKeys || new Set();
+    rawGuests.forEach(g => {
+      const ci = toDateStr(g.checkIn);
+      const co = toDateStr(g.checkOut);
+      const pid = g.propertyId || "_nopid_";
+      if (cancelledKeys.has(`${pid}|${ci}|${co}`)) return; // 対応 booking がキャンセル済 → スキップ
+      addBooking({
+        id: "g_" + g.id,
+        guestName: g.guestName || "",
+        checkIn: g.checkIn, checkOut: g.checkOut,
+        guestCount: g.guestCount || 0,
+        source: g.bookingSite || g.source || "名簿",
+        propertyId: g.propertyId || "",
+        nationality: g.nationality || "",
+        bbq: g.bbq || "", parking: g.parking || "",
+        memo: g.memo || "",
+      }, "guestRegistrations");
+    });
 
     this.bookings = Array.from(bookingMap.values());
   },
@@ -540,7 +549,22 @@ const MyRecruitmentPage = {
     const unsubBooking = bookingQuery.onSnapshot(snap => {
       // キャンセル + 保留中(pendingApproval=true) を除外
       // 保留中は Airbnb 予約承認待ちなど (確定後に再 ingest される)
-      this._rawBookings = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(b => {
+      const allDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // cancelled な booking のキー (propertyId|CI|CO) を保持
+      // → guestRegistrations 補完時にこのキーに該当する名簿は弾く
+      //   (キャンセルされた予約の名簿だけが残ってカレンダーに表示される問題への対策)
+      const toDateStr = (v) => this._toDateStr(v);
+      this._cancelledBookingKeys = new Set();
+      allDocs.forEach(b => {
+        const s = String(b.status || "").toLowerCase();
+        const isCancelled = s.includes("cancel") || b.status === "キャンセル" || b.status === "キャンセル済み";
+        if (isCancelled) {
+          const ci = toDateStr(b.checkIn);
+          const co = toDateStr(b.checkOut);
+          if (ci) this._cancelledBookingKeys.add(`${b.propertyId || "_nopid_"}|${ci}|${co}`);
+        }
+      });
+      this._rawBookings = allDocs.filter(b => {
         const s = String(b.status || "").toLowerCase();
         if (s.includes("cancel") || b.status === "キャンセル" || b.status === "キャンセル済み") return false;
         if (b.pendingApproval === true) return false;
