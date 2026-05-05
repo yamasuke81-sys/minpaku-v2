@@ -250,9 +250,12 @@ const DashboardPage = {
         const ci = this.toDateStr(g.checkIn);
         if (!ci) return;
         // propertyId がある場合は複合キー、ない場合は CI日のみ (後方互換)
+        // 物件IDなし名簿のみ ci 単独キー、ありなら複合キーのみ
+        // (異物件混入防止)
         const key = g.propertyId ? `${g.propertyId}_${ci}` : ci;
         this.guestMap[key] = g;
       });
+      // 注: 参照側で `guestMap[ci]` フォールバックを削除済 (異物件混入防止)
 
       // 物件一覧を displayOrder 昇順でセット
       this.properties = propSnap.docs
@@ -464,8 +467,10 @@ const DashboardPage = {
     // sourceが不明な場合、guestMap（名簿）のbookingSiteで補完
     if (this.guestMap) {
       const ci = this.toDateStr(booking.checkIn);
-      // 複合キー優先、フォールバックで CI日のみ
-      const g = ci ? (this.guestMap[`${booking.propertyId}_${ci}`] || this.guestMap[ci]) : null;
+      // 物件ID あれば複合キーのみで参照 (CI 単独キーへのフォールバックは異物件混入を招くため廃止)
+      const g = ci
+        ? (booking.propertyId ? this.guestMap[`${booking.propertyId}_${ci}`] : this.guestMap[ci])
+        : null;
       if (g && g.bookingSite) {
         const bs = g.bookingSite.toLowerCase();
         if (bs.includes("airbnb")) return "fc-event-airbnb";
@@ -1049,9 +1054,11 @@ const DashboardPage = {
       }
     }
 
-    // 名簿データ取得 (複合キー or CIキー の両方を試す)
+    // 名簿データ取得: 物件IDあれば複合キーのみ (異物件混入防止のため CI単独キーへのフォールバックは廃止)
     const guestKey1 = b.propertyId && ci ? `${b.propertyId}_${ci}` : null;
-    const guestData = (guestKey1 && guestMap[guestKey1]) || (ci && guestMap[ci]) || {};
+    const guestData = guestKey1
+      ? (guestMap[guestKey1] || {})
+      : (ci ? (guestMap[ci] || {}) : {});
     // 値表示ヘルパ: 空なら "-"
     const v = (val) => {
       if (val === null || val === undefined || val === "") return "-";

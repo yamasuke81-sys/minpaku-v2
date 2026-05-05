@@ -730,8 +730,9 @@ const RecruitmentPage = {
       let nextGuest = {};
       if (nextBooking) {
         const nbCiStr = toDateStr(nextBooking.checkIn);
+        // 物件IDあれば複合キーのみで参照 (異物件混入防止のため CI単独キーフォールバックは廃止)
         const gk = nextBooking.propertyId && nbCiStr ? `${nextBooking.propertyId}_${nbCiStr}` : null;
-        nextGuest = (gk && guestMap[gk]) || (nbCiStr && guestMap[nbCiStr]) || {};
+        nextGuest = gk ? (guestMap[gk] || {}) : (nbCiStr ? (guestMap[nbCiStr] || {}) : {});
       }
 
       // 値表示ヘルパ

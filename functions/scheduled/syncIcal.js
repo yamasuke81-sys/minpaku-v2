@@ -400,6 +400,14 @@ async function syncIcal() {
       // (Booking.com iCal は実予約でも CLOSED しか出さないため、ユーザーが
       // 手動で確認して confirmed に復元した予約を保護する)
       if (data.manualOverride) continue;
+      // メール照合で確定メールが紐付いている予約は iCal キャンセル検知から保護
+      // (Booking.com の iCal フィードは一時的にイベントが消えることがあり誤キャンセルの原因。
+      //  確定メールがある=実在する予約なので、キャンセルメール経由でしか cancelled にしない。
+      //  emailMatcher.js が cancelled メール検知時に正しく cancelled 化する。)
+      if (data.emailVerifiedAt && data.emailMessageId) {
+        console.log(`[syncIcal] キャンセル検知スキップ(メール照合済): ${data.source} ${data.checkIn}〜${data.checkOut} (${data.guestName || ""})`);
+        continue;
+      }
 
       // iCalに存在しない → キャンセル扱い
       await doc.ref.update({

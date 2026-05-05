@@ -661,8 +661,11 @@ const MyRecruitmentPage = {
             passportPhotoUrl: g.passportPhotoUrl || "",
           });
         }
+        // propertyId がある名簿は複合キーのみで保持。物件ID なしのキー (ci 単独) は使わない
+        // ─ 同じ CI 日に異なる物件の予約があると最後の物件で上書きされ、別物件の予約詳細に
+        //   他物件のゲスト情報が混入する事故を防ぐため
         if (g.propertyId) this.guestMap[`${g.propertyId}_${ci}`] = entry;
-        this.guestMap[ci] = entry;
+        else this.guestMap[ci] = entry; // 物件ID 不明な名簿のみ単独キーで保持
       });
 
       this._mergeBookingSources();
