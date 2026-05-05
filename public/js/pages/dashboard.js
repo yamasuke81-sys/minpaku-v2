@@ -1303,20 +1303,209 @@ const DashboardPage = {
         ${recruit ? `<button class="btn btn-sm btn-outline-primary ms-2" id="calBtnOpenRecruit"><i class="bi bi-megaphone"></i> 募集詳細</button>` : ""}
       </div>
       ${(() => {
-        // 手動予約の削除ボタン (Webアプリ管理者視点のみ)
+        // 予約操作ボタン群 (Webアプリ管理者視点のみ)
+        // - 日程変更 / 日程変更取消 (前回の日程に戻す) / キャンセル / 手動予約の削除
+        // - キャンセル取消は キャンセル後 60秒間 トーストの [取消す] で実現
+        if (isStaffView) return "";
+        const isCancelled = b.status === "cancelled" || b.status === "キャンセル" || b.status === "キャンセル済み";
+        const hasPrevSchedule = !!(b.previousCheckIn || b.previousCheckOut);
         const isManualBk = b.manualOverride === true || /manual/i.test(String(b.source || ""));
-        if (!isManualBk || isStaffView) return "";
-        return `
-          <hr>
-          <div class="text-end">
-            <button class="btn btn-outline-danger btn-sm" id="calBtnDeleteManualBooking" data-booking-id="${this.esc(b.id)}">
-              <i class="bi bi-trash"></i> この予約を削除
-            </button>
-          </div>
-        `;
+        const buttons = [];
+        if (!isCancelled) {
+          buttons.push(`<button class="btn btn-outline-primary btn-sm" id="calBtnChangeSchedule" data-booking-id="${this.esc(b.id)}"><i class="bi bi-calendar-event"></i> 日程変更</button>`);
+          if (hasPrevSchedule) {
+            buttons.push(`<button class="btn btn-outline-secondary btn-sm" id="calBtnUndoSchedule" data-booking-id="${this.esc(b.id)}" title="${this.esc(b.previousCheckIn || ci)}〜${this.esc(b.previousCheckOut || co)} に戻す"><i class="bi bi-arrow-counterclockwise"></i> 日程変更取消</button>`);
+          }
+          buttons.push(`<button class="btn btn-outline-warning btn-sm" id="calBtnCancelBooking" data-booking-id="${this.esc(b.id)}"><i class="bi bi-x-circle"></i> 予約キャンセル</button>`);
+        } else {
+          buttons.push(`<button class="btn btn-outline-success btn-sm" id="calBtnRestoreBooking" data-booking-id="${this.esc(b.id)}"><i class="bi bi-arrow-counterclockwise"></i> キャンセル取消</button>`);
+        }
+        if (isManualBk) {
+          buttons.push(`<button class="btn btn-outline-danger btn-sm" id="calBtnDeleteManualBooking" data-booking-id="${this.esc(b.id)}"><i class="bi bi-trash"></i> 削除</button>`);
+        }
+        if (buttons.length === 0) return "";
+        return `<hr><div class="d-flex gap-2 flex-wrap justify-content-end">${buttons.join("")}</div>`;
       })()}
     `;
     bootstrap.Modal.getOrCreateInstance(modalEl).show();
+
+    // ===== 予約操作ボタンのハンドラ群 =====
+    // 共通: モーダルを閉じる
+    const closeModal = () => {
+      const m = bootstrap.Modal.getInstance(modalEl);
+      if (m) m.hide();
+    };
+
+    // [予約キャンセル] ボタン: status を cancelled に更新 + 60秒間取消可能トースト
+    const btnCancelBk = document.getElementById("calBtnCancelBooking");
+    if (btnCancelBk) {
+      btnCancelBk.addEventListener("click", async () => {
+        const bookingId = btnCancelBk.dataset.bookingId;
+        if (!bookingId) return;
+        const ok = await showConfirm(
+          `この予約をキャンセルします。\n\nゲスト: ${b.guestName || "(名前なし)"}\nCI: ${ci} / CO: ${co}\n\n紐付く清掃募集・シフト・チェックリストも削除されます。\n60秒以内なら取消可能です。`,
+          { title: "予約をキャンセル", okLabel: "キャンセル実行", okClass: "btn-warning" }
+        );
+        if (!ok) return;
+        btnCancelBk.disabled = true;
+        try {
+          const db = firebase.firestore();
+          await db.collection("bookings").doc(bookingId).update({
+            status: "cancelled",
+            cancelledAt: firebase.firestore.FieldValue.serverTimestamp(),
+            cancelSource: "manual",
+            cancelReason: "管理画面から手動キャンセル",
+            manualOverride: true,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+          closeModal();
+          // 60秒 undo トースト
+          const undoEl = document.createElement("div");
+          undoEl.className = "toast-container position-fixed bottom-0 end-0 p-3";
+          undoEl.style.zIndex = "1080";
+          undoEl.innerHTML = `<div class="toast show" role="alert"><div class="toast-header bg-warning"><strong class="me-auto">予約キャンセル</strong><button class="btn-close" data-bs-dismiss="toast"></button></div><div class="toast-body d-flex align-items-center gap-2"><div>${this.esc(b.guestName || "予約")} (${ci}〜${co}) をキャンセルしました</div><button class="btn btn-sm btn-outline-success" id="undoCancelBtn">取消す</button></div></div>`;
+          document.body.appendChild(undoEl);
+          let undone = false;
+          undoEl.querySelector("#undoCancelBtn").addEventListener("click", async () => {
+            if (undone) return;
+            undone = true;
+            try {
+              await db.collection("bookings").doc(bookingId).update({
+                status: "confirmed",
+                cancelledAt: firebase.firestore.FieldValue.delete(),
+                cancelSource: firebase.firestore.FieldValue.delete(),
+                cancelReason: firebase.firestore.FieldValue.delete(),
+                manualOverride: true,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+              });
+              undoEl.remove();
+              await showAlert("キャンセルを取消しました");
+            } catch (e) {
+              await showAlert("取消に失敗: " + (e.message || e));
+            }
+          });
+          // 60秒後に自動で消す
+          setTimeout(() => { if (!undone) undoEl.remove(); }, 60000);
+        } catch (e) {
+          console.error("予約キャンセルエラー:", e);
+          btnCancelBk.disabled = false;
+          await showAlert("キャンセル失敗: " + (e.message || e));
+        }
+      });
+    }
+
+    // [キャンセル取消] ボタン: cancelled な予約を confirmed に戻す
+    const btnRestoreBk = document.getElementById("calBtnRestoreBooking");
+    if (btnRestoreBk) {
+      btnRestoreBk.addEventListener("click", async () => {
+        const bookingId = btnRestoreBk.dataset.bookingId;
+        if (!bookingId) return;
+        const ok = await showConfirm(
+          `この予約のキャンセルを取消します (status を confirmed に戻す)。\n\nゲスト: ${b.guestName || "(名前なし)"}\nCI: ${ci} / CO: ${co}`,
+          { title: "キャンセルを取消", okLabel: "取消", okClass: "btn-success" }
+        );
+        if (!ok) return;
+        btnRestoreBk.disabled = true;
+        try {
+          const db = firebase.firestore();
+          await db.collection("bookings").doc(bookingId).update({
+            status: "confirmed",
+            cancelledAt: firebase.firestore.FieldValue.delete(),
+            cancelSource: firebase.firestore.FieldValue.delete(),
+            cancelReason: firebase.firestore.FieldValue.delete(),
+            manualOverride: true,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+          closeModal();
+          await showAlert("キャンセルを取消しました");
+        } catch (e) {
+          btnRestoreBk.disabled = false;
+          await showAlert("取消失敗: " + (e.message || e));
+        }
+      });
+    }
+
+    // [日程変更] ボタン: 新しい CI/CO を入力 → bookings 更新
+    const btnChangeSched = document.getElementById("calBtnChangeSchedule");
+    if (btnChangeSched) {
+      btnChangeSched.addEventListener("click", async () => {
+        const bookingId = btnChangeSched.dataset.bookingId;
+        if (!bookingId) return;
+        const newCi = await showPrompt(
+          `新しいチェックイン日 (YYYY-MM-DD)\n現在: ${ci}`,
+          { title: "日程変更 (1/2)", defaultValue: ci, okLabel: "次へ" }
+        );
+        if (!newCi) return;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(newCi)) { await showAlert("日付形式が不正です (YYYY-MM-DD)"); return; }
+        const newCo = await showPrompt(
+          `新しいチェックアウト日 (YYYY-MM-DD)\n現在: ${co}`,
+          { title: "日程変更 (2/2)", defaultValue: co, okLabel: "確定" }
+        );
+        if (!newCo) return;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(newCo)) { await showAlert("日付形式が不正です (YYYY-MM-DD)"); return; }
+        if (newCo < newCi) { await showAlert("CO は CI 以降の日付にしてください"); return; }
+        if (newCi === ci && newCo === co) { await showAlert("日程に変更がありません"); return; }
+        const ok = await showConfirm(
+          `日程を変更します:\n\n旧: ${ci} 〜 ${co}\n新: ${newCi} 〜 ${newCo}\n\n紐付く清掃募集・シフトも自動で日付変更されます。`,
+          { title: "日程変更を確定", okLabel: "変更", okClass: "btn-primary" }
+        );
+        if (!ok) return;
+        btnChangeSched.disabled = true;
+        try {
+          const db = firebase.firestore();
+          // 元の日程を previousCheckIn/Out に保存 (既存の previousCheckIn があれば上書きしない)
+          const updates = {
+            checkIn: newCi,
+            checkOut: newCo,
+            manualOverride: true,
+            changeSource: "manual",
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          };
+          if (!b.previousCheckIn) updates.previousCheckIn = ci;
+          if (!b.previousCheckOut) updates.previousCheckOut = co;
+          await db.collection("bookings").doc(bookingId).update(updates);
+          closeModal();
+          await showAlert(`日程を変更しました: ${newCi} 〜 ${newCo}`);
+        } catch (e) {
+          btnChangeSched.disabled = false;
+          await showAlert("日程変更失敗: " + (e.message || e));
+        }
+      });
+    }
+
+    // [日程変更取消] ボタン: previousCheckIn/Out から元の日程に戻す
+    const btnUndoSched = document.getElementById("calBtnUndoSchedule");
+    if (btnUndoSched) {
+      btnUndoSched.addEventListener("click", async () => {
+        const bookingId = btnUndoSched.dataset.bookingId;
+        if (!bookingId) return;
+        const prevCi = b.previousCheckIn || ci;
+        const prevCo = b.previousCheckOut || co;
+        const ok = await showConfirm(
+          `日程変更を取消します:\n\n現在: ${ci} 〜 ${co}\n戻す: ${prevCi} 〜 ${prevCo}`,
+          { title: "日程変更取消", okLabel: "戻す", okClass: "btn-secondary" }
+        );
+        if (!ok) return;
+        btnUndoSched.disabled = true;
+        try {
+          const db = firebase.firestore();
+          await db.collection("bookings").doc(bookingId).update({
+            checkIn: prevCi,
+            checkOut: prevCo,
+            previousCheckIn: firebase.firestore.FieldValue.delete(),
+            previousCheckOut: firebase.firestore.FieldValue.delete(),
+            manualOverride: true,
+            changeSource: "manual_undo",
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+          closeModal();
+          await showAlert(`日程を ${prevCi} 〜 ${prevCo} に戻しました`);
+        } catch (e) {
+          btnUndoSched.disabled = false;
+          await showAlert("日程変更取消失敗: " + (e.message || e));
+        }
+      });
+    }
 
     // 手動予約の削除ボタン
     const btnDelManual = document.getElementById("calBtnDeleteManualBooking");

@@ -261,6 +261,9 @@ exports.syncIcal = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/syncIcal"));
 
+// OAuth トークン期限リマインダー（毎日 9:00 JST、6日経過で LINE+メール通知）
+exports.oauthReminder = require("./scheduled/oauthReminder").oauthReminder;
+
 // GAS版予約データ差分比較（毎時0分）— 設定に応じて dailyTime / beforeTime で実行
 exports.runGasComparisonHourly = onSchedule({
   schedule: "0 * * * *",
