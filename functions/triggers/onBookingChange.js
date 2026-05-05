@@ -740,16 +740,24 @@ module.exports = async function onBookingChange(event) {
     const { settings } = await getNotificationSettings_(db);
     const appUrl = settings?.appUrl || "https://minpaku-v2.web.app";
     const recruitUrl = `${appUrl}/#/my-recruitment`;
+    // 復元検知: before あり + before=cancelled + after=confirmed
+    // (誤キャンセルからの復元 / 一度キャンセルした予約をやり直すケース)
+    const isRestored = before && wasCancelled && !nowCancelled;
+    const restoreNote = isRestored
+      ? "\n※ 自動キャンセルからの復元による再募集です。前回の回答は引き継がれていません。"
+      : "";
+    const titleSuffix = isRestored ? " (再募集)" : "";
     // notifyByKey で ownerLine/groupLine/staffLine を一括送信
     await notifyByKey(db, "recruit_start", {
-      title: `清掃スタッフ募集: ${checkOut}`,
-      body: `【清掃スタッフ募集】\n${checkOut} ${propertyName}\n${memo}\n回答: ${recruitUrl}`,
+      title: `清掃スタッフ募集: ${checkOut}${titleSuffix}`,
+      body: `【清掃スタッフ募集${titleSuffix}】\n${checkOut} ${propertyName}\n${memo}${restoreNote}\n回答: ${recruitUrl}`,
       vars: {
         date: checkOut,
         property: propertyName || "",
         work: "清掃",
         url: recruitUrl,
         memo: memo || "",
+        note: restoreNote.trim(),
       },
       propertyId: propertyId || null,
     });
@@ -889,11 +897,17 @@ module.exports = async function onBookingChange(event) {
       const appUrl2 = s2?.appUrl || "https://minpaku-v2.web.app";
       const recruitUrl2 = `${appUrl2}/#/my-recruitment`;
       const memo2 = `直前点検: ゲスト ${guestName || "不明"} (${source || ""})`;
+      // 復元検知 (キャンセル復元時の再募集メッセージ追加)
+      const isRestored2 = before && wasCancelled && !nowCancelled;
+      const restoreNote2 = isRestored2
+        ? "\n※ 自動キャンセルからの復元による再募集です。前回の回答は引き継がれていません。"
+        : "";
+      const titleSuffix2 = isRestored2 ? " (再募集)" : "";
       // notifyByKey で ownerLine/groupLine/staffLine を一括送信
       await notifyByKey(db, "recruit_start", {
-        title: `直前点検スタッフ募集: ${checkIn}`,
-        body: `【直前点検スタッフ募集】\n${checkIn} ${propertyName}\n${memo2}\n回答: ${recruitUrl2}`,
-        vars: { date: checkIn, property: propertyName || "", work: "直前点検", url: recruitUrl2, memo: memo2 },
+        title: `直前点検スタッフ募集: ${checkIn}${titleSuffix2}`,
+        body: `【直前点検スタッフ募集${titleSuffix2}】\n${checkIn} ${propertyName}\n${memo2}${restoreNote2}\n回答: ${recruitUrl2}`,
+        vars: { date: checkIn, property: propertyName || "", work: "直前点検", url: recruitUrl2, memo: memo2, note: restoreNote2.trim() },
         propertyId: propertyId || null,
       });
     } catch (notifErr) {
