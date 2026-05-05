@@ -378,14 +378,23 @@ const MyRecruitmentPage = {
     // 1) bookings コレクション - 最優先
     rawBookings.forEach(b => addBooking(b, "bookings"));
     // 2) guestRegistrations - 補完 (bookings 側に無い予約を拾う)
-    //    ただし bookings 側で cancelled の予約に紐づく名簿はスキップ
-    //    (キャンセル済予約の名簿だけ残ってカレンダーに表示される問題への対策)
-    const cancelledKeys = this._cancelledBookingKeys || new Set();
+    //    判定優先順位:
+    //      a) g.bookingId あり → 紐付け先 booking が cancelled or 削除済なら常にスキップ
+    //         (新規予約が同日にあっても、それは別予約なので名簿を流用しない。
+    //          新規予約は名簿が新たに記入されるまで「未記入」が正しい挙動)
+    //      b) g.bookingId なし (手入力名簿など) → 従来通り日付マージ or 単独表示
+    const allById = this._allBookingsById || new Map();
+    const isCancelledStatus = (s) => {
+      const x = String(s || "").toLowerCase();
+      return x.includes("cancel") || s === "キャンセル" || s === "キャンセル済み";
+    };
     rawGuests.forEach(g => {
-      const ci = toDateStr(g.checkIn);
-      const co = toDateStr(g.checkOut);
-      const pid = g.propertyId || "_nopid_";
-      if (cancelledKeys.has(`${pid}|${ci}|${co}`)) return; // 対応 booking がキャンセル済 → スキップ
+      if (g.bookingId) {
+        const linked = allById.get(g.bookingId);
+        if (!linked) return;                          // 紐付け先 booking が削除済 → スキップ
+        if (isCancelledStatus(linked.status)) return; // 紐付け先 booking がキャンセル済 → スキップ
+        if (linked.pendingApproval === true) return;  // 紐付け先 booking が保留中 → スキップ
+      }
       addBooking({
         id: "g_" + g.id,
         guestName: g.guestName || "",
@@ -547,23 +556,12 @@ const MyRecruitmentPage = {
       bookingQuery = bookingQuery.where("propertyId", "in", assignedIds);
     }
     const unsubBooking = bookingQuery.onSnapshot(snap => {
-      // キャンセル + 保留中(pendingApproval=true) を除外
-      // 保留中は Airbnb 予約承認待ちなど (確定後に再 ingest される)
+      // 全 booking ドキュメントを id でマップ化 (guestRegistrations の bookingId 紐付け判定用)
+      // これで「キャンセル済 booking に紐付く名簿が他予約に流用される」のを防ぐ
       const allDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // cancelled な booking のキー (propertyId|CI|CO) を保持
-      // → guestRegistrations 補完時にこのキーに該当する名簿は弾く
-      //   (キャンセルされた予約の名簿だけが残ってカレンダーに表示される問題への対策)
-      const toDateStr = (v) => this._toDateStr(v);
-      this._cancelledBookingKeys = new Set();
-      allDocs.forEach(b => {
-        const s = String(b.status || "").toLowerCase();
-        const isCancelled = s.includes("cancel") || b.status === "キャンセル" || b.status === "キャンセル済み";
-        if (isCancelled) {
-          const ci = toDateStr(b.checkIn);
-          const co = toDateStr(b.checkOut);
-          if (ci) this._cancelledBookingKeys.add(`${b.propertyId || "_nopid_"}|${ci}|${co}`);
-        }
-      });
+      this._allBookingsById = new Map(allDocs.map(b => [b.id, b]));
+      // 表示用: cancelled + 保留中(pendingApproval=true) を除外
+      // 保留中は Airbnb 予約承認待ちなど (確定後に再 ingest される)
       this._rawBookings = allDocs.filter(b => {
         const s = String(b.status || "").toLowerCase();
         if (s.includes("cancel") || b.status === "キャンセル" || b.status === "キャンセル済み") return false;
