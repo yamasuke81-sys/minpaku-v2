@@ -74,7 +74,12 @@
           </div>
           <h5 class="text-danger">招待リンクが無効です</h5>
           <p class="text-muted" id="invalidReason">有効期限が切れたか、既に使用されています。</p>
-          <p class="text-muted small">Webアプリ管理者に新しい招待リンクの発行を依頼してください。</p>
+          <p class="text-muted small">既に登録済みの場合は、下のボタンから通常ログインしてください。</p>
+          <p class="text-muted small" id="autoRedirectNotice"><span id="redirectCountdown">5</span>秒後に自動でログイン画面へ移動します...</p>
+          <a href="/index.html" class="btn btn-primary btn-lg w-100 mt-2">
+            <i class="bi bi-box-arrow-in-right"></i> 通常ログインへ移動
+          </a>
+          <p class="text-muted small mt-3">未登録の場合は、Webアプリ管理者に新しい招待リンクの発行を依頼してください。</p>
         </div>
 
         <!-- 成功 -->
@@ -285,6 +290,18 @@
         document.getElementById("loadingState").classList.add("d-none");
         document.getElementById("invalidState").classList.remove("d-none");
         if (reason) document.getElementById("invalidReason").textContent = reason;
+
+        // 5秒カウントダウン後に通常ログインへ自動リダイレクト
+        let remain = 5;
+        const countdownEl = document.getElementById("redirectCountdown");
+        const timer = setInterval(() => {
+          remain -= 1;
+          if (countdownEl) countdownEl.textContent = String(remain);
+          if (remain <= 0) {
+            clearInterval(timer);
+            location.href = "/index.html";
+          }
+        }, 1000);
       }
     })();
   </script>
