@@ -750,9 +750,14 @@ const MyChecklistPage = {
   _wireHelperButtons(c) {
     const propertyId = c?.propertyId;
     const propertyName = c?.propertyName || "";
+    const checklistId = this.checklistId || c?.id || "";
     if (!propertyId) return;
-    const url = `${location.origin}/guest-checklist.html?p=${encodeURIComponent(propertyId)}` +
-      (propertyName ? `&n=${encodeURIComponent(propertyName)}` : "");
+    // 日付単位 QR: cid 優先、p / n は後方互換のため併記
+    const params = [];
+    if (checklistId) params.push(`cid=${encodeURIComponent(checklistId)}`);
+    params.push(`p=${encodeURIComponent(propertyId)}`);
+    if (propertyName) params.push(`n=${encodeURIComponent(propertyName)}`);
+    const url = `${location.origin}/guest-checklist.html?${params.join("&")}`;
     const copyBtn = document.getElementById("mclHelperCopyBtn");
     const qrBtn = document.getElementById("mclQrBtn");
     if (copyBtn) {

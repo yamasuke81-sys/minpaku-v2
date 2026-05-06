@@ -6,6 +6,11 @@
  *      { checklistId, propertyId, propertyName, checkoutDate (ISO yyyy-mm-dd) }
  *      なければ 404
  *
+ *  GET  /helper-checklist/byId?id=...
+ *    → 指定 ID のチェックリスト概要を返す (日付単位 QR で使用)
+ *      { checklistId, propertyId, propertyName, checkoutDate }
+ *      なければ 404
+ *
  *  POST /helper-checklist/toggle
  *    body: { checklistId, itemId, checked, restock }
  *    → checklists/{id}.itemStates[itemId] を更新
@@ -79,6 +84,37 @@ module.exports = function helperChecklistApi(db) {
       });
     } catch (e) {
       console.error("[helper-checklist active]", e);
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ============================================================
+  // GET /byId?id=...
+  // 指定 checklistId のチェックリスト概要を返す (日付単位 QR で利用)
+  // ============================================================
+  router.get("/byId", async (req, res) => {
+    try {
+      const id = String(req.query.id || "").trim();
+      if (!id) return res.status(400).json({ error: "id required" });
+      if (id.length > 64) return res.status(400).json({ error: "id too long" });
+      const snap = await db.collection("checklists").doc(id).get();
+      if (!snap.exists) return res.status(404).json({ error: "checklist not found" });
+      const data = snap.data();
+      const propSnap = data.propertyId
+        ? await db.collection("properties").doc(data.propertyId).get()
+        : null;
+      const propName = (propSnap && propSnap.exists) ? (propSnap.data().name || "") : "";
+      const coDate = data.checkoutDate?.toDate
+        ? data.checkoutDate.toDate().toISOString().slice(0, 10)
+        : null;
+      return res.json({
+        checklistId: snap.id,
+        propertyId: data.propertyId || "",
+        propertyName: propName,
+        checkoutDate: coDate,
+      });
+    } catch (e) {
+      console.error("[helper-checklist byId]", e);
       return res.status(500).json({ error: e.message });
     }
   });

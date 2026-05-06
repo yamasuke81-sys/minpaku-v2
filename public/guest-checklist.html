@@ -148,7 +148,7 @@
 <body>
 
 <div class="header-bar">
-  <h1><i class="bi bi-clipboard-check"></i> <span id="propName">清掃チェックリスト</span></h1>
+  <h1><i class="bi bi-clipboard-check"></i> <span id="propName">清掃チェックリスト</span> <small id="propDate" style="font-weight:500;opacity:0.85;font-size:0.85rem;"></small></h1>
 </div>
 
 <div id="topTabs" class="top-tabs d-none">
@@ -186,6 +186,7 @@
 
   const params = new URLSearchParams(location.search);
   const propertyId = params.get("p") || "";
+  const cid = params.get("cid") || ""; // 日付単位 QR: 特定 checklist を指定
   const propertyName = params.get("n") || "";
   if (propertyName) document.getElementById("propName").textContent = propertyName;
 
@@ -599,14 +600,19 @@
     progressFill.style.width = total > 0 ? `${(cnt/total*100).toFixed(0)}%` : "0%";
   }
 
-  if (!propertyId) {
+  if (!propertyId && !cid) {
     content.className = "empty-state";
-    content.innerHTML = `<i class="bi bi-exclamation-triangle fs-1 text-warning"></i><p class="mt-2">物件 ID が指定されていません<br><small class="text-muted">URL に <code>?p=物件ID</code> を付けてください</small></p>`;
+    content.innerHTML = `<i class="bi bi-exclamation-triangle fs-1 text-warning"></i><p class="mt-2">ID が指定されていません<br><small class="text-muted">URL に <code>?cid=チェックリストID</code> または <code>?p=物件ID</code> を付けてください</small></p>`;
     return;
   }
 
-  // === Step 1: 直近 active checklist を取得 ===
-  fetch(`${API_BASE}/helper-checklist/active?propertyId=${encodeURIComponent(propertyId)}`)
+  // === Step 1: チェックリスト概要を取得 ===
+  // - cid 指定 → byId エンドポイント (日付単位 QR)
+  // - propertyId のみ → active エンドポイント (物件単位 QR、後方互換)
+  const fetchUrl = cid
+    ? `${API_BASE}/helper-checklist/byId?id=${encodeURIComponent(cid)}`
+    : `${API_BASE}/helper-checklist/active?propertyId=${encodeURIComponent(propertyId)}`;
+  fetch(fetchUrl)
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
@@ -621,6 +627,14 @@
       if (info.propertyName) {
         document.getElementById("propName").textContent = info.propertyName;
         document.title = `${info.propertyName} - ヘルパー用 清掃チェックリスト`;
+      }
+      // 日付表示 (M/D(曜))
+      if (info.checkoutDate) {
+        const [y, m, d] = info.checkoutDate.split("-").map(Number);
+        const dt = new Date(y, m - 1, d);
+        const days = ["日","月","火","水","木","金","土"];
+        const dateEl = document.getElementById("propDate");
+        if (dateEl) dateEl.textContent = `${m}/${d}(${days[dt.getDay()]})`;
       }
       // === Step 2: onSnapshot で checklist 本体を購読 ===
       firebase.firestore().collection("checklists").doc(checklistId)
