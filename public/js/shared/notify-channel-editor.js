@@ -5,7 +5,7 @@
  * 同じ通知タイプ単位の編集UIを描画するための共通モジュール。
  *
  * 提供API:
- *   NotifyChannelEditor.NOTIFICATIONS              … 全通知定義(25種 ※scan_pending削除後)
+ *   NotifyChannelEditor.NOTIFICATIONS              … 全通知定義(26種 ※scan_pending削除後、recruit_date_change追加)
  *   NotifyChannelEditor.SYSTEM_VARIABLES           … 通知種別ごとの利用可能変数
  *   NotifyChannelEditor.findNotification(key)      … key で通知定義を引く
  *   NotifyChannelEditor.groupNotifications()       … group ごとに分類
@@ -87,6 +87,14 @@
       { name: "checkout", label: "チェックアウト日",  sample: "2026/04/22",  source: "booking.checkOut" },
       { name: "work",     label: "作業内容",         sample: "直前点検",      source: "固定: 直前点検" },
     ],
+    recruit_date_change: [
+      { name: "date",     label: "新しい作業日",    sample: "2026/04/25",   source: "newDate (変更後)" },
+      { name: "oldDate",  label: "旧作業日",        sample: "2026/04/20",   source: "oldDate (変更前)" },
+      { name: "property", label: "物件名",          sample: "長浜民泊A",    source: "recruitment.propertyName" },
+      { name: "work",     label: "作業内容",        sample: "清掃",          source: "recruitment.workType" },
+      { name: "staff",    label: "スタッフ名",      sample: "山田太郎",      source: "response.staffName (置換時)" },
+      { name: "url",      label: "回答ページURL",   sample: "https://minpaku-v2.web.app/#/my-recruitment", source: "自動生成" },
+    ],
   };
 
   // ========== 通知定義 ==========
@@ -97,6 +105,9 @@
       defaultMsg: "🧹 {work}スタッフ募集\n\n{date} {property}\n{work}スタッフを募集しています。\n回答をお願いします（◎OK / △微妙 / ×NG）\n\n回答: {url}" },
     { key: "recruit_remind", label: "募集リマインド", desc: "回答が集まらない場合にリマインド送信", icon: "bi-alarm", group: "recruit", varGroup: "recruit", defaultTiming: "evening",
       defaultMsg: "📋 {work}募集 回答のお願い\n\n{date} {property}\nまだ回答が届いていません（現在{count}件）。\n回答: {url}" },
+    { key: "recruit_date_change", label: "清掃日変更通知", desc: "予約自動生成された清掃募集の日付を変更した時に、既に回答していたスタッフへ通知する", icon: "bi-calendar-event", group: "recruit", varGroup: "recruit_date_change", defaultTiming: "immediate",
+      defaultEnabled: true, defaultOwnerLine: false, defaultGroupLine: false, defaultStaffLine: true, defaultEmail: false,
+      defaultMsg: "{property}\n清掃日変更\n\n旧: {oldDate}\n新: {date}\n\n回答内容は新しい日付の募集に引き継がれます。\n\nWebアプリ\n{url}" },
     { key: "staff_confirm", label: "スタッフ確定通知", desc: "スタッフ確定時に本人とWebアプリ管理者に通知", icon: "bi-person-check", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
       defaultMsg: "✅ {work}担当が確定しました\n\n{date} {property}\n担当: {staff}\nよろしくお願いします。" },
     { key: "staff_undecided", label: "スタッフ未決定リマインド", desc: "作業日が近いのにスタッフ未確定の場合にWebアプリ管理者へ通知", icon: "bi-exclamation-triangle", group: "recruit", varGroup: "recruit", defaultTiming: "morning",
