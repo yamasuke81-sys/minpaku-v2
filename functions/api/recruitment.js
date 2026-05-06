@@ -487,7 +487,7 @@ module.exports = function recruitmentApi(db) {
         try {
           await notifyStaff(db, sid, "recruit_date_change",
             `清掃日が変更されました: ${oldDate} → ${newDate}`,
-            `【清掃日変更】\n${propertyName}\n旧: ${oldDate}\n新: ${newDate}\n\n回答内容は新しい日付の募集に引き継がれます。\n変更を確認: ${recruitUrl}`,
+            `【清掃日変更】\n${propertyName}\n旧: ${oldDate}\n新: ${newDate}\n\n以前の回答はクリアされました。新しい日付で改めて回答をお願いします。\n${recruitUrl}`,
             { date: newDate, oldDate, property: propertyName, url: recruitUrl, work: "清掃" },
             {} // propertyOverrides
           );

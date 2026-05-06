@@ -107,7 +107,7 @@
       defaultMsg: "📋 {work}募集 回答のお願い\n\n{date} {property}\nまだ回答が届いていません（現在{count}件）。\n回答: {url}" },
     { key: "recruit_date_change", label: "清掃日変更通知", desc: "予約自動生成された清掃募集の日付を変更した時に、既に回答していたスタッフへ通知する", icon: "bi-calendar-event", group: "recruit", varGroup: "recruit_date_change", defaultTiming: "immediate",
       defaultEnabled: true, defaultOwnerLine: false, defaultGroupLine: false, defaultStaffLine: true, defaultEmail: false,
-      defaultMsg: "{property}\n清掃日変更\n\n旧: {oldDate}\n新: {date}\n\n回答内容は新しい日付の募集に引き継がれます。\n\nWebアプリ\n{url}" },
+      defaultMsg: "{property}\n清掃日変更\n\n旧: {oldDate}\n新: {date}\n\n以前の回答はクリアされました。新しい日付で改めて回答をお願いします。\n\nWebアプリ\n{url}" },
     { key: "staff_confirm", label: "スタッフ確定通知", desc: "スタッフ確定時に本人とWebアプリ管理者に通知", icon: "bi-person-check", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
       defaultMsg: "✅ {work}担当が確定しました\n\n{date} {property}\n担当: {staff}\nよろしくお願いします。" },
     { key: "staff_undecided", label: "スタッフ未決定リマインド", desc: "作業日が近いのにスタッフ未確定の場合にWebアプリ管理者へ通知", icon: "bi-exclamation-triangle", group: "recruit", varGroup: "recruit", defaultTiming: "morning",

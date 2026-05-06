@@ -98,22 +98,24 @@ const RecruitmentPage = {
       this.saveRecruitment();
     });
 
-    document.getElementById("btnConfirmRecruitment").addEventListener("click", () => {
-      this.confirmRecruitment();
-    });
+    // 詳細モーダルのフッターボタンは、ensureLoaded が先に走った場合に二重バインドしないように _quickBound でガード
+    if (!this._quickBound) {
+      document.getElementById("btnConfirmRecruitment").addEventListener("click", () => {
+        this.confirmRecruitment();
+      });
 
-    document.getElementById("btnReopenRecruitment").addEventListener("click", () => {
-      this.reopenRecruitment();
-    });
+      document.getElementById("btnReopenRecruitment").addEventListener("click", () => {
+        this.reopenRecruitment();
+      });
 
-    document.getElementById("btnChangeRecruitmentDate").addEventListener("click", () => {
-      this.changeRecruitmentDate();
-    });
-    document.getElementById("btnDeleteRecruitmentInModal")?.addEventListener("click", () => {
-      this.deleteRecruitmentFromModal();
-    });
-    // ensureLoaded での二重バインドを防ぐ
-    this._quickBound = true;
+      document.getElementById("btnChangeRecruitmentDate").addEventListener("click", () => {
+        this.changeRecruitmentDate();
+      });
+      document.getElementById("btnDeleteRecruitmentInModal")?.addEventListener("click", () => {
+        this.deleteRecruitmentFromModal();
+      });
+      this._quickBound = true;
+    }
   },
 
   /**
