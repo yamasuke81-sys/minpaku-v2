@@ -270,6 +270,10 @@ const GuestsPage = {
       const submittedBadge = isSubmitted
         ? `<span class="badge bg-success ms-1 btn-toggle-submitted" data-id="${g.id}" data-cur="1" style="cursor:pointer;" title="クリックで未提出に変更${overrideMark ? ' (手動設定中)' : ''}"><i class="bi bi-check-circle-fill"></i> 提出済${overrideMark}</span>`
         : `<span class="badge bg-secondary ms-1 btn-toggle-submitted" data-id="${g.id}" data-cur="0" style="cursor:pointer;" title="クリックで提出済に変更${overrideMark ? ' (手動設定中)' : ''}"><i class="bi bi-circle"></i> 未提出${overrideMark}</span>`;
+      // キーボックス送信予約の有無
+      const keyboxBadge = g.keyboxConfirmedAt
+        ? `<span class="badge bg-info ms-1" title="キーボックス送信を予約済"><i class="bi bi-key-fill"></i> 鍵予約済</span>`
+        : "";
       const prop = propMap[g.propertyId];
       const propCell = prop
         ? renderPropertyNumberBadge(prop)
@@ -279,7 +283,7 @@ const GuestsPage = {
           <td>${formatDate(g.checkIn)}${g.checkInTime ? `<br><small class="text-muted">${this.escapeHtml(g.checkInTime)}</small>` : ""}</td>
           <td>${propCell}</td>
           <td>
-            <strong>${this.escapeHtml(g.guestName || "-")}</strong>${submittedBadge}
+            <strong>${this.escapeHtml(g.guestName || "-")}</strong>${submittedBadge}${keyboxBadge}
             ${companionCount > 0 ? `<br><small class="text-muted">他${companionCount}名</small>` : ""}
           </td>
           <td class="d-none d-md-table-cell">
