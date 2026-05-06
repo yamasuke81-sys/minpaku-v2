@@ -47,11 +47,8 @@ const MyChecklistPage = {
             <button type="button" id="mclHelperCopyBtn" class="btn btn-sm btn-outline-primary" title="ヘルパー用 URL をコピー" style="font-size:11px;padding:3px 8px;">
               <i class="bi bi-clipboard"></i>
             </button>
-            <button type="button" id="mclHelperQrBtn" class="btn btn-sm btn-primary" title="ヘルパー用 QR を表示" style="font-size:11px;padding:3px 8px;">
+            <button type="button" id="mclQrBtn" class="btn btn-sm btn-primary" title="QR を表示 (ヘルパー / タイミー)" style="font-size:11px;padding:3px 8px;">
               <i class="bi bi-qr-code"></i>
-            </button>
-            <button type="button" id="mclTimeeQrBtn" class="btn btn-sm btn-warning" title="タイミー用 QR (CI/CO)" style="font-size:11px;padding:3px 8px;">
-              <i class="bi bi-qr-code-scan"></i>
             </button>
           </div>
         </div>
@@ -749,7 +746,7 @@ const MyChecklistPage = {
     this._renderActiveTopTab();
   },
 
-  // ヘルパー用 URL コピー + QR 表示
+  // ヘルパー用 URL コピー + 統合 QR モーダル (ヘルパー + タイミー 上下に並べて表示)
   _wireHelperButtons(c) {
     const propertyId = c?.propertyId;
     const propertyName = c?.propertyName || "";
@@ -757,7 +754,7 @@ const MyChecklistPage = {
     const url = `${location.origin}/guest-checklist.html?p=${encodeURIComponent(propertyId)}` +
       (propertyName ? `&n=${encodeURIComponent(propertyName)}` : "");
     const copyBtn = document.getElementById("mclHelperCopyBtn");
-    const qrBtn = document.getElementById("mclHelperQrBtn");
+    const qrBtn = document.getElementById("mclQrBtn");
     if (copyBtn) {
       copyBtn.addEventListener("click", async () => {
         try {
@@ -777,52 +774,158 @@ const MyChecklistPage = {
       });
     }
     if (qrBtn) {
-      qrBtn.addEventListener("click", () => {
-        // 既存の guestChecklistQrModal (index.html) を流用
-        const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=${encodeURIComponent(url)}`;
-        const nameEl = document.getElementById("guestQrPropertyName");
-        const imgEl = document.getElementById("guestQrImg");
-        const urlEl = document.getElementById("guestQrUrl");
-        const dlBtn = document.getElementById("btnGuestQrDownload");
-        if (!nameEl || !imgEl || !urlEl || !dlBtn) return;
-        nameEl.textContent = propertyName || "ヘルパー用チェックリスト";
-        imgEl.src = qrSrc;
-        urlEl.textContent = url;
-        const fresh = dlBtn.cloneNode(true);
-        dlBtn.parentNode.replaceChild(fresh, dlBtn);
-        fresh.addEventListener("click", async () => {
-          fresh.disabled = true;
-          fresh.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 取得中...';
-          try {
-            const res = await fetch(qrSrc);
-            const blob = await res.blob();
-            const a = document.createElement("a");
-            a.href = URL.createObjectURL(blob);
-            const safeName = (propertyName || "helper-checklist").replace(/[\/\\:*?"<>|]/g, "_");
-            a.download = `QR_${safeName}.png`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-          } catch (e) {
-            alert("ダウンロード失敗: " + e.message);
-          } finally {
-            fresh.disabled = false;
-            fresh.innerHTML = '<i class="bi bi-download"></i> PNG ダウンロード';
-          }
-        });
-        const modalEl = document.getElementById("guestChecklistQrModal");
-        if (modalEl) bootstrap.Modal.getOrCreateInstance(modalEl).show();
-      });
-    }
-    // タイミー用 QR (CI/CO) - 手動アップロード型
-    const timeeBtn = document.getElementById("mclTimeeQrBtn");
-    if (timeeBtn) {
-      timeeBtn.addEventListener("click", () => this._openTimeeQrModal(propertyId, propertyName));
+      qrBtn.addEventListener("click", () => this._openCombinedQrModal(propertyId, propertyName, url));
     }
   },
 
-  // タイミー用 QR モーダル: アップロード型 (画像は properties.{id}.timeeQrImageUrl に保存)
+  // ヘルパー用 + タイミー用 を上下に並べた統合 QR モーダル
+  async _openCombinedQrModal(propertyId, propertyName, helperUrl) {
+    const isOwner = (typeof Auth !== "undefined" && Auth.isOwner && Auth.isOwner());
+    let timeeUrl = "";
+    try {
+      const snap = await firebase.firestore().collection("properties").doc(propertyId).get();
+      timeeUrl = snap.data()?.timeeQrImageUrl || "";
+    } catch (_) { /* ignore */ }
+
+    const helperQrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=${encodeURIComponent(helperUrl)}`;
+    const modalId = `combinedQrModal_${Date.now().toString(36)}`;
+    const html = `
+      <div class="modal fade" id="${modalId}" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="bi bi-qr-code"></i> QR コード — ${this.escapeHtml(propertyName || "")}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <!-- ① ヘルパー用 QR (チェックリスト URL) -->
+              <div class="mb-4 text-center">
+                <div class="fw-bold mb-2"><i class="bi bi-clipboard-check text-primary"></i> ヘルパー用チェックリスト</div>
+                <div class="border rounded p-2 bg-light mx-auto d-inline-block">
+                  <img src="${helperQrSrc}" alt="ヘルパー用 QR" style="max-width:100%;max-height:300px;">
+                </div>
+                <div class="small text-muted mt-2" style="word-break:break-all;">${this.escapeHtml(helperUrl)}</div>
+                <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="${modalId}_dlHelper">
+                  <i class="bi bi-download"></i> PNG ダウンロード
+                </button>
+              </div>
+              <hr>
+              <!-- ② タイミー用 QR (CI/CO 用、物件別アップロード画像) -->
+              <div class="text-center">
+                <div class="fw-bold mb-2"><i class="bi bi-qr-code-scan text-warning"></i> タイミー CI/CO 用</div>
+                <div id="${modalId}_timeePreview" class="border rounded p-2 bg-light mx-auto" style="min-height:160px;display:flex;align-items:center;justify-content:center;">
+                  ${timeeUrl
+                    ? `<img src="${this.escapeHtml(timeeUrl)}" alt="タイミー QR" style="max-width:100%;max-height:300px;">`
+                    : `<span class="text-muted small">QR 画像が未登録です${isOwner ? "" : "。管理者にアップロードを依頼してください"}</span>`}
+                </div>
+                ${isOwner ? `
+                  <div class="mt-3 text-start">
+                    <label class="form-label small mb-1">QR 画像を${timeeUrl ? "差し替え" : "アップロード"} (PNG / JPG)</label>
+                    <input type="file" id="${modalId}_file" class="form-control form-control-sm" accept="image/png,image/jpeg">
+                    <div class="small text-muted mt-1">タイミーのタイムカード QR をスマホで撮影 / スクショして PNG・JPG でアップしてください。</div>
+                  </div>
+                  <div class="mt-2 d-flex gap-2 justify-content-end">
+                    ${timeeUrl ? `<button type="button" class="btn btn-sm btn-outline-danger" id="${modalId}_deleteTimee">
+                      <i class="bi bi-trash"></i> 登録済 QR を削除
+                    </button>` : ""}
+                    <button type="button" class="btn btn-sm btn-primary" id="${modalId}_saveTimee" disabled>
+                      <i class="bi bi-cloud-upload"></i> アップロード
+                    </button>
+                  </div>` : ""}
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML("beforeend", html);
+    const modalEl = document.getElementById(modalId);
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modalEl.addEventListener("hidden.bs.modal", () => modalEl.remove());
+    modal.show();
+
+    // ヘルパー QR PNG ダウンロード
+    const dlBtn = document.getElementById(`${modalId}_dlHelper`);
+    dlBtn?.addEventListener("click", async () => {
+      dlBtn.disabled = true;
+      dlBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 取得中...';
+      try {
+        const res = await fetch(helperQrSrc);
+        const blob = await res.blob();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        const safeName = (propertyName || "helper-checklist").replace(/[\/\\:*?"<>|]/g, "_");
+        a.download = `QR_helper_${safeName}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      } catch (e) {
+        alert("ダウンロード失敗: " + e.message);
+      } finally {
+        dlBtn.disabled = false;
+        dlBtn.innerHTML = '<i class="bi bi-download"></i> PNG ダウンロード';
+      }
+    });
+
+    if (!isOwner) return;
+
+    // タイミー QR アップロード
+    const fileInput = document.getElementById(`${modalId}_file`);
+    const saveBtn = document.getElementById(`${modalId}_saveTimee`);
+    const delBtn = document.getElementById(`${modalId}_deleteTimee`);
+    let pendingFile = null;
+    fileInput?.addEventListener("change", (e) => {
+      pendingFile = e.target.files?.[0] || null;
+      if (saveBtn) saveBtn.disabled = !pendingFile;
+    });
+    saveBtn?.addEventListener("click", async () => {
+      if (!pendingFile) return;
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> アップ中...';
+      try {
+        const ext = pendingFile.type === "image/png" ? "png" : "jpg";
+        const path = `timee-qr/${propertyId}.${ext}`;
+        const ref = firebase.storage().ref(path);
+        await ref.put(pendingFile, { contentType: pendingFile.type });
+        const url = await ref.getDownloadURL();
+        await firebase.firestore().collection("properties").doc(propertyId).update({
+          timeeQrImageUrl: url,
+          timeeQrUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+        showToast("完了", "タイミー QR をアップロードしました", "success");
+        modal.hide();
+      } catch (e) {
+        console.error("[timeeQr] アップロード失敗:", e);
+        showToast("エラー", `アップロード失敗: ${e.message}`, "error");
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-cloud-upload"></i> アップロード';
+      }
+    });
+    delBtn?.addEventListener("click", async () => {
+      const ok = await showConfirm("登録済の QR 画像を削除しますか？", { title: "QR 削除", okClass: "btn-danger", okLabel: "削除" });
+      if (!ok) return;
+      delBtn.disabled = true;
+      try {
+        await firebase.firestore().collection("properties").doc(propertyId).update({
+          timeeQrImageUrl: firebase.firestore.FieldValue.delete(),
+          timeeQrUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+        for (const ext of ["png", "jpg"]) {
+          try { await firebase.storage().ref(`timee-qr/${propertyId}.${ext}`).delete(); } catch (_) {}
+        }
+        showToast("削除", "QR を削除しました", "success");
+        modal.hide();
+      } catch (e) {
+        showToast("エラー", `削除失敗: ${e.message}`, "error");
+        delBtn.disabled = false;
+      }
+    });
+  },
+
+  // (旧 _openTimeeQrModal は _openCombinedQrModal に統合済み。後方互換のためラッパを残す)
   async _openTimeeQrModal(propertyId, propertyName) {
     const isOwner = (typeof Auth !== "undefined" && Auth.isOwner && Auth.isOwner());
     let currentUrl = "";
