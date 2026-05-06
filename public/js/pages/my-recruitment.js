@@ -1121,8 +1121,19 @@ const MyRecruitmentPage = {
       }
       const assigned = Array.isArray(staff.assignedPropertyIds) ? staff.assignedPropertyIds : [];
       const hasAssignments = assigned.length > 0;
+      // 担当物件の色付き番号バッジ (オーナー以外で表示)
+      const assignedBadges = (!staff.isOwner && hasAssignments)
+        ? assigned.map(pid => {
+            const p = this.propertyMap[pid];
+            if (!p) return "";
+            const num = p._num != null ? p._num : (p.propertyNumber != null ? p.propertyNumber : "");
+            if (num === "") return "";
+            const color = p._color || p.color || "#6c757d";
+            return `<span class="badge ms-1" title="${this.esc(p.name || "")}" style="background:${this.esc(color)};color:#fff;font-size:9px;padding:2px 5px;vertical-align:middle;">${this.esc(String(num))}</span>`;
+          }).join("")
+        : "";
       html += `<tr class="staff-row"><td class="fw-medium sticky-col" style="position:sticky;left:0;z-index:10;background:${isMe ? "#e3f2fd" : "#fff"};min-width:${stickyW};max-width:${stickyW};height:${cellH};font-size:14px;vertical-align:middle;padding:4px 10px 4px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3;">
-        ${this.esc(staff.name)}${isMe ? " 👤" : ""}${staff.isOwner ? ' <span class="badge bg-info" style="font-size:9px;">OWN</span>' : ""}
+        ${this.esc(staff.name)}${isMe ? " 👤" : ""}${staff.isOwner ? ' <span class="badge bg-info" style="font-size:9px;">OWN</span>' : ""}${assignedBadges}
         <div class="col-resizer" title="ドラッグで列幅を変更" style="position:absolute;top:0;right:0;width:8px;height:100%;cursor:col-resize;z-index:4;user-select:none;background:repeating-linear-gradient(to bottom, rgba(108,117,125,0.45) 0 4px, transparent 4px 8px);touch-action:none;"></div>
       </td>`;
 
