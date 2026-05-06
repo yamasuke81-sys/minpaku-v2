@@ -558,9 +558,12 @@ const MyChecklistPage = {
             if (this.activeTopTab !== savedActiveTopTab) {
               this.activeTopTab = savedActiveTopTab;
             }
-            // スクロール位置を復元
-            window.scrollTo({ top: prevScrollY, behavior: "instant" });
-            if (mainEl) mainEl.scrollTop = prevMainScroll;
+            // スクロール位置を復元 (iOS Safari は DOM 変化直後の scrollTo を無視しやすいため
+            // 2段階 rAF でレイアウト確定後に適用する)
+            requestAnimationFrame(() => {
+              window.scrollTo({ top: prevScrollY, behavior: "instant" });
+              if (mainEl) mainEl.scrollTop = prevMainScroll;
+            });
           });
         }
       }, err => {
@@ -2805,6 +2808,9 @@ const MyChecklistPage = {
     this.checklist.itemStates = this.checklist.itemStates || {};
     this.checklist.itemStates[itemId] = next;
 
+    // 自分の書き込みによる onSnapshot を 1500ms スキップ (iOS Safari スクロールジャンプ防止)
+    this._suppressRerenderUntil = Date.now() + 1500;
+
     try {
       await db.collection("checklists").doc(this.checklistId).update({
         [`itemStates.${itemId}`]: next,
@@ -2812,6 +2818,7 @@ const MyChecklistPage = {
       });
     } catch (e) {
       console.error("updateItemState error:", e);
+      this._suppressRerenderUntil = 0;
       if (typeof showToast === "function") showToast("保存失敗", e.message || "", "error");
     }
   },
