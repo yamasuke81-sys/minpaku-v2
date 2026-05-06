@@ -1798,12 +1798,13 @@ const ReservationFlowPage = {
       const receiverIdx = step.arrowTo ? laneOrder[step.arrowTo] : null;
       const hasArrow = receiverIdx !== null && receiverIdx !== senderIdx;
 
-      // 矢印オーバーレイ: sender 列の中央 → receiver 列の中央
+      // 矢印オーバーレイ: sender カードの横 → receiver 列の中央
       let arrowOverlay = "";
       if (hasArrow) {
-        const fromPct = (senderIdx + 0.5) / 3 * 100;
+        const isRight = receiverIdx > senderIdx;
+        // sender カードの外側 (列の境界) からスタートし、receiver 列の中央で終わる
+        const fromPct = isRight ? (senderIdx + 1) / 3 * 100 : senderIdx / 3 * 100;
         const toPct = (receiverIdx + 0.5) / 3 * 100;
-        const isRight = toPct > fromPct;
         const left = Math.min(fromPct, toPct);
         const width = Math.abs(toPct - fromPct);
         const dirClass = isRight ? "rf-flow-right" : "rf-flow-left";
@@ -3389,36 +3390,21 @@ const ReservationFlowPage = {
       gap: 0;
     }
 
-    /* 発信→受信 矢印オーバーレイ (rf-step-row 内に絶対配置) */
-    .rf-step-row { position: relative; padding-top: 18px; }
+    /* 発信→受信 矢印オーバーレイ (カード横から生えて受信列まで延びる) */
+    .rf-step-row { position: relative; }
     .rf-flow-arrow {
       position: absolute;
-      top: 8px;
+      top: 22px; /* カード header (約 40px) の中央あたり */
       height: 2px;
       background: #64748b;
       pointer-events: none;
       z-index: 4;
-      box-shadow: 0 0 0 0.5px rgba(100,116,139,0.2);
     }
-    .rf-flow-arrow::before,
     .rf-flow-arrow::after {
       content: "";
       position: absolute;
       width: 0;
       height: 0;
-    }
-    /* 始点側: 小さな丸 (発信元マーカー) */
-    .rf-flow-arrow.rf-flow-right::before {
-      left: -3px; top: -3px;
-      width: 7px; height: 7px;
-      background: #64748b;
-      border-radius: 50%;
-    }
-    .rf-flow-arrow.rf-flow-left::before {
-      right: -3px; top: -3px;
-      width: 7px; height: 7px;
-      background: #64748b;
-      border-radius: 50%;
     }
     /* 終点側: 矢印先 (受信先) */
     .rf-flow-arrow.rf-flow-right::after {
