@@ -451,6 +451,75 @@ module.exports = function recruitmentApi(db) {
     }
   });
 
+  /**
+   * 清掃日変更通知 (UI から呼ばれる、recruitment.checkoutDate は UI 側で既に更新済み)
+   * - 既回答スタッフに recruit_date_change 通知 (新日付・旧日付を変数で渡す)
+   * - 全スタッフに recruit_start 通知 (変更後の日付について再募集)
+   * Body: { recruitmentId, oldDate, newDate }
+   */
+  router.post("/notify-date-change", async (req, res) => {
+    try {
+      if (req.user.role !== "owner") {
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
+      }
+      const { recruitmentId, oldDate, newDate } = req.body || {};
+      if (!recruitmentId || !oldDate || !newDate) {
+        return res.status(400).json({ error: "recruitmentId / oldDate / newDate 必須" });
+      }
+      const docRef = collection.doc(recruitmentId);
+      const doc = await docRef.get();
+      if (!doc.exists) return res.status(404).json({ error: "募集が見つかりません" });
+      const r = doc.data();
+
+      const { settings } = await getNotificationSettings_(db);
+      const appUrl = settings?.appUrl || "https://minpaku-v2.web.app";
+      const recruitUrl = `${appUrl}/#/my-recruitment`;
+      const propertyName = r.propertyName || "";
+      const responses = Array.isArray(r.responses) ? r.responses : [];
+
+      // 1) 既回答スタッフに日付変更通知 (個別 LINE)
+      const respondedStaffIds = [...new Set(responses.map(rr => rr.staffId).filter(Boolean))];
+      let staffNotified = 0;
+      for (const sid of respondedStaffIds) {
+        try {
+          await notifyStaff(db, sid, "recruit_date_change",
+            `清掃日が変更されました: ${oldDate} → ${newDate}`,
+            `【清掃日変更】\n${propertyName}\n旧: ${oldDate}\n新: ${newDate}\n\n回答内容は新しい日付の募集に引き継がれます。\n変更を確認: ${recruitUrl}`,
+            { date: newDate, oldDate, property: propertyName, url: recruitUrl, work: "清掃" },
+            {} // propertyOverrides
+          );
+          staffNotified++;
+        } catch (e) {
+          console.warn(`日付変更通知 staff=${sid} 失敗:`, e.message);
+        }
+      }
+
+      // 2) recruit_start 通知 (変更後の日付について再募集)
+      try {
+        const memo = r.memo || "";
+        await notifyByKey(db, "recruit_start", {
+          title: `清掃スタッフ募集: ${newDate} (日程変更)`,
+          body: `【清掃スタッフ募集 (日程変更)】\n${newDate} ${propertyName}\n${memo}\n※ ${oldDate} → ${newDate} に変更されました。\n回答: ${recruitUrl}`,
+          vars: {
+            date: newDate, property: propertyName, work: "清掃",
+            url: recruitUrl, memo, note: `※ ${oldDate} → ${newDate} に変更されました。`,
+          },
+          propertyId: r.propertyId || null,
+        });
+      } catch (e) {
+        console.warn("recruit_start 通知失敗:", e.message);
+      }
+
+      res.json({
+        message: `日付変更通知を送信しました (既回答 ${staffNotified}名 + 全スタッフ募集通知)`,
+        respondedStaffNotified: staffNotified,
+      });
+    } catch (e) {
+      console.error("日付変更通知エラー:", e);
+      res.status(500).json({ error: e.message || "日付変更通知に失敗しました" });
+    }
+  });
+
   return router;
 };
 

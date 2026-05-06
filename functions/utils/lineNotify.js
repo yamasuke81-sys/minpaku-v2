@@ -377,6 +377,8 @@ async function resolveMessage_(db, type, fallback, vars, propertyOverrides) {
         msg = msg.replace(new RegExp(`\\{${k}\\}`, "g"), String(vars[k] ?? ""));
       });
     }
+    // 未置換の {xxx} を空文字に (vars に渡し忘れた変数がそのまま出力される事故防止)
+    msg = msg.replace(/\{[a-zA-Z_][a-zA-Z0-9_]*\}/g, "");
     return msg;
   } catch (e) {
     console.warn("customMessage 解決失敗、fallback 使用:", e.message);
@@ -1078,6 +1080,19 @@ async function notifyByKey(db, notifyKey, options = {}) {
     }
   }
 
+  // vars の安全網: 主要変数 (url / property) のデフォルト注入
+  // 各呼び出し側で渡し忘れても customMessage の {url} {property} がそのまま残らないようにする
+  if (!vars || typeof vars !== "object") vars = {};
+  if (vars.url == null || vars.url === "") {
+    vars.url = (settings && settings.appUrl) || "https://minpaku-v2.web.app";
+  }
+  if ((vars.property == null || vars.property === "") && propertyId) {
+    try {
+      const pDoc = await db.collection("properties").doc(propertyId).get();
+      if (pDoc.exists) vars.property = pDoc.data().name || "";
+    } catch (_) { /* ignore */ }
+  }
+
   // 2. ターゲット判定
   const targets = resolveNotifyTargets(settings, notifyKey, propertyOverrides);
   if (!targets.enabled) {
@@ -1095,6 +1110,8 @@ async function notifyByKey(db, notifyKey, options = {}) {
       Object.keys(vars || {}).forEach(k => {
         msg = msg.replace(new RegExp(`\\{${k}\\}`, "g"), String(vars[k] ?? ""));
       });
+      // 未置換の {xxx} を空文字に置換 (vars 漏れ事故防止)
+      msg = msg.replace(/\{[a-zA-Z_][a-zA-Z0-9_]*\}/g, "");
       resolvedBody = msg;
     }
   }

@@ -105,6 +105,104 @@ const RecruitmentPage = {
     document.getElementById("btnReopenRecruitment").addEventListener("click", () => {
       this.reopenRecruitment();
     });
+
+    document.getElementById("btnChangeRecruitmentDate").addEventListener("click", () => {
+      this.changeRecruitmentDate();
+    });
+  },
+
+  /**
+   * 募集の日付変更
+   * - recruitment.checkoutDate を新日付に更新
+   * - 関連 shift の date も更新 (shifts.recruitmentId か shift.date+propertyId+workType で照合)
+   * - 既に回答していた人に「日付変更通知」(recruit_date_change) を送る
+   * - 変更後の日付について「清掃募集開始通知」(recruit_start) を再発火
+   */
+  async changeRecruitmentDate() {
+    const r = this._currentRecruitment;
+    if (!r) return;
+    if (!Auth || !Auth.isOwner || !Auth.isOwner()) {
+      await showAlert("オーナー権限が必要です");
+      return;
+    }
+    const oldDate = r.checkoutDate;
+    const newDate = await showPrompt(
+      `新しい清掃日 (YYYY-MM-DD)\n現在: ${oldDate}`,
+      { title: "清掃日を変更", defaultValue: oldDate, okLabel: "変更" }
+    );
+    if (!newDate) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) { await showAlert("日付形式が不正です (YYYY-MM-DD)"); return; }
+    if (newDate === oldDate) { await showAlert("日付に変更がありません"); return; }
+    const responseCount = (r.responses || []).length;
+    const ok = await showConfirm(
+      `清掃日を変更します:\n\n旧: ${oldDate}\n新: ${newDate}\n物件: ${r.propertyName || "-"}\n\n` +
+      (responseCount > 0
+        ? `※ 既に回答済みのスタッフ ${responseCount} 名にも日付変更通知が送られます。\n  回答内容は新しい日付の募集に引き継がれます。\n`
+        : "") +
+      "※ 変更後の日付について新たな募集開始通知も送られます。",
+      { title: "清掃日変更", okLabel: "変更", okClass: "btn-warning" }
+    );
+    if (!ok) return;
+
+    try {
+      const dbRef = firebase.firestore();
+      // 1) 同一 recruitment の checkoutDate を更新
+      await dbRef.collection("recruitments").doc(r.id).update({
+        checkoutDate: newDate,
+        previousCheckoutDate: r.previousCheckoutDate || oldDate,
+        manualDateChange: true,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // 2) 関連 shift の date も更新 (recruitmentId 一致 or 旧 date+pid+workType)
+      const targetWorkType = r.workType === "pre_inspection" ? "pre_inspection" : "cleaning_by_count";
+      const oldDt = new Date(oldDate);
+      const newDt = new Date(newDate);
+      const shByRid = await dbRef.collection("shifts").where("recruitmentId", "==", r.id).get();
+      let shiftUpdated = 0;
+      for (const sd of shByRid.docs) {
+        await sd.ref.update({ date: newDt, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+        shiftUpdated++;
+      }
+      if (shiftUpdated === 0) {
+        // recruitmentId 紐付けがない古いシフト → date+pid+workType で照合
+        const fallback = await dbRef.collection("shifts")
+          .where("propertyId", "==", r.propertyId)
+          .where("date", "==", oldDt)
+          .where("workType", "==", targetWorkType)
+          .get();
+        for (const sd of fallback.docs) {
+          await sd.ref.update({ date: newDt, recruitmentId: r.id, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+          shiftUpdated++;
+        }
+      }
+
+      // 3) 通知 (Cloud Function 経由)
+      // - recruit_date_change: 既回答スタッフに日付変更を伝える (新規通知タイプ)
+      // - recruit_start: 変更後の日付について再募集の通知
+      try {
+        await fetch("/api/recruitment/notify-date-change", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${await Auth.currentUser.getIdToken()}`,
+          },
+          body: JSON.stringify({
+            recruitmentId: r.id,
+            oldDate,
+            newDate,
+          }),
+        });
+      } catch (notifyErr) {
+        console.warn("日付変更通知エラー (続行):", notifyErr);
+      }
+
+      showToast("完了", `清掃日を ${newDate} に変更しました (shift ${shiftUpdated}件更新)`, "success");
+      this.detailModal.hide();
+    } catch (e) {
+      console.error("[changeRecruitmentDate] エラー:", e);
+      await showAlert("日付変更に失敗: " + (e.message || e));
+    }
   },
 
   // 他ページから openDetailModal を呼ぶときの初期化保証
