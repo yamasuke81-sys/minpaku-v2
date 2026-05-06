@@ -324,6 +324,16 @@ module.exports = async (event) => {
   const beforeLaundry = before.laundry || {};
   const afterLaundry = after.laundry || {};
 
+  // laundry の各フィールドに実質的な変化があるか事前チェック
+  // 変化がなければこのトリガーは何もしない（二重通知防止）
+  const laundryKeys = ["putOut", "collected", "stored"];
+  const hasLaundryChange = laundryKeys.some((key) => {
+    const wasPrev = isLaundrySet(beforeLaundry[key]);
+    const isNow  = isLaundrySet(afterLaundry[key]);
+    return wasPrev !== isNow;
+  });
+  if (!hasLaundryChange) return;
+
   // --- putOut の同期処理 ---
   const beforePutOut = beforeLaundry.putOut;
   const afterPutOut = afterLaundry.putOut;
