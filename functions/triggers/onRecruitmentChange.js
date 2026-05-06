@@ -14,6 +14,43 @@ module.exports = async function onRecruitmentChange(event) {
   const after = event.data.after?.data();
   if (!after) return;
 
+  // ========= 手動募集の新規作成 → 即 shift も作成 (チェックリスト自動生成のため) =========
+  // 通常フロー (予約由来) は onBookingChange が shift を生成するが、
+  // 手動募集 (manualCreated=true, bookingId=null) は shift 未生成 → onShiftCreated 不発火
+  // → checklists 永久に未生成。 ここで shift を補う。
+  if (!before && after && after.manualCreated === true && after.propertyId && after.checkoutDate) {
+    try {
+      const targetWorkType = after.workType === "pre_inspection" ? "pre_inspection" : "cleaning_by_count";
+      const dt = new Date(after.checkoutDate);
+      const dup = await db.collection("shifts")
+        .where("propertyId", "==", after.propertyId)
+        .where("date", "==", dt)
+        .where("workType", "==", targetWorkType)
+        .limit(1).get();
+      if (dup.empty) {
+        await db.collection("shifts").add({
+          date: dt,
+          propertyId: after.propertyId,
+          propertyName: after.propertyName || "",
+          bookingId: null,
+          staffId: null,
+          staffName: null,
+          staffIds: [],
+          startTime: "10:30",
+          endTime: null,
+          status: "unassigned",
+          assignMethod: "manual",
+          workType: targetWorkType,
+          recruitmentId: event.params.recruitmentId,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        console.log(`[onRecruitmentChange] 手動募集 → shift 新規作成 ${after.propertyId} ${after.checkoutDate} (${targetWorkType})`);
+      }
+    } catch (e) {
+      console.error("[onRecruitmentChange] 手動募集 shift 新規作成エラー:", e);
+    }
+  }
+
   // ===== status 遷移: → "スタッフ確定済み" になったら対応 shift を同期 =====
   // (UI から Firestore SDK 直接更新でも、API 経由でも、ここで保証)
   if (before?.status !== "スタッフ確定済み" && after.status === "スタッフ確定済み") {
@@ -47,7 +84,25 @@ module.exports = async function onRecruitmentChange(event) {
             console.log(`[onRecruitmentChange] shift同期 ${sd.id} staffIds=${JSON.stringify(ids)}`);
           }
         } else {
-          console.warn(`[onRecruitmentChange] 同期対象 shift なし: ${after.propertyId} ${after.checkoutDate} ${targetWorkType}`);
+          // 既存 shift なし → 新規作成 (手動募集 + 後発確定 / 何らかの理由で shift が漏れたケース)
+          // 作成後 onShiftCreated が発火 → checklist も自動生成される
+          await db.collection("shifts").add({
+            date: dt,
+            propertyId: after.propertyId,
+            propertyName: after.propertyName || "",
+            bookingId: after.bookingId || null,
+            staffId: ids[0],
+            staffName: firstName,
+            staffIds: ids,
+            startTime: "10:30",
+            endTime: null,
+            status: "assigned",
+            assignMethod: "trigger_create",
+            workType: targetWorkType,
+            recruitmentId: event.params.recruitmentId,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          console.log(`[onRecruitmentChange] 確定時 shift 新規作成 ${after.propertyId} ${after.checkoutDate} staffIds=${JSON.stringify(ids)}`);
         }
       }
     } catch (e) {
