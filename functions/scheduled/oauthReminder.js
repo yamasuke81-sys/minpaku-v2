@@ -1,34 +1,39 @@
 /**
- * OAuth トークン期限リマインダー
- * Test mode の OAuth Consent Screen は機微スコープ使用時にリフレッシュトークンが
- * 7日で自動失効する。失効する前 (6日経過) に LINE + メールで管理者に再認可を促す。
+ * OAuth トークン疎通テスト + リマインダー
  *
- * 実行: 毎日 1 回 (JST 9:00)
- * 対象: settings/gmailOAuthEmailVerification/tokens 配下の全トークン
- * 抑制: settings/oauthAlerts/byAccount/{key}.lastReminderAt が 24h 以内ならスキップ
+ * 毎日 JST 9:00 に各 Gmail OAuth トークンを refreshAccessToken() で叩いて
+ * 実際にアクセストークンが取得できるか検証する。失敗したものだけ LINE + メールで
+ * 管理者に通知する (24h 抑制 + 復旧検知でフラグクリア)。
+ *
+ * 対象: settings/gmailOAuthEmailVerification/tokens (物件・メール照合用)
+ *      + settings/gmailOAuth/tokens (税理士資料用)
+ * 抑制: settings/oauthAlerts/byAccount/{key}.lastFailureAlertAt が 24h 以内ならスキップ
+ * 復旧: 直前まで失敗していた token がリフレッシュ成功 → 復旧通知 + フラグクリア
  */
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require("firebase-admin");
-
-const REMIND_THRESHOLD_DAYS = 6; // 7日失効の1日前
-const REMIND_THRESHOLD_MS = REMIND_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
+const { google } = require("googleapis");
 
 const REAUTH_BASE_URL = "https://api-5qrfx7ujcq-an.a.run.app/gmail-auth/start";
 
-function buildReauthUrl(email) {
-  return `${REAUTH_BASE_URL}?context=emailVerification&email=${encodeURIComponent(email)}`;
+function buildReauthUrl(email, context) {
+  const ctx = context === "emailVerification" || context === "property" ? "emailVerification" : "default";
+  return `${REAUTH_BASE_URL}?context=${ctx}&email=${encodeURIComponent(email)}`;
 }
 
-function buildMessage(email, daysSinceSaved) {
-  const reauthUrl = buildReauthUrl(email);
+function buildFailureMessage(email, context, errorMsg, daysSinceSaved) {
+  const reauthUrl = buildReauthUrl(email, context);
   return [
-    "🔑 Gmail OAuth トークン 有効期限リマインダー",
+    "🚨 Gmail OAuth 連携が切れています",
     "",
     `アカウント: ${email}`,
-    `前回認可から: ${daysSinceSaved.toFixed(1)} 日経過`,
+    `用途: ${context === "default" ? "税理士資料" : "メール照合 / サンクスメール送信"}`,
+    `前回認可から: ${daysSinceSaved != null ? daysSinceSaved.toFixed(1) + " 日経過" : "(不明)"}`,
+    `エラー: ${errorMsg}`,
     "",
-    "Test mode の OAuth Consent Screen はリフレッシュトークンが 7 日で自動失効します。",
-    "メール照合 (キャンセル/確定/変更検知) を継続するため、下記の URL から再認可してください。",
+    "OAuth トークンのリフレッシュに失敗したため、サンクスメール送信や",
+    "メール照合 (キャンセル/確定/変更検知) ができない状態です。",
+    "下記 URL から再認可してください。",
     "",
     "▼ 再認可手順",
     "1. 下の URL をスマホ/PC のブラウザで開く",
@@ -40,108 +45,172 @@ function buildMessage(email, daysSinceSaved) {
   ].join("\n");
 }
 
-async function oauthReminderCore(db) {
-  const tokensSnap = await db
-    .collection("settings")
-    .doc("gmailOAuthEmailVerification")
-    .collection("tokens")
-    .get();
+function buildRecoveryMessage(email, context) {
+  return [
+    "✅ Gmail OAuth 連携が復旧しました",
+    "",
+    `アカウント: ${email}`,
+    `用途: ${context === "default" ? "税理士資料" : "メール照合 / サンクスメール送信"}`,
+    "",
+    "リフレッシュトークンが正常に動作することを確認しました。",
+  ].join("\n");
+}
 
-  if (tokensSnap.empty) {
-    console.log("[oauthReminder] tokens なし、スキップ");
-    return { remindedCount: 0, skippedCount: 0 };
-  }
+// 単一 token に対して refreshAccessToken を叩く
+async function probeToken_(oauth2Client, refreshToken) {
+  oauth2Client.setCredentials({ refresh_token: refreshToken });
+  await oauth2Client.refreshAccessToken();
+}
 
-  let remindedCount = 0;
-  let skippedCount = 0;
+async function processCollection_(db, collectionPath, context, oauth2Client, ns) {
+  const tokensSnap = await db.collection("settings").doc(collectionPath).collection("tokens").get();
+  if (tokensSnap.empty) return { ok: 0, failed: 0, recovered: 0, alerted: 0 };
 
-  // 通知設定取得 (LINE)
-  const nsDoc = await db.collection("settings").doc("notifications").get();
-  const ns = nsDoc.exists ? nsDoc.data() : {};
-  const channelToken = ns.lineChannelToken || ns.lineToken;
-  const ownerUserId = ns.lineOwnerUserId || ns.lineOwnerId || ns.ownerUserId;
-  const notifyEmails = Array.isArray(ns.notifyEmails) ? ns.notifyEmails : [];
+  let ok = 0, failed = 0, recovered = 0, alerted = 0;
 
   for (const tokenDoc of tokensSnap.docs) {
     const tokenData = tokenDoc.data();
-    if (!tokenData.refreshToken) continue;
+    const refreshToken = tokenData.refreshToken || tokenData.refresh_token;
+    const email = tokenData.email || tokenDoc.id;
+    const accountKey = String(email).replace(/[@.]/g, "_");
+    const flagRef = db.collection("settings").doc("oauthAlerts").collection("byAccount").doc(`${context}_${accountKey}`);
+    const flag = await flagRef.get();
+    const wasFailing = flag.exists && flag.data().lastFailure === true;
 
+    if (!refreshToken) {
+      failed++;
+      console.warn(`[oauthReminder] ${email} (${context}): refreshToken なし → 連携切れ扱い`);
+      // 24h 抑制
+      if (flag.exists) {
+        const lastMs = flag.data().lastFailureAlertAt?.toMillis?.() || 0;
+        if (Date.now() - lastMs < 24 * 60 * 60 * 1000) continue;
+      }
+      await sendAlert_(ns, email, context, "refreshToken が保存されていない", null);
+      await flagRef.set({
+        lastFailure: true,
+        lastFailureAlertAt: admin.firestore.FieldValue.serverTimestamp(),
+        accountEmail: email,
+      }, { merge: true });
+      alerted++;
+      continue;
+    }
+
+    // savedAt から日数計算
     const savedAt = tokenData.savedAt;
     let savedMs = null;
     if (savedAt && typeof savedAt.toMillis === "function") savedMs = savedAt.toMillis();
     else if (savedAt && savedAt._seconds) savedMs = savedAt._seconds * 1000;
     else if (savedAt instanceof Date) savedMs = savedAt.getTime();
-    else if (typeof savedAt === "number") savedMs = savedAt;
+    const daysSince = savedMs ? (Date.now() - savedMs) / (24 * 60 * 60 * 1000) : null;
 
-    if (!savedMs) {
-      skippedCount++;
-      continue;
-    }
-
-    const elapsedMs = Date.now() - savedMs;
-    const daysSince = elapsedMs / (24 * 60 * 60 * 1000);
-
-    // 6 日未満ならスキップ (まだ早い)
-    if (elapsedMs < REMIND_THRESHOLD_MS) {
-      skippedCount++;
-      continue;
-    }
-
-    // 24h 抑制: 連続実行で何度も通知しない
-    const accountKey = (tokenData.email || tokenDoc.id).replace(/[@.]/g, "_");
-    const flagRef = db.collection("settings").doc("oauthAlerts").collection("byAccount").doc(accountKey);
-    const flag = await flagRef.get();
-    if (flag.exists) {
-      const lastAt = flag.data().lastReminderAt;
-      const lastMs = lastAt && lastAt.toMillis ? lastAt.toMillis() : 0;
-      if (Date.now() - lastMs < 24 * 60 * 60 * 1000) {
-        skippedCount++;
-        continue;
+    // 実際に refresh を試みる
+    try {
+      await probeToken_(oauth2Client, refreshToken);
+      ok++;
+      console.log(`[oauthReminder] ${email} (${context}): ✓ OK`);
+      // 直前まで失敗していたなら復旧通知
+      if (wasFailing) {
+        await sendRecovery_(ns, email, context);
+        recovered++;
+        await flagRef.set({
+          lastFailure: false,
+          lastSuccessAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+      } else if (flag.exists) {
+        // 既に OK 状態でもタイムスタンプ更新
+        await flagRef.set({
+          lastFailure: false,
+          lastSuccessAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
       }
-    }
-
-    const email = tokenData.email || "(unknown)";
-    const text = buildMessage(email, daysSince);
-    console.log(`[oauthReminder] 送信: ${email} (${daysSince.toFixed(1)}日経過)`);
-
-    // LINE 送信
-    if (channelToken && ownerUserId) {
-      try {
-        const { sendLineMessage } = require("../utils/lineNotify");
-        await sendLineMessage(channelToken, ownerUserId, text);
-      } catch (e) {
-        console.error("[oauthReminder] LINE 送信エラー:", e.message);
+    } catch (e) {
+      failed++;
+      const errMsg = e?.message || String(e);
+      console.warn(`[oauthReminder] ${email} (${context}): ✗ ${errMsg}`);
+      // 24h 抑制
+      if (flag.exists) {
+        const lastMs = flag.data().lastFailureAlertAt?.toMillis?.() || 0;
+        if (Date.now() - lastMs < 24 * 60 * 60 * 1000) continue;
       }
+      await sendAlert_(ns, email, context, errMsg, daysSince);
+      await flagRef.set({
+        lastFailure: true,
+        lastFailureAlertAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastFailureMessage: errMsg,
+        accountEmail: email,
+      }, { merge: true });
+      alerted++;
     }
-
-    // メール送信
-    if (notifyEmails.length > 0) {
-      try {
-        const { sendNotificationEmail_ } = require("../utils/lineNotify");
-        // sendNotificationEmail_ は private (アンダースコア接尾) → 直接呼べないため _internal 経由 or 公開ヘルパ確認
-        // 代わりに同じファイル内で再構築するシンプル実装に切替
-        for (const to of notifyEmails) {
-          try {
-            await sendNotificationEmail_(to, "Gmail OAuth 有効期限リマインダー", text);
-          } catch (mailErr) {
-            console.error(`[oauthReminder] メール送信エラー (${to}):`, mailErr.message);
-          }
-        }
-      } catch (e) {
-        console.error("[oauthReminder] メール送信エラー:", e.message);
-      }
-    }
-
-    await flagRef.set({
-      lastReminderAt: admin.firestore.FieldValue.serverTimestamp(),
-      reminderDaysSinceSaved: daysSince,
-      accountEmail: email,
-    }, { merge: true });
-    remindedCount++;
   }
 
-  console.log(`[oauthReminder] 完了: reminded=${remindedCount}, skipped=${skippedCount}`);
-  return { remindedCount, skippedCount };
+  return { ok, failed, recovered, alerted };
+}
+
+// 通知送信ヘルパ (LINE + メール)
+async function sendAlert_(ns, email, context, errorMsg, daysSince) {
+  const channelToken = ns.lineChannelToken || ns.lineToken;
+  const ownerUserId = ns.lineOwnerUserId || ns.lineOwnerId || ns.ownerUserId;
+  const notifyEmails = Array.isArray(ns.notifyEmails) ? ns.notifyEmails : [];
+  const text = buildFailureMessage(email, context, errorMsg, daysSince);
+  if (channelToken && ownerUserId) {
+    try {
+      const { sendLineMessage } = require("../utils/lineNotify");
+      await sendLineMessage(channelToken, ownerUserId, text);
+    } catch (e) { console.error("[oauthReminder] LINE 失敗:", e.message); }
+  }
+  for (const to of notifyEmails) {
+    try {
+      const { sendNotificationEmail_ } = require("../utils/lineNotify");
+      await sendNotificationEmail_(to, "Gmail OAuth 連携切れ アラート", text);
+    } catch (e) { console.error(`[oauthReminder] メール失敗 (${to}):`, e.message); }
+  }
+}
+
+async function sendRecovery_(ns, email, context) {
+  const channelToken = ns.lineChannelToken || ns.lineToken;
+  const ownerUserId = ns.lineOwnerUserId || ns.lineOwnerId || ns.ownerUserId;
+  const notifyEmails = Array.isArray(ns.notifyEmails) ? ns.notifyEmails : [];
+  const text = buildRecoveryMessage(email, context);
+  if (channelToken && ownerUserId) {
+    try {
+      const { sendLineMessage } = require("../utils/lineNotify");
+      await sendLineMessage(channelToken, ownerUserId, text);
+    } catch (e) { console.error("[oauthReminder] LINE 失敗:", e.message); }
+  }
+  for (const to of notifyEmails) {
+    try {
+      const { sendNotificationEmail_ } = require("../utils/lineNotify");
+      await sendNotificationEmail_(to, "Gmail OAuth 連携復旧", text);
+    } catch (e) { console.error(`[oauthReminder] メール失敗 (${to}):`, e.message); }
+  }
+}
+
+async function oauthReminderCore(db) {
+  // OAuth クライアント設定 (clientId/secret 共通)
+  const cfg = await db.doc("settings/gmailOAuth").get();
+  if (!cfg.exists) {
+    console.warn("[oauthReminder] settings/gmailOAuth 未設定 → スキップ");
+    return { ok: 0, failed: 0, recovered: 0, alerted: 0 };
+  }
+  const { clientId, clientSecret, redirectUri } = cfg.data();
+  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+
+  // 通知設定
+  const nsDoc = await db.collection("settings").doc("notifications").get();
+  const ns = nsDoc.exists ? nsDoc.data() : {};
+
+  // メール照合用 + 税理士資料用 を順に検査
+  const a = await processCollection_(db, "gmailOAuthEmailVerification", "emailVerification", oauth2Client, ns);
+  const b = await processCollection_(db, "gmailOAuth", "default", oauth2Client, ns);
+
+  const total = {
+    ok: a.ok + b.ok,
+    failed: a.failed + b.failed,
+    recovered: a.recovered + b.recovered,
+    alerted: a.alerted + b.alerted,
+  };
+  console.log(`[oauthReminder] 完了 ok=${total.ok} failed=${total.failed} alerted=${total.alerted} recovered=${total.recovered}`);
+  return total;
 }
 
 const oauthReminder = onSchedule(
