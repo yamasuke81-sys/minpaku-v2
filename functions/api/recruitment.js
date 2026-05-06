@@ -442,6 +442,9 @@ module.exports = function recruitmentApi(db) {
       await docRef.update({
         status: "募集中",
         confirmedAt: null,
+        // 確定取消時は選定スタッフもクリア (残ると「未回答なのに選定済み」 表示の不整合になる)
+        selectedStaff: "",
+        selectedStaffIds: [],
         updatedAt: FieldValue.serverTimestamp(),
       });
       res.json({ message: "募集を再開しました" });
