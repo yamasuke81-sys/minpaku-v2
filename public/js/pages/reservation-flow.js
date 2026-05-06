@@ -1641,17 +1641,35 @@ const ReservationFlowPage = {
     const property = visible.find(p => p.id === this._selectedPid) || visible[0];
     this._selectedPid = property.id;
 
-    // メインフロー (branch なし)
-    const mainSteps = this.STEPS.filter(s => !s.branch);
-    // 分岐
-    const branchASteps = this.STEPS.filter(s => s.branch === "cancel");
-    const branchBSteps = this.STEPS.filter(s => s.branch === "staff_cancel");
-    const branchCSteps = this.STEPS.filter(s => s.branch === "monitor");
+    // モバイルタブのフィルタ (all / guest / owner / staff / branch)
+    const mobileLane = this._currentMobileLane || "all";
 
-    const phases = [1, 2];
+    // メインフロー (branch なし)
+    let mainSteps = this.STEPS.filter(s => !s.branch);
+    // 分岐
+    let branchASteps = this.STEPS.filter(s => s.branch === "cancel");
+    let branchBSteps = this.STEPS.filter(s => s.branch === "staff_cancel");
+    let branchCSteps = this.STEPS.filter(s => s.branch === "monitor");
+
+    // タブフィルタ適用
+    if (mobileLane === "branch") {
+      // 分岐のみ表示 → メインフローを空に
+      mainSteps = [];
+    } else if (mobileLane !== "all") {
+      // 特定 lane のみ表示
+      mainSteps = mainSteps.filter(s => s.lane === mobileLane);
+      branchASteps = branchASteps.filter(s => s.lane === mobileLane);
+      branchBSteps = branchBSteps.filter(s => s.lane === mobileLane);
+      branchCSteps = branchCSteps.filter(s => s.lane === mobileLane);
+    }
+
+    const phases = [1, 2, 3, 4, 5];
     const phaseLabels = {
       1: "Phase 1: 予約受付",
       2: "Phase 2: ゲスト対応 & スタッフ手配",
+      3: "Phase 3: 清掃実施",
+      4: "Phase 4: 月次精算",
+      5: "Phase 5: システム / デイリー",
     };
 
     // デスクトップ: 3レーングリッド
