@@ -1508,14 +1508,17 @@ const ReservationFlowPage = {
       ${this._renderStyles()}
       <!-- 物件セレクタ (sticky固定: スクロール時も対象物件が常に見える) -->
       <div id="rfPropertySelector" class="rf-property-bar mb-2"></div>
-      <!-- モバイルタブ -->
-      <div class="rf-mobile-tabs d-md-none mb-2">
-        <ul class="nav nav-pills nav-fill rf-lane-tabs">
-          <li class="nav-item"><a class="nav-link active" href="#" data-lane="all">すべて</a></li>
-          <li class="nav-item"><a class="nav-link" href="#" data-lane="guest">👤 ゲスト</a></li>
-          <li class="nav-item"><a class="nav-link" href="#" data-lane="owner">🏠 Webアプリ管理者</a></li>
-          <li class="nav-item"><a class="nav-link" href="#" data-lane="staff">🧹 スタッフ</a></li>
-          <li class="nav-item"><a class="nav-link" href="#" data-lane="branch">🔴 分岐</a></li>
+      <!-- 種別タブ (発信/受信 × 役割) -->
+      <div class="rf-mobile-tabs mb-2">
+        <ul class="nav nav-pills rf-lane-tabs flex-wrap" style="gap:4px;">
+          <li class="nav-item"><a class="nav-link active py-1 px-2" href="#" data-lane="all" style="font-size:12px;">すべて</a></li>
+          <li class="nav-item"><a class="nav-link py-1 px-2" href="#" data-lane="guest_send" style="font-size:12px;">👤➡ ゲスト発信</a></li>
+          <li class="nav-item"><a class="nav-link py-1 px-2" href="#" data-lane="guest_receive" style="font-size:12px;">⬅👤 ゲスト受信</a></li>
+          <li class="nav-item"><a class="nav-link py-1 px-2" href="#" data-lane="owner_send" style="font-size:12px;">🏠➡ 管理者発信</a></li>
+          <li class="nav-item"><a class="nav-link py-1 px-2" href="#" data-lane="owner_receive" style="font-size:12px;">⬅🏠 管理者受信</a></li>
+          <li class="nav-item"><a class="nav-link py-1 px-2" href="#" data-lane="staff_send" style="font-size:12px;">🧹➡ スタッフ発信</a></li>
+          <li class="nav-item"><a class="nav-link py-1 px-2" href="#" data-lane="staff_receive" style="font-size:12px;">⬅🧹 スタッフ受信</a></li>
+          <li class="nav-item"><a class="nav-link py-1 px-2" href="#" data-lane="branch" style="font-size:12px;">🔴 分岐</a></li>
         </ul>
       </div>
       <!-- メインスイムレーン -->
@@ -1641,26 +1644,35 @@ const ReservationFlowPage = {
     const property = visible.find(p => p.id === this._selectedPid) || visible[0];
     this._selectedPid = property.id;
 
-    // モバイルタブのフィルタ (all / guest / owner / staff / branch)
+    // タブフィルタ (all / {role}_send / {role}_receive / branch)
+    // - X発信: lane === X かつ arrowTo (≠X) がある (Xから他者へ送る)
+    // - X受信: arrowTo === X、または arrowTo 不在で lane === X (Xが受け手)
     const mobileLane = this._currentMobileLane || "all";
+    const matchTab = (s) => {
+      if (mobileLane === "all") return true;
+      if (mobileLane === "branch") return false; // 分岐は別ブロックで処理
+      const m = mobileLane.match(/^(guest|owner|staff)_(send|receive)$/);
+      if (!m) return true;
+      const role = m[1], dir = m[2];
+      if (dir === "send") {
+        return s.lane === role && s.arrowTo && s.arrowTo !== role;
+      } else { // receive
+        return s.arrowTo === role || (!s.arrowTo && s.lane === role);
+      }
+    };
 
-    // メインフロー (branch なし)
     let mainSteps = this.STEPS.filter(s => !s.branch);
-    // 分岐
     let branchASteps = this.STEPS.filter(s => s.branch === "cancel");
     let branchBSteps = this.STEPS.filter(s => s.branch === "staff_cancel");
     let branchCSteps = this.STEPS.filter(s => s.branch === "monitor");
 
-    // タブフィルタ適用
     if (mobileLane === "branch") {
-      // 分岐のみ表示 → メインフローを空に
-      mainSteps = [];
+      mainSteps = []; // 分岐タブは分岐セクションのみ
     } else if (mobileLane !== "all") {
-      // 特定 lane のみ表示
-      mainSteps = mainSteps.filter(s => s.lane === mobileLane);
-      branchASteps = branchASteps.filter(s => s.lane === mobileLane);
-      branchBSteps = branchBSteps.filter(s => s.lane === mobileLane);
-      branchCSteps = branchCSteps.filter(s => s.lane === mobileLane);
+      mainSteps = mainSteps.filter(matchTab);
+      branchASteps = branchASteps.filter(matchTab);
+      branchBSteps = branchBSteps.filter(matchTab);
+      branchCSteps = branchCSteps.filter(matchTab);
     }
 
     const phases = [1, 2, 3, 4, 5];
@@ -1803,6 +1815,40 @@ const ReservationFlowPage = {
     return html;
   },
 
+  // 通知設定の送信先サマリーアイコン (カードヘッダーに表示)
+  // 例: ownerLine ON → 🏠+💬 / staffEmail ON → 🧹+✉️
+  _renderChannelIcons(step, property) {
+    if (!step.globalChannel) return "";
+    const NCE = window.NotifyChannelEditor;
+    const n = NCE && NCE.findNotification(step.globalChannel);
+    if (!n) return "";
+    // 物件別 override が無ければ NOTIFICATIONS の default を採用
+    const ov = (property.channelOverrides || {})[step.globalChannel] || {};
+    const get = (k) => ov[k] !== undefined ? !!ov[k] :
+      (k === "enabled" ? (n.defaultEnabled !== false) : !!n[`default${k.charAt(0).toUpperCase() + k.slice(1)}`]);
+    if (!get("enabled")) return "";
+    // 各チャンネル定義: [actorIcon, channelIcon, label]
+    const items = [
+      { f: "ownerLine",      a: "bi-house",         c: "bi-chat-text-fill",     col: "#06c755", title: "管理者 LINE" },
+      { f: "ownerEmail",     a: "bi-house",         c: "bi-envelope-fill",      col: "#0d6efd", title: "管理者 メール" },
+      { f: "groupLine",      a: "bi-people-fill",   c: "bi-chat-text-fill",     col: "#06c755", title: "グループ LINE" },
+      { f: "subOwnerLine",   a: "bi-person-badge",  c: "bi-chat-text-fill",     col: "#06c755", title: "サブオーナー LINE" },
+      { f: "subOwnerEmail",  a: "bi-person-badge",  c: "bi-envelope-fill",      col: "#0d6efd", title: "サブオーナー メール" },
+      { f: "staffLine",      a: "bi-broom",         c: "bi-chat-text-fill",     col: "#06c755", title: "スタッフ LINE" },
+      { f: "staffEmail",     a: "bi-broom",         c: "bi-envelope-fill",      col: "#0d6efd", title: "スタッフ メール" },
+      { f: "propertyEmail",  a: "bi-building",      c: "bi-envelope-fill",      col: "#0d6efd", title: "物件メール" },
+      { f: "discordOwner",   a: "bi-house",         c: "bi-discord",            col: "#5865F2", title: "管理者 Discord" },
+      { f: "discordSubOwner",a: "bi-person-badge",  c: "bi-discord",            col: "#5865F2", title: "サブオーナー Discord" },
+      { f: "fcmOwner",       a: "bi-house",         c: "bi-bell-fill",          col: "#fd7e14", title: "管理者 プッシュ" },
+      { f: "fcmStaff",       a: "bi-broom",         c: "bi-bell-fill",          col: "#fd7e14", title: "スタッフ プッシュ" },
+    ];
+    const enabled = items.filter(it => get(it.f));
+    if (!enabled.length) return "";
+    return `<span class="rf-channel-icons d-inline-flex flex-wrap" style="gap:3px;margin-left:6px;">${
+      enabled.map(it => `<span class="d-inline-flex align-items-center" title="${it.title}" style="background:#f1f3f5;border-radius:8px;padding:1px 5px;font-size:10px;line-height:1;border:1px solid #dee2e6;"><i class="bi ${it.a}" style="font-size:10px;color:#495057;"></i><i class="bi ${it.c} ms-1" style="font-size:9px;color:${it.col};"></i></span>`).join("")
+    }</span>`;
+  },
+
   // カード1枚のHTML
   _renderCard(step, property, enabled, memo) {
     // バッジ類: status="未実装" または unimplemented:true の両方に対応
@@ -1814,6 +1860,7 @@ const ReservationFlowPage = {
       syncBadge = `<span class="badge bg-success-subtle text-success border border-success-subtle ms-1 rf-sync-badge" style="font-size:9px;" title="properties.${step.propertyField} に保存 (物件ごと・他タブと同期)"><i class="bi bi-arrow-left-right"></i> 同期</span>`;
     }
     const arrowBadge = ""; // 人マーク・矢印バッジは廃止
+    const channelIconsHtml = this._renderChannelIcons(step, property);
 
     // フォールドID
     const foldId = `rfc-${step.key}-${property.id}`;
@@ -1871,7 +1918,7 @@ const ReservationFlowPage = {
         <div class="rf-card-header" data-fold="${foldId}" style="cursor:pointer;">
           <i class="bi ${step.icon} rf-card-icon"></i>
           <span class="rf-card-title" title="${this._esc(step.label)}">${this._esc(step.label)}</span>
-          ${statusBadge}${syncBadge}${arrowBadge}
+          ${statusBadge}${syncBadge}${arrowBadge}${channelIconsHtml}
           <div class="ms-auto d-flex align-items-center gap-1">
             ${headerToggleHtml}
             <i class="bi bi-chevron-down rf-chevron" data-fold="${foldId}" style="font-size:0.75rem;transition:transform 0.2s;"></i>
