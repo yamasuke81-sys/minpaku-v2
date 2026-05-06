@@ -229,6 +229,46 @@ const ReservationFlowPage = {
       // ゲスト案内URLの表示・開くボタン用フラグ（_renderDetailFields 内で特別レンダリング）
       _renderGuideUrlInfo: true,
     },
+    // 1. 直前予約リマインド
+    {
+      key: "urgent_remind",
+      label: "直前予約リマインド",
+      icon: "bi-lightning",
+      lane: "owner",
+      phase: 2,
+      track: "guest",
+      globalChannel: "urgent_remind",
+      varGroup: "recruit",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+    },
+    // 2. 名簿未入力催促 (管理者宛なので arrowTo なし)
+    {
+      key: "roster_remind",
+      label: "名簿未入力催促リマインド",
+      icon: "bi-person-vcard",
+      lane: "owner",
+      phase: 2,
+      track: "guest",
+      globalChannel: "roster_remind",
+      varGroup: "booking",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+    },
+    // 3. パスポート写真 アップロード失敗 通知
+    {
+      key: "passport_upload_failed",
+      label: "パスポート写真 アップロード失敗 通知",
+      icon: "bi-image-alt",
+      lane: "owner",
+      phase: 2,
+      track: "guest",
+      globalChannel: "passport_upload_failed",
+      varGroup: "booking",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+    },
+    // 4. 宿泊者名簿 受信通知
     {
       key: "roster_received",
       label: "宿泊者名簿 受信通知",
@@ -242,7 +282,7 @@ const ReservationFlowPage = {
       linkHash: "#/notifications",
       linkLabel: "通知設定",
     },
-    // タスク7: roster_mismatch を roster_received 直後に移動 (Phase2 owner レーン)
+    // 5. 名簿照合エラー通知
     {
       key: "roster_mismatch",
       label: "名簿照合エラー通知",
@@ -255,21 +295,6 @@ const ReservationFlowPage = {
       linkHash: "#/notifications",
       linkLabel: "通知設定",
       hint: "名簿の内容が予約データと一致しない場合（予約なし・人数不一致・CO日不一致）に発火",
-    },
-    // 名簿更新通知 (宿泊者が修正リンクから再送信した場合)
-    {
-      key: "roster_updated",
-      label: "名簿更新通知 (修正受信)",
-      icon: "bi-arrow-repeat",
-      lane: "owner",
-      phase: 2,
-      track: "guest",
-      globalChannel: "roster_updated",
-      varGroup: "guestUpdate",
-      arrowFrom: "guest",
-      linkHash: "#/notifications",
-      linkLabel: "通知設定",
-      hint: "宿泊者が修正リンクから名簿を再送信した時にWebアプリ管理者へ通知",
     },
     {
       key: "form_complete_mail",
@@ -332,7 +357,20 @@ const ReservationFlowPage = {
         </div>
       `,
     },
-    // 名簿修正完了サンクスメール (宿泊者宛)
+    // 7. サンクスメール送信失敗 通知
+    {
+      key: "form_complete_mail_failed",
+      label: "サンクスメール送信失敗 通知",
+      icon: "bi-envelope-exclamation",
+      lane: "owner",
+      phase: 2,
+      track: "guest",
+      globalChannel: "form_complete_mail_failed",
+      varGroup: "booking",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+    },
+    // 8. 名簿修正完了サンクスメール (宿泊者宛)
     {
       key: "form_update_mail",
       label: "名簿修正完了メール (宿泊者宛)",
@@ -380,54 +418,20 @@ const ReservationFlowPage = {
         </div>
       `,
     },
+    // 9. 名簿修正通知 (旧: 名簿更新通知)
     {
-      key: "form_complete_mail_failed",
-      label: "サンクスメール送信失敗 通知",
-      icon: "bi-envelope-exclamation",
+      key: "roster_updated",
+      label: "名簿修正通知",
+      icon: "bi-arrow-repeat",
       lane: "owner",
       phase: 2,
       track: "guest",
-      globalChannel: "form_complete_mail_failed",
-      varGroup: "booking",
+      globalChannel: "roster_updated",
+      varGroup: "guestUpdate",
+      arrowFrom: "guest",
       linkHash: "#/notifications",
       linkLabel: "通知設定",
-    },
-    {
-      key: "passport_upload_failed",
-      label: "パスポート写真 アップロード失敗 通知",
-      icon: "bi-image-alt",
-      lane: "owner",
-      phase: 2,
-      track: "guest",
-      globalChannel: "passport_upload_failed",
-      varGroup: "booking",
-      linkHash: "#/notifications",
-      linkLabel: "通知設定",
-    },
-    {
-      key: "roster_remind",
-      label: "名簿未入力催促リマインド",
-      icon: "bi-person-vcard",
-      lane: "owner",
-      phase: 2,
-      track: "guest",
-      globalChannel: "roster_remind",
-      varGroup: "booking",
-      arrowTo: "guest",
-      linkHash: "#/notifications",
-      linkLabel: "通知設定",
-    },
-    {
-      key: "urgent_remind",
-      label: "直前予約リマインド",
-      icon: "bi-lightning",
-      lane: "owner",
-      phase: 2,
-      track: "guest",
-      globalChannel: "urgent_remind",
-      varGroup: "recruit",
-      linkHash: "#/notifications",
-      linkLabel: "通知設定",
+      hint: "宿泊者が修正リンクから名簿を再送信した時にWebアプリ管理者へ通知",
     },
     {
       key: "timee_posting",
@@ -446,6 +450,22 @@ const ReservationFlowPage = {
         { hash: "https://app-new.taimee.co.jp/account", label: "タイミーを開く", external: true },
       ],
     },
+    // 10. キーボックス送信リマインド (キーボックス情報送信より前に表示)
+    {
+      key: "keybox_remind",
+      label: "キーボックス送信リマインド (送信予約未押下)",
+      icon: "bi-key-fill",
+      lane: "owner",
+      phase: 2,
+      track: "guest",
+      globalChannel: "keybox_remind",
+      varGroup: "booking",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+      hint: "条件: 名簿入力済 + 受信通知済 + 管理者の「キーボックス送信を予約する」未押下のとき自動通知",
+      keyboxRemindTiming: true,
+    },
+    // 11. キーボックス情報送信 + 施設案内
     {
       key: "keybox_send",
       label: "キーボックス情報送信 + 施設案内",
@@ -544,21 +564,6 @@ const ReservationFlowPage = {
           </div>
         </div>
       `,
-    },
-    {
-      key: "keybox_remind",
-      label: "キーボックス送信リマインド (送信予約未押下)",
-      icon: "bi-key-fill",
-      lane: "owner",
-      phase: 2,
-      track: "guest",
-      globalChannel: "keybox_remind",
-      varGroup: "booking",
-      linkHash: "#/notifications",
-      linkLabel: "通知設定",
-      hint: "条件: 名簿入力済 + 受信通知済 + 管理者の「キーボックス送信を予約する」未押下のとき自動通知",
-      // 「キーボックス送信予定時刻」基準の相対タイミング設定
-      keyboxRemindTiming: true,
     },
     {
       key: "checkin_app",
