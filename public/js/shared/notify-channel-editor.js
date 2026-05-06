@@ -95,6 +95,14 @@
       { name: "staff",    label: "スタッフ名",      sample: "山田太郎",      source: "response.staffName (置換時)" },
       { name: "url",      label: "回答ページURL",   sample: "https://minpaku-v2.web.app/#/my-recruitment", source: "自動生成" },
     ],
+    morning_briefing: [
+      { name: "date",         label: "今日の日付",        sample: "2026年5月7日(木)", source: "実行日" },
+      { name: "checkInsToday",  label: "本日チェックイン件数", sample: "2",   source: "本日 CI 数 (今日が CI の予約)" },
+      { name: "checkOutsToday", label: "本日チェックアウト件数", sample: "1", source: "本日 CO 数 (今日が CO の予約)" },
+      { name: "cleaningsToday", label: "本日清掃件数",      sample: "1",            source: "本日 確定済 cleaning shifts" },
+      { name: "alerts",         label: "要対応一覧",        sample: "・5/8 YADO 募集回答待ち",        source: "未確定募集 / 回答未完 等" },
+      { name: "url",            label: "管理画面URL",       sample: "https://minpaku-v2.web.app/", source: "固定" },
+    ],
   };
 
   // ========== 通知定義 ==========
@@ -165,6 +173,9 @@
     { key: "error_alert", label: "エラーアラート", desc: "Cloud Functions でシステムエラーが発生した際にWebアプリ管理者へ通知", icon: "bi-bug", group: "system", varGroup: "system", defaultTiming: "immediate",
       defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: false,
       defaultMsg: "🚨 システムエラー\n\n{error}\n\n管理画面: {url}" },
+    { key: "morning_briefing", label: "朝のブリーフィング", desc: "毎朝 6:00 (JST) に当日の予約・清掃・要対応事項のサマリーを Webアプリ管理者へ送信", icon: "bi-sun", group: "system", varGroup: "morning_briefing", defaultTiming: "morning",
+      defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: true,
+      defaultMsg: "━━━ 朝のブリーフィング ━━━\n\n📅 {date}\n\n📥 本日チェックイン: {checkInsToday}件\n📤 本日チェックアウト: {checkOutsToday}件\n🧹 本日清掃: {cleaningsToday}件\n\n⚠️ 要対応:\n{alerts}\n\n管理画面: {url}" },
     // タスク5: scan_pending は民泊v2に不要なため削除 (scan-sorter プロジェクトのみで使用)
     // ----- キーボックス送信通知 (タスク2) -----
     { key: "keybox_send", label: "キーボックス情報送信", desc: "ゲストへキーボックス暗証番号・施設案内メールを自動送信", icon: "bi-key", group: "booking", varGroup: "booking", defaultTiming: "immediate",

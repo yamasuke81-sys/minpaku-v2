@@ -636,6 +636,103 @@ const ReservationFlowPage = {
       linkLabel: "通知設定",
     },
 
+    // ---- Phase 3: 清掃実施 (スタッフのチェックリスト操作 → 管理者通知) ----
+    {
+      key: "laundry_put_out",
+      label: "ランドリー 出した",
+      icon: "bi-arrow-up-circle",
+      lane: "staff",
+      phase: 3,
+      track: "staff",
+      globalChannel: "laundry_put_out",
+      varGroup: "laundry",
+      arrowTo: "owner",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+    },
+    {
+      key: "laundry_collected",
+      label: "ランドリー 回収した",
+      icon: "bi-arrow-down-circle",
+      lane: "staff",
+      phase: 3,
+      track: "staff",
+      globalChannel: "laundry_collected",
+      varGroup: "laundry",
+      arrowTo: "owner",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+    },
+    {
+      key: "laundry_stored",
+      label: "ランドリー 収納した",
+      icon: "bi-check2-circle",
+      lane: "staff",
+      phase: 3,
+      track: "staff",
+      globalChannel: "laundry_stored",
+      varGroup: "laundry",
+      arrowTo: "owner",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+    },
+    {
+      key: "cleaning_done",
+      label: "清掃完了通知",
+      icon: "bi-clipboard-check",
+      lane: "staff",
+      phase: 3,
+      track: "staff",
+      globalChannel: "cleaning_done",
+      varGroup: "cleaning",
+      arrowTo: "owner",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+    },
+
+    // ---- Phase 4: 月次精算 (請求書フロー) ----
+    {
+      key: "invoice_request",
+      label: "請求書要請",
+      icon: "bi-receipt",
+      lane: "owner",
+      phase: 4,
+      track: "staff",
+      globalChannel: "invoice_request",
+      varGroup: "invoice",
+      arrowTo: "staff",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+    },
+    {
+      key: "invoice_submitted",
+      label: "請求書提出通知",
+      icon: "bi-send-check",
+      lane: "staff",
+      phase: 4,
+      track: "staff",
+      globalChannel: "invoice_submitted",
+      varGroup: "invoice",
+      arrowTo: "owner",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+    },
+
+    // ---- Phase 5: システム / デイリー (朝のブリーフィング等) ----
+    {
+      key: "morning_briefing",
+      label: "朝のブリーフィング",
+      icon: "bi-sun",
+      lane: "owner",
+      phase: 5,
+      track: "system",
+      globalChannel: "morning_briefing",
+      varGroup: "morning_briefing",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+      hint: "毎朝 6:00 (JST) に当日の予約・清掃・要対応事項のサマリーを送信。{date}/{checkInsToday}/{checkOutsToday}/{cleaningsToday}/{alerts}/{url} 変数が利用可能。",
+    },
+
     // ---- 分岐A: 予約キャンセル/変更 ----
     {
       key: "booking_cancel",
@@ -1683,38 +1780,9 @@ const ReservationFlowPage = {
         </div>
       `;
 
-      // 矢印行
-      if (step.arrowTo || step.arrowFrom) {
-        html += this._renderArrowRow(step);
-      }
+      // 矢印行/人マークは廃止 (UI シンプル化)
     });
     return html;
-  },
-
-  // 矢印行
-  _renderArrowRow(step) {
-    const laneOrder = { guest: 0, owner: 1, staff: 2 };
-    const fromLane = step.arrowFrom || step.lane;
-    const toLane = step.arrowTo;
-    if (!toLane) return "";
-
-    const fromIdx = laneOrder[fromLane];
-    const toIdx = laneOrder[toLane];
-    const goRight = toIdx > fromIdx;
-    const icon = goRight ? "bi-arrow-right" : "bi-arrow-left";
-    const label = toLane === "guest" ? "👤" : toLane === "owner" ? "🏠" : "🧹";
-
-    // 矢印をフロム列に配置
-    const cols = ["", "", ""];
-    cols[fromIdx] = `<span class="rf-arrow-badge rf-arrow-${toLane}"><i class="bi ${icon}"></i> ${label}</span>`;
-
-    return `
-      <div class="rf-swimlane-grid rf-arrow-row">
-        <div class="rf-lane-cell">${cols[0]}</div>
-        <div class="rf-lane-cell">${cols[1]}</div>
-        <div class="rf-lane-cell">${cols[2]}</div>
-      </div>
-    `;
   },
 
   // カード1枚のHTML
@@ -1727,9 +1795,7 @@ const ReservationFlowPage = {
     if (step.propertyField) {
       syncBadge = `<span class="badge bg-success-subtle text-success border border-success-subtle ms-1 rf-sync-badge" style="font-size:9px;" title="properties.${step.propertyField} に保存 (物件ごと・他タブと同期)"><i class="bi bi-arrow-left-right"></i> 同期</span>`;
     }
-    const arrowBadge = step.arrowTo
-      ? `<span class="badge bg-light text-dark border ms-1" style="font-size:9px;"><i class="bi bi-arrow-right"></i> ${step.arrowTo === "guest" ? "👤" : step.arrowTo === "owner" ? "🏠" : "🧹"}</span>`
-      : (step.arrowFrom ? `<span class="badge bg-light text-dark border ms-1" style="font-size:9px;"><i class="bi bi-arrow-left"></i> ${step.arrowFrom === "guest" ? "👤" : step.arrowFrom === "owner" ? "🏠" : "🧹"}</span>` : "");
+    const arrowBadge = ""; // 人マーク・矢印バッジは廃止
 
     // フォールドID
     const foldId = `rfc-${step.key}-${property.id}`;

@@ -21,7 +21,8 @@ const App = {
     laundry: LaundryPage,
     checklist: ChecklistPage,
     "reservation-flow": ReservationFlowPage,
-    "cleaning-flow": CleaningFlowPage,
+    // cleaning-flow は予約フローに統合済み (旧 hash 互換のため同じページにルーティング)
+    "cleaning-flow": ReservationFlowPage,
     "prepaid-cards": PrepaidCardsPage,
     reports: ReportsPage,
     command: CommandCenterPage,

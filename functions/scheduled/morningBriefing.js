@@ -7,7 +7,7 @@
  * - 承認待ち: GOサイン待ち件数
  * - エラー: 直近24h以内の未処理エラー
  */
-const { notifyOwner } = require("../utils/lineNotify");
+const { notifyByKey } = require("../utils/lineNotify");
 
 module.exports = async function morningBriefing(event) {
   const admin = require("firebase-admin");
@@ -192,7 +192,38 @@ module.exports = async function morningBriefing(event) {
   text += "\n━━━━━━━━━━━━━━━━━";
 
   console.log("朝ブリーフィング生成完了:", text.length, "文字");
-  const briefResult = await notifyOwner(db, "briefing", "朝のブリーフィング", text);
+  // 通知設定 (settings/notifications.channels.morning_briefing) で ON/OFF・送信先を制御
+  // 文面テンプレートが設定されていれば差し替え。未設定時は上で組み立てた text を使用。
+  // 主要セクションを変数化して提供 (テンプレート利用時にも使える)
+  const formatJpDate = (s) => {
+    if (!s) return "";
+    const [y, m, d] = s.split("-").map(Number);
+    const days = ["日","月","火","水","木","金","土"];
+    return `${y}年${m}月${d}日(${days[new Date(y, m - 1, d).getDay()]})`;
+  };
+  const alertsText = [];
+  for (const r of unconfirmed) {
+    const daysUntil = daysDiff(today, r.checkoutDate);
+    const icon = daysUntil <= 1 ? "🔴" : "🟡";
+    alertsText.push(`${icon} ${r.checkoutDate} 清掃スタッフ未確定${r.propertyName ? ` (${r.propertyName})` : ""}`);
+  }
+  for (const r of pendingConfirm) {
+    alertsText.push(`🟡 ${r.checkoutDate} 選定済み・未確定 (${r.selectedStaff || "?"})`);
+  }
+  if (alertsText.length === 0) alertsText.push("(なし)");
+
+  const briefResult = await notifyByKey(db, "morning_briefing", {
+    title: "朝のブリーフィング",
+    body: text,
+    vars: {
+      date: formatJpDate(today),
+      checkInsToday: String(checkins.length),
+      checkOutsToday: String(checkouts.length),
+      cleaningsToday: String(coSnap.size), // CO日 = 清掃日
+      alerts: alertsText.join("\n"),
+      url: "https://minpaku-v2.web.app/",
+    },
+  });
 
   // 送信成功時に送信日を記録（重複防止用）
   if (briefResult && briefResult.success) {
