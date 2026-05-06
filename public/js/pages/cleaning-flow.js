@@ -146,6 +146,19 @@ const CleaningFlowPage = {
       linkHash: "#/notifications",
       linkLabel: "通知設定",
     },
+    {
+      key: "recruit_date_change",
+      label: "清掃日変更通知",
+      icon: "bi-calendar-event",
+      lane: "owner",
+      phase: 1,
+      globalChannel: "recruit_date_change",
+      varGroup: "recruit_date_change",
+      arrowTo: "staff",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+      hint: "募集詳細モーダルで清掃日を変更した時、回答済みスタッフに送信されます。",
+    },
 
     // ---- Phase 3: 清掃実施 ----
     {

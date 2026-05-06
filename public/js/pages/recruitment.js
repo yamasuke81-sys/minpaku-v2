@@ -109,6 +109,11 @@ const RecruitmentPage = {
     document.getElementById("btnChangeRecruitmentDate").addEventListener("click", () => {
       this.changeRecruitmentDate();
     });
+    document.getElementById("btnDeleteRecruitmentInModal")?.addEventListener("click", () => {
+      this.deleteRecruitmentFromModal();
+    });
+    // ensureLoaded での二重バインドを防ぐ
+    this._quickBound = true;
   },
 
   /**
@@ -137,7 +142,7 @@ const RecruitmentPage = {
     const ok = await showConfirm(
       `清掃日を変更します:\n\n旧: ${oldDate}\n新: ${newDate}\n物件: ${r.propertyName || "-"}\n\n` +
       (responseCount > 0
-        ? `※ 既に回答済みのスタッフ ${responseCount} 名にも日付変更通知が送られます。\n  回答内容は新しい日付の募集に引き継がれます。\n`
+        ? `※ 既に回答済みのスタッフ ${responseCount} 名にも日付変更通知が送られます。\n  回答内容と選定状態はクリアされます (新しい日付で再募集)。\n`
         : "") +
       "※ 変更後の日付について新たな募集開始通知も送られます。",
       { title: "清掃日変更", okLabel: "変更", okClass: "btn-warning" }
@@ -147,10 +152,16 @@ const RecruitmentPage = {
     try {
       const dbRef = firebase.firestore();
       // 1) 同一 recruitment の checkoutDate を更新
+      //    回答 (responses) と選定 (selectedStaff/selectedStaffIds) は引き継がず全クリア
+      //    status も "募集中" に戻す
       await dbRef.collection("recruitments").doc(r.id).update({
         checkoutDate: newDate,
         previousCheckoutDate: r.previousCheckoutDate || oldDate,
         manualDateChange: true,
+        responses: [],
+        selectedStaff: "",
+        selectedStaffIds: [],
+        status: "募集中",
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
 
@@ -228,9 +239,11 @@ const RecruitmentPage = {
       const cb = document.getElementById("btnConfirmRecruitment");
       const rb = document.getElementById("btnReopenRecruitment");
       const db = document.getElementById("btnChangeRecruitmentDate");
+      const xb = document.getElementById("btnDeleteRecruitmentInModal");
       if (cb) cb.addEventListener("click", () => this.confirmRecruitment());
       if (rb) rb.addEventListener("click", () => this.reopenRecruitment());
       if (db) db.addEventListener("click", () => this.changeRecruitmentDate());
+      if (xb) xb.addEventListener("click", () => this.deleteRecruitmentFromModal());
       this._quickBound = true;
     }
   },
@@ -1381,6 +1394,31 @@ const RecruitmentPage = {
       await API.recruitments.delete(id);
       showToast("完了", "募集を削除しました", "success");
       await this.loadData();
+    } catch (e) {
+      showToast("エラー", `削除失敗: ${e.message}`, "error");
+    }
+  },
+
+  // 募集詳細モーダルの削除ボタン
+  // - 募集タブの deleteRecruitment と同じ挙動 + モーダルを閉じる
+  // - #/schedule から呼ばれる時は this.recruitments がない場合があるため _currentRecruitment を使う
+  async deleteRecruitmentFromModal() {
+    const r = this._currentRecruitment;
+    if (!r) return;
+    const ok = await this.confirmModal({
+      title: "募集の削除",
+      message: `${r.checkoutDate || ""} の募集を削除しますか？`,
+      confirmLabel: "削除", danger: true
+    });
+    if (!ok) return;
+    try {
+      await API.recruitments.delete(r.id);
+      showToast("完了", "募集を削除しました", "success");
+      if (this.detailModal) this.detailModal.hide();
+      // 募集タブにいる場合はリスト再読込
+      if (Array.isArray(this.recruitments)) {
+        try { await this.loadData(); } catch (_) {}
+      }
     } catch (e) {
       showToast("エラー", `削除失敗: ${e.message}`, "error");
     }
