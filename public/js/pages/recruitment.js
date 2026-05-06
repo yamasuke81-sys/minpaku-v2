@@ -1017,7 +1017,7 @@ const RecruitmentPage = {
     });
 
     if (!allStaff.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">スタッフが登録されていません</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">スタッフが登録されていません</td></tr>';
       return;
     }
 
@@ -1025,9 +1025,10 @@ const RecruitmentPage = {
     const currentSelected = (recruitment.selectedStaff || "").split(",").map(s => s.trim()).filter(Boolean);
     // ID 配列も併用 (スタッフ名がリネームされた場合に name 判定だけだとズレる)
     const currentSelectedIds = Array.isArray(recruitment.selectedStaffIds) ? recruitment.selectedStaffIds : [];
+    // タイミー実名 (オーナー/管理者が入力した「実際に来る人の名前」、確定状態に関わらず編集可)
+    const timeeNames = (recruitment.timeeOverrideNames && typeof recruitment.timeeOverrideNames === "object") ? recruitment.timeeOverrideNames : {};
 
-    // 並び: ◎ → △ → 未回答 → × の順で、各グループ内は displayOrder
-    const order = { "◎": 0, "△": 1, "未回答": 2, "×": 3 };
+    // 並び: 回答内容によるソートはやめ、displayOrder のみで安定表示
     const rows = allStaff.map(s => {
       const r = lookupResp(s);
       return {
@@ -1036,19 +1037,7 @@ const RecruitmentPage = {
         respondedAt: r ? r.respondedAt : null,
         memo: r ? (r.memo || "") : ""
       };
-    }).sort((a, b) => {
-      const oa = order[a.response] ?? 9;
-      const ob = order[b.response] ?? 9;
-      if (oa !== ob) return oa - ob;
-      return (a.staff.displayOrder||0) - (b.staff.displayOrder||0);
-    });
-
-    const respBadge = (r) => {
-      if (r === "◎") return '<span class="badge bg-success">◎</span>';
-      if (r === "△") return '<span class="badge bg-warning text-dark">△</span>';
-      if (r === "×") return '<span class="badge bg-danger">×</span>';
-      return '<span class="badge bg-secondary">未回答</span>';
-    };
+    }).sort((a, b) => (a.staff.displayOrder||0) - (b.staff.displayOrder||0));
 
     tbody.innerHTML = rows.map(row => {
       const s = row.staff;
@@ -1070,8 +1059,14 @@ const RecruitmentPage = {
           <input class="form-check-input staff-select-cb" type="checkbox"
                  value="${this.escapeHtml(s.name)}" ${checked} ${confirmed ? "disabled" : ""}>
         </td>`;
-      // A3: △ 回答の行は、直下に memo を薄色テキストで常時展開表示 (回答|理由 を一覧化)
-      const colspan = isStaffView ? 4 : 5;
+      // 回答済みボタンのクラスは塗りつぶし、未回答 or 他選択肢は outline で表示
+      const cls = (key) => {
+        const map = { "◎": "success", "△": "warning", "×": "danger" };
+        const c = map[key];
+        return row.response === key ? `btn-${c}${key === "△" ? " text-dark" : ""}` : `btn-outline-${c}`;
+      };
+      // △ 回答の行は、直下に memo を薄色テキストで常時展開表示 (回答|理由 を一覧化)
+      const colspan = isStaffView ? 3 : 4;
       const memoRow = (row.response === "△" && row.memo) ? `
         <tr class="triangle-memo-row">
           <td colspan="${colspan}" class="small text-muted ps-4 py-1" style="background:#fffbea;border-top:0;">
@@ -1092,30 +1087,37 @@ const RecruitmentPage = {
           <td>
             ${this.escapeHtml(s.name)}
             ${s.isOwner ? '<span class="badge bg-info ms-1" title="Webアプリ管理者">OWN</span>' : ""}
+            ${(s.isTimee && !isStaffView) ? `
+              <div class="mt-1">
+                <input type="text" class="form-control form-control-sm timee-name-input"
+                       data-staff-id="${s.id}"
+                       value="${this.escapeHtml(timeeNames[s.id] || "")}"
+                       placeholder="タイミーで来る人の名前 (任意)"
+                       style="font-size:11px;max-width:200px;">
+              </div>` : ""}
           </td>
-          <td>${respBadge(row.response)}</td>
-          <td class="small text-muted d-none d-md-table-cell">${respondedStr}</td>
           <td>
             ${canRespond ? (isMeRow ? `
               <div class="btn-group">
-                <button class="btn btn-success btn-resp-prominent btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="◎" title="OK">◎</button>
-                <button class="btn btn-warning btn-resp-prominent btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="△" title="条件付">△</button>
-                <button class="btn btn-danger btn-resp-prominent btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="×" title="NG">×</button>
+                <button class="btn ${cls("◎")} btn-resp-prominent btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="◎" title="OK">◎</button>
+                <button class="btn ${cls("△")} btn-resp-prominent btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="△" title="条件付">△</button>
+                <button class="btn ${cls("×")} btn-resp-prominent btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="×" title="NG">×</button>
                 ${row.response !== "未回答" ? `
                   <button class="btn btn-outline-secondary btn-respond-cancel ms-2" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" title="この回答を削除して未回答に戻す"><i class="bi bi-trash"></i></button>
                 ` : ""}
               </div>
             ` : `
               <div class="btn-group btn-group-sm">
-                <button class="btn btn-outline-success btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="◎" title="◎">◎</button>
-                <button class="btn btn-outline-warning btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="△" title="△">△</button>
-                <button class="btn btn-outline-danger btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="×" title="×">×</button>
+                <button class="btn ${cls("◎")} btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="◎" title="◎">◎</button>
+                <button class="btn ${cls("△")} btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="△" title="△">△</button>
+                <button class="btn ${cls("×")} btn-respond" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" data-response="×" title="×">×</button>
                 ${row.response !== "未回答" ? `
                   <button class="btn btn-outline-danger btn-respond-cancel ms-1" data-staff-id="${s.id}" data-staff-name="${this.escapeHtml(s.name)}" data-staff-email="${this.escapeHtml(s.email||"")}" title="この回答を削除して未回答に戻す"><i class="bi bi-trash"></i> 回答削除</button>
                 ` : ""}
               </div>
             `) : ""}
           </td>
+          <td class="small text-muted d-none d-md-table-cell text-end">${respondedStr}</td>
         </tr>
         ${memoRow}
         ${proxyTriangleRow}
@@ -1188,6 +1190,50 @@ const RecruitmentPage = {
         } catch (e) {
           showToast("エラー", `取消失敗: ${e.message}`, "error");
         }
+      });
+    });
+
+    // タイミー実名入力 (確定状態に関わらず編集可)
+    // blur または Enter で recruitments/{id}.timeeOverrideNames[staffId] へ直接書き込み
+    tbody.querySelectorAll(".timee-name-input").forEach(inp => {
+      const save = async () => {
+        const recruitmentId = document.getElementById("detailRecruitId").value;
+        if (!recruitmentId) return;
+        const sid = inp.dataset.staffId;
+        const val = (inp.value || "").trim();
+        try {
+          const dbRef = firebase.firestore();
+          const fieldPath = `timeeOverrideNames.${sid}`;
+          if (val) {
+            await dbRef.collection("recruitments").doc(recruitmentId).update({
+              [fieldPath]: val,
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            });
+          } else {
+            // 空にしたら削除
+            await dbRef.collection("recruitments").doc(recruitmentId).update({
+              [fieldPath]: firebase.firestore.FieldValue.delete(),
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            });
+          }
+          // ローカル state にも反映 (再描画時のため)
+          if (this._currentRecruitment) {
+            this._currentRecruitment.timeeOverrideNames = this._currentRecruitment.timeeOverrideNames || {};
+            if (val) this._currentRecruitment.timeeOverrideNames[sid] = val;
+            else delete this._currentRecruitment.timeeOverrideNames[sid];
+          }
+          inp.classList.remove("is-invalid");
+          inp.classList.add("is-valid");
+          setTimeout(() => inp.classList.remove("is-valid"), 1500);
+        } catch (e) {
+          console.error("[timee-name-input] 保存失敗:", e);
+          inp.classList.add("is-invalid");
+          showToast("エラー", `タイミー名の保存に失敗: ${e.message}`, "error");
+        }
+      };
+      inp.addEventListener("blur", save);
+      inp.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); inp.blur(); }
       });
     });
 
