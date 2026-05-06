@@ -787,7 +787,7 @@ const MyChecklistPage = {
       timeeUrl = snap.data()?.timeeQrImageUrl || "";
     } catch (_) { /* ignore */ }
 
-    const helperQrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=10&data=${encodeURIComponent(helperUrl)}`;
+    const helperQrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data=${encodeURIComponent(helperUrl)}`;
     const modalId = `combinedQrModal_${Date.now().toString(36)}`;
     const html = `
       <div class="modal fade" id="${modalId}" tabindex="-1">
@@ -799,23 +799,23 @@ const MyChecklistPage = {
             </div>
             <div class="modal-body">
               <!-- ① ヘルパー用 QR (チェックリスト URL) -->
-              <div class="mb-4 text-center">
-                <div class="fw-bold mb-2"><i class="bi bi-clipboard-check text-primary"></i> ヘルパー用チェックリスト</div>
-                <div class="border rounded p-2 bg-light mx-auto d-inline-block">
-                  <img src="${helperQrSrc}" alt="ヘルパー用 QR" style="max-width:100%;max-height:300px;">
+              <div class="mb-3 text-center">
+                <div class="fw-bold mb-1 small"><i class="bi bi-clipboard-check text-primary"></i> ヘルパー用チェックリスト</div>
+                <div class="border rounded p-1 bg-light mx-auto d-inline-block">
+                  <img src="${helperQrSrc}" alt="ヘルパー用 QR" style="max-width:100%;max-height:160px;">
                 </div>
-                <div class="small text-muted mt-2" style="word-break:break-all;">${this.escapeHtml(helperUrl)}</div>
-                <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="${modalId}_dlHelper">
-                  <i class="bi bi-download"></i> PNG ダウンロード
+                <div class="text-muted mt-1" style="word-break:break-all;font-size:10px;">${this.escapeHtml(helperUrl)}</div>
+                <button type="button" class="btn btn-sm btn-outline-primary mt-1 py-0" id="${modalId}_dlHelper" style="font-size:11px;">
+                  <i class="bi bi-download"></i> PNG
                 </button>
               </div>
-              <hr>
+              <hr class="my-2">
               <!-- ② タイミー用 QR (CI/CO 用、物件別アップロード画像) -->
               <div class="text-center">
-                <div class="fw-bold mb-2"><i class="bi bi-qr-code-scan text-warning"></i> タイミー CI/CO 用</div>
-                <div id="${modalId}_timeePreview" class="border rounded p-2 bg-light mx-auto" style="min-height:160px;display:flex;align-items:center;justify-content:center;">
+                <div class="fw-bold mb-1 small"><i class="bi bi-qr-code-scan text-warning"></i> タイミー CI/CO 用</div>
+                <div id="${modalId}_timeePreview" class="border rounded p-2 bg-light mx-auto" style="min-height:80px;display:flex;align-items:center;justify-content:center;">
                   ${timeeUrl
-                    ? `<img src="${this.escapeHtml(timeeUrl)}" alt="タイミー QR" style="max-width:100%;max-height:300px;">`
+                    ? `<img src="${this.escapeHtml(timeeUrl)}" alt="タイミー QR" style="max-width:100%;max-height:160px;">`
                     : `<span class="text-muted small">QR 画像が未登録です${isOwner ? "" : "。管理者にアップロードを依頼してください"}</span>`}
                 </div>
                 ${isOwner ? `

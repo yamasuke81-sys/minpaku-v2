@@ -84,34 +84,6 @@ const MyRecruitmentPage = {
       <!-- 要対応 / お知らせセクション -->
       <div id="myRecToActions" class="mb-3"></div>
 
-      <div class="mb-2">
-        <button class="btn btn-sm btn-link text-muted p-0 text-decoration-none" type="button"
-          data-bs-toggle="collapse" data-bs-target="#myCalLegend" aria-expanded="false">
-          <i class="bi bi-info-circle"></i> 凡例を表示 ▼
-        </button>
-        <div class="collapse" id="myCalLegend">
-          <div class="d-flex flex-wrap gap-3 mt-2 text-muted" style="font-size:13px;">
-            <span><span style="background:#ff5a5f;display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:middle;"></span> Airbnb</span>
-            <span><span style="background:#003580;display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:middle;"></span> Booking.com</span>
-            <span><span style="background:#198754;display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;"></span> 名簿提出済み</span>
-            <span><span style="background:#dc3545;display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;"></span> 名簿未提出</span>
-            <span><span style="display:inline-block;width:12px;height:12px;background:#a7c7ff;border-radius:2px;vertical-align:middle;"></span> 確定済</span>
-            <span>👤 あなた</span>
-            <span>|</span>
-            <span>募集ピル:
-              <span style="background:#fd7e14;color:#fff;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">清</span>募集中
-              <span style="background:#ffc107;color:#333;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">清</span>選定済
-              <span style="background:#198754;color:#fff;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">清</span>確定済 = 清掃
-            </span>
-            <span>
-              <span style="background:#a78bfa;color:#1e0a3c;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">直</span>募集中
-              <span style="background:#c4b5fd;color:#1e0a3c;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">直</span>選定済
-              <span style="background:#7c3aed;color:#fff;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">直</span>確定済 = 直前点検
-            </span>
-          </div>
-        </div>
-      </div>
-
       <style>
         #myCalContainer .col-resizer { opacity:0; transition:opacity 0.15s; }
         #myCalContainer .col-resizer:hover, #myCalContainer .col-resizer:active { opacity:1; }
@@ -143,6 +115,35 @@ const MyRecruitmentPage = {
         <!-- 現在スクロール位置の年月を固定表示するフローティングバッジ -->
         <div id="myCalFloatingMonth" style="position:absolute;top:6px;right:6px;z-index:20;background:rgba(13,110,253,0.92);color:#fff;padding:3px 10px;border-radius:14px;font-size:12px;font-weight:600;pointer-events:none;box-shadow:0 1px 3px rgba(0,0,0,0.15);"></div>
         <div id="myCalContainer" style="position:relative;overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--radius,8px);border:1px solid var(--border,#e2e8f0);"></div>
+      </div>
+
+      <!-- 凡例 (カレンダー下に配置 / 折りたたみ) -->
+      <div class="mt-2">
+        <button class="btn btn-sm btn-link text-muted p-0 text-decoration-none" type="button"
+          data-bs-toggle="collapse" data-bs-target="#myCalLegend" aria-expanded="false">
+          <i class="bi bi-info-circle"></i> 凡例を表示 ▼
+        </button>
+        <div class="collapse" id="myCalLegend">
+          <div class="d-flex flex-wrap gap-3 mt-2 text-muted" style="font-size:13px;">
+            <span><span style="background:#ff5a5f;display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:middle;"></span> Airbnb</span>
+            <span><span style="background:#003580;display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:middle;"></span> Booking.com</span>
+            <span><span style="background:#198754;display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;"></span> 名簿提出済み</span>
+            <span><span style="background:#dc3545;display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;"></span> 名簿未提出</span>
+            <span><span style="display:inline-block;width:12px;height:12px;background:#a7c7ff;border-radius:2px;vertical-align:middle;"></span> 確定済</span>
+            <span>👤 あなた</span>
+            <span>|</span>
+            <span>募集ピル:
+              <span style="background:#fd7e14;color:#fff;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">清</span>募集中
+              <span style="background:#ffc107;color:#333;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">清</span>選定済
+              <span style="background:#198754;color:#fff;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">清</span>確定済 = 清掃
+            </span>
+            <span>
+              <span style="background:#a78bfa;color:#1e0a3c;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">直</span>募集中
+              <span style="background:#c4b5fd;color:#1e0a3c;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">直</span>選定済
+              <span style="background:#7c3aed;color:#fff;display:inline-block;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;vertical-align:middle;">直</span>確定済 = 直前点検
+            </span>
+          </div>
+        </div>
       </div>
 
       <!-- 回答モーダル -->
@@ -191,8 +192,9 @@ const MyRecruitmentPage = {
             <div class="card-body p-2">
               <!-- 物件フィルタ (共通コンポーネント) -->
               <div id="propertyFilterHost-myrec-fullcal" class="mb-2"></div>
-              <!-- 凡例 -->
-              <div class="d-flex flex-wrap gap-3 mb-2 small text-muted">
+              <div id="myRecFullCalendarBody"></div>
+              <!-- 凡例 (カレンダー下に配置) -->
+              <div class="d-flex flex-wrap gap-3 mt-2 small text-muted">
                 <span><span class="cal-legend" style="background:#FF5A5F"></span>Airbnb</span>
                 <span><span class="cal-legend" style="background:#003580"></span>Booking.com</span>
                 <span><span class="cal-legend" style="background:#0d6efd"></span>直接予約</span>
@@ -207,7 +209,6 @@ const MyRecruitmentPage = {
                 <span><span class="event-status-dot dot-roster-ok" style="display:inline-block"></span>名簿済</span>
                 <span><span class="event-status-dot dot-roster-ng" style="display:inline-block"></span>名簿未</span>
               </div>
-              <div id="myRecFullCalendarBody"></div>
             </div>
           </div>
         </div>

@@ -61,8 +61,15 @@ const DashboardPage = {
       <!-- 物件フィルタ (共通コンポーネント) -->
       <div id="propertyFilterHost-dashboard"></div>
 
-      <!-- 凡例 -->
-      <div class="d-flex flex-wrap gap-3 mb-2 small text-muted">
+      <!-- カレンダー -->
+      <div class="card">
+        <div class="card-body p-2">
+          <div id="dashboardCalendar"></div>
+        </div>
+      </div>
+
+      <!-- 凡例 (カレンダー下に配置) -->
+      <div class="d-flex flex-wrap gap-3 mt-2 small text-muted">
         <span><span class="cal-legend" style="background:#FF5A5F"></span>Airbnb</span>
         <span><span class="cal-legend" style="background:#003580"></span>Booking.com</span>
         <span><span class="cal-legend" style="background:#0d6efd"></span>直接予約</span>
@@ -77,13 +84,6 @@ const DashboardPage = {
         <span><span class="event-status-dot dot-roster-ok" style="display:inline-block"></span>名簿済</span>
         <span><span class="event-status-dot dot-roster-ng" style="display:inline-block"></span>名簿未</span>
         <span class="ms-auto"><i class="bi bi-plus-circle"></i> 日付クリック=募集作成</span>
-      </div>
-
-      <!-- カレンダー -->
-      <div class="card">
-        <div class="card-body p-2">
-          <div id="dashboardCalendar"></div>
-        </div>
       </div>
     `;
 
