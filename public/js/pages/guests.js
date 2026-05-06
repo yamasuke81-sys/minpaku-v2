@@ -1071,7 +1071,7 @@ const GuestsPage = {
       showToast("完了", "キーボックス送信を予約しました", "success");
       // 一覧再読込 → モーダル再描画
       await this.loadGuests();
-      this.showGuestDetail(g.id);
+      this.showDetail(g.id);
     } catch (e) {
       showToast("エラー", `予約失敗: ${e.message}`, "error");
     }

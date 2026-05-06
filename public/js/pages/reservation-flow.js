@@ -109,7 +109,7 @@ const ReservationFlowPage = {
     error_alert:        { defaultMsg: "🚨 システムエラー\n\n{error}\n\n管理画面: {url}", defaultTiming: "immediate", varGroup: "system" },
     // scan_pending: タスク5で削除 (民泊v2に不要)
     keybox_send:        { defaultMsg: "", defaultTiming: "scheduled", varGroup: "booking" },
-    keybox_remind:      { defaultMsg: "⚠️ キーボックス情報未送信\n\nゲスト: {guest}\nCI: {checkin}\nOKボタンが未押下のため送信がスケジュールされていません。\n確認: {url}", defaultTiming: "immediate", varGroup: "booking" },
+    keybox_remind:      { defaultMsg: "⚠️ キーボックス情報未送信\n\nゲスト: {guest}\nCI: {checkin}\n「キーボックス送信を予約する」がまだ押されていません。名簿画面から予約してください。\n{url}", defaultTiming: "immediate", varGroup: "booking" },
   },
 
   // ========== STEPS 定義 (30項目) ==========
@@ -466,11 +466,11 @@ const ReservationFlowPage = {
         // 送信タイミング
         { field: "keyboxSend.mode",         label: "送信タイミング", type: "select",
           options: [
-            { value: "after_ok_click",  label: "OKボタンを押したタイミングでスケジュール開始" },
-            { value: "scheduled_date",  label: "指定した日時に自動送信" },
+            { value: "after_ok_click",  label: "管理者が「キーボックス送信を予約する」を押した時のみスケジュール" },
+            { value: "scheduled_date",  label: "予約があれば常に指定日時に自動送信" },
           ],
           default: "after_ok_click",
-          hint: "「OKボタン」モード: 名簿受信メールのリンクをクリックするとスケジュールが有効化されます" },
+          hint: "「予約モード」: 宿泊者名簿画面 (#/guests?id=) で管理者が「キーボックス送信を予約する」を押すとスケジュールが有効化。 / 「自動送信モード」: 予約と名簿が揃えば管理者操作なしで送信。" },
         // タスク3: scheduleType 変更時 customDaysBefore を disabled にする (renderDetailFields 拡張で対応)
         { field: "keyboxSend.scheduleType", label: "送信日", type: "select",
           options: [
@@ -547,7 +547,7 @@ const ReservationFlowPage = {
     },
     {
       key: "keybox_remind",
-      label: "キーボックス送信リマインド (OKボタン未押下)",
+      label: "キーボックス送信リマインド (送信予約未押下)",
       icon: "bi-key-fill",
       lane: "owner",
       phase: 2,
@@ -556,7 +556,7 @@ const ReservationFlowPage = {
       varGroup: "booking",
       linkHash: "#/notifications",
       linkLabel: "通知設定",
-      hint: "条件: 名簿入力済 + 受信通知済 + OKボタン未押下のとき自動通知",
+      hint: "条件: 名簿入力済 + 受信通知済 + 管理者の「キーボックス送信を予約する」未押下のとき自動通知",
       // 「キーボックス送信予定時刻」基準の相対タイミング設定
       keyboxRemindTiming: true,
     },
@@ -973,7 +973,7 @@ const ReservationFlowPage = {
           </div>
         </div>
         <div class="small text-muted mt-2" style="font-size:0.72rem;">
-          <i class="bi bi-info-circle"></i> 条件: 名簿入力済 + 受信通知済 + OKボタン未押下のとき発火
+          <i class="bi bi-info-circle"></i> 条件: 名簿入力済 + 受信通知済 + 管理者の「キーボックス送信を予約する」未押下のとき発火
         </div>
       </div>
     `;
