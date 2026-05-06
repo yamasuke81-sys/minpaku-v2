@@ -349,6 +349,37 @@
     }
     .step-video-fallback a { color: var(--accent); }
 
+    /* GIF: 動くことを目立たせる演出 */
+    .step-video-frame.is-animated {
+      animation: pulse-border 2s ease-in-out infinite;
+    }
+    @keyframes pulse-border {
+      0%, 100% {
+        box-shadow: 0 4px 14px rgba(180, 140, 60, 0.18), 0 0 0 0 rgba(217, 83, 79, 0.5);
+      }
+      50% {
+        box-shadow: 0 4px 14px rgba(180, 140, 60, 0.18), 0 0 0 8px rgba(217, 83, 79, 0);
+      }
+    }
+    .gif-badge {
+      position: absolute;
+      top: 8px; left: 8px;
+      background: #d9534f;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 9px;
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+      z-index: 2;
+      animation: badge-blink 2s ease-in-out infinite;
+      letter-spacing: 0.02em;
+    }
+    @keyframes badge-blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.55; }
+    }
+
     .img-single { margin-top: 10px; }
     .img-single .photo { max-width: 440px; aspect-ratio: 4/3; }
     .img-single .photo.wide { aspect-ratio: 21/9; max-width: 640px; }
@@ -664,7 +695,9 @@
         <div class="step-video">
           <p class="step-video-title jp">🎥 キーボックスの開け方</p>
           <p class="step-video-title en-only">🎥 How to open the key box</p>
-          <div class="step-video-frame" style="aspect-ratio:1/1;max-width:360px;background:#fff;">
+          <div class="step-video-frame is-animated" style="aspect-ratio:1/1;max-width:460px;background:#fff;">
+            <span class="gif-badge jp">▶ 動きます</span>
+            <span class="gif-badge en-only">▶ Animated</span>
             <img src="img/keybox-open.gif" alt="キーボックスの開け方 / How to open the key box" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;">
           </div>
         </div>
@@ -938,9 +971,15 @@
       </div>
 
       <div class="rule">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-door-closed"></i></span><span class="jp">外出時の戸締り・セキュリティ</span><span class="en-only">Security</span></div>
-        <p class="jp">在室時・就寝時はドアのカギを、外出時は窓も閉めてください。ロビーはオートロック式です。外出時は必ずカギをキーボックスに戻し、キーボックスごと一階ロビーの704号室ポストに入れてください（チェックイン時と同じ手順）。</p>
-        <p class="en-only">Lock the door when inside and while sleeping. Close the windows before leaving. The lobby auto-locks. When going out, place the key inside the key box and put it back into the Room 704 mailbox on the 1st floor lobby (same as check-in).</p>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-house-door"></i></span><span class="jp">在室時・就寝時のセキュリティ</span><span class="en-only">While inside / sleeping</span></div>
+        <p class="jp">ドアのカギは必ず施錠してください。ロビーはオートロック式です。</p>
+        <p class="en-only">Always lock the door. The lobby auto-locks.</p>
+      </div>
+
+      <div class="rule">
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-door-closed"></i></span><span class="jp">外出時の戸締り</span><span class="en-only">When going out</span></div>
+        <p class="jp">窓を閉め、ドアのカギを施錠してください。外出時は必ずカギをキーボックスに戻し、キーボックスごと一階ロビーの704号室ポストに入れてください（チェックイン時と同じ手順）。</p>
+        <p class="en-only">Close all windows and lock the door. Place the key inside the key box and put it back into the Room 704 mailbox on the 1st floor lobby (same as check-in).</p>
       </div>
 
       <div class="rule">
