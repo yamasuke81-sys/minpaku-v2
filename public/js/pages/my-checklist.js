@@ -50,6 +50,9 @@ const MyChecklistPage = {
             <button type="button" id="mclHelperQrBtn" class="btn btn-sm btn-primary" title="ヘルパー用 QR を表示" style="font-size:11px;padding:3px 8px;">
               <i class="bi bi-qr-code"></i>
             </button>
+            <button type="button" id="mclTimeeQrBtn" class="btn btn-sm btn-warning" title="タイミー用 QR (CI/CO)" style="font-size:11px;padding:3px 8px;">
+              <i class="bi bi-qr-code-scan"></i>
+            </button>
           </div>
         </div>
       </div>
@@ -812,6 +815,120 @@ const MyChecklistPage = {
         if (modalEl) bootstrap.Modal.getOrCreateInstance(modalEl).show();
       });
     }
+    // タイミー用 QR (CI/CO) - 手動アップロード型
+    const timeeBtn = document.getElementById("mclTimeeQrBtn");
+    if (timeeBtn) {
+      timeeBtn.addEventListener("click", () => this._openTimeeQrModal(propertyId, propertyName));
+    }
+  },
+
+  // タイミー用 QR モーダル: アップロード型 (画像は properties.{id}.timeeQrImageUrl に保存)
+  async _openTimeeQrModal(propertyId, propertyName) {
+    const isOwner = (typeof Auth !== "undefined" && Auth.isOwner && Auth.isOwner());
+    let currentUrl = "";
+    try {
+      const snap = await firebase.firestore().collection("properties").doc(propertyId).get();
+      currentUrl = snap.data()?.timeeQrImageUrl || "";
+    } catch (_) { /* ignore */ }
+
+    const modalId = `timeeQrModal_${Date.now().toString(36)}`;
+    const html = `
+      <div class="modal fade" id="${modalId}" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="bi bi-qr-code-scan"></i> タイミー用 QR (CI/CO)</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+              <div class="fw-bold mb-2">${this.escapeHtml(propertyName || "")}</div>
+              <div id="timeeQrPreview" class="border rounded p-2 bg-light mx-auto" style="min-height:200px;display:flex;align-items:center;justify-content:center;">
+                ${currentUrl
+                  ? `<img src="${this.escapeHtml(currentUrl)}" alt="タイミー QR" style="max-width:100%;max-height:400px;">`
+                  : `<span class="text-muted small">QR 画像が未登録です${isOwner ? "" : "。管理者にアップロードを依頼してください"}</span>`}
+              </div>
+              ${isOwner ? `
+              <div class="mt-3 text-start">
+                <label class="form-label small mb-1">QR 画像を${currentUrl ? "差し替え" : "アップロード"} (PNG / JPG)</label>
+                <input type="file" id="${modalId}_file" class="form-control form-control-sm" accept="image/png,image/jpeg">
+                <div class="small text-muted mt-1">タイミーのタイムカード QR をスマホで撮影 / スクショして PNG・JPG でアップしてください。</div>
+              </div>
+              ${currentUrl ? `
+                <div class="mt-2 text-start">
+                  <button type="button" class="btn btn-sm btn-outline-danger" id="${modalId}_delete">
+                    <i class="bi bi-trash"></i> 登録済 QR を削除
+                  </button>
+                </div>` : ""}
+              ` : ""}
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button>
+              ${isOwner ? `<button type="button" class="btn btn-primary" id="${modalId}_save" disabled>
+                <i class="bi bi-cloud-upload"></i> アップロード
+              </button>` : ""}
+            </div>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML("beforeend", html);
+    const modalEl = document.getElementById(modalId);
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modalEl.addEventListener("hidden.bs.modal", () => modalEl.remove());
+    modal.show();
+
+    if (!isOwner) return;
+
+    const fileInput = document.getElementById(`${modalId}_file`);
+    const saveBtn = document.getElementById(`${modalId}_save`);
+    const delBtn = document.getElementById(`${modalId}_delete`);
+    let pendingFile = null;
+    fileInput?.addEventListener("change", (e) => {
+      pendingFile = e.target.files?.[0] || null;
+      if (saveBtn) saveBtn.disabled = !pendingFile;
+    });
+    saveBtn?.addEventListener("click", async () => {
+      if (!pendingFile) return;
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> アップ中...';
+      try {
+        const ext = pendingFile.type === "image/png" ? "png" : "jpg";
+        const path = `timee-qr/${propertyId}.${ext}`;
+        const ref = firebase.storage().ref(path);
+        await ref.put(pendingFile, { contentType: pendingFile.type });
+        const url = await ref.getDownloadURL();
+        await firebase.firestore().collection("properties").doc(propertyId).update({
+          timeeQrImageUrl: url,
+          timeeQrUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+        showToast("完了", "タイミー QR をアップロードしました", "success");
+        modal.hide();
+      } catch (e) {
+        console.error("[timeeQr] アップロード失敗:", e);
+        showToast("エラー", `アップロード失敗: ${e.message}`, "error");
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-cloud-upload"></i> アップロード';
+      }
+    });
+    delBtn?.addEventListener("click", async () => {
+      const ok = await showConfirm("登録済の QR 画像を削除しますか？", { title: "QR 削除", okClass: "btn-danger", okLabel: "削除" });
+      if (!ok) return;
+      delBtn.disabled = true;
+      try {
+        await firebase.firestore().collection("properties").doc(propertyId).update({
+          timeeQrImageUrl: firebase.firestore.FieldValue.delete(),
+          timeeQrUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+        // Storage 上の画像も削除 (拡張子不明なので両方試行、失敗は無視)
+        for (const ext of ["png", "jpg"]) {
+          try { await firebase.storage().ref(`timee-qr/${propertyId}.${ext}`).delete(); } catch (_) {}
+        }
+        showToast("削除", "QR を削除しました", "success");
+        modal.hide();
+      } catch (e) {
+        showToast("エラー", `削除失敗: ${e.message}`, "error");
+        delBtn.disabled = false;
+      }
+    });
   },
 
   // 上位タブのスタイル更新
