@@ -214,6 +214,9 @@ function decideBookingUpdate(booking, parsedInfo, messageId, emailReceivedAt, th
     } else if (booking.status !== "cancelled") {
       updates.status = "cancelled";
       updates.cancelSource = "email";
+      // キャンセル予約一覧でソート/表示するために必須
+      updates.cancelledAt = { __placeholder: "serverTimestamp" };
+      updates.cancelReason = "メール照合: キャンセル通知メール検知";
     }
   }
 

@@ -206,7 +206,7 @@ const CancelledBookingsPage = {
     tbody.innerHTML = list.map(b => {
       const propName = propMap[b.propertyId] || (b.propertyId || "-");
       const cancelledAt = this._fmtTs(b.cancelledAt);
-      const reason = b.cancelReason || (b.cancelSource ? `(${b.cancelSource})` : "-");
+      const reasonHtml = this._buildReasonHtml(b);
       const sourceBadge = this._sourceBadge(b.source || b.bookingSite);
       return `<tr data-booking-id="${this._esc(b.id)}">
         <td>${this._esc(propName)}</td>
@@ -215,7 +215,7 @@ const CancelledBookingsPage = {
         <td>${this._esc(b.checkOut || "-")}</td>
         <td>${sourceBadge}</td>
         <td><small>${this._esc(cancelledAt)}</small></td>
-        <td><small class="text-muted">${this._esc(reason)}</small></td>
+        <td><small class="text-muted">${reasonHtml}</small></td>
         <td class="text-end">
           <button class="btn btn-sm btn-outline-success cb-restore" data-booking-id="${this._esc(b.id)}">
             <i class="bi bi-arrow-counterclockwise"></i> キャンセル取消
@@ -266,6 +266,41 @@ const CancelledBookingsPage = {
     if (s.includes("booking")) return '<span class="badge" style="background:#003580;color:#fff">Booking.com</span>';
     if (s) return `<span class="badge bg-secondary">${this._esc(source)}</span>`;
     return '<span class="text-muted small">-</span>';
+  },
+
+  // 「理由」セルの HTML を生成。複数ソース併記 + メール照合リンク。
+  // - cancelSource: "email" | "ical" | "manual" など
+  // - cancelReason: フリーテキスト (両ソース共通)
+  // - emailMessageId / emailSubject: email 経由の場合の補足
+  _buildReasonHtml(b) {
+    const parts = [];
+    const src = b.cancelSource || "";
+    const reason = b.cancelReason || "";
+
+    // メール照合キャンセル
+    if (src === "email" || b.emailMessageId) {
+      const subj = b.emailSubject ? `「${this._esc(b.emailSubject)}」` : "";
+      const link = b.emailMessageId
+        ? ` <a href="#/email-verification?id=${encodeURIComponent(b.emailMessageId)}" class="text-decoration-none">[メール照合を開く]</a>`
+        : "";
+      parts.push(
+        `<span class="badge bg-info text-dark">📧 メール</span> ${subj}${link}`
+      );
+    }
+    // iCal 同期キャンセル (cancelReason に "iCal" が含まれる、または cancelSource="ical")
+    if (src === "ical" || /ical/i.test(reason)) {
+      parts.push(`<span class="badge bg-secondary">🔄 iCal同期</span> ${this._esc(reason || "フィードから削除されたため自動キャンセル")}`);
+    }
+    // 手動キャンセル
+    if (src === "manual") {
+      parts.push(`<span class="badge bg-dark">✋ 手動</span> ${this._esc(reason || "管理者による手動キャンセル")}`);
+    }
+    // ソース不明だが reason だけある場合
+    if (parts.length === 0 && reason) {
+      parts.push(this._esc(reason));
+    }
+    if (parts.length === 0) return "-";
+    return parts.join("<br>");
   },
 
   _toMs(v) {

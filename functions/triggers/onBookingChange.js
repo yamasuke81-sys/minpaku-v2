@@ -382,8 +382,10 @@ module.exports = async function onBookingChange(event) {
             const dd = d.data();
             if (dd.pendingApproval === true) continue;
             if (!dd.checkIn || !dd.checkOut) continue;
-            // 期間重複: 1日でも重なれば重複扱い
-            if (after.checkIn <= dd.checkOut && after.checkOut >= dd.checkIn) {
+            // 期間重複: 排他半開区間 [CI, CO) で判定。
+            // 民泊では「先方の CO日 == 後方の CI日」は連泊接続で重複ではない。
+            // 旧コード (<= / >=) では CO==CI のケースを誤って重複とみなしていた。
+            if (after.checkIn < dd.checkOut && after.checkOut > dd.checkIn) {
               suppressCancelNotify = true;
               console.log(`[onBookingChange] 重複期間に active 予約あり → cancel 通知スキップ: ${event.params.bookingId} (vs ${d.id})`);
               break;
