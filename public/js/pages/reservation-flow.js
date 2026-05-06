@@ -1689,12 +1689,20 @@ const ReservationFlowPage = {
     // (overflow-x: auto が親にあると position: sticky が効かなくなるため分離)
     let html = `<div class="rf-swimlane-scroll"><div class="rf-swimlane-root">`;
 
-    // --- ヘッダー行 ---
+    // --- ヘッダー行 (大見出し: ゲスト/管理者/スタッフ、span 2 列ずつ) ---
     html += `
       <div class="rf-swimlane-grid rf-swimlane-header">
-        <div class="rf-lane-header rf-lane-guest">👤 ゲスト</div>
-        <div class="rf-lane-header rf-lane-owner">🏠 Webアプリ管理者</div>
-        <div class="rf-lane-header rf-lane-staff">🧹 スタッフ</div>
+        <div class="rf-lane-header rf-lane-guest rf-lane-span2">👤 ゲスト</div>
+        <div class="rf-lane-header rf-lane-owner rf-lane-span2">🏠 Webアプリ管理者</div>
+        <div class="rf-lane-header rf-lane-staff rf-lane-span2">🧹 スタッフ</div>
+      </div>
+      <div class="rf-swimlane-grid rf-swimlane-header" style="top:144px;">
+        <div class="rf-sub-header rf-sub-send">➡ 発信</div>
+        <div class="rf-sub-header rf-sub-receive">⬅ 受信</div>
+        <div class="rf-sub-header rf-sub-send">➡ 発信</div>
+        <div class="rf-sub-header rf-sub-receive">⬅ 受信</div>
+        <div class="rf-sub-header rf-sub-send">➡ 発信</div>
+        <div class="rf-sub-header rf-sub-receive">⬅ 受信</div>
       </div>
     `;
 
@@ -1792,25 +1800,22 @@ const ReservationFlowPage = {
       const laneClass = `rf-lane-${step.lane}`;
       const branchAttr = step.branch ? `data-branch="${step.branch}"` : "";
 
-      // 3列グリッド配置: lane に応じて列を決める
-      const colClass = step.lane === "guest" ? "rf-col-guest" :
-                       step.lane === "staff" ? "rf-col-staff" : "rf-col-owner";
+      // 6 列配置: [guest_send, guest_receive, owner_send, owner_receive, staff_send, staff_receive]
+      // 判定: arrowTo (≠lane) があれば 発信、無ければ 受信
+      const isSend = !!(step.arrowTo && step.arrowTo !== step.lane);
+      const laneIdx = step.lane === "guest" ? 0 : step.lane === "owner" ? 1 : 2;
+      const subColIdx = laneIdx * 2 + (isSend ? 0 : 1);
 
-      html += `
-        <div class="rf-swimlane-grid rf-step-row" data-step-key="${step.key}" data-lane="${step.lane}" ${branchAttr}>
-          <div class="rf-lane-cell rf-col-guest ${step.lane === "guest" ? "rf-cell-active" : "rf-cell-empty"}">
-            ${step.lane === "guest" ? this._renderCard(step, property, enabled, memo) : ""}
-          </div>
-          <div class="rf-lane-cell rf-col-owner ${step.lane === "owner" ? "rf-cell-active" : "rf-cell-empty"}">
-            ${step.lane === "owner" ? this._renderCard(step, property, enabled, memo) : ""}
-          </div>
-          <div class="rf-lane-cell rf-col-staff ${step.lane === "staff" ? "rf-cell-active" : "rf-cell-empty"}">
-            ${step.lane === "staff" ? this._renderCard(step, property, enabled, memo) : ""}
-          </div>
-        </div>
-      `;
-
-      // 矢印行/人マークは廃止 (UI シンプル化)
+      // 各列セルの中身を組み立て (active な列のみカードを描画)
+      const cells = [];
+      for (let i = 0; i < 6; i++) {
+        const role = i < 2 ? "guest" : i < 4 ? "owner" : "staff";
+        const dir = (i % 2 === 0) ? "send" : "receive";
+        const subClass = (i % 2 === 0) ? "rf-subcol-send" : "rf-subcol-receive";
+        const isActive = (i === subColIdx);
+        cells.push(`<div class="rf-lane-cell rf-col-${role} ${subClass} ${isActive ? "rf-cell-active" : "rf-cell-empty"}">${isActive ? this._renderCard(step, property, enabled, memo) : ""}</div>`);
+      }
+      html += `<div class="rf-swimlane-grid rf-step-row" data-step-key="${step.key}" data-lane="${step.lane}" ${branchAttr}>${cells.join("")}</div>`;
     });
     return html;
   },
@@ -3376,12 +3381,29 @@ const ReservationFlowPage = {
       /* overflow は設定しない (sticky を維持するため) */
     }
 
-    /* 3列グリッド */
+    /* 6列グリッド (3レーン × 発信/受信) */
     .rf-swimlane-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr;
       gap: 0;
     }
+    /* 大見出し: 2 列 span (ゲスト/管理者/スタッフ) */
+    .rf-lane-header.rf-lane-span2 { grid-column: span 2; }
+    /* 送信/受信のサブ見出し */
+    .rf-sub-header {
+      padding: 4px 8px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-align: center;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      color: #475569;
+    }
+    .rf-sub-header.rf-sub-send    { background: #fff7ed; color: #9a3412; }
+    .rf-sub-header.rf-sub-receive { background: #f0f9ff; color: #075985; }
+    /* サブ列カラム間の薄い縦罫 (発信|受信 の境目) */
+    .rf-lane-cell.rf-subcol-send    { border-right: 1px dashed #cbd5e1; }
+    .rf-lane-cell.rf-subcol-receive { background: rgba(125, 211, 252, 0.04); }
 
     /* 対象物件バー: ナビバー(56px)直下に sticky 固定 */
     .rf-property-bar {
