@@ -223,12 +223,14 @@ const RecruitmentPage = {
       try { this.recruitments = await API.recruitments.list(); }
       catch (_) { this.recruitments = this.recruitments || []; }
     }
-    // bindEvents 一度も呼ばれていない場合、最低限 confirm/reopen ボタンをバインド
+    // bindEvents 一度も呼ばれていない場合、最低限 confirm/reopen/日付変更 ボタンをバインド
     if (!this._quickBound) {
       const cb = document.getElementById("btnConfirmRecruitment");
       const rb = document.getElementById("btnReopenRecruitment");
+      const db = document.getElementById("btnChangeRecruitmentDate");
       if (cb) cb.addEventListener("click", () => this.confirmRecruitment());
       if (rb) rb.addEventListener("click", () => this.reopenRecruitment());
+      if (db) db.addEventListener("click", () => this.changeRecruitmentDate());
       this._quickBound = true;
     }
   },
@@ -1006,6 +1008,8 @@ const RecruitmentPage = {
 
     const confirmed = recruitment.status === "スタッフ確定済み";
     const currentSelected = (recruitment.selectedStaff || "").split(",").map(s => s.trim()).filter(Boolean);
+    // ID 配列も併用 (スタッフ名がリネームされた場合に name 判定だけだとズレる)
+    const currentSelectedIds = Array.isArray(recruitment.selectedStaffIds) ? recruitment.selectedStaffIds : [];
 
     // 並び: ◎ → △ → 未回答 → × の順で、各グループ内は displayOrder
     const order = { "◎": 0, "△": 1, "未回答": 2, "×": 3 };
@@ -1033,7 +1037,7 @@ const RecruitmentPage = {
 
     tbody.innerHTML = rows.map(row => {
       const s = row.staff;
-      const checked = currentSelected.includes(s.name) ? "checked" : "";
+      const checked = (currentSelectedIds.includes(s.id) || currentSelected.includes(s.name)) ? "checked" : "";
       // A2: 回答日時は "M/D HH:MM" に統一
       const respondedStr = row.respondedAt
         ? ((typeof formatTimeShort === "function") ? formatTimeShort(row.respondedAt)

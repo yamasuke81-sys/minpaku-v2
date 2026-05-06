@@ -110,6 +110,46 @@ module.exports = async function onRecruitmentChange(event) {
     }
   }
 
+  // ===== status 遷移: "スタッフ確定済み" → 解除 (reopen) → 対応 shift の staffIds をクリア =====
+  // クリアしないと my-checklist が「本日の清掃担当」に旧スタッフ名を表示し続ける
+  if (before?.status === "スタッフ確定済み" && after.status !== "スタッフ確定済み") {
+    try {
+      if (after.propertyId && after.checkoutDate) {
+        const targetWorkType = after.workType === "pre_inspection" ? "pre_inspection" : "cleaning_by_count";
+        const dt = new Date(after.checkoutDate);
+        // recruitmentId 紐付け優先 + フォールバックで date+pid+workType
+        let shiftDocs = [];
+        const byRid = await db.collection("shifts")
+          .where("recruitmentId", "==", event.params.recruitmentId)
+          .get();
+        if (!byRid.empty) {
+          shiftDocs = byRid.docs;
+        } else {
+          const byKey = await db.collection("shifts")
+            .where("propertyId", "==", after.propertyId)
+            .where("date", "==", dt)
+            .where("workType", "==", targetWorkType)
+            .limit(1).get();
+          shiftDocs = byKey.docs;
+        }
+        for (const sd of shiftDocs) {
+          const cur = sd.data();
+          if (cur.status === "completed") continue; // 完了済みは触らない
+          await sd.ref.update({
+            staffId: null,
+            staffName: null,
+            staffIds: [],
+            status: "unassigned",
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          console.log(`[onRecruitmentChange] reopen → shift staffIds クリア ${sd.id}`);
+        }
+      }
+    } catch (e) {
+      console.error("[onRecruitmentChange] reopen 時 shift クリアエラー:", e);
+    }
+  }
+
   const beforeResponses = before?.responses || [];
   const afterResponses = after.responses || [];
   if (afterResponses.length <= beforeResponses.length) return;
