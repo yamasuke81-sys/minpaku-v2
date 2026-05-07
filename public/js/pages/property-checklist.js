@@ -191,9 +191,6 @@ const PropertyChecklistPage = {
           </li>
         </ul>
       </div>
-      <div class="d-flex justify-content-end mt-1 mb-2">
-        <button class="btn btn-sm btn-outline-secondary" id="btnCompressAllSamples" title="登録済の全見本写真を 長辺1280px / JPEG q=78% に再圧縮します"><i class="bi bi-file-earmark-zip"></i> 見本写真を一括圧縮</button>
-      </div>
       <div id="areaContent"></div>
     `;
     this._setupTabStickyObserver(body);
@@ -221,10 +218,6 @@ const PropertyChecklistPage = {
       ev.preventDefault();
       this.addArea();
     });
-
-    // 一括圧縮ボタン
-    const compressBtn = document.getElementById("btnCompressAllSamples");
-    if (compressBtn) compressBtn.addEventListener("click", () => this.compressAllSampleImages());
 
     // タブ (大カテゴリ=エリア) の D&D 並び替え
     this._setupTabSortable();
@@ -1320,97 +1313,6 @@ const PropertyChecklistPage = {
       img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("画像の読み込みに失敗しました")); };
       img.src = url;
     });
-  },
-
-  /** 全見本写真を再圧縮 (既存ファイルの一括圧縮) */
-  async compressAllSampleImages() {
-    const ok = await this.showConfirmDialog({
-      title: "見本写真を一括圧縮",
-      message: "登録済の全見本写真を圧縮版で上書きします。\n(長辺 1280px / JPEG 品質 78%)\n進行中はページを閉じないでください。",
-      confirmLabel: "実行", danger: false
-    });
-    if (!ok) return;
-
-    // ツリー内の全 node.sampleImages を収集
-    const targets = [];
-    const walk = (n) => {
-      if (!n) return;
-      if (Array.isArray(n.sampleImages)) {
-        n.sampleImages.forEach((img, idx) => {
-          if (img && img.url) targets.push({ node: n, img, idx });
-        });
-      }
-      (n.taskTypes || []).forEach(walk);
-      (n.subCategories || []).forEach(walk);
-      (n.subSubCategories || []).forEach(walk);
-    };
-    (this.template.areas || []).forEach(walk);
-
-    if (!targets.length) {
-      showToast("情報", "見本写真が登録されていません", "info");
-      return;
-    }
-
-    // ボタン状態を「処理中」に
-    const btn = document.getElementById("btnCompressAllSamples");
-    if (btn) { btn.disabled = true; btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> 処理中 0/${targets.length}`; }
-
-    let okCount = 0, failCount = 0, savedBytes = 0, processedBytes = 0;
-    for (let i = 0; i < targets.length; i++) {
-      const t = targets[i];
-      try {
-        // 既に compressed:v1 で保存済みのものはスキップ判定 (Storage メタデータ確認)
-        let skip = false;
-        if (t.img.path) {
-          try {
-            const meta = await firebase.storage().ref(t.img.path).getMetadata();
-            if (meta?.customMetadata?.compressed === "v1") skip = true;
-          } catch (_) {}
-        }
-        if (skip) { okCount++; continue; }
-
-        // 1) ダウンロード
-        const res = await fetch(t.img.url, { mode: "cors" });
-        if (!res.ok) throw new Error(`download HTTP ${res.status}`);
-        const orig = await res.blob();
-        // 2) リサイズ + 圧縮
-        const compressed = await this._resizeImageForSample(orig, 1280, 0.78);
-        // 3) アップロード (元 path があれば上書き、無ければ新規 path)
-        const ts = Date.now();
-        const rand = Math.random().toString(36).slice(2, 7);
-        const newPath = `checklist-samples/${this.propertyId}/${t.node.id}/${ts}_${rand}.jpg`;
-        const ref = firebase.storage().ref(newPath);
-        await ref.put(compressed, {
-          contentType: "image/jpeg",
-          customMetadata: { compressed: "v1", propertyId: this.propertyId, nodeId: t.node.id, replacedAt: new Date().toISOString() },
-        });
-        const newUrl = await ref.getDownloadURL();
-        // 4) 旧 Storage 削除 (失敗しても続行)
-        if (t.img.path) {
-          try { await firebase.storage().ref(t.img.path).delete(); } catch (_) {}
-        }
-        // 5) 配列を書き換え
-        t.img.url = newUrl;
-        t.img.path = newPath;
-        t.img.compressedAt = new Date().toISOString();
-
-        savedBytes += Math.max(0, orig.size - compressed.size);
-        processedBytes += orig.size;
-        okCount++;
-      } catch (e) {
-        console.error("[compress] 失敗:", t.img.path || t.img.url, e);
-        failCount++;
-      }
-      if (btn) btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> 処理中 ${i + 1}/${targets.length}`;
-    }
-
-    // Firestore に保存 (節約のため一気に template 全体保存)
-    this.markDirty();
-    try { await this.save(); } catch (e) { console.warn("save 失敗:", e.message); }
-
-    if (btn) { btn.disabled = false; btn.innerHTML = `<i class="bi bi-file-earmark-zip"></i> 見本写真を一括圧縮`; }
-    const savedKB = Math.round(savedBytes / 1024);
-    showToast("圧縮完了", `成功 ${okCount} 件 / 失敗 ${failCount} 件 / 削減 ${savedKB} KB`, failCount ? "warning" : "success");
   },
 
   /** 見本写真を削除 (Storage + node.sampleImages) */
