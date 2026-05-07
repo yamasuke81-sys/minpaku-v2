@@ -48,6 +48,7 @@
       { name: "nights",   label: "宿泊数",          sample: "2",          source: "自動計算" },
       { name: "site",     label: "予約サイト",       sample: "Airbnb",     source: "booking.source" },
       { name: "url",      label: "名簿ページURL",   sample: "https://minpaku-v2.web.app/#/guests", source: "自動生成" },
+      { name: "editUrl",  label: "名簿修正用URL (ゲスト用)", sample: "https://minpaku-v2.web.app/guest-form.html?edit=...&propertyId=...", source: "guestRegistrations.editToken (30日間有効)" },
     ],
     staff: [
       { name: "staff",    label: "スタッフ名",  sample: "山田太郎",      source: "staff.name" },

@@ -329,6 +329,7 @@ module.exports = async function onGuestFormSubmit(event) {
       nights: data.nights || "",
       site: data.bookingSite || "",
       url: guestPageUrl,
+      editUrl, // 名簿修正用 URL (ゲスト用、editToken 付き 30日有効)
     },
     propertyId: data.propertyId || null,
   });
