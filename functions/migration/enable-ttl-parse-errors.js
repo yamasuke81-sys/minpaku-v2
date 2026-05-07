@@ -35,7 +35,7 @@ async function main() {
   // updateMask を指定しないと既存の indexConfig 等まで巻き込む可能性があるので明示
   const url = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}` +
     `/databases/(default)/collectionGroups/${COLLECTION}/fields/${FIELD}` +
-    `?updateMask.fieldPaths=ttlConfig`;
+    `?updateMask=ttlConfig`;
 
   const body = { ttlConfig: {} };
 
