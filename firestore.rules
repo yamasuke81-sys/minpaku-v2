@@ -326,6 +326,24 @@ service cloud.firestore {
       allow read, write: if isOwner();
     }
 
+    // P1: メール照合パース失敗ログ (Cloud Functions Admin SDK で書込、オーナーは閲覧のみ)
+    match /parse_errors/{messageId} {
+      allow read: if isOwner();
+      allow write: if false;
+    }
+
+    // P1: 同期ジョブの健康状態 (Cloud Functions Admin SDK で更新、オーナーは閲覧のみ)
+    match /syncHealth/{jobName} {
+      allow read: if isOwner();
+      allow write: if false;
+    }
+
+    // P1: 通知抑制ロック (Cloud Functions Admin SDK が管理)
+    match /notification_locks/{lockKey} {
+      allow read: if isOwner();
+      allow write: if false;
+    }
+
     // ユーザー別通知既読状態: 本人 (uid 一致) のみ read/write 可能
     match /userNotificationStatus/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;

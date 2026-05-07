@@ -180,6 +180,22 @@
         { "fieldPath": "active", "order": "ASCENDING" },
         { "fieldPath": "displayOrder", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "parse_errors",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "errorType", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "emailVerifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "propertyId", "order": "ASCENDING" },
+        { "fieldPath": "matchStatus", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

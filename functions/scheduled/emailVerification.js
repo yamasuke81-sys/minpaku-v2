@@ -23,6 +23,8 @@ const {
   decideVerificationStatus,
   isPendingRequest,
 } = require("../utils/emailMatcher");
+const { recordParseError, checkThresholdsAndNotify } = require("../utils/parseErrors");
+const { updateSyncHealth } = require("../utils/syncHealth");
 
 const PROCESSED_LABEL_NAME = "minpaku-v2-email-verified";
 const KNOWN_OTA_SENDERS = [
@@ -259,6 +261,16 @@ async function emailVerificationCore(db, opts = {}) {
             });
           } catch (pe) {
             result.errors.push(`parse ${msg.id}: ${pe.message}`);
+            // DLQ 記録 (本処理は止めない)
+            await recordParseError(db, {
+              messageId: msg.id,
+              ota: platform === "Airbnb" ? "airbnb" : (platform === "Booking.com" ? "booking" : "unknown"),
+              errorType: "parse_failed",
+              subject, from: fromHeader,
+              receivedAt,
+              rawSnippet: bodyText || bodyHtml,
+              reason: pe.message,
+            });
           }
 
           if (extractedInfo && extractedInfo.reservationCode) {
@@ -311,6 +323,16 @@ async function emailVerificationCore(db, opts = {}) {
                 }
               } else if (bookingMatch && bookingMatch.matchReason === "ambiguous-dateAndPlatform") {
                 console.log(`[bookingUpdate skipped] msg=${msg.id} ambiguous candidates: ${(bookingMatch.candidateIds || []).join(", ")}`);
+                // 曖昧候補多数 = OTA メール書式変更でスコアリング崩れている可能性 → DLQ に記録
+                await recordParseError(db, {
+                  messageId: msg.id,
+                  ota: platform === "Airbnb" ? "airbnb" : (platform === "Booking.com" ? "booking" : "unknown"),
+                  errorType: "schema_changed",
+                  subject, from: fromHeader,
+                  receivedAt,
+                  rawSnippet: bodyText || bodyHtml,
+                  reason: `ambiguous candidates: ${(bookingMatch.candidateIds || []).join(", ")}`,
+                });
               }
             } catch (me) {
               result.errors.push(`match ${msg.id}: ${me.message}`);
@@ -322,6 +344,21 @@ async function emailVerificationCore(db, opts = {}) {
             ? { ...extractedInfo, subject }
             : null;
           const matchStatus = decideVerificationStatus(parsedInfoWithSubject, bookingMatch);
+
+          // reservationCode が抽出できないままの unmatched 系 → DLQ に "unmatched" として記録
+          // (reservationCode あり + bookings 不在のメール先行ケースは再評価でカバーされるため記録しない)
+          if ((matchStatus === "unmatched" || matchStatus === "cancelled-unmatched")
+              && (!extractedInfo || !extractedInfo.reservationCode)) {
+            await recordParseError(db, {
+              messageId: msg.id,
+              ota: platform === "Airbnb" ? "airbnb" : (platform === "Booking.com" ? "booking" : "unknown"),
+              errorType: "unmatched",
+              subject, from: fromHeader,
+              receivedAt,
+              rawSnippet: bodyText || bodyHtml,
+              reason: `matchStatus=${matchStatus}, reservationCode=null (パース成功だがコード未抽出)`,
+            });
+          }
 
           await evRef.set({
             messageId: msg.id,
@@ -428,6 +465,19 @@ async function emailVerificationCore(db, opts = {}) {
       }
     }
   }
+  // ===== 巡回終了処理: 閾値判定 + syncHealth =====
+  try {
+    await checkThresholdsAndNotify(db);
+  } catch (e) {
+    console.error("[emailVerification] checkThresholdsAndNotify エラー (握り潰し):", e.message);
+  }
+
+  const allOk = result.errors.length === 0;
+  await updateSyncHealth(db, "emailVerification", {
+    ok: allOk,
+    error: allOk ? undefined : result.errors.slice(0, 3).join(" | "),
+  });
+
   return result;
 }
 

@@ -11,6 +11,8 @@
 const admin = require("firebase-admin");
 const ical = require("node-ical");
 const { notifyByKey } = require("../utils/lineNotify");
+const { reevaluateUnmatched } = require("../utils/reevaluateUnmatched");
+const { updateSyncHealth } = require("../utils/syncHealth");
 
 /**
  * iCal URLのドメインからプラットフォームを判定
@@ -175,6 +177,8 @@ async function syncIcal() {
   let totalSkipped = 0;
   // A-2: フィードエラーが発生したプラットフォームを記録（キャンセル検知スキップ用）
   const erroredPlatforms = new Set();
+  // P1: 新規 confirmed 作成 / pendingApproval 降下した物件を記録 → ループ後に再評価
+  const reevaluatePropertyIds = new Set();
 
   for (const settingDoc of settingsSnap.docs) {
     const setting = settingDoc.data();
@@ -348,6 +352,15 @@ async function syncIcal() {
         await docRef.set(bookingData, { merge: true });
         syncedIcalUids.add(uid); // A-1: icalUid → uid バグ修正（キャンセル検出用に記録）
         synced++;
+
+        // P1: 新規 confirmed 作成 or pendingApproval=true→false 降下時のみ再評価対象に追加
+        const isNewlyCreated = !existing.exists;
+        const isJustResolved = existing.exists
+          && existing.data().pendingApproval === true
+          && bookingData.pendingApproval === false;
+        if ((isNewlyCreated || isJustResolved) && setting.propertyId) {
+          reevaluatePropertyIds.add(setting.propertyId);
+        }
       }
 
       // 最終同期時刻を更新
@@ -522,6 +535,26 @@ async function syncIcal() {
   } catch (archErr) {
     console.error("[syncIcal] autoArchive エラー:", archErr.message);
   }
+
+  // ===== P1: unmatched emailVerifications の再評価 =====
+  // 新規 confirmed 作成 or pendingApproval 降下があった物件についてのみ実行
+  // (bookings 側変化が無ければ再評価しても matched 化しないので無駄)
+  for (const pid of reevaluatePropertyIds) {
+    try {
+      const r = await reevaluateUnmatched(db, { propertyId: pid, log: console });
+      if (r.rematched > 0) {
+        console.log(`[syncIcal] 再評価で ${r.rematched} 件 matched 化 (property=${pid})`);
+      }
+    } catch (e) {
+      console.error(`[syncIcal] 再評価エラー (property=${pid}):`, e.message);
+    }
+  }
+
+  // ===== P1: syncHealth 更新 =====
+  await updateSyncHealth(db, "syncIcal", {
+    ok: erroredPlatforms.size === 0,
+    error: erroredPlatforms.size > 0 ? `feed errors: ${[...erroredPlatforms].join(",")}` : undefined,
+  });
 }
 
 /**
