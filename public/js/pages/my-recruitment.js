@@ -896,8 +896,9 @@ const MyRecruitmentPage = {
         return "background-image:repeating-linear-gradient(45deg, rgba(255,255,255,0.45) 0 6px, transparent 6px 12px);";
       }
       if (b.unverified === true) {
-        // 未照合: 点線枠で識別 (色は通常)
-        return "outline:1.5px dashed #fb8500;outline-offset:-2px;";
+        // 未照合: 上下のみ dashed line。連泊で日跨ぎセグメントが隣接しても
+        // 上下線が連続して 1 本の点線に見える (左右枠なしで日付境目に枠が出ない)
+        return "border-top:1.5px dashed #fb8500;border-bottom:1.5px dashed #fb8500;box-sizing:border-box;";
       }
       return "";
     };
@@ -988,39 +989,45 @@ const MyRecruitmentPage = {
         );
         const fallbackColor = p._color || "#0d6efd";
 
-        // ---- 宿泊バー: lane 分配 (重複時は複数行) ----
-        // 通常は 1 lane (= 1 行) で従来通り。同日にキャンセル+新規予約等の重複があれば
-        // 別 lane に分けて行を増やす。
-        const stayLanes = computeBookingLanes(propBookings);
-        const totalRows = stayLanes.length + 1; // 宿泊 lane + 清掃 1 行
+        // ---- 1段目: 宿泊バー (1物件1行固定) ----
+        // 同日重複対応はバー描画時の取捨選択で行う (lane 拡張なし)
+        html += `<tr data-prop-row="${p.id}" data-row-type="stay" style="${visible ? "" : "opacity:0.35;"}">`;
+        // 物件名セル (rowspan=2 で清掃段と結合)
+        html += `<td rowspan="2" class="fw-medium sticky-col" style="position:sticky;left:0;z-index:10;background:#f9fafb;min-width:${stickyW};max-width:${stickyW};vertical-align:middle;font-size:13px;padding:4px 10px 4px 6px;line-height:1.3;">
+          <div style="display:flex;align-items:center;gap:4px;">
+            <button type="button" class="prop-toggle" data-prop-id="${p.id}" title="非表示にする" style="flex-shrink:0;padding:2px 4px;border:1px solid #ced4da;background:#fff;border-radius:4px;cursor:pointer;min-width:26px;min-height:26px;line-height:1;">
+              <i class="bi bi-eye" style="color:#6c757d;font-size:14px;"></i>
+            </button>
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+              <span class="badge me-1" style="background:${p._color};color:#fff;">${p._num}</span>${this.esc(p.name)}
+            </span>
+          </div>
+          <div class="col-resizer" title="ドラッグで列幅を変更" style="position:absolute;top:0;right:0;width:8px;height:100%;cursor:col-resize;z-index:4;user-select:none;background:repeating-linear-gradient(to bottom, rgba(108,117,125,0.45) 0 4px, transparent 4px 8px);touch-action:none;"></div>
+        </td>`;
 
-        stayLanes.forEach((laneBookings, laneIdx) => {
-          html += `<tr data-prop-row="${p.id}" data-row-type="stay" data-lane="${laneIdx}" style="${visible ? "" : "opacity:0.35;"}">`;
-          // 物件名セルは laneIdx=0 行にのみ出力。rowspan で全 lane + 清掃を結合
-          if (laneIdx === 0) {
-            html += `<td rowspan="${totalRows}" class="fw-medium sticky-col" style="position:sticky;left:0;z-index:10;background:#f9fafb;min-width:${stickyW};max-width:${stickyW};vertical-align:middle;font-size:13px;padding:4px 10px 4px 6px;line-height:1.3;">
-              <div style="display:flex;align-items:center;gap:4px;">
-                <button type="button" class="prop-toggle" data-prop-id="${p.id}" title="非表示にする" style="flex-shrink:0;padding:2px 4px;border:1px solid #ced4da;background:#fff;border-radius:4px;cursor:pointer;min-width:26px;min-height:26px;line-height:1;">
-                  <i class="bi bi-eye" style="color:#6c757d;font-size:14px;"></i>
-                </button>
-                <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                  <span class="badge me-1" style="background:${p._color};color:#fff;">${p._num}</span>${this.esc(p.name)}
-                </span>
-              </div>
-              <div class="col-resizer" title="ドラッグで列幅を変更" style="position:absolute;top:0;right:0;width:8px;height:100%;cursor:col-resize;z-index:4;user-select:none;background:repeating-linear-gradient(to bottom, rgba(108,117,125,0.45) 0 4px, transparent 4px 8px);touch-action:none;"></div>
-            </td>`;
-          }
-
-          allDates.forEach(dd => {
+        allDates.forEach(dd => {
           if (!visible) {
             html += `<td data-col-date="${dd.dateStr}" style="height:${propRowH};background:#f8f9fa;padding:0;"></td>`;
             return;
           }
           const d = dd.dateStr;
           // この日をカバーする予約を検索 (CI / CO / middle を分離)
-          // 同 lane 内に絞ることで、同日重複予約 (キャンセル+新規等) は別 lane で別行に分かれる
+          // キャンセル予約は同日 CI に確定/保留の別予約があれば描画スキップ (上書き表示)
+          const isCancelled = (b) => {
+            const s = String(b.status || "").toLowerCase();
+            return s.includes("cancel") || b.status === "キャンセル" || b.status === "キャンセル済み";
+          };
           let starting = null, ending = null, middle = null;
-          for (const b of laneBookings) {
+          for (const b of propBookings) {
+            // キャンセル予約: 同日 CI に別の非キャンセル予約があるなら無視
+            if (isCancelled(b)) {
+              const sameDayActive = propBookings.find(o =>
+                o.id !== b.id && !isCancelled(o) &&
+                ((b.checkIn === d && o.checkIn === d) ||
+                 (b.checkOut === d && o.checkOut === d))
+              );
+              if (sameDayActive) continue;
+            }
             if (b.checkIn === d) starting = b;
             else if (b.checkOut === d) ending = b;
             else if (b.checkIn < d && d < b.checkOut) middle = b;
@@ -1110,11 +1117,10 @@ const MyRecruitmentPage = {
           const clickAttr = ref ? ` class="cal-date-hd" data-cal-date="${ref.checkIn}" data-booking-id="${this.esc(ref.id)}"` : "";
           const cursor = ref ? "cursor:pointer;" : "";
           html += `<td${clickAttr} data-col-date="${dd.dateStr}" style="position:relative;height:${propRowH};background:${tdBg};padding:0;overflow:visible;${cursor}">${segs}</td>`;
-          });
-          html += "</tr>";
-        }); // stayLanes.forEach 終了
+        });
+        html += "</tr>";
 
-        // ---- 清掃募集行 ----
+        // ---- 2段目: 清掃募集 ----
         html += `<tr data-prop-row="${p.id}" data-row-type="recruit" style="${visible ? "" : "opacity:0.35;"}">`;
         allDates.forEach(dd => {
           if (!visible) {
