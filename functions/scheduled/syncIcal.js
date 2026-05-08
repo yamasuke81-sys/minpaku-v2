@@ -231,17 +231,20 @@ async function syncIcal() {
         }
 
         // ゲスト名が空 + CLOSED/Not available/Blocked/Reserved → 通常はブロック扱い
-        // 例外: Booking.com かつメール照合未接続物件 → 匿名予約として取り込む
-        // (Booking.com 公開 iCal は実名を出さず "CLOSED - Not available" になるため、
-        //  メール照合できない物件では永久に予約が見えない問題を回避)
+        // 例外: Booking.com の CLOSED は **常に** 匿名予約として取り込む
+        // (公開 iCal は実名を出さず "CLOSED - Not available" になるため、
+        //  メール照合の有無に関わらず取り込まないと予約が永久に非表示になる)
+        // メール照合接続済み物件は unverified=true フラグを立て、後でメール受信時に
+        // 実名・人数で更新 + フラグ降下する (emailVerification.js の confirmed 処理)
         if (!guestName && /not available|closed|blocked|reserved/i.test(summaryLower)) {
-          const isBookingComUnverified = platform === "Booking.com" && !hasEmailVerification;
-          if (!isBookingComUnverified) {
+          if (platform === "Booking.com") {
+            // Booking.com は取り込み続行 (unverified 判定は下で実施)
+            console.log(`[syncIcal] Booking.com匿名予約として取り込み (照合${hasEmailVerification ? "接続済→未照合フラグ" : "未接続"}): ${checkIn}〜${checkOut}`);
+          } else {
             console.log(`[syncIcal] スキップ(ブロック): ${platform} ${checkIn}〜${checkOut} "${summary}"`);
             skipped++;
             continue;
           }
-          console.log(`[syncIcal] Booking.com匿名予約として取り込み (メール照合未接続): ${checkIn}〜${checkOut}`);
         }
         // ゲスト名が空でsummaryもない → スキップ
         if (!guestName && !summary) {
@@ -290,13 +293,21 @@ async function syncIcal() {
         const existing = await docRef.get();
 
         // Booking.comのCLOSEDイベントはゲスト名を空にする（SUMMARYを使わない）
-        // ただしメール照合未接続物件で取り込む場合は表示用プレースホルダを入れる
+        // 表示用プレースホルダ「Booking.com予約」を入れる (メール照合の有無問わず)
+        // → メール照合で実名取得後に最新勝ちロジックで実名へ上書き
         let resolvedGuestName;
         if (!guestName && platform === "Booking.com") {
-          resolvedGuestName = hasEmailVerification ? "" : "Booking.com予約";
+          resolvedGuestName = "Booking.com予約";
         } else {
           resolvedGuestName = guestName || event.summary || "";
         }
+
+        // 未照合判定: Booking.com 匿名取込 + メール照合接続済み = 未照合 (true)
+        // メール照合未接続なら iCal 単独運用なので unverified を立てない (=false)
+        const isAnonymousBookingCom = platform === "Booking.com"
+          && !guestName
+          && /not available|closed|blocked|reserved/i.test(summaryLower);
+        const shouldSetUnverified = isAnonymousBookingCom && hasEmailVerification;
 
         const bookingData = {
           guestName: resolvedGuestName,
@@ -331,6 +342,12 @@ async function syncIcal() {
             console.log(`[syncIcal] 保留扱いで取り込み (pendingApproval=true): ${platform} ${checkIn}〜${checkOut} (Reservedのまま)`);
           } else if (isReservedPlaceholder && !hasEmailVerification) {
             console.log(`[syncIcal] メール照合未接続のため即表示で取り込み: ${platform} ${checkIn}〜${checkOut} (propertyId=${setting.propertyId})`);
+          }
+          // Booking.com 匿名予約をメール照合接続物件で取り込む場合は未照合フラグ
+          // → メール受信時に emailVerification.js が unverified=false に降下
+          if (shouldSetUnverified) {
+            bookingData.unverified = true;
+            console.log(`[syncIcal] 未照合扱いで取り込み (unverified=true): ${platform} ${checkIn}〜${checkOut}`);
           }
         } else {
           // 既存データの手動編集を上書きしない（guestNameが実名なら保持）
