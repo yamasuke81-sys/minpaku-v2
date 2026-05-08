@@ -192,6 +192,17 @@ const MyRecruitmentPage = {
             <div class="card-body p-2">
               <!-- 物件フィルタ (共通コンポーネント) -->
               <div id="propertyFilterHost-myrec-fullcal" class="mb-2"></div>
+              <!-- 表示トグル (キャンセル / 保留中) -->
+              <div class="d-flex flex-wrap gap-3 mb-2 small">
+                <label class="d-inline-flex align-items-center gap-1" style="cursor:pointer;">
+                  <input type="checkbox" id="toggleShowCancelled" class="form-check-input m-0">
+                  <span><span class="cal-legend" style="background:#9aa0a6;"></span>キャンセル予約も表示</span>
+                </label>
+                <label class="d-inline-flex align-items-center gap-1" style="cursor:pointer;">
+                  <input type="checkbox" id="toggleShowPending" class="form-check-input m-0">
+                  <span><span class="cal-legend" style="background:#ffc107;"></span>保留中予約も表示</span>
+                </label>
+              </div>
               <div id="myRecFullCalendarBody"></div>
               <!-- 凡例 (カレンダー下に配置) -->
               <div class="d-flex flex-wrap gap-3 mt-2 small text-muted">
@@ -561,12 +572,19 @@ const MyRecruitmentPage = {
       // これで「キャンセル済 booking に紐付く名簿が他予約に流用される」のを防ぐ
       const allDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       this._allBookingsById = new Map(allDocs.map(b => [b.id, b]));
+      // トグル切替で再フィルタするために生データを保持
+      this._allBookingsRaw = allDocs;
       // 表示用: cancelled + 保留中(pendingApproval=true) を除外
       // 保留中は Airbnb 予約承認待ちなど (確定後に再 ingest される)
+      // 表示フィルタ: キャンセル予約 / 保留中(pendingApproval) は設定に応じて表示
+      const showCancelled = this._showCancelled !== false; // default true
+      const showPending = this._showPending !== false;     // default true
       this._rawBookings = allDocs.filter(b => {
         const s = String(b.status || "").toLowerCase();
-        if (s.includes("cancel") || b.status === "キャンセル" || b.status === "キャンセル済み") return false;
-        if (b.pendingApproval === true) return false;
+        const isCancel = s.includes("cancel") || b.status === "キャンセル" || b.status === "キャンセル済み";
+        const isPending = b.pendingApproval === true;
+        if (isCancel && !showCancelled) return false;
+        if (isPending && !showPending) return false;
         return true;
       });
       // impersonation: 表示物件セットに含まれるもののみ
@@ -830,6 +848,60 @@ const MyRecruitmentPage = {
       return fallback;
     };
 
+    // 状態を考慮した表示色: cancelled=グレー / pendingApproval=黄色 / 通常=ソース色
+    const bookingDisplayColor = (b, fallback) => {
+      if (b && typeof b === "object") {
+        const s = String(b.status || "").toLowerCase();
+        if (s.includes("cancel") || b.status === "キャンセル" || b.status === "キャンセル済み") {
+          return "#9aa0a6"; // キャンセル: グレー
+        }
+        if (b.pendingApproval === true) {
+          return "#ffc107"; // 保留中: 黄色
+        }
+      }
+      return bookingColor(b, fallback);
+    };
+    // 重ならない予約集合 (lane) に分配 (interval scheduling)
+    // 通常は 1 lane で済む。同日にキャンセル+新規等の重複があれば 2+ lane に分かれる。
+    const computeBookingLanes = (bookings) => {
+      const sorted = [...bookings].sort((a, b) => (a.checkIn || "").localeCompare(b.checkIn || ""));
+      const lanes = [];
+      for (const bk of sorted) {
+        let placed = false;
+        for (const lane of lanes) {
+          const last = lane[lane.length - 1];
+          // last.checkOut <= bk.checkIn (CO 日 = 新予約 CI 日でも同じ lane で OK: 半セル吸収で衝突せず)
+          if ((last.checkOut || "") <= (bk.checkIn || "")) {
+            lane.push(bk);
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) lanes.push([bk]);
+      }
+      if (lanes.length === 0) lanes.push([]);
+      return lanes;
+    };
+
+    // バー装飾 (打消し線 / 斜線パターン / 未照合点線枠)
+    const bookingBarDecor = (b) => {
+      if (!b || typeof b !== "object") return "";
+      const s = String(b.status || "").toLowerCase();
+      if (s.includes("cancel") || b.status === "キャンセル" || b.status === "キャンセル済み") {
+        // グレー + 横打消し線
+        return "opacity:0.6;background-image:linear-gradient(transparent calc(50% - 1px), rgba(0,0,0,0.55) calc(50% - 1px), rgba(0,0,0,0.55) calc(50% + 1px), transparent calc(50% + 1px));";
+      }
+      if (b.pendingApproval === true) {
+        // 黄色 + 斜線パターン
+        return "background-image:repeating-linear-gradient(45deg, rgba(255,255,255,0.45) 0 6px, transparent 6px 12px);";
+      }
+      if (b.unverified === true) {
+        // 未照合: 点線枠で識別 (色は通常)
+        return "outline:1.5px dashed #fb8500;outline-offset:-2px;";
+      }
+      return "";
+    };
+
     // スタッフビューでは assignedPropertyIds に含まれる物件のみを閲覧対象にする。
     // Webアプリ管理者ビュー (#/schedule) では全民泊物件を対象。
     const myAssigned = Array.isArray(this.staffDoc?.assignedPropertyIds)
@@ -916,30 +988,39 @@ const MyRecruitmentPage = {
         );
         const fallbackColor = p._color || "#0d6efd";
 
-        // ---- 1段目: 宿泊バー ----
-        html += `<tr data-prop-row="${p.id}" data-row-type="stay" style="${visible ? "" : "opacity:0.35;"}">`;
-        // 物件名セル (rowspan=2 で清掃段と結合)。右端にドラッグハンドル
-        html += `<td rowspan="2" class="fw-medium sticky-col" style="position:sticky;left:0;z-index:10;background:#f9fafb;min-width:${stickyW};max-width:${stickyW};vertical-align:middle;font-size:13px;padding:4px 10px 4px 6px;line-height:1.3;">
-          <div style="display:flex;align-items:center;gap:4px;">
-            <button type="button" class="prop-toggle" data-prop-id="${p.id}" title="非表示にする" style="flex-shrink:0;padding:2px 4px;border:1px solid #ced4da;background:#fff;border-radius:4px;cursor:pointer;min-width:26px;min-height:26px;line-height:1;">
-              <i class="bi bi-eye" style="color:#6c757d;font-size:14px;"></i>
-            </button>
-            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-              <span class="badge me-1" style="background:${p._color};color:#fff;">${p._num}</span>${this.esc(p.name)}
-            </span>
-          </div>
-          <div class="col-resizer" title="ドラッグで列幅を変更" style="position:absolute;top:0;right:0;width:8px;height:100%;cursor:col-resize;z-index:4;user-select:none;background:repeating-linear-gradient(to bottom, rgba(108,117,125,0.45) 0 4px, transparent 4px 8px);touch-action:none;"></div>
-        </td>`;
+        // ---- 宿泊バー: lane 分配 (重複時は複数行) ----
+        // 通常は 1 lane (= 1 行) で従来通り。同日にキャンセル+新規予約等の重複があれば
+        // 別 lane に分けて行を増やす。
+        const stayLanes = computeBookingLanes(propBookings);
+        const totalRows = stayLanes.length + 1; // 宿泊 lane + 清掃 1 行
 
-        allDates.forEach(dd => {
+        stayLanes.forEach((laneBookings, laneIdx) => {
+          html += `<tr data-prop-row="${p.id}" data-row-type="stay" data-lane="${laneIdx}" style="${visible ? "" : "opacity:0.35;"}">`;
+          // 物件名セルは laneIdx=0 行にのみ出力。rowspan で全 lane + 清掃を結合
+          if (laneIdx === 0) {
+            html += `<td rowspan="${totalRows}" class="fw-medium sticky-col" style="position:sticky;left:0;z-index:10;background:#f9fafb;min-width:${stickyW};max-width:${stickyW};vertical-align:middle;font-size:13px;padding:4px 10px 4px 6px;line-height:1.3;">
+              <div style="display:flex;align-items:center;gap:4px;">
+                <button type="button" class="prop-toggle" data-prop-id="${p.id}" title="非表示にする" style="flex-shrink:0;padding:2px 4px;border:1px solid #ced4da;background:#fff;border-radius:4px;cursor:pointer;min-width:26px;min-height:26px;line-height:1;">
+                  <i class="bi bi-eye" style="color:#6c757d;font-size:14px;"></i>
+                </button>
+                <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                  <span class="badge me-1" style="background:${p._color};color:#fff;">${p._num}</span>${this.esc(p.name)}
+                </span>
+              </div>
+              <div class="col-resizer" title="ドラッグで列幅を変更" style="position:absolute;top:0;right:0;width:8px;height:100%;cursor:col-resize;z-index:4;user-select:none;background:repeating-linear-gradient(to bottom, rgba(108,117,125,0.45) 0 4px, transparent 4px 8px);touch-action:none;"></div>
+            </td>`;
+          }
+
+          allDates.forEach(dd => {
           if (!visible) {
             html += `<td data-col-date="${dd.dateStr}" style="height:${propRowH};background:#f8f9fa;padding:0;"></td>`;
             return;
           }
           const d = dd.dateStr;
           // この日をカバーする予約を検索 (CI / CO / middle を分離)
+          // 同 lane 内に絞ることで、同日重複予約 (キャンセル+新規等) は別 lane で別行に分かれる
           let starting = null, ending = null, middle = null;
-          for (const b of propBookings) {
+          for (const b of laneBookings) {
             if (b.checkIn === d) starting = b;
             else if (b.checkOut === d) ending = b;
             else if (b.checkIn < d && d < b.checkOut) middle = b;
@@ -953,16 +1034,19 @@ const MyRecruitmentPage = {
           const barTopStyle = "top:50%;transform:translateY(-50%);height:20px;pointer-events:none;";
           let segs = "";
           if (ending) {
-            const c = bookingColor(ending, fallbackColor);
-            segs += `<div style="position:absolute;left:0;right:50%;${barTopStyle}background:${c};border-top-right-radius:999px;border-bottom-right-radius:999px;z-index:2;"></div>`;
+            const c = bookingDisplayColor(ending, fallbackColor);
+            const dec = bookingBarDecor(ending);
+            segs += `<div style="position:absolute;left:0;right:50%;${barTopStyle}background:${c};${dec}border-top-right-radius:999px;border-bottom-right-radius:999px;z-index:2;"></div>`;
           }
           if (middle) {
-            const c = bookingColor(middle, fallbackColor);
-            segs += `<div style="position:absolute;left:0;right:0;${barTopStyle}background:${c};z-index:2;"></div>`;
+            const c = bookingDisplayColor(middle, fallbackColor);
+            const dec = bookingBarDecor(middle);
+            segs += `<div style="position:absolute;left:0;right:0;${barTopStyle}background:${c};${dec}z-index:2;"></div>`;
           }
           if (starting) {
-            const c = bookingColor(starting, fallbackColor);
-            segs += `<div style="position:absolute;left:50%;right:0;${barTopStyle}background:${c};border-top-left-radius:999px;border-bottom-left-radius:999px;z-index:2;"></div>`;
+            const c = bookingDisplayColor(starting, fallbackColor);
+            const dec = bookingBarDecor(starting);
+            segs += `<div style="position:absolute;left:50%;right:0;${barTopStyle}background:${c};${dec}border-top-left-radius:999px;border-bottom-left-radius:999px;z-index:2;"></div>`;
             // 名簿ドット判定 — placeholder予約と他物件名簿の誤マッチを防ぐ
             const isPlaceholder = (n) => {
               const s = String(n || "").toLowerCase().trim();
@@ -1026,10 +1110,11 @@ const MyRecruitmentPage = {
           const clickAttr = ref ? ` class="cal-date-hd" data-cal-date="${ref.checkIn}" data-booking-id="${this.esc(ref.id)}"` : "";
           const cursor = ref ? "cursor:pointer;" : "";
           html += `<td${clickAttr} data-col-date="${dd.dateStr}" style="position:relative;height:${propRowH};background:${tdBg};padding:0;overflow:visible;${cursor}">${segs}</td>`;
-        });
-        html += "</tr>";
+          });
+          html += "</tr>";
+        }); // stayLanes.forEach 終了
 
-        // ---- 2段目: 清掃募集 ----
+        // ---- 清掃募集行 ----
         html += `<tr data-prop-row="${p.id}" data-row-type="recruit" style="${visible ? "" : "opacity:0.35;"}">`;
         allDates.forEach(dd => {
           if (!visible) {
@@ -1354,6 +1439,32 @@ const MyRecruitmentPage = {
       this._saveSettings();
       this.renderCalendar();
     });
+
+    // 表示トグル (キャンセル / 保留中) — チェック状態を反映 + change で再フィルタ
+    const togC = document.getElementById("toggleShowCancelled");
+    const togP = document.getElementById("toggleShowPending");
+    if (togC && !togC._bound) {
+      togC.checked = this._showCancelled !== false;
+      togC._bound = true;
+      togC.addEventListener("change", () => {
+        this._showCancelled = togC.checked;
+        this._saveSettings();
+        this._refilterBookings();
+      });
+    } else if (togC) {
+      togC.checked = this._showCancelled !== false;
+    }
+    if (togP && !togP._bound) {
+      togP.checked = this._showPending !== false;
+      togP._bound = true;
+      togP.addEventListener("change", () => {
+        this._showPending = togP.checked;
+        this._saveSettings();
+        this._refilterBookings();
+      });
+    } else if (togP) {
+      togP.checked = this._showPending !== false;
+    }
 
     // 物件名セクションの「自物件だけ」ボタン (サブオーナー視点のみ表示)
     // トグル: 押すと自物件のみ ON / もう一度押すと押す前の表示状態に戻す
@@ -2237,6 +2348,23 @@ const MyRecruitmentPage = {
   _settingsKey() {
     return this.staffId ? `mrCal_${this.staffId}` : null;
   },
+  // トグル切替時にキャッシュ済み bookings を再フィルタして再描画
+  _refilterBookings() {
+    if (!Array.isArray(this._allBookingsRaw)) return;
+    const showCancelled = this._showCancelled !== false;
+    const showPending = this._showPending !== false;
+    this._rawBookings = this._allBookingsRaw.filter(b => {
+      const s = String(b.status || "").toLowerCase();
+      const isCancel = s.includes("cancel") || b.status === "キャンセル" || b.status === "キャンセル済み";
+      const isPending = b.pendingApproval === true;
+      if (isCancel && !showCancelled) return false;
+      if (isPending && !showPending) return false;
+      return true;
+    });
+    this._mergeBookingSources();
+    this._tryRenderCalendar();
+  },
+
   _loadSettings() {
     const key = this._settingsKey();
     if (!key) return;
@@ -2248,6 +2376,8 @@ const MyRecruitmentPage = {
       if (typeof s.showOnlyMe === "boolean") this._showOnlyMe = s.showOnlyMe;
       if (typeof s.staffFilter === "string" && ["all","myProp","visibleProp"].includes(s.staffFilter)) this._staffFilter = s.staffFilter;
       if (typeof s.stickyW === "number" && s.stickyW >= 80 && s.stickyW <= 400) this._stickyW = s.stickyW;
+      if (typeof s.showCancelled === "boolean") this._showCancelled = s.showCancelled;
+      if (typeof s.showPending === "boolean") this._showPending = s.showPending;
     } catch (e) { /* ignore */ }
   },
   _saveSettings() {
@@ -2259,6 +2389,8 @@ const MyRecruitmentPage = {
         showOnlyMe: !!this._showOnlyMe,
         staffFilter: this._staffFilter || "all",
         stickyW: this._stickyW || 140,
+        showCancelled: this._showCancelled !== false,  // default true
+        showPending: this._showPending !== false,       // default true
       }));
     } catch (e) { /* ignore */ }
   },
