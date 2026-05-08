@@ -1327,6 +1327,51 @@ const DashboardPage = {
         return `<hr><div class="d-flex gap-2 flex-wrap justify-content-end">${buttons.join("")}</div>`;
       })()}
     `;
+
+    // ===== 履歴タイムライン (オーナー専用、アコーディオン展開で遅延読込) =====
+    if (typeof Auth !== "undefined" && Auth?.isOwner?.()) {
+      const accordionId = "bookingHistoryAccordion_" + b.id.replace(/[^a-zA-Z0-9]/g, "_");
+      const collapseId = accordionId + "_collapse";
+      const contentId = accordionId + "_content";
+      const html = `
+        <hr>
+        <div class="accordion mt-3" id="${accordionId}">
+          <div class="accordion-item">
+            <h2 class="accordion-header">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                      data-bs-target="#${collapseId}" aria-expanded="false">
+                <i class="bi bi-clock-history me-2"></i> 履歴 (iCal同期 / メール照合)
+              </button>
+            </h2>
+            <div id="${collapseId}" class="accordion-collapse collapse">
+              <div class="accordion-body">
+                <div id="${contentId}">
+                  <div class="text-muted small">展開時に読み込みます...</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>`;
+      document.getElementById("calEventBody").insertAdjacentHTML("beforeend", html);
+
+      // 初回展開で fetch + render (再展開ではキャッシュ表示)
+      const collapseEl = document.getElementById(collapseId);
+      const contentEl = document.getElementById(contentId);
+      let loaded = false;
+      collapseEl.addEventListener("show.bs.collapse", async () => {
+        if (loaded) return;
+        loaded = true;
+        contentEl.innerHTML = `<div class="text-muted small"><i class="spinner-border spinner-border-sm me-1"></i> 読み込み中...</div>`;
+        try {
+          const data = await API.bookingTimeline.fetch(b.id);
+          contentEl.innerHTML = this._renderBookingTimeline(data);
+        } catch (e) {
+          loaded = false;
+          contentEl.innerHTML = `<div class="text-danger small">履歴の取得に失敗しました: ${this.esc(e.message || String(e))}</div>`;
+        }
+      });
+    }
+
     bootstrap.Modal.getOrCreateInstance(modalEl).show();
 
     // ===== 予約操作ボタンのハンドラ群 =====
@@ -1765,5 +1810,62 @@ const DashboardPage = {
     const div = document.createElement("div");
     div.textContent = str || "";
     return div.innerHTML;
+  },
+
+  /**
+   * 予約履歴タイムラインの HTML レンダリング
+   * @param {object} data - /booking-timeline/:id のレスポンス
+   */
+  _renderBookingTimeline(data) {
+    if (!data || !Array.isArray(data.events) || data.events.length === 0) {
+      return `<div class="text-muted small">履歴は見つかりませんでした (iCal同期もメール照合もまだ動いていない可能性があります)</div>`;
+    }
+    const ICONS = {
+      ical_created: "bi-calendar-plus text-primary",
+      ical_removed: "bi-calendar-x text-danger",
+      manual_cancelled: "bi-calendar-x text-secondary",
+      email_confirmed: "bi-envelope-check text-success",
+      email_cancelled: "bi-envelope-x text-danger",
+      email_changed: "bi-envelope-paper text-warning",
+      email_pending: "bi-envelope-exclamation text-warning",
+    };
+    const fmt = (iso) => {
+      if (!iso) return "(時刻不明)";
+      try {
+        const d = new Date(iso);
+        const y = d.getFullYear();
+        const mo = String(d.getMonth() + 1).padStart(2, "0");
+        const da = String(d.getDate()).padStart(2, "0");
+        const hh = String(d.getHours()).padStart(2, "0");
+        const mi = String(d.getMinutes()).padStart(2, "0");
+        return `${y}-${mo}-${da} ${hh}:${mi}`;
+      } catch (_e) { return iso; }
+    };
+    const unverifiedBadge = data.unverified
+      ? `<span class="badge bg-warning text-dark ms-2"><i class="bi bi-question-circle"></i> 未照合</span>`
+      : "";
+    const head = `
+      <div class="small text-muted mb-2">
+        ${this.esc(data.source || "")} / ${this.esc(data.checkIn || "")} 〜 ${this.esc(data.checkOut || "")}
+        ${unverifiedBadge}
+      </div>`;
+    const items = data.events.map((ev) => {
+      const icon = ICONS[ev.type] || "bi-circle";
+      const link = ev.linkUrl
+        ? `<a href="${this.esc(ev.linkUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary mt-1"><i class="bi bi-box-arrow-up-right"></i> ${this.esc(ev.linkLabel || "開く")}</a>`
+        : "";
+      const note = ev.note ? `<div class="small text-muted mt-1">${this.esc(ev.note)}</div>` : "";
+      const source = ev.source ? `<div class="small text-muted">${this.esc(ev.source)}</div>` : "";
+      return `
+        <div class="border-start border-3 ps-3 pb-3" style="position:relative;">
+          <i class="bi ${icon}" style="position:absolute;left:-11px;background:#fff;padding:2px;"></i>
+          <div class="fw-bold">${this.esc(ev.label)}</div>
+          <div class="small text-muted">${fmt(ev.timestamp)}</div>
+          ${source}
+          ${note}
+          ${link}
+        </div>`;
+    }).join("");
+    return head + `<div>${items}</div>`;
   },
 };

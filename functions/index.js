@@ -155,6 +155,10 @@ app.use("/sync", syncApi(db));
 const emailVerificationApi = require("./api/email-verification");
 app.use("/email-verification", emailVerificationApi(db));
 
+// ========== 予約履歴タイムライン API (オーナー専用) ==========
+const bookingTimelineApi = require("./api/booking-timeline");
+app.use("/booking-timeline", bookingTimelineApi(db));
+
 // ========== キーボックス確認API ==========
 const keyboxApi = require("./api/keybox");
 app.use("/keybox", keyboxApi(db));

@@ -1238,4 +1238,18 @@ const API = {
       return { id, ...data };
     },
   },
+
+  // 予約履歴タイムライン (オーナー専用)
+  bookingTimeline: {
+    async fetch(bookingId) {
+      const CF_BASE = "https://api-5qrfx7ujcq-an.a.run.app";
+      const token = await firebase.auth().currentUser.getIdToken();
+      const res = await fetch(`${CF_BASE}/booking-timeline/${encodeURIComponent(bookingId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "履歴取得失敗");
+      return result;
+    },
+  },
 };
