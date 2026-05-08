@@ -89,10 +89,24 @@ function guessPlatform(fromHeader) {
 }
 
 // To ヘッダ文字列内に含まれる verificationTargets の該当を返す (plus-addressing 許容)
-function matchVerificationTarget(toHeader, verificationTargets) {
+//
+// 複数物件で同じメアドを共有している場合 (例: 81hassac@gmail.com を the Terrace と YADO KOMACHI 両方で使用) は、
+//   1. fromPlatform が指定されていれば platform 一致で絞り込み
+//   2. それでも複数残るなら null を返す (呼出側でオーナー全物件横断検索にフォールバック)
+//
+// これにより「最初の物件に誤って固定する」バグを防ぐ。
+function matchVerificationTarget(toHeader, verificationTargets, fromPlatform) {
   if (!Array.isArray(verificationTargets)) return null;
   const s = String(toHeader || "").toLowerCase();
-  return verificationTargets.find((t) => t && s.includes(String(t.email || "").toLowerCase())) || null;
+  let matched = verificationTargets.filter((t) => t && s.includes(String(t.email || "").toLowerCase()));
+  if (matched.length === 0) return null;
+  if (matched.length > 1 && fromPlatform && fromPlatform !== "Unknown") {
+    const filteredByPlatform = matched.filter((t) => t.platform === fromPlatform);
+    if (filteredByPlatform.length > 0) matched = filteredByPlatform;
+  }
+  if (matched.length === 1) return matched[0];
+  // 複数残った (= 共用メアド + 同 platform 複数物件) → 物件特定不能、null で全物件横断
+  return null;
 }
 
 // ======================================================
@@ -234,12 +248,14 @@ async function emailVerificationCore(db, opts = {}) {
           const dateHeader = getHeader(headers, "Date") || "";
           const bodyText = extractBody(detail.data.payload, true);
           const bodyHtml = extractBody(detail.data.payload, false);
-          // myTargets のみで照合 (他オーナーの物件メアドにヒットさせない)
-          const matched = matchVerificationTarget(toHeader, myTargets);
-          const propertyId = matched ? matched.propertyId : null;
           // platform は from ヘッダから判定する (verificationTargets に同じメアドを
           // 複数 platform で登録した場合でも正しく識別するため)
           const platformFromSender = guessPlatform(fromHeader);
+          // myTargets のみで照合 (他オーナーの物件メアドにヒットさせない)
+          // 同一メアドが複数物件で共用されている場合、platform 一致で絞れなければ null
+          //   → 下流の findBookingMatch がオーナー全物件 bookings から reservationCode で特定する
+          const matched = matchVerificationTarget(toHeader, myTargets, platformFromSender);
+          const propertyId = matched ? matched.propertyId : null;
           const platform = platformFromSender !== "Unknown"
             ? platformFromSender
             : (matched && matched.platform) || "Unknown";
@@ -360,11 +376,16 @@ async function emailVerificationCore(db, opts = {}) {
             });
           }
 
+          // propertyId 補正: bookingMatch で booking が確定した場合は、
+          // 共用メアド由来で propertyId=null になっていても booking の propertyId に揃える
+          const finalPropertyId = (bookingMatch && bookingMatch.id && bookingMatch.data && bookingMatch.data.propertyId)
+            || propertyId;
+
           await evRef.set({
             messageId: msg.id,
             threadId: detail.data.threadId || null,
             gmailAccount: tokenData.email || null,
-            propertyId,
+            propertyId: finalPropertyId,
             platform,
             subject,
             fromHeader,
