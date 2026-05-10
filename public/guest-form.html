@@ -416,6 +416,8 @@
       <p id="lbl_successMsg">ご記入ありがとうございます。<br>ご宿泊を楽しみにお待ちしております。</p>
     </div>
     <div class="card-body p-4">
+      <!-- パスポート写真がアップロードできなかった場合の再掲案内 (送信時のフラグ次第で表示) -->
+      <div id="successPassportFailNotice" class="alert alert-warning d-none" role="alert" style="font-size:0.9rem;line-height:1.55;"></div>
       <div class="p-3 rounded mb-3" id="successInfoBox" style="background: #eef4fb; border: 1px solid #d0e2f5;">
         <ul class="mb-0 ps-3 small" style="line-height:1.7;">
           <li id="lbl_successConfirmEmail">確認メールをお送りしました。</li>
@@ -426,6 +428,20 @@
       <a href="/guest-guide.html" class="btn btn-primary w-100 py-2" id="lbl_successGuideLink" style="background: var(--theme-header-bg); border:none;">
         <i class="bi bi-book me-1"></i> <span>ゲストガイドを見る</span>
       </a>
+    </div>
+  </div>
+
+  <!-- パスポート写真アップロード失敗 通知ダイアログ (ブロッキング) -->
+  <div id="passportFailModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:12px;padding:1.5rem;max-width:420px;width:92%;box-shadow:0 8px 32px rgba(0,0,0,0.25);">
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;">
+        <div style="font-size:1.6rem;line-height:1;">⚠️</div>
+        <div id="passportFailTitle" style="font-weight:700;font-size:1.05rem;"></div>
+      </div>
+      <div id="passportFailBody" style="margin-bottom:1.25rem;white-space:pre-wrap;font-size:0.95rem;line-height:1.55;"></div>
+      <div style="display:flex;justify-content:flex-end;">
+        <button id="passportFailOk" type="button" class="btn btn-primary"></button>
+      </div>
     </div>
   </div>
 
@@ -562,8 +578,8 @@
         guest_n: "宿泊者{n}", guest_representative: "（代表者）",
         g_name: "氏名（フルネーム）", g_nationality: "国籍", g_address: "住所",
         g_phone: "電話番号", g_email: "メールアドレス", g_age: "年齢",
-        g_passport: "旅券番号", g_passportPhoto: "パスポート写真（アップロード／任意）",
-        g_passportRequired: "※ 外国籍の方は旅券番号の入力が必須です。パスポート写真は任意です。アップロードに失敗した場合は、ご予約サイト（Airbnb / Booking.com 等）のメッセージ機能で写真をホストへお送りください。",
+        g_passport: "旅券番号", g_passportPhoto: "パスポート写真（アップロード）",
+        g_passportRequired: "※ 外国籍の方は旅券番号の入力とパスポート写真のアップロードが必須です。万一アップロードに失敗した場合は、ご予約サイト（Airbnb / Booking.com 等）のメッセージ機能で写真をホストへお送りください。名簿はそのまま送信いただけます。",
         transport: "交通手段をお選びください <span class='required-mark'>*</span>",
         transportOtherPh: "交通手段を入力",
         carCount: "お車は何台でお越しになりますか？ <span class='required-mark'>*</span>",
@@ -686,8 +702,8 @@
         guest_n: "Guest {n}", guest_representative: "(Primary)",
         g_name: "Full Name", g_nationality: "Nationality", g_address: "Address",
         g_phone: "Phone Number", g_email: "Email Address", g_age: "Age",
-        g_passport: "Passport Number", g_passportPhoto: "Passport Photo (Upload / Optional)",
-        g_passportRequired: "* Passport number is required for foreign nationals. Passport photo is optional. If the upload fails, please send the photo to your host via the booking site (Airbnb / Booking.com etc.) message function.",
+        g_passport: "Passport Number", g_passportPhoto: "Passport Photo (Upload)",
+        g_passportRequired: "* Passport number and photo upload are required for foreign nationals. If the upload fails, please send the photo to your host via the booking site (Airbnb / Booking.com etc.) message function — you can still submit the registration form.",
         transport: "Transportation <span class='required-mark'>*</span>",
         transportOtherPh: "Enter transportation method",
         carCount: "How many cars will you bring? <span class='required-mark'>*</span>",
@@ -937,8 +953,9 @@
         // 既存パスポート写真がある場合: サムネ表示 + 「変更する場合のみ再アップロード」案内
         // → 新規アップロード必須を解除 (写真維持できる)
         const existingPP = s.passportPhotoUrl || "";
-        // パスポート写真は任意項目化（アップロード失敗時も名簿送信できるようにするため）
-        const ppRequired = false;
+        // パスポート写真は実質必須なのでラベルに「*」を表示。ただし HTML5 の required
+        // 属性は付けない (アップロード失敗時も名簿送信できるようにするため)。
+        // 既存写真がある編集モードでは「*」を出さない。
         const existingPPLabelJa = "登録済の写真:";
         const existingPPLabelEn = "Registered photo:";
         const existingPPHintJa = "変更する場合のみ、新しい写真を選択してください。";
@@ -958,7 +975,7 @@
           <div class="alert alert-info py-1 px-2 small mb-1">${t.g_passportRequired}</div>
           <label class="form-label small">${t.g_passport} <span class="required-mark">*</span></label><input type="text" class="form-control form-control-sm g-passport" ${showPP ? 'required' : ''} value="${esc(s.passport || "")}">
           ${existingPPBlock}
-          <label class="form-label small mt-1">${t.g_passportPhoto}${ppRequired ? ' <span class="required-mark">*</span>' : ''}</label><input type="file" class="form-control form-control-sm g-passport-photo" accept="image/*" ${ppRequired ? 'required' : ''}>
+          <label class="form-label small mt-1">${t.g_passportPhoto}${existingPP ? '' : ' <span class="required-mark">*</span>'}</label><input type="file" class="form-control form-control-sm g-passport-photo" accept="image/*">
         </div></div></div>`;
       }
       container.innerHTML = html;
@@ -1571,27 +1588,37 @@
           }
         }
       }
-      // 失敗があった場合は警告バナーで予約サイト連絡を案内 (送信はブロックしない)
+      // 失敗があった場合はモーダルで予約サイト連絡を案内 (ユーザー確認後に送信続行)
       if (anyFailed) {
-        showFormWarning(fallbackMsg);
+        _passportUploadFailed = true;
+        await showPassportFailDialog(fallbackMsg);
       }
       return urls;
     }
 
-    // ===== フォーム警告表示 (非ブロッキング: 送信は継続) =====
-    function showFormWarning(msg) {
-      let el = document.getElementById("formWarningBanner");
-      if (!el) {
-        el = document.createElement("div");
-        el.id = "formWarningBanner";
-        el.className = "alert alert-warning mb-3";
-        el.setAttribute("role", "alert");
-        const body = document.querySelector("#formView .card-body");
-        if (body) body.prepend(el);
-      }
-      el.textContent = msg;
-      el.classList.remove("d-none");
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    // 完了画面で「予約サイトで写真送付」を再掲するためのフラグ
+    let _passportUploadFailed = false;
+
+    // ===== パスポート写真 アップロード失敗 ブロッキングダイアログ =====
+    function showPassportFailDialog(msg) {
+      return new Promise((resolve) => {
+        const modal = document.getElementById("passportFailModal");
+        const title = document.getElementById("passportFailTitle");
+        const body = document.getElementById("passportFailBody");
+        const ok = document.getElementById("passportFailOk");
+        title.textContent = currentLang === "ja"
+          ? "パスポート写真がアップロードできませんでした"
+          : "Passport Photo Upload Failed";
+        body.textContent = msg;
+        ok.textContent = currentLang === "ja" ? "了解しました" : "OK, I understand";
+        modal.style.display = "flex";
+        const close = () => {
+          modal.style.display = "none";
+          ok.removeEventListener("click", close);
+          resolve();
+        };
+        ok.addEventListener("click", close);
+      });
     }
 
     // ===== 物件別フォーム設定の適用 =====
@@ -2241,6 +2268,16 @@
         } catch (_) {}
         document.getElementById("formView").classList.add("d-none");
         document.getElementById("successView").classList.remove("d-none");
+        // パスポート写真アップロードに失敗した場合は完了画面でも案内を再掲
+        if (_passportUploadFailed) {
+          const notice = document.getElementById("successPassportFailNotice");
+          if (notice) {
+            notice.textContent = currentLang === "ja"
+              ? "⚠️ パスポート写真がアップロードできませんでした。お手数ですが、ご予約サイト（Airbnb / Booking.com 等）のメッセージ機能で写真をホストへお送りください。"
+              : "⚠️ Your passport photo could not be uploaded. Please send the photo to your host via the booking site (Airbnb / Booking.com etc.) message function.";
+            notice.classList.remove("d-none");
+          }
+        }
         window.scrollTo({ top: 0, behavior: "smooth" });
       } catch (err) {
         console.error("送信エラー:", err);
