@@ -1,0 +1,27 @@
+[
+  {
+    "origin": [
+      "https://minpaku-v2.web.app",
+      "https://minpaku-v2.firebaseapp.com",
+      "http://localhost:5000",
+      "http://localhost:3000"
+    ],
+    "method": ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "Authorization",
+      "Content-Length",
+      "User-Agent",
+      "X-Requested-With",
+      "X-Goog-Upload-Protocol",
+      "X-Goog-Upload-Command",
+      "X-Goog-Upload-Header-Content-Length",
+      "X-Goog-Upload-Header-Content-Type",
+      "X-Goog-Upload-Offset",
+      "X-Goog-Upload-Status",
+      "X-Goog-Upload-URL",
+      "X-Goog-Upload-Chunk-Granularity"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]
