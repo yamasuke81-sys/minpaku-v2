@@ -49,9 +49,10 @@ router.get("/guest-form-config/:propertyId", async (req, res) => {
       guideUrlMode: d.guideUrlMode || "auto",
       guideShowOnSuccess: d.guideShowOnSuccess !== false,  // デフォルト true（送信完了画面でゲスト案内へ案内する）
       address: d.address || "",
-      // パスポート写真アップロード失敗時の代替送信先 (任意項目)
-      contactEmail: d.notificationEmail || "",
-      contactEmailName: d.notificationEmailName || "",
+      // パスポート写真アップロード失敗時の代替送信先
+      // 優先順: notificationEmail (受信通知) > senderGmail (Gmail連携の物件代表メール)
+      contactEmail: d.notificationEmail || d.senderGmail || "",
+      contactEmailName: d.notificationEmailName || d.name || "",
     });
   } catch (e) {
     console.error("[public/guest-form-config] エラー:", e);
