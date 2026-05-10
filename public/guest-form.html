@@ -438,7 +438,11 @@
         <div style="font-size:1.6rem;line-height:1;">⚠️</div>
         <div id="passportFailTitle" style="font-weight:700;font-size:1.05rem;"></div>
       </div>
-      <div id="passportFailBody" style="margin-bottom:1.25rem;white-space:pre-wrap;font-size:0.95rem;line-height:1.55;"></div>
+      <div id="passportFailBody" style="margin-bottom:0.9rem;white-space:pre-wrap;font-size:0.95rem;line-height:1.55;"></div>
+      <div id="passportFailEmailSection" class="d-none" style="margin-bottom:1.25rem;padding:0.75rem;background:#f6f9fc;border:1px solid #d9e3ee;border-radius:8px;">
+        <div id="passportFailEmailLabel" style="font-size:0.85rem;color:#475569;margin-bottom:0.4rem;"></div>
+        <a id="passportFailEmailLink" href="#" style="font-weight:600;font-size:0.95rem;word-break:break-all;display:inline-block;"></a>
+      </div>
       <div style="display:flex;justify-content:flex-end;">
         <button id="passportFailOk" type="button" class="btn btn-primary"></button>
       </div>
@@ -1606,11 +1610,35 @@
         const title = document.getElementById("passportFailTitle");
         const body = document.getElementById("passportFailBody");
         const ok = document.getElementById("passportFailOk");
-        title.textContent = currentLang === "ja"
+        const emailSec = document.getElementById("passportFailEmailSection");
+        const emailLabel = document.getElementById("passportFailEmailLabel");
+        const emailLink = document.getElementById("passportFailEmailLink");
+        const ja = currentLang === "ja";
+        title.textContent = ja
           ? "パスポート写真がアップロードできませんでした"
           : "Passport Photo Upload Failed";
         body.textContent = msg;
-        ok.textContent = currentLang === "ja" ? "了解しました" : "OK, I understand";
+        ok.textContent = ja ? "了解しました" : "OK, I understand";
+        // 物件メールアドレスがあれば mailto リンクを提示
+        const propEmail = (_propertyConfig && _propertyConfig.contactEmail) ? _propertyConfig.contactEmail : "";
+        const propName = (_propertyConfig && _propertyConfig.name) ? _propertyConfig.name : "";
+        const repName = document.querySelector(".guest-block .g-name")?.value?.trim() || "";
+        if (propEmail) {
+          emailLabel.textContent = ja
+            ? "または、こちらのメールアドレスへ写真を直接お送りいただいても構いません："
+            : "Or, you may email the photo directly to:";
+          const subject = ja
+            ? `【${propName}】パスポート写真送付${repName ? `／${repName} 様` : ""}`
+            : `[${propName}] Passport Photo Submission${repName ? ` / ${repName}` : ""}`;
+          const bodyText = ja
+            ? `${propName} ご担当者様\n\nパスポート写真を添付してお送りします。\nお名前: ${repName}\n\n（このメールに写真を添付してください）`
+            : `Dear ${propName},\n\nPlease find my passport photo attached.\nName: ${repName}\n\n(Please attach the passport photo to this email.)`;
+          emailLink.href = `mailto:${propEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyText)}`;
+          emailLink.textContent = propEmail;
+          emailSec.classList.remove("d-none");
+        } else {
+          emailSec.classList.add("d-none");
+        }
         modal.style.display = "flex";
         const close = () => {
           modal.style.display = "none";
