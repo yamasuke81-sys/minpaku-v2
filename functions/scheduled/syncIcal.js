@@ -293,11 +293,10 @@ async function syncIcal() {
         const existing = await docRef.get();
 
         // ゴースト重複ガード: Booking.com 匿名 CLOSED は、同物件で日付がオーバーラップする
-        // 既存の非キャンセル予約があれば取り込まない (Booking.com iCal は同じ予約に対し
-        // 別 UID で CLOSED エントリを重ねて配信することがあり、これがゴースト予約を生む)
-        // 既に存在する (= 同 UID の更新) ならスキップしない
-        if (!existing.exists
-            && platform === "Booking.com"
+        // 別の非キャンセル予約があれば取り込まない (Booking.com iCal は同じ予約に対し
+        // 別 UID で CLOSED エントリを重ねて配信することがあり、これがゴースト予約を生む)。
+        // 既存ゴースト (= 過去に取り込まれた重複) も同条件で削除する (cleanup)。
+        if (platform === "Booking.com"
             && !guestName
             && /not available|closed|blocked|reserved/i.test(summaryLower)
             && setting.propertyId) {
@@ -320,6 +319,15 @@ async function syncIcal() {
           });
           if (hasOverlap) {
             console.log(`[syncIcal] スキップ(ゴースト重複疑い): Booking.com匿名CLOSED ${checkIn}〜${checkOut} (同物件に重複予約あり propertyId=${setting.propertyId})`);
+            // 既に過去取り込みでゴーストが残っていれば削除 (cleanup)
+            if (existing.exists) {
+              try {
+                await docRef.delete();
+                console.log(`[syncIcal] 既存ゴースト削除: ${docId}`);
+              } catch (e) {
+                console.warn(`[syncIcal] ゴースト削除失敗: ${e.message}`);
+              }
+            }
             skipped++;
             continue;
           }
