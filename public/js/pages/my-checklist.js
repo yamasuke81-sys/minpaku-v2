@@ -757,7 +757,7 @@ const MyChecklistPage = {
     if (checklistId) params.push(`cid=${encodeURIComponent(checklistId)}`);
     params.push(`p=${encodeURIComponent(propertyId)}`);
     if (propertyName) params.push(`n=${encodeURIComponent(propertyName)}`);
-    const url = `${location.origin}/guest-checklist.html?${params.join("&")}`;
+    const url = window.withExternalBrowser(`${location.origin}/guest-checklist.html?${params.join("&")}`);
     const copyBtn = document.getElementById("mclHelperCopyBtn");
     const qrBtn = document.getElementById("mclQrBtn");
     if (copyBtn) {

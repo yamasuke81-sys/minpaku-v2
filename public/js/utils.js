@@ -1,5 +1,24 @@
 // 共通ユーティリティ (全ページ共通でグローバル露出)
 
+// LINE 内蔵ブラウザではなく OS デフォルトブラウザで開かせるため
+// v2 アプリの URL に openExternalBrowser=1 を付与する (LINE 公式仕様)
+// - 対象: minpaku-v2.web.app / minpaku-v2.firebaseapp.com を含む URL
+// - 既に openExternalBrowser=... があれば変更しない
+// - Query 有無は ? / & を自動判定し、フラグメント (#/...) より前に挿入
+window.withExternalBrowser = function(url) {
+  if (!url || typeof url !== "string") return url;
+  // 単一 URL でない (本文文字列等) の場合も同じ正規表現で全置換可能
+  const re = /https:\/\/minpaku-v2\.(?:web\.app|firebaseapp\.com)[^\s)<>"]*/g;
+  return url.replace(re, (u) => {
+    if (/[?&]openExternalBrowser=/.test(u)) return u;
+    const hashIdx = u.indexOf("#");
+    const base = hashIdx >= 0 ? u.slice(0, hashIdx) : u;
+    const hash = hashIdx >= 0 ? u.slice(hashIdx) : "";
+    const sep = base.includes("?") ? "&" : "?";
+    return `${base}${sep}openExternalBrowser=1${hash}`;
+  });
+};
+
 // HTML エスケープ済み文字列内の URL を <a> タグに置換
 // 入力は必ず既に escape 済みであること (XSS 対策)
 window.linkifyUrls = function(escapedHtml) {

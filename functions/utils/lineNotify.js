@@ -8,6 +8,28 @@ const crypto = require("crypto");
 // エミュレータ環境では実送信をスキップしてコンソールに出力する
 const IS_EMULATOR = process.env.FUNCTIONS_EMULATOR === "true";
 
+/**
+ * v2 アプリの URL に openExternalBrowser=1 を付与し、LINE 内蔵ブラウザではなく
+ * OS デフォルトブラウザで開かせる (LINE 公式仕様)。
+ * - 対象: minpaku-v2.web.app / minpaku-v2.firebaseapp.com を含む URL
+ * - 既に openExternalBrowser=... が含まれていれば変更しない
+ * - Query 有無は ? / & を自動判定
+ * - フラグメント (#/...) より前に挿入
+ */
+function appendOpenExternalBrowser(text) {
+  if (!text || typeof text !== "string") return text;
+  const re = /https:\/\/minpaku-v2\.(?:web\.app|firebaseapp\.com)[^\s)<>"]*/g;
+  return text.replace(re, (url) => {
+    if (/[?&]openExternalBrowser=/.test(url)) return url;
+    // fragment を分離
+    const hashIdx = url.indexOf("#");
+    const base = hashIdx >= 0 ? url.slice(0, hashIdx) : url;
+    const hash = hashIdx >= 0 ? url.slice(hashIdx) : "";
+    const sep = base.includes("?") ? "&" : "?";
+    return `${base}${sep}openExternalBrowser=1${hash}`;
+  });
+}
+
 // ========== 低レベル送信 ==========
 
 /**
@@ -59,8 +81,9 @@ function pushMessages_(channelToken, userId, messages) {
  * LINEにテキストメッセージを送信（既存互換）
  */
 function sendLineMessage(channelToken, userId, text) {
+  const transformed = appendOpenExternalBrowser(text);
   return pushMessages_(channelToken, userId, [
-    { type: "text", text: text.slice(0, 5000) },
+    { type: "text", text: transformed.slice(0, 5000) },
   ]);
 }
 
@@ -722,7 +745,8 @@ function sendDiscord_(webhookUrl, content) {
   return new Promise((resolve) => {
     try {
       const u = new URL(webhookUrl);
-      const body = JSON.stringify({ content: String(content || "").slice(0, 1900) });
+      const transformed = appendOpenExternalBrowser(String(content || ""));
+      const body = JSON.stringify({ content: transformed.slice(0, 1900) });
       const options = {
         hostname: u.hostname,
         path: u.pathname + u.search,
@@ -816,6 +840,9 @@ async function sendNotificationEmail_(to, subject, body, fromEmail, opts) {
     ? fromEmail
     : (tokenData.email || "me");
   const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString("base64")}?=`;
+  // メール本文の v2 アプリ URL に openExternalBrowser=1 を付与
+  // (メールアプリから LINE 内蔵ブラウザにフォールバックする端末対策も兼ねる)
+  const transformedBody = appendOpenExternalBrowser(body);
   const messageParts = [
     `From: ${fromHeader}`,
     `To: ${to}`,
@@ -823,7 +850,7 @@ async function sendNotificationEmail_(to, subject, body, fromEmail, opts) {
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=utf-8",
     "",
-    body,
+    transformedBody,
   ];
   const message = messageParts.join("\n");
   const encodedMessage = Buffer.from(message).toString("base64url");

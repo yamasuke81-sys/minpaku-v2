@@ -102,6 +102,9 @@ module.exports = async function rosterRemind() {
         if (b.rosterStatus === "submitted") continue;
         // 保留中 (Airbnb 承認待ち) → スキップ
         if (b.pendingApproval === true) continue;
+        // 未照合 (Booking.com 匿名 CLOSED 取込分) → 実予約と重複しているケースが多く、
+        // 確定メール受信で unverified=false に降下する前は名簿督促を送らない
+        if (b.unverified === true) continue;
 
         // 重複防止キー: 日付+時+beforeDays で一意
         const key = `${todayJst}_${String(hourJst).padStart(2, "0")}_d${tgt.beforeDays}`;

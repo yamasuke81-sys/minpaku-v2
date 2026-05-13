@@ -1392,8 +1392,8 @@ const PropertiesPage = {
    * - QR コード表示モーダル (PNG ダウンロード可)
    */
   _renderGuestChecklistSection(container, propertyId, propertyName) {
-    const url = `${location.origin}/guest-checklist.html?p=${encodeURIComponent(propertyId)}` +
-      (propertyName ? `&n=${encodeURIComponent(propertyName)}` : "");
+    const url = window.withExternalBrowser(`${location.origin}/guest-checklist.html?p=${encodeURIComponent(propertyId)}` +
+      (propertyName ? `&n=${encodeURIComponent(propertyName)}` : ""));
     container.innerHTML = `
       <div class="input-group input-group-sm mb-2">
         <input type="text" class="form-control" id="guestChecklistUrlInput" value="${url}" readonly>

@@ -518,9 +518,9 @@ const GuestsPage = {
       btn.addEventListener("click", async () => {
         const target = document.getElementById(btn.dataset.copyTarget);
         if (!target) return;
-        const url = target.value;
+        const url = window.withExternalBrowser(target.value);
         try { await navigator.clipboard.writeText(url); showToast("コピー完了", url.slice(0, 60), "success"); }
-        catch (_) { target.select(); document.execCommand("copy"); showToast("コピー完了", "", "success"); }
+        catch (_) { target.value = url; target.select(); document.execCommand("copy"); showToast("コピー完了", "", "success"); }
       });
     });
     container.querySelectorAll("[data-open-target]").forEach(btn => {
@@ -626,8 +626,9 @@ const GuestsPage = {
       btn.addEventListener("click", async () => {
         const target = document.getElementById(btn.dataset.copyTarget);
         if (!target || !target.value) return;
-        try { await navigator.clipboard.writeText(target.value); showToast("コピー完了", "", "success"); }
-        catch (_) { target.select(); document.execCommand("copy"); showToast("コピー完了", "", "success"); }
+        const url = window.withExternalBrowser(target.value);
+        try { await navigator.clipboard.writeText(url); showToast("コピー完了", "", "success"); }
+        catch (_) { target.value = url; target.select(); document.execCommand("copy"); showToast("コピー完了", "", "success"); }
       });
     });
   },
@@ -1242,11 +1243,12 @@ const GuestsPage = {
       clone.addEventListener("click", async () => {
         const target = document.getElementById(clone.dataset.copyTarget);
         if (!target) return;
-        const url = target.value;
+        const url = window.withExternalBrowser(target.value);
         try {
           await navigator.clipboard.writeText(url);
           showToast("コピー完了", url.slice(0, 60) + (url.length > 60 ? "..." : ""), "success");
         } catch (_) {
+          target.value = url;
           target.select();
           document.execCommand("copy");
           showToast("コピー完了", "", "success");

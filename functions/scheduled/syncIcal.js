@@ -292,6 +292,39 @@ async function syncIcal() {
         const docRef = db.collection("bookings").doc(docId);
         const existing = await docRef.get();
 
+        // ゴースト重複ガード: Booking.com 匿名 CLOSED は、同物件で日付がオーバーラップする
+        // 既存の非キャンセル予約があれば取り込まない (Booking.com iCal は同じ予約に対し
+        // 別 UID で CLOSED エントリを重ねて配信することがあり、これがゴースト予約を生む)
+        // 既に存在する (= 同 UID の更新) ならスキップしない
+        if (!existing.exists
+            && platform === "Booking.com"
+            && !guestName
+            && /not available|closed|blocked|reserved/i.test(summaryLower)
+            && setting.propertyId) {
+          // 同物件で CI <= checkOut かつ CO >= checkIn の非キャンセル予約があるか
+          const overlapSnap = await db.collection("bookings")
+            .where("propertyId", "==", setting.propertyId)
+            .where("checkIn", "<=", checkOut)
+            .get();
+          const hasOverlap = overlapSnap.docs.some(od => {
+            const ob = od.data();
+            const oCi = String(ob.checkIn || "");
+            const oCo = String(ob.checkOut || "");
+            const s = String(ob.status || "").toLowerCase();
+            const isCancel = s.includes("cancel") || ob.status === "キャンセル" || ob.status === "キャンセル済み";
+            if (isCancel) return false;
+            // 同UIDは除外 (再同期時の自分自身)
+            if (ob.icalUid === uid) return false;
+            // オーバーラップ判定: oCi < checkOut && oCo > checkIn (隣接=連泊は重複扱いしない)
+            return oCi < checkOut && oCo > checkIn;
+          });
+          if (hasOverlap) {
+            console.log(`[syncIcal] スキップ(ゴースト重複疑い): Booking.com匿名CLOSED ${checkIn}〜${checkOut} (同物件に重複予約あり propertyId=${setting.propertyId})`);
+            skipped++;
+            continue;
+          }
+        }
+
         // Booking.comのCLOSEDイベントはゲスト名を空にする（SUMMARYを使わない）
         // 表示用プレースホルダ「Booking.com予約」を入れる (メール照合の有無問わず)
         // → メール照合で実名取得後に最新勝ちロジックで実名へ上書き

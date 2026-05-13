@@ -909,14 +909,14 @@ const StaffPage = {
       };
       // コピーボタン
       document.getElementById("btnCopyInviteLink").onclick = () => {
-        const url = document.getElementById("inviteLinkUrl").value;
+        const url = window.withExternalBrowser(document.getElementById("inviteLinkUrl").value);
         navigator.clipboard.writeText(url).then(() => showToast("コピー", "リンクをコピーしました", "success"));
       };
       // LINEで共有ボタン
       const btnShareLine = document.getElementById("btnShareInviteLine");
       if (btnShareLine) {
         btnShareLine.onclick = () => {
-          const url = document.getElementById("inviteLinkUrl").value;
+          const url = window.withExternalBrowser(document.getElementById("inviteLinkUrl").value);
           if (!url) { showToast("エラー", "先に招待リンクを発行してください", "error"); return; }
           const text = encodeURIComponent(`民泊管理アプリへの招待です。以下のリンクから参加してください:\n${url}`);
           window.open(`https://line.me/R/share?text=${text}`, "_blank");
