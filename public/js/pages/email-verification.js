@@ -195,16 +195,24 @@ const EmailVerificationPage = {
         ${this.gmailAccounts.map((a) => {
           const email = this.escape_(a.email || "");
           const savedAt = a.savedAt ? this.formatTs_(a.savedAt) : "";
+          const lastScannedAt = a.lastScannedAt ? this.formatTs_(a.lastScannedAt) : "";
+          const lastScanResult = a.lastScanResult ? this.escape_(a.lastScanResult) : "";
           const ok = a.hasRefreshToken
             ? `<span class="badge bg-success">有効</span>`
             : `<span class="badge bg-danger">リフレッシュトークン無し</span>`;
+          const scanLine = lastScannedAt
+            ? `<div class="text-muted small mt-1"><i class="bi bi-arrow-repeat"></i> 最終巡回: ${lastScannedAt}${lastScanResult ? ` (${lastScanResult})` : ""}</div>`
+            : `<div class="text-muted small mt-1"><i class="bi bi-arrow-repeat"></i> 最終巡回: 未実行</div>`;
           return `
             <div class="d-flex align-items-center justify-content-between border rounded p-2">
               <div>
-                <i class="bi bi-envelope-fill text-primary"></i>
-                <strong>${email}</strong>
-                ${ok}
-                ${savedAt ? `<span class="text-muted small ms-2">連携日: ${savedAt}</span>` : ""}
+                <div>
+                  <i class="bi bi-envelope-fill text-primary"></i>
+                  <strong>${email}</strong>
+                  ${ok}
+                  ${savedAt ? `<span class="text-muted small ms-2">連携日: ${savedAt}</span>` : ""}
+                </div>
+                ${scanLine}
               </div>
               <button class="btn btn-sm btn-outline-danger" data-account="${email}">
                 <i class="bi bi-x-circle"></i> 解除
@@ -532,7 +540,7 @@ const EmailVerificationPage = {
           "巡回結果"
         );
       }
-      await this.load_();
+      await Promise.all([this.load_(), this.loadAccounts_()]);
     } catch (e) {
       if (window.showAlert) await window.showAlert(`失敗: ${e.message}`, "エラー");
     } finally {

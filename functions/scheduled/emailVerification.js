@@ -198,6 +198,8 @@ async function emailVerificationCore(db, opts = {}) {
       result.skipped++;
       continue;
     }
+    // 巡回統計 (このトークン分のみ) — 終了時に lastScanResult として書き戻す
+    const perToken = { processed: 0, matched: 0, newlySaved: 0, skipped: 0, errors: 0 };
 
     // このトークンのオーナーが所有する verificationTargets だけに絞る
     const myTargets = verificationTargets.filter((t) => t.ownerId === tokenOwnerId);
@@ -231,6 +233,7 @@ async function emailVerificationCore(db, opts = {}) {
           const existing = await evRef.get();
           if (existing.exists) {
             result.skipped++;
+            perToken.skipped++;
             continue;
           }
 
@@ -470,13 +473,20 @@ async function emailVerificationCore(db, opts = {}) {
 
           result.newlySaved++;
           result.processedCount++;
-          if (bookingMatch) result.matchedCount = (result.matchedCount || 0) + 1;
+          perToken.processed++;
+          perToken.newlySaved++;
+          if (bookingMatch) {
+            result.matchedCount = (result.matchedCount || 0) + 1;
+            perToken.matched++;
+          }
         } catch (e) {
           result.errors.push(`message ${msg.id}: ${e.message}`);
+          perToken.errors++;
         }
       }
     } catch (e) {
       result.errors.push(`account ${tokenData.email || "unknown"}: ${e.message}`);
+      perToken.errors++;
       // OAuth トークン失効 (invalid_grant) を検知 → 管理者へ LINE 通知 (1日1回までに抑制)
       // メール照合機能の停止に気付かず数日経過すると、キャンセル/確定メールが取り込まれず
       // カレンダー/通知が壊れる事故になるため、即座に再認可を促す
@@ -487,6 +497,19 @@ async function emailVerificationCore(db, opts = {}) {
           console.error("[emailVerification] notifyOAuthFailure_ error:", nerr.message);
         }
       }
+    }
+
+    // 巡回結果をトークンドキュメントに記録 (UI 表示用 lastScannedAt / lastScanResult)
+    try {
+      const summary = `${perToken.processed}件処理 / ${perToken.matched}件マッチ / ${perToken.skipped}件既存`
+        + (perToken.errors ? ` / ${perToken.errors}件エラー` : "");
+      await tokenDoc.ref.update({
+        lastScannedAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastScanResult: summary,
+        lastScanCounts: perToken,
+      });
+    } catch (we) {
+      console.error("[emailVerification] lastScannedAt 書込失敗:", we.message);
     }
   }
   // ===== 巡回終了処理: 閾値判定 + syncHealth =====

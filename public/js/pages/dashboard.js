@@ -984,12 +984,31 @@ const DashboardPage = {
     const source = b.source || b.bookingSite || "";
     const rosterOk = this.hasGuestRegistration(b, guestMap);
 
-    // ソースバッジ
-    const sourceBadge = source.toLowerCase().includes("airbnb")
-      ? '<span class="badge" style="background:#FF5A5F;color:#fff">Airbnb</span>'
-      : source.toLowerCase().includes("booking")
-        ? '<span class="badge" style="background:#003580;color:#fff">Booking.com</span>'
-        : source ? `<span class="badge bg-secondary">${this.esc(source)}</span>` : "";
+    // ソースバッジ (タップで該当アプリ/管理画面を開く)
+    // - Airbnb: notes (iCal DESCRIPTION) から "Reservation URL: ..." を抽出 → ホスト予約詳細
+    // - Booking.com: 個別予約の deep link は admin reservationId が必要。icalUid (xxx@booking.com) からは
+    //   抽出不可なので、フォールバックとして admin.booking.com トップへ飛ばす
+    const buildBadge = (label, bg, href) => {
+      const style = `background:${bg};color:#fff;text-decoration:none;`;
+      if (href) {
+        return `<a href="${this.esc(href)}" target="_blank" rel="noopener noreferrer" class="badge" style="${style}cursor:pointer;" title="${this.esc(label)} で開く">${label} <i class="bi bi-box-arrow-up-right" style="font-size:0.75em;"></i></a>`;
+      }
+      return `<span class="badge" style="${style}">${label}</span>`;
+    };
+    let sourceBadge = "";
+    const srcLower = source.toLowerCase();
+    if (srcLower.includes("airbnb")) {
+      // notes から Reservation URL を抽出 (例: "Reservation URL: https://www.airbnb.com/hosting/reservations/details/HMxxxx")
+      const notesStr = String(b.notes || "");
+      const m = notesStr.match(/Reservation URL:\s*(https?:\/\/\S+)/i);
+      sourceBadge = buildBadge("Airbnb", "#FF5A5F", m ? m[1] : "https://www.airbnb.com/hosting/reservations");
+    } else if (srcLower.includes("booking")) {
+      // Booking.com 個別予約 URL は admin reservationId が必要だが iCal の icalUid からは取得不可
+      // → ホスト管理画面の予約一覧トップへ
+      sourceBadge = buildBadge("Booking.com", "#003580", "https://admin.booking.com/");
+    } else if (source) {
+      sourceBadge = `<span class="badge bg-secondary">${this.esc(source)}</span>`;
+    }
 
     // 名簿バッジ
     const rosterBadge = rosterOk
@@ -1296,6 +1315,43 @@ const DashboardPage = {
 
       ${gmailRow ? `<hr><table class="table table-sm table-borderless mb-0">${gmailRow}</table>` : ""}
 
+      ${isStaffView ? "" : (() => {
+        // === 名簿リンク + キーボックス送信 (オーナービュー専用) ===
+        const gid = guestData && guestData.id;
+        // 名簿リンクボタン: guestRegistration ドキュメントが存在する時のみ
+        const rosterBtn = gid
+          ? `<button class="btn btn-sm btn-outline-secondary" id="calBtnOpenRoster" data-guest-id="${this.esc(gid)}"><i class="bi bi-clipboard-check"></i> 宿泊者名簿を開く</button>`
+          : `<button class="btn btn-sm btn-outline-secondary" disabled title="名簿エントリ未作成"><i class="bi bi-clipboard-x"></i> 名簿エントリなし</button>`;
+
+        // キーボックス送信状態バッジ
+        const kbSentAt = guestData.keyboxSentAt;
+        const kbConfirmedAt = guestData.keyboxConfirmedAt;
+        const kbError = guestData.keyboxSendError;
+        let kbBadge;
+        if (kbSentAt) {
+          const s = (kbSentAt.toDate ? kbSentAt.toDate() : new Date(kbSentAt)).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+          kbBadge = `<span class="badge bg-secondary"><i class="bi bi-send-check"></i> 送信済 (${this.esc(s)})</span>`;
+        } else if (kbError) {
+          kbBadge = `<span class="badge bg-danger" title="${this.esc(String(kbError))}"><i class="bi bi-exclamation-triangle"></i> エラー</span>`;
+        } else if (kbConfirmedAt) {
+          const s = (kbConfirmedAt.toDate ? kbConfirmedAt.toDate() : new Date(kbConfirmedAt)).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+          kbBadge = `<span class="badge bg-success"><i class="bi bi-check-circle"></i> 予約済 (${this.esc(s)})</span>`;
+        } else {
+          kbBadge = `<span class="badge bg-warning text-dark"><i class="bi bi-clock"></i> 未予約</span>`;
+        }
+        const kbBtnLabel = kbConfirmedAt ? "再予約" : "キーボックス送信を予約";
+        const kbBtn = gid
+          ? `<button class="btn btn-sm btn-primary" id="calBtnKeyboxSend" data-guest-id="${this.esc(gid)}"><i class="bi bi-key"></i> ${kbBtnLabel}</button>`
+          : "";
+
+        return `<hr>
+          <div class="d-flex flex-wrap align-items-center gap-2">
+            ${rosterBtn}
+            ${kbBtn}
+            <span class="ms-1">${kbBadge}</span>
+          </div>`;
+      })()}
+
       <hr>
       <div>
         <strong class="small text-muted">清掃担当（CO: ${vd(co)}）</strong><br>
@@ -1599,6 +1655,63 @@ const DashboardPage = {
           btnDelManual.innerHTML = '<i class="bi bi-trash"></i> この予約を削除';
           await showAlert("削除に失敗しました: " + (e.message || e));
         }
+      });
+    }
+
+    // [宿泊者名簿を開く] ボタン: 名簿タブを ?id=... 付きで開いて自動 open
+    const btnOpenRoster = document.getElementById("calBtnOpenRoster");
+    if (btnOpenRoster) {
+      btnOpenRoster.addEventListener("click", () => {
+        const gid = btnOpenRoster.dataset.guestId;
+        if (!gid) return;
+        const modalInst = bootstrap.Modal.getInstance(modalEl);
+        if (modalInst) modalInst.hide();
+        setTimeout(() => {
+          location.hash = `#/guests?id=${encodeURIComponent(gid)}`;
+        }, 180);
+      });
+    }
+
+    // [キーボックス送信を予約] ボタン: guests.js と同等の処理 (guestRegistrations.keyboxConfirmedAt セット)
+    // 状態は guestRegistrations の単一ソースを参照するため、guests.js 側のモーダルと自動同期する
+    const btnKeyboxSend = document.getElementById("calBtnKeyboxSend");
+    if (btnKeyboxSend) {
+      btnKeyboxSend.addEventListener("click", async () => {
+        const gid = btnKeyboxSend.dataset.guestId;
+        if (!gid) return;
+        // GuestsPage が利用可能ならその実装をそのまま使う (確認モーダル + 物件設定確認 + 書き込み)
+        if (typeof GuestsPage !== "undefined" && typeof GuestsPage._reserveKeyboxSend === "function") {
+          // GuestsPage 側の実装は完了後 loadGuests/showDetail を呼ぶが
+          // guestList 未初期化だとエラーになりうるため最低限のスタブを入れる
+          if (!Array.isArray(GuestsPage.guestList)) GuestsPage.guestList = [];
+          if (typeof GuestsPage.loadGuests !== "function") GuestsPage.loadGuests = async () => {};
+          if (typeof GuestsPage.showDetail !== "function") GuestsPage.showDetail = () => {};
+          try {
+            await GuestsPage._reserveKeyboxSend({ ...guestData, id: gid });
+          } catch (e) {
+            console.error("キーボックス予約エラー:", e);
+          }
+        } else {
+          // フォールバック: 直接 guestRegistrations.keyboxConfirmedAt をセット
+          const ok = await showConfirm(
+            `キーボックス送信を予約します。\n\nゲスト: ${guestData.guestName || "-"}\nチェックイン: ${ci || "-"}\n\n物件設定の送信予定日時にキーボックス番号メールが自動送信されます。`,
+            { title: "キーボックス送信を予約", okLabel: "予約する", okClass: "btn-primary" }
+          );
+          if (!ok) return;
+          try {
+            await firebase.firestore().collection("guestRegistrations").doc(gid).update({
+              keyboxConfirmedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            });
+            showToast("完了", "キーボックス送信を予約しました", "success");
+          } catch (e) {
+            showToast("エラー", `予約失敗: ${e.message}`, "error");
+            return;
+          }
+        }
+        // モーダルを閉じる (再オープンで最新状態が表示される)
+        const modalInst = bootstrap.Modal.getInstance(modalEl);
+        if (modalInst) modalInst.hide();
+        if (this.refreshCalendar) this.refreshCalendar();
       });
     }
 

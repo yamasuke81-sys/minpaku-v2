@@ -308,6 +308,8 @@ module.exports = function gmailAuthApi(db) {
         email: d.data().email,
         savedAt: d.data().savedAt,
         hasRefreshToken: !!d.data().refreshToken,
+        lastScannedAt: d.data().lastScannedAt || null,
+        lastScanResult: d.data().lastScanResult || null,
       }));
       res.json({ accounts, context });
     } catch (e) {

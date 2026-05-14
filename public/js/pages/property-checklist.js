@@ -418,7 +418,7 @@ const PropertyChecklistPage = {
           <div class="flex-grow-1">
             <div>${this.escapeHtml(it.name)}</div>
             <div class="small text-muted">
-              ${it.supplyItem ? '<span class="badge bg-warning text-dark">要補充</span>' : ""}
+              ${it.supplyItem ? '<span class="badge bg-warning text-dark">在庫切れかけ</span>' : ""}
               ${it.memo ? `<span class="ms-2">メモ: ${this.escapeHtml(it.memo)}</span>` : ""}
             </div>
           </div>
@@ -803,7 +803,7 @@ const PropertyChecklistPage = {
       title: "項目を追加",
       fields: [
         { name: "name", label: "項目名", type: "text", placeholder: "例: ゴミ拾い" },
-        { name: "supplyItem", label: "要補充の対象項目にする", type: "checkbox", value: false },
+        { name: "supplyItem", label: "在庫切れかけの対象項目にする", type: "checkbox", value: false },
         { name: "memo", label: "メモ（任意）", type: "textarea", placeholder: "補足説明など" }
       ],
       submitLabel: "追加"
@@ -824,7 +824,7 @@ const PropertyChecklistPage = {
       title: "項目を編集",
       fields: [
         { name: "name", label: "項目名", type: "text", value: item.name },
-        { name: "supplyItem", label: "要補充の対象項目にする", type: "checkbox", value: item.supplyItem },
+        { name: "supplyItem", label: "在庫切れかけの対象項目にする", type: "checkbox", value: item.supplyItem },
         { name: "memo", label: "メモ（任意）", type: "textarea", value: item.memo || "" }
       ],
       submitLabel: "保存"

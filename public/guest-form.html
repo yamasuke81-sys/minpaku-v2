@@ -478,6 +478,16 @@
     const db = firebase.firestore();
     const storage = firebase.storage();
 
+    // パスポート写真アップロードのため匿名認証で Storage セッション確立
+    // (storage.rules は非認証書き込みを許可しているが、SDK 経由では
+    //  request.auth が無いと storage/unauthorized になる端末がある)
+    // Firebase Console で Anonymous 有効化が前提。失敗しても致命ではない
+    if (firebase.auth) {
+      firebase.auth().signInAnonymously().catch((e) => {
+        console.warn("[guest-form] 匿名認証失敗 (写真アップロードに影響する可能性):", e.code, e.message);
+      });
+    }
+
     /* ============================
        駐車場 割り当てロジック（順番非依存・最適化版）
        ============================

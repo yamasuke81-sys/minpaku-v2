@@ -1726,6 +1726,28 @@ const MyRecruitmentPage = {
       });
     });
 
+    // Webアプリ管理者: 物件行 (data-row-type="stay") の空セルタップ → 手動予約追加モーダル
+    // 予約バーがあるセル (.cal-date-hd / data-booking-id) は上のハンドラで予約詳細が開くので除外
+    if (isOwnerView && !container._stayEmptyDelegateBound) {
+      container._stayEmptyDelegateBound = true;
+      container.addEventListener("click", (ev) => {
+        const td = ev.target.closest('tr[data-row-type="stay"] > td[data-col-date]');
+        if (!td) return;
+        // 予約バーがあるセルは無視 (cal-date-hd クラスで判別)
+        if (td.classList.contains("cal-date-hd")) return;
+        // sticky 物件名セルにも data-col-date は無いが念のため
+        if (td.classList.contains("sticky-col")) return;
+        const tr = td.closest('tr[data-row-type="stay"]');
+        const propertyId = tr ? tr.dataset.propRow : "";
+        const dateStr = td.dataset.colDate;
+        if (!propertyId || !dateStr) return;
+        // サブオーナーは自所有物件のみ追加可能
+        if (this._isSubOwnerView && !this._ownedPropertyIds.includes(propertyId)) return;
+        ev.stopPropagation();
+        this._openAddBookingModal(dateStr, propertyId);
+      });
+    }
+
     // 清掃 / 直前点検 バーのタップ → 募集詳細モーダル
     container.querySelectorAll(".cal-recruit-cell").forEach(el => {
       el.addEventListener("click", async () => {
@@ -2566,7 +2588,7 @@ const MyRecruitmentPage = {
   },
 
   // 予約手動追加モーダル
-  _openAddBookingModal(dateStr) {
+  _openAddBookingModal(dateStr, propertyId) {
     const props = this._getActiveProperties();
     if (!props.length) {
       showAlert("登録された物件がありません。", { title: "エラー" });
@@ -2574,7 +2596,11 @@ const MyRecruitmentPage = {
     }
     const nextDay = this._nextDayStr(dateStr);
     const modalId = "addBookingModal_" + Date.now().toString(36);
-    const propOpts = props.map(p => `<option value="${this.esc(p.id)}">${this.esc(p.name)}</option>`).join("");
+    // 物件事前選択 (横カレンダー物件行の空セルタップ時)
+    const propOpts = props.map(p => {
+      const sel = (propertyId && p.id === propertyId) ? " selected" : "";
+      return `<option value="${this.esc(p.id)}"${sel}>${this.esc(p.name)}</option>`;
+    }).join("");
     const html = `
       <div class="modal fade" id="${modalId}" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">

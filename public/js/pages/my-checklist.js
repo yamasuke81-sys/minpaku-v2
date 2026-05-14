@@ -672,7 +672,7 @@ const MyChecklistPage = {
       { id: "checklist", icon: "bi-check2-square",   label: "清掃チェックリスト" },
       { id: "photos",    icon: "bi-camera",           label: "写真撮影" },
       { id: "laundry",   icon: "bi-basket3",          label: "ランドリー" },
-      { id: "restock",   icon: "bi-box-seam",         label: "要補充リスト" },
+      { id: "restock",   icon: "bi-box-seam",         label: "在庫切れかけリスト" },
     ];
     // アイコン大型タブ (等幅・アイコンのみ)
     const inactiveStyle = "flex:1;background:#fff;border:1px solid #dee2e6;color:#6c757d;padding:5px 0;border-radius:8px;font-size:22px;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s,border-color .15s;position:relative;";
@@ -1583,7 +1583,7 @@ const MyChecklistPage = {
     areas.forEach(a => walk(a, [a.name]));
 
     if (!supplyItems.length) {
-      el.innerHTML = `<div class="alert alert-secondary mt-2">要補充項目がありません</div>`;
+      el.innerHTML = `<div class="alert alert-secondary mt-2">在庫切れかけ項目がありません</div>`;
       return;
     }
 
@@ -1608,7 +1608,7 @@ const MyChecklistPage = {
     el.innerHTML = `
       <div class="pt-2">
         <div class="d-flex align-items-center mb-3 gap-2">
-          <span class="fw-bold"><i class="bi bi-exclamation-triangle text-warning"></i> 要補充リスト</span>
+          <span class="fw-bold"><i class="bi bi-exclamation-triangle text-warning"></i> 在庫切れかけリスト</span>
           <span class="badge bg-secondary">${supplyItems.length}項目</span>
         </div>
         ${rows}
@@ -1860,16 +1860,20 @@ const MyChecklistPage = {
 
     const completeSection = isCompleted
       ? `
-        <div class="card" style="background:#0d6efd;border-color:#0d6efd;color:#fff;">
-          <div class="card-body text-center">
-            <i class="bi bi-check-circle-fill" style="font-size:2.4rem;color:#fff;"></i>
-            <h5 class="mb-1 mt-2" style="color:#fff;">清掃完了済み</h5>
-            <div class="small" style="color:rgba(255,255,255,0.9);">
-              ${this.escapeHtml(c.completedBy?.name || "")} ${fmtTs(c.completedAt)}
+        <div class="card" style="background:#0d6efd;border-color:#0d6efd;color:#fff;max-width:280px;margin:0 auto;">
+          <div class="card-body p-2">
+            <div class="d-flex align-items-center gap-2">
+              <i class="bi bi-check-circle-fill" style="font-size:1.2rem;color:#fff;"></i>
+              <div class="flex-grow-1" style="min-width:0;">
+                <div style="color:#fff;font-size:0.85rem;font-weight:600;line-height:1.1;">清掃完了済み</div>
+                <div style="color:rgba(255,255,255,0.9);font-size:0.7rem;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                  ${this.escapeHtml(c.completedBy?.name || "")} ${fmtTs(c.completedAt)}
+                </div>
+              </div>
             </div>
-            <div class="mt-3 d-flex gap-2 justify-content-center flex-wrap">
-              <a href="#/my-checklist" class="btn btn-sm btn-light">一覧へ戻る</a>
-              <button type="button" class="btn btn-sm btn-outline-light" id="mclRevertBtn">
+            <div class="mt-2 d-flex gap-1 justify-content-center flex-wrap">
+              <a href="#/my-checklist" class="btn btn-sm btn-light py-0 px-2" style="font-size:0.75rem;">一覧へ戻る</a>
+              <button type="button" class="btn btn-sm btn-outline-light py-0 px-2" id="mclRevertBtn" style="font-size:0.75rem;">
                 <i class="bi bi-arrow-counterclockwise"></i> 未完了に戻す
               </button>
             </div>
@@ -2910,7 +2914,7 @@ const MyChecklistPage = {
               <input class="form-check-input mcl-restock flex-shrink-0" type="checkbox" id="sup-${it.id}"
                      ${needsRestock ? "checked" : ""} style="width:16px;height:16px;margin:0;">
               <label class="text-warning ms-2 mb-0" for="sup-${it.id}" style="cursor:pointer;font-size:11px;">
-                <i class="bi bi-exclamation-triangle"></i> 要補充
+                <i class="bi bi-exclamation-triangle"></i> 在庫切れかけ
               </label>
             </div>
           ` : ""}
@@ -3142,7 +3146,7 @@ const MyChecklistPage = {
   },
 
   // ===== 写真セクション =====
-  MAX_PHOTOS: 20,
+  MAX_PHOTOS: 50,
   MAX_PHOTO_BYTES: 5 * 1024 * 1024, // 5MB (リサイズ後の上限)
   PHOTO_LONG_SIDE: 1920,             // リサイズ時の長辺 px
 

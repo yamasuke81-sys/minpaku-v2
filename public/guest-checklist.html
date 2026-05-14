@@ -217,6 +217,18 @@
   let activeAreaId = null;
   let pendingItems = new Set(); // 送信中の itemId
 
+  // 離脱前確認: チェック済み項目が1つでもある or 送信中なら警告
+  // ヘルパー画面は app.js (showConfirm) を読み込んでいないため、
+  // ブラウザ標準の beforeunload で代替
+  window.addEventListener("beforeunload", (e) => {
+    const hasChecked = Object.values(itemStates).some(s => s && s.checked);
+    if (hasChecked || pendingItems.size > 0) {
+      e.preventDefault();
+      e.returnValue = "変更内容が失われる可能性があります";
+      return e.returnValue;
+    }
+  });
+
   function esc(s) {
     return String(s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
   }
@@ -311,7 +323,7 @@
       <div class="gc-supply-row" data-stop="1">
         <input class="form-check-input gc-restock" type="checkbox" id="sup-${esc(it.id)}" data-restock-id="${esc(it.id)}"
                ${st.needsRestock ? "checked" : ""} style="width:18px;height:18px;margin:0;">
-        <label for="sup-${esc(it.id)}"><i class="bi bi-exclamation-triangle"></i> 要補充</label>
+        <label for="sup-${esc(it.id)}"><i class="bi bi-exclamation-triangle"></i> 在庫切れかけ</label>
       </div>
     ` : "";
     return `
