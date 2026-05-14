@@ -646,9 +646,16 @@ const MyRecruitmentPage = {
         const ci = g.checkIn;
         if (!ci) return;
         const entry = {
+          // 名簿ドキュメント ID (予約詳細モーダルの「名簿を開く」「キーボックス送信」で使用)
+          id: d.id,
           // bookingId を保持: ドット判定で予約バー (booking.id) と一致確認するため
           // (キャンセル予約の名簿が同日新規予約の名簿として誤認されるのを防ぐ)
           bookingId: g.bookingId || "",
+          // キーボックス送信状態 (予約詳細モーダルでバッジ + ボタン制御に使う)
+          keyboxSentAt: g.keyboxSentAt || null,
+          keyboxConfirmedAt: g.keyboxConfirmedAt || null,
+          keyboxSendError: g.keyboxSendError || "",
+          propertyId: g.propertyId || "",
           guestCount: g.guestCount || 0,
           guestCountInfants: g.guestCountInfants || 0,
           checkIn: g.checkIn, checkOut: g.checkOut,
