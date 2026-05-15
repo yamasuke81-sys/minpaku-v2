@@ -114,6 +114,11 @@ const MyRecruitmentPage = {
       <div style="position:relative;">
         <!-- 現在スクロール位置の年月を固定表示するフローティングバッジ -->
         <div id="myCalFloatingMonth" style="position:absolute;top:6px;right:6px;z-index:20;background:rgba(13,110,253,0.92);color:#fff;padding:3px 10px;border-radius:14px;font-size:12px;font-weight:600;pointer-events:none;box-shadow:0 1px 3px rgba(0,0,0,0.15);"></div>
+        <!-- 端到達時の月遷移ヒントボタン (◀ 前月 / 翌月 ▶) -->
+        <button id="myCalEdgePrev" type="button" aria-label="前月へ"
+          style="position:absolute;top:50%;left:8px;transform:translateY(-50%);z-index:25;width:44px;height:44px;border-radius:50%;border:none;background:rgba(13,110,253,0.85);color:#fff;font-size:20px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,0.25);cursor:pointer;display:none;align-items:center;justify-content:center;opacity:0;transition:opacity 0.25s ease;padding:0;">◀</button>
+        <button id="myCalEdgeNext" type="button" aria-label="翌月へ"
+          style="position:absolute;top:50%;right:8px;transform:translateY(-50%);z-index:25;width:44px;height:44px;border-radius:50%;border:none;background:rgba(13,110,253,0.85);color:#fff;font-size:20px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,0.25);cursor:pointer;display:none;align-items:center;justify-content:center;opacity:0;transition:opacity 0.25s ease;padding:0;">▶</button>
         <div id="myCalContainer" style="position:relative;overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--radius,8px);border:1px solid var(--border,#e2e8f0);"></div>
       </div>
 
@@ -1405,6 +1410,59 @@ const MyRecruitmentPage = {
       container.addEventListener("scroll", updateFloatBadge, { passive: true });
       // 初回描画時にも一度呼ぶ
       setTimeout(updateFloatBadge, 0);
+    }
+
+    // 端到達時の月遷移ヒントボタン (◀ / ▶)
+    const edgePrev = document.getElementById("myCalEdgePrev");
+    const edgeNext = document.getElementById("myCalEdgeNext");
+    if (edgePrev && edgeNext) {
+      const THRESHOLD = 5;
+      const showBtn = (btn, show) => {
+        if (show) {
+          btn.style.display = "flex";
+          // 次フレームで opacity を上げて fade-in
+          requestAnimationFrame(() => { btn.style.opacity = "1"; });
+        } else {
+          btn.style.opacity = "0";
+          btn.style.display = "none";
+        }
+      };
+      const updateEdgeBtns = () => {
+        const sl = container.scrollLeft;
+        const max = container.scrollWidth - container.clientWidth;
+        showBtn(edgePrev, sl <= THRESHOLD);
+        showBtn(edgeNext, sl >= max - THRESHOLD);
+      };
+      container.addEventListener("scroll", updateEdgeBtns, { passive: true });
+      // 初回 + リサイズ時にも判定
+      setTimeout(updateEdgeBtns, 0);
+      window.addEventListener("resize", updateEdgeBtns, { passive: true });
+
+      // 多重バインド防止: dataset.wired を使う (renderCalendar は何度も呼ばれるが、要素は使い回し)
+      if (!edgePrev.dataset.wired) {
+        edgePrev.dataset.wired = "1";
+        edgePrev.addEventListener("click", () => {
+          const [y, m] = (this._calMonth || "").split("-").map(Number);
+          const d = new Date(y, (m || 1) - 1 - 1, 1);
+          this._calMonth = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+          const mi = document.getElementById("myCalMonth");
+          if (mi) mi.value = this._calMonth;
+          this._initialScrollDone = false;
+          this.renderCalendar();
+        });
+      }
+      if (!edgeNext.dataset.wired) {
+        edgeNext.dataset.wired = "1";
+        edgeNext.addEventListener("click", () => {
+          const [y, m] = (this._calMonth || "").split("-").map(Number);
+          const d = new Date(y, (m || 1) - 1 + 1, 1);
+          this._calMonth = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+          const mi = document.getElementById("myCalMonth");
+          if (mi) mi.value = this._calMonth;
+          this._initialScrollDone = false;
+          this.renderCalendar();
+        });
+      }
     }
 
     // 列幅ドラッグハンドル (PC=マウス / スマホ=タッチ 両対応)
