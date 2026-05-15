@@ -731,7 +731,12 @@ module.exports = function recruitmentApi(db) {
         // v2 既存 response 確認 (v2 標準は auto-id で staffId フィールド検索)
         const respColl = db.collection("recruitments").doc(recruitment.id).collection("responses");
         const existing = await respColl.where("staffId", "==", staff.id).get();
-        if (!existing.empty) {
+        // 既存が全て source==gas-import なら過去取込のゴミ。削除して書き直す
+        let allGasImport = !existing.empty && existing.docs.every((d) => {
+          const src = d.data().source || "";
+          return src === "gas-import" || src === "gas-import-confirm";
+        });
+        if (!existing.empty && !allGasImport) {
           warnings.push({
             type: "v2_existing",
             staffId: staff.id,
@@ -741,6 +746,10 @@ module.exports = function recruitmentApi(db) {
           });
           _skip("v2_existing", { rowIndex: i + 1, staffName: staff.name, date });
           continue;
+        }
+        // 過去 GAS 取込ゴミの削除
+        if (allGasImport && !dryRun) {
+          for (const doc of existing.docs) await doc.ref.delete();
         }
 
         matched++;
@@ -832,7 +841,12 @@ module.exports = function recruitmentApi(db) {
             for (const sid of selectedStaffIds) {
               const respColl = db.collection("recruitments").doc(recruitment.id).collection("responses");
               const ex = await respColl.where("staffId", "==", sid).get();
-              if (ex.empty) {
+              // 既存が全部 gas-import 系のゴミなら削除
+              const allGas = !ex.empty && ex.docs.every((d) => /^gas-import/.test(d.data().source || ""));
+              if (allGas) {
+                for (const doc of ex.docs) await doc.ref.delete();
+              }
+              if (ex.empty || allGas) {
                 const sObj = allStaff.find((s) => s.id === sid);
                 await respColl.add({
                   staffId: sid,
