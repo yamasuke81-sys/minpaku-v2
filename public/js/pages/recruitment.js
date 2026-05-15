@@ -206,8 +206,11 @@ const RecruitmentPage = {
         for (const sid of shiftIds) {
           const cls = await dbRef.collection("checklists").where("shiftId", "==", sid).get();
           for (const cd of cls.docs) {
+            // 注: checklist の日付フィールドは `checkoutDate` (Timestamp 型)。
+            // shifts.date / recruitments.checkoutDate と同じ型で揃える
+            // (renderChecklistSidebar は両型対応の toDateStr で照合)
             await cd.ref.update({
-              date: newDate,
+              checkoutDate: firebase.firestore.Timestamp.fromDate(new Date(newDate + "T00:00:00")),
               updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
             });
             checklistUpdated++;
