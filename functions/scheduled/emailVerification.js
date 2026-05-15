@@ -598,8 +598,18 @@ const scheduled = onSchedule(
   },
   async (_event) => {
     const admin = require("firebase-admin");
-    const res = await emailVerificationCore(admin.firestore(), { log: console });
+    const db = admin.firestore();
+    const res = await emailVerificationCore(db, { log: console });
     console.log("[scheduledEmailVerification]", JSON.stringify(res));
+
+    // 共用 Gmail 経由で propertyId=null のまま保存された未マッチを毎サイクル再評価
+    try {
+      const { reevaluateUnmatched } = require("../utils/reevaluateUnmatched");
+      const gres = await reevaluateUnmatched(db, { scanGlobalUnmatched: true, log: console });
+      console.log("[scheduledEmailVerification:global-rematch]", JSON.stringify(gres));
+    } catch (e) {
+      console.error("[scheduledEmailVerification:global-rematch] エラー (握り潰し):", e.message);
+    }
   }
 );
 

@@ -190,6 +190,34 @@ const RecruitmentPage = {
         }
       }
 
+      // 2.5) 関連 checklist の date も更新 (shiftId 一致で照合)
+      //      checklist は shift と 1:1。チェック状態・写真などを失わないため update のみ
+      //      (削除・再生成はしない)
+      let checklistUpdated = 0;
+      try {
+        const shiftIds = shByRid.docs.map((d) => d.id);
+        // recruitmentId 経由で取れなかった場合、上記 fallback で更新したシフトもまだ集める
+        if (shiftIds.length === 0) {
+          const fb2 = await dbRef.collection("shifts")
+            .where("recruitmentId", "==", r.id)
+            .get();
+          fb2.docs.forEach((d) => shiftIds.push(d.id));
+        }
+        for (const sid of shiftIds) {
+          const cls = await dbRef.collection("checklists").where("shiftId", "==", sid).get();
+          for (const cd of cls.docs) {
+            await cd.ref.update({
+              date: newDate,
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            });
+            checklistUpdated++;
+          }
+        }
+      } catch (clErr) {
+        // checklist 未生成等は無視 (本処理を止めない)
+        console.warn("[changeRecruitmentDate] checklist 更新スキップ:", clErr);
+      }
+
       // 3) 通知 (Cloud Function 経由)
       // - recruit_date_change: 既回答スタッフに日付変更を伝える (新規通知タイプ)
       // - recruit_start: 変更後の日付について再募集の通知
@@ -210,7 +238,7 @@ const RecruitmentPage = {
         console.warn("日付変更通知エラー (続行):", notifyErr);
       }
 
-      showToast("完了", `清掃日を ${newDate} に変更しました (shift ${shiftUpdated}件更新)`, "success");
+      showToast("完了", `清掃日を ${newDate} に変更しました (shift ${shiftUpdated}件 / checklist ${checklistUpdated}件更新)`, "success");
       this.detailModal.hide();
     } catch (e) {
       console.error("[changeRecruitmentDate] エラー:", e);
