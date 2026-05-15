@@ -354,7 +354,7 @@ const SettingsPage = {
       if (!r.ok) throw new Error(data.error || "API失敗");
       const s = data.summary || {};
       alertEl.className = "alert " + (dryRun ? "alert-info" : "alert-success");
-      alertEl.innerHTML = `<strong>${dryRun ? "プレビュー結果" : "取込完了"}</strong> — 該当 ${s.matched}件 / ${dryRun ? "予定" : "取込"} ${dryRun ? s.matched : s.imported}件 / スキップ ${s.skipped}件 (全候補行 ${s.totalCandidateRows}件)`;
+      alertEl.innerHTML = `<strong>${dryRun ? "プレビュー結果" : "取込完了"}</strong> — 回答: 該当 ${s.matched}件 / ${dryRun ? "予定" : "取込"} ${dryRun ? s.matched : s.imported}件 / スキップ ${s.skipped}件 (全候補行 ${s.totalCandidateRows}件)<br>確定: 対象 ${s.confirmedTargets || 0}件 / ${dryRun ? "予定" : "適用"} ${dryRun ? (s.confirmedTargets || 0) : (s.confirmedApplied || 0)}件`;
 
       // 警告
       const ws = data.warnings || [];
@@ -381,11 +381,12 @@ const SettingsPage = {
 
       // プレビュー
       const ps = data.preview || [];
-      if (ps.length === 0) {
-        previewEl.innerHTML = `<span class="text-muted">なし</span>`;
-      } else {
-        previewEl.innerHTML = `<table class="table table-sm table-bordered"><thead><tr><th>日付</th><th>スタッフ</th><th>回答</th><th>メモ</th></tr></thead><tbody>${ps.map((p) => `<tr><td>${p.date}</td><td>${p.staffName}</td><td>${p.response}</td><td>${p.memo || ""}</td></tr>`).join("")}</tbody></table>`;
-      }
+      const cps = data.confirmPreview || [];
+      const respHtml = ps.length === 0 ? `<div class="text-muted">回答: なし</div>` :
+        `<div class="mt-1"><strong>回答取込:</strong></div><table class="table table-sm table-bordered"><thead><tr><th>日付</th><th>スタッフ</th><th>回答</th><th>メモ</th></tr></thead><tbody>${ps.map((p) => `<tr><td>${p.date}</td><td>${p.staffName}</td><td>${p.response}</td><td>${p.memo || ""}</td></tr>`).join("")}</tbody></table>`;
+      const confHtml = cps.length === 0 ? `<div class="text-muted">確定: なし</div>` :
+        `<div class="mt-1"><strong>確定取込:</strong></div><table class="table table-sm table-bordered"><thead><tr><th>日付</th><th>選定スタッフ</th><th>現ステータス</th></tr></thead><tbody>${cps.map((c) => `<tr><td>${c.date}</td><td>${c.selectedStaff}</td><td>${c.currentStatus || ""}</td></tr>`).join("")}</tbody></table>`;
+      previewEl.innerHTML = respHtml + confHtml;
     } catch (e) {
       alertEl.className = "alert alert-danger";
       alertEl.textContent = `エラー: ${e.message}`;

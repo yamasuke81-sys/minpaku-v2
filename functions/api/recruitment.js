@@ -618,9 +618,10 @@ module.exports = function recruitmentApi(db) {
         return null;
       };
 
-      // 3. v2 staff 取得 → 苗字マップ (lastName -> [{id, name}])
+      // 3. v2 staff 取得 → 苗字マップ + フルネームマップ
       const staffSnap = await db.collection("staff").get();
       const lastNameMap = new Map();
+      const fullNameMap = new Map(); // 名前(スペース除去) -> [{id, name, email}]
       const allStaff = [];
       staffSnap.forEach((d) => {
         const data = d.data();
@@ -629,11 +630,26 @@ module.exports = function recruitmentApi(db) {
         if (!name) return;
         const lastName = name.split(/[ 　]/)[0];
         if (!lastName) return;
-        const entry = { id: d.id, name, lastName };
+        const entry = { id: d.id, name, email: data.email || "", lastName };
         allStaff.push(entry);
         if (!lastNameMap.has(lastName)) lastNameMap.set(lastName, []);
         lastNameMap.get(lastName).push(entry);
+        const normFull = name.replace(/[\s 　]/g, "");
+        if (!fullNameMap.has(normFull)) fullNameMap.set(normFull, []);
+        fullNameMap.get(normFull).push(entry);
       });
+      // 名前 (フル/苗字) → staff 解決
+      const resolveStaff = (rawName) => {
+        const s = String(rawName || "").trim();
+        if (!s) return null;
+        const norm = s.replace(/[\s 　]/g, "");
+        const byFull = fullNameMap.get(norm) || [];
+        if (byFull.length === 1) return byFull[0];
+        const ln = s.split(/[ 　]/)[0];
+        const byLast = lastNameMap.get(ln) || [];
+        if (byLast.length === 1) return byLast[0];
+        return null; // 0件 or 複数候補
+      };
 
       // 4. v2 recruitments を propertyId で取得しメモリ内で期間フィルタ
       //    (複合 index 不要にするため。recruitments は物件あたり数百件以内の想定)
@@ -712,10 +728,10 @@ module.exports = function recruitmentApi(db) {
         const response = symbolMap[rawStatus] || null;
         if (!response) { _skip("unknown_symbol", { rowIndex: i + 1, gasName, rawStatus }); continue; }
 
-        // v2 既存 response 確認
-        const existing = await db.collection("recruitments").doc(recruitment.id)
-          .collection("responses").doc(staff.id).get();
-        if (existing.exists) {
+        // v2 既存 response 確認 (v2 標準は auto-id で staffId フィールド検索)
+        const respColl = db.collection("recruitments").doc(recruitment.id).collection("responses");
+        const existing = await respColl.where("staffId", "==", staff.id).get();
+        if (!existing.empty) {
           warnings.push({
             type: "v2_existing",
             staffId: staff.id,
@@ -731,6 +747,7 @@ module.exports = function recruitmentApi(db) {
         const responseDoc = {
           staffId: staff.id,
           staffName: staff.name,
+          staffEmail: staff.email || "",
           response,
           memo: response === "△" ? memo : "",
           respondedAt: parseRespondedAt_(respDate) || FieldValue.serverTimestamp(),
@@ -744,16 +761,106 @@ module.exports = function recruitmentApi(db) {
         });
 
         if (!dryRun) {
-          await db.collection("recruitments").doc(recruitment.id)
-            .collection("responses").doc(staff.id).set(responseDoc, { merge: true });
+          await respColl.add(responseDoc);
           imported++;
         }
       }
 
+      // ========== 確定状況のインポート (募集シートから) ==========
+      const recDateIdxR = recDateIdx;
+      const recStatusIdx = idxOf(recHeaders, "ステータス", "状態");
+      const recSelectedIdx = idxOf(recHeaders, "選定スタッフ", "確定スタッフ");
+      const confirmResults = []; // 確定インポート結果
+      const confirmWarnings = [];
+      let confirmedCount = 0;
+
+      if (recStatusIdx >= 0 && recSelectedIdx >= 0) {
+        for (let i = 1; i < recruitRows.length; i++) {
+          const row = recruitRows[i];
+          const date = normalizeDate_(row[recDateIdxR]);
+          if (!date || date < from || date > to) continue;
+          const status = String(row[recStatusIdx] || "").trim();
+          const selectedRaw = String(row[recSelectedIdx] || "").trim();
+          // 「スタッフ確定済」「確定」を含むもののみ対象
+          if (!/確定/.test(status)) continue;
+          if (!selectedRaw) continue;
+
+          // v2 recruitment 検索 (同日複数あれば最初のものに反映)
+          const recList = recByDate.get(date) || [];
+          if (recList.length === 0) {
+            confirmWarnings.push({ type: "no_recruitment", date, selected: selectedRaw });
+            continue;
+          }
+          const recruitment = recList[0];
+
+          // 選定スタッフ名 → staffId 解決 (カンマ/読点区切り)
+          const namesRaw = selectedRaw.split(/[、,／/]/).map((s) => s.trim()).filter(Boolean);
+          const selectedStaffIds = [];
+          const selectedStaffNames = [];
+          const unresolved = [];
+          for (const nm of namesRaw) {
+            // 「タイミー」等の特殊名は除外 (v2 では staff 化されていない場合あり)
+            const st = resolveStaff(nm);
+            if (st) {
+              selectedStaffIds.push(st.id);
+              selectedStaffNames.push(st.name);
+            } else {
+              unresolved.push(nm);
+              selectedStaffNames.push(nm); // 名前は文字列のまま残す
+            }
+          }
+          if (unresolved.length > 0) {
+            confirmWarnings.push({ type: "unresolved_staff", date, names: unresolved, recruitmentId: recruitment.id });
+          }
+
+          confirmResults.push({
+            date, recruitmentId: recruitment.id, selectedStaff: selectedStaffNames.join(","),
+            selectedStaffIds, currentStatus: recruitment.status,
+          });
+
+          if (!dryRun) {
+            // 既に確定済なら上書きしない
+            if (recruitment.status === "スタッフ確定済み") continue;
+            await db.collection("recruitments").doc(recruitment.id).update({
+              status: "スタッフ確定済み",
+              selectedStaff: selectedStaffNames.join(","),
+              selectedStaffIds,
+              confirmedAt: FieldValue.serverTimestamp(),
+              updatedAt: FieldValue.serverTimestamp(),
+            });
+            // 確定したスタッフに ◎ 回答が無ければ自動で ◎ を追加
+            for (const sid of selectedStaffIds) {
+              const respColl = db.collection("recruitments").doc(recruitment.id).collection("responses");
+              const ex = await respColl.where("staffId", "==", sid).get();
+              if (ex.empty) {
+                const sObj = allStaff.find((s) => s.id === sid);
+                await respColl.add({
+                  staffId: sid,
+                  staffName: sObj ? sObj.name : "",
+                  staffEmail: sObj ? sObj.email : "",
+                  response: "◎",
+                  memo: "",
+                  respondedAt: FieldValue.serverTimestamp(),
+                  source: "gas-import-confirm",
+                });
+              }
+            }
+            confirmedCount++;
+          }
+        }
+      } else {
+        confirmWarnings.push({ type: "no_status_or_selected_column" });
+      }
+
       res.json({
-        summary: { matched, imported, skipped, totalCandidateRows: candidateRows.length - 1 },
-        warnings,
+        summary: {
+          matched, imported, skipped, totalCandidateRows: candidateRows.length - 1,
+          confirmedTargets: confirmResults.length,
+          confirmedApplied: confirmedCount,
+        },
+        warnings: [...warnings, ...confirmWarnings],
         preview: dryRun ? preview : preview.slice(0, 50),
+        confirmPreview: dryRun ? confirmResults : confirmResults.slice(0, 50),
         dryRun: !!dryRun,
       });
     } catch (e) {
