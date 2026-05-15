@@ -368,6 +368,8 @@ const SettingsPage = {
             <div class="small mt-2 text-start">
               <div><strong>全シート名:</strong> <code>${(d.allSheetNames||[]).join(" | ")}</code></div>
               ${d.sheetPreviews ? `<div class="mt-2"><strong>怪しいシートの先頭10行ダンプ:</strong></div>${Object.entries(d.sheetPreviews).map(([name, rows]) => `<div class="mt-1"><strong>[${name}]</strong><table class="table table-sm table-bordered" style="font-size:11px;"><tbody>${(rows||[]).map((row) => `<tr>${(row||[]).map((c) => `<td>${String(c||"").slice(0, 30)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`).join("")}` : ""}
+              <div class="mt-2"><strong>立候補シートの全 recId (ユニーク):</strong></div>
+              <div><code>${(d.allCandRecIds||[]).join(", ")}</code></div>
               <div>募集シートヘッダ: <code>${(d.recHeaders||[]).join(" | ")}</code></div>
               <div>立候補シートヘッダ: <code>${(d.candHeaders||[]).join(" | ")}</code></div>
               <div>列idx: recDate=${d.recDateIdx} recId=${d.recIdIdx} candRecId=${d.candRecIdIdx} candName=${d.candNameIdx} candStatus=${d.candStatusIdx} candMemo=${d.candMemoIdx}</div>

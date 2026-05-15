@@ -860,6 +860,7 @@ module.exports = function recruitmentApi(db) {
           colMatchScore: colMatchScore.slice(0, 5),
           allSheetNames,
           sheetPreviews,
+          allCandRecIds: Array.from(candRecIdSet).sort(),
         },
       });
     } catch (e) {
