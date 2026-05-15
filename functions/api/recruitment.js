@@ -4,6 +4,7 @@
  */
 const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
+const { google } = require("googleapis");
 const {
   notifyStaff, notifyGroup, notifyOwner,
   notifyByKey, buildRecruitmentFlex, resolveNotifyTargets, getNotificationSettings_,
@@ -523,8 +524,248 @@ module.exports = function recruitmentApi(db) {
     }
   });
 
+  // ========================================================================
+  // GAS版スタッフ回答データ取込 (一度きりの繋ぎツール / オーナー専用)
+  // 旧 GAS の「募集」「募集_立候補」シートを読み、v2 recruitments/{id}/responses に反映する
+  // ========================================================================
+  router.post("/import-gas-responses", async (req, res) => {
+    try {
+      if (req.user.role !== "owner") {
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
+      }
+      const { from, to, propertyId, dryRun = true } = req.body || {};
+      if (!from || !to) return res.status(400).json({ error: "from / to は必須です" });
+      if (!propertyId) return res.status(400).json({ error: "propertyId は必須です" });
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+        return res.status(400).json({ error: "from / to は YYYY-MM-DD 形式で指定してください" });
+      }
+
+      const SHEET_ID = "1Kk8VZrMQoJwmNk4OZKVQ9riufiCEcVPi_xmYHHnHgCs";
+
+      // 1. Sheets API でシート読み取り
+      const auth = new google.auth.GoogleAuth({
+        scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+      });
+      const sheets = google.sheets({ version: "v4", auth });
+
+      let recruitRows, candidateRows;
+      try {
+        const [r1, r2] = await Promise.all([
+          sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "募集" }),
+          sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "募集_立候補" }),
+        ]);
+        recruitRows = r1.data.values || [];
+        candidateRows = r2.data.values || [];
+      } catch (e) {
+        console.error("Sheets API 読取失敗:", e);
+        return res.status(502).json({ error: `スプシ読取失敗: ${e.message}` });
+      }
+      if (recruitRows.length < 2) return res.status(400).json({ error: "募集シートにデータがありません" });
+      if (candidateRows.length < 2) return res.status(400).json({ error: "募集_立候補シートにデータがありません" });
+
+      // ヘッダー → 列インデックス map
+      const idxOf = (headers, ...names) => {
+        for (const n of names) {
+          const i = headers.findIndex((h) => String(h || "").trim() === n);
+          if (i >= 0) return i;
+        }
+        return -1;
+      };
+      const recHeaders = recruitRows[0].map((h) => String(h || "").trim());
+      const candHeaders = candidateRows[0].map((h) => String(h || "").trim());
+
+      const recDateIdx = idxOf(recHeaders, "日付", "CO日", "チェックアウト日", "checkoutDate");
+      const recIdIdx = idxOf(recHeaders, "募集ID", "ID", "行番号");
+      if (recDateIdx < 0) {
+        return res.status(400).json({ error: "募集シートに『日付』列が見つかりません" });
+      }
+
+      const candRecIdIdx = idxOf(candHeaders, "募集ID", "ID");
+      const candNameIdx = idxOf(candHeaders, "スタッフ名", "氏名", "名前");
+      const candStatusIdx = idxOf(candHeaders, "ステータス", "回答", "状況");
+      const candMemoIdx = idxOf(candHeaders, "メモ", "保留理由", "理由", "備考");
+      const candDateIdx = idxOf(candHeaders, "日時", "回答日時");
+      if (candRecIdIdx < 0 || candNameIdx < 0 || candStatusIdx < 0) {
+        return res.status(400).json({
+          error: `募集_立候補シートに必要な列がありません (募集ID/スタッフ名/ステータス)。ヘッダー: ${candHeaders.join(",")}`,
+        });
+      }
+
+      // 2. 募集シート: 募集ID -> 日付 マップ作成 (募集ID 列がなければ行番号=シート絶対行番号で代用)
+      const recIdToDate = new Map();
+      for (let i = 1; i < recruitRows.length; i++) {
+        const row = recruitRows[i];
+        const date = normalizeDate_(row[recDateIdx]);
+        if (!date) continue;
+        const id = recIdIdx >= 0 ? String(row[recIdIdx] || "").trim() : String(i + 1);
+        if (id) recIdToDate.set(id, date);
+      }
+
+      // 3. v2 staff 取得 → 苗字マップ (lastName -> [{id, name}])
+      const staffSnap = await db.collection("staff").get();
+      const lastNameMap = new Map();
+      const allStaff = [];
+      staffSnap.forEach((d) => {
+        const data = d.data();
+        if (data.active === false) return;
+        const name = String(data.name || "").trim();
+        if (!name) return;
+        const lastName = name.split(/[ 　]/)[0];
+        if (!lastName) return;
+        const entry = { id: d.id, name, lastName };
+        allStaff.push(entry);
+        if (!lastNameMap.has(lastName)) lastNameMap.set(lastName, []);
+        lastNameMap.get(lastName).push(entry);
+      });
+
+      // 4. v2 recruitments を期間で取得 (propertyId フィルタ)
+      const recSnap = await db.collection("recruitments")
+        .where("propertyId", "==", propertyId)
+        .where("checkoutDate", ">=", from)
+        .where("checkoutDate", "<=", to)
+        .get();
+      const recByDate = new Map(); // date -> [{id, ...}]
+      recSnap.forEach((d) => {
+        const data = { id: d.id, ...d.data() };
+        const date = data.checkoutDate;
+        if (!date) return;
+        if (!recByDate.has(date)) recByDate.set(date, []);
+        recByDate.get(date).push(data);
+      });
+
+      // 5. 候補行を走査
+      const warnings = [];
+      const preview = [];
+      let matched = 0;
+      let imported = 0;
+      let skipped = 0;
+
+      // GAS の記号 → v2 の response 値
+      const symbolMap = { "○": "◎", "◎": "◎", "△": "△", "×": "×", "✕": "×", "X": "×", "x": "×" };
+
+      for (let i = 1; i < candidateRows.length; i++) {
+        const row = candidateRows[i];
+        const recId = String(row[candRecIdIdx] || "").trim();
+        const gasName = String(row[candNameIdx] || "").trim();
+        const rawStatus = String(row[candStatusIdx] || "").trim();
+        const memo = candMemoIdx >= 0 ? String(row[candMemoIdx] || "").trim() : "";
+        const respDate = candDateIdx >= 0 ? String(row[candDateIdx] || "").trim() : "";
+
+        if (!recId || !gasName || !rawStatus) { skipped++; continue; }
+
+        // 募集ID → 日付
+        const date = recIdToDate.get(recId);
+        if (!date) { skipped++; continue; } // 範囲外などでスキップ (warning にしない)
+        if (date < from || date > to) { skipped++; continue; }
+
+        // v2 recruitment
+        const recList = recByDate.get(date) || [];
+        if (recList.length === 0) {
+          warnings.push({ type: "no_recruitment", date, gasStaffName: gasName });
+          skipped++; continue;
+        }
+        // 同日複数あれば propertyId フィルタ通過したものは基本 1 件想定だが念のため最初を使用
+        const recruitment = recList[0];
+
+        // 苗字照合
+        const lastName = gasName.split(/[ 　]/)[0];
+        const candidates = lastNameMap.get(lastName) || [];
+        if (candidates.length === 0) {
+          warnings.push({ type: "no_match", gasStaffName: gasName, lastName });
+          skipped++; continue;
+        }
+        if (candidates.length > 1) {
+          warnings.push({
+            type: "duplicate_lastname",
+            gasStaffName: gasName,
+            lastName,
+            candidates: candidates.map((c) => ({ id: c.id, name: c.name })),
+            recruitmentId: recruitment.id,
+            date,
+          });
+          skipped++; continue;
+        }
+        const staff = candidates[0];
+
+        // response 値マップ
+        const response = symbolMap[rawStatus] || null;
+        if (!response) { skipped++; continue; }
+
+        // v2 既存 response 確認
+        const existing = await db.collection("recruitments").doc(recruitment.id)
+          .collection("responses").doc(staff.id).get();
+        if (existing.exists) {
+          warnings.push({
+            type: "v2_existing",
+            staffId: staff.id,
+            staffName: staff.name,
+            date,
+            recruitmentId: recruitment.id,
+          });
+          skipped++; continue;
+        }
+
+        matched++;
+        const responseDoc = {
+          staffId: staff.id,
+          staffName: staff.name,
+          response,
+          memo: response === "△" ? memo : "",
+          respondedAt: parseRespondedAt_(respDate) || FieldValue.serverTimestamp(),
+          source: "gas-import",
+        };
+        preview.push({
+          date, recruitmentId: recruitment.id,
+          staffId: staff.id, staffName: staff.name,
+          response, memo: responseDoc.memo,
+          gasStaffName: gasName,
+        });
+
+        if (!dryRun) {
+          await db.collection("recruitments").doc(recruitment.id)
+            .collection("responses").doc(staff.id).set(responseDoc, { merge: true });
+          imported++;
+        }
+      }
+
+      res.json({
+        summary: { matched, imported, skipped, totalCandidateRows: candidateRows.length - 1 },
+        warnings,
+        preview: dryRun ? preview : preview.slice(0, 50),
+        dryRun: !!dryRun,
+      });
+    } catch (e) {
+      console.error("GAS取込エラー:", e);
+      res.status(500).json({ error: e.message || "GAS取込に失敗しました" });
+    }
+  });
+
   return router;
 };
+
+// 日付正規化: "2026/05/01" / "2026-05-01" / Date オブジェクト相当 → "YYYY-MM-DD"
+function normalizeDate_(v) {
+  if (!v) return "";
+  const s = String(v).trim();
+  // YYYY-MM-DD
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  // YYYY/MM/DD
+  m = s.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  // M/D/YYYY (Sheets が稀に返す)
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+  return "";
+}
+
+// 回答日時パース (失敗時 null)
+function parseRespondedAt_(s) {
+  if (!s) return null;
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return null;
+  return d;
+}
 
 /**
  * 募集データのバリデーション
