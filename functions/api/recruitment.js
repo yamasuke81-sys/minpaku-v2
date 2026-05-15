@@ -618,17 +618,17 @@ module.exports = function recruitmentApi(db) {
         lastNameMap.get(lastName).push(entry);
       });
 
-      // 4. v2 recruitments を期間で取得 (propertyId フィルタ)
+      // 4. v2 recruitments を propertyId で取得しメモリ内で期間フィルタ
+      //    (複合 index 不要にするため。recruitments は物件あたり数百件以内の想定)
       const recSnap = await db.collection("recruitments")
         .where("propertyId", "==", propertyId)
-        .where("checkoutDate", ">=", from)
-        .where("checkoutDate", "<=", to)
         .get();
       const recByDate = new Map(); // date -> [{id, ...}]
       recSnap.forEach((d) => {
         const data = { id: d.id, ...d.data() };
         const date = data.checkoutDate;
         if (!date) return;
+        if (date < from || date > to) return;
         if (!recByDate.has(date)) recByDate.set(date, []);
         recByDate.get(date).push(data);
       });
