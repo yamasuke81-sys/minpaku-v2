@@ -763,6 +763,34 @@ module.exports = function recruitmentApi(db) {
         }
       }
 
+      // 募集ID列を自動探索: 立候補側の recId と一致する値が最も多い募集シート列を探す
+      const candRecIdSet = new Set();
+      const candRecIdDigitsSet = new Set();
+      for (let i = 1; i < candidateRows.length; i++) {
+        const v = String(candidateRows[i][candRecIdIdx] || "").trim();
+        if (v) {
+          candRecIdSet.add(v);
+          const dg = v.replace(/[^0-9]/g, "");
+          if (dg) candRecIdDigitsSet.add(dg);
+        }
+      }
+      const colMatchScore = []; // { colIdx, header, exactHits, digitsHits, sampleValues }
+      const colCount = recHeaders.length;
+      for (let c = 0; c < colCount; c++) {
+        let exact = 0, digits = 0;
+        const sampleVals = [];
+        for (let i = 1; i < recruitRows.length; i++) {
+          const v = String((recruitRows[i][c] !== undefined ? recruitRows[i][c] : "")).trim();
+          if (!v) continue;
+          if (sampleVals.length < 5) sampleVals.push(v);
+          if (candRecIdSet.has(v)) exact++;
+          const dg = v.replace(/[^0-9]/g, "");
+          if (dg && candRecIdDigitsSet.has(dg)) digits++;
+        }
+        colMatchScore.push({ colIdx: c, header: recHeaders[c] || `(col${c})`, exactHits: exact, digitsHits: digits, sampleValues: sampleVals });
+      }
+      colMatchScore.sort((a, b) => (b.exactHits + b.digitsHits) - (a.exactHits + a.digitsHits));
+
       // 範囲内の募集日付 (debug 用)
       const recDatesInRange = [];
       for (const [id, d] of recIdToDate.entries()) {
@@ -810,6 +838,7 @@ module.exports = function recruitmentApi(db) {
           v2RecCount: recSnap.size,
           recRowsInRange,
           candSamplesInRange,
+          colMatchScore: colMatchScore.slice(0, 5),
         },
       });
     } catch (e) {

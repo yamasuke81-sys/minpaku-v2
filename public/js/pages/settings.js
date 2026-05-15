@@ -376,6 +376,8 @@ const SettingsPage = {
               <ul>${samples}</ul>
               <div class="mt-2"><strong>範囲内の募集シート行 (全列ダンプ):</strong></div>
               <ul>${(d.recRowsInRange || []).map((r) => `<li>シート行${r.sheetRow}: <code>${JSON.stringify(r.dump)}</code></li>`).join("")}</ul>
+              <div class="mt-2"><strong>募集ID列の自動推定 (上位5列、立候補recIdと一致した件数で評価):</strong></div>
+              <table class="table table-sm"><thead><tr><th>列idx</th><th>ヘッダ</th><th>完全一致</th><th>数字一致</th><th>サンプル値</th></tr></thead><tbody>${(d.colMatchScore || []).map((c) => `<tr><td>${c.colIdx}</td><td>${c.header}</td><td>${c.exactHits}</td><td>${c.digitsHits}</td><td><code>${(c.sampleValues||[]).join(", ")}</code></td></tr>`).join("")}</tbody></table>
               <div class="mt-2"><strong>範囲内の立候補サンプル (resolveDate成功分):</strong></div>
               <ul>${(d.candSamplesInRange || []).map((c) => `<li>${JSON.stringify(c)}</li>`).join("") || "<li>(なし)</li>"}</ul>
             </div>
