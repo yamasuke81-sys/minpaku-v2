@@ -839,8 +839,7 @@ module.exports = function recruitmentApi(db) {
           });
 
           if (!dryRun) {
-            // 既に確定済なら上書きしない
-            if (recruitment.status === "スタッフ確定済み") continue;
+            const alreadyConfirmed = recruitment.status === "スタッフ確定済み";
             // 確定スタッフに ◎ 回答が無ければ配列に追加 (v2 標準形式)
             const arr = Array.isArray(recruitment.responses) ? [...recruitment.responses] : [];
             for (const sid of selectedStaffIds) {
@@ -859,14 +858,17 @@ module.exports = function recruitmentApi(db) {
               else if (/^gas-import/.test(arr[idx].source || "")) arr[idx] = entry;
               // 人手入力の既存回答はそのまま (確定済みなら ◎ のはず)
             }
-            await db.collection("recruitments").doc(recruitment.id).update({
-              status: "スタッフ確定済み",
-              selectedStaff: selectedStaffNames.join(","),
-              selectedStaffIds,
-              responses: arr,
-              confirmedAt: FieldValue.serverTimestamp(),
-              updatedAt: FieldValue.serverTimestamp(),
-            });
+            // 既確定なら responses 補完のみ。未確定なら status/selectedStaff も更新
+            const updates = { responses: arr, updatedAt: FieldValue.serverTimestamp() };
+            if (!alreadyConfirmed) {
+              updates.status = "スタッフ確定済み";
+              updates.selectedStaff = selectedStaffNames.join(",");
+              updates.selectedStaffIds = selectedStaffIds;
+              updates.confirmedAt = FieldValue.serverTimestamp();
+            }
+            await db.collection("recruitments").doc(recruitment.id).update(updates);
+            // ローカルにも反映 (後続ループ用)
+            recruitment.responses = arr;
             confirmedCount++;
           }
         }
