@@ -355,38 +355,6 @@ const SettingsPage = {
       const s = data.summary || {};
       alertEl.className = "alert " + (dryRun ? "alert-info" : "alert-success");
       alertEl.innerHTML = `<strong>${dryRun ? "プレビュー結果" : "取込完了"}</strong> — 該当 ${s.matched}件 / ${dryRun ? "予定" : "取込"} ${dryRun ? s.matched : s.imported}件 / スキップ ${s.skipped}件 (全候補行 ${s.totalCandidateRows}件)`;
-      // デバッグ情報を alert 内に追記
-      if (data.debug) {
-        const d = data.debug;
-        const reasonRows = Object.entries(d.skipReasons || {})
-          .filter(([, n]) => n > 0)
-          .map(([k, n]) => `<tr><td>${k}</td><td>${n}</td></tr>`).join("");
-        const samples = (d.skipSamples || []).map((s) => `<li>${JSON.stringify(s)}</li>`).join("");
-        alertEl.innerHTML += `
-          <details class="mt-2">
-            <summary class="small text-muted">デバッグ情報</summary>
-            <div class="small mt-2 text-start">
-              <div><strong>全シート名:</strong> <code>${(d.allSheetNames||[]).join(" | ")}</code></div>
-              ${d.sheetPreviews ? `<div class="mt-2"><strong>怪しいシートの先頭10行ダンプ:</strong></div>${Object.entries(d.sheetPreviews).map(([name, rows]) => `<div class="mt-1"><strong>[${name}]</strong><table class="table table-sm table-bordered" style="font-size:11px;"><tbody>${(rows||[]).map((row) => `<tr>${(row||[]).map((c) => `<td>${String(c||"").slice(0, 30)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`).join("")}` : ""}
-              <div class="mt-2"><strong>立候補シートの全 recId (ユニーク):</strong></div>
-              <div><code>${(d.allCandRecIds||[]).join(", ")}</code></div>
-              <div>募集シートヘッダ: <code>${(d.recHeaders||[]).join(" | ")}</code></div>
-              <div>立候補シートヘッダ: <code>${(d.candHeaders||[]).join(" | ")}</code></div>
-              <div>列idx: recDate=${d.recDateIdx} recId=${d.recIdIdx} candRecId=${d.candRecIdIdx} candName=${d.candNameIdx} candStatus=${d.candStatusIdx} candMemo=${d.candMemoIdx}</div>
-              <div>GASシート範囲内日付: ${(d.recDatesInRange||[]).map(x=>`${x.date}(募集ID=${x.recId})`).join(", ") || "なし"}</div>
-              <div>v2 recruitments 該当日: ${(d.v2RecDates||[]).join(", ") || "なし"} (該当物件全件=${d.v2RecCount})</div>
-              <table class="table table-sm mt-2"><thead><tr><th>スキップ理由</th><th>件数</th></tr></thead><tbody>${reasonRows}</tbody></table>
-              <div>サンプル(先頭10件):</div>
-              <ul>${samples}</ul>
-              <div class="mt-2"><strong>範囲内の募集シート行 (全列ダンプ):</strong></div>
-              <ul>${(d.recRowsInRange || []).map((r) => `<li>シート行${r.sheetRow}: <code>${JSON.stringify(r.dump)}</code></li>`).join("")}</ul>
-              <div class="mt-2"><strong>募集ID列の自動推定 (上位5列、立候補recIdと一致した件数で評価):</strong></div>
-              <table class="table table-sm"><thead><tr><th>列idx</th><th>ヘッダ</th><th>完全一致</th><th>数字一致</th><th>サンプル値</th></tr></thead><tbody>${(d.colMatchScore || []).map((c) => `<tr><td>${c.colIdx}</td><td>${c.header}</td><td>${c.exactHits}</td><td>${c.digitsHits}</td><td><code>${(c.sampleValues||[]).join(", ")}</code></td></tr>`).join("")}</tbody></table>
-              <div class="mt-2"><strong>範囲内の立候補サンプル (resolveDate成功分):</strong></div>
-              <ul>${(d.candSamplesInRange || []).map((c) => `<li>${JSON.stringify(c)}</li>`).join("") || "<li>(なし)</li>"}</ul>
-            </div>
-          </details>`;
-      }
 
       // 警告
       const ws = data.warnings || [];

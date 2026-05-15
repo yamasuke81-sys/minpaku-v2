@@ -548,33 +548,14 @@ module.exports = function recruitmentApi(db) {
       });
       const sheets = google.sheets({ version: "v4", auth });
 
-      let recruitRows, candidateRows, allSheetNames = [];
-      const sheetPreviews = {}; // 怪しいシート名 → 先頭10行
+      let recruitRows, candidateRows;
       try {
-        const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
-        allSheetNames = (meta.data.sheets || []).map((s) => s.properties.title);
         const [r1, r2] = await Promise.all([
           sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "募集" }),
           sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "募集_立候補" }),
         ]);
         recruitRows = r1.data.values || [];
         candidateRows = r2.data.values || [];
-
-        // 怪しいシート (回答/履歴/集計/共有関連) の先頭10行を取得
-        const targetNames = allSheetNames.filter((n) =>
-          /回答|履歴|集計|共有|スタッフ|募集設定|通知|サブオーナー/.test(n)
-        );
-        for (const name of targetNames) {
-          try {
-            const resp = await sheets.spreadsheets.values.get({
-              spreadsheetId: SHEET_ID,
-              range: `'${name}'!A1:Z10`,
-            });
-            sheetPreviews[name] = resp.data.values || [];
-          } catch (e) {
-            sheetPreviews[name] = [["(取得失敗: " + e.message + ")"]];
-          }
-        }
       } catch (e) {
         console.error("Sheets API 読取失敗:", e);
         return res.status(502).json({ error: `スプシ読取失敗: ${e.message}` });
@@ -675,26 +656,11 @@ module.exports = function recruitmentApi(db) {
       let matched = 0;
       let imported = 0;
       let skipped = 0;
-      const skipReasons = {
-        empty_row: 0,
-        unknown_recId: 0,
-        date_out_of_range: 0,
-        no_recruitment: 0,
-        no_match: 0,
-        duplicate_lastname: 0,
-        unknown_symbol: 0,
-        v2_existing: 0,
-      };
-      const skipSamples = []; // 先頭10件のスキップ理由詳細
 
       // GAS の記号 → v2 の response 値
       const symbolMap = { "○": "◎", "◎": "◎", "△": "△", "×": "×", "✕": "×", "X": "×", "x": "×" };
 
-      const recordSkip = (reason, info) => {
-        skipReasons[reason] = (skipReasons[reason] || 0) + 1;
-        if (skipSamples.length < 10) skipSamples.push({ reason, ...info });
-        skipped++;
-      };
+      const _skip = () => { skipped++; };
 
       for (let i = 1; i < candidateRows.length; i++) {
         const row = candidateRows[i];
@@ -704,18 +670,18 @@ module.exports = function recruitmentApi(db) {
         const memo = candMemoIdx >= 0 ? String(row[candMemoIdx] || "").trim() : "";
         const respDate = candDateIdx >= 0 ? String(row[candDateIdx] || "").trim() : "";
 
-        if (!recId || !gasName || !rawStatus) { recordSkip("empty_row", { rowIndex: i + 1, recId, gasName, rawStatus }); continue; }
+        if (!recId || !gasName || !rawStatus) { _skip("empty_row", { rowIndex: i + 1, recId, gasName, rawStatus }); continue; }
 
         // 募集ID → 日付
         const date = resolveDate(recId);
-        if (!date) { recordSkip("unknown_recId", { rowIndex: i + 1, recId, gasName }); continue; }
-        if (date < from || date > to) { recordSkip("date_out_of_range", { rowIndex: i + 1, recId, date }); continue; }
+        if (!date) { _skip("unknown_recId", { rowIndex: i + 1, recId, gasName }); continue; }
+        if (date < from || date > to) { _skip("date_out_of_range", { rowIndex: i + 1, recId, date }); continue; }
 
         // v2 recruitment
         const recList = recByDate.get(date) || [];
         if (recList.length === 0) {
           warnings.push({ type: "no_recruitment", date, gasStaffName: gasName });
-          recordSkip("no_recruitment", { rowIndex: i + 1, date, gasName });
+          _skip("no_recruitment", { rowIndex: i + 1, date, gasName });
           continue;
         }
         const recruitment = recList[0];
@@ -725,7 +691,7 @@ module.exports = function recruitmentApi(db) {
         const candidates = lastNameMap.get(lastName) || [];
         if (candidates.length === 0) {
           warnings.push({ type: "no_match", gasStaffName: gasName, lastName });
-          recordSkip("no_match", { rowIndex: i + 1, gasName, lastName });
+          _skip("no_match", { rowIndex: i + 1, gasName, lastName });
           continue;
         }
         if (candidates.length > 1) {
@@ -737,14 +703,14 @@ module.exports = function recruitmentApi(db) {
             recruitmentId: recruitment.id,
             date,
           });
-          recordSkip("duplicate_lastname", { rowIndex: i + 1, gasName, lastName });
+          _skip("duplicate_lastname", { rowIndex: i + 1, gasName, lastName });
           continue;
         }
         const staff = candidates[0];
 
         // response 値マップ
         const response = symbolMap[rawStatus] || null;
-        if (!response) { recordSkip("unknown_symbol", { rowIndex: i + 1, gasName, rawStatus }); continue; }
+        if (!response) { _skip("unknown_symbol", { rowIndex: i + 1, gasName, rawStatus }); continue; }
 
         // v2 既存 response 確認
         const existing = await db.collection("recruitments").doc(recruitment.id)
@@ -757,7 +723,7 @@ module.exports = function recruitmentApi(db) {
             date,
             recruitmentId: recruitment.id,
           });
-          recordSkip("v2_existing", { rowIndex: i + 1, staffName: staff.name, date });
+          _skip("v2_existing", { rowIndex: i + 1, staffName: staff.name, date });
           continue;
         }
 
@@ -784,86 +750,11 @@ module.exports = function recruitmentApi(db) {
         }
       }
 
-      // 募集ID列を自動探索: 立候補側の recId と一致する値が最も多い募集シート列を探す
-      const candRecIdSet = new Set();
-      const candRecIdDigitsSet = new Set();
-      for (let i = 1; i < candidateRows.length; i++) {
-        const v = String(candidateRows[i][candRecIdIdx] || "").trim();
-        if (v) {
-          candRecIdSet.add(v);
-          const dg = v.replace(/[^0-9]/g, "");
-          if (dg) candRecIdDigitsSet.add(dg);
-        }
-      }
-      const colMatchScore = []; // { colIdx, header, exactHits, digitsHits, sampleValues }
-      const colCount = recHeaders.length;
-      for (let c = 0; c < colCount; c++) {
-        let exact = 0, digits = 0;
-        const sampleVals = [];
-        for (let i = 1; i < recruitRows.length; i++) {
-          const v = String((recruitRows[i][c] !== undefined ? recruitRows[i][c] : "")).trim();
-          if (!v) continue;
-          if (sampleVals.length < 5) sampleVals.push(v);
-          if (candRecIdSet.has(v)) exact++;
-          const dg = v.replace(/[^0-9]/g, "");
-          if (dg && candRecIdDigitsSet.has(dg)) digits++;
-        }
-        colMatchScore.push({ colIdx: c, header: recHeaders[c] || `(col${c})`, exactHits: exact, digitsHits: digits, sampleValues: sampleVals });
-      }
-      colMatchScore.sort((a, b) => (b.exactHits + b.digitsHits) - (a.exactHits + a.digitsHits));
-
-      // 範囲内の募集日付 (debug 用)
-      const recDatesInRange = [];
-      for (const [id, d] of recIdToDate.entries()) {
-        if (d >= from && d <= to) recDatesInRange.push({ recId: id, date: d });
-      }
-      const v2RecDates = Array.from(recByDate.keys()).sort();
-
-      // 範囲内の募集シート行を全列出力 (debug 用 — 募集ID 列特定のため)
-      const recRowsInRange = [];
-      for (let i = 1; i < recruitRows.length; i++) {
-        const row = recruitRows[i];
-        const d = normalizeDate_(row[recDateIdx]);
-        if (!d || d < from || d > to) continue;
-        const dump = {};
-        for (let c = 0; c < row.length; c++) {
-          const header = recHeaders[c] || `(col${c})`;
-          dump[`${c}:${header}`] = row[c];
-        }
-        recRowsInRange.push({ sheetRow: i + 1, dump });
-      }
-
-      // 立候補シートで範囲内日付に該当する recId サンプル (もし date 解決できれば)
-      const candSamplesInRange = [];
-      for (let i = 1; i < candidateRows.length && candSamplesInRange.length < 20; i++) {
-        const row = candidateRows[i];
-        const recId = String(row[candRecIdIdx] || "").trim();
-        const d = resolveDate(recId);
-        if (d && d >= from && d <= to) {
-          candSamplesInRange.push({ rowIndex: i + 1, recId, date: d, name: row[candNameIdx], status: row[candStatusIdx] });
-        }
-      }
-
       res.json({
         summary: { matched, imported, skipped, totalCandidateRows: candidateRows.length - 1 },
         warnings,
         preview: dryRun ? preview : preview.slice(0, 50),
         dryRun: !!dryRun,
-        debug: {
-          recHeaders, candHeaders,
-          recDateIdx, recIdIdx, candRecIdIdx, candNameIdx, candStatusIdx, candMemoIdx,
-          skipReasons,
-          skipSamples,
-          recDatesInRange,
-          v2RecDates,
-          v2RecCount: recSnap.size,
-          recRowsInRange,
-          candSamplesInRange,
-          colMatchScore: colMatchScore.slice(0, 5),
-          allSheetNames,
-          sheetPreviews,
-          allCandRecIds: Array.from(candRecIdSet).sort(),
-        },
       });
     } catch (e) {
       console.error("GAS取込エラー:", e);
