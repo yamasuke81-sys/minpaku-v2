@@ -575,7 +575,7 @@ module.exports = function recruitmentApi(db) {
       const candHeaders = candidateRows[0].map((h) => String(h || "").trim());
 
       const recDateIdx = idxOf(recHeaders, "日付", "CO日", "チェックアウト日", "checkoutDate");
-      const recIdIdx = idxOf(recHeaders, "募集ID", "ID", "行番号");
+      const recIdIdx = idxOf(recHeaders, "募集ID", "予約行番号", "行番号", "ID");
       if (recDateIdx < 0) {
         return res.status(400).json({ error: "募集シートに『日付』列が見つかりません" });
       }
@@ -591,15 +591,30 @@ module.exports = function recruitmentApi(db) {
         });
       }
 
-      // 2. 募集シート: 募集ID -> 日付 マップ作成 (募集ID 列がなければ行番号=シート絶対行番号で代用)
+      // 2. 募集シート: 募集ID -> 日付 マップ作成
+      //    両側で「数字部分のみ」のキーも作る (立候補は "r5" 形式、募集側は "5" 等のため)
       const recIdToDate = new Map();
       for (let i = 1; i < recruitRows.length; i++) {
         const row = recruitRows[i];
         const date = normalizeDate_(row[recDateIdx]);
         if (!date) continue;
         const id = recIdIdx >= 0 ? String(row[recIdIdx] || "").trim() : String(i + 1);
-        if (id) recIdToDate.set(id, date);
+        if (id) {
+          recIdToDate.set(id, date);
+          // 数字部分のみのキーも登録
+          const digits = id.replace(/[^0-9]/g, "");
+          if (digits && digits !== id) recIdToDate.set(digits, date);
+        }
       }
+      // recId 解決ヘルパー: そのまま → 数字のみ の順で参照
+      const resolveDate = (rawRecId) => {
+        const s = String(rawRecId || "").trim();
+        if (!s) return null;
+        if (recIdToDate.has(s)) return recIdToDate.get(s);
+        const digits = s.replace(/[^0-9]/g, "");
+        if (digits && recIdToDate.has(digits)) return recIdToDate.get(digits);
+        return null;
+      };
 
       // 3. v2 staff 取得 → 苗字マップ (lastName -> [{id, name}])
       const staffSnap = await db.collection("staff").get();
@@ -671,7 +686,7 @@ module.exports = function recruitmentApi(db) {
         if (!recId || !gasName || !rawStatus) { recordSkip("empty_row", { rowIndex: i + 1, recId, gasName, rawStatus }); continue; }
 
         // 募集ID → 日付
-        const date = recIdToDate.get(recId);
+        const date = resolveDate(recId);
         if (!date) { recordSkip("unknown_recId", { rowIndex: i + 1, recId, gasName }); continue; }
         if (date < from || date > to) { recordSkip("date_out_of_range", { rowIndex: i + 1, recId, date }); continue; }
 
