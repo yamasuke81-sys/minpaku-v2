@@ -728,49 +728,60 @@ module.exports = function recruitmentApi(db) {
         const response = symbolMap[rawStatus] || null;
         if (!response) { _skip("unknown_symbol", { rowIndex: i + 1, gasName, rawStatus }); continue; }
 
-        // v2 既存 response 確認 (v2 標準は auto-id で staffId フィールド検索)
-        const respColl = db.collection("recruitments").doc(recruitment.id).collection("responses");
-        const existing = await respColl.where("staffId", "==", staff.id).get();
-        // 既存が全て source==gas-import なら過去取込のゴミ。削除して書き直す
-        let allGasImport = !existing.empty && existing.docs.every((d) => {
-          const src = d.data().source || "";
-          return src === "gas-import" || src === "gas-import-confirm";
-        });
-        if (!existing.empty && !allGasImport) {
-          warnings.push({
-            type: "v2_existing",
-            staffId: staff.id,
-            staffName: staff.name,
-            date,
-            recruitmentId: recruitment.id,
-          });
-          _skip("v2_existing", { rowIndex: i + 1, staffName: staff.name, date });
-          continue;
-        }
-        // 過去 GAS 取込ゴミの削除
-        if (allGasImport && !dryRun) {
-          for (const doc of existing.docs) await doc.ref.delete();
+        // v2 は recruitments.{id}.responses[] 配列フィールドを使う
+        const responsesArr = Array.isArray(recruitment.responses) ? [...recruitment.responses] : [];
+        const existingIdx = responsesArr.findIndex((r) =>
+          (r.staffId && r.staffId === staff.id) ||
+          (r.staffName && r.staffName === staff.name)
+        );
+        // 既存が gas-import 系なら上書き、それ以外(人手入力)はスキップ
+        if (existingIdx >= 0) {
+          const existingSrc = responsesArr[existingIdx].source || "";
+          if (!/^gas-import/.test(existingSrc)) {
+            warnings.push({
+              type: "v2_existing",
+              staffId: staff.id,
+              staffName: staff.name,
+              date,
+              recruitmentId: recruitment.id,
+            });
+            _skip();
+            continue;
+          }
         }
 
         matched++;
-        const responseDoc = {
+        const entry = {
           staffId: staff.id,
           staffName: staff.name,
           staffEmail: staff.email || "",
           response,
           memo: response === "△" ? memo : "",
-          respondedAt: parseRespondedAt_(respDate) || FieldValue.serverTimestamp(),
+          respondedAt: (parseRespondedAt_(respDate) || new Date()).toISOString(),
           source: "gas-import",
         };
+        if (existingIdx >= 0) responsesArr[existingIdx] = entry;
+        else responsesArr.push(entry);
         preview.push({
           date, recruitmentId: recruitment.id,
           staffId: staff.id, staffName: staff.name,
-          response, memo: responseDoc.memo,
+          response, memo: entry.memo,
           gasStaffName: gasName,
         });
 
         if (!dryRun) {
-          await respColl.add(responseDoc);
+          // 過去 subcollection のゴミがあれば削除 (一度限り)
+          const oldSub = await db.collection("recruitments").doc(recruitment.id)
+            .collection("responses").get();
+          for (const d of oldSub.docs) {
+            if (/^gas-import/.test(d.data().source || "")) await d.ref.delete();
+          }
+          await db.collection("recruitments").doc(recruitment.id).update({
+            responses: responsesArr,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+          // ローカルの recruitment オブジェクトも更新 (確定ループ用)
+          recruitment.responses = responsesArr;
           imported++;
         }
       }
@@ -830,35 +841,32 @@ module.exports = function recruitmentApi(db) {
           if (!dryRun) {
             // 既に確定済なら上書きしない
             if (recruitment.status === "スタッフ確定済み") continue;
+            // 確定スタッフに ◎ 回答が無ければ配列に追加 (v2 標準形式)
+            const arr = Array.isArray(recruitment.responses) ? [...recruitment.responses] : [];
+            for (const sid of selectedStaffIds) {
+              const idx = arr.findIndex((r) => r.staffId === sid);
+              const sObj = allStaff.find((s) => s.id === sid);
+              const entry = {
+                staffId: sid,
+                staffName: sObj ? sObj.name : "",
+                staffEmail: sObj ? sObj.email : "",
+                response: "◎",
+                memo: "",
+                respondedAt: new Date().toISOString(),
+                source: "gas-import-confirm",
+              };
+              if (idx < 0) arr.push(entry);
+              else if (/^gas-import/.test(arr[idx].source || "")) arr[idx] = entry;
+              // 人手入力の既存回答はそのまま (確定済みなら ◎ のはず)
+            }
             await db.collection("recruitments").doc(recruitment.id).update({
               status: "スタッフ確定済み",
               selectedStaff: selectedStaffNames.join(","),
               selectedStaffIds,
+              responses: arr,
               confirmedAt: FieldValue.serverTimestamp(),
               updatedAt: FieldValue.serverTimestamp(),
             });
-            // 確定したスタッフに ◎ 回答が無ければ自動で ◎ を追加
-            for (const sid of selectedStaffIds) {
-              const respColl = db.collection("recruitments").doc(recruitment.id).collection("responses");
-              const ex = await respColl.where("staffId", "==", sid).get();
-              // 既存が全部 gas-import 系のゴミなら削除
-              const allGas = !ex.empty && ex.docs.every((d) => /^gas-import/.test(d.data().source || ""));
-              if (allGas) {
-                for (const doc of ex.docs) await doc.ref.delete();
-              }
-              if (ex.empty || allGas) {
-                const sObj = allStaff.find((s) => s.id === sid);
-                await respColl.add({
-                  staffId: sid,
-                  staffName: sObj ? sObj.name : "",
-                  staffEmail: sObj ? sObj.email : "",
-                  response: "◎",
-                  memo: "",
-                  respondedAt: FieldValue.serverTimestamp(),
-                  source: "gas-import-confirm",
-                });
-              }
-            }
             confirmedCount++;
           }
         }
