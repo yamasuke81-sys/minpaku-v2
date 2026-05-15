@@ -548,8 +548,10 @@ module.exports = function recruitmentApi(db) {
       });
       const sheets = google.sheets({ version: "v4", auth });
 
-      let recruitRows, candidateRows;
+      let recruitRows, candidateRows, allSheetNames = [];
       try {
+        const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+        allSheetNames = (meta.data.sheets || []).map((s) => s.properties.title);
         const [r1, r2] = await Promise.all([
           sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "募集" }),
           sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "募集_立候補" }),
@@ -839,6 +841,7 @@ module.exports = function recruitmentApi(db) {
           recRowsInRange,
           candSamplesInRange,
           colMatchScore: colMatchScore.slice(0, 5),
+          allSheetNames,
         },
       });
     } catch (e) {

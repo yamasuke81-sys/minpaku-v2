@@ -366,6 +366,7 @@ const SettingsPage = {
           <details class="mt-2">
             <summary class="small text-muted">デバッグ情報</summary>
             <div class="small mt-2 text-start">
+              <div><strong>全シート名:</strong> <code>${(d.allSheetNames||[]).join(" | ")}</code></div>
               <div>募集シートヘッダ: <code>${(d.recHeaders||[]).join(" | ")}</code></div>
               <div>立候補シートヘッダ: <code>${(d.candHeaders||[]).join(" | ")}</code></div>
               <div>列idx: recDate=${d.recDateIdx} recId=${d.recIdIdx} candRecId=${d.candRecIdIdx} candName=${d.candNameIdx} candStatus=${d.candStatusIdx} candMemo=${d.candMemoIdx}</div>
