@@ -328,6 +328,9 @@ async function syncIcal() {
                 console.warn(`[syncIcal] ゴースト削除失敗: ${e.message}`);
               }
             }
+            // 後段のキャンセル検知 phase で「未同期 = キャンセル」扱いされて
+            // onBookingChange が偽キャンセル通知を送るのを防ぐため、UID を「同期済み」に登録
+            syncedIcalUids.add(uid);
             skipped++;
             continue;
           }

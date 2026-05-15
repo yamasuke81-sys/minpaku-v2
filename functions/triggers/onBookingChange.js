@@ -372,7 +372,14 @@ module.exports = async function onBookingChange(event) {
     if (nowCancelled && after) {
       try {
         let suppressCancelNotify = false;
-        if (after.propertyId && after.checkIn && after.checkOut) {
+        // 未照合 (Booking.com 匿名 CLOSED 取込) はもともと表示用プレースホルダで
+        // 「実予約」ではないため、キャンセル通知を送らない (Booking.com 側で売り止め
+        // やブロック解除した時に毎回偽通知が飛ぶのを防ぐ)
+        if (after.unverified === true) {
+          suppressCancelNotify = true;
+          console.log(`[onBookingChange] unverified=true のため cancel 通知スキップ: ${event.params.bookingId}`);
+        }
+        if (!suppressCancelNotify && after.propertyId && after.checkIn && after.checkOut) {
           const dupSnap = await db.collection("bookings")
             .where("propertyId", "==", after.propertyId)
             .where("status", "==", "confirmed")
