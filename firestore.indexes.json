@@ -190,6 +190,14 @@
       ]
     },
     {
+      "collectionGroup": "guestRegistrations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "checkIn", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "emailVerifications",
       "queryScope": "COLLECTION",
       "fields": [
