@@ -549,6 +549,7 @@ module.exports = function recruitmentApi(db) {
       const sheets = google.sheets({ version: "v4", auth });
 
       let recruitRows, candidateRows, allSheetNames = [];
+      const sheetPreviews = {}; // 怪しいシート名 → 先頭10行
       try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
         allSheetNames = (meta.data.sheets || []).map((s) => s.properties.title);
@@ -558,6 +559,22 @@ module.exports = function recruitmentApi(db) {
         ]);
         recruitRows = r1.data.values || [];
         candidateRows = r2.data.values || [];
+
+        // 怪しいシート (回答/履歴/集計/共有関連) の先頭10行を取得
+        const targetNames = allSheetNames.filter((n) =>
+          /回答|履歴|集計|共有|スタッフ|募集設定|通知|サブオーナー/.test(n)
+        );
+        for (const name of targetNames) {
+          try {
+            const resp = await sheets.spreadsheets.values.get({
+              spreadsheetId: SHEET_ID,
+              range: `'${name}'!A1:Z10`,
+            });
+            sheetPreviews[name] = resp.data.values || [];
+          } catch (e) {
+            sheetPreviews[name] = [["(取得失敗: " + e.message + ")"]];
+          }
+        }
       } catch (e) {
         console.error("Sheets API 読取失敗:", e);
         return res.status(502).json({ error: `スプシ読取失敗: ${e.message}` });
@@ -842,6 +859,7 @@ module.exports = function recruitmentApi(db) {
           candSamplesInRange,
           colMatchScore: colMatchScore.slice(0, 5),
           allSheetNames,
+          sheetPreviews,
         },
       });
     } catch (e) {
