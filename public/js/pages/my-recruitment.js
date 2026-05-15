@@ -1416,27 +1416,60 @@ const MyRecruitmentPage = {
     const edgePrev = document.getElementById("myCalEdgePrev");
     const edgeNext = document.getElementById("myCalEdgeNext");
     if (edgePrev && edgeNext) {
-      const THRESHOLD = 5;
       const showBtn = (btn, show) => {
         if (show) {
           btn.style.display = "flex";
-          // 次フレームで opacity を上げて fade-in
           requestAnimationFrame(() => { btn.style.opacity = "1"; });
         } else {
           btn.style.opacity = "0";
           btn.style.display = "none";
         }
       };
-      const updateEdgeBtns = () => {
-        const sl = container.scrollLeft;
-        const max = container.scrollWidth - container.clientWidth;
-        showBtn(edgePrev, sl <= THRESHOLD);
-        showBtn(edgeNext, sl >= max - THRESHOLD);
-      };
-      container.addEventListener("scroll", updateEdgeBtns, { passive: true });
-      // 初回 + リサイズ時にも判定
-      setTimeout(updateEdgeBtns, 0);
-      window.addEventListener("resize", updateEdgeBtns, { passive: true });
+      // IntersectionObserver 方式: テーブルの左端・右端にセンチネル要素を置き、
+      // 各端がスクロールコンテナの可視範囲に入っているかで判定。
+      // scroll イベントに依存しないため、プログラムスクロールや
+      // 自動スクロール (今日にジャンプ) でも確実に反映される。
+      try {
+        // 既存センチネル削除 (renderCalendar 再実行時の重複防止)
+        container.querySelectorAll(".cal-edge-sentinel").forEach((el) => el.remove());
+        const tbl = container.querySelector("table");
+        if (tbl) {
+          const tblParent = tbl.parentElement || container;
+          // CSS 構造: table は wrap 内、その左右に絶対配置のセンチネルを置く
+          if (getComputedStyle(tblParent).position === "static") {
+            tblParent.style.position = "relative";
+          }
+          const mkSentinel = (side) => {
+            const s = document.createElement("div");
+            s.className = "cal-edge-sentinel";
+            s.style.cssText = `position:absolute;top:0;${side}:0;width:1px;height:100%;pointer-events:none;`;
+            tblParent.appendChild(s);
+            return s;
+          };
+          const leftSen = mkSentinel("left");
+          const rightSen = mkSentinel("right");
+          const obs = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+              if (entry.target === leftSen) showBtn(edgePrev, entry.isIntersecting);
+              if (entry.target === rightSen) showBtn(edgeNext, entry.isIntersecting);
+            }
+          }, { root: container, threshold: 0.1 });
+          obs.observe(leftSen);
+          obs.observe(rightSen);
+          // 念のため scroll/resize でも再評価 (フォールバック)
+          const refresh = () => {
+            const sl = container.scrollLeft;
+            const max = container.scrollWidth - container.clientWidth;
+            showBtn(edgePrev, sl <= 5);
+            showBtn(edgeNext, sl >= max - 5);
+          };
+          container.addEventListener("scroll", refresh, { passive: true });
+          window.addEventListener("resize", refresh, { passive: true });
+          setTimeout(refresh, 100);
+        }
+      } catch (e) {
+        console.warn("[edgeBtns] sentinel setup failed:", e?.message);
+      }
 
       // 多重バインド防止: dataset.wired を使う (renderCalendar は何度も呼ばれるが、要素は使い回し)
       if (!edgePrev.dataset.wired) {
