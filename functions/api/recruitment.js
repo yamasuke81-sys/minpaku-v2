@@ -594,7 +594,9 @@ module.exports = function recruitmentApi(db) {
       const candHeaders = candidateRows[0].map((h) => String(h || "").trim());
 
       const recDateIdx = idxOf(recHeaders, "日付", "CO日", "チェックアウト日", "checkoutDate");
-      const recIdIdx = idxOf(recHeaders, "募集ID", "予約行番号", "行番号", "ID");
+      // 立候補側の "rN" の N は募集シートの「シート行番号」を指す (GAS の仕様)
+      // 予約行番号列ではない点に注意
+      const recIdIdx = idxOf(recHeaders, "募集ID", "ID");
       if (recDateIdx < 0) {
         return res.status(400).json({ error: "募集シートに『日付』列が見つかりません" });
       }
