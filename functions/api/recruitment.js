@@ -639,9 +639,26 @@ module.exports = function recruitmentApi(db) {
       let matched = 0;
       let imported = 0;
       let skipped = 0;
+      const skipReasons = {
+        empty_row: 0,
+        unknown_recId: 0,
+        date_out_of_range: 0,
+        no_recruitment: 0,
+        no_match: 0,
+        duplicate_lastname: 0,
+        unknown_symbol: 0,
+        v2_existing: 0,
+      };
+      const skipSamples = []; // 先頭10件のスキップ理由詳細
 
       // GAS の記号 → v2 の response 値
       const symbolMap = { "○": "◎", "◎": "◎", "△": "△", "×": "×", "✕": "×", "X": "×", "x": "×" };
+
+      const recordSkip = (reason, info) => {
+        skipReasons[reason] = (skipReasons[reason] || 0) + 1;
+        if (skipSamples.length < 10) skipSamples.push({ reason, ...info });
+        skipped++;
+      };
 
       for (let i = 1; i < candidateRows.length; i++) {
         const row = candidateRows[i];
@@ -651,20 +668,20 @@ module.exports = function recruitmentApi(db) {
         const memo = candMemoIdx >= 0 ? String(row[candMemoIdx] || "").trim() : "";
         const respDate = candDateIdx >= 0 ? String(row[candDateIdx] || "").trim() : "";
 
-        if (!recId || !gasName || !rawStatus) { skipped++; continue; }
+        if (!recId || !gasName || !rawStatus) { recordSkip("empty_row", { rowIndex: i + 1, recId, gasName, rawStatus }); continue; }
 
         // 募集ID → 日付
         const date = recIdToDate.get(recId);
-        if (!date) { skipped++; continue; } // 範囲外などでスキップ (warning にしない)
-        if (date < from || date > to) { skipped++; continue; }
+        if (!date) { recordSkip("unknown_recId", { rowIndex: i + 1, recId, gasName }); continue; }
+        if (date < from || date > to) { recordSkip("date_out_of_range", { rowIndex: i + 1, recId, date }); continue; }
 
         // v2 recruitment
         const recList = recByDate.get(date) || [];
         if (recList.length === 0) {
           warnings.push({ type: "no_recruitment", date, gasStaffName: gasName });
-          skipped++; continue;
+          recordSkip("no_recruitment", { rowIndex: i + 1, date, gasName });
+          continue;
         }
-        // 同日複数あれば propertyId フィルタ通過したものは基本 1 件想定だが念のため最初を使用
         const recruitment = recList[0];
 
         // 苗字照合
@@ -672,7 +689,8 @@ module.exports = function recruitmentApi(db) {
         const candidates = lastNameMap.get(lastName) || [];
         if (candidates.length === 0) {
           warnings.push({ type: "no_match", gasStaffName: gasName, lastName });
-          skipped++; continue;
+          recordSkip("no_match", { rowIndex: i + 1, gasName, lastName });
+          continue;
         }
         if (candidates.length > 1) {
           warnings.push({
@@ -683,13 +701,14 @@ module.exports = function recruitmentApi(db) {
             recruitmentId: recruitment.id,
             date,
           });
-          skipped++; continue;
+          recordSkip("duplicate_lastname", { rowIndex: i + 1, gasName, lastName });
+          continue;
         }
         const staff = candidates[0];
 
         // response 値マップ
         const response = symbolMap[rawStatus] || null;
-        if (!response) { skipped++; continue; }
+        if (!response) { recordSkip("unknown_symbol", { rowIndex: i + 1, gasName, rawStatus }); continue; }
 
         // v2 既存 response 確認
         const existing = await db.collection("recruitments").doc(recruitment.id)
@@ -702,7 +721,8 @@ module.exports = function recruitmentApi(db) {
             date,
             recruitmentId: recruitment.id,
           });
-          skipped++; continue;
+          recordSkip("v2_existing", { rowIndex: i + 1, staffName: staff.name, date });
+          continue;
         }
 
         matched++;
@@ -728,11 +748,27 @@ module.exports = function recruitmentApi(db) {
         }
       }
 
+      // 範囲内の募集日付 (debug 用)
+      const recDatesInRange = [];
+      for (const [id, d] of recIdToDate.entries()) {
+        if (d >= from && d <= to) recDatesInRange.push({ recId: id, date: d });
+      }
+      const v2RecDates = Array.from(recByDate.keys()).sort();
+
       res.json({
         summary: { matched, imported, skipped, totalCandidateRows: candidateRows.length - 1 },
         warnings,
         preview: dryRun ? preview : preview.slice(0, 50),
         dryRun: !!dryRun,
+        debug: {
+          recHeaders, candHeaders,
+          recDateIdx, recIdIdx, candRecIdIdx, candNameIdx, candStatusIdx, candMemoIdx,
+          skipReasons,
+          skipSamples,
+          recDatesInRange,
+          v2RecDates,
+          v2RecCount: recSnap.size,
+        },
       });
     } catch (e) {
       console.error("GAS取込エラー:", e);

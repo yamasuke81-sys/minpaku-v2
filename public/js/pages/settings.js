@@ -355,6 +355,28 @@ const SettingsPage = {
       const s = data.summary || {};
       alertEl.className = "alert " + (dryRun ? "alert-info" : "alert-success");
       alertEl.innerHTML = `<strong>${dryRun ? "プレビュー結果" : "取込完了"}</strong> — 該当 ${s.matched}件 / ${dryRun ? "予定" : "取込"} ${dryRun ? s.matched : s.imported}件 / スキップ ${s.skipped}件 (全候補行 ${s.totalCandidateRows}件)`;
+      // デバッグ情報を alert 内に追記
+      if (data.debug) {
+        const d = data.debug;
+        const reasonRows = Object.entries(d.skipReasons || {})
+          .filter(([, n]) => n > 0)
+          .map(([k, n]) => `<tr><td>${k}</td><td>${n}</td></tr>`).join("");
+        const samples = (d.skipSamples || []).map((s) => `<li>${JSON.stringify(s)}</li>`).join("");
+        alertEl.innerHTML += `
+          <details class="mt-2">
+            <summary class="small text-muted">デバッグ情報</summary>
+            <div class="small mt-2 text-start">
+              <div>募集シートヘッダ: <code>${(d.recHeaders||[]).join(" | ")}</code></div>
+              <div>立候補シートヘッダ: <code>${(d.candHeaders||[]).join(" | ")}</code></div>
+              <div>列idx: recDate=${d.recDateIdx} recId=${d.recIdIdx} candRecId=${d.candRecIdIdx} candName=${d.candNameIdx} candStatus=${d.candStatusIdx} candMemo=${d.candMemoIdx}</div>
+              <div>GASシート範囲内日付: ${(d.recDatesInRange||[]).map(x=>`${x.date}(募集ID=${x.recId})`).join(", ") || "なし"}</div>
+              <div>v2 recruitments 該当日: ${(d.v2RecDates||[]).join(", ") || "なし"} (該当物件全件=${d.v2RecCount})</div>
+              <table class="table table-sm mt-2"><thead><tr><th>スキップ理由</th><th>件数</th></tr></thead><tbody>${reasonRows}</tbody></table>
+              <div>サンプル(先頭10件):</div>
+              <ul>${samples}</ul>
+            </div>
+          </details>`;
+      }
 
       // 警告
       const ws = data.warnings || [];
