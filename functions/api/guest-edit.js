@@ -4,7 +4,7 @@
  * PUT  /guest-edit/:token — 登録データ更新（diff生成→メール送信）
  */
 const express = require("express");
-const { sendNotificationEmail_ } = require("../utils/lineNotify");
+const { sendNotificationEmail_, resolveSenderGmail_ } = require("../utils/lineNotify");
 const { renderTemplate, buildDiffText, buildGuestSummaryText, getTemplates } = require("../utils/emailTemplates");
 
 const APP_URL = "https://minpaku-v2.web.app";
@@ -129,6 +129,9 @@ module.exports = function guestEditApi(db) {
         summary, editUrl, confirmUrl,
       };
 
+      // 物件の senderGmail を解決（null の場合はフォールバック）
+      const senderGmail = await resolveSenderGmail_(db, currentData.propertyId || null).catch(() => null);
+
       // Webアプリ管理者にメール（変更点付き）
       try {
         const notifDoc = await db.collection("settings").doc("notifications").get();
@@ -137,7 +140,7 @@ module.exports = function guestEditApi(db) {
         const ownerBody = renderTemplate(templates.editNotification.body, vars);
         for (const email of notifyEmails) {
           try {
-            await sendNotificationEmail_(email, ownerSubject, ownerBody);
+            await sendNotificationEmail_(email, ownerSubject, ownerBody, senderGmail || null, { preferFromHeader: true });
           } catch (e) {
             console.error(`Webアプリ管理者メール送信失敗 (${email}):`, e.message);
           }
@@ -152,7 +155,7 @@ module.exports = function guestEditApi(db) {
         try {
           const guestSubject = renderTemplate(templates.guestConfirmation.subject, vars);
           const guestBody = renderTemplate(templates.guestConfirmation.body, vars);
-          await sendNotificationEmail_(guestEmail, guestSubject, guestBody);
+          await sendNotificationEmail_(guestEmail, guestSubject, guestBody, senderGmail || null, { preferFromHeader: true });
         } catch (e) {
           console.error(`宿泊者メール送信失敗:`, e.message);
         }

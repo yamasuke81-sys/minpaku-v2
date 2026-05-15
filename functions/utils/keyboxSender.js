@@ -164,7 +164,7 @@ async function sendKeyboxEmail(guest, property) {
     ? `${body}\n\n--------------------------------\n--- English follows ---\n--------------------------------\n\n${bodyEn}`
     : body;
 
-  await sendNotificationEmail_(guestEmail, finalSubject, finalBody);
+  await sendNotificationEmail_(guestEmail, finalSubject, finalBody, property.senderGmail || null, { preferFromHeader: true });
 }
 
 module.exports = { computeScheduledSendAt, formatScheduledSendAt, sendKeyboxEmail };

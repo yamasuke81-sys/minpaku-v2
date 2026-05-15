@@ -5,7 +5,7 @@
 const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
 const { getStorage } = require("firebase-admin/storage");
-const { notifyOwner, notifyGroup, notifyByKey, getNotificationSettings_, sendLineMessage, sendNotificationEmail_, resolveNotifyTargets } = require("../utils/lineNotify");
+const { notifyOwner, notifyGroup, notifyByKey, getNotificationSettings_, sendLineMessage, sendNotificationEmail_, resolveNotifyTargets, resolveSenderGmail_ } = require("../utils/lineNotify");
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
@@ -1911,8 +1911,10 @@ module.exports = function invoicesApi(db) {
         // スタッフ本人にも PDF リンクをメール送付（方針A: 通知設定に依存しない固定送信で後方互換を維持）
         if (staffDoc.email && pdfSignedUrl) {
           const staffBody = `${staffDoc.name} 様\n\n${yearMonth} 分の請求書が作成されました。\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}\n\nPDFダウンロード (7日間有効):\n${pdfSignedUrl}\n\n何か相違がございましたらご連絡ください。`;
-          sendNotificationEmail_(staffDoc.email, `【請求書】${yearMonth} 分`, staffBody)
-            .catch((e) => console.error("スタッフへの請求書メール失敗:", e.message));
+          resolveSenderGmail_(db, propertyId).catch(() => null).then((sg) => {
+            sendNotificationEmail_(staffDoc.email, `【請求書】${yearMonth} 分`, staffBody, sg || null, { preferFromHeader: true })
+              .catch((e) => console.error("スタッフへの請求書メール失敗:", e.message));
+          });
         }
       } catch (notifyErr) {
         console.error("invoice_submitted 通知エラー:", notifyErr);
@@ -2307,8 +2309,10 @@ module.exports = function invoicesApi(db) {
         // メール: ownerEmail 1件のみ
         const ownerEmail = settings && (settings.ownerEmail || (settings.notifyEmails && settings.notifyEmails[0]));
         if (ownerEmail) {
-          sendNotificationEmail_(ownerEmail, `【請求書確定】${data.staffName || ""} ${data.yearMonth}`, body)
-            .catch((e) => console.error("Webアプリ管理者への確定通知メール失敗:", e.message));
+          resolveSenderGmail_(db, data.propertyId || null).catch(() => null).then((sg) => {
+            sendNotificationEmail_(ownerEmail, `【請求書確定】${data.staffName || ""} ${data.yearMonth}`, body, sg || null, { preferFromHeader: true })
+              .catch((e) => console.error("Webアプリ管理者への確定通知メール失敗:", e.message));
+          });
         }
       } catch (notifyErr) {
         console.error("請求書提出通知エラー（無視）:", notifyErr);

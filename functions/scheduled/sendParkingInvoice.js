@@ -8,7 +8,7 @@
  *
  * 催促: checkIn 前日で parkingPaymentConfirmed が false → 催促メール
  */
-const { sendNotificationEmail_ } = require("../utils/lineNotify");
+const { sendNotificationEmail_, resolveSenderGmail_ } = require("../utils/lineNotify");
 const { renderTemplate, getTemplates } = require("../utils/emailTemplates");
 
 module.exports = async function sendParkingInvoice() {
@@ -85,7 +85,8 @@ module.exports = async function sendParkingInvoice() {
         const subject = `【駐車場料金のご案内】${vars.guestName}様 — ${totalAmount.toLocaleString()}円`;
         const body = buildParkingInvoiceBody(vars);
 
-        await sendNotificationEmail_(guestEmail, subject, body);
+        const senderGmail = data.propertyId ? await resolveSenderGmail_(db, data.propertyId) : null;
+        await sendNotificationEmail_(guestEmail, subject, body, senderGmail || null);
         await doc.ref.update({
           parkingInvoiceSentAt: admin.firestore.FieldValue.serverTimestamp(),
           parkingAmount: totalAmount,
@@ -115,7 +116,8 @@ module.exports = async function sendParkingInvoice() {
         const subject = `【リマインド】駐車場料金のお支払いについて — ${vars.guestName}様`;
         const body = buildParkingReminderBody(vars);
 
-        await sendNotificationEmail_(guestEmail, subject, body);
+        const reminderSenderGmail = data.propertyId ? await resolveSenderGmail_(db, data.propertyId) : null;
+        await sendNotificationEmail_(guestEmail, subject, body, reminderSenderGmail || null);
         await doc.ref.update({
           parkingReminderSentAt: admin.firestore.FieldValue.serverTimestamp(),
         });

@@ -681,6 +681,7 @@ async function notifySubOwners(db, propertyId, title, body) {
   let sentCount = 0;
   try {
     const { channelToken } = await getNotificationSettings_(db);
+    const propertySenderGmail = await resolveSenderGmail_(db, propertyId);
     const staffSnap = await db.collection("staff")
       .where("isSubOwner", "==", true)
       .where("ownedPropertyIds", "array-contains", propertyId)
@@ -717,7 +718,7 @@ async function notifySubOwners(db, propertyId, title, body) {
       const subOwnerMail = sData.subOwnerEmail || sData.email;
       if (subOwnerMail) {
         try {
-          await sendNotificationEmail_(subOwnerMail, title, body);
+          await sendNotificationEmail_(subOwnerMail, title, body, propertySenderGmail || null, { preferFromHeader: true });
           sentCount++;
           console.log(`物件オーナー(${sData.name}) メール送信成功: ${subOwnerMail} (fallback=${!sData.subOwnerEmail})`);
         } catch (e) {
@@ -859,6 +860,28 @@ async function sendNotificationEmail_(to, subject, body, fromEmail, opts) {
     userId: "me",
     requestBody: { raw: encodedMessage },
   });
+}
+
+// ========== 物件 Gmail 送信元解決 ==========
+
+/**
+ * 物件の senderGmail (Gmail 連携アドレス) を取得する。
+ * 物件起点のメール (ゲスト宛・物件オーナー宛・スタッフ宛など) で
+ * sendNotificationEmail_ に fromEmail として渡すためのヘルパー。
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} propertyId
+ * @returns {Promise<string|null>} senderGmail or null
+ */
+async function resolveSenderGmail_(db, propertyId) {
+  if (!propertyId) return null;
+  try {
+    const p = await db.collection("properties").doc(propertyId).get();
+    if (!p.exists) return null;
+    return p.data().senderGmail || null;
+  } catch (_) {
+    return null;
+  }
 }
 
 // ========== 物件別 LINE 送信 ==========
@@ -1126,6 +1149,9 @@ async function notifyByKey(db, notifyKey, options = {}) {
     return { sent: {}, errors: [] };
   }
 
+  // 物件起点のメールは property.senderGmail を fromEmail に使う
+  const propertySenderGmail = await resolveSenderGmail_(db, propertyId);
+
   // 3. customMessage で本文置換 (string body のみ対象)
   // 「物件別のみ参照」ポリシー: グローバル settings.channels.customMessage は参照しない
   let resolvedBody = body;
@@ -1254,7 +1280,7 @@ async function notifyByKey(db, notifyKey, options = {}) {
         let okCount = 0;
         for (const to of emails) {
           try {
-            await sendNotificationEmail_(to, title, text);
+            await sendNotificationEmail_(to, title, text, propertySenderGmail || null, { preferFromHeader: true });
             okCount++;
           } catch (e) { errors.push({ channel: "ownerEmail", to, error: e.message }); }
         }
@@ -1303,7 +1329,7 @@ async function notifyByKey(db, notifyKey, options = {}) {
           const sd = d.data();
           if (!sd.email) continue;
           try {
-            await sendNotificationEmail_(sd.email, title, text);
+            await sendNotificationEmail_(sd.email, title, text, propertySenderGmail || null, { preferFromHeader: true });
             okCount++;
           } catch (e) { errors.push({ channel: "staffEmail", staffId: d.id, error: e.message }); }
         }
@@ -1389,4 +1415,5 @@ module.exports = {
   getNotificationSettings_,
   sendNotificationEmail_,
   sendDiscord_,
+  resolveSenderGmail_,
 };

@@ -4,6 +4,7 @@
  */
 const {
   sendNotificationEmail_,
+  resolveSenderGmail_,
   resolveNotifyTargets,
   getNotificationSettings_,
 } = require("../utils/lineNotify");
@@ -79,7 +80,8 @@ module.exports = async function onBookingConfirmMail(event) {
 
     const subject = `ご予約確認: ${checkIn} チェックイン (${propertyName})`;
 
-    await sendNotificationEmail_(b.email, subject, body);
+    const senderGmail = b.propertyId ? await resolveSenderGmail_(db, b.propertyId) : null;
+    await sendNotificationEmail_(b.email, subject, body, senderGmail || null);
     console.log(`予約確認メール送信成功: ${b.email} (checkIn: ${checkIn})`);
 
     // 通知ログ記録

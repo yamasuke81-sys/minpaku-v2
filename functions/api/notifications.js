@@ -13,6 +13,7 @@ const {
   pushMessages_,
   getNotificationSettings_,
   sendNotificationEmail_,
+  resolveSenderGmail_,
   sendDiscord_,
 } = require("../utils/lineNotify");
 const { notifyAllStaffFCM, notifyOwnerFCM } = require("../utils/fcmSender");
@@ -158,7 +159,8 @@ module.exports = function notificationsApi(db) {
         failCount++;
       } else {
         try {
-          await sendNotificationEmail_(ownerEmail, title, body);
+          const senderGmail = propertyId ? await resolveSenderGmail_(db, propertyId) : null;
+          await sendNotificationEmail_(ownerEmail, title, body, senderGmail || null);
           sentCount++;
           results.push({ target: "ownerEmail", success: true, to: ownerEmail });
         } catch (e) {
@@ -174,6 +176,7 @@ module.exports = function notificationsApi(db) {
       try {
         const sSnap = await db.collection("staff").where("active", "==", true).get();
         let cnt = 0, fail = 0;
+        const staffSenderGmail = propertyId ? await resolveSenderGmail_(db, propertyId) : null;
         for (const sDoc of sSnap.docs) {
           const s = sDoc.data();
           if (!s.email) continue;
@@ -181,7 +184,7 @@ module.exports = function notificationsApi(db) {
             const assigned = Array.isArray(s.assignedPropertyIds) ? s.assignedPropertyIds : [];
             if (!assigned.includes(propertyId)) continue;
           }
-          try { await sendNotificationEmail_(s.email, title, body); cnt++; }
+          try { await sendNotificationEmail_(s.email, title, body, staffSenderGmail || null); cnt++; }
           catch (e) { fail++; }
         }
         results.push({ target: "staffEmail", success: cnt > 0, sent: cnt, failed: fail });
@@ -197,6 +200,7 @@ module.exports = function notificationsApi(db) {
       try {
         const staffSnap = await db.collection("staff").where("isSubOwner", "==", true).get();
         let soLine = 0, soMail = 0, soFail = 0;
+        const subOwnerSenderGmail = propertyId ? await resolveSenderGmail_(db, propertyId) : null;
         for (const sDoc of staffSnap.docs) {
           const s = sDoc.data();
           if (s.active === false) continue;
@@ -212,11 +216,11 @@ module.exports = function notificationsApi(db) {
             } catch (e) { soFail++; }
           }
           if (targets.subOwnerEmail && s.subOwnerEmail) {
-            try { await sendNotificationEmail_(s.subOwnerEmail, title, body); soMail++; }
+            try { await sendNotificationEmail_(s.subOwnerEmail, title, body, subOwnerSenderGmail || null); soMail++; }
             catch (e) { soFail++; }
           } else if (targets.subOwnerEmail && s.email) {
             // subOwnerEmail 未設定なら staff.email を代替
-            try { await sendNotificationEmail_(s.email, title, body); soMail++; }
+            try { await sendNotificationEmail_(s.email, title, body, subOwnerSenderGmail || null); soMail++; }
             catch (e) { soFail++; }
           }
         }
