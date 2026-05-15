@@ -770,6 +770,31 @@ module.exports = function recruitmentApi(db) {
       }
       const v2RecDates = Array.from(recByDate.keys()).sort();
 
+      // 範囲内の募集シート行を全列出力 (debug 用 — 募集ID 列特定のため)
+      const recRowsInRange = [];
+      for (let i = 1; i < recruitRows.length; i++) {
+        const row = recruitRows[i];
+        const d = normalizeDate_(row[recDateIdx]);
+        if (!d || d < from || d > to) continue;
+        const dump = {};
+        for (let c = 0; c < row.length; c++) {
+          const header = recHeaders[c] || `(col${c})`;
+          dump[`${c}:${header}`] = row[c];
+        }
+        recRowsInRange.push({ sheetRow: i + 1, dump });
+      }
+
+      // 立候補シートで範囲内日付に該当する recId サンプル (もし date 解決できれば)
+      const candSamplesInRange = [];
+      for (let i = 1; i < candidateRows.length && candSamplesInRange.length < 20; i++) {
+        const row = candidateRows[i];
+        const recId = String(row[candRecIdIdx] || "").trim();
+        const d = resolveDate(recId);
+        if (d && d >= from && d <= to) {
+          candSamplesInRange.push({ rowIndex: i + 1, recId, date: d, name: row[candNameIdx], status: row[candStatusIdx] });
+        }
+      }
+
       res.json({
         summary: { matched, imported, skipped, totalCandidateRows: candidateRows.length - 1 },
         warnings,
@@ -783,6 +808,8 @@ module.exports = function recruitmentApi(db) {
           recDatesInRange,
           v2RecDates,
           v2RecCount: recSnap.size,
+          recRowsInRange,
+          candSamplesInRange,
         },
       });
     } catch (e) {

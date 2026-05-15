@@ -374,6 +374,10 @@ const SettingsPage = {
               <table class="table table-sm mt-2"><thead><tr><th>スキップ理由</th><th>件数</th></tr></thead><tbody>${reasonRows}</tbody></table>
               <div>サンプル(先頭10件):</div>
               <ul>${samples}</ul>
+              <div class="mt-2"><strong>範囲内の募集シート行 (全列ダンプ):</strong></div>
+              <ul>${(d.recRowsInRange || []).map((r) => `<li>シート行${r.sheetRow}: <code>${JSON.stringify(r.dump)}</code></li>`).join("")}</ul>
+              <div class="mt-2"><strong>範囲内の立候補サンプル (resolveDate成功分):</strong></div>
+              <ul>${(d.candSamplesInRange || []).map((c) => `<li>${JSON.stringify(c)}</li>`).join("") || "<li>(なし)</li>"}</ul>
             </div>
           </details>`;
       }
