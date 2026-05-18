@@ -202,9 +202,14 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // iCal同期設定 — オーナーのみ
+    // iCal同期設定 — オーナーは全件、サブオーナーは所有物件分のみ
     match /syncSettings/{settingId} {
-      allow read, write: if isOwner();
+      allow read: if isOwner()
+        || (isSubOwner() && resource.data.propertyId in request.auth.token.ownedPropertyIds);
+      allow update, delete: if isOwner()
+        || (isSubOwner() && resource.data.propertyId in request.auth.token.ownedPropertyIds);
+      allow create: if isOwner()
+        || (isSubOwner() && request.resource.data.propertyId in request.auth.token.ownedPropertyIds);
     }
 
     // ダブルブッキング衝突記録 — オーナーのみ読み書き可（スタッフは read 不可）

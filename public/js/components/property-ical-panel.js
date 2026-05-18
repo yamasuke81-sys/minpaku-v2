@@ -88,7 +88,8 @@
   }
 
   // 「今すぐ同期」処理 - SettingsPage.syncIcalNow があれば呼び、なければ独自実装
-  async function runSyncIcalNow(statusEl, btnEl) {
+  // propertyId を渡すと当該物件の syncSettings のみを対象とする (サブオーナー権限でも動くようにするため)
+  async function runSyncIcalNow(statusEl, btnEl, propertyId) {
     const setStatus = (text, cls) => {
       if (!statusEl) return;
       statusEl.textContent = text || "";
@@ -119,7 +120,11 @@
       //    → 該当エンドポイントが無い場合は syncSettings を直接更新して自動同期ループに任せる
       //    現状 settings.js の syncIcalNow() は「状況表示」のみで実同期は scheduled が担う
       //    そのためここでは syncSettings 一覧を読み、有効件数を返すだけにする
-      const snap = await db.collection("syncSettings").get();
+      //    propertyId 指定時は当該物件のみ (サブオーナー権限でも動くように)
+      const query = propertyId
+        ? db.collection("syncSettings").where("propertyId", "==", propertyId)
+        : db.collection("syncSettings");
+      const snap = await query.get();
       let activeCount = 0;
       snap.forEach(doc => {
         const d = doc.data();
@@ -369,9 +374,9 @@
     // 今すぐ同期ボタン
     if (syncBtn) {
       syncBtn.addEventListener("click", async () => {
-        await runSyncIcalNow(syncStatusEl, syncBtn);
-        // 同期後にリストを最新化
         const pid = container.dataset.icalPid;
+        await runSyncIcalNow(syncStatusEl, syncBtn, pid);
+        // 同期後にリストを最新化
         if (pid) loadList(container, pid);
       });
     }
