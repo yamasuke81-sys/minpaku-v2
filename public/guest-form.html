@@ -69,6 +69,8 @@
       <div class="lang-switch">
         <button class="btn btn-sm btn-outline-light active" data-lang="ja">日本語</button>
         <button class="btn btn-sm btn-outline-light" data-lang="en">English</button>
+        <button class="btn btn-sm btn-outline-light" data-lang="ko">한국어</button>
+        <button class="btn btn-sm btn-outline-light" data-lang="zh">中文</button>
       </div>
       <div id="formPropertyName" class="form-property-name" style="display:none;"></div>
       <h1 id="formTitle">宿泊者名簿</h1>
@@ -803,6 +805,324 @@
         opt_purp4: "Hiroshima City Sightseeing", opt_purp5: "Kure Sightseeing",
         opt_purp6: "Yamato Museum", opt_purp7: "Chugoku Region", opt_purp8: "Chugoku-Shikoku Region",
         opt_purpOther: "Other",
+      },
+      ko: {
+        formTitle: "숙박객 명부",
+        formSubtitle: "숙박에 필요한 정보를 기입해 주세요",
+        bookingInfo: "예약 정보",
+        noiseTitle: "⚠ 연회에 관하여 — 매우 중요한 요청",
+        noiseIntro: "늦은 시간까지 시끄럽게 보내고 싶으시다면, 문제 방지를 위해 다른 시설을 고려해 주십시오.<br><span class='text-muted'>※일반적인 음량의 대화는 야간에도 문제없이 이용 가능합니다.</span>",
+        noiseQuietHours: "소음 금지 21:00 ~ 다음 날 8:00",
+        noiseRule1: "21:00 이후, 야외에서의 통화·대화 금지",
+        noiseRule2: "1층 주방은 이웃집에 소리가 울리기 쉬운 구조입니다",
+        noiseRule3: "TV·음악 볼륨에도 주의해 주세요",
+        noiseRule4: "연회·이벤트·파티 불가",
+        noiseEviction: "⚠ 이웃이나 경찰로부터 불만이 접수될 경우, 시간대에 관계없이 즉시 퇴실 조치 (환불 없음)",
+        noiseAgreeRadio: "위의 소음 규칙에 동의합니다",
+        noiseCancelRadio: "동의할 수 없으므로 취소합니다 (예약 후 24시간 이내 무료 취소)",
+        noiseNextBtn: "다음으로 ▶",
+        noiseCancelMsg: "이해해 주셔서 감사합니다. 예약 사이트에서 취소 절차를 진행해 주십시오.",
+        sec_stay: "숙박 정보",
+        sec_guests: "숙박객 정보",
+        sec_facility: "시설 이용 정보",
+        sec_survey: "설문조사",
+        sec_emergency: "비상 연락처",
+        sec_agreement: "동의 사항",
+        checkIn: "체크인 날짜 <span class='required-mark'>*</span>",
+        checkOut: "체크아웃 날짜 <span class='required-mark'>*</span>",
+        checkInTime: "체크인 시간 <span class='required-mark'>*</span>",
+        checkOutTime: "체크아웃 시간 <span class='required-mark'>*</span>",
+        lateCheckOutSummary: "⚠️ 10:00를 넘지 않도록 주의해 주십시오",
+        lateCheckOutNote1: "10:00에 청소 스태프가 입실합니다.",
+        lateCheckOutNote2: "10:00를 초과할 경우, 15분당 2,000엔/인의 벌금이 청구됩니다.",
+        guestCount: "숙박 인원 (성인) <span class='required-mark'>*</span>",
+        guestCountInfants: "3세 이하 유아",
+        bookingSite: "어떤 사이트에서 예약하셨습니까? <span class='required-mark'>*</span>",
+        bookingSiteOtherPh: "예약 사이트 이름을 입력",
+        guestsNote: "여관업법에 따라 숙박객 전원의 정보 기입이 필요합니다. 인원수만큼 입력란이 표시됩니다.",
+        guest_n: "숙박객{n}",
+        guest_representative: "(대표자)",
+        g_name: "성명 (풀네임)",
+        g_nationality: "국적",
+        g_address: "주소",
+        g_phone: "전화번호",
+        g_email: "이메일 주소",
+        g_age: "연령",
+        g_passport: "여권 번호",
+        g_passportPhoto: "여권 사진 (업로드)",
+        g_passportRequired: "※ 외국 국적자는 여권 번호 입력과 여권 사진 업로드가 필수입니다. 만약 업로드에 실패한 경우, 예약 사이트 (Airbnb / Booking.com 등)의 메시지 기능을 통해 사진을 호스트에게 보내주십시오. 명부는 그대로 전송하실 수 있습니다.",
+        transport: "교통수단을 선택해 주십시오 <span class='required-mark'>*</span>",
+        transportOtherPh: "교통수단을 입력",
+        carCount: "차량 몇 대로 오십니까? <span class='required-mark'>*</span>",
+        carOverError: "죄송하지만, 7대 이상의 주차는 불가합니다. 카풀 등을 이용하여 대수를 줄여 주시길 부탁드립니다.",
+        vehicleTypeLabel: "{n}번째 차량 종류 <span class='required-mark'>*</span>",
+        vt_small: "경차/소형차",
+        vt_minivan: "미니밴 이하 (세레나 등)",
+        vt_large: "전장 5m급 (알파드 등)",
+        vtLargeWarn: "⚠️ 회전장, 비포장 주차장에서 차량 하부 (프론트 범퍼 하단)가 긁힐 우려가 있습니다. 주의해 주십시오.",
+        parkNeighborWarn: "이웃집 주차장에는 절대 침범하지 마십시오. 주차장 경계선을 반드시 확인해 주십시오.",
+        neighborAgree: "위의 주의사항을 이해하고, 이웃집 주차장에 침범하지 않을 것에 동의합니다 <span class='required-mark'>*</span>",
+        taxiWarn: "택시로 오시는 경우, 운전기사님께 다음을 전달해 주십시오: \"숙소 주차장이나 회전장 진입은 문제없지만, 인근 주민의 집 주차장에는 절대 들어가지 마십시오.\" 하차·승차 시에도 인근 주차장 침범이 없도록 운전기사님께 철저히 주지시켜 주시길 부탁드립니다.",
+        taxiAgree: "위 내용을 이해하고, 택시 운전기사에게 주지시킵니다 <span class='required-mark'>*</span>",
+        allocTitle: "🅿️ 주차장 배정",
+        spotUnpaved: "비포장 주차장",
+        spotOne: "1번",
+        spotFive: "5번",
+        spotPaid: "유료 주차장 (2,000엔/박)",
+        allocAllFree: "✅ 모두 무료 주차장에 수용 가능합니다",
+        allocPaidSummary: "💰 유료 주차장: {n}대 × 2,000엔 = {total}엔",
+        allocError: "❌ 이 차량 구성으로는 주차장이 부족합니다. 대수나 차종을 조정해 주십시오.",
+        allocLargeWarn: "⚠️ 단차로 인한 차량 하부 긁힘 주의",
+        ppTitle: "유료 주차장 안내",
+        ppIntro: "숙소까지의 길이 좁아 주차하기 어려울 수 있습니다. 운전에 자신이 없거나 대형차를 이용하시는 분은 유료 주차장 이용을 권장합니다. 도보 15분 거리에 있지만, 큰길가에 있어 주차가 매우 편리합니다.",
+        ppBenefitsTitle: "유료 주차장의 장점",
+        ppBen1: "큰길가에 접해 있어 출입이 용이",
+        ppBen2: "주차 공간이 넓음",
+        ppBen3: "로손이 가까움",
+        ppBen4: "카페에서 젤라또나 커피를 즐길 수 있음 →",
+        ppCafeLink: "카페 \"우미토야마토\"",
+        ppDetailsTitle: "요금·이용 시간",
+        ppPrice: "요금: 2,000엔 (1대 1박) ※ 결제는 PayPay 또는 라쿠텐 페이만 가능",
+        ppTime: "주차 가능 시간: 17:00 ~ 다음 날 아침 9:30 (카페 영업 시간 외에만)",
+        ppMax: "최대 2대까지 (크기 불문)",
+        ppLocation: "장소: (유) 잇코 건축 사무소, 자갈 주차장",
+        ppNotesTitle: "【주의사항】",
+        ppNote1: "지역 카페 겸 건축 사무소의 주차장을 빌려 사용합니다",
+        ppNote2: "카페 영업 중 (10:00 ~ 17:00)에는 주차할 수 없습니다",
+        ppNote3: "체크인·아웃 시간보다 주차 가능 시간이 짧으니 주의해 주십시오",
+        ppNote4: "연박의 경우에도 카페 영업 시간에는 주차할 수 없습니다",
+        ppNote5: "카페 소유의 경트럭이 주차되어 있는 경우, 경트럭이 나갈 수 있도록 배려하여 주차해 주십시오",
+        ppNote6: "카페 주최 이벤트 등으로 인해 이용할 수 없는 경우가 있습니다",
+        ppNote7: "시간 외 또는 무단 주차는 발견 즉시 견인 조치됩니다",
+        ppPhotosTitle: "주차장 모습",
+        ppUsage: "유료 주차장을 이용하시겠습니까? <span class='required-mark'>*</span>",
+        ppOptional: "무료 주차장에 수용 가능하지만, 주차 편의성을 중요하게 생각하신다면 유료 주차장도 고려해 주십시오 (2,000엔/대/박) <span class='required-mark'>*</span>",
+        ppRequired: "유료 주차장 이용 대수 (추가 이용도 가능합니다) <span class='required-mark'>*</span>",
+        paidParkingDetail: "유료 주차장: 인근 카페 겸 건축 사무소 주차장 (큰길가·로손 근처). 크기 불문 최대 2대. 17:00 ~ 다음 날 아침 9:30에만 이용 가능.",
+        bbq: "바비큐 세트를 이용하시겠습니까? <span class='required-mark'>*</span>",
+        bbqRulesIntro: "다음 주의사항을 확인하고, 모두 체크해 주십시오:",
+        bbqRule1: "본 시설의 BBQ 세트는 가스식 그릴입니다. 숯·착화제는 사용하지 않습니다",
+        bbqRule2: "21:00 이후에는 소음 규칙에 따라 야외에서의 큰 소리는 금지입니다",
+        bbqRule3: "사용 후에는 그릴을 청소해 주십시오",
+        bbqRule4: "쓰레기는 분리하여 지정된 장소에 버려 주십시오",
+        bbqRule5: "화기 취급에 충분히 주의해 주십시오",
+        bedChoice: "숙박 인원 2명인 고객만 답변해 주십시오. 침대 개수를 선택해 주십시오. <span class='required-mark'>*</span>",
+        purpose: "여행의 목적은 무엇입니까?",
+        purposeOtherPh: "목적을 입력",
+        previousStay: "전 숙박지",
+        nextStay: "후 숙박지",
+        emergencyNote: "대표자 외 다른 분의 연락처를 기입해 주십시오 (필수)",
+        emergencyName: "비상 연락처 성명 <span class='required-mark'>*</span>",
+        emergencyPhone: "비상 연락처 전화번호 <span class='required-mark'>*</span>",
+        emergencyPhoneError: "비상 연락처 전화번호는 대표자의 전화번호와 다른 번호를 입력해 주십시오.",
+        houseRuleAgree: "이용 약관·하우스 규칙에 동의합니다 <span class='required-mark'>*</span>",
+        submit: "전송하기",
+        privacy: "기입하신 정보는 여관업법에 따른 숙박객 명부로 보관됩니다.",
+        successTitle: "전송 완료",
+        successMsg: "기입해 주셔서 감사합니다.<br>숙박을 기대하고 있겠습니다.",
+        successConfirmEmail: "확인 이메일을 보냈습니다.",
+        successKeyboxInfo: "체크인 전날~당일에 키박스 번호와 체크인 방법 이메일이 도착합니다.",
+        successEditInfo: "수정이 필요한 경우, 이메일 내 수정 링크를 이용해 주십시오.",
+        successGuideLink: "게스트 가이드 보기",
+        submitting: "전송 중...",
+        validationError: "필수 항목을 모두 입력해 주십시오.",
+        submitError: "전송에 실패했습니다. 다시 시도해 주십시오.",
+        opt_checkInAfter20: "20:00 이후",
+        opt_rakuten: "라쿠텐 트래블",
+        opt_jalan: "자란",
+        opt_official: "자사 공식 웹사이트",
+        opt_direct: "직접 예약",
+        opt_bookingOther: "기타",
+        opt_tr_car: "차",
+        opt_tr_public: "대중교통",
+        opt_tr_taxi: "택시",
+        opt_tr_walk: "도보",
+        opt_tr_other: "기타",
+        opt_carOver: "7대 이상",
+        opt_pp1: "1대 이용",
+        opt_pp2: "2대 이용",
+        opt_pp0: "이용 안 함",
+        carCountNoteWithPaid: "유료 주차장 {paidCount}대 이용 ({paidCost}엔/박). 나머지는 무료 주차장을 이용합니다.",
+        carCountNoteNoPaid: "※ 모두 무료 주차장을 이용합니다.",
+        carCountNoteForcePaid: "이 대수·차종으로는 무료 주차장에 수용되지 않으므로, 유료 주차장 이용이 필요합니다 (2,000엔/대/박).",
+        opt_car1: "1대",
+        opt_car2: "2대",
+        opt_car3: "3대",
+        opt_car4: "4대",
+        opt_car5: "5대",
+        opt_car6: "6대",
+        opt_bbqNo: "이용 안 함",
+        opt_bbqYes: "이용함",
+        opt_bed1: "2명이 1개의 침대 이용 (2층 거실)",
+        opt_bed2: "1명씩 1개의 침대 이용 (1층 일본식 방)",
+        opt_purp1: "출장",
+        opt_purp2: "미야지마",
+        opt_purp3: "원폭 돔",
+        opt_purp4: "히로시마 시내 관광",
+        opt_purp5: "구레 관광",
+        opt_purp6: "야마토 뮤지엄",
+        opt_purp7: "주고쿠 지방 관광",
+        opt_purp8: "주고쿠·시코쿠 관광",
+        opt_purpOther: "기타",
+      },
+      zh: {
+        formTitle: "住客登记表",
+        formSubtitle: "请填写住宿所需信息",
+        bookingInfo: "预订信息",
+        noiseTitle: "⚠ 关于宴会 — 非常重要的请求",
+        noiseIntro: "如果您想深夜喧哗，请考虑其他住宿，以避免不必要的麻烦。<br><span class='text-muted'>※如果是正常音量的对话，即使在夜间也可以使用。</span>",
+        noiseQuietHours: "禁止喧哗 21:00 至次日 8:00",
+        noiseRule1: "21:00 后禁止在室外打电话、聊天",
+        noiseRule2: "一楼厨房的结构容易将声音传到邻居家",
+        noiseRule3: "请注意电视和音乐的音量",
+        noiseRule4: "禁止举办宴会、活动、派对",
+        noiseEviction: "⚠ 如果收到邻居或警察的投诉，无论时间段，都将立即退房（不退款）",
+        noiseAgreeRadio: "我已同意上述噪音规定",
+        noiseCancelRadio: "我不同意并取消预订（预订后24小时内免费取消）",
+        noiseNextBtn: "下一步 ▶",
+        noiseCancelMsg: "感谢您的理解。请通过预订网站办理取消手续。",
+        sec_stay: "住宿信息",
+        sec_guests: "住客信息",
+        sec_facility: "设施使用信息",
+        sec_survey: "问卷调查",
+        sec_emergency: "紧急联系方式",
+        sec_agreement: "同意事项",
+        checkIn: "入住日期 <span class='required-mark'>*</span>",
+        checkOut: "退房日期 <span class='required-mark'>*</span>",
+        checkInTime: "入住时间 <span class='required-mark'>*</span>",
+        checkOutTime: "退房时间 <span class='required-mark'>*</span>",
+        lateCheckOutSummary: "⚠️ 请注意不要超过 10:00",
+        lateCheckOutNote1: "清洁人员将于 10:00 进入房间。",
+        lateCheckOutNote2: "如果超过 10:00，将收取每人每 15 分钟 2,000 日元的罚款。",
+        guestCount: "住宿人数（成人） <span class='required-mark'>*</span>",
+        guestCountInfants: "3岁以下婴幼儿",
+        bookingSite: "您是通过哪个网站预订的？ <span class='required-mark'>*</span>",
+        bookingSiteOtherPh: "请输入预订网站名称",
+        guestsNote: "根据旅馆业法，需要填写所有住客的信息。将显示相应数量的输入框。",
+        guest_n: "住客{n}",
+        guest_representative: "（代表者）",
+        g_name: "姓名（全名）",
+        g_nationality: "国籍",
+        g_address: "地址",
+        g_phone: "电话号码",
+        g_email: "电子邮件地址",
+        g_age: "年龄",
+        g_passport: "护照号码",
+        g_passportPhoto: "护照照片（上传）",
+        g_passportRequired: "※ 外国籍住客必须输入护照号码并上传护照照片。如果上传失败，请通过预订网站（Airbnb / Booking.com 等）的消息功能将照片发送给房东。登记表可以照常提交。",
+        transport: "请选择交通方式 <span class='required-mark'>*</span>",
+        transportOtherPh: "请输入交通方式",
+        carCount: "您将驾驶多少辆车前来？ <span class='required-mark'>*</span>",
+        carOverError: "非常抱歉，我们无法提供7辆以上的停车位。请拼车以减少车辆数量。",
+        vehicleTypeLabel: "第{n}辆车的车型 <span class='required-mark'>*</span>",
+        vt_small: "轻型车/小型车",
+        vt_minivan: "小型面包车以下（如 Serena）",
+        vt_large: "全长5米级（如 Alphard）",
+        vtLargeWarn: "⚠️ 请注意，在掉头区和未铺设路面的停车场，车头（前保险杠下部）可能会刮擦。请务必小心。",
+        parkNeighborWarn: "请勿驶入邻居的停车场。请务必确认停车场的边界线。",
+        neighborAgree: "我已理解上述注意事项，并同意不驶入邻居的停车场 <span class='required-mark'>*</span>",
+        taxiWarn: "如果您乘坐出租车前来，请告知司机以下内容：“进入住宿的停车场或掉头区没有问题，但请绝对不要进入附近居民的停车场。”在下车和上车时，也请务必告知司机，确保不进入附近停车场。",
+        taxiAgree: "我已理解上述内容，并将告知出租车司机 <span class='required-mark'>*</span>",
+        allocTitle: "🅿️ 停车场分配",
+        spotUnpaved: "未铺设路面停车场",
+        spotOne: "1号",
+        spotFive: "5号",
+        spotPaid: "收费停车场（2,000日元/晚）",
+        allocAllFree: "✅ 所有车辆都可停放在免费停车场",
+        allocPaidSummary: "💰 收费停车场: {n}辆 × 2,000日元 = {total}日元",
+        allocError: "❌ 这种车辆配置会导致停车位不足。请调整车辆数量或车型。",
+        allocLargeWarn: "⚠️ 注意台阶刮擦车头",
+        ppTitle: "收费停车场指南",
+        ppIntro: "通往住宿的道路狭窄，停车可能不便。不擅长驾驶或驾驶大型车的客人，建议使用收费停车场。虽然距离住宿有15分钟步行路程，但位于主干道旁，停车非常方便。",
+        ppBenefitsTitle: "收费停车场的优点",
+        ppBen1: "面向主干道，出入方便",
+        ppBen2: "停车位宽敞",
+        ppBen3: "靠近罗森便利店",
+        ppBen4: "可以在咖啡馆享用冰淇淋和咖啡 →",
+        ppCafeLink: "咖啡馆“Umi to Yama to”",
+        ppDetailsTitle: "费用·使用时间",
+        ppPrice: "费用: 2,000日元（1辆车1晚）※ 仅支持PayPay或乐天Pay支付",
+        ppTime: "停车时间: 17:00〜次日早上9:30（仅限咖啡馆营业时间外）",
+        ppMax: "最多2辆车（不限大小）",
+        ppLocation: "地点: (有)Ikko建筑事务所，碎石停车场",
+        ppNotesTitle: "【注意事项】",
+        ppNote1: "我们借用当地咖啡馆兼建筑事务所的停车场",
+        ppNote2: "咖啡馆营业期间（10:00〜17:00）不能停车",
+        ppNote3: "请注意，停车时间比入住/退房时间短",
+        ppNote4: "即使是连住，咖啡馆营业期间也不能停车",
+        ppNote5: "如果咖啡馆的轻型卡车停在那里，请注意停车，以便轻型卡车可以驶出",
+        ppNote6: "由于咖啡馆举办活动等原因，可能无法使用",
+        ppNote7: "非营业时间或未经许可停车，一经发现将立即拖走",
+        ppPhotosTitle: "停车场情况",
+        ppUsage: "您是否使用收费停车场？ <span class='required-mark'>*</span>",
+        ppOptional: "虽然可以停放在免费停车场，但如果您重视停车便利性，也可以考虑收费停车场（2,000日元/辆/晚） <span class='required-mark'>*</span>",
+        ppRequired: "收费停车场使用数量（可追加使用） <span class='required-mark'>*</span>",
+        paidParkingDetail: "收费停车场: 附近咖啡馆兼建筑事务所的停车场（主干道旁·靠近罗森）。不限大小最多2辆。仅限17:00〜次日早上9:30使用。",
+        bbq: "您是否使用烧烤套装？ <span class='required-mark'>*</span>",
+        bbqRulesIntro: "请确认以下注意事项，并勾选所有选项：",
+        bbqRule1: "本设施的烧烤套装是燃气烤架。不使用木炭和引火剂",
+        bbqRule2: "21:00 后请遵守噪音规定，禁止在室外大声喧哗",
+        bbqRule3: "使用后请清洁烤架",
+        bbqRule4: "请将垃圾分类并扔到指定地点",
+        bbqRule5: "请务必注意用火安全",
+        bedChoice: "仅限2位住客回答。请选择床铺数量。 <span class='required-mark'>*</span>",
+        purpose: "您的旅行目的是什么？",
+        purposeOtherPh: "请输入目的",
+        previousStay: "前一晚住宿地",
+        nextStay: "后一晚住宿地",
+        emergencyNote: "请填写除代表者以外的联系方式（必填）",
+        emergencyName: "紧急联系人姓名 <span class='required-mark'>*</span>",
+        emergencyPhone: "紧急联系人电话号码 <span class='required-mark'>*</span>",
+        emergencyPhoneError: "紧急联系人的电话号码请填写与代表者电话号码不同的号码。",
+        houseRuleAgree: "我同意使用条款和房屋守则 <span class='required-mark'>*</span>",
+        submit: "提交",
+        privacy: "您填写的信息将作为根据旅馆业法保管的住客登记表。",
+        successTitle: "提交完成",
+        successMsg: "感谢您的填写。<br>我们期待您的入住。",
+        successConfirmEmail: "我们已发送确认邮件。",
+        successKeyboxInfo: "入住前一天至当天，您将收到包含钥匙盒密码和入住方法的邮件。",
+        successEditInfo: "如果需要修改，请使用邮件中的修改链接。",
+        successGuideLink: "查看住客指南",
+        submitting: "正在提交...",
+        validationError: "请填写所有必填项。",
+        submitError: "提交失败。请再试一次。",
+        opt_checkInAfter20: "20:00以后",
+        opt_rakuten: "乐天旅游",
+        opt_jalan: "Jalan",
+        opt_official: "官方网站",
+        opt_direct: "直接预订",
+        opt_bookingOther: "其他",
+        opt_tr_car: "汽车",
+        opt_tr_public: "公共交通工具",
+        opt_tr_taxi: "出租车",
+        opt_tr_walk: "步行",
+        opt_tr_other: "其他",
+        opt_carOver: "7辆以上",
+        opt_pp1: "使用1辆",
+        opt_pp2: "使用2辆",
+        opt_pp0: "不使用",
+        carCountNoteWithPaid: "使用收费停车场 {paidCount}辆（{paidCost}日元/晚）。其余车辆将使用免费停车场。",
+        carCountNoteNoPaid: "※ 所有车辆都将使用免费停车场。",
+        carCountNoteForcePaid: "此车辆数量和车型无法停放在免费停车场，因此需要使用收费停车场（2,000日元/辆/晚）。",
+        opt_car1: "1辆",
+        opt_car2: "2辆",
+        opt_car3: "3辆",
+        opt_car4: "4辆",
+        opt_car5: "5辆",
+        opt_car6: "6辆",
+        opt_bbqNo: "不使用",
+        opt_bbqYes: "使用",
+        opt_bed1: "2人使用1张床（2楼客厅）",
+        opt_bed2: "每人使用1张床（1楼和室）",
+        opt_purp1: "出差",
+        opt_purp2: "宫岛",
+        opt_purp3: "原爆圆顶",
+        opt_purp4: "广岛市内观光",
+        opt_purp5: "吴市观光",
+        opt_purp6: "大和博物馆",
+        opt_purp7: "中国地方观光",
+        opt_purp8: "中四国观光",
+        opt_purpOther: "其他",
       }
     };
 
@@ -820,7 +1140,7 @@
       try {
         const nrc = (typeof _propertyConfig !== "undefined" && _propertyConfig && _propertyConfig.noiseRuleConfig) || null;
         if (nrc) {
-          const en = currentLang === "en";
+          const en = currentLang !== "ja";
           const pick = (jp, ep) => (en ? (nrc[ep] || nrc[jp] || null) : (nrc[jp] || null));
           const set = (k, v) => { if (v) t[k] = v; };
           set("noiseTitle",       pick("title", "titleEn"));
@@ -962,7 +1282,7 @@
           <div class="col-md-3 mt-1"><label class="form-label small">${t.g_age} <span class="required-mark">*</span></label><input type="number" class="form-control form-control-sm g-age" min="0" max="120" required value="${esc(s.age || "")}"></div>`;
         if (isRep) {
           html += `<div class="col-md-5 mt-1"><label class="form-label small">${t.g_phone} <span class="required-mark">*</span></label><input type="tel" class="form-control form-control-sm g-phone" required value="${esc(s.phone || "")}"></div>
-          <div class="col-md-6 mt-1"><label class="form-label small">${t.g_email} <span class="required-mark">*</span></label><input type="email" class="form-control form-control-sm g-email" required value="${esc(s.email || "")}" placeholder="${currentLang === "en" ? "Required — guide and edit link will be sent here" : "必須 — ガイド・編集リンクを送信します"}"></div>`;
+          <div class="col-md-6 mt-1"><label class="form-label small">${t.g_email} <span class="required-mark">*</span></label><input type="email" class="form-control form-control-sm g-email" required value="${esc(s.email || "")}" placeholder="${currentLang !== "ja" ? "Required — guide and edit link will be sent here" : "必須 — ガイド・編集リンクを送信します"}"></div>`;
         }
         // 既存パスポート写真がある場合: サムネ表示 + 「変更する場合のみ再アップロード」案内
         // → 新規アップロード必須を解除 (写真維持できる)
@@ -1738,7 +2058,7 @@
 
       // --- タクシー警告文言の差し替え ---
       if (cfg.facility && (cfg.facility.taxiWarnMessage || cfg.facility.taxiWarnMessageEn)) {
-        const msg = (currentLang === "en" && cfg.facility.taxiWarnMessageEn)
+        const msg = (currentLang !== "ja" && cfg.facility.taxiWarnMessageEn)
           ? cfg.facility.taxiWarnMessageEn
           : (cfg.facility.taxiWarnMessage || "");
         const lbl = document.getElementById("lbl_taxiWarn");
@@ -1753,7 +2073,7 @@
           while (sel.options.length > 1) sel.remove(1);
           cfg.survey.purposeOptions.forEach(o => {
             const opt = document.createElement("option");
-            const lbl = (currentLang === "en" && o.labelEn) ? o.labelEn : (o.label || "");
+            const lbl = (currentLang !== "ja" && o.labelEn) ? o.labelEn : (o.label || "");
             opt.value = o.label || o.labelEn || "";
             opt.textContent = lbl;
             sel.appendChild(opt);
@@ -1762,7 +2082,7 @@
           const other = document.createElement("option");
           other.value = "その他";
           other.id = "opt_purpOther";
-          other.textContent = currentLang === "en" ? "Other" : "その他";
+          other.textContent = currentLang !== "ja" ? "Other" : "その他";
           sel.appendChild(other);
         }
       }
@@ -1807,7 +2127,7 @@
         const fallbackJp = "専用駐車場はありませんので、周辺のコインパーキング等をご利用ください。";
         const fallbackEn = "There is no private parking. Please use nearby coin parking.";
         let msg = "";
-        if (currentLang === "en") msg = en || jp || fallbackEn;
+        if (currentLang !== "ja") msg = en || jp || fallbackEn;
         else                       msg = jp || en || fallbackJp;
         carSection.innerHTML = `
           <div class="alert alert-warning mb-3">
@@ -1816,8 +2136,8 @@
           </div>`;
       } else if (mode === "freetext") {
         const info = (cfg.facility && cfg.facility.parkingInfo) || {};
-        const titleRaw = (currentLang === "en" && info.titleEn) ? info.titleEn : (info.title || "");
-        const bodyRaw  = (currentLang === "en" && info.bodyEn)  ? info.bodyEn  : (info.body  || "");
+        const titleRaw = (currentLang !== "ja" && info.titleEn) ? info.titleEn : (info.title || "");
+        const bodyRaw  = (currentLang !== "ja" && info.bodyEn)  ? info.bodyEn  : (info.body  || "");
         const title = titleRaw.replace(/</g, "&lt;");
         const body = bodyRaw.replace(/</g, "&lt;").replace(/\n/g, "<br>");
         const img = info.imageUrl || "";
@@ -1883,7 +2203,7 @@
           ? wrapper.querySelector(`#lbl_${field.id}`)
           : document.getElementById(`lbl_${field.id}`);
         if (labelEl) {
-          const newLabel = (currentLang === "en" && ov.labelEnOverride)
+          const newLabel = (currentLang !== "ja" && ov.labelEnOverride)
             ? ov.labelEnOverride
             : (ov.labelOverride || null);
           if (newLabel !== null) {
@@ -1918,7 +2238,7 @@
         // --- placeholder 上書き ---
         const input = document.getElementById("f_" + field.id);
         if (input && (input.tagName === "INPUT" || input.tagName === "TEXTAREA")) {
-          const newPh = (currentLang === "en" && ov.placeholderEnOverride)
+          const newPh = (currentLang !== "ja" && ov.placeholderEnOverride)
             ? ov.placeholderEnOverride
             : (ov.placeholderOverride || null);
           if (newPh !== null) input.placeholder = newPh;
@@ -2002,8 +2322,8 @@
     // 1 つのカスタム項目から入力要素 (<div class="mb-3">...) を生成
     function buildCustomFieldWrap(f) {
       if (f.hidden === true) return null;
-      const label = (currentLang === "en" && f.labelEn) ? f.labelEn : (f.label || "");
-      const placeholder = (currentLang === "en" && f.placeholderEn) ? f.placeholderEn : (f.placeholder || "");
+      const label = (currentLang !== "ja" && f.labelEn) ? f.labelEn : (f.label || "");
+      const placeholder = (currentLang !== "ja" && f.placeholderEn) ? f.placeholderEn : (f.placeholder || "");
       const reqMark = f.required ? '<span class="required-mark">*</span>' : "";
       const wrap = document.createElement("div");
       wrap.className = "mb-3";
@@ -2044,7 +2364,7 @@
             break;
 
           case "select": {
-            const opts = (currentLang === "en" && f.optionsEn?.length) ? f.optionsEn : (f.options || []);
+            const opts = (currentLang !== "ja" && f.optionsEn?.length) ? f.optionsEn : (f.options || []);
             const optHtml = opts.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join("");
             inputHtml = `<select class="form-select" id="${inputId}" ${f.required ? "required" : ""}>
               <option value="">--</option>${optHtml}</select>`;
@@ -2052,7 +2372,7 @@
           }
 
           case "radio": {
-            const opts = (currentLang === "en" && f.optionsEn?.length) ? f.optionsEn : (f.options || []);
+            const opts = (currentLang !== "ja" && f.optionsEn?.length) ? f.optionsEn : (f.options || []);
             inputHtml = opts.map((o, i) => `
               <div class="form-check">
                 <input class="form-check-input" type="radio" name="${inputId}" id="${inputId}_${i}" value="${esc(o)}" ${f.required && i === 0 ? "required" : ""}>
@@ -2086,7 +2406,7 @@
       container.id = CUSTOM_FIELDS_CONTAINER_ID;
 
       // セクション表示名 (多言語対応)
-      const SECTION_TITLES = currentLang === "en"
+      const SECTION_TITLES = currentLang !== "ja"
         ? { representative: "Primary Guest", stay: "Stay Details", guests: "Guest Information",
             facility: "Facility Usage", survey: "Survey", emergency: "Emergency Contact",
             other: "Other", agreement: "Agreement" }

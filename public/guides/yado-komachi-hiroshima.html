@@ -528,8 +528,11 @@
     }
 
     /* ===== 言語切替動作 ===== */
-    body.lang-en .jp { display: none; }
-    body:not(.lang-en) .en-only { display: none; }
+    .jp, .en-only, .ko-only, .zh-only { display: none; }
+    body.lang-ja .jp,
+    body.lang-en .en-only,
+    body.lang-ko .ko-only,
+    body.lang-zh .zh-only { display: revert; }
 
     @media (max-width: 560px) {
       section { padding: 20px 16px; }
@@ -541,7 +544,7 @@
     }
   </style>
 </head>
-<body>
+<body class="lang-ja">
 
 <div class="lightbox" id="lightbox">
   <button class="lb-close" aria-label="閉じる"><i class="bi bi-x-lg"></i></button>
@@ -551,6 +554,8 @@
 <div class="lang-switch">
   <button class="active" data-lang="ja">日本語</button>
   <button data-lang="en">EN</button>
+  <button data-lang="ko">한국어</button>
+  <button data-lang="zh">中文</button>
 </div>
 
 <div class="page">
@@ -561,7 +566,7 @@
     <h1>YADO KOMACHI</h1>
     <div class="sub">Hiroshima</div>
     <div class="room-no">Room 704 / 704号室</div>
-    <h2 class="jp">ご宿泊者様へ ─ ご案内</h2>
+    <h2 class="jp">ご宿泊者様へ ─ ご案内</h2><h2 class="ko-only">투숙객 여러분께 ─ 안내</h2><h2 class="zh-only">致住客 ─ 指南</h2>
     <h2 class="en-only">Guest Information</h2>
   </header>
 
@@ -569,15 +574,15 @@
   <nav class="toc">
     <div class="toc-title">CONTENTS</div>
     <ul>
-      <li><a href="#access"><i class="bi bi-geo-alt"></i><span class="jp">アクセス</span><span class="en-only">Access</span></a></li>
-      <li><a href="#parking"><i class="bi bi-p-square"></i><span class="jp">駐車場</span><span class="en-only">Parking</span></a></li>
-      <li><a href="#checkin"><i class="bi bi-key"></i><span class="jp">チェックイン</span><span class="en-only">Check-in</span></a></li>
-      <li><a href="#wifi"><i class="bi bi-wifi"></i><span class="jp">Wi-Fi</span><span class="en-only">Wi-Fi</span></a></li>
-      <li><a href="#tv-remote"><i class="bi bi-tv"></i><span class="jp">テレビリモコン</span><span class="en-only">TV Remote</span></a></li>
-      <li><a href="#checkout"><i class="bi bi-box-arrow-right"></i><span class="jp">チェックアウト</span><span class="en-only">Check-out</span></a></li>
-      <li><a href="#trash"><i class="bi bi-trash3"></i><span class="jp">ゴミについて</span><span class="en-only">Trash</span></a></li>
-      <li><a href="#rules"><i class="bi bi-exclamation-circle"></i><span class="jp">ご注意事項</span><span class="en-only">House Rules</span></a></li>
-      <li><a href="#contact"><i class="bi bi-telephone"></i><span class="jp">お問合せ</span><span class="en-only">Contact</span></a></li>
+      <li><a href="#access"><i class="bi bi-geo-alt"></i><span class="jp">アクセス</span><span class="ko-only">오시는 길</span><span class="zh-only">交通</span><span class="en-only">Access</span></a></li>
+      <li><a href="#parking"><i class="bi bi-p-square"></i><span class="jp">駐車場</span><span class="ko-only">주차</span><span class="zh-only">停车场</span><span class="en-only">Parking</span></a></li>
+      <li><a href="#checkin"><i class="bi bi-key"></i><span class="jp">チェックイン</span><span class="ko-only">체크인</span><span class="zh-only">入住</span><span class="en-only">Check-in</span></a></li>
+      <li><a href="#wifi"><i class="bi bi-wifi"></i><span class="jp">Wi-Fi</span><span class="ko-only">Wi-Fi</span><span class="zh-only">Wi-Fi</span><span class="en-only">Wi-Fi</span></a></li>
+      <li><a href="#tv-remote"><i class="bi bi-tv"></i><span class="jp">テレビリモコン</span><span class="ko-only">TV 리모컨</span><span class="zh-only">电视遥控器</span><span class="en-only">TV Remote</span></a></li>
+      <li><a href="#checkout"><i class="bi bi-box-arrow-right"></i><span class="jp">チェックアウト</span><span class="ko-only">체크아웃</span><span class="zh-only">退房</span><span class="en-only">Check-out</span></a></li>
+      <li><a href="#trash"><i class="bi bi-trash3"></i><span class="jp">ゴミについて</span><span class="ko-only">쓰레기 처리</span><span class="zh-only">关于垃圾</span><span class="en-only">Trash</span></a></li>
+      <li><a href="#rules"><i class="bi bi-exclamation-circle"></i><span class="jp">ご注意事項</span><span class="ko-only">주의사항</span><span class="zh-only">注意事项</span><span class="en-only">House Rules</span></a></li>
+      <li><a href="#contact"><i class="bi bi-telephone"></i><span class="jp">お問合せ</span><span class="ko-only">문의</span><span class="zh-only">联系我们</span><span class="en-only">Contact</span></a></li>
     </ul>
   </nav>
 
@@ -586,13 +591,13 @@
     <div class="section-head">
       <div class="icon"><i class="bi bi-geo-alt-fill"></i></div>
       <div>
-        <h2 class="jp">アクセス</h2>
+        <h2 class="jp">アクセス</h2><h2 class="ko-only">오시는 길</h2><h2 class="zh-only">交通</h2>
         <h2 class="en-only">Access</h2>
       </div>
     </div>
     <a class="address-box" href="https://www.google.com/maps/search/?api=1&query=広島県広島市中区小町9-39+エクセリア小町" target="_blank" rel="noopener">
-      <div class="address-label"><span class="jp">所在地（タップで地図を開く）</span><span class="en-only">Address (tap to open map)</span></div>
-      <div class="address-text jp">広島県広島市中区小町9-39 エクセリア小町 704</div>
+      <div class="address-label"><span class="jp">所在地（タップで地図を開く）</span><span class="ko-only">위치 (탭하여 지도 열기)</span><span class="zh-only">地址（点击打开地图）</span><span class="en-only">Address (tap to open map)</span></div>
+      <div class="address-text jp">広島県広島市中区小町9-39 エクセリア小町 704</div><div class="address-text ko-only">히로시마현 히로시마시 나카구 코마치 9-39 엑셀리아 코마치 704</div><div class="address-text zh-only">广岛县广岛市中区小町9-39 Excelia Komachi 704</div>
       <div class="address-text en-only">Excellia Komachi 704, 9-39 Komachi, Naka-ku, Hiroshima, Japan</div>
     </a>
     <div class="map-embed">
@@ -611,11 +616,11 @@
     <div class="section-head">
       <div class="icon"><i class="bi bi-p-square-fill"></i></div>
       <div>
-        <h2 class="jp">駐車場のご案内</h2>
+        <h2 class="jp">駐車場のご案内</h2><h2 class="ko-only">주차 안내</h2><h2 class="zh-only">停车场指南</h2>
         <h2 class="en-only">Parking Information</h2>
       </div>
     </div>
-    <p class="jp">専用駐車場はございません。下記マップ内の近隣コインパーキングをご利用ください。</p>
+    <p class="jp">専用駐車場はございません。下記マップ内の近隣コインパーキングをご利用ください。</p><p class="ko-only">전용 주차장은 없습니다. 아래 지도에 표시된 인근 코인 주차장을 이용해 주십시오.</p><p class="zh-only">没有专用停车场。请使用以下地图中附近的投币式停车场。</p>
     <p class="en-only">There is no designated parking. Please use the nearby coin-operated parking lots shown on the map below.</p>
 
     <!-- Google Map + ピン（矢印先端位置） -->
@@ -628,19 +633,19 @@
     </div>
     <div class="img-grid cols-2" style="margin-top: 20px;">
       <div>
-        <div class="photo-label"><span class="letter">A</span><span class="jp">穴吹パーク小町</span><span class="en-only">Anabuki Park Komachi</span></div>
+        <div class="photo-label"><span class="letter">A</span><span class="jp">穴吹パーク小町</span><span class="ko-only">아나부키 파크 코마치</span><span class="zh-only">穴吹Park小町</span><span class="en-only">Anabuki Park Komachi</span></div>
         <div class="photo"><img src="img/image4.png" alt="駐車場A"></div>
       </div>
       <div>
-        <div class="photo-label"><span class="letter">B</span><span class="jp">三井のリパーク 広島小町第3</span><span class="en-only">Mitsui Repark Hiroshima Komachi No.3</span></div>
+        <div class="photo-label"><span class="letter">B</span><span class="jp">三井のリパーク 広島小町第3</span><span class="ko-only">미쓰이 리파크 히로시마 코마치 제3</span><span class="zh-only">三井RePark 广岛小町第3</span><span class="en-only">Mitsui Repark Hiroshima Komachi No.3</span></div>
         <div class="photo"><img src="img/image3.png" alt="駐車場B"></div>
       </div>
       <div>
-        <div class="photo-label"><span class="letter">C</span><span class="jp">エクセリア小町パーキング</span><span class="en-only">Excellia Komachi Parking</span></div>
+        <div class="photo-label"><span class="letter">C</span><span class="jp">エクセリア小町パーキング</span><span class="ko-only">엑셀리아 코마치 파킹</span><span class="zh-only">Excelia Komachi停车场</span><span class="en-only">Excellia Komachi Parking</span></div>
         <div class="photo"><img src="img/image2.png" alt="駐車場C"></div>
       </div>
       <div>
-        <div class="photo-label"><span class="letter">D</span><span class="jp">三井のリパーク 富士見町第5</span><span class="en-only">Mitsui Repark Fujimicho No.5</span></div>
+        <div class="photo-label"><span class="letter">D</span><span class="jp">三井のリパーク 富士見町第5</span><span class="ko-only">미쓰이 리파크 후지미초 제5</span><span class="zh-only">三井RePark 富士见町第5</span><span class="en-only">Mitsui Repark Fujimicho No.5</span></div>
         <div class="photo"><img src="img/image5.png" alt="駐車場D"></div>
       </div>
     </div>
@@ -651,7 +656,7 @@
     <div class="section-head">
       <div class="icon"><i class="bi bi-key-fill"></i></div>
       <div>
-        <h2 class="jp">チェックイン手順</h2>
+        <h2 class="jp">チェックイン手順</h2><h2 class="ko-only">체크인 절차</h2><h2 class="zh-only">入住流程</h2>
         <h2 class="en-only">Check-in Steps</h2>
       </div>
       <span class="time-badge">16:00〜20:00</span>
@@ -660,7 +665,7 @@
     <div class="step">
       <div class="step-num">1</div>
       <div class="step-body">
-        <p class="jp">建物1階のポストコーナーに向かってください。</p>
+        <p class="jp">建物1階のポストコーナーに向かってください。</p><p class="ko-only">건물 1층 우편함 코너로 이동해 주십시오.</p><p class="zh-only">请前往建筑物1楼的邮箱区。</p>
         <p class="en-only">Please go to the mailboxes on the first floor.</p>
         <div class="img-grid cols-2">
           <div class="photo"><img src="img/image9.png" alt="建物外観"></div>
@@ -674,9 +679,9 @@
     <div class="step">
       <div class="step-num">2</div>
       <div class="step-body">
-        <p class="jp">704号室のポストを開け、キーボックスを取り出してください。</p>
+        <p class="jp">704号室のポストを開け、キーボックスを取り出してください。</p><p class="ko-only">704호실 우편함을 열고 키박스를 꺼내 주십시오.</p><p class="zh-only">打开704号房间的邮箱，取出钥匙盒。</p>
         <p class="en-only">Open the mailbox of Room 704 and take out the key box.</p>
-        <div class="note jp">※ポストの開錠番号は事前にメールでお知らせいたします。</div>
+        <div class="note jp">※ポストの開錠番号は事前にメールでお知らせいたします。</div><div class="note ko-only">※ 우편함 잠금 해제 번호는 사전에 이메일로 안내해 드립니다.</div><div class="note zh-only">※邮箱的开锁密码将提前通过电子邮件通知您。</div>
         <div class="note en-only">The mailbox unlock code will be sent to you by email in advance.</div>
         <div class="img-grid cols-2">
           <div class="photo"><img src="img/image16.png" alt="ポスト全景"></div>
@@ -688,15 +693,15 @@
     <div class="step">
       <div class="step-num">3</div>
       <div class="step-body">
-        <p class="jp">キーボックスからカギを取り出してください。</p>
+        <p class="jp">キーボックスからカギを取り出してください。</p><p class="ko-only">키박스에서 열쇠를 꺼내 주십시오.</p><p class="zh-only">从钥匙盒中取出钥匙。</p>
         <p class="en-only">Take the key out of the key box.</p>
-        <div class="note jp">※キーボックスの開錠番号は事前にメールでお知らせいたします。</div>
+        <div class="note jp">※キーボックスの開錠番号は事前にメールでお知らせいたします。</div><div class="note ko-only">※ 키박스 잠금 해제 번호는 사전에 이메일로 안내해 드립니다.</div><div class="note zh-only">※钥匙盒的开锁密码将提前通过电子邮件通知您。</div>
         <div class="note en-only">The key box unlock code will be sent to you by email in advance.</div>
         <div class="step-video">
-          <p class="step-video-title jp">🎥 キーボックスの開け方</p>
+          <p class="step-video-title jp">🎥 キーボックスの開け方</p><p class="step-video-title ko-only">🎥 키박스 여는 방법</p><p class="step-video-title zh-only">🎥 如何打开钥匙盒</p>
           <p class="step-video-title en-only">🎥 How to open the key box</p>
           <div class="step-video-frame is-animated" style="aspect-ratio:1/1;max-width:460px;background:#fff;">
-            <span class="gif-badge jp">▶ 動きます</span>
+            <span class="gif-badge jp">▶ 動きます</span><span class="gif-badge ko-only">▶ 동영상 재생</span><span class="gif-badge zh-only">▶ 播放</span>
             <span class="gif-badge en-only">▶ Animated</span>
             <img src="img/keybox-open.gif" alt="キーボックスの開け方 / How to open the key box" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;">
           </div>
@@ -707,8 +712,8 @@
     <div class="step">
       <div class="step-num">4</div>
       <div class="step-body">
-        <p class="jp">キーボックスとカギを取り出し、ポストを閉めてください。</p>
-        <p class="jp">防犯のため、ポストのダイヤルはランダムに回しておいてください。</p>
+        <p class="jp">キーボックスとカギを取り出し、ポストを閉めてください。</p><p class="ko-only">키박스와 열쇠를 꺼낸 후 우편함을 닫아 주십시오.</p><p class="zh-only">取出钥匙盒和钥匙后，请关闭邮箱。</p>
+        <p class="jp">防犯のため、ポストのダイヤルはランダムに回しておいてください。</p><p class="ko-only">보안을 위해 우편함 다이얼은 무작위로 돌려 놓아 주십시오.</p><p class="zh-only">为防盗，请随机转动邮箱的拨盘。</p>
         <p class="en-only">Take out the key box and key, then close the mailbox. For security, please spin the dial randomly.</p>
         <div class="img-single">
           <div class="photo wide"><img src="img/post-704-keybox.png" alt="704号室のポストからキーボックスを取り出す"></div>
@@ -719,7 +724,7 @@
     <div class="step">
       <div class="step-num">5</div>
       <div class="step-body">
-        <p class="jp">オートロック端末にカギを挿してロック解除し、ロビーに入ってください。</p>
+        <p class="jp">オートロック端末にカギを挿してロック解除し、ロビーに入ってください。</p><p class="ko-only">자동 잠금 장치에 열쇠를 꽂아 잠금을 해제하고 로비로 들어와 주십시오.</p><p class="zh-only">将钥匙插入自动门锁终端以解锁，然后进入大堂。</p>
         <p class="en-only">Insert the key into the auto-lock terminal to unlock, then enter the lobby.</p>
         <div class="img-grid cols-2">
           <div class="photo"><img src="img/image17.png" alt="オートロック端末"></div>
@@ -731,7 +736,7 @@
     <div class="step">
       <div class="step-num">6</div>
       <div class="step-body">
-        <p class="jp">エレベーターを呼び、7階を選択してください。</p>
+        <p class="jp">エレベーターを呼び、7階を選択してください。</p><p class="ko-only">엘리베이터를 호출하여 7층을 선택해 주십시오.</p><p class="zh-only">呼叫电梯，选择7楼。</p>
         <p class="en-only">Call the elevator and select the 7th floor.</p>
         <div class="img-grid cols-2">
           <div class="photo tall"><img src="img/image7.png" alt="エレベーター"></div>
@@ -743,7 +748,7 @@
     <div class="step">
       <div class="step-num">7</div>
       <div class="step-body">
-        <p class="jp">エレベーターを降りて右に歩き、704号室へ向かってください。</p>
+        <p class="jp">エレベーターを降りて右に歩き、704号室へ向かってください。</p><p class="ko-only">엘리베이터에서 내려 오른쪽으로 걸어 704호실로 이동해 주십시오.</p><p class="zh-only">走出电梯后向右走，前往704号房间。</p>
         <p class="en-only">After getting off the elevator, walk to the right toward Room 704.</p>
         <div class="grid-room">
           <div class="photo"><img src="img/image19.png" alt="7階廊下"></div>
@@ -757,7 +762,7 @@
     <div class="step">
       <div class="step-num">8</div>
       <div class="step-body">
-        <p class="jp">704号室のカギを解錠し、ご入室ください。</p>
+        <p class="jp">704号室のカギを解錠し、ご入室ください。</p><p class="ko-only">704호실 열쇠를 해제하고 입실해 주십시오.</p><p class="zh-only">解锁704号房间的门，然后进入。</p>
         <p class="en-only">Unlock Room 704 and enter.</p>
         <div class="img-single">
           <div class="photo"><img src="img/image8.png" alt="704号室のドア"></div>
@@ -771,28 +776,28 @@
     <div class="section-head">
       <div class="icon"><i class="bi bi-wifi"></i></div>
       <div>
-        <h2 class="jp">Wi-Fi 情報</h2>
+        <h2 class="jp">Wi-Fi 情報</h2><h2 class="ko-only">Wi-Fi 정보</h2><h2 class="zh-only">Wi-Fi 信息</h2>
         <h2 class="en-only">Wi-Fi</h2>
       </div>
     </div>
     <div class="wifi-box">
       <div class="wifi-row">
-        <div class="wifi-label jp">ユーザ名</div>
+        <div class="wifi-label jp">ユーザ名</div><div class="wifi-label ko-only">사용자 이름</div><div class="wifi-label zh-only">用户名</div>
         <div class="wifi-label en-only">SSID</div>
         <div class="wifi-value">5G58208A363424</div>
       </div>
       <div class="wifi-row">
-        <div class="wifi-label jp">パスワード</div>
+        <div class="wifi-label jp">パスワード</div><div class="wifi-label ko-only">비밀번호</div><div class="wifi-label zh-only">密码</div>
         <div class="wifi-label en-only">Password</div>
         <div class="wifi-value" id="wifi-password">et4ms3tj</div>
         <button type="button" class="btn-copy" data-copy="#wifi-password" aria-label="パスワードをコピー">
           <i class="bi bi-clipboard"></i>
-          <span class="jp">コピー</span>
+          <span class="jp">コピー</span><span class="ko-only">복사</span><span class="zh-only">复制</span>
           <span class="en-only">Copy</span>
         </button>
       </div>
     </div>
-    <p class="wifi-note jp">※ 施設のエアコンのリモコンの下の方に Wi-Fi 端末が置いてあり、そこに記載があります。</p>
+    <p class="wifi-note jp">※ 施設のエアコンのリモコンの下の方に Wi-Fi 端末が置いてあり、そこに記載があります。</p><p class="wifi-note ko-only">※ 시설 에어컨 리모컨 아래쪽에 Wi-Fi 단말기가 놓여 있으며, 거기에 정보가 기재되어 있습니다.</p><p class="wifi-note zh-only">※ Wi-Fi设备放置在设施空调遥控器下方，上面有记载。</p>
     <p class="wifi-note en-only">* A Wi-Fi router is placed near the bottom of the air-conditioner remote, with SSID and password written on it.</p>
   </section>
 
@@ -801,12 +806,12 @@
     <div class="section-head">
       <div class="icon"><i class="bi bi-tv"></i></div>
       <div>
-        <h2 class="jp">テレビリモコンについて</h2>
+        <h2 class="jp">テレビリモコンについて</h2><h2 class="ko-only">TV 리모컨에 대하여</h2><h2 class="zh-only">关于电视遥控器</h2>
         <h2 class="en-only">TV Remote</h2>
       </div>
     </div>
-    <p class="jp">テレビリモコンの電池の消耗が激しいため、電池を外させていただいております。テレビをご利用の方は、電池2本をリモコン本体に入れ、カバーをしてからご利用ください。</p>
-    <p class="jp">お手数をおかけして申し訳ございませんが、ご協力お願いいたします。</p>
+    <p class="jp">テレビリモコンの電池の消耗が激しいため、電池を外させていただいております。テレビをご利用の方は、電池2本をリモコン本体に入れ、カバーをしてからご利用ください。</p><p class="ko-only">TV 리모컨의 배터리 소모가 심하여 배터리를 분리해 두었습니다. TV를 이용하실 분은 배터리 2개를 리모컨 본체에 넣고 커버를 닫은 후 이용해 주십시오.</p><p class="zh-only">电视遥控器的电池消耗很快，因此我们已将电池取出。如果您想使用电视，请将两节电池放入遥控器主体，盖上盖子后再使用。</p>
+    <p class="jp">お手数をおかけして申し訳ございませんが、ご協力お願いいたします。</p><p class="ko-only">불편을 드려 죄송하지만, 협조해 주시면 감사하겠습니다.</p><p class="zh-only">给您带来不便，深表歉意，感谢您的合作。</p>
     <p class="en-only">To prevent quick battery drain, the batteries have been removed from the TV remote. If you wish to use the TV, please insert the two batteries into the remote and close the cover before use. Thank you for your cooperation.</p>
 
     <div class="img-grid cols-2" style="margin-top: 14px;">
@@ -828,7 +833,7 @@
     <div class="section-head">
       <div class="icon"><i class="bi bi-box-arrow-right"></i></div>
       <div>
-        <h2 class="jp">チェックアウト手順</h2>
+        <h2 class="jp">チェックアウト手順</h2><h2 class="ko-only">체크아웃 절차</h2><h2 class="zh-only">退房流程</h2>
         <h2 class="en-only">Check-out Steps</h2>
       </div>
       <span class="time-badge">〜10:00</span>
@@ -837,7 +842,7 @@
     <div class="step">
       <div class="step-num">1</div>
       <div class="step-body">
-        <p class="jp">ゴミは室内に置いておいてください（分別にご協力をお願いします）。</p>
+        <p class="jp">ゴミは室内に置いておいてください（分別にご協力をお願いします）。</p><p class="ko-only">쓰레기는 실내에 두어 주십시오 (분리수거에 협조 부탁드립니다).</p><p class="zh-only">请将垃圾留在室内（请协助分类）。</p>
         <p class="en-only">Please keep your garbage inside the room. Separation cooperation appreciated.</p>
       </div>
     </div>
@@ -845,7 +850,7 @@
     <div class="step">
       <div class="step-num">2</div>
       <div class="step-body">
-        <p class="jp">窓のカギを施錠し、照明・エアコンをお切りください。</p>
+        <p class="jp">窓のカギを施錠し、照明・エアコンをお切りください。</p><p class="ko-only">창문 잠금 장치를 잠그고 조명 및 에어컨을 꺼 주십시오.</p><p class="zh-only">请锁好窗户，关闭照明和空调。</p>
         <p class="en-only">Lock the windows and turn off the lights and air conditioning.</p>
       </div>
     </div>
@@ -853,7 +858,7 @@
     <div class="step">
       <div class="step-num">3</div>
       <div class="step-body">
-        <p class="jp">玄関ドアのカギを施錠してください。</p>
+        <p class="jp">玄関ドアのカギを施錠してください。</p><p class="ko-only">현관문 잠금 장치를 잠가 주십시오.</p><p class="zh-only">请锁好玄关门。</p>
         <p class="en-only">Please lock the front door.</p>
         <div class="img-single">
           <div class="photo"><img src="img/image8.png" alt="玄関ドア施錠"></div>
@@ -864,7 +869,7 @@
     <div class="step">
       <div class="step-num">4</div>
       <div class="step-body">
-        <p class="jp">エレベーターを呼び「↓」を押し、「1」で1階へ降りてください。</p>
+        <p class="jp">エレベーターを呼び「↓」を押し、「1」で1階へ降りてください。</p><p class="ko-only">엘리베이터를 호출하여 '↓'를 누르고 '1'을 눌러 1층으로 내려와 주십시오.</p><p class="zh-only">呼叫电梯，按下“↓”，然后按“1”下到1楼。</p>
         <p class="en-only">Call the elevator with "↓" and press "1" to go down to the first floor.</p>
       </div>
     </div>
@@ -872,8 +877,8 @@
     <div class="step">
       <div class="step-num">5</div>
       <div class="step-body">
-        <p class="jp">キーボックスとカギを1階ロビーの704号室のポストに戻してください。</p>
-        <p class="jp">ポストは必ずダイヤルを回し、施錠状態にしてください。</p>
+        <p class="jp">キーボックスとカギを1階ロビーの704号室のポストに戻してください。</p><p class="ko-only">키박스와 열쇠를 1층 로비의 704호실 우편함에 다시 넣어 주십시오.</p><p class="zh-only">请将钥匙盒和钥匙放回1楼大堂704号房间的邮箱。</p>
+        <p class="jp">ポストは必ずダイヤルを回し、施錠状態にしてください。</p><p class="ko-only">우편함은 반드시 다이얼을 돌려 잠금 상태로 해 주십시오.</p><p class="zh-only">请务必转动邮箱的拨盘，使其处于上锁状态。</p>
         <p class="en-only">Return the key box and key to the Room 704 mailbox in the 1st floor lobby. Be sure to spin the dial to lock it.</p>
         <div class="img-single">
           <div class="photo wide"><img src="img/post-704-keybox.png" alt="704号室のポストにキーボックスを戻す"></div>
@@ -887,20 +892,20 @@
     <div class="section-head">
       <div class="icon"><i class="bi bi-trash3-fill"></i></div>
       <div>
-        <h2 class="jp">ゴミについて</h2>
+        <h2 class="jp">ゴミについて</h2><h2 class="ko-only">쓰레기 처리</h2><h2 class="zh-only">关于垃圾</h2>
         <h2 class="en-only">Garbage Rules</h2>
       </div>
     </div>
-    <p class="jp">ビン・缶・ペットボトル・燃えるゴミ（生ごみ含む）・その他ゴミ（ビニールなど）に分別して、ゴミ箱またはゴミ袋にお入れください。</p>
+    <p class="jp">ビン・缶・ペットボトル・燃えるゴミ（生ごみ含む）・その他ゴミ（ビニールなど）に分別して、ゴミ箱またはゴミ袋にお入れください。</p><p class="ko-only">병, 캔, 페트병, 타는 쓰레기 (음식물 쓰레기 포함), 기타 쓰레기 (비닐 등)로 분리하여 쓰레기통 또는 쓰레기봉투에 넣어 주십시오.</p><p class="zh-only">请将垃圾分类为：玻璃瓶、罐头、塑料瓶、可燃垃圾（包括厨余垃圾）和其他垃圾（如塑料袋），然后放入垃圾桶或垃圾袋中。</p>
     <p class="en-only">Please separate into cans, bottles, PET bottles, burnable waste (including food waste), and other waste (plastic etc.) in the designated bins or bags.</p>
 
-    <p class="jp">ベランダや廊下などにゴミを放置しないでください。</p>
+    <p class="jp">ベランダや廊下などにゴミを放置しないでください。</p><p class="ko-only">베란다나 복도 등에 쓰레기를 방치하지 마십시오.</p><p class="zh-only">请勿将垃圾随意放置在阳台或走廊等地方。</p>
     <p class="en-only">Please do not leave garbage on balconies or in hallways.</p>
 
-    <p class="jp">チェックアウトの際、ゴミは室内に置いたままで大丈夫です。</p>
+    <p class="jp">チェックアウトの際、ゴミは室内に置いたままで大丈夫です。</p><p class="ko-only">체크아웃 시 쓰레기는 실내에 그대로 두셔도 괜찮습니다.</p><p class="zh-only">退房时，垃圾留在室内即可。</p>
     <p class="en-only">You may leave the garbage inside the room at checkout.</p>
 
-    <div class="note jp">家庭ごみの持ち込みはご遠慮ください。過剰なごみの量と判断した場合は、別途ごみ処分費用を請求することがあります。</div>
+    <div class="note jp">家庭ごみの持ち込みはご遠慮ください。過剰なごみの量と判断した場合は、別途ごみ処分費用を請求することがあります。</div><div class="note ko-only">가정용 쓰레기 반입은 삼가 주십시오. 과도한 양의 쓰레기로 판단될 경우, 별도의 쓰레기 처리 비용이 청구될 수 있습니다.</div><div class="note zh-only">请勿带入家庭垃圾。如果判断垃圾量过大，可能会另行收取垃圾处理费。</div>
     <div class="note en-only">Please do not bring in household waste. Excessive garbage may incur a separate disposal fee.</div>
   </section>
 
@@ -909,7 +914,7 @@
     <div class="section-head">
       <div class="icon"><i class="bi bi-exclamation-circle-fill"></i></div>
       <div>
-        <h2 class="jp">ご注意事項</h2>
+        <h2 class="jp">ご注意事項</h2><h2 class="ko-only">주의사항</h2><h2 class="zh-only">注意事项</h2>
         <h2 class="en-only">House Rules</h2>
       </div>
     </div>
@@ -917,116 +922,116 @@
     <div class="rule-grid">
 
       <div class="rule">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-slash-circle"></i></span><span class="jp">禁煙（タバコ・電子タバコ含む）</span><span class="en-only">No Smoking</span></div>
-        <p class="jp">室内は電子タバコを含め完全禁煙です。当社基準により室内で喫煙されたと判断した場合、消臭・特別清掃費として 20,000円 を後日請求いたします。</p>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-slash-circle"></i></span><span class="jp">禁煙（タバコ・電子タバコ含む）</span><span class="ko-only">금연 (담배, 전자담배 포함)</span><span class="zh-only">禁止吸烟（包括香烟和电子烟）</span><span class="en-only">No Smoking</span></div>
+        <p class="jp">室内は電子タバコを含め完全禁煙です。当社基準により室内で喫煙されたと判断した場合、消臭・特別清掃費として 20,000円 を後日請求いたします。</p><p class="ko-only">실내는 전자담배를 포함하여 완전 금연입니다. 당사 기준으로 실내에서 흡연한 것으로 판단될 경우, 탈취 및 특별 청소 비용으로 20,000엔이 추후 청구됩니다.</p><p class="zh-only">室内完全禁烟，包括电子烟。如果根据我司标准判断在室内吸烟，将收取20,000日元的除臭和特别清洁费。</p>
         <p class="en-only">All rooms are fully non-smoking (including vapes). A deodorization/cleaning fee of 20,000 yen will be charged if smoking is determined.</p>
       </div>
 
       <div class="rule">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-emoji-frown"></i></span><span class="jp">ペット不可</span><span class="en-only">No Pets</span></div>
-        <p class="jp">ペットの宿泊は禁止です。確認された場合、特殊清掃費用を請求いたします。</p>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-emoji-frown"></i></span><span class="jp">ペット不可</span><span class="ko-only">애완동물 불가</span><span class="zh-only">禁止携带宠物</span><span class="en-only">No Pets</span></div>
+        <p class="jp">ペットの宿泊は禁止です。確認された場合、特殊清掃費用を請求いたします。</p><p class="ko-only">애완동물 동반 숙박은 금지입니다. 확인될 경우, 특수 청소 비용이 청구됩니다.</p><p class="zh-only">禁止携带宠物入住。如发现，将收取特殊清洁费。</p>
         <p class="en-only">Pets are not allowed. A special cleaning fee will be charged if pets are found.</p>
       </div>
 
       <div class="rule">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-person-walking"></i></span><span class="jp">土足禁止</span><span class="en-only">No Shoes</span></div>
-        <p class="jp">入室時は、靴を脱いでください。</p>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-person-walking"></i></span><span class="jp">土足禁止</span><span class="ko-only">실내 신발 착용 금지</span><span class="zh-only">禁止穿鞋入内</span><span class="en-only">No Shoes</span></div>
+        <p class="jp">入室時は、靴を脱いでください。</p><p class="ko-only">입실 시 신발을 벗어 주십시오.</p><p class="zh-only">进入房间时，请脱鞋。</p>
         <p class="en-only">Please take off your shoes before entering.</p>
       </div>
 
       <div class="rule">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-cup-straw"></i></span><span class="jp">飲酒</span><span class="en-only">Alcohol</span></div>
-        <p class="jp">20歳未満の飲酒は法律で禁止されています。妊娠中・授乳中の飲酒、飲酒運転もご遠慮ください。</p>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-cup-straw"></i></span><span class="jp">飲酒</span><span class="ko-only">음주</span><span class="zh-only">饮酒</span><span class="en-only">Alcohol</span></div>
+        <p class="jp">20歳未満の飲酒は法律で禁止されています。妊娠中・授乳中の飲酒、飲酒運転もご遠慮ください。</p><p class="ko-only">20세 미만의 음주는 법으로 금지되어 있습니다. 임신 중/수유 중 음주, 음주 운전도 삼가 주십시오.</p><p class="zh-only">未满20岁饮酒是法律禁止的。怀孕或哺乳期间饮酒、酒后驾车也请避免。</p>
         <p class="en-only">Drinking under 20 is prohibited by law. Please refrain from drinking during pregnancy/breastfeeding and drink driving.</p>
       </div>
 
       <div class="rule">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-box-arrow-in-right"></i></span><span class="jp">チェックイン時間</span><span class="en-only">Check-in</span></div>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-box-arrow-in-right"></i></span><span class="jp">チェックイン時間</span><span class="ko-only">체크인 시간</span><span class="zh-only">入住时间</span><span class="en-only">Check-in</span></div>
         <p class="jp">16:00 〜 20:00。<strong>20:00を過ぎる場合は必ず事前にご連絡ください。</strong>それ以降はホストと連絡がつきにくくなります。</p>
         <p class="en-only">16:00 – 20:00. <strong>If arriving after 20:00, please contact the host in advance.</strong> After 20:00 the host may be hard to reach.</p>
       </div>
 
       <div class="rule">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-clock"></i></span><span class="jp">チェックアウト時間</span><span class="en-only">Check-out</span></div>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-clock"></i></span><span class="jp">チェックアウト時間</span><span class="ko-only">체크아웃 시간</span><span class="zh-only">退房时间</span><span class="en-only">Check-out</span></div>
         <p class="jp">午前10時まで。10:00を過ぎると清掃スタッフが入室します。<strong>10:00超過の場合、15分につき 2,000円/人 のペナルティが発生します。</strong></p>
         <p class="en-only">By 10:00 AM. After 10:00, cleaning staff will enter. <strong>Late check-out: 2,000 yen per person per 15 minutes.</strong></p>
       </div>
 
       <div class="rule">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-telephone"></i></span><span class="jp">スタッフ対応時間</span><span class="en-only">Staff Hours</span></div>
-        <p class="jp">6:00 〜 20:00。この時間帯以外は連絡がつきにくい場合があります。</p>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-telephone"></i></span><span class="jp">スタッフ対応時間</span><span class="ko-only">직원 응대 시간</span><span class="zh-only">工作人员服务时间</span><span class="en-only">Staff Hours</span></div>
+        <p class="jp">6:00 〜 20:00。この時間帯以外は連絡がつきにくい場合があります。</p><p class="ko-only">6:00 ~ 20:00. 이 시간 외에는 연락이 어려울 수 있습니다.</p><p class="zh-only">6:00 至 20:00。在此时间段以外可能难以联系。</p>
         <p class="en-only">6:00 – 20:00. Outside these hours, it may be difficult to reach us.</p>
       </div>
 
       <div class="rule fine">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-exclamation-octagon-fill"></i></span><span class="jp">緊急時</span><span class="en-only">Emergency</span></div>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-exclamation-octagon-fill"></i></span><span class="jp">緊急時</span><span class="ko-only">긴급 시</span><span class="zh-only">紧急情况</span><span class="en-only">Emergency</span></div>
         <p class="jp"><strong>119番</strong>（消防・救急）または <strong>110番</strong>（警察）へご連絡後、ホスト（TEL：090-7500-9595）にもご連絡ください。</p>
         <p class="en-only">Call <strong>119</strong> (fire/ambulance) or <strong>110</strong> (police), then also contact the host (TEL: 090-7500-9595).</p>
       </div>
 
       <div class="rule">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-volume-mute"></i></span><span class="jp">騒音にご配慮</span><span class="en-only">Noise</span></div>
-        <p class="jp">集合住宅のため、夜9時以降は音量にご配慮ください。廊下など共用部での会話もお控えください。</p>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-volume-mute"></i></span><span class="jp">騒音にご配慮</span><span class="ko-only">소음 주의</span><span class="zh-only">请注意噪音</span><span class="en-only">Noise</span></div>
+        <p class="jp">集合住宅のため、夜9時以降は音量にご配慮ください。廊下など共用部での会話もお控えください。</p><p class="ko-only">공동 주택이므로 밤 9시 이후에는 소음에 유의해 주십시오. 복도 등 공용 공간에서의 대화도 삼가 주십시오.</p><p class="zh-only">由于是公寓楼，晚上9点后请注意音量。在走廊等公共区域也请避免大声交谈。</p>
         <p class="en-only">This is a multi-unit residence. Please minimize noise after 9 PM and refrain from conversations in hallways.</p>
       </div>
 
       <div class="rule">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-house-door"></i></span><span class="jp">在室時・就寝時のセキュリティ</span><span class="en-only">While inside / sleeping</span></div>
-        <p class="jp">窓を閉め、ドアのカギを施錠してください。</p>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-house-door"></i></span><span class="jp">在室時・就寝時のセキュリティ</span><span class="ko-only">재실 시/취침 시 보안</span><span class="zh-only">在室和就寝时的安全</span><span class="en-only">While inside / sleeping</span></div>
+        <p class="jp">窓を閉め、ドアのカギを施錠してください。</p><p class="ko-only">창문을 닫고 문 잠금 장치를 잠가 주십시오.</p><p class="zh-only">请关好窗户，锁好门。</p>
         <p class="en-only">Close the windows and lock the door.</p>
       </div>
 
       <div class="rule">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-door-closed"></i></span><span class="jp">外出時の戸締り</span><span class="en-only">When going out</span></div>
-        <p class="jp">必ずカギをキーボックスに戻し、キーボックスごと一階ロビーの704号室ポストに入れてください（チェックイン時と同じ手順）。</p>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-door-closed"></i></span><span class="jp">外出時の戸締り</span><span class="ko-only">외출 시 문단속</span><span class="zh-only">外出时请锁好门窗</span><span class="en-only">When going out</span></div>
+        <p class="jp">必ずカギをキーボックスに戻し、キーボックスごと一階ロビーの704号室ポストに入れてください（チェックイン時と同じ手順）。</p><p class="ko-only">반드시 열쇠를 키박스에 다시 넣고, 키박스째 1층 로비의 704호실 우편함에 넣어 주십시오 (체크인 시와 동일한 절차).</p><p class="zh-only">请务必将钥匙放回钥匙盒，并将整个钥匙盒放入1楼大堂704号房间的邮箱（与入住时的步骤相同）。</p>
         <p class="en-only">Always return the key to the key box, then place the key box back into the Room 704 mailbox on the 1st floor lobby (same as check-in).</p>
       </div>
 
       <div class="rule">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-tools"></i></span><span class="jp">設備・備品</span><span class="en-only">Equipment</span></div>
-        <p class="jp">大切にご使用ください。破損・紛失の際は速やかにご連絡ください（TEL：090-7500-9595）。費用を請求させていただく場合があります。</p>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-tools"></i></span><span class="jp">設備・備品</span><span class="ko-only">시설 및 비품</span><span class="zh-only">设备和备品</span><span class="en-only">Equipment</span></div>
+        <p class="jp">大切にご使用ください。破損・紛失の際は速やかにご連絡ください（TEL：090-7500-9595）。費用を請求させていただく場合があります。</p><p class="ko-only">소중히 사용해 주십시오. 파손/분실 시 즉시 연락 주십시오 (TEL: 090-7500-9595). 비용이 청구될 수 있습니다.</p><p class="zh-only">请爱惜使用。如有损坏或丢失，请尽快联系我们（电话：090-7500-9595）。可能会收取费用。</p>
         <p class="en-only">Please use with care. Report damage or loss promptly (TEL: 090-7500-9595). Fees may apply.</p>
       </div>
 
       <div class="rule">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-moon-stars"></i></span><span class="jp">連泊のお客様</span><span class="en-only">Multi-night Stays</span></div>
-        <p class="jp">タオル・シーツの交換はありません。必要に応じて洗濯機をご利用ください。滞在中の清掃は行いません。</p>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-moon-stars"></i></span><span class="jp">連泊のお客様</span><span class="ko-only">연박 고객</span><span class="zh-only">连住客人</span><span class="en-only">Multi-night Stays</span></div>
+        <p class="jp">タオル・シーツの交換はありません。必要に応じて洗濯機をご利用ください。滞在中の清掃は行いません。</p><p class="ko-only">수건 및 시트 교환은 없습니다. 필요에 따라 세탁기를 이용해 주십시오. 숙박 중 청소는 진행되지 않습니다.</p><p class="zh-only">不更换毛巾和床单。如有需要，请使用洗衣机。住宿期间不提供清洁服务。</p>
         <p class="en-only">No towel/sheet exchange. Please use the washing machine as needed. No cleaning during stay.</p>
       </div>
 
       <div class="rule">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-check2-square"></i></span><span class="jp">チェックアウト前のお願い</span><span class="en-only">Before Check-out</span></div>
-        <p class="jp">使用した食器・調理器具は洗ってからお戻しください。</p>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-check2-square"></i></span><span class="jp">チェックアウト前のお願い</span><span class="ko-only">체크아웃 전 부탁 말씀</span><span class="zh-only">退房前的请求</span><span class="en-only">Before Check-out</span></div>
+        <p class="jp">使用した食器・調理器具は洗ってからお戻しください。</p><p class="ko-only">사용한 식기 및 조리 도구는 세척 후 제자리에 놓아 주십시오.</p><p class="zh-only">使用过的餐具和厨具请清洗干净后放回原位。</p>
         <p class="en-only">Please wash dishes and cookware before leaving.</p>
       </div>
 
       <div class="rule">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-camera"></i></span><span class="jp">商業目的での写真・動画</span><span class="en-only">Commercial Photography</span></div>
-        <p class="jp">撮影可能です。</p>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-camera"></i></span><span class="jp">商業目的での写真・動画</span><span class="ko-only">상업 목적의 사진/동영상</span><span class="zh-only">商业用途的照片和视频</span><span class="en-only">Commercial Photography</span></div>
+        <p class="jp">撮影可能です。</p><p class="ko-only">촬영 가능합니다.</p><p class="zh-only">允许拍摄。</p>
         <p class="en-only">Permitted.</p>
       </div>
 
       <div class="rule">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-box-seam"></i></span><span class="jp">忘れ物・カギ紛失</span><span class="en-only">Lost Items / Keys</span></div>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-box-seam"></i></span><span class="jp">忘れ物・カギ紛失</span><span class="ko-only">분실물/열쇠 분실</span><span class="zh-only">遗失物品/钥匙丢失</span><span class="en-only">Lost Items / Keys</span></div>
         <p class="jp">忘れ物の発送は<strong>着払いのみ</strong>、発送手数料 2,500円 がかかります。カギ紛失の際は速やかにご連絡ください。カギ交換費用の実費を請求いたします。</p>
         <p class="en-only">Lost items: <strong>cash-on-delivery only</strong>, 2,500 yen handling fee. For lost keys, contact us immediately — lock replacement cost will be charged.</p>
       </div>
 
       <div class="rule">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-journal-text"></i></span><span class="jp">その他</span><span class="en-only">Notes</span></div>
-        <p class="jp">アーリーチェックイン・レイトチェックアウトには対応しておりません。スーツケース等の大型ゴミの処分は不可です。残置された場合、処分費 10,000円 を請求します。</p>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-journal-text"></i></span><span class="jp">その他</span><span class="ko-only">기타</span><span class="zh-only">其他</span><span class="en-only">Notes</span></div>
+        <p class="jp">アーリーチェックイン・レイトチェックアウトには対応しておりません。スーツケース等の大型ゴミの処分は不可です。残置された場合、処分費 10,000円 を請求します。</p><p class="ko-only">얼리 체크인/레이트 체크아웃은 불가합니다. 여행 가방 등 대형 쓰레기 처리는 불가합니다. 방치된 경우, 처리 비용 10,000엔이 청구됩니다.</p><p class="zh-only">不提供提前入住和延迟退房服务。不处理行李箱等大型垃圾。如遗留，将收取10,000日元的处理费。</p>
         <p class="en-only">Early check-in and late check-out are not available. Large items (suitcases, etc.) cannot be disposed of here — a 10,000 yen disposal fee will apply if left behind.</p>
       </div>
 
       <div class="rule fine">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-exclamation-triangle-fill"></i></span><span class="jp">罰金</span><span class="en-only">Fines</span></div>
-        <p class="jp">近隣から騒音で通報があった場合は 50,000円、警察が出動した場合は 100,000円 を後日請求いたします。</p>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-exclamation-triangle-fill"></i></span><span class="jp">罰金</span><span class="ko-only">벌금</span><span class="zh-only">罚款</span><span class="en-only">Fines</span></div>
+        <p class="jp">近隣から騒音で通報があった場合は 50,000円、警察が出動した場合は 100,000円 を後日請求いたします。</p><p class="ko-only">인근 주민으로부터 소음 신고가 접수된 경우 50,000엔, 경찰이 출동한 경우 100,000엔이 추후 청구됩니다.</p><p class="zh-only">如因噪音被邻居举报，将收取50,000日元；如警方出动，将收取100,000日元。</p>
         <p class="en-only">If a noise complaint is filed, 50,000 yen; if police are dispatched, 100,000 yen.</p>
       </div>
 
       <div class="rule fine">
-        <div class="rule-title"><span class="badge-icon"><i class="bi bi-person-x"></i></span><span class="jp">虚偽申告</span><span class="en-only">False Reporting</span></div>
-        <p class="jp">宿泊人数に虚偽があった場合、発見次第、1人あたり 10,000円 を後日請求いたします。</p>
+        <div class="rule-title"><span class="badge-icon"><i class="bi bi-person-x"></i></span><span class="jp">虚偽申告</span><span class="ko-only">허위 신고</span><span class="zh-only">虚假申报</span><span class="en-only">False Reporting</span></div>
+        <p class="jp">宿泊人数に虚偽があった場合、発見次第、1人あたり 10,000円 を後日請求いたします。</p><p class="ko-only">숙박 인원에 허위가 있었을 경우, 발견 즉시 1인당 10,000엔이 추후 청구됩니다.</p><p class="zh-only">如发现入住人数虚报，将立即按每人10,000日元收取费用。</p>
         <p class="en-only">If guest count is falsely reported, 10,000 yen per person will be charged upon discovery.</p>
       </div>
 
@@ -1036,7 +1041,7 @@
   <!-- お問合せ -->
   <section id="contact" class="contact">
     <div class="label">CONTACT / お問合せ</div>
-    <div class="jp" style="margin-bottom:10px; opacity:0.85; font-size:13px;">ご質問・ご相談等ございましたら、お気軽にご連絡ください。</div>
+    <div class="jp" style="margin-bottom:10px; opacity:0.85; font-size:13px;">ご質問・ご相談等ございましたら、お気軽にご連絡ください。</div><div class="ko-only" style="margin-bottom:10px; opacity:0.85; font-size:13px;">질문이나 상담이 있으시면 언제든지 편하게 연락 주십시오.</div><div class="zh-only" style="margin-bottom:10px; opacity:0.85; font-size:13px;">如有任何问题或咨询，请随时与我们联系。</div>
     <div class="en-only" style="margin-bottom:10px; opacity:0.85; font-size:13px;">If you have any questions, please feel free to contact us.</div>
     <a class="tel" href="tel:09075009595">090-7500-9595</a>
   </section>
@@ -1049,9 +1054,12 @@
 <script>
   document.querySelectorAll('.lang-switch button').forEach(btn => {
     btn.addEventListener('click', () => {
+      const lang = btn.dataset.lang;
+      document.body.classList.remove('lang-ja','lang-en','lang-ko','lang-zh');
+      document.body.classList.add('lang-' + lang);
+      document.documentElement.lang = lang;
       document.querySelectorAll('.lang-switch button').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      document.body.classList.toggle('lang-en', btn.dataset.lang === 'en');
     });
   });
 
