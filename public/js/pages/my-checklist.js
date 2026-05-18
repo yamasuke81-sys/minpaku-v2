@@ -578,6 +578,35 @@ const MyChecklistPage = {
     // 離脱時クリーンアップ
     this._hashHandler = () => this.detach();
     window.addEventListener("hashchange", this._hashHandler, { once: true });
+
+    // 戻るボタン対策: LINE通知等から直接 #/my-checklist/{id} を開いた場合
+    // 履歴が1件しかなく、戻るボタンでアプリが終了してしまう。
+    // pushState でダミー履歴を積み、popstate で募集画面に明示遷移させる。
+    this.installBackTrap();
+  },
+
+  installBackTrap() {
+    if (this._backTrapInstalled) return;
+    try {
+      history.pushState({ checklistBackTrap: true }, "", location.href);
+    } catch (_) { return; }
+    this._popHandler = () => {
+      // 戻るが押された → 募集画面へ (アプリ終了を回避)
+      location.hash = "#/my-recruitment";
+    };
+    window.addEventListener("popstate", this._popHandler);
+    this._backTrapInstalled = true;
+  },
+
+  uninstallBackTrap() {
+    if (!this._backTrapInstalled) return;
+    if (this._popHandler) {
+      window.removeEventListener("popstate", this._popHandler);
+      this._popHandler = null;
+    }
+    this._backTrapInstalled = false;
+    // pushState で積んだダミーエントリは、通常リンク遷移で hashchange が走ると
+    // そのまま使われる(置換される)ので、明示的に pop する必要はない。
   },
 
   detach() {
@@ -595,6 +624,7 @@ const MyChecklistPage = {
       window.removeEventListener("hashchange", this._hashHandler);
       this._hashHandler = null;
     }
+    this.uninstallBackTrap();
     this.clearEditingMark();
     document.body.classList.remove("mcl-shift-active");
     this._debugShown = false;
@@ -847,8 +877,11 @@ const MyChecklistPage = {
       </div>`;
     document.body.insertAdjacentHTML("beforeend", html);
     const modalEl = document.getElementById(modalId);
-    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
-    modalEl.addEventListener("hidden.bs.modal", () => modalEl.remove());
+    const modal = new bootstrap.Modal(modalEl);
+    modalEl.addEventListener("hidden.bs.modal", () => {
+      modal.dispose();
+      modalEl.remove();
+    }, { once: true });
     modal.show();
 
     // ヘルパー QR PNG ダウンロード
@@ -980,8 +1013,11 @@ const MyChecklistPage = {
       </div>`;
     document.body.insertAdjacentHTML("beforeend", html);
     const modalEl = document.getElementById(modalId);
-    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
-    modalEl.addEventListener("hidden.bs.modal", () => modalEl.remove());
+    const modal = new bootstrap.Modal(modalEl);
+    modalEl.addEventListener("hidden.bs.modal", () => {
+      modal.dispose();
+      modalEl.remove();
+    }, { once: true });
     modal.show();
 
     if (!isOwner) return;
