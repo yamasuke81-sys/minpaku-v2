@@ -14,7 +14,12 @@ function computeScheduledSendAt(checkInStr, ks) {
   let daysBefore = 0;
   if (ks.scheduleType === "day_before") daysBefore = 1;
   else if (ks.scheduleType === "2_days_before") daysBefore = 2;
-  else if (ks.scheduleType === "custom") daysBefore = Number(ks.customDaysBefore) || 3;
+  else if (ks.scheduleType === "custom") {
+    // 注: `Number(x) || 3` だと customDaysBefore=0 (CI当日) が 3 に化ける
+    // (0 は falsy)。0 を許容するため nullish/NaN チェックで判定する。
+    const n = Number(ks.customDaysBefore);
+    daysBefore = Number.isFinite(n) ? n : 3;
+  }
   // day_of は 0
 
   // checkIn を UTC 0時として扱い、daysBefore日前の JST sendTime に変換
