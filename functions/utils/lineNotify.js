@@ -682,6 +682,25 @@ async function notifySubOwners(db, propertyId, title, body) {
   try {
     const { channelToken } = await getNotificationSettings_(db);
     const propertySenderGmail = await resolveSenderGmail_(db, propertyId);
+
+    // 物件別 Bot トークン (lineChannels[0].token) を優先取得
+    // → サブオーナーに「どの物件からの通知か」を Bot 名で識別させるため
+    let propBotToken = null;
+    let propBotName = null;
+    try {
+      const pDoc = await db.collection("properties").doc(propertyId).get();
+      if (pDoc.exists) {
+        const pData = pDoc.data() || {};
+        const ch0 = Array.isArray(pData.lineChannels)
+          ? pData.lineChannels.find(c => c && c.enabled !== false && c.token)
+          : null;
+        if (ch0) {
+          propBotToken = ch0.token;
+          propBotName = ch0.name || "";
+        }
+      }
+    } catch (_) { /* 取得失敗時は無視してグローバル Bot にフォールバック */ }
+
     const staffSnap = await db.collection("staff")
       .where("isSubOwner", "==", true)
       .where("ownedPropertyIds", "array-contains", propertyId)
@@ -693,10 +712,25 @@ async function notifySubOwners(db, propertyId, title, body) {
 
       // 物件オーナー専用 LINE User ID → 未設定なら staff.lineUserId にフォールバック
       const subOwnerLineId = sData.subOwnerLineUserId || sData.lineUserId;
-      if (subOwnerLineId && channelToken) {
-        const result = await sendLineMessage(channelToken, subOwnerLineId, body);
+      if (subOwnerLineId) {
+        // まず物件別 Bot で送信を試み、失敗ならグローバル Bot にフォールバック
+        // 注: LINE User ID は Bot 単位でスコープされるため、物件 Bot に友達追加していない
+        //     サブオーナーは物件 Bot で送ると失敗する。その場合はグローバル Bot へ。
+        let result = { success: false, error: "no-token" };
+        let usedBot = "";
+        if (propBotToken) {
+          result = await sendLineMessage(propBotToken, subOwnerLineId, body);
+          usedBot = propBotName || "物件Bot";
+          if (!result.success) {
+            console.warn(`物件オーナー(${sData.name}) 物件Bot送信失敗 → グローバルにフォールバック: ${result.error}`);
+          }
+        }
+        if (!result.success && channelToken) {
+          result = await sendLineMessage(channelToken, subOwnerLineId, body);
+          usedBot = "グローバル";
+        }
         if (result.success) sentCount++;
-        console.log(`物件オーナー(${sData.name}) LINE送信: ${result.success ? "成功" : "失敗"} (id=${subOwnerLineId.slice(0,8)}..., fallback=${!sData.subOwnerLineUserId})`);
+        console.log(`物件オーナー(${sData.name}) LINE送信: ${result.success ? "成功" : "失敗"} (id=${subOwnerLineId.slice(0,8)}..., bot=${usedBot}, fallback=${!sData.subOwnerLineUserId})`);
         try {
           await db.collection("notifications").add({
             type: "sub_owner_notify",
