@@ -45,26 +45,48 @@ const ContactsPage = {
   },
 
   async loadAll() {
-    try {
-      const [staffSnap, propSnap, notifDoc, tokensSnap1, tokensSnap2] = await Promise.all([
-        db.collection("staff").orderBy("displayOrder", "asc").get(),
-        db.collection("properties").get(),
-        db.collection("settings").doc("notifications").get(),
-        db.collection("settings").doc("gmailOAuth").collection("tokens").get(),
-        db.collection("settings").doc("gmailOAuthEmailVerification").collection("tokens").get(),
-      ]);
-      this.staff = staffSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      this.properties = propSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => (a.propertyNumber ?? 999) - (b.propertyNumber ?? 999));
-      this.notifSettings = notifDoc.exists ? notifDoc.data() : {};
-      // 両コンテキスト統合 (context フィールド付与)
-      this.gmailTokens = [
-        ...tokensSnap1.docs.map(d => ({ id: d.id, context: "default", ...d.data() })),
-        ...tokensSnap2.docs.map(d => ({ id: d.id, context: "emailVerification", ...d.data() })),
-      ];
-    } catch (e) {
-      console.error("[contacts] 読み込み失敗:", e);
-      showToast("エラー", "読み込み失敗: " + e.message, "error");
+    // 部分失敗を許容するため Promise.allSettled を使う:
+    // - settings 系はオーナー専用ルール → サブオーナーは権限不足で失敗するのが正常
+    // - その場合は空デフォルトで UI を描画して、Webアプリ管理者専用セクションだけ非表示にする
+    const [staffR, propR, notifR, tok1R, tok2R] = await Promise.allSettled([
+      db.collection("staff").orderBy("displayOrder", "asc").get(),
+      db.collection("properties").get(),
+      db.collection("settings").doc("notifications").get(),
+      db.collection("settings").doc("gmailOAuth").collection("tokens").get(),
+      db.collection("settings").doc("gmailOAuthEmailVerification").collection("tokens").get(),
+    ]);
+
+    this.staff = staffR.status === "fulfilled"
+      ? staffR.value.docs.map(d => ({ id: d.id, ...d.data() }))
+      : [];
+    this.properties = propR.status === "fulfilled"
+      ? propR.value.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.propertyNumber ?? 999) - (b.propertyNumber ?? 999))
+      : [];
+    this.notifSettings = notifR.status === "fulfilled" && notifR.value.exists
+      ? notifR.value.data()
+      : {};
+    this.gmailTokens = [];
+    if (tok1R.status === "fulfilled") {
+      this.gmailTokens.push(...tok1R.value.docs.map(d => ({ id: d.id, context: "default", ...d.data() })));
+    }
+    if (tok2R.status === "fulfilled") {
+      this.gmailTokens.push(...tok2R.value.docs.map(d => ({ id: d.id, context: "emailVerification", ...d.data() })));
+    }
+
+    // 権限不足は ownerSectionVisible=false にして UI 側で隠す
+    this.ownerSectionVisible = notifR.status === "fulfilled";
+
+    // 必須クリティカル読込 (staff) が失敗した場合のみエラー表示
+    if (staffR.status === "rejected") {
+      console.error("[contacts] staff 読み込み失敗:", staffR.reason);
+      showToast("エラー", "読み込み失敗: " + (staffR.reason?.message || staffR.reason), "error");
+    } else {
+      // 権限不足の rejection はサイレント (サブオーナー想定)
+      [notifR, tok1R, tok2R].forEach(r => {
+        if (r.status === "rejected" && !/permission/i.test(r.reason?.message || "")) {
+          console.warn("[contacts] 読み込み一部失敗:", r.reason?.message || r.reason);
+        }
+      });
     }
   },
 
@@ -102,12 +124,8 @@ const ContactsPage = {
       </tr>
     `).join("");
 
-    let html = `
-      <div class="alert alert-info py-2 small">
-        <i class="bi bi-info-circle"></i> ここでの編集は元の場所（スタッフ管理 / 通知設定 / 物件管理）と<strong>相互同期</strong>します。
-        <a href="#/email-verification" class="ms-2 text-decoration-none"><i class="bi bi-google"></i> Gmail 連携 →</a>
-      </div>
-
+    // Webアプリ管理者専用セクション (settings 読込が成功した owner のみ表示)
+    const adminEmailSection = !this.ownerSectionVisible ? "" : `
       <h5 class="mt-3"><i class="bi bi-person-gear"></i> Webアプリ管理者の通知メール</h5>
       <div class="card mb-3"><div class="card-body p-2">
         <p class="text-muted small mb-2">先頭のアドレスが「代表メール」として旧コードからも参照されます。複数登録すると同報送信されます。</p>
@@ -120,6 +138,14 @@ const ContactsPage = {
           <button type="button" class="btn btn-sm btn-primary ms-auto" id="btnSaveNotifyEmails"><i class="bi bi-check-lg"></i> 一括保存</button>
         </div>
       </div></div>
+    `;
+
+    let html = `
+      <div class="alert alert-info py-2 small">
+        <i class="bi bi-info-circle"></i> ここでの編集は元の場所（スタッフ管理 / 通知設定 / 物件管理）と<strong>相互同期</strong>します。
+        <a href="#/email-verification" class="ms-2 text-decoration-none"><i class="bi bi-google"></i> Gmail 連携 →</a>
+      </div>
+      ${adminEmailSection}
 
       <h5 class="mt-3"><i class="bi bi-people"></i> スタッフ / 物件オーナー</h5>
       <div class="card mb-3"><div class="card-body p-2">
@@ -151,6 +177,7 @@ const ContactsPage = {
         </table>
       </div></div>
 
+      ${!this.ownerSectionVisible ? "" : `
       <h5 class="mt-3"><i class="bi bi-google"></i> 連携済み Gmail (送信元として利用可能)</h5>
       <div class="card mb-3"><div class="card-body p-2">
         ${this.gmailTokens.length === 0
@@ -171,6 +198,7 @@ const ContactsPage = {
             </table>`}
         <div class="mt-2 small"><a href="#/email-verification"><i class="bi bi-plus-circle"></i> Gmail 連携を追加</a></div>
       </div></div>
+      `}
     `;
 
     document.getElementById("emailsArea").innerHTML = html;
