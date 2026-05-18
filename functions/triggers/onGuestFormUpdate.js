@@ -130,6 +130,23 @@ module.exports = async function onGuestFormUpdate(event) {
 
   // 差分計算
   const changes = calcChanges(before, after);
+
+  // editHistory[] に追記 (修正履歴の永続化、宿泊者情報詳細モーダルで表示)
+  try {
+    const admin = require("firebase-admin");
+    const changeLines = String(changes || "").split("\n").map((s) => s.trim()).filter(Boolean);
+    const entry = {
+      editedAt: admin.firestore.Timestamp.now(),
+      changes: changeLines.slice(0, 20), // 1 回あたり最大 20 件
+      summary: changeLines.length > 20 ? `${changeLines.length}件の変更` : "",
+    };
+    await event.data.after.ref.update({
+      editHistory: admin.firestore.FieldValue.arrayUnion(entry),
+    });
+  } catch (e) {
+    console.warn("[onGuestFormUpdate] editHistory 追記失敗:", e.message);
+  }
+
   const confirmUrl = `${APP_URL}/#/guests?id=${encodeURIComponent(guestId)}`;
   const editUrl = after.editToken
     ? `${APP_URL}/guest-form.html?edit=${after.editToken}${after.propertyId ? `&propertyId=${encodeURIComponent(after.propertyId)}` : ""}`

@@ -881,7 +881,57 @@ const GuestsPage = {
         <span class="badge bg-warning text-dark ms-2"><i class="bi bi-clock"></i> 未予約</span>`;
     }
 
+    // === 物件バッジ (番号+色+名前) ===
+    const propObj = (this.properties || []).find((p) => p.id === g.propertyId);
+    const propBadgeHtml = propObj
+      ? (typeof renderPropertyLabel === "function"
+          ? `<div class="fs-5 fw-bold mb-2">${renderPropertyLabel(propObj, (s) => this.escapeHtml(s))}</div>`
+          : `<div class="fs-5 fw-bold mb-2">${this.escapeHtml(propObj.name || "")}</div>`)
+      : '<div class="fs-5 fw-bold mb-2 text-muted">(物件未紐付け)</div>';
+
+    // === 予約元バッジ + 外部リンク (dashboard と同じパターン) ===
+    const sourceStr = (g.bookingSite || g.source || "").toLowerCase();
+    let sourceBadgeHtml = "";
+    if (sourceStr.includes("airbnb")) {
+      sourceBadgeHtml = `<a href="https://www.airbnb.com/hosting/reservations" target="_blank" rel="noopener" class="badge text-decoration-none" style="background:#FF5A5F;color:#fff;">Airbnb <i class="bi bi-box-arrow-up-right" style="font-size:0.75em;"></i></a>`;
+    } else if (sourceStr.includes("booking")) {
+      sourceBadgeHtml = `<a href="https://admin.booking.com/" target="_blank" rel="noopener" class="badge text-decoration-none" style="background:#003580;color:#fff;">Booking.com <i class="bi bi-box-arrow-up-right" style="font-size:0.75em;"></i></a>`;
+    } else if (g.bookingSite || g.source) {
+      sourceBadgeHtml = `<span class="badge bg-secondary">${this.escapeHtml(g.bookingSite || g.source)}</span>`;
+    }
+
+    // === 受信履歴セクション ===
+    const tsToStr = (t) => {
+      if (!t) return null;
+      const d = t.toDate ? t.toDate() : new Date(t);
+      if (isNaN(d.getTime())) return null;
+      return d.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+    };
+    const createdStr = tsToStr(g.createdAt);
+    const updatedStr = tsToStr(g.updatedAt);
+    const completeStr = tsToStr(g.formCompleteMailSentAt);
+    const updateMailStr = tsToStr(g.formUpdateMailSentAt);
+    const editHistory = Array.isArray(g.editHistory) ? g.editHistory : [];
+
+    let historyRows = "";
+    if (createdStr) historyRows += `<tr><td class="text-muted small">受信日</td><td>${this.escapeHtml(createdStr)}</td></tr>`;
+    if (completeStr && completeStr !== createdStr) historyRows += `<tr><td class="text-muted small">完了メール送信</td><td>${this.escapeHtml(completeStr)}</td></tr>`;
+    if (editHistory.length > 0) {
+      const items = editHistory.slice().reverse().map((h) => {
+        const at = tsToStr(h.editedAt) || "-";
+        const ch = Array.isArray(h.changes) ? h.changes.join(" / ") : (h.summary || "");
+        return `<li class="small mb-1"><strong>${this.escapeHtml(at)}</strong>: ${this.escapeHtml(ch)}</li>`;
+      }).join("");
+      historyRows += `<tr><td class="text-muted small">修正履歴 (${editHistory.length}回)</td><td><ul class="mb-0 ps-3">${items}</ul></td></tr>`;
+    } else if (updatedStr && updatedStr !== createdStr) {
+      historyRows += `<tr><td class="text-muted small">最終更新</td><td>${this.escapeHtml(updatedStr)}${updateMailStr ? ` <span class="badge bg-light text-muted border ms-1">通知送信: ${this.escapeHtml(updateMailStr)}</span>` : ""}</td></tr>`;
+    }
+
     body.innerHTML = `
+      <!-- 物件ヘッダ + 予約元 -->
+      ${propBadgeHtml}
+      ${sourceBadgeHtml ? `<div class="mb-3"><span class="small text-muted me-2">予約元:</span> ${sourceBadgeHtml}</div>` : ""}
+
       <!-- キーボックス送信予約 -->
       <div class="alert alert-light border d-flex align-items-center mb-3" style="background:#f8fafc;">
         <div class="me-3"><i class="bi bi-key-fill text-warning" style="font-size:1.4rem;"></i></div>
@@ -890,6 +940,18 @@ const GuestsPage = {
           <div class="small">${kbStatusHtml}</div>
         </div>
       </div>
+
+      <!-- 受信履歴 (折りたたみ) -->
+      ${historyRows ? `
+      <details class="mb-3 border rounded">
+        <summary class="p-2 bg-light fw-bold small" style="cursor:pointer;">
+          <i class="bi bi-clock-history"></i> 受信履歴・修正履歴
+        </summary>
+        <table class="table table-sm table-borderless mb-0 small">
+          ${historyRows}
+        </table>
+      </details>
+      ` : ""}
       <div class="row g-3">
         <div class="col-md-6">
           <h6 class="border-bottom pb-1 mb-2">代表者情報</h6>
