@@ -67,33 +67,65 @@ module.exports = function notificationsApi(db) {
       });
     }
 
+    // 物件別 Bot トークン / グループ ID (propertyId 指定時のみ)
+    // notifyByKey / notifySubOwners と同じく、物件別 Bot を優先しグローバルにフォールバック
+    let propBotToken = null, propBotName = null, propBotGroupId = null;
+    if (propertyId) {
+      try {
+        const pDoc = await db.collection("properties").doc(propertyId).get();
+        if (pDoc.exists) {
+          const pData = pDoc.data() || {};
+          const ch0 = Array.isArray(pData.lineChannels)
+            ? pData.lineChannels.find(c => c && c.enabled !== false && c.token)
+            : null;
+          if (ch0) {
+            propBotToken = ch0.token;
+            propBotName = ch0.name || "";
+            propBotGroupId = ch0.groupId || null;
+          }
+        }
+      } catch (_) { /* 取得失敗時はグローバルにフォールバック */ }
+    }
+
     // Webアプリ管理者LINE
     if (targets.ownerLine) {
-      if (!channelToken) {
+      if (!channelToken && !propBotToken) {
         results.push({ target: "ownerLine", success: false, error: "LINEチャネルトークン未設定" });
         failCount++;
       } else if (!ownerUserId) {
         results.push({ target: "ownerLine", success: false, error: "Webアプリ管理者LINE User ID 未設定" });
         failCount++;
       } else {
-        const r = await pushMessages_(channelToken, ownerUserId, [{ type: "text", text: body.slice(0, 5000) }]);
+        // 物件別 Bot 優先 → 失敗時グローバルにフォールバック
+        let r = { success: false, error: "no-token" };
+        let usedBot = "";
+        if (propBotToken) {
+          r = await pushMessages_(propBotToken, ownerUserId, [{ type: "text", text: body.slice(0, 5000) }]);
+          usedBot = propBotName || "物件Bot";
+        }
+        if (!r.success && channelToken) {
+          r = await pushMessages_(channelToken, ownerUserId, [{ type: "text", text: body.slice(0, 5000) }]);
+          usedBot = "グローバル";
+        }
         if (r.success) sentCount++; else failCount++;
-        results.push({ target: "ownerLine", ...r });
+        results.push({ target: "ownerLine", ...r, usedBot });
       }
     }
 
-    // グループLINE
+    // グループLINE (propertyId 指定時は物件の lineChannels[0] の groupId + token を使う)
     if (targets.groupLine) {
-      if (!channelToken) {
+      const useToken = propBotToken || channelToken;
+      const useGroupId = propBotGroupId || groupId;
+      if (!useToken) {
         results.push({ target: "groupLine", success: false, error: "LINEチャネルトークン未設定" });
         failCount++;
-      } else if (!groupId) {
+      } else if (!useGroupId) {
         results.push({ target: "groupLine", success: false, error: "LINEグループID 未設定" });
         failCount++;
       } else {
-        const r = await pushMessages_(channelToken, groupId, [{ type: "text", text: body.slice(0, 5000) }]);
+        const r = await pushMessages_(useToken, useGroupId, [{ type: "text", text: body.slice(0, 5000) }]);
         if (r.success) sentCount++; else failCount++;
-        results.push({ target: "groupLine", ...r });
+        results.push({ target: "groupLine", ...r, usedBot: propBotToken ? (propBotName || "物件Bot") : "グローバル" });
       }
     }
 
@@ -208,10 +240,17 @@ module.exports = function notificationsApi(db) {
             const owned = Array.isArray(s.ownedPropertyIds) ? s.ownedPropertyIds : [];
             if (!owned.includes(propertyId)) continue;
           }
-          if (targets.subOwnerLine && s.subOwnerLineUserId && channelToken) {
+          if (targets.subOwnerLine && s.subOwnerLineUserId) {
+            // 物件別 Bot 優先 → 失敗時グローバル Bot にフォールバック (notifySubOwners と同じパターン)
             try {
               const { sendLineMessage } = require("../utils/lineNotify");
-              const r = await sendLineMessage(channelToken, s.subOwnerLineUserId, body);
+              let r = { success: false, error: "no-token" };
+              if (propBotToken) {
+                r = await sendLineMessage(propBotToken, s.subOwnerLineUserId, body);
+              }
+              if (!r.success && channelToken) {
+                r = await sendLineMessage(channelToken, s.subOwnerLineUserId, body);
+              }
               if (r.success) soLine++; else soFail++;
             } catch (e) { soFail++; }
           }
