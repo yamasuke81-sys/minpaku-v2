@@ -591,6 +591,33 @@ module.exports = async function onBookingChange(event) {
 
   const now = new Date();
 
+  // ========== bookingId 紐付け先行チェック (清掃日 手動移動対策) ==========
+  // 同じ bookingId に紐付く清掃 shift/recruitment が既にあれば、
+  // たとえ日付が booking.checkOut と一致しなくても再生成しない。
+  // (changeRecruitmentDate で清掃日を手動で動かすと、recruitment.checkoutDate と
+  //  booking.checkOut がズレる。その後 booking の何らかの更新で当トリガーが再発火
+  //  した際に、旧 checkOut 日で募集が「復活」してしまう事故を防ぐ)
+  let linkedCleaningShiftExists = false;
+  let linkedCleaningRecruitmentExists = false;
+  try {
+    const linkedShifts = await db.collection("shifts")
+      .where("bookingId", "==", bookingId)
+      .get();
+    linkedCleaningShiftExists = linkedShifts.docs.some(d => {
+      const x = d.data();
+      return (x.workType || "cleaning_by_count") !== "pre_inspection";
+    });
+    const linkedRecs = await db.collection("recruitments")
+      .where("bookingId", "==", bookingId)
+      .get();
+    linkedCleaningRecruitmentExists = linkedRecs.docs.some(d => {
+      const x = d.data();
+      return (x.workType || "cleaning") !== "pre_inspection";
+    });
+  } catch (e) {
+    console.error("[onBookingChange] bookingId紐付けチェックエラー:", e);
+  }
+
   // ========== シフト重複チェック ==========
   const existingShifts = await db.collection("shifts")
     .where("date", "==", checkOutDate)
@@ -640,6 +667,12 @@ module.exports = async function onBookingChange(event) {
     } else {
       console.log(`予約 ${bookingId}: 同日同物件のシフトが既に存在(有効な予約あり)のためスキップ`);
     }
+  }
+
+  // bookingId 紐付けの清掃シフトが既存なら、日付ベースで empty でも再生成しない
+  if (linkedCleaningShiftExists && shouldCreateShift) {
+    console.log(`予約 ${bookingId}: bookingId紐付けの清掃シフトが既存(日付移動済の可能性) → 再生成スキップ`);
+    shouldCreateShift = false;
   }
 
   if (shouldCreateShift) {
@@ -713,6 +746,12 @@ module.exports = async function onBookingChange(event) {
     } else {
       console.log(`予約 ${bookingId}: 同日同物件の募集が既に存在(有効な予約あり)のためスキップ`);
     }
+  }
+
+  // bookingId 紐付けの清掃募集が既存なら、日付ベースで empty でも再生成しない
+  if (linkedCleaningRecruitmentExists && shouldCreateRecruitment) {
+    console.log(`予約 ${bookingId}: bookingId紐付けの清掃募集が既存(日付移動済の可能性) → 再生成スキップ`);
+    shouldCreateRecruitment = false;
   }
 
   if (!shouldCreateRecruitment) return;
@@ -851,13 +890,20 @@ module.exports = async function onBookingChange(event) {
       return;
     }
 
+    // bookingId 紐付けの直前点検シフトが既存なら、日付が違っても再生成しない
+    const insLinkedShiftSnap = await db.collection("shifts")
+      .where("bookingId", "==", bookingId)
+      .where("workType", "==", "pre_inspection")
+      .limit(1).get();
     // 既存の直前点検シフトをチェック
     const insShiftSnap = await db.collection("shifts")
       .where("date", "==", checkInDate)
       .where("propertyId", "==", propertyId)
       .where("workType", "==", "pre_inspection")
       .limit(1).get();
-    if (!insShiftSnap.empty) {
+    if (!insLinkedShiftSnap.empty) {
+      console.log(`予約 ${bookingId}: bookingId紐付けの直前点検シフトが既存(日付移動済の可能性) → 再生成スキップ`);
+    } else if (!insShiftSnap.empty) {
       console.log(`予約 ${bookingId}: 直前点検シフト既存のためスキップ`);
     } else {
       await db.collection("shifts").add({
@@ -874,6 +920,11 @@ module.exports = async function onBookingChange(event) {
       console.log(`予約 ${bookingId}: 直前点検シフト生成 (${checkIn})`);
     }
 
+    // bookingId 紐付けの直前点検募集が既存なら、日付が違っても再生成しない
+    const insLinkedRecSnap = await db.collection("recruitments")
+      .where("bookingId", "==", bookingId)
+      .where("workType", "==", "pre_inspection")
+      .limit(1).get();
     // 既存の直前点検募集をチェック
     const insRecSnap = await db.collection("recruitments")
       .where("propertyId", "==", propertyId)
@@ -881,7 +932,9 @@ module.exports = async function onBookingChange(event) {
       .where("workType", "==", "pre_inspection")
       .limit(1).get();
     let insRecruitmentId = null;
-    if (insRecSnap.empty) {
+    if (!insLinkedRecSnap.empty) {
+      console.log(`予約 ${bookingId}: bookingId紐付けの直前点検募集が既存(日付移動済の可能性) → 再生成スキップ`);
+    } else if (insRecSnap.empty) {
       const insRef = await db.collection("recruitments").add({
         checkoutDate: checkIn,           // 直前点検の実施日(=checkIn)
         propertyId, propertyName,
