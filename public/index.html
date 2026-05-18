@@ -1048,6 +1048,17 @@
               <!-- 次の予約セクション (募集詳細モーダル) -->
               <div id="detailNextBookingArea" class="mt-3"></div>
 
+              <!-- タイミーメール照合履歴 (折りたたみ) -->
+              <details id="detailTimeeMatches" class="mt-3 border rounded">
+                <summary class="p-2 bg-light fw-bold" style="cursor:pointer;">
+                  <i class="bi bi-envelope-paper"></i> タイミーメール照合履歴
+                  <span class="badge bg-secondary ms-1" id="timeeMatchesCount">-</span>
+                </summary>
+                <div class="p-2" id="timeeMatchesBody">
+                  <div class="text-muted small">読み込み中...</div>
+                </div>
+              </details>
+
               <!-- Webアプリ管理者限定: 情報登録履歴 (iCal 取得日 / Gmail 照合日 等) -->
               <div id="ownerInfoLog" class="d-none"></div>
             </div>

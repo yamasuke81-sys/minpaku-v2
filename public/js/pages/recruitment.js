@@ -589,7 +589,77 @@ const RecruitmentPage = {
     // 次の予約セクションを非同期描画
     this._renderNextBookingArea(r);
 
+    // タイミーメール照合履歴 (折りたたみ、非同期描画)
+    this._renderTimeeMatches(r);
+
     this.detailModal.show();
+  },
+
+  // タイミーメール照合履歴を API から取得して描画
+  async _renderTimeeMatches(recruitment) {
+    const body = document.getElementById("timeeMatchesBody");
+    const countEl = document.getElementById("timeeMatchesCount");
+    if (!body) return;
+    body.innerHTML = '<div class="text-muted small">読み込み中...</div>';
+    if (countEl) countEl.textContent = "-";
+
+    try {
+      const token = await Auth.currentUser.getIdToken();
+      const res = await fetch(`/api/timee/by-recruitment/${encodeURIComponent(recruitment.id)}`, {
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      const items = data.items || [];
+      if (countEl) countEl.textContent = String(items.length);
+
+      if (items.length === 0) {
+        body.innerHTML = '<div class="text-muted small">該当するタイミーメールはありません。</div>';
+        return;
+      }
+
+      const fmtDate = (t) => {
+        if (!t) return "-";
+        const sec = t._seconds || t.seconds || 0;
+        if (!sec) return "-";
+        return new Date(sec * 1000).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" });
+      };
+      const evLabel = {
+        matched:     '<span class="badge bg-success">マッチ確定</span>',
+        summary:     '<span class="badge bg-info">状況通知</span>',
+        cancelled:   '<span class="badge bg-danger">キャンセル</span>',
+        fix_request: '<span class="badge bg-warning text-dark">修正依頼</span>',
+        closed:      '<span class="badge bg-secondary">締切</span>',
+        unknown:     '<span class="badge bg-light text-dark border">その他</span>',
+      };
+      const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+
+      body.innerHTML = items.map((m) => {
+        const workers = Array.isArray(m.workers) && m.workers.length
+          ? m.workers.map((w) => esc(w.name || "") + (w.age ? ` (${w.age}歳${w.gender || ""})` : "")).join(" / ")
+          : "";
+        const cap = m.capacity ? ` ${m.capacity.filled}/${m.capacity.total}名` : "";
+        const time = (m.workStartTime && m.workEndTime) ? ` ${m.workStartTime}〜${m.workEndTime}` : "";
+        return `
+          <div class="border-bottom py-2 small">
+            <div class="d-flex flex-wrap align-items-center gap-1">
+              ${evLabel[m.eventType] || evLabel.unknown}
+              <span class="text-muted">${fmtDate(m.receivedAt)}</span>
+              ${cap ? `<span class="badge bg-light text-dark border">${esc(cap.trim())}</span>` : ""}
+            </div>
+            <div class="mt-1">${esc(m.subject || "")}</div>
+            ${workers ? `<div class="text-muted">👤 ${workers}${time}</div>` : (time ? `<div class="text-muted">${esc(time.trim())}</div>` : "")}
+            ${m.offeringId ? `<div><a href="https://app-new.taimee.co.jp/clients/508795/offerings/${esc(m.offeringId)}" target="_blank" rel="noopener" class="small">タイミー求人ページ <i class="bi bi-box-arrow-up-right"></i></a></div>` : ""}
+          </div>`;
+      }).join("");
+    } catch (e) {
+      console.error("[timee-matches] エラー:", e);
+      body.innerHTML = `<div class="text-danger small">読み込み失敗: ${e.message}</div>`;
+      if (countEl) countEl.textContent = "?";
+    }
   },
 
   // A4: 自分の回答ボタンをモーダル上部 (スタッフ選定セクションの上) に描画

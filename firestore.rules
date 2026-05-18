@@ -331,6 +331,14 @@ service cloud.firestore {
       allow read, write: if isOwner();
     }
 
+    // Timee メール照合 — オーナーは全件、サブオーナーは自所有物件のもののみ read
+    // 書き込みは Cloud Functions (Admin SDK) のみを想定
+    match /timeeMatches/{messageId} {
+      allow read: if isOwner()
+        || (isSubOwner() && resource.data.propertyId in request.auth.token.ownedPropertyIds);
+      allow write: if false;
+    }
+
     // P1: メール照合パース失敗ログ (Cloud Functions Admin SDK で書込、オーナーは閲覧のみ)
     match /parse_errors/{messageId} {
       allow read: if isOwner();

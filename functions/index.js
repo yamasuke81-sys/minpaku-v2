@@ -155,6 +155,10 @@ app.use("/sync", syncApi(db));
 const emailVerificationApi = require("./api/email-verification");
 app.use("/email-verification", emailVerificationApi(db));
 
+// ========== Timee メール照合 API ==========
+const timeeApi = require("./api/timee");
+app.use("/timee", timeeApi(db));
+
 // ========== 予約履歴タイムライン API (オーナー専用) ==========
 const bookingTimelineApi = require("./api/booking-timeline");
 app.use("/booking-timeline", bookingTimelineApi(db));
@@ -257,6 +261,18 @@ exports.sendKeyboxScheduled = onSchedule({
   region: "asia-northeast1",
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/sendKeyboxScheduled"));
+
+// Timee メール巡回（10 分おき）
+exports.syncTimeeEmails = onSchedule({
+  schedule: "every 10 minutes",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, async () => {
+  const admin = require("firebase-admin");
+  if (!admin.apps.length) admin.initializeApp();
+  const syncCore = require("./scheduled/syncTimeeEmails");
+  await syncCore(admin.firestore(), { log: console });
+});
 
 // iCal同期（5分おき）— Beds24導入後はこちらを無効化
 exports.syncIcal = onSchedule({
