@@ -9,6 +9,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # コミット毎に自動で cache-bust:
+      #   - public/version.json の version を YYYYMMDD-<sha7> に書換
+      #   - public/index.html の <span id="appVersionMobile"> を同じ値に書換
+      #   - public/**/*.html 内の ?v=XXX クエリも全部書換
+      # → 開発者がコミット毎に手動更新する必要なし。確実に新版を配信。
+      - name: Auto cache-bust
+        run: |
+          set -euo pipefail
+          VER="$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
+          echo "cache-bust version: $VER"
+          # version.json
+          printf '{ "version": "%s" }\n' "$VER" > public/version.json
+          # index.html の version バッジ (appVersionMobile)
+          sed -i -E "s|(id=\"appVersionMobile\"[^>]*>)[^<]*(<)|\1${VER}\2|g" public/index.html
+          # 全 HTML 内の ?v=... を一括書換 (各 script/link の cache-bust)
+          find public -type f -name "*.html" -exec sed -i -E "s/(\?v=)[a-zA-Z0-9_.\-]+/\1${VER}/g" {} +
+          echo "--- patched version.json ---"
+          cat public/version.json
+          echo "--- patched index.html (version line) ---"
+          grep -E 'appVersionMobile' public/index.html | head -3
+
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:

@@ -39,10 +39,9 @@ const Auth = {
     const logoutBtn = document.getElementById("btnLogout");
     if (logoutBtn) logoutBtn.addEventListener("click", () => this.logout());
 
-    // キャッシュ削除して再読み込みボタン
-    const reloadBtn = document.getElementById("btnReloadCache");
-    if (reloadBtn) reloadBtn.addEventListener("click", async (ev) => {
-      ev.preventDefault();
+    // キャッシュ削除して再読み込みボタン (サイドバー内 + トップバー両対応)
+    const reloadHandler = async (ev) => {
+      if (ev) ev.preventDefault();
       try {
         // Service Worker キャッシュ + 登録解除 (ある場合のみ)
         if (typeof caches !== "undefined") {
@@ -65,7 +64,9 @@ const Auth = {
       } catch (_) {
         window.location.reload();
       }
-    });
+    };
+    document.getElementById("btnReloadCache")?.addEventListener("click", reloadHandler);
+    document.getElementById("btnReloadCacheTop")?.addEventListener("click", reloadHandler);
 
     // URLパラメータチェック（LINE OAuthコールバック / 招待受諾後のリダイレクト）
     this.handleAuthCallback();
