@@ -831,11 +831,73 @@ const GuestsPage = {
   },
 
   // === 詳細モーダル ===
-  showDetail(id) {
-    const g = this.guestList.find(x => x.id === id);
+  // 「予約詳細モーダル」 (DashboardPage.showBookingModal) と統合:
+  //   - guest.bookingId から bookings を取得 → showBookingModal を開く
+  //   - booking 未発見 / DashboardPage 未ロード時のみレガシー描画にフォールバック
+  async showDetail(id) {
+    const g = this.guestList.find((x) => x.id === id);
     if (!g) return;
 
-    // タイトルを「宿泊者情報詳細」に設定 (同 modal を GAS インポートで上書きされた状態を戻す)
+    if (g.bookingId && typeof DashboardPage !== "undefined" && typeof DashboardPage.showBookingModal === "function") {
+      try {
+        // 1) booking 取得
+        const bDoc = await db.collection("bookings").doc(g.bookingId).get();
+        if (bDoc.exists) {
+          const booking = { id: bDoc.id, ...bDoc.data() };
+          // CI を YYYY-MM-DD 文字列に正規化 (Timestamp/string 両対応)
+          const toStr = (v) => {
+            if (!v) return "";
+            if (typeof v === "string") return v.slice(0, 10);
+            if (v.toDate) return v.toDate().toISOString().slice(0, 10);
+            return new Date(v).toISOString().slice(0, 10);
+          };
+          const ci = toStr(booking.checkIn);
+          const co = toStr(booking.checkOut);
+
+          // 2) guestMap: 当該 guest のみで構築 ({propertyId}_{CI} キー)
+          const guestData = { id: g.id, ...g };
+          const guestMap = {};
+          if (booking.propertyId && ci) guestMap[`${booking.propertyId}_${ci}`] = guestData;
+          if (ci) guestMap[ci] = guestData;
+
+          // 3) 当該 CO 日の recruitment 取得 (清掃担当表示用)
+          let recruitments = [];
+          if (booking.propertyId && co) {
+            try {
+              const rSnap = await db.collection("recruitments")
+                .where("propertyId", "==", booking.propertyId)
+                .where("checkoutDate", "==", co)
+                .limit(3).get();
+              recruitments = rSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+            } catch (_) { /* 取得失敗時は空配列 */ }
+          }
+
+          // 4) viewMode はロールに合わせる (オーナー or サブオーナー = owner, スタッフ = staff)
+          const viewMode = (typeof Auth !== "undefined" && Auth.isOwner && Auth.isOwner()) ? "owner"
+                         : ((typeof Auth !== "undefined" && Auth.isSubOwner && Auth.isSubOwner()) ? "owner" : "staff");
+
+          DashboardPage.showBookingModal(booking, {
+            bookings: [booking],
+            recruitments,
+            guestMap,
+            properties: this.properties || [],
+            viewMode,
+            onGuestCountSaved: () => this.loadGuests(),
+          });
+          return;
+        }
+      } catch (e) {
+        console.warn("[guests.showDetail] booking 取得失敗、レガシー描画へフォールバック:", e.message);
+      }
+    }
+
+    // ===== フォールバック: 旧 guestDetailModal (booking 未発見等) =====
+    this._showDetailLegacy(g);
+  },
+
+  // 旧モーダル描画 (booking なし、または DashboardPage 未ロード時に使用)
+  _showDetailLegacy(g) {
+    // タイトルを「宿泊者情報詳細」に設定
     document.querySelector("#guestDetailModal .modal-title").innerHTML =
       '<i class="bi bi-person-vcard"></i> 宿泊者情報詳細';
 

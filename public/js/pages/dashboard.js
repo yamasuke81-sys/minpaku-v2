@@ -1315,6 +1315,42 @@ const DashboardPage = {
 
       ${gmailRow ? `<hr><table class="table table-sm table-borderless mb-0">${gmailRow}</table>` : ""}
 
+      ${(() => {
+        // 受信履歴・修正履歴 (guestRegistration ベース、ある場合のみ)
+        if (!guestData || !guestData.id) return "";
+        const tsToStr = (t) => {
+          if (!t) return null;
+          const d = t.toDate ? t.toDate() : (t.seconds ? new Date(t.seconds * 1000) : new Date(t));
+          if (isNaN(d.getTime())) return null;
+          return d.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+        };
+        const createdStr = tsToStr(guestData.createdAt);
+        const updatedStr = tsToStr(guestData.updatedAt);
+        const completeStr = tsToStr(guestData.formCompleteMailSentAt);
+        const updateMailStr = tsToStr(guestData.formUpdateMailSentAt);
+        const editHistory = Array.isArray(guestData.editHistory) ? guestData.editHistory : [];
+        let rows = "";
+        if (createdStr) rows += `<tr><td class="text-muted small" style="width:130px;">名簿受信</td><td>${this.esc(createdStr)}</td></tr>`;
+        if (completeStr && completeStr !== createdStr) rows += `<tr><td class="text-muted small">完了メール送信</td><td>${this.esc(completeStr)}</td></tr>`;
+        if (editHistory.length > 0) {
+          const items = editHistory.slice().reverse().map((h) => {
+            const at = tsToStr(h.editedAt) || "-";
+            const ch = Array.isArray(h.changes) ? h.changes.join(" / ") : (h.summary || "");
+            return `<li class="small mb-1"><strong>${this.esc(at)}</strong>: ${this.esc(ch)}</li>`;
+          }).join("");
+          rows += `<tr><td class="text-muted small">修正履歴 (${editHistory.length}回)</td><td><ul class="mb-0 ps-3">${items}</ul></td></tr>`;
+        } else if (updatedStr && updatedStr !== createdStr) {
+          rows += `<tr><td class="text-muted small">最終更新</td><td>${this.esc(updatedStr)}${updateMailStr ? ` <span class="badge bg-light text-muted border ms-1">通知送信: ${this.esc(updateMailStr)}</span>` : ""}</td></tr>`;
+        }
+        if (!rows) return "";
+        return `<details class="mt-3 border rounded">
+          <summary class="p-2 bg-light fw-bold small" style="cursor:pointer;">
+            <i class="bi bi-clock-history"></i> 名簿受信・修正履歴
+          </summary>
+          <table class="table table-sm table-borderless mb-0 small">${rows}</table>
+        </details>`;
+      })()}
+
       ${isStaffView ? "" : (() => {
         // === 名簿リンク + キーボックス送信 (オーナービュー専用) ===
         const gid = guestData && guestData.id;
