@@ -1717,15 +1717,23 @@ const DashboardPage = {
         if (!gid) return;
         // GuestsPage が利用可能ならその実装をそのまま使う (確認モーダル + 物件設定確認 + 書き込み)
         if (typeof GuestsPage !== "undefined" && typeof GuestsPage._reserveKeyboxSend === "function") {
-          // GuestsPage 側の実装は完了後 loadGuests/showDetail を呼ぶが
-          // guestList 未初期化だとエラーになりうるため最低限のスタブを入れる
+          // GuestsPage 側は完了後 loadGuests/showDetail を呼ぶが、
+          // ダッシュボード画面には宿泊者名簿の DOM (#guestSearch 等) が無く
+          // 元実装をそのまま呼ぶと null.value で落ち、update 成功後でも
+          // 「予約失敗」トーストが出てしまう。常にスタブへ差し替えて呼び、
+          // 終わったら元に戻す。
           if (!Array.isArray(GuestsPage.guestList)) GuestsPage.guestList = [];
-          if (typeof GuestsPage.loadGuests !== "function") GuestsPage.loadGuests = async () => {};
-          if (typeof GuestsPage.showDetail !== "function") GuestsPage.showDetail = () => {};
+          const origLoad = GuestsPage.loadGuests;
+          const origShow = GuestsPage.showDetail;
+          GuestsPage.loadGuests = async () => {};
+          GuestsPage.showDetail = () => {};
           try {
             await GuestsPage._reserveKeyboxSend({ ...guestData, id: gid });
           } catch (e) {
             console.error("キーボックス予約エラー:", e);
+          } finally {
+            GuestsPage.loadGuests = origLoad;
+            GuestsPage.showDetail = origShow;
           }
         } else {
           // フォールバック: 直接 guestRegistrations.keyboxConfirmedAt をセット
