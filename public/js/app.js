@@ -47,6 +47,7 @@ const App = {
     "my-invoice": MyInvoicePage,
     "my-invoice-create": MyInvoiceCreatePage,
     "prepaid-cards": PrepaidCardsPage,
+    "staff-guide": StaffGuidePage,
   },
 
   init() {
