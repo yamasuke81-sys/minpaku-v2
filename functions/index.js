@@ -297,6 +297,9 @@ exports.orphanCleanup = require("./scheduled/orphanCleanup").orphanCleanup;
 // チェックリスト写真 30日超過削除（毎日 3:00 JST）
 exports.photoCleanup = require("./scheduled/photoCleanup").photoCleanup;
 
+// scan-sorter 受信BOX自動処理（5分おき / Firestore で ON/OFF と間隔を制御）
+exports.scanSorterProcess = require("./scheduled/scanSorterProcess").scanSorterProcess;
+
 // BEDS24同期（5分おき）— BEDS24登録後に有効化
 // exports.syncBeds24 = onSchedule({
 //   schedule: "every 5 minutes",

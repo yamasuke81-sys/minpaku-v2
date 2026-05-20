@@ -47,6 +47,55 @@ module.exports = function scanSorterApi(db) {
   });
 
   // ========================================
+  // スケジューラ設定の取得・更新
+  // settings/scanSorter.scheduler に保存
+  // ========================================
+  router.get("/scheduler", async (req, res) => {
+    try {
+      const doc = await db.collection("settings").doc("scanSorter").get();
+      const data = doc.exists ? doc.data() : {};
+      const sched = data.scheduler || {};
+      res.json({
+        enabled: !!sched.enabled,
+        intervalMinutes: sched.intervalMinutes || 30,
+        lastRunAt: sched.lastRunAt || null,
+        lastResult: sched.lastResult || null,
+      });
+    } catch (e) {
+      console.error("scheduler取得エラー:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  router.put("/scheduler", async (req, res) => {
+    try {
+      const { enabled, intervalMinutes } = req.body || {};
+      const allowedIntervals = [5, 10, 15, 30, 60, 120, 360, 720, 1440];
+      const interval = allowedIntervals.includes(Number(intervalMinutes)) ? Number(intervalMinutes) : 30;
+
+      // 既存設定とマージ（lastRunAt, lastResult は保持）
+      const docRef = db.collection("settings").doc("scanSorter");
+      const cur = (await docRef.get()).data() || {};
+      const prev = cur.scheduler || {};
+
+      await docRef.set(
+        {
+          scheduler: {
+            ...prev,
+            enabled: !!enabled,
+            intervalMinutes: interval,
+          },
+        },
+        { merge: true }
+      );
+      res.json({ success: true, enabled: !!enabled, intervalMinutes: interval });
+    } catch (e) {
+      console.error("scheduler更新エラー:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ========================================
   // デバッグ: 設定とサービスアカウント確認
   // ========================================
   router.get("/debug", async (req, res) => {
@@ -214,19 +263,18 @@ module.exports = function scanSorterApi(db) {
   });
 
   // ========================================
-  // 1ファイルを処理（OCR + 分類）
+  // 1ファイル処理のコア（ルート/スケジューラから共用）
   // ========================================
-  router.post("/process/:fileId", async (req, res) => {
-    try {
-      const { fileId } = req.params;
+  async function processOneFile(fileId) {
+    // 既に処理済みかチェック
+    const existing = await logsCol.where("fileId", "==", fileId).get();
+    if (!existing.empty) {
+      const err = new Error("このファイルは既に処理済みです");
+      err.code = "ALREADY_PROCESSED";
+      throw err;
+    }
 
-      // 既に処理済みかチェック
-      const existing = await logsCol.where("fileId", "==", fileId).get();
-      if (!existing.empty) {
-        return res.status(409).json({ error: "このファイルは既に処理済みです" });
-      }
-
-      const settings = await getSettings_(db);
+    const settings = await getSettings_(db);
       const drive = await getDriveClient_();
 
       // ファイル情報取得
@@ -451,8 +499,20 @@ module.exports = function scanSorterApi(db) {
         console.error("物件マスタ自動選定エラー:", autoErr.message);
       }
 
-      res.json({ id: logRef.id, ...logData });
+      return { id: logRef.id, ...logData };
+  }
+
+  // ========================================
+  // 1ファイルを処理（OCR + 分類）— ルートハンドラ
+  // ========================================
+  router.post("/process/:fileId", async (req, res) => {
+    try {
+      const result = await processOneFile(req.params.fileId);
+      res.json(result);
     } catch (e) {
+      if (e.code === "ALREADY_PROCESSED") {
+        return res.status(409).json({ error: e.message });
+      }
       console.error("ファイル処理エラー:", e);
       res.status(500).json({ error: "ファイル処理に失敗しました: " + e.message });
     }
@@ -2746,6 +2806,9 @@ module.exports = function scanSorterApi(db) {
       res.status(500).json({ error: e.message });
     }
   });
+
+  // スケジューラ等から呼び出せるように関数を attach
+  router.processOneFile = processOneFile;
 
   return router;
 };
