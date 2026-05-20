@@ -572,6 +572,12 @@ module.exports = function scanSorterApi(db) {
       const settings = await getSettings_(db);
       const drive = await getDriveClient_();
 
+      // 自動機能フラグ（デフォルト全 OFF）
+      const autoFeatures = settings.autoFeatures || {};
+      const autoTaxCopy = autoFeatures.taxShareCopy === true;
+      const autoLearn = autoFeatures.learningSave === true;
+      const autoLedger = autoFeatures.ledgerWrite === true;
+
       // 修正値があればマージ
       const finalCategory = category || logData.category;
       const finalVendor = vendor || logData.vendor;
@@ -640,10 +646,11 @@ module.exports = function scanSorterApi(db) {
       }
 
       // 税理士共有フォルダ（taxFolders設定から直接フォルダIDを取得してコピー）
+      // 自動コピーは autoFeatures.taxShareCopy=true の場合のみ実行
       const taxShareFolders = logData.taxShareFolders || [];
       const taxCopyResults = {};
-      console.log(`[approve ${logId}] taxShareFolders=${JSON.stringify(taxShareFolders)}`);
-      if (taxShareFolders.length > 0) {
+      console.log(`[approve ${logId}] autoTaxCopy=${autoTaxCopy}, taxShareFolders=${JSON.stringify(taxShareFolders)}`);
+      if (autoTaxCopy && taxShareFolders.length > 0) {
         // entities（名義マスタ）からフォルダID一覧を取得（旧taxFoldersとの後方互換あり）
         const entitySnap = await db.collection("entities").get();
         const taxFolderMap = {}; // { name: taxFolderId, id: taxFolderId }
@@ -699,8 +706,10 @@ module.exports = function scanSorterApi(db) {
         approvedAt: FieldValue.serverTimestamp(),
       });
 
-      // 学習データに追加
-      await saveLearning_(learningCol, finalVendor, finalCategory);
+      // 学習データに追加（autoFeatures.learningSave=true の場合のみ）
+      if (autoLearn) {
+        await saveLearning_(learningCol, finalVendor, finalCategory);
+      }
 
       // 物件マスタにrecentDestFoldersを蓄積
       if (logData.propertyName && logData.propertyName !== "その他" && moveResult.folderId) {
@@ -718,9 +727,9 @@ module.exports = function scanSorterApi(db) {
       }
 
       // 移動先学習データ（scanDestLearning）を保存/更新
-      // 移動先学習データ: docTitle優先、後方互換でdocTypeフォールバック
+      // autoFeatures.learningSave=true の場合のみ実行
       const learnDocType = logData.docTitle || logData.docType || "";
-      if (logData.propertyName && learnDocType && moveResult.folderId) {
+      if (autoLearn && logData.propertyName && learnDocType && moveResult.folderId) {
         try {
           const learnQuery = await db.collection("scanDestLearning")
             .where("propertyName", "==", logData.propertyName)
