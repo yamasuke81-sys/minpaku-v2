@@ -850,10 +850,10 @@ const StaffPage = {
     // 担当物件チェックボックス(民泊物件のみ、デフォルト外れ)
     this.renderPropertyCheckboxes(staff?.assignedPropertyIds || []);
 
-    // 物件オーナーセクション（編集時のみ表示・オーナー本人のみ操作可）
+    // 物件オーナーセクション（新規・編集どちらでも表示・サブオーナー本人ログイン時は非表示）
     // サブオーナー本人ログイン時は他人をサブオーナー化する操作を一切禁止する
     const subOwnerSection = document.getElementById("staffSubOwnerSection");
-    if (isEdit && !Auth.isSubOwner()) {
+    if (!Auth.isSubOwner()) {
       subOwnerSection.classList.remove("d-none");
       const isSubOwnerEl = document.getElementById("staffIsSubOwner");
       isSubOwnerEl.checked = !!staff?.isSubOwner;
@@ -871,15 +871,15 @@ const StaffPage = {
       subOwnerSection.classList.add("d-none");
     }
 
-    // LINE連携セクション（編集時のみ表示）
+    // LINE連携セクション（新規・編集どちらでも表示）
     const lineSection = document.getElementById("staffLineSection");
     const lineUserIdEl = document.getElementById("staffLineUserId");
     const authStatusEl = document.getElementById("staffAuthStatus");
     const inviteResult = document.getElementById("inviteLinkResult");
+    lineSection.classList.remove("d-none");
+    lineUserIdEl.value = staff?.lineUserId || "";
+    inviteResult.classList.add("d-none");
     if (isEdit) {
-      lineSection.classList.remove("d-none");
-      lineUserIdEl.value = staff?.lineUserId || "";
-      inviteResult.classList.add("d-none");
       // 認証状態表示
       if (staff?.authUid) {
         authStatusEl.classList.remove("d-none");
@@ -890,8 +890,20 @@ const StaffPage = {
         authStatusEl.textContent = "未認証";
         authStatusEl.className = "badge bg-warning text-dark";
       }
-      // 招待リンクボタン
-      const btnInvite = document.getElementById("btnInviteStaff");
+    } else {
+      authStatusEl.classList.add("d-none");
+    }
+    // 招待リンクボタン (新規時は保存後に発行可能と案内)
+    const btnInvite = document.getElementById("btnInviteStaff");
+    if (!isEdit) {
+      btnInvite.disabled = true;
+      btnInvite.title = "スタッフを保存すると発行できます";
+      btnInvite.onclick = () => {
+        showToast("保存が必要", "先に「保存」してから招待リンクを発行してください", "warning");
+      };
+    } else {
+      btnInvite.disabled = false;
+      btnInvite.title = "";
       btnInvite.onclick = async () => {
         try {
           btnInvite.disabled = true;
@@ -907,23 +919,21 @@ const StaffPage = {
           btnInvite.innerHTML = '<i class="bi bi-link-45deg"></i> 招待リンク発行';
         }
       };
-      // コピーボタン
-      document.getElementById("btnCopyInviteLink").onclick = () => {
+    }
+    // コピーボタン
+    document.getElementById("btnCopyInviteLink").onclick = () => {
+      const url = window.withExternalBrowser(document.getElementById("inviteLinkUrl").value);
+      navigator.clipboard.writeText(url).then(() => showToast("コピー", "リンクをコピーしました", "success"));
+    };
+    // LINEで共有ボタン
+    const btnShareLine = document.getElementById("btnShareInviteLine");
+    if (btnShareLine) {
+      btnShareLine.onclick = () => {
         const url = window.withExternalBrowser(document.getElementById("inviteLinkUrl").value);
-        navigator.clipboard.writeText(url).then(() => showToast("コピー", "リンクをコピーしました", "success"));
+        if (!url) { showToast("エラー", "先に招待リンクを発行してください", "error"); return; }
+        const text = encodeURIComponent(`民泊管理アプリへの招待です。以下のリンクから参加してください:\n${url}`);
+        window.open(`https://line.me/R/share?text=${text}`, "_blank");
       };
-      // LINEで共有ボタン
-      const btnShareLine = document.getElementById("btnShareInviteLine");
-      if (btnShareLine) {
-        btnShareLine.onclick = () => {
-          const url = window.withExternalBrowser(document.getElementById("inviteLinkUrl").value);
-          if (!url) { showToast("エラー", "先に招待リンクを発行してください", "error"); return; }
-          const text = encodeURIComponent(`民泊管理アプリへの招待です。以下のリンクから参加してください:\n${url}`);
-          window.open(`https://line.me/R/share?text=${text}`, "_blank");
-        };
-      }
-    } else {
-      lineSection.classList.add("d-none");
     }
 
     this.modal.show();
@@ -986,30 +996,28 @@ const StaffPage = {
       memo: document.getElementById("staffMemo").value.trim(),
     };
 
-    // LINE User ID（編集時のみ）
-    if (id) {
-      const lineUserId = document.getElementById("staffLineUserId")?.value?.trim();
-      if (lineUserId !== undefined) {
-        data.lineUserId = lineUserId || null;
-      }
+    // LINE User ID（新規・編集どちらも保存）
+    const lineUserId = document.getElementById("staffLineUserId")?.value?.trim();
+    if (lineUserId !== undefined) {
+      data.lineUserId = lineUserId || null;
+    }
 
-      // 物件オーナー設定
-      const isSubOwnerEl = document.getElementById("staffIsSubOwner");
-      if (isSubOwnerEl) {
-        data.isSubOwner = isSubOwnerEl.checked;
-        if (isSubOwnerEl.checked) {
-          const ownedPropertyIds = [];
-          document.querySelectorAll("#staffOwnedProperties input[type=checkbox]:checked").forEach(cb => {
-            ownedPropertyIds.push(cb.value);
-          });
-          data.ownedPropertyIds = ownedPropertyIds;
-          data.subOwnerLineUserId = (document.getElementById("staffSubOwnerLineUserId")?.value || "").trim() || null;
-          data.subOwnerEmail = (document.getElementById("staffSubOwnerEmail")?.value || "").trim() || null;
-        } else {
-          data.ownedPropertyIds = [];
-          data.subOwnerLineUserId = null;
-          data.subOwnerEmail = null;
-        }
+    // 物件オーナー設定（新規・編集どちらも保存。サブオーナー本人ログイン時はそもそも UI が非表示）
+    const isSubOwnerEl = document.getElementById("staffIsSubOwner");
+    if (isSubOwnerEl) {
+      data.isSubOwner = isSubOwnerEl.checked;
+      if (isSubOwnerEl.checked) {
+        const ownedPropertyIds = [];
+        document.querySelectorAll("#staffOwnedProperties input[type=checkbox]:checked").forEach(cb => {
+          ownedPropertyIds.push(cb.value);
+        });
+        data.ownedPropertyIds = ownedPropertyIds;
+        data.subOwnerLineUserId = (document.getElementById("staffSubOwnerLineUserId")?.value || "").trim() || null;
+        data.subOwnerEmail = (document.getElementById("staffSubOwnerEmail")?.value || "").trim() || null;
+      } else {
+        data.ownedPropertyIds = [];
+        data.subOwnerLineUserId = null;
+        data.subOwnerEmail = null;
       }
     }
 
