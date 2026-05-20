@@ -425,6 +425,14 @@ exports.staffUndecidedRemind = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/staffUndecidedRemind"));
 
+// バッチ通知キュー処理（毎時実行 — JST 8時/20時 のみ稼働）
+// 「朝バッチ(8時)」「夜バッチ(20時)」プリセットでキューイングされた通知を一括配信
+exports.processBatchNotificationQueue = onSchedule({
+  schedule: "0 * * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/processBatchNotificationQueue"));
+
 // 直前点検リマインド（毎時実行）— inspection.enabled=true 物件のチェックイン前日に通知
 exports.sendInspectionReminder = onSchedule({
   schedule: "0 * * * *",

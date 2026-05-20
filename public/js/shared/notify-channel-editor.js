@@ -468,13 +468,7 @@
   // ========== 1タイミングぶんの行 ==========
   function renderTimingRow(dk, t, idx) {
     const mode = t.mode || "event";
-    const rawTiming = t.timing || "immediate";
-    // 保存値が beforeEvent+0日前+08:00/20:00 ならプリセット「当日8時/当日20時」として表示
-    let timing = rawTiming;
-    if (rawTiming === "beforeEvent" && parseInt(t.beforeDays, 10) === 0) {
-      if (t.beforeTime === "08:00") timing = "dayof_8";
-      else if (t.beforeTime === "20:00") timing = "dayof_20";
-    }
+    const timing = t.timing || "immediate";
     const showEventBlock = mode === "event";
     const showDateBlock = mode === "date";
     const showMinutes = showEventBlock && timing === "custom";
@@ -493,7 +487,7 @@
 
         <div class="notify-mode-event align-items-center gap-1 ${showEventBlock?"d-flex":"d-none"}" data-key="${dk}" data-idx="${idx}">
           <select class="form-select form-select-sm notify-timing-select" style="width:auto;" data-key="${dk}" data-idx="${idx}" data-field="timing">
-            ${[["immediate","即時"],["5min","5分後"],["15min","15分後"],["30min","30分後"],["1hour","1時間後"],["morning","翌朝6時"],["dayof_8","当日8時"],["evening","当日18時"],["dayof_20","当日20時"],["custom","カスタム（分）"],["beforeEvent","N日前のHH:MM"]].map(([v,l]) => `<option value="${v}" ${timing===v?"selected":""}>${l}</option>`).join("")}
+            ${[["immediate","即時"],["5min","5分後"],["15min","15分後"],["30min","30分後"],["1hour","1時間後"],["morning","翌朝6時"],["batch_morning_8","朝バッチ(8時)"],["evening","当日18時"],["batch_evening_20","夜バッチ(20時)"],["custom","カスタム（分）"],["beforeEvent","N日前のHH:MM"]].map(([v,l]) => `<option value="${v}" ${timing===v?"selected":""}>${l}</option>`).join("")}
           </select>
           <input type="number" class="form-control form-control-sm notify-timing-minutes ${showMinutes?"":"d-none"}"
             style="width:90px;" data-key="${dk}" data-idx="${idx}" data-field="timingMinutes"
@@ -566,19 +560,12 @@
       const t = { mode };
       if (mode === "event") {
         const timing = q(`select[data-field="timing"]`)?.value || "immediate";
-        // プリセット「当日8時/当日20時」は beforeEvent+0日前+08:00/20:00 として保存
-        if (timing === "dayof_8") {
-          t.timing = "beforeEvent"; t.beforeDays = 0; t.beforeTime = "08:00";
-        } else if (timing === "dayof_20") {
-          t.timing = "beforeEvent"; t.beforeDays = 0; t.beforeTime = "20:00";
-        } else {
-          t.timing = timing;
-          if (timing === "custom") {
-            t.timingMinutes = parseInt(q(`input[data-field="timingMinutes"]`)?.value, 10) || 0;
-          } else if (timing === "beforeEvent") {
-            t.beforeDays = parseInt(q(`input[data-field="beforeDays"]`)?.value, 10) || 0;
-            t.beforeTime = q(`input[data-field="beforeTime"]`)?.value || "09:00";
-          }
+        t.timing = timing;
+        if (timing === "custom") {
+          t.timingMinutes = parseInt(q(`input[data-field="timingMinutes"]`)?.value, 10) || 0;
+        } else if (timing === "beforeEvent") {
+          t.beforeDays = parseInt(q(`input[data-field="beforeDays"]`)?.value, 10) || 0;
+          t.beforeTime = q(`input[data-field="beforeTime"]`)?.value || "09:00";
         }
       } else {
         t.schedulePattern = q(`select[data-field="schedulePattern"]`)?.value || "monthEnd";

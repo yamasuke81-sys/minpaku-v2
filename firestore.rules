@@ -305,6 +305,12 @@ service cloud.firestore {
       allow update, delete: if isOwner();
     }
 
+    // バッチ通知キュー — Cloud Functions 専用 (クライアントはアクセス不可)
+    match /notificationQueue/{queueId} {
+      allow read: if isOwner();
+      allow write: if false;
+    }
+
     // ========== 税理士資料収集 ==========
 
     // 名義・法人マスタ — オーナーのみ

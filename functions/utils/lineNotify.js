@@ -1183,6 +1183,20 @@ async function notifyByKey(db, notifyKey, options = {}) {
     return { sent: {}, errors: [] };
   }
 
+  // 2.5 バッチタイミング: timings に batch_morning_8 / batch_evening_20 があれば即時送信せずキューに入れる
+  // 無限ループ防止: バッチ処理関数からの呼び出し時は options._fromBatchQueue = true を渡す
+  if (!options._fromBatchQueue) {
+    const channelOv = (propertyOverrides && propertyOverrides[notifyKey]) || {};
+    const batchSlots = Array.isArray(channelOv.timings)
+      ? channelOv.timings
+          .filter(t => t && t.mode !== "date" && (t.timing === "batch_morning_8" || t.timing === "batch_evening_20"))
+          .map(t => t.timing === "batch_morning_8" ? "08:00" : "20:00")
+      : [];
+    if (batchSlots.length > 0) {
+      return await enqueueBatchNotification_(db, notifyKey, options, batchSlots);
+    }
+  }
+
   // 物件起点のメールは property.senderGmail を fromEmail に使う
   const propertySenderGmail = await resolveSenderGmail_(db, propertyId);
 
@@ -1429,6 +1443,58 @@ async function notifyByKey(db, notifyKey, options = {}) {
   } catch (_) { /* ignore log error */ }
 
   return { sent, errors };
+}
+
+// ============================================================
+// バッチ通知キュー: 「朝バッチ(8時) / 夜バッチ(20時)」プリセット用
+// ============================================================
+
+// 次の JST batch スロット時刻の「日付 (YYYY-MM-DD)」を返す。
+// 現在 JST 時刻が既にそのスロットを過ぎていれば翌日へ。
+function computeNextBatchDateJst_(slot) {
+  const [hh] = String(slot).split(":").map(Number);
+  const jstNow = new Date(Date.now() + 9 * 3600 * 1000);
+  const jstHour = jstNow.getUTCHours();
+  const target = new Date(jstNow);
+  if (jstHour >= hh) target.setUTCDate(target.getUTCDate() + 1);
+  return target.toISOString().slice(0, 10);
+}
+
+// Firestore 保存用に options を sanitize (undefined / function を除去)
+function sanitizeOptionsForQueue_(options) {
+  try {
+    return JSON.parse(JSON.stringify(options, (k, v) => {
+      if (k === "_fromBatchQueue") return undefined;
+      if (typeof v === "function" || typeof v === "symbol") return undefined;
+      if (v === undefined) return null;
+      return v;
+    }));
+  } catch (e) {
+    return {};
+  }
+}
+
+async function enqueueBatchNotification_(db, notifyKey, options, slots) {
+  const admin = require("firebase-admin");
+  const queueIds = [];
+  for (const slot of slots) {
+    const scheduledForDate = computeNextBatchDateJst_(slot);
+    try {
+      const ref = await db.collection("notificationQueue").add({
+        notifyKey,
+        options: sanitizeOptionsForQueue_(options),
+        batchSlot: slot,
+        scheduledForDate,
+        status: "pending",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      queueIds.push(ref.id);
+      console.log(`[notifyByKey] バッチキュー追加: ${notifyKey} slot=${slot} date=${scheduledForDate} id=${ref.id}`);
+    } catch (e) {
+      console.error(`[notifyByKey] バッチキュー追加失敗: ${notifyKey} slot=${slot}`, e);
+    }
+  }
+  return { sent: {}, errors: [], queued: queueIds, batchSlots: slots };
 }
 
 module.exports = {
