@@ -404,3 +404,41 @@ body.sidebar-hidden .app-main { margin-left: 0; }
   animation: btnPulse 1.5s infinite;
 }
 
+
+/* === 清掃チェックリスト 大カテゴリ アコーディオン安定化 === */
+/* タップ時に大きく見えるのを抑制: focus shadow/outline/tap-highlight を排除 */
+.mcl-cat .accordion-button {
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: none !important;
+  outline: none !important;
+  transition: background-color 0.12s ease !important;
+}
+.mcl-cat .accordion-button:focus,
+.mcl-cat .accordion-button:focus-visible {
+  box-shadow: none !important;
+  outline: none !important;
+  border-color: transparent !important;
+}
+.mcl-cat .accordion-button:not(.collapsed) {
+  /* 展開時の Bootstrap デフォルト青背景を弱める (バウンス感の原因) */
+  background-color: rgba(13,110,253,0.08) !important;
+  color: inherit !important;
+}
+/* アコーディオン展開アニメを短くしてタップ判定ズレを軽減 */
+.mcl-cat .accordion-collapse.collapsing {
+  transition-duration: 0.15s !important;
+}
+
+/* === 代理閲覧バナー スマホ最適化 === */
+@media (max-width: 575.98px) {
+  .impersonate-banner {
+    font-size: 0.7rem !important;
+    padding: 2px 6px !important;
+  }
+  .impersonate-banner strong {
+    max-width: 60vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

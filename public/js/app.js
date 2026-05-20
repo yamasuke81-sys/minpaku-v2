@@ -142,15 +142,17 @@ const App = {
     if (!banner) {
       banner = document.createElement("div");
       banner.id = "impersonateBanner";
-      banner.className = "impersonate-banner alert alert-warning alert-dismissible mb-0 rounded-0 d-flex align-items-center";
-      banner.style.cssText = "position:sticky;top:0;z-index:1050;font-size:0.85rem;padding:6px 12px;";
+      banner.className = "impersonate-banner alert alert-warning mb-0 rounded-0 d-flex align-items-center";
+      banner.style.cssText = "position:sticky;top:0;z-index:1050;font-size:0.75rem;padding:3px 8px;line-height:1.3;";
       document.querySelector(".app-main")?.prepend(banner);
     }
+    const ownedCount = (subOwner.ownedPropertyIds || []).length;
     banner.innerHTML = `
-      <i class="bi bi-person-badge me-2"></i>
-      <strong>代理閲覧中: ${this.escapeHtml(subOwner.name)}</strong>
-      <span class="ms-2 text-muted small">(所有物件: ${(subOwner.ownedPropertyIds || []).length}件)</span>
-      <button type="button" class="btn btn-sm btn-outline-dark ms-auto" id="btnExitImpersonate">
+      <i class="bi bi-person-badge me-1"></i>
+      <strong class="text-truncate">代理: ${this.escapeHtml(subOwner.name)}</strong>
+      <span class="ms-1 text-muted d-none d-sm-inline">(物件${ownedCount}件)</span>
+      <button type="button" class="btn btn-outline-dark ms-auto" id="btnExitImpersonate"
+        style="font-size:0.7rem;padding:1px 6px;line-height:1.2;">
         <i class="bi bi-x-circle"></i> 解除
       </button>
     `;

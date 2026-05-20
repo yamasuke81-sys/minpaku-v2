@@ -537,10 +537,15 @@ const MyChecklistPage = {
           this.renderTree();
         } else {
           // 楽観 UI 直後の自分自身の書き込みは再描画スキップ (チラツキ防止)
+          // ユーザーがタップ操作中もスキップ (タップ判定がズレて誤遷移する事故防止)
           // バッジだけ軽量更新する
-          if (this._suppressRerenderUntil && Date.now() < this._suppressRerenderUntil) {
+          const inSuppressWindow = this._suppressRerenderUntil && Date.now() < this._suppressRerenderUntil;
+          const userTouching = !!this._userTouchActive;
+          if (inSuppressWindow || userTouching) {
             this._updateHeaderStatus();
             this._updateTabBadges();
+            // タップ操作中の場合は、操作終了後に再描画を1度だけ行うようフラグを立てる
+            if (userTouching) this._pendingRerender = true;
             return;
           }
           // 差分更新: スクロール位置を保持しながらバッジ・コンテンツ・タブスタイルを一括更新
@@ -3009,18 +3014,24 @@ const MyChecklistPage = {
     // チェックボックスは pointer-events:none にしてあるため change イベントは発火しない
     // カード全体タップ (mcl-item-tap) でチェック状態を切り替える
     el.querySelectorAll(".mcl-item-tap").forEach(card => {
-      // タッチ操作で active 視覚フィードバック
+      // タッチ操作で active 視覚フィードバック + onSnapshot 再描画抑制
       card.addEventListener("touchstart", () => {
         card.style.opacity = "0.75";
+        this._userTouchActive = true;
+        // 安全弁: 600ms 経過したら強制解除 (touchend が来ない端末向け)
+        clearTimeout(this._touchSafeguard);
+        this._touchSafeguard = setTimeout(() => this._endUserTouch(), 600);
       }, { passive: true });
-      card.addEventListener("touchend", () => {
+      const endTouch = () => {
         card.style.opacity = "";
-      }, { passive: true });
-      card.addEventListener("touchcancel", () => {
-        card.style.opacity = "";
-      }, { passive: true });
+        this._endUserTouch();
+      };
+      card.addEventListener("touchend", endTouch, { passive: true });
+      card.addEventListener("touchcancel", endTouch, { passive: true });
 
       card.addEventListener("click", (ev) => {
+        // 親要素(アコーディオンボタン等)にバブリングして誤動作するのを防ぐ
+        ev.stopPropagation();
         // 要補充チェックボックス (mcl-restock) と label のクリックはここに到達しない
         // (stopPropagation 済み)
         const itemId = card.dataset.itemId;
@@ -3052,6 +3063,22 @@ const MyChecklistPage = {
         this._openSampleLightbox(allUrls, allLabels, startIdx);
       });
     });
+  },
+
+  // タップ終了処理 — ペンディングしていた再描画があれば実行
+  _endUserTouch() {
+    this._userTouchActive = false;
+    clearTimeout(this._touchSafeguard);
+    if (this._pendingRerender) {
+      this._pendingRerender = false;
+      // 即座に再描画すると click 処理と競合するので 1 フレーム遅延
+      setTimeout(() => {
+        if (this._userTouchActive) return; // 再びタップが始まっていたら次の touchend に委ねる
+        this._updateHeaderStatus();
+        this._updateTabBadges();
+        try { this._renderActiveTopTab(); } catch (_) {}
+      }, 80);
+    }
   },
 
   async updateItemState(itemId, patch) {
