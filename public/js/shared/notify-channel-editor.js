@@ -467,13 +467,19 @@
 
   // ========== 1タイミングぶんの行 ==========
   function renderTimingRow(dk, t, idx) {
-    const mode = t.mode || "event";
+    // mode 未指定でも timing が batch_* なら自動的に batch モードとして表示
+    let mode = t.mode;
+    if (!mode) {
+      mode = (t.timing === "batch_morning_8" || t.timing === "batch_evening_20") ? "batch" : "event";
+    }
     const timing = t.timing || "immediate";
     const showEventBlock = mode === "event";
     const showDateBlock = mode === "date";
+    const showBatchBlock = mode === "batch";
     const showMinutes = showEventBlock && timing === "custom";
     const showBeforeEvent = showEventBlock && timing === "beforeEvent";
     const pat = t.schedulePattern || "monthEnd";
+    const batchSlot = (timing === "batch_evening_20") ? "batch_evening_20" : "batch_morning_8";
     // name 属性でラジオを排他にするため、衝突しない一意なIDを作る
     const radioName = `mode-${dk.replace(/[^a-zA-Z0-9_-]/g, "_")}-${idx}`;
     return `
@@ -483,11 +489,13 @@
           <label class="btn btn-outline-secondary" for="${radioName}-event">都度</label>
           <input type="radio" class="btn-check notify-mode-radio" name="${radioName}" id="${radioName}-date" value="date" ${mode==="date"?"checked":""} data-key="${dk}" data-idx="${idx}">
           <label class="btn btn-outline-secondary" for="${radioName}-date">日付</label>
+          <input type="radio" class="btn-check notify-mode-radio" name="${radioName}" id="${radioName}-batch" value="batch" ${mode==="batch"?"checked":""} data-key="${dk}" data-idx="${idx}">
+          <label class="btn btn-outline-secondary" for="${radioName}-batch">バッチ</label>
         </div>
 
         <div class="notify-mode-event align-items-center gap-1 ${showEventBlock?"d-flex":"d-none"}" data-key="${dk}" data-idx="${idx}">
           <select class="form-select form-select-sm notify-timing-select" style="width:auto;" data-key="${dk}" data-idx="${idx}" data-field="timing">
-            ${[["immediate","即時"],["5min","5分後"],["15min","15分後"],["30min","30分後"],["1hour","1時間後"],["morning","翌朝6時"],["batch_morning_8","朝バッチ(8時)"],["evening","当日18時"],["batch_evening_20","夜バッチ(20時)"],["custom","カスタム（分）"],["beforeEvent","N日前のHH:MM"]].map(([v,l]) => `<option value="${v}" ${timing===v?"selected":""}>${l}</option>`).join("")}
+            ${[["immediate","即時"],["5min","5分後"],["15min","15分後"],["30min","30分後"],["1hour","1時間後"],["morning","翌朝6時"],["evening","当日18時"],["custom","カスタム（分）"],["beforeEvent","N日前のHH:MM"]].map(([v,l]) => `<option value="${v}" ${timing===v?"selected":""}>${l}</option>`).join("")}
           </select>
           <input type="number" class="form-control form-control-sm notify-timing-minutes ${showMinutes?"":"d-none"}"
             style="width:90px;" data-key="${dk}" data-idx="${idx}" data-field="timingMinutes"
@@ -499,6 +507,14 @@
           <input type="time" class="form-control form-control-sm notify-before-time ${showBeforeEvent?"":"d-none"}"
             style="width:110px;" data-key="${dk}" data-idx="${idx}" data-field="beforeTime"
             value="${t.beforeTime||"09:00"}">
+        </div>
+
+        <div class="notify-mode-batch align-items-center gap-1 ${showBatchBlock?"d-flex":"d-none"}" data-key="${dk}" data-idx="${idx}">
+          <select class="form-select form-select-sm notify-batch-select" style="width:auto;" data-key="${dk}" data-idx="${idx}" data-field="batchSlot">
+            <option value="batch_morning_8" ${batchSlot==="batch_morning_8"?"selected":""}>朝バッチ(8時)</option>
+            <option value="batch_evening_20" ${batchSlot==="batch_evening_20"?"selected":""}>夜バッチ(20時)</option>
+          </select>
+          <span class="small text-muted">に次の便でまとめて送信</span>
         </div>
 
         <div class="notify-mode-date align-items-center gap-1 ${showDateBlock?"d-flex":"d-none"}" data-key="${dk}" data-idx="${idx}">
@@ -567,6 +583,8 @@
           t.beforeDays = parseInt(q(`input[data-field="beforeDays"]`)?.value, 10) || 0;
           t.beforeTime = q(`input[data-field="beforeTime"]`)?.value || "09:00";
         }
+      } else if (mode === "batch") {
+        t.timing = q(`select[data-field="batchSlot"]`)?.value || "batch_morning_8";
       } else {
         t.schedulePattern = q(`select[data-field="schedulePattern"]`)?.value || "monthEnd";
         t.scheduleTime = q(`input[data-field="scheduleTime"]`)?.value || "09:00";
@@ -754,6 +772,8 @@
             row.querySelector(".notify-mode-event")?.classList.toggle("d-none", mode !== "event");
             row.querySelector(".notify-mode-date")?.classList.toggle("d-flex", mode === "date");
             row.querySelector(".notify-mode-date")?.classList.toggle("d-none", mode !== "date");
+            row.querySelector(".notify-mode-batch")?.classList.toggle("d-flex", mode === "batch");
+            row.querySelector(".notify-mode-batch")?.classList.toggle("d-none", mode !== "batch");
           }
           if (t.classList.contains("notify-timing-select")) {
             const val = t.value;
