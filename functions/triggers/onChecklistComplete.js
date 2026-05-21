@@ -88,6 +88,67 @@ module.exports = async function onChecklistComplete(event) {
 
   // ---- 処理B: Webアプリ管理者に清掃完了通知 (type: cleaning_done) ----
   try {
+    // (1) ゲスト評価★: checklist.bookingId → shift.bookingId の順で booking 解決 → cleanlinessRating
+    let rating = null;
+    try {
+      let bookingId = after.bookingId || null;
+      if (!bookingId && shiftId) {
+        const sDoc = await db.collection("shifts").doc(shiftId).get();
+        if (sDoc.exists) bookingId = sDoc.data().bookingId || null;
+      }
+      if (bookingId) {
+        const bDoc = await db.collection("bookings").doc(bookingId).get();
+        if (bDoc.exists) {
+          const r = bDoc.data().cleanlinessRating;
+          if (typeof r === "number") rating = r;
+        }
+      }
+    } catch (_) { /* 評価取得失敗は無視 */ }
+
+    // (2) メモ抽出
+    const notes = Array.isArray(after.notes) ? after.notes : [];
+    const memoLines = notes
+      .map(n => (n && n.text || "").toString().trim())
+      .filter(s => s.length > 0)
+      .map(s => `・${s}`);
+
+    // (3) 在庫切れかけ抽出 (itemStates[id].needsRestock=true)
+    const itemStates = after.itemStates || {};
+    const items = Array.isArray(after.items) ? after.items : [];
+    const lowStockNames = items
+      .filter(it => it && it.id && itemStates[it.id] && itemStates[it.id].needsRestock)
+      .map(it => it.name || it.title || it.id || "")
+      .filter(Boolean);
+
+    // (4) 写真URL集約 (before/after + メモ写真)、上位5枚を本文に
+    const photoUrlsAll = [
+      ...(Array.isArray(after.beforePhotos) ? after.beforePhotos : []),
+      ...(Array.isArray(after.afterPhotos) ? after.afterPhotos : []),
+      ...notes.flatMap(n => Array.isArray(n && n.photoUrls) ? n.photoUrls : []),
+    ].filter(u => typeof u === "string" && u.startsWith("http"));
+    const PHOTO_LIMIT = 5;
+    const photoUrlsTrim = photoUrlsAll.slice(0, PHOTO_LIMIT);
+    const photoMore = photoUrlsAll.length > PHOTO_LIMIT ? `\n... 他${photoUrlsAll.length - PHOTO_LIMIT}枚` : "";
+
+    // (5) ★評価テキスト
+    const ratingText = (typeof rating === "number" && rating >= 0)
+      ? "★".repeat(rating) + "☆".repeat(Math.max(0, 5 - rating)) + ` (${rating}/5)`
+      : "未評価";
+
+    // (6) 本文構築
+    let ownerMsg = `✨ 清掃完了\n\n${dateStr} ${propertyName || ""}\n${staffName || "スタッフ"}さんが${timeStr}に清掃を完了しました。`;
+    ownerMsg += `\n\nゲストの使い方: ${ratingText}`;
+    if (lowStockNames.length > 0) {
+      ownerMsg += `\n\n📦 在庫切れかけ:\n${lowStockNames.map(n => `・${n}`).join("\n")}`;
+    }
+    if (memoLines.length > 0) {
+      ownerMsg += `\n\n📝 メモ:\n${memoLines.join("\n")}`;
+    }
+    if (photoUrlsTrim.length > 0) {
+      ownerMsg += `\n\n📷 写真 (${photoUrlsAll.length}枚):\n${photoUrlsTrim.join("\n")}${photoMore}`;
+    }
+    ownerMsg += `\n\n詳細: ${checklistUrl}`;
+
     const vars = {
       date: dateStr,
       property: propertyName || "",
@@ -96,8 +157,12 @@ module.exports = async function onChecklistComplete(event) {
       work: workLabel(after.workType),
       workType: after.workType || "cleaning",
       url: checklistUrl,
+      rating: ratingText,
+      memos: memoLines.join("\n"),
+      lowStock: lowStockNames.map(n => `・${n}`).join("\n"),
+      photos: photoUrlsTrim.join("\n") + photoMore,
+      photoCount: String(photoUrlsAll.length),
     };
-    const ownerMsg = `✨ 清掃完了\n\n${dateStr} ${propertyName || ""}\n${staffName || "スタッフ"}さんが${timeStr}に清掃を完了しました。\n詳細: ${checklistUrl}`;
     // notifyByKey でチャネル別に発射 (ownerLine/groupLine/staffLine/ownerEmail/discord/...)
     await notifyByKey(db, "cleaning_done", {
       title: "清掃完了",

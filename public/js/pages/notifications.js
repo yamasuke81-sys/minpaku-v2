@@ -54,11 +54,16 @@ const NotificationsPage = {
     ],
     // 清掃系で使える変数
     cleaning: [
-      { name: "date",     label: "清掃日",          sample: "2026/04/20",   source: "checklist.date" },
-      { name: "property", label: "物件名",          sample: "長浜民泊A",     source: "checklist.propertyName" },
-      { name: "staff",    label: "スタッフ名",       sample: "山田太郎",      source: "checklist.staffName" },
-      { name: "time",     label: "完了時刻",        sample: "14:30",        source: "checklist.completedAt" },
-      { name: "url",      label: "チェックリストURL", sample: "https://minpaku-v2.web.app/#/my-checklist/xxx", source: "自動生成 (該当シフトのチェックリストページ)" },
+      { name: "date",       label: "清掃日",          sample: "2026/04/20",   source: "checklist.date" },
+      { name: "property",   label: "物件名",          sample: "長浜民泊A",     source: "checklist.propertyName" },
+      { name: "staff",      label: "スタッフ名",       sample: "山田太郎",      source: "checklist.staffName" },
+      { name: "time",       label: "完了時刻",        sample: "14:30",        source: "checklist.completedAt" },
+      { name: "url",        label: "チェックリストURL", sample: "https://minpaku-v2.web.app/#/my-checklist/xxx", source: "自動生成 (該当シフトのチェックリストページ)" },
+      { name: "rating",     label: "ゲストの使い方★",  sample: "★★★★☆ (4/5)", source: "booking.cleanlinessRating" },
+      { name: "memos",      label: "メモ一覧",         sample: "・カーペット汚れ", source: "checklist.notes[].text" },
+      { name: "lowStock",   label: "在庫切れかけ項目",   sample: "・ビニール袋",    source: "checklist.itemStates needsRestock=true" },
+      { name: "photos",     label: "写真URL (最大5枚)", sample: "https://...",  source: "checklist 写真URL集約" },
+      { name: "photoCount", label: "写真枚数",         sample: "8",            source: "上記合計" },
     ],
     // ランドリー系で使える変数 (アクション違いは通知type別に定義、action 変数は使わない)
     laundry: [
