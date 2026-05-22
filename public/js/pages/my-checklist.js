@@ -737,10 +737,7 @@ const MyChecklistPage = {
         <div style="display:flex;align-items:center;gap:6px;">
           <!-- 清掃完了ボタン: 常時表示 (sticky / flex-shrink:0) -->
           <div id="mclStickyComplete" style="flex-shrink:0;"></div>
-          <!-- エリアタブ: 横スクロール可 -->
-          <ul class="nav nav-pills flex-nowrap overflow-auto mb-0" style="white-space:nowrap;gap:8px;flex:1;min-width:0;">
-            ${areaTabs}
-          </ul>
+          <!-- エリアタブ: 縦連続表示に変更したため非表示 (並び順は編集画面で制御) -->
         </div>
       </div>
       <div id="mclTopTabContent"></div>
@@ -1401,12 +1398,31 @@ const MyChecklistPage = {
     const el = document.getElementById("mclTopTabContent");
     if (!el || !this.checklist) return;
     const areas = this.checklist.templateSnapshot || [];
-    const area = areas.find(a => a.id === this.activeAreaId);
-    if (!area) return;
+    if (areas.length === 0) {
+      el.innerHTML = `<div class="alert alert-secondary mt-2">チェックリスト項目がありません</div>`;
+      return;
+    }
     const states = this.checklist.itemStates || {};
-    const total = this.countItems([area]);
-    const done = this.countItemsDone(area, states);
-    const allChecked = total > 0 && done === total;
+    const totalAll = this.countItems(areas);
+    const doneAll = this.countDone(areas, states);
+    const allChecked = totalAll > 0 && doneAll === totalAll;
+
+    // 全エリアを縦に並べて出力 (タブ廃止)。並び順は templateSnapshot のまま
+    const areasHtml = areas.map(area => {
+      const total = this.countItems([area]);
+      const done = this.countItemsDone(area, states);
+      const areaAllChecked = total > 0 && done === total;
+      return `
+        <section class="mcl-area-section mb-4" data-area-id="${this.escapeHtml(area.id)}">
+          <h5 class="mcl-area-heading border-bottom pb-1 mb-2 mt-3 d-flex align-items-center gap-2" style="font-size:15px;font-weight:600;">
+            ${this.escapeHtml(area.name)}
+            <span class="badge ${areaAllChecked ? 'bg-success' : 'bg-secondary'}" style="font-size:11px;">${done}/${total}</span>
+          </h5>
+          ${this.renderChildren(area)}
+        </section>
+      `;
+    }).join("");
+
     el.innerHTML = `
       <div id="mclAreaContent">
         <div class="d-flex gap-1 mb-1 mt-1 flex-wrap">
@@ -1417,13 +1433,16 @@ const MyChecklistPage = {
             <i class="bi bi-arrows-expand"></i> 全展開/折りたたみ
           </button>
         </div>
-        ${this.renderChildren(area)}
+        ${areasHtml}
       </div>
       <div id="mclChecklistNotes" class="mt-4 px-1"></div>
       <div id="mclFooter" class="mt-3 px-1"></div>
     `;
     this.wireChildren(el);
-    el.querySelector(".mcl-toggle-all-check")?.addEventListener("click", () => this.toggleAllCheckInArea(area, allChecked));
+    // 全エリア対象の一括 toggle
+    el.querySelector(".mcl-toggle-all-check")?.addEventListener("click", () => {
+      areas.forEach(a => this.toggleAllCheckInArea(a, allChecked));
+    });
     el.querySelector(".mcl-toggle-all-expand")?.addEventListener("click", () => this.toggleAllExpandInArea(el));
 
     this._renderChecklistNotes();
@@ -3266,6 +3285,15 @@ const MyChecklistPage = {
     const el = document.getElementById("mclPhotoSection");
     if (!el || !this.checklist) return;
     const c = this.checklist;
+    // モード: localStorage 記憶。デフォルト bulk (既存挙動)
+    const storedMode = localStorage.getItem("mcl_photo_mode");
+    const mode = this._photoMode || storedMode || "bulk";
+    this._photoMode = mode;
+    // 項目別モード時は専用関数へ委譲
+    if (mode === "perSpot") {
+      this._renderPhotoSectionPerSpot(el);
+      return;
+    }
     const isCompleted = c.status === "completed";
     const before = c.beforePhotos || [];
     const after = c.afterPhotos || [];
@@ -3325,14 +3353,27 @@ const MyChecklistPage = {
 
     el.innerHTML = `
       <div class="px-1">
-        <div class="d-flex align-items-center mb-2 gap-2">
+        <div class="d-flex align-items-center mb-2 gap-2 flex-wrap">
           <span class="fw-bold"><i class="bi bi-images"></i> 清掃写真</span>
           <span class="small text-muted">前後の写真を記録できます（30日保持）</span>
+          <div class="btn-group btn-group-sm ms-auto" role="group" aria-label="モード">
+            <button type="button" class="btn btn-primary mcl-photo-mode-btn" data-mode="bulk">一括</button>
+            <button type="button" class="btn btn-outline-primary mcl-photo-mode-btn" data-mode="perSpot">項目別(見本→撮影)</button>
+          </div>
         </div>
         ${makeGrid("before", before)}
         ${makeGrid("after", after)}
       </div>
     `;
+    // モード切替
+    el.querySelectorAll(".mcl-photo-mode-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const m = btn.dataset.mode;
+        this._photoMode = m;
+        try { localStorage.setItem("mcl_photo_mode", m); } catch (_) {}
+        this.renderPhotoSection();
+      });
+    });
 
     // ファイル選択イベント
     el.querySelectorAll(".mcl-photo-input").forEach(inp => {
@@ -3356,6 +3397,203 @@ const MyChecklistPage = {
     el.querySelectorAll(".mcl-photo-preview").forEach(img => {
       img.addEventListener("click", () => this._previewPhotoUrl(img.dataset.photoUrl));
     });
+  },
+
+  // ===== 項目別モード (撮影箇所単位の見本/Before/After 3枠) =====
+  async _renderPhotoSectionPerSpot(el) {
+    const c = this.checklist;
+    const isCompleted = c.status === "completed";
+    // 物件マスタから photoSpots を取得 (毎回 fetch、項目別タブを開いた時のみ)
+    let spots = [];
+    try {
+      const propSnap = await firebase.firestore()
+        .collection("properties").doc(c.propertyId).get();
+      if (propSnap.exists) {
+        const arr = propSnap.data().photoSpots;
+        if (Array.isArray(arr)) spots = arr;
+      }
+    } catch (e) { console.warn("[photoSpots] fetch error", e); }
+
+    // モード切替セグメント (再描画用)
+    const modeSegment = `
+      <div class="d-flex align-items-center mb-2 gap-2 flex-wrap">
+        <span class="fw-bold"><i class="bi bi-images"></i> 清掃写真 — 項目別</span>
+        <span class="small text-muted">見本を見ながら同じ構図で撮影</span>
+        <div class="btn-group btn-group-sm ms-auto" role="group">
+          <button type="button" class="btn btn-outline-primary mcl-photo-mode-btn" data-mode="bulk">一括</button>
+          <button type="button" class="btn btn-primary mcl-photo-mode-btn" data-mode="perSpot">項目別(見本→撮影)</button>
+        </div>
+      </div>
+    `;
+
+    if (spots.length === 0) {
+      el.innerHTML = `
+        <div class="px-1">
+          ${modeSegment}
+          <div class="alert alert-secondary">
+            この物件には「撮影箇所」がまだ登録されていません。<br>
+            物件管理画面で見本写真と一緒に追加してください。
+          </div>
+        </div>`;
+      el.querySelectorAll(".mcl-photo-mode-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          this._photoMode = btn.dataset.mode;
+          try { localStorage.setItem("mcl_photo_mode", this._photoMode); } catch (_) {}
+          this.renderPhotoSection();
+        });
+      });
+      return;
+    }
+
+    const spotPhotos = c.spotPhotos || {};
+    const renderFrame = (spot, kind) => {
+      const arr = (spotPhotos[spot.id] || {})[kind] || [];
+      const first = arr[0];
+      const label = kind === "before" ? "Before" : "After";
+      const canAdd = !isCompleted;
+      if (first) {
+        return `
+          <div class="mcl-spot-frame" style="position:relative;width:100%;aspect-ratio:1/1;border:2px solid #dee2e6;border-radius:8px;overflow:hidden;">
+            <img src="${this.escapeHtml(first.url)}" alt="${label}" loading="lazy"
+                 style="width:100%;height:100%;object-fit:cover;cursor:pointer;"
+                 class="mcl-photo-preview" data-photo-url="${this.escapeHtml(first.url)}">
+            <div style="position:absolute;top:4px;left:4px;background:rgba(0,0,0,0.55);color:#fff;padding:1px 6px;font-size:11px;border-radius:6px;">${label}${arr.length > 1 ? ` +${arr.length - 1}` : ""}</div>
+            ${canAdd ? `
+              <button type="button" class="btn btn-sm btn-danger mcl-spot-del" data-spot-id="${this.escapeHtml(spot.id)}" data-kind="${kind}" data-idx="0"
+                style="position:absolute;top:4px;right:4px;padding:0 6px;font-size:11px;border-radius:10px;opacity:0.85;">×</button>` : ""}
+          </div>`;
+      }
+      // 未アップ → 「+」枠
+      return `
+        <label class="mcl-spot-frame" style="display:flex;align-items:center;justify-content:center;width:100%;aspect-ratio:1/1;border:2px dashed #adb5bd;border-radius:8px;cursor:${canAdd ? "pointer" : "default"};background:#f8f9fa;color:#6c757d;">
+          <div class="text-center">
+            <div style="font-size:32px;line-height:1;">+</div>
+            <div class="small mt-1">${label}</div>
+          </div>
+          ${canAdd ? `<input type="file" accept="image/*" capture="environment" class="d-none mcl-spot-input" data-spot-id="${this.escapeHtml(spot.id)}" data-kind="${kind}">` : ""}
+        </label>`;
+    };
+
+    const sampleFrame = (spot) => {
+      if (spot.sampleImageUrl) {
+        return `
+          <div class="mcl-spot-frame" style="position:relative;width:100%;aspect-ratio:1/1;border:2px solid #ffc107;border-radius:8px;overflow:hidden;">
+            <img src="${this.escapeHtml(spot.sampleImageUrl)}" alt="見本" loading="lazy"
+                 style="width:100%;height:100%;object-fit:cover;cursor:pointer;"
+                 class="mcl-photo-preview" data-photo-url="${this.escapeHtml(spot.sampleImageUrl)}">
+            <div style="position:absolute;top:4px;left:4px;background:rgba(255,193,7,0.95);color:#000;padding:1px 6px;font-size:11px;border-radius:6px;font-weight:600;">見本</div>
+          </div>`;
+      }
+      return `
+        <div class="mcl-spot-frame" style="display:flex;align-items:center;justify-content:center;width:100%;aspect-ratio:1/1;border:2px dashed #ffc107;border-radius:8px;background:#fff8e1;color:#856404;">
+          <div class="text-center small">見本未登録</div>
+        </div>`;
+    };
+
+    const spotsHtml = spots.map(spot => `
+      <div class="card mb-2">
+        <div class="card-body p-2">
+          <div class="fw-bold mb-2" style="font-size:14px;">${this.escapeHtml(spot.name || "(無名)")}</div>
+          <div class="row g-2">
+            <div class="col-4">${sampleFrame(spot)}</div>
+            <div class="col-4">${renderFrame(spot, "before")}</div>
+            <div class="col-4">${renderFrame(spot, "after")}</div>
+          </div>
+        </div>
+      </div>
+    `).join("");
+
+    el.innerHTML = `
+      <div class="px-1">
+        ${modeSegment}
+        ${spotsHtml}
+      </div>
+    `;
+
+    // モード切替
+    el.querySelectorAll(".mcl-photo-mode-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        this._photoMode = btn.dataset.mode;
+        try { localStorage.setItem("mcl_photo_mode", this._photoMode); } catch (_) {}
+        this.renderPhotoSection();
+      });
+    });
+
+    // ファイル選択 → アップロード
+    el.querySelectorAll(".mcl-spot-input").forEach(inp => {
+      inp.addEventListener("change", async (ev) => {
+        const spotId = inp.dataset.spotId;
+        const kind = inp.dataset.kind;
+        const file = (ev.target.files || [])[0];
+        inp.value = "";
+        if (!file) return;
+        try {
+          await this.uploadPhotoForSpot(spotId, kind, file);
+        } catch (e) {
+          console.error("[uploadPhotoForSpot] error", e);
+          if (typeof showToast === "function") showToast("アップロード失敗", e.message || "", "error");
+        }
+      });
+    });
+
+    // 削除ボタン
+    el.querySelectorAll(".mcl-spot-del").forEach(btn => {
+      btn.addEventListener("click", () => {
+        this.deletePhotoForSpot(btn.dataset.spotId, btn.dataset.kind, parseInt(btn.dataset.idx, 10) || 0);
+      });
+    });
+
+    // プレビュー拡大
+    el.querySelectorAll(".mcl-photo-preview").forEach(img => {
+      img.addEventListener("click", () => this._previewPhotoUrl(img.dataset.photoUrl));
+    });
+  },
+
+  /** 撮影箇所単位の写真アップロード */
+  async uploadPhotoForSpot(spotId, kind, file) {
+    const c = this.checklist;
+    if (!c || !this.checklistId || !spotId) return;
+    const blob = await this._resizeImage(file, this.PHOTO_LONG_SIDE);
+    const ts = Date.now();
+    const rand = Math.random().toString(36).slice(2, 7);
+    const path = `checklist-photos/${c.propertyId}/${this.checklistId}/spots/${spotId}/${kind}/${ts}_${rand}.jpg`;
+    const storageRef = firebase.storage().ref(path);
+    const user = firebase.auth().currentUser;
+    await storageRef.put(blob, {
+      contentType: "image/jpeg",
+      customMetadata: { uploadedBy: user?.uid || "", checklistId: this.checklistId, spotId, kind },
+    });
+    const url = await storageRef.getDownloadURL();
+    const entry = {
+      url, path, kind, spotId,
+      uploadedAt: firebase.firestore.Timestamp.now(),
+      uploadedBy: user?.uid || "",
+    };
+    await firebase.firestore().collection("checklists").doc(this.checklistId).update({
+      [`spotPhotos.${spotId}.${kind}`]: firebase.firestore.FieldValue.arrayUnion(entry),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+  },
+
+  /** 撮影箇所単位の写真削除 */
+  async deletePhotoForSpot(spotId, kind, idx) {
+    const c = this.checklist;
+    if (!c || !this.checklistId || !spotId) return;
+    const arr = ((c.spotPhotos || {})[spotId] || {})[kind] || [];
+    const target = arr[idx];
+    if (!target) return;
+    if (typeof showConfirm === "function") {
+      const ok = await showConfirm(`${kind === "before" ? "Before" : "After"} 写真を削除しますか?`);
+      if (!ok) return;
+    }
+    const newArr = arr.filter((_, i) => i !== idx);
+    await firebase.firestore().collection("checklists").doc(this.checklistId).update({
+      [`spotPhotos.${spotId}.${kind}`]: newArr,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    if (target.path) {
+      try { await firebase.storage().ref(target.path).delete(); } catch (_) { /* 既に消えてる場合は無視 */ }
+    }
   },
 
   /** ファイルを受け取ってリサイズ→アップロード */

@@ -488,6 +488,13 @@ const PropertiesPage = {
     this._renderLineChannels();
     this._bindLineChannelEvents();
 
+    // 撮影箇所マスタ (photoSpots)
+    this._photoSpots = Array.isArray(property.photoSpots)
+      ? property.photoSpots.map(s => ({ ...s }))
+      : [];
+    this._renderPhotoSpots();
+    this._bindPhotoSpotEvents();
+
     // LINE連携セクションは常時展開 (折りたたみ機能なし)
 
     this.modal.show();
@@ -657,6 +664,7 @@ const PropertiesPage = {
       // LINE 連携フィールド
       lineEnabled: document.getElementById("propertyLineEnabled").checked,
       lineChannels: this._collectLineChannels(),
+      photoSpots: Array.isArray(this._photoSpots) ? this._photoSpots.map(s => ({ ...s })) : [],
       // 配信モード（single / rotate / fallback）、未選択時は fallback
       lineDeliveryMode: (() => {
         const el = document.querySelector('input[name="propLineDeliveryMode"]:checked');
@@ -795,6 +803,7 @@ const PropertiesPage = {
       notificationEmailName: (document.getElementById("propertyNotificationEmailName")?.value || "").trim(),
       lineEnabled: document.getElementById("propertyLineEnabled").checked,
       lineChannels: this._collectLineChannels(),
+      photoSpots: Array.isArray(this._photoSpots) ? this._photoSpots.map(s => ({ ...s })) : [],
       // 配信モード（single / rotate / fallback）、未選択時は fallback
       lineDeliveryMode: (() => {
         const el = document.querySelector('input[name="propLineDeliveryMode"]:checked');
@@ -1231,6 +1240,141 @@ const PropertiesPage = {
 
     // _legacy フラグは送信不要なので除去
     return this._lineChannels.map(({ _legacy, ...rest }) => rest);
+  },
+
+  // ============================================================
+  // 撮影箇所マスタ (photoSpots) — 清掃写真 項目別モード用
+  // ============================================================
+  _renderPhotoSpots() {
+    const container = document.getElementById("photoSpotsList");
+    if (!container) return;
+    const spots = this._photoSpots || [];
+    if (spots.length === 0) {
+      container.innerHTML = `<div class="text-muted small">撮影箇所が登録されていません。下のボタンから追加してください。</div>`;
+      return;
+    }
+    container.innerHTML = spots.map((s, i) => `
+      <div class="card mb-2 ps-card" data-idx="${i}">
+        <div class="card-body p-2">
+          <div class="row g-2 align-items-center">
+            <div class="col-3 col-md-2">
+              ${s.sampleImageUrl
+                ? `<img src="${this.escapeHtml(s.sampleImageUrl)}" alt="見本" style="width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:6px;border:2px solid #ffc107;">`
+                : `<label class="ps-sample-upload" data-idx="${i}" style="display:flex;align-items:center;justify-content:center;width:100%;aspect-ratio:1/1;border:2px dashed #ffc107;border-radius:6px;background:#fff8e1;color:#856404;cursor:pointer;">
+                    <div class="text-center small"><div style="font-size:24px;">+</div>見本</div>
+                    <input type="file" accept="image/*" class="d-none ps-sample-input" data-idx="${i}">
+                  </label>`}
+            </div>
+            <div class="col-9 col-md-9">
+              <input type="text" class="form-control form-control-sm ps-name" data-idx="${i}" placeholder="撮影箇所名 (例: 寝室ベッド, トイレ便器)" value="${this.escapeHtml(s.name || "")}">
+              ${s.sampleImageUrl ? `
+                <div class="d-flex gap-1 mt-1">
+                  <label class="btn btn-sm btn-outline-secondary" style="cursor:pointer;">
+                    <i class="bi bi-arrow-repeat"></i> 見本を差し替え
+                    <input type="file" accept="image/*" class="d-none ps-sample-input" data-idx="${i}">
+                  </label>
+                </div>` : ""}
+            </div>
+            <div class="col-12 col-md-1 text-end">
+              <button type="button" class="btn btn-sm btn-outline-danger ps-remove" data-idx="${i}" title="削除">
+                <i class="bi bi-x-lg"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `).join("");
+  },
+
+  _bindPhotoSpotEvents() {
+    const container = document.getElementById("photoSpotsList");
+    const addBtn = document.getElementById("btnAddPhotoSpot");
+    if (addBtn && !addBtn.dataset.psBound) {
+      addBtn.dataset.psBound = "1";
+      addBtn.addEventListener("click", () => {
+        const id = "spot_" + Math.random().toString(36).slice(2, 10);
+        this._photoSpots.push({ id, name: "", sampleImageUrl: "" });
+        this._renderPhotoSpots();
+      });
+    }
+    if (container && !container.dataset.psBound) {
+      container.dataset.psBound = "1";
+      // 名前変更
+      container.addEventListener("change", async (e) => {
+        const el = e.target;
+        const idx = parseInt(el.dataset.idx, 10);
+        if (isNaN(idx) || !this._photoSpots[idx]) return;
+        if (el.classList.contains("ps-name")) {
+          this._photoSpots[idx].name = el.value.trim();
+          this._scheduleAutoSavePhotoSpots();
+        } else if (el.classList.contains("ps-sample-input")) {
+          const file = (e.target.files || [])[0];
+          if (file) await this._uploadPhotoSpotSample(idx, file);
+        }
+      });
+      // 削除
+      container.addEventListener("click", (e) => {
+        const btn = e.target.closest(".ps-remove");
+        if (!btn) return;
+        const idx = parseInt(btn.dataset.idx, 10);
+        if (isNaN(idx)) return;
+        this._photoSpots.splice(idx, 1);
+        this._renderPhotoSpots();
+        this._scheduleAutoSavePhotoSpots();
+      });
+    }
+  },
+
+  _scheduleAutoSavePhotoSpots() {
+    if (!this.editingId) return;
+    clearTimeout(this._autoSaveTimer);
+    this._autoSaveTimer = setTimeout(() => this._autoSave(), 800);
+  },
+
+  async _uploadPhotoSpotSample(idx, file) {
+    const pid = this.editingId;
+    if (!pid) { alert("先に物件を保存してください"); return; }
+    const spot = this._photoSpots[idx];
+    if (!spot) return;
+    try {
+      // リサイズ (簡易: 縦横 1200 以下)
+      const blob = await this._resizeImageForSpot(file, 1200);
+      const ts = Date.now();
+      const path = `photo-spots/${pid}/${spot.id}/sample_${ts}.jpg`;
+      const ref = firebase.storage().ref(path);
+      await ref.put(blob, { contentType: "image/jpeg" });
+      const url = await ref.getDownloadURL();
+      this._photoSpots[idx].sampleImageUrl = url;
+      this._photoSpots[idx].sampleImagePath = path;
+      this._renderPhotoSpots();
+      this._scheduleAutoSavePhotoSpots();
+    } catch (e) {
+      console.error("[_uploadPhotoSpotSample] error", e);
+      alert("見本写真のアップロードに失敗: " + e.message);
+    }
+  },
+
+  async _resizeImageForSpot(file, longSide) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const max = Math.max(img.width, img.height);
+          const scale = max > longSide ? (longSide / max) : 1;
+          const w = Math.round(img.width * scale);
+          const h = Math.round(img.height * scale);
+          const canvas = document.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+          canvas.toBlob(b => b ? resolve(b) : reject(new Error("toBlob failed")), "image/jpeg", 0.85);
+        };
+        img.onerror = reject;
+        img.src = reader.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
   },
 
   // ---- iCal 管理（物件モーダル内） ----
