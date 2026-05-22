@@ -1157,6 +1157,12 @@ const PropertiesPage = {
       fetchBtn.dataset.chBound = "1";
       fetchBtn.addEventListener("click", () => this._openLineRecentUsersModal());
     }
+    // 「📋 groupId 候補を見る」ボタン (webhook log 全体から)
+    const fetchGidBtn = document.getElementById("btnFetchGroupIdCandidates");
+    if (fetchGidBtn && !fetchGidBtn.dataset.chBound) {
+      fetchGidBtn.dataset.chBound = "1";
+      fetchGidBtn.addEventListener("click", () => this._openGroupIdCandidatesModal());
+    }
 
     // リストコンテナへの委譲（削除・入力変更）
     const container = document.getElementById("lineChannelsList");
@@ -1436,6 +1442,101 @@ const PropertiesPage = {
   },
 
   /** LINE 最近ユーザー取得モーダル */
+  // line_webhook_logs から全 groupId 候補を取得して表示
+  async _openGroupIdCandidatesModal() {
+    // モーダルを動的生成 (初回のみ)
+    let modalEl = document.getElementById("groupIdCandidatesModal");
+    if (!modalEl) {
+      const html = `
+        <div class="modal fade" id="groupIdCandidatesModal" tabindex="-1">
+          <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-collection"></i> groupId 候補 (webhook 受信履歴)</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+              </div>
+              <div class="modal-body" id="groupIdCandidatesBody"></div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button>
+              </div>
+            </div>
+          </div>
+        </div>`;
+      document.body.insertAdjacentHTML("beforeend", html);
+      modalEl = document.getElementById("groupIdCandidatesModal");
+    }
+    const body = document.getElementById("groupIdCandidatesBody");
+    body.innerHTML = `<div class="text-center text-muted py-4"><div class="spinner-border"></div><div class="mt-2 small">読み込み中...</div></div>`;
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    try {
+      const CF_BASE = "https://api-5qrfx7ujcq-an.a.run.app";
+      const token = await firebase.auth().currentUser.getIdToken();
+      const res = await fetch(`${CF_BASE}/properties/group-id-candidates`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || `HTTP ${res.status}`);
+      }
+      const result = await res.json();
+      const cands = result.candidates || [];
+      if (cands.length === 0) {
+        body.innerHTML = `<div class="empty-state text-center text-muted py-4"><i class="bi bi-inbox fs-2"></i><p class="mt-2 mb-0">line_webhook_logs に groupId 付きの受信履歴がありません。</p><p class="small mt-2">公式アカウントをグループに招待 → 何かメッセージを送信 → 数秒待って再度開いてください。</p></div>`;
+        return;
+      }
+      body.innerHTML = `
+        <p class="small text-muted mb-2">クリックで groupId をクリップボードにコピー。LINE Bot 設定欄に貼り付けてください。</p>
+        <table class="table table-sm align-middle">
+          <thead class="table-light">
+            <tr>
+              <th>groupId</th>
+              <th class="text-end">受信回数</th>
+              <th>最終受信</th>
+              <th>紐付け状況</th>
+              <th class="text-end">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${cands.map(c => {
+              const linkedHtml = c.isLinked
+                ? c.linkedTo.map(l => `<span class="badge bg-success me-1">${this.escapeHtml(l.propertyName)} / ${this.escapeHtml(l.channelName)}</span>`).join("")
+                : `<span class="badge bg-warning text-dark">未紐付け</span>`;
+              const date = c.lastReceivedAt ? new Date(c.lastReceivedAt).toLocaleString("ja-JP", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "(不明)";
+              return `
+                <tr>
+                  <td><code style="font-size:11px;word-break:break-all;">${this.escapeHtml(c.groupId)}</code></td>
+                  <td class="text-end"><strong>${c.count}</strong></td>
+                  <td class="small text-muted">${date}</td>
+                  <td>${linkedHtml}</td>
+                  <td class="text-end">
+                    <button class="btn btn-sm btn-outline-primary group-id-copy" data-gid="${this.escapeHtml(c.groupId)}" title="groupId をコピー">
+                      <i class="bi bi-clipboard"></i> コピー
+                    </button>
+                  </td>
+                </tr>`;
+            }).join("")}
+          </tbody>
+        </table>`;
+      body.querySelectorAll(".group-id-copy").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(btn.dataset.gid);
+            btn.innerHTML = '<i class="bi bi-check-lg"></i> コピー済';
+            btn.classList.remove("btn-outline-primary");
+            btn.classList.add("btn-success");
+            setTimeout(() => {
+              btn.innerHTML = '<i class="bi bi-clipboard"></i> コピー';
+              btn.classList.remove("btn-success");
+              btn.classList.add("btn-outline-primary");
+            }, 2000);
+          } catch (_) { alert("コピー失敗: 手動で選択してコピーしてください"); }
+        });
+      });
+    } catch (e) {
+      body.innerHTML = `<div class="alert alert-danger">取得失敗: ${this.escapeHtml(e.message)}</div>`;
+    }
+  },
+
   async _openLineRecentUsersModal() {
     const pid = this._currentEditingPropertyId || this.editingId;
     if (!pid) {

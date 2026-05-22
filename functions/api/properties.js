@@ -42,6 +42,75 @@ module.exports = function propertiesApi(db) {
     }
   });
 
+  // ============================================================
+  // GET /properties/group-id-candidates
+  // line_webhook_logs から全 groupId を集計し、各 groupId について
+  // 受信回数 / 最終受信 / 既存紐付け先(物件 + Bot) を返す。
+  // 物件編集 UI の「groupId 候補を見る」ボタンから呼ばれる。
+  // ※ ルート衝突回避のため /:id より先に登録
+  // ============================================================
+  router.get("/group-id-candidates", async (req, res) => {
+    try {
+      if (req.user.role !== "owner" && req.user.role !== "sub_owner") {
+        return res.status(403).json({ error: "権限がありません" });
+      }
+      const dbRef = collection.firestore;
+      const logsSnap = await dbRef.collection("line_webhook_logs").get();
+      const groups = {};
+      logsSnap.forEach((d) => {
+        const x = d.data() || {};
+        const gid = x.groupId;
+        if (!gid) return;
+        const at = x.createdAt && x.createdAt.toMillis ? x.createdAt.toMillis() : 0;
+        if (!groups[gid]) groups[gid] = { groupId: gid, count: 0, lastAt: 0, sampleMsg: "" };
+        groups[gid].count++;
+        if (at > groups[gid].lastAt) {
+          groups[gid].lastAt = at;
+          groups[gid].sampleMsg = (x.message || x.text || "").toString().slice(0, 80);
+        }
+      });
+      const propsSnap = await dbRef.collection("properties").where("active", "==", true).get();
+      const linked = {};
+      propsSnap.forEach((p) => {
+        const d = p.data() || {};
+        const chs = Array.isArray(d.lineChannels) ? d.lineChannels : [];
+        chs.forEach((c, idx) => {
+          if (!c || !c.groupId) return;
+          if (!linked[c.groupId]) linked[c.groupId] = [];
+          linked[c.groupId].push({
+            propertyId: p.id,
+            propertyName: d.name || p.id,
+            channelIdx: idx,
+            channelName: c.name || `Bot #${idx + 1}`,
+          });
+        });
+        if (d.lineGroupId) {
+          if (!linked[d.lineGroupId]) linked[d.lineGroupId] = [];
+          linked[d.lineGroupId].push({
+            propertyId: p.id,
+            propertyName: d.name || p.id,
+            channelIdx: -1,
+            channelName: "(旧 lineGroupId)",
+          });
+        }
+      });
+      const candidates = Object.values(groups)
+        .map((g) => ({
+          groupId: g.groupId,
+          count: g.count,
+          lastReceivedAt: g.lastAt ? new Date(g.lastAt).toISOString() : null,
+          sampleMessage: g.sampleMsg,
+          linkedTo: linked[g.groupId] || [],
+          isLinked: !!(linked[g.groupId] && linked[g.groupId].length),
+        }))
+        .sort((a, b) => b.count - a.count);
+      res.json({ candidates });
+    } catch (e) {
+      console.error("[group-id-candidates] エラー:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // 物件詳細
   router.get("/:id", async (req, res) => {
     try {
