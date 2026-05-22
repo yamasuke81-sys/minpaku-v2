@@ -1183,18 +1183,42 @@ async function notifyByKey(db, notifyKey, options = {}) {
     return { sent: {}, errors: [] };
   }
 
-  // 2.5 バッチタイミング: timings に batch_morning_8 / batch_evening_20 があれば即時送信せずキューに入れる
+  // 2.5 バッチ + 即時通知の併存サポート
   // 無限ループ防止: バッチ処理関数からの呼び出し時は options._fromBatchQueue = true を渡す
   if (!options._fromBatchQueue) {
     const channelOv = (propertyOverrides && propertyOverrides[notifyKey]) || {};
-    const batchSlots = Array.isArray(channelOv.timings)
-      ? channelOv.timings
-          .filter(t => t && t.mode !== "date" && (t.timing === "batch_morning_8" || t.timing === "batch_evening_20"))
-          .map(t => t.timing === "batch_morning_8" ? "08:00" : "20:00")
-      : [];
+    const timings = Array.isArray(channelOv.timings) ? channelOv.timings : [];
+    const batchSlots = timings
+      .filter(t => t && (t.timing === "batch_morning_8" || t.timing === "batch_evening_20"))
+      .map(t => t.timing === "batch_morning_8" ? "08:00" : "20:00");
+    // batch_* タイミングがあれば notificationQueue にエンキュー (即時送信と独立に発火)
     if (batchSlots.length > 0) {
-      return await enqueueBatchNotification_(db, notifyKey, options, batchSlots);
+      try {
+        await enqueueBatchNotification_(db, notifyKey, options, batchSlots);
+      } catch (e) {
+        console.error(`[notifyByKey] enqueue 失敗`, e);
+        try {
+          await db.collection("error_logs").add({
+            functionName: "notifyByKey.enqueue",
+            error: e.message, stack: (e.stack || "").slice(0, 500),
+            notifyKey, propertyId: options.propertyId || null,
+            batchSlots, severity: "warning", createdAt: new Date(),
+          });
+        } catch (_) { /* ignore */ }
+      }
     }
+    // 即時送信判定:
+    //  - timings 未設定 → 後方互換で即時送信 (既存挙動)
+    //  - timings に batch_* "以外" のものがあれば即時送信
+    //  - timings に batch_* のみ → 即時送信スキップ
+    const hasImmediate = timings.length === 0 || timings.some(t =>
+      t && t.timing !== "batch_morning_8" && t.timing !== "batch_evening_20" && t.mode !== "date"
+    );
+    if (!hasImmediate) {
+      // バッチのみ設定: 即時送信スキップ、enqueue 完了で return
+      return { sent: {}, errors: [], queued: true, batchSlots };
+    }
+    // immediate あり: そのまま既存の即時送信フローへ進む
   }
 
   // 物件起点のメールは property.senderGmail を fromEmail に使う
