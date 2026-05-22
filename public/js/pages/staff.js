@@ -839,6 +839,54 @@ const StaffPage = {
       : "";
     const isTimeeEl = document.getElementById("staffIsTimee");
     if (isTimeeEl) isTimeeEl.checked = !!staff?.isTimee;
+
+    // Google カレンダー連携
+    this._gcalCurrentStaffId = staff?.id || null;
+    this._gcalCurrentToken = staff?.googleCalendarToken || "";
+    const gcalEnabledEl = document.getElementById("staffGoogleCalendarEnabled");
+    const gcalUrlWrap = document.getElementById("staffGoogleCalendarUrlWrap");
+    const gcalUrlEl = document.getElementById("staffGoogleCalendarUrl");
+    if (gcalEnabledEl) {
+      gcalEnabledEl.checked = !!staff?.googleCalendarEnabled;
+      gcalUrlWrap.classList.toggle("d-none", !gcalEnabledEl.checked || !this._gcalCurrentToken);
+      gcalEnabledEl.onchange = () => {
+        gcalUrlWrap.classList.toggle("d-none", !gcalEnabledEl.checked || !this._gcalCurrentToken);
+      };
+    }
+    if (gcalUrlEl && this._gcalCurrentToken) {
+      gcalUrlEl.value = `https://api-5qrfx7ujcq-an.a.run.app/public/staff-ical/${this._gcalCurrentToken}`;
+    }
+    // コピー
+    const copyBtn = document.getElementById("btnCopyStaffGCalUrl");
+    if (copyBtn && !copyBtn.dataset.gcBound) {
+      copyBtn.dataset.gcBound = "1";
+      copyBtn.addEventListener("click", async () => {
+        const url = document.getElementById("staffGoogleCalendarUrl")?.value || "";
+        try {
+          await navigator.clipboard.writeText(url);
+          copyBtn.innerHTML = '<i class="bi bi-check-lg"></i> コピー済';
+          setTimeout(() => { copyBtn.innerHTML = '<i class="bi bi-clipboard"></i> コピー'; }, 1500);
+        } catch (_) { alert("コピー失敗"); }
+      });
+    }
+    // 再生成
+    const regenBtn = document.getElementById("btnRegenStaffGCalToken");
+    if (regenBtn && !regenBtn.dataset.gcBound) {
+      regenBtn.dataset.gcBound = "1";
+      regenBtn.addEventListener("click", async () => {
+        if (!window.confirm("URL を再生成すると、 旧 URL は無効化されます。 続行しますか?")) return;
+        // ランダム 64hex 生成
+        const buf = new Uint8Array(32);
+        crypto.getRandomValues(buf);
+        const newToken = Array.from(buf).map(b => b.toString(16).padStart(2, "0")).join("");
+        const sid = this._gcalCurrentStaffId;
+        if (!sid) { alert("先にスタッフを保存してください"); return; }
+        await firebase.firestore().collection("staff").doc(sid).update({ googleCalendarToken: newToken });
+        this._gcalCurrentToken = newToken;
+        document.getElementById("staffGoogleCalendarUrl").value = `https://api-5qrfx7ujcq-an.a.run.app/public/staff-ical/${newToken}`;
+        showToast("再生成完了", "新しい URL を発行しました。 古い URL は無効です。", "success");
+      });
+    }
     document.getElementById("staffSkills").value = (staff?.skills || []).join(",");
     document.getElementById("staffBankName").value = staff?.bankName || "";
     document.getElementById("staffBranchName").value = staff?.branchName || "";
@@ -986,6 +1034,7 @@ const StaffPage = {
       address: firstBp.address || "",
       contractStartDate: document.getElementById("staffContractDate").value || null,
       isTimee: !!document.getElementById("staffIsTimee")?.checked,
+      googleCalendarEnabled: !!document.getElementById("staffGoogleCalendarEnabled")?.checked,
       skills,
       assignedPropertyIds,
       bankName: document.getElementById("staffBankName").value.trim(),

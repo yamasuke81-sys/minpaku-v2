@@ -230,6 +230,46 @@
                 </label>
               </div>
             </div>
+
+            <!-- Google カレンダー連携 -->
+            <div class="col-12">
+              <hr>
+              <h6><i class="bi bi-google text-primary"></i> Google カレンダー連携</h6>
+              <p class="text-muted small mb-2">
+                スタッフが自分の Google カレンダーで「確定済みの清掃シフト」を購読できます。<br>
+                以下の URL をスタッフに共有 → 受け取った人が <strong>Google カレンダー → 他のカレンダー → URL で追加</strong> に貼り付けると、 確定済みシフトが自動表示されます (1時間ごとに自動更新)。
+              </p>
+              <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" id="staffGoogleCalendarEnabled">
+                <label class="form-check-label" for="staffGoogleCalendarEnabled">
+                  Google カレンダー連携を有効化
+                </label>
+              </div>
+              <div id="staffGoogleCalendarUrlWrap" class="d-none">
+                <label class="form-label small mb-1">連携 URL (このスタッフ専用)</label>
+                <div class="input-group input-group-sm mb-1">
+                  <input type="text" class="form-control" id="staffGoogleCalendarUrl" readonly>
+                  <button class="btn btn-outline-primary" type="button" id="btnCopyStaffGCalUrl" title="URL をコピー">
+                    <i class="bi bi-clipboard"></i> コピー
+                  </button>
+                  <button class="btn btn-outline-warning" type="button" id="btnRegenStaffGCalToken" title="URL を再生成 (旧URLは無効化)">
+                    <i class="bi bi-arrow-clockwise"></i> 再生成
+                  </button>
+                </div>
+                <div class="small text-muted">
+                  <details>
+                    <summary>設定手順 (Google カレンダー)</summary>
+                    <ol class="mt-2 mb-0 ps-3">
+                      <li>上の URL をコピー</li>
+                      <li>Google カレンダーを開く (PC 推奨)</li>
+                      <li>左の「他のカレンダー」横の「+」 → 「URL で追加」</li>
+                      <li>コピーした URL を貼り付け → 「カレンダーを追加」</li>
+                      <li>以後、 確定済みシフトが自動表示 (1時間ごとに更新)</li>
+                    </ol>
+                  </details>
+                </div>
+              </div>
+            </div>
             <div class="col-12">
               <label class="form-label">スキル（カンマ区切り）</label>
               <input type="text" class="form-control" id="staffSkills" placeholder="清掃,ベッドメイク,BBQ片付け">

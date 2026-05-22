@@ -191,4 +191,85 @@ router.get("/upcoming-bookings/:propertyId", async (req, res) => {
   }
 });
 
+// GET /public/staff-ical/:token
+// スタッフ専用 iCal フィード (Google カレンダーが定期取得して購読)
+// recruitments の selectedStaffIds に staff.id が含まれる = 確定済みシフトをイベント化
+router.get("/staff-ical/:token", async (req, res) => {
+  try {
+    const token = String(req.params.token || "");
+    if (!token || token.length < 32) return res.status(400).send("invalid token");
+    const db = admin.firestore();
+    const sSnap = await db.collection("staff").where("googleCalendarToken", "==", token).limit(1).get();
+    if (sSnap.empty) return res.status(404).send("not found");
+    const sDoc = sSnap.docs[0];
+    const staff = sDoc.data();
+    if (staff.googleCalendarEnabled === false) {
+      return res.status(403).send("calendar sync disabled");
+    }
+    // 確定済み recruitments を取得 (今日以降のみ、 過去 30 日まで)
+    const today = new Date();
+    const past = new Date(today.getTime() - 30 * 86400 * 1000).toISOString().slice(0, 10);
+    const recSnap = await db.collection("recruitments")
+      .where("selectedStaffIds", "array-contains", sDoc.id)
+      .where("checkoutDate", ">=", past)
+      .get();
+    const events = [];
+    for (const rd of recSnap.docs) {
+      const r = rd.data();
+      if (r.status !== "スタッフ確定済み") continue;
+      const date = String(r.checkoutDate || "").slice(0, 10); // YYYY-MM-DD
+      if (!date) continue;
+      const propertyName = r.propertyName || "";
+      const workLabel = r.workType === "pre_inspection" ? "直前点検" : "清掃";
+      const url = `https://minpaku-v2.web.app/#/my-recruitment`;
+      events.push({
+        uid: `${workLabel === "清掃" ? "cleaning" : "inspection"}-${rd.id}@minpaku-v2`,
+        date: date.replace(/-/g, ""), // YYYYMMDD
+        nextDate: (() => {
+          const d = new Date(date + "T00:00:00.000Z");
+          d.setUTCDate(d.getUTCDate() + 1);
+          return d.toISOString().slice(0, 10).replace(/-/g, "");
+        })(),
+        summary: `${workLabel}: ${propertyName}`,
+        description: `担当: ${r.selectedStaff || ""}\\n物件: ${propertyName}\\n詳細: ${url}`,
+        location: propertyName,
+      });
+    }
+    // ICS 構築
+    const now = new Date();
+    const dtstamp = now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const lines = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//minpaku-v2//Staff Calendar//JA",
+      "CALSCALE:GREGORIAN",
+      "METHOD:PUBLISH",
+      `X-WR-CALNAME:清掃シフト (${staff.name || "スタッフ"})`,
+      "X-WR-TIMEZONE:Asia/Tokyo",
+      "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
+      "X-PUBLISHED-TTL:PT1H",
+    ];
+    for (const ev of events) {
+      lines.push(
+        "BEGIN:VEVENT",
+        `UID:${ev.uid}`,
+        `DTSTAMP:${dtstamp}`,
+        `DTSTART;VALUE=DATE:${ev.date}`,
+        `DTEND;VALUE=DATE:${ev.nextDate}`,
+        `SUMMARY:${ev.summary}`,
+        `DESCRIPTION:${ev.description}`,
+        `LOCATION:${ev.location}`,
+        "END:VEVENT",
+      );
+    }
+    lines.push("END:VCALENDAR");
+    res.set("Content-Type", "text/calendar; charset=utf-8");
+    res.set("Cache-Control", "public, max-age=300"); // 5 分キャッシュ
+    res.send(lines.join("\r\n"));
+  } catch (e) {
+    console.error("[public/staff-ical]", e);
+    res.status(500).send("server error");
+  }
+});
+
 module.exports = router;
