@@ -401,8 +401,24 @@ const RecruitmentPage = {
          </div>`
       : `<div class="text-muted small mt-2">回答なし（${totalStaff}名中）</div>`;
 
+    // タイミー実名 (timeeOverrideNames) を併記した表示文字列
+    const _buildSelectedDisplay = () => {
+      if (!r.selectedStaff) return "";
+      const ids = Array.isArray(r.selectedStaffIds) ? r.selectedStaffIds : [];
+      const tNames = r.timeeOverrideNames || {};
+      if (ids.length > 0 && Array.isArray(this.staffList) && this.staffList.length > 0) {
+        const parts = ids.map(id => {
+          const st = this.staffList.find(x => x.id === id);
+          if (!st) return null;
+          const base = st.name || "(不明)";
+          return (st.isTimee && tNames[id]) ? `${base}（${tNames[id]}）` : base;
+        }).filter(Boolean);
+        if (parts.length > 0) return parts.join(",");
+      }
+      return r.selectedStaff;
+    };
     const selectedStaffHtml = r.selectedStaff
-      ? `<div class="mt-2"><i class="bi bi-person-check text-success"></i> <strong>${this.escapeHtml(r.selectedStaff)}</strong></div>`
+      ? `<div class="mt-2"><i class="bi bi-person-check text-success"></i> <strong>${this.escapeHtml(_buildSelectedDisplay())}</strong></div>`
       : "";
 
     const workTypeBadge = this.getWorkTypeBadge(r.workType);
@@ -537,7 +553,22 @@ const RecruitmentPage = {
     const selStaffEl = document.getElementById("detailSelectedStaff");
     const selWrap = document.getElementById("detailSelectedStaffWrap");
     const hasSel = !!(r.selectedStaff && r.selectedStaff.trim());
-    selStaffEl.textContent = hasSel ? r.selectedStaff : "未選定";
+    // タイミー実名 (timeeOverrideNames) を併記した表示文字列を構築
+    let selDisplay = hasSel ? r.selectedStaff : "未選定";
+    if (hasSel) {
+      const ids = Array.isArray(r.selectedStaffIds) ? r.selectedStaffIds : [];
+      const tNames = r.timeeOverrideNames || {};
+      if (ids.length > 0 && Array.isArray(this.staffList) && this.staffList.length > 0) {
+        const parts = ids.map(id => {
+          const st = this.staffList.find(x => x.id === id);
+          if (!st) return null;
+          const base = st.name || "(不明)";
+          return (st.isTimee && tNames[id]) ? `${base}（${tNames[id]}）` : base;
+        }).filter(Boolean);
+        if (parts.length > 0) selDisplay = parts.join(",");
+      }
+    }
+    selStaffEl.textContent = selDisplay;
     if (selWrap) {
       selWrap.classList.toggle("alert-success", hasSel);
       selWrap.classList.toggle("alert-secondary", !hasSel);
