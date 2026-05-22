@@ -405,6 +405,16 @@ exports.onErrorLogCreated = onDocumentCreated(
   require("./triggers/onErrorLogCreated")
 );
 
+// LINE Channel Access Token 変更検知 → Bot Info (displayName/basicId) 自動取得
+exports.onPropertyLineTokenChange = onDocumentWritten(
+  { document: "properties/{propertyId}", region: "asia-northeast1" },
+  require("./triggers/onLineTokenChange").onPropertyChange
+);
+exports.onNotificationsLineTokenChange = onDocumentWritten(
+  { document: "settings/notifications", region: "asia-northeast1" },
+  require("./triggers/onLineTokenChange").onNotificationsSettingsChange
+);
+
 // ========== 通知スケジュール (未実装通知の発火) ==========
 
 // 名簿未入力リマインド（毎時実行 — 物件別タイミング設定に従って発火）

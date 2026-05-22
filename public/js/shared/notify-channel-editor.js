@@ -200,6 +200,24 @@
       defaultMsg: "🕐 タイミー募集依頼\n\nタイミー募集が必要な予約が入りました。\nチェックアウト日時: {date}\n物件: {property}\n\nこの日の求人募集をタイミーでお願いします。\n\nタイミー: https://app-new.taimee.co.jp/account" },
   ];
 
+  // 送信元 (Bot 名等) の動的差し替え用キャッシュ
+  // 物件編集モーダル open 時等に setSenders() で更新する
+  let _senders = {};
+  function setSenders(senders) {
+    _senders = senders && typeof senders === "object" ? { ...senders } : {};
+  }
+  function _senderLabel(key, fallback) {
+    return _senders[key] || fallback;
+  }
+  // botInfo オブジェクト ({displayName, basicId}) → "(送信元: 表示名 @basicId)" 文字列
+  function formatBotSender(botInfo, fallbackText) {
+    const fallback = fallbackText || "(送信元: LINE Bot)";
+    if (!botInfo || (!botInfo.displayName && !botInfo.basicId)) return fallback;
+    const name = botInfo.displayName || "LINE Bot";
+    const id = botInfo.basicId ? " " + botInfo.basicId : "";
+    return `(送信元: ${name}${id})`;
+  }
+
   function findNotification(key) {
     return NOTIFICATIONS.find(n => n.key === key) || null;
   }
@@ -305,24 +323,24 @@
             <div class="notify-target-rows mb-2" data-dk="${dk}">
               <!-- ① Webアプリ管理者 -->
               <div class="notify-target-group-title small fw-bold text-secondary border-bottom pb-1 mb-1 mt-1"><i class="bi bi-person-circle"></i> Webアプリ管理者</div>
-              ${_renderTargetRow(dk, "ownerLine",      ownerLine,      "bi-line text-success",               "LINE",     "(送信元: LINE Bot)")}
+              ${_renderTargetRow(dk, "ownerLine",      ownerLine,      "bi-line text-success",               "LINE",     _senderLabel("ownerLine",    "(送信元: LINE Bot)"))}
               ${_renderTargetRow(dk, "ownerEmail",     ownerEmail,     "bi-envelope text-warning",           "メール",    "(送信元: 連携済み Gmail)")}
               ${_renderTargetRow(dk, "discordOwner",   discordOwner,   "bi-discord",                         "Discord",  "(送信元: Discord Bot)", "color:#5865F2")}
               <!-- ② 物件オーナー個別 -->
               <div class="notify-target-group-title small fw-bold text-secondary border-bottom pb-1 mb-1 mt-3"><i class="bi bi-person-badge"></i> 物件オーナー</div>
-              ${_renderTargetRow(dk, "subOwnerLine",   subOwnerLine,   "bi-line text-success",               "LINE",     "(送信元: LINE Bot)")}
+              ${_renderTargetRow(dk, "subOwnerLine",   subOwnerLine,   "bi-line text-success",               "LINE",     _senderLabel("subOwnerLine", "(送信元: LINE Bot)"))}
               ${_renderTargetRow(dk, "subOwnerEmail",  subOwnerEmail,  "bi-envelope-at text-success",        "メール",    "(送信元: 物件オーナーの Gmail)")}
               ${_renderTargetRow(dk, "discordSubOwner",discordSubOwner,"bi-discord",                         "Discord",  "(送信元: Discord Bot)", "color:#8da0f8")}
               <!-- ③ スタッフ個別 -->
               <div class="notify-target-group-title small fw-bold text-secondary border-bottom pb-1 mb-1 mt-3"><i class="bi bi-person-lines-fill"></i> スタッフ個別</div>
-              ${_renderTargetRow(dk, "staffLine",      staffLine,      "bi-line text-info",                  "LINE",     "(送信元: LINE Bot)")}
+              ${_renderTargetRow(dk, "staffLine",      staffLine,      "bi-line text-info",                  "LINE",     _senderLabel("staffLine",    "(送信元: LINE Bot)"))}
               ${_renderTargetRow(dk, "staffEmail",     staffEmail,     "bi-envelope-fill text-info",         "メール",    "(送信元: 連携済み Gmail)")}
               <!-- ④ 物件 (物件単位の宛先) -->
               <div class="notify-target-group-title small fw-bold text-secondary border-bottom pb-1 mb-1 mt-3"><i class="bi bi-building"></i> 物件</div>
               ${_renderTargetRow(dk, "propertyEmail",  propertyEmail,  "bi-envelope-at text-primary",        "メール",    "(送信元: 物件単位の Gmail / 受信先: 同アドレス)")}
               <!-- ⑤ グループ -->
               <div class="notify-target-group-title small fw-bold text-secondary border-bottom pb-1 mb-1 mt-3"><i class="bi bi-people-fill"></i> グループ</div>
-              ${_renderTargetRow(dk, "groupLine",      groupLine,      "bi-line text-primary",               "LINE",     "(送信元: 物件別 LINE Bot)")}
+              ${_renderTargetRow(dk, "groupLine",      groupLine,      "bi-line text-primary",               "LINE",     _senderLabel("groupLine",    "(送信元: 物件別 LINE Bot)"))}
               <!-- FCM (Web Push) は将来再検討。iOS 制約により導入保留 -->
               <label class="form-check form-check-inline mb-0 d-none">
                 <input class="form-check-input" type="checkbox" data-key="${dk}" data-field="fcmStaff" ${fcmStaff ? "checked" : ""}>
@@ -849,5 +867,7 @@
     bindCardEvents,
     dataKey,
     stripPrefix,
+    setSenders,
+    formatBotSender,
   };
 })(window);

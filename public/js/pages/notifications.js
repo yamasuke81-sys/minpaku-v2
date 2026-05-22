@@ -712,6 +712,15 @@ const NotificationsPage = {
 
   renderNotifications() {
     // Phase A: 共有コンポーネント NotifyChannelEditor を使用
+    // 送信元 Bot 名 (settings.lineBotInfo) を反映
+    const globalBot = this.settings && this.settings.lineBotInfo;
+    const globalLabel = window.NotifyChannelEditor.formatBotSender(globalBot, "(送信元: LINE Bot)");
+    window.NotifyChannelEditor.setSenders({
+      ownerLine: globalLabel,
+      staffLine: globalLabel,
+      subOwnerLine: globalLabel,
+      groupLine: "(送信元: 物件別 LINE Bot — 物件設定で確認)",
+    });
     const groups = window.NotifyChannelEditor.groupNotifications();
     for (const [group, items] of Object.entries(groups)) {
       const container = document.getElementById(`notifyGroup_${group}`);

@@ -768,6 +768,18 @@ const CleaningFlowPage = {
     if (!n) {
       return `<div class="mt-2 small text-muted"><i class="bi bi-info-circle"></i> この通知 (${this._esc(step.globalChannel)}) は通知設定タブで未定義です。</div>`;
     }
+    // 送信元 (Bot 名) を物件別 Bot 情報で差し替え
+    const lc = Array.isArray(property.lineChannels) ? property.lineChannels : [];
+    const propBot = (lc[0] && lc[0].botInfo) || (lc[1] && lc[1].botInfo) || null;
+    const propLabel = NCE.formatBotSender(propBot, "(送信元: 物件別 LINE Bot)");
+    const globalBot = (this.settings && this.settings.lineBotInfo) || null;
+    const globalLabel = NCE.formatBotSender(globalBot, "(送信元: LINE Bot)");
+    NCE.setSenders({
+      ownerLine: globalLabel,
+      staffLine: globalLabel,
+      subOwnerLine: propLabel,
+      groupLine: propLabel,
+    });
     const channelData = (property.channelOverrides || {})[step.globalChannel] || {};
     const idPrefix = `prop_${property.id}_${step.globalChannel}`;
     return `<div class="cf-shared-notify mt-2" data-pid="${property.id}" data-notif-key="${step.globalChannel}" data-id-prefix="${idPrefix}">
