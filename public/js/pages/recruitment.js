@@ -1281,8 +1281,8 @@ const RecruitmentPage = {
                 <input type="text" class="form-control form-control-sm timee-name-input"
                        data-staff-id="${s.id}"
                        value="${this.escapeHtml(timeeNames[s.id] || "")}"
-                       placeholder="タイミーで来る人の名前 (任意)"
-                       style="font-size:11px;max-width:200px;">
+                       placeholder="タイミーで来る人の名前 (複数は「、」区切り)"
+                       style="font-size:12px;max-width:240px;font-family:'Hiragino Sans','Yu Gothic',Meiryo,sans-serif;">
               </div>` : ""}
           </td>
           <td>
