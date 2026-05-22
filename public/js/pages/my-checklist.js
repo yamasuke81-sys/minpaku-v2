@@ -1212,9 +1212,10 @@ const MyChecklistPage = {
           staffNames = staffSnaps.filter(d => d.exists).map(d => {
             const sd = d.data();
             const baseName = sd.name || "不明";
-            // isTimee=true で timeeOverrideNames に実名があればそれを優先表示
+            // isTimee=true で timeeOverrideNames に実名があれば併記表示
+            // 形式: タイミーA（藤尾 真耶）/ タイミーB（廣川 美羽、友田 彩）
             if (sd.isTimee && timeeNames[d.id]) {
-              return `${timeeNames[d.id]}(${baseName})`;
+              return `${baseName}（${timeeNames[d.id]}）`;
             }
             return baseName;
           });
