@@ -15,6 +15,7 @@ const {
   sendNotificationEmail_,
   resolveSenderGmail_,
   sendDiscord_,
+  sendLineMessageForProperty,
 } = require("../utils/lineNotify");
 const { notifyAllStaffFCM, notifyOwnerFCM } = require("../utils/fcmSender");
 
@@ -112,20 +113,30 @@ module.exports = function notificationsApi(db) {
       }
     }
 
-    // グループLINE (propertyId 指定時は物件の lineChannels[0] の groupId + token を使う)
+    // グループLINE (propertyId 指定時は sendLineMessageForProperty で物件別 Bot fallback も含めて試行)
     if (targets.groupLine) {
-      const useToken = propBotToken || channelToken;
-      const useGroupId = propBotGroupId || groupId;
-      if (!useToken) {
-        results.push({ target: "groupLine", success: false, error: "LINEチャネルトークン未設定" });
-        failCount++;
-      } else if (!useGroupId) {
-        results.push({ target: "groupLine", success: false, error: "LINEグループID 未設定" });
-        failCount++;
+      if (propertyId) {
+        try {
+          const r = await sendLineMessageForProperty(db, propertyId, body.slice(0, 5000));
+          if (r.success) sentCount++; else failCount++;
+          results.push({ target: "groupLine", success: !!r.success, usedChannel: r.usedChannel, channelName: r.channelName, error: r.error });
+        } catch (e) {
+          results.push({ target: "groupLine", success: false, error: e.message });
+          failCount++;
+        }
       } else {
-        const r = await pushMessages_(useToken, useGroupId, [{ type: "text", text: body.slice(0, 5000) }]);
-        if (r.success) sentCount++; else failCount++;
-        results.push({ target: "groupLine", ...r, usedBot: propBotToken ? (propBotName || "物件Bot") : "グローバル" });
+        // 物件未指定 → グローバル ownerLineChannels も同じ送信先になりがちなので、 旧ロジック
+        if (!channelToken) {
+          results.push({ target: "groupLine", success: false, error: "LINEチャネルトークン未設定" });
+          failCount++;
+        } else if (!groupId) {
+          results.push({ target: "groupLine", success: false, error: "LINEグループID 未設定" });
+          failCount++;
+        } else {
+          const r = await pushMessages_(channelToken, groupId, [{ type: "text", text: body.slice(0, 5000) }]);
+          if (r.success) sentCount++; else failCount++;
+          results.push({ target: "groupLine", ...r, usedBot: "グローバル" });
+        }
       }
     }
 
@@ -198,6 +209,31 @@ module.exports = function notificationsApi(db) {
         } catch (e) {
           console.error("Webアプリ管理者メール送信エラー:", e);
           results.push({ target: "ownerEmail", success: false, error: e.message });
+          failCount++;
+        }
+      }
+    }
+
+    // 物件メール (propertyId 指定時の senderGmail に自身宛で送信)
+    if (targets.propertyEmail) {
+      if (!propertyId) {
+        results.push({ target: "propertyEmail", success: false, error: "物件未指定のため送信不可" });
+        failCount++;
+      } else {
+        try {
+          const senderGmail = await resolveSenderGmail_(db, propertyId);
+          if (!senderGmail) {
+            results.push({ target: "propertyEmail", success: false, error: "物件の senderGmail 未設定" });
+            failCount++;
+          } else {
+            // 物件 Gmail から物件 Gmail 宛 (受信先 = 同アドレス)
+            await sendNotificationEmail_(senderGmail, title, body, senderGmail, { strictFrom: false });
+            sentCount++;
+            results.push({ target: "propertyEmail", success: true, to: senderGmail });
+          }
+        } catch (e) {
+          console.error("物件メール送信エラー:", e);
+          results.push({ target: "propertyEmail", success: false, error: e.message });
           failCount++;
         }
       }
