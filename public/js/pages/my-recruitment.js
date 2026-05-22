@@ -334,7 +334,18 @@ const MyRecruitmentPage = {
       // ここでの直接呼び出しは不要（データ未着状態で描画してしまうのを防ぐ）。
     } catch (e) {
       console.error("読み込みエラー:", e);
-      document.getElementById("myCalContainer").innerHTML = `<div class="alert alert-danger">${e.message}</div>`;
+      // 認証切れ (permission-denied / Missing or insufficient permissions) なら
+      // エラー表示せずログイン画面を出す
+      const msg = String(e.message || "");
+      const isPermDenied = e.code === "permission-denied"
+        || /permission|missing or insufficient|unauthenticated/i.test(msg);
+      const el = document.getElementById("myCalContainer");
+      if (isPermDenied && !firebase.auth().currentUser) {
+        if (el) el.innerHTML = `<div class="alert alert-warning">セッションが切れました。ログインしてください。</div>`;
+        try { if (typeof Auth !== "undefined" && Auth.loginModal) Auth.loginModal.show(); } catch (_) {}
+        return;
+      }
+      if (el) el.innerHTML = `<div class="alert alert-danger">${this.escapeHtml ? this.escapeHtml(msg) : msg}</div>`;
     }
   },
 
