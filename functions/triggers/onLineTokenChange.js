@@ -39,22 +39,32 @@ function sameTokenList(a, b) {
 async function refreshBotInfoForDoc(ref, after) {
   const tokens = tokensOf(after);
   if (tokens.length === 0) return;
+  // 配列フィールドに dot 記法で update すると配列がマップ化されて他要素が消える。
+  // 対策: 配列全体を読み込んで botInfo を埋めた新配列で置換する。
   const update = {};
+  const lineChannels = Array.isArray(after.lineChannels) ? after.lineChannels.map(c => ({ ...c })) : null;
+  const ownerLineChannels = Array.isArray(after.ownerLineChannels) ? after.ownerLineChannels.map(c => ({ ...c })) : null;
+  let dirty = false;
   for (const t of tokens) {
     const info = await fetchLineBotInfo(t.token);
     if (!info) continue;
-    if (t.source === "lineChannels") {
-      update[`lineChannels.${t.idx}.botInfo`] = info;
-    } else if (t.source === "ownerLineChannels") {
-      update[`ownerLineChannels.${t.idx}.botInfo`] = info;
+    if (t.source === "lineChannels" && lineChannels && lineChannels[t.idx]) {
+      lineChannels[t.idx].botInfo = info;
+      dirty = true;
+    } else if (t.source === "ownerLineChannels" && ownerLineChannels && ownerLineChannels[t.idx]) {
+      ownerLineChannels[t.idx].botInfo = info;
+      dirty = true;
     } else if (t.source === "lineChannelToken") {
       update["lineBotInfo"] = info;
+      dirty = true;
     }
   }
-  if (Object.keys(update).length === 0) return;
+  if (!dirty) return;
+  if (lineChannels) update.lineChannels = lineChannels;
+  if (ownerLineChannels) update.ownerLineChannels = ownerLineChannels;
   try {
     await ref.update(update);
-    console.log(`[onLineTokenChange] botInfo 更新: ${ref.path} (${Object.keys(update).length}件)`);
+    console.log(`[onLineTokenChange] botInfo 更新: ${ref.path}`);
   } catch (e) {
     console.error(`[onLineTokenChange] botInfo 書き戻し失敗: ${ref.path}`, e);
   }

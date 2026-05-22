@@ -16,15 +16,20 @@ console.log(`mode: ${isExecute ? "EXECUTE" : "DRY-RUN (実行は --execute)"}`);
 async function refreshDoc(ref, data, label) {
   const update = {};
   let count = 0;
-  const channels = Array.isArray(data.lineChannels) ? data.lineChannels : [];
-  for (let i = 0; i < channels.length; i++) {
-    const c = channels[i];
-    if (!c || !c.token) continue;
-    const info = await fetchLineBotInfo(c.token);
-    if (!info) { console.log(`  [skip] ${label}.lineChannels[${i}]: 取得失敗`); continue; }
-    update[`lineChannels.${i}.botInfo`] = info;
-    console.log(`  [add ] ${label}.lineChannels[${i}]: ${info.displayName} (${info.basicId})`);
-    count++;
+  // 配列フィールドへの dot 記法書き込みは配列をマップ化して破壊する。
+  // 配列全体を読んで botInfo を埋めた新配列で update する。
+  const lineChannels = Array.isArray(data.lineChannels) ? data.lineChannels.map(c => ({ ...c })) : null;
+  if (lineChannels) {
+    for (let i = 0; i < lineChannels.length; i++) {
+      const c = lineChannels[i];
+      if (!c || !c.token) continue;
+      const info = await fetchLineBotInfo(c.token);
+      if (!info) { console.log(`  [skip] ${label}.lineChannels[${i}]: 取得失敗`); continue; }
+      lineChannels[i].botInfo = info;
+      console.log(`  [add ] ${label}.lineChannels[${i}]: ${info.displayName} (${info.basicId})`);
+      count++;
+    }
+    if (count > 0) update.lineChannels = lineChannels;
   }
   if (data.lineChannelToken) {
     const info = await fetchLineBotInfo(data.lineChannelToken);
@@ -34,15 +39,20 @@ async function refreshDoc(ref, data, label) {
       count++;
     }
   }
-  const owner = Array.isArray(data.ownerLineChannels) ? data.ownerLineChannels : [];
-  for (let i = 0; i < owner.length; i++) {
-    const c = owner[i];
-    if (!c || !c.token) continue;
-    const info = await fetchLineBotInfo(c.token);
-    if (!info) continue;
-    update[`ownerLineChannels.${i}.botInfo`] = info;
-    console.log(`  [add ] ${label}.ownerLineChannels[${i}]: ${info.displayName} (${info.basicId})`);
-    count++;
+  const ownerLineChannels = Array.isArray(data.ownerLineChannels) ? data.ownerLineChannels.map(c => ({ ...c })) : null;
+  if (ownerLineChannels) {
+    let ownerDirty = false;
+    for (let i = 0; i < ownerLineChannels.length; i++) {
+      const c = ownerLineChannels[i];
+      if (!c || !c.token) continue;
+      const info = await fetchLineBotInfo(c.token);
+      if (!info) continue;
+      ownerLineChannels[i].botInfo = info;
+      console.log(`  [add ] ${label}.ownerLineChannels[${i}]: ${info.displayName} (${info.basicId})`);
+      count++;
+      ownerDirty = true;
+    }
+    if (ownerDirty) update.ownerLineChannels = ownerLineChannels;
   }
   if (count === 0) {
     console.log(`  [skip] ${label}: token なし`);
