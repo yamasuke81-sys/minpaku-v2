@@ -638,17 +638,34 @@ const ContactsPage = {
 
   async _savePropChannels(propId) {
     const btn = document.querySelector(`.c-prop-ch-save[data-prop-id="${propId}"]`);
+    if (!btn) return;
     const orig = btn.innerHTML;
     btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    // 永久 spinner 防止: 30 秒で強制復元 (Firestore set が hang した場合のフォールバック)
+    const restoreFallback = setTimeout(() => {
+      if (btn.isConnected) { btn.disabled = false; btn.innerHTML = orig; }
+      showToast("タイムアウト", "保存処理が時間切れになりました。再度お試しください。", "warning");
+    }, 30000);
     try {
+      // 既存 lineChannels を取得 (空 token 入力時の既存値維持に使う)
+      const local = this.properties.find(p => p.id === propId);
+      const existing = (local && Array.isArray(local.lineChannels)) ? local.lineChannels : [];
       const tbody = document.querySelector(`tbody.prop-ch-rows[data-prop-id="${propId}"]`);
       const rows = tbody.querySelectorAll("tr[data-ch-idx]");
       const channels = [];
-      rows.forEach(r => {
+      rows.forEach((r, idx) => {
         const name = r.querySelector('.c-prop-ch-input[data-field="name"]')?.value.trim() || "";
-        const token = r.querySelector('.c-prop-ch-input[data-field="token"]')?.value.trim() || "";
+        const tokenInput = r.querySelector('.c-prop-ch-input[data-field="token"]')?.value.trim() || "";
         const groupId = r.querySelector('.c-prop-ch-input[data-field="groupId"]')?.value.trim() || "";
-        if (token || groupId || name) channels.push({ name, token, groupId, enabled: true });
+        // 重要: token が空で既存値があれば既存値を維持 (空送信でトークン破壊しない)
+        const existingCh = existing[idx] || {};
+        const token = tokenInput || existingCh.token || "";
+        if (token || groupId || name) {
+          // 既存の botInfo は維持 (token 変更時はトリガーが上書きする)
+          const ch = { name, token, groupId, enabled: true };
+          if (existingCh.botInfo && existingCh.token === token) ch.botInfo = existingCh.botInfo;
+          channels.push(ch);
+        }
       });
       // properties/{id}.lineChannels に保存 (物件編集と同期)
       const updateData = { lineChannels: channels };
@@ -659,13 +676,14 @@ const ContactsPage = {
       }
       await db.collection("properties").doc(propId).set(updateData, { merge: true });
       // ローカル状態も更新
-      const local = this.properties.find(p => p.id === propId);
       if (local) local.lineChannels = channels;
       showToast("保存", `物件「${local?.name || propId}」の LINE Bot を ${channels.length} 件保存しました`, "success");
     } catch (e) {
+      console.error("[_savePropChannels] エラー", e);
       showToast("エラー", "保存失敗: " + e.message, "error");
     } finally {
-      btn.disabled = false; btn.innerHTML = orig;
+      clearTimeout(restoreFallback);
+      if (btn.isConnected) { btn.disabled = false; btn.innerHTML = orig; }
     }
   },
 

@@ -1102,8 +1102,8 @@ const PropertiesPage = {
               <div class="col-12">
                 <label class="form-label small mb-1">チャネルアクセストークン</label>
                 <input type="password" class="form-control form-control-sm ch-token" data-idx="${i}"
-                  placeholder="${ch.token ? "（設定済み — 変更する場合のみ入力）" : "長いトークン文字列を貼り付け"}"
-                  value="">
+                  placeholder="${ch.token ? "（登録済み — 上書きする場合のみ入力）" : "長いトークン文字列を貼り付け"}"
+                  value="${ch.token ? this.escapeHtml(ch.token) : ""}">
                 <div class="form-text">LINE Developers Console → Messaging API設定 → チャネルアクセストークン</div>
               </div>
               <div class="col-md-6">
