@@ -44,6 +44,28 @@ const StaffPage = {
     `;
 
     this.modal = new bootstrap.Modal(document.getElementById("staffModal"));
+    // 未保存破棄警告: モーダル内で入力変更があったのに保存せず閉じようとした時に確認
+    const staffModalEl = document.getElementById("staffModal");
+    if (staffModalEl && !staffModalEl.dataset.dirtyBound) {
+      staffModalEl.dataset.dirtyBound = "1";
+      this._staffDirty = false;
+      // 入力変更検出
+      const onAnyChange = () => { this._staffDirty = true; };
+      staffModalEl.addEventListener("input", onAnyChange);
+      staffModalEl.addEventListener("change", onAnyChange);
+      // close 直前に dirty なら confirm
+      staffModalEl.addEventListener("hide.bs.modal", (e) => {
+        if (this._staffDirty && !this._allowCloseWithoutSave) {
+          const ok = window.confirm("⚠️ 未保存の変更があります。\n破棄して閉じますか？\n\n(「キャンセル」を押すと編集に戻ります。 保存するにはモーダル下の「スタッフを保存」ボタン)");
+          if (!ok) { e.preventDefault(); return false; }
+        }
+      });
+      // モーダル open 時に dirty リセット
+      staffModalEl.addEventListener("shown.bs.modal", () => {
+        this._staffDirty = false;
+        this._allowCloseWithoutSave = false;
+      });
+    }
     this.bindEvents();
     await this.loadData();
   },
@@ -791,6 +813,7 @@ const StaffPage = {
         const isInactive = staff.active === false;
         if (btnDeactLabel) btnDeactLabel.textContent = isInactive ? "完全削除" : "無効化";
         btnDeact.onclick = async () => {
+          this._allowCloseWithoutSave = true; // 削除フロー: 未保存警告抑制
           this.modal.hide();
           await this.deleteStaff(staff);
         };
@@ -1097,6 +1120,9 @@ const StaffPage = {
         await API.staff.create(data);
         showToast("完了", "スタッフを登録しました", "success");
       }
+      // 保存成功 → 未保存警告を抑制してモーダルを閉じる
+      this._allowCloseWithoutSave = true;
+      this._staffDirty = false;
       this.modal.hide();
       await this.loadData();
     } catch (e) {
