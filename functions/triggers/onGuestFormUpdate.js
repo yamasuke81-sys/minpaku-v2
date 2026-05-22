@@ -102,6 +102,13 @@ module.exports = async function onGuestFormUpdate(event) {
   // 初回 onCreate の直後 (editToken がなかった→今付いた) は更新通知をスキップ
   if (!before.editToken && after.editToken) return;
 
+  // 管理者操作で書き換えた場合の通知抑止 (after に _skipNotifyUpdate=true があれば skip)
+  // 抑止フラグはこの判定後にトリガー側で削除しない (再発火対策で1回限り)
+  if (after._skipNotifyUpdate === true) {
+    console.log("[onGuestFormUpdate] _skipNotifyUpdate=true のため通知スキップ");
+    return;
+  }
+
   // ゲスト入力フィールドに変更がなければシステムフィールド更新 → スキップ
   if (!hasGuestChanges(before, after)) {
     console.log("[onGuestFormUpdate] ゲスト入力フィールドに変更なし — スキップ");
