@@ -644,35 +644,38 @@ const RecruitmentPage = {
     const finalNames = [...matched].filter(n => n && !cancelled.has(n));
     if (finalNames.length === 0) return;
 
-    // タイミースタッフ (isTimee=true) の selectedStaffId を特定
-    const selectedIds = Array.isArray(recruitment.selectedStaffIds) ? recruitment.selectedStaffIds : [];
+    // タイミースタッフ (isTimee=true) を抽出
+    // ※ 確定前(募集中)も含めて全タイミースタッフの行に自動転記する。
+    //    選定/応答していなくても、後で選択した時にすぐ反映されるよう。
     const staffList = Array.isArray(this.staffList) ? this.staffList : [];
-    const timeeStaffId = selectedIds.find(id => {
-      const s = staffList.find(x => x.id === id);
-      return s && s.isTimee === true;
-    });
-    if (!timeeStaffId) return; // 選定されたタイミースタッフが居ない
+    const timeeStaffIds = staffList.filter(s => s && s.isTimee === true).map(s => s.id);
+    if (timeeStaffIds.length === 0) return;
 
     const newValue = finalNames.join("、");
-    const current = (recruitment.timeeOverrideNames || {})[timeeStaffId] || "";
-    if (current === newValue) return; // 既に同じ値なら何もしない
+    const overrides = recruitment.timeeOverrideNames || {};
+    const updates = {};
+    const changedIds = [];
+    for (const tid of timeeStaffIds) {
+      if ((overrides[tid] || "") !== newValue) {
+        updates[`timeeOverrideNames.${tid}`] = newValue;
+        changedIds.push(tid);
+      }
+    }
+    if (changedIds.length === 0) return; // 既に全 isTimee に同値が入っている
 
     // Firestore に書き込み
     try {
       const db = firebase.firestore();
-      await db.collection("recruitments").doc(recruitment.id).update({
-        [`timeeOverrideNames.${timeeStaffId}`]: newValue,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      });
-      // ローカル状態も更新 (再描画で反映)
+      updates.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+      await db.collection("recruitments").doc(recruitment.id).update(updates);
+      // ローカル状態も更新 + UI 入力欄に即時反映
       if (!recruitment.timeeOverrideNames) recruitment.timeeOverrideNames = {};
-      recruitment.timeeOverrideNames[timeeStaffId] = newValue;
-      console.log(`[autoFillTimee] ${timeeStaffId} ← "${newValue}"`);
-      // 表示反映: タイミー実名入力欄 + 選定スタッフ表示
-      const inp = document.querySelector(`.timee-name-input[data-staff-id="${timeeStaffId}"]`);
-      if (inp) inp.value = newValue;
-      const selEl = document.getElementById("detailSelectedStaff");
-      if (selEl && selEl._reRender) selEl._reRender();
+      for (const tid of changedIds) {
+        recruitment.timeeOverrideNames[tid] = newValue;
+        const inp = document.querySelector(`.timee-name-input[data-staff-id="${tid}"]`);
+        if (inp) inp.value = newValue;
+      }
+      console.log(`[autoFillTimee] ${changedIds.length}名のタイミー行に "${newValue}" を転記`);
     } catch (e) {
       console.warn("[autoFillTimee] Firestore 更新失敗", e);
     }
