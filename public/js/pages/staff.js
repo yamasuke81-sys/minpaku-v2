@@ -856,6 +856,9 @@ const StaffPage = {
     if (gcalUrlEl && this._gcalCurrentToken) {
       gcalUrlEl.value = `https://api-5qrfx7ujcq-an.a.run.app/public/staff-ical/${this._gcalCurrentToken}`;
     }
+    // 招待メール添付トグル (新規スタッフはデフォルト ON、 既存スタッフは保存値)
+    const invEl = document.getElementById("staffCalendarInviteEnabled");
+    if (invEl) invEl.checked = (staff?.calendarInviteEnabled !== false);
     // コピー
     const copyBtn = document.getElementById("btnCopyStaffGCalUrl");
     if (copyBtn && !copyBtn.dataset.gcBound) {
@@ -1035,6 +1038,7 @@ const StaffPage = {
       contractStartDate: document.getElementById("staffContractDate").value || null,
       isTimee: !!document.getElementById("staffIsTimee")?.checked,
       googleCalendarEnabled: !!document.getElementById("staffGoogleCalendarEnabled")?.checked,
+      calendarInviteEnabled: !!document.getElementById("staffCalendarInviteEnabled")?.checked,
       skills,
       assignedPropertyIds,
       bankName: document.getElementById("staffBankName").value.trim(),

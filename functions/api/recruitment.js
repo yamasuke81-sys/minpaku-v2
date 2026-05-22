@@ -8,7 +8,9 @@ const { google } = require("googleapis");
 const {
   notifyStaff, notifyGroup, notifyOwner,
   notifyByKey, buildRecruitmentFlex, resolveNotifyTargets, getNotificationSettings_,
+  sendNotificationEmail_,
 } = require("../utils/lineNotify");
+const { buildIcsEvent } = require("../utils/icsBuilder");
 const { addRecruitmentToActiveStaff, removeRecruitmentFromStaff, removeRecruitmentFromAllStaff } = require("../utils/inactiveStaff");
 
 module.exports = function recruitmentApi(db) {
@@ -343,19 +345,54 @@ module.exports = function recruitmentApi(db) {
             staffIds: [], // staffLine を notifyByKey に送らせない（空配列で全スタッフ送信を抑止）
           });
 
-          // 確定スタッフ本人のみに staffLine 個別送信
+          // 物件 senderGmail を取得 (ICS 添付メールの from に使う)
+          let propertySenderGmail = "";
+          try {
+            const pDoc = await db.collection("properties").doc(data.propertyId).get();
+            if (pDoc.exists) propertySenderGmail = (pDoc.data().senderGmail || "").trim();
+          } catch (_) {}
+
+          // 確定スタッフ本人のみに staffLine 個別送信 + (任意) ICS 添付メール
           for (const staffDoc of staffSnap.docs) {
             const sd = staffDoc.data();
             const isSelected = hasIdList
               ? selectedIds.includes(staffDoc.id)
               : selectedNames.includes(sd.name);
-            if (isSelected && sd.lineUserId) {
+            if (!isSelected) continue;
+            if (sd.lineUserId) {
               await notifyStaff(db, staffDoc.id, "staff_confirm",
                 `確定: ${data.checkoutDate}`, text,
                 {
                   ...confirmVars,
                   staffName: sd.name, // 受信者本人の名前（個別呼びかけ用）
                 });
+            }
+            // ICS 添付メール (calendarInviteEnabled が default(undefined) または true なら送信)
+            if (sd.email && sd.calendarInviteEnabled !== false && propertySenderGmail) {
+              try {
+                const workLabel = data.workType === "pre_inspection" ? "直前点検" : "清掃";
+                const ics = buildIcsEvent({
+                  uid: `${workLabel === "清掃" ? "cleaning" : "inspection"}-${recruitmentId}-${staffDoc.id}@minpaku-v2`,
+                  date: data.checkoutDate,
+                  summary: `${workLabel}: ${data.propertyName || ""}`,
+                  description: `担当: ${data.selectedStaff || ""}\nWebアプリ: ${dashUrl}`,
+                  location: data.propertyName || "",
+                  calName: `${workLabel}シフト (${sd.name || ""})`,
+                });
+                const mailSubject = `${workLabel}担当確定 ${data.checkoutDate} / ${data.propertyName || ""}`;
+                const mailBody = `${sd.name || ""} 様\n\n${text}\n\n──\n本メールには .ics ファイルが添付されています。\nGoogle カレンダー等で「予定を追加」していただくと、 確定日が自動でカレンダーに登録されます。`;
+                await sendNotificationEmail_(sd.email, mailSubject, mailBody, propertySenderGmail, {
+                  strictFrom: false,
+                  attachments: [{
+                    filename: `${workLabel}_${data.checkoutDate}.ics`,
+                    contentType: 'text/calendar; charset=utf-8; method=PUBLISH',
+                    content: ics,
+                  }],
+                });
+                console.log(`[staff_confirm] ICS 添付メール送信成功: ${sd.email}`);
+              } catch (e) {
+                console.warn(`[staff_confirm] ICS 添付メール失敗 (${sd.email}):`, e.message);
+              }
             }
           }
         }

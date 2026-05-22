@@ -878,16 +878,56 @@ async function sendNotificationEmail_(to, subject, body, fromEmail, opts) {
   // メール本文の v2 アプリ URL に openExternalBrowser=1 を付与
   // (メールアプリから LINE 内蔵ブラウザにフォールバックする端末対策も兼ねる)
   const transformedBody = appendOpenExternalBrowser(body);
-  const messageParts = [
-    `From: ${fromHeader}`,
-    `To: ${to}`,
-    `Subject: ${utf8Subject}`,
-    "MIME-Version: 1.0",
-    "Content-Type: text/plain; charset=utf-8",
-    "",
-    transformedBody,
-  ];
-  const message = messageParts.join("\n");
+
+  // 添付ファイル対応: opts.attachments = [{ filename, contentType, content (string|Buffer) }]
+  const attachments = Array.isArray(opts && opts.attachments) ? opts.attachments : [];
+  let message;
+  if (attachments.length > 0) {
+    const boundary = `=_minpakuv2_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    const headers = [
+      `From: ${fromHeader}`,
+      `To: ${to}`,
+      `Subject: ${utf8Subject}`,
+      "MIME-Version: 1.0",
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      "",
+    ];
+    const parts = [
+      `--${boundary}`,
+      "Content-Type: text/plain; charset=utf-8",
+      "Content-Transfer-Encoding: 8bit",
+      "",
+      transformedBody,
+    ];
+    for (const att of attachments) {
+      const ct = att.contentType || "application/octet-stream";
+      const name = att.filename || "attachment";
+      const content = Buffer.isBuffer(att.content) ? att.content : Buffer.from(String(att.content || ""), "utf-8");
+      const b64 = content.toString("base64").replace(/(.{76})/g, "$1\n");
+      parts.push(
+        "",
+        `--${boundary}`,
+        `Content-Type: ${ct}; name="${name}"`,
+        `Content-Disposition: attachment; filename="${name}"`,
+        "Content-Transfer-Encoding: base64",
+        "",
+        b64,
+      );
+    }
+    parts.push("", `--${boundary}--`);
+    message = headers.join("\n") + parts.join("\n");
+  } else {
+    const messageParts = [
+      `From: ${fromHeader}`,
+      `To: ${to}`,
+      `Subject: ${utf8Subject}`,
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=utf-8",
+      "",
+      transformedBody,
+    ];
+    message = messageParts.join("\n");
+  }
   const encodedMessage = Buffer.from(message).toString("base64url");
 
   await gmail.users.messages.send({
