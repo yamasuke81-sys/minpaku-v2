@@ -626,6 +626,58 @@ const RecruitmentPage = {
     this.detailModal.show();
   },
 
+  // タイミーメール照合履歴の workers から採用された人 (matched - cancelled) を集計し、
+  // recruitment.selectedStaffIds 内の isTimee=true のスタッフの timeeOverrideNames に転記
+  async _autoFillTimeeOverrideNames(recruitment, items) {
+    if (!recruitment || !recruitment.id || !Array.isArray(items)) return;
+    // 採用された人の名前を抽出 (matched - cancelled)
+    const matched = new Set();
+    const cancelled = new Set();
+    items.forEach(m => {
+      const ws = Array.isArray(m.workers) ? m.workers : [];
+      if (m.eventType === "matched") {
+        ws.forEach(w => { if (w && w.name) matched.add(String(w.name).trim()); });
+      } else if (m.eventType === "cancelled") {
+        ws.forEach(w => { if (w && w.name) cancelled.add(String(w.name).trim()); });
+      }
+    });
+    const finalNames = [...matched].filter(n => n && !cancelled.has(n));
+    if (finalNames.length === 0) return;
+
+    // タイミースタッフ (isTimee=true) の selectedStaffId を特定
+    const selectedIds = Array.isArray(recruitment.selectedStaffIds) ? recruitment.selectedStaffIds : [];
+    const staffList = Array.isArray(this.staffList) ? this.staffList : [];
+    const timeeStaffId = selectedIds.find(id => {
+      const s = staffList.find(x => x.id === id);
+      return s && s.isTimee === true;
+    });
+    if (!timeeStaffId) return; // 選定されたタイミースタッフが居ない
+
+    const newValue = finalNames.join("、");
+    const current = (recruitment.timeeOverrideNames || {})[timeeStaffId] || "";
+    if (current === newValue) return; // 既に同じ値なら何もしない
+
+    // Firestore に書き込み
+    try {
+      const db = firebase.firestore();
+      await db.collection("recruitments").doc(recruitment.id).update({
+        [`timeeOverrideNames.${timeeStaffId}`]: newValue,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      // ローカル状態も更新 (再描画で反映)
+      if (!recruitment.timeeOverrideNames) recruitment.timeeOverrideNames = {};
+      recruitment.timeeOverrideNames[timeeStaffId] = newValue;
+      console.log(`[autoFillTimee] ${timeeStaffId} ← "${newValue}"`);
+      // 表示反映: タイミー実名入力欄 + 選定スタッフ表示
+      const inp = document.querySelector(`.timee-name-input[data-staff-id="${timeeStaffId}"]`);
+      if (inp) inp.value = newValue;
+      const selEl = document.getElementById("detailSelectedStaff");
+      if (selEl && selEl._reRender) selEl._reRender();
+    } catch (e) {
+      console.warn("[autoFillTimee] Firestore 更新失敗", e);
+    }
+  },
+
   // タイミーメール照合履歴を API から取得して描画
   async _renderTimeeMatches(recruitment) {
     const body = document.getElementById("timeeMatchesBody");
@@ -667,6 +719,11 @@ const RecruitmentPage = {
         unknown:     '<span class="badge bg-light text-dark border">その他</span>',
       };
       const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+
+      // タイミー実名を timeeOverrideNames に自動転記 (matched − cancelled で集計)
+      try {
+        await this._autoFillTimeeOverrideNames(recruitment, items);
+      } catch (e) { console.warn("[timee-matches] override 転記失敗", e); }
 
       body.innerHTML = items.map((m) => {
         const workers = Array.isArray(m.workers) && m.workers.length
