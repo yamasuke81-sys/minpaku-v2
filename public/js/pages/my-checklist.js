@@ -3110,9 +3110,20 @@ const MyChecklistPage = {
       // 即座に再描画すると click 処理と競合するので 1 フレーム遅延
       setTimeout(() => {
         if (this._userTouchActive) return; // 再びタップが始まっていたら次の touchend に委ねる
+        // スクロール位置を保存 → 再描画 → 復元 (iOS Safari / LINE 内蔵ブラウザの最上部ジャンプ防止)
+        const prevScrollY = window.scrollY;
+        const mainEl = document.querySelector(".app-main");
+        const prevMainScroll = mainEl ? mainEl.scrollTop : 0;
         this._updateHeaderStatus();
         this._updateTabBadges();
         try { this._renderActiveTopTab(); } catch (_) {}
+        // 2段階 rAF でレイアウト確定後にスクロール復元
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            window.scrollTo({ top: prevScrollY, behavior: "instant" });
+            if (mainEl) mainEl.scrollTop = prevMainScroll;
+          });
+        });
       }, 80);
     }
   },
