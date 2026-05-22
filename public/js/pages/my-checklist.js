@@ -1184,10 +1184,32 @@ const MyChecklistPage = {
           (s.staffIds || (s.staffId ? [s.staffId] : [])).forEach(id => staffIds.add(id));
         });
         if (staffIds.size > 0) {
+          // recruitments から timeeOverrideNames を取得 (タイミースタッフ実名表示用)
+          let timeeNames = {};
+          try {
+            const recSnap = await db.collection("recruitments")
+              .where("propertyId", "==", c.propertyId)
+              .where("checkoutDate", "==", c.checkoutDate)
+              .limit(5)
+              .get();
+            recSnap.docs.forEach(rd => {
+              const tn = rd.data().timeeOverrideNames;
+              if (tn && typeof tn === "object") Object.assign(timeeNames, tn);
+            });
+          } catch (_) { /* permission-denied のスタッフは無視 */ }
+
           const staffSnaps = await Promise.all(
             Array.from(staffIds).map(id => db.collection("staff").doc(id).get())
           );
-          staffNames = staffSnaps.filter(d => d.exists).map(d => d.data().name || "不明");
+          staffNames = staffSnaps.filter(d => d.exists).map(d => {
+            const sd = d.data();
+            const baseName = sd.name || "不明";
+            // isTimee=true で timeeOverrideNames に実名があればそれを優先表示
+            if (sd.isTimee && timeeNames[d.id]) {
+              return `${timeeNames[d.id]}(${baseName})`;
+            }
+            return baseName;
+          });
         }
       } catch (_) {}
 
@@ -1333,7 +1355,13 @@ const MyChecklistPage = {
               </div>
               <table class="table table-sm table-borderless mb-0">
                 <tr><th class="text-muted" style="width:130px;">チェックイン</th><td>${ciDisplay}</td></tr>
-                <tr><th class="text-muted">宿泊人数</th><td>${nb.guestCount ? this.escapeHtml(String(nb.guestCount)) + "名" : "-"}</td></tr>
+                <tr><th class="text-muted">宿泊人数</th><td>${(() => {
+                  // bookings.guestCount → 名簿の guestCount の順でフォールバック
+                  const gc = (typeof nb.guestCount === "number" && nb.guestCount > 0) ? nb.guestCount
+                    : (typeof nextGuest.guestCount === "number" && nextGuest.guestCount > 0) ? nextGuest.guestCount
+                    : null;
+                  return gc ? this.escapeHtml(String(gc)) + "名" : "-";
+                })()}</td></tr>
                 ${isFieldVisible("bbq", "facility") ? `<tr><th class="text-muted">BBQ</th><td>${vb(nextGuest.bbq)}</td></tr>` : ""}
                 ${isFieldVisible("bedChoice", "facility") ? `<tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${nextGuest.bedChoice ? this.escapeHtml(String(nextGuest.bedChoice)) : "-"}</td></tr>` : ""}
                 ${isFieldVisible("transport", "facility") ? `<tr><th class="text-muted">交通手段</th><td>${nextGuest.transport ? this.escapeHtml(nextGuest.transport) : "-"}</td></tr>` : ""}
