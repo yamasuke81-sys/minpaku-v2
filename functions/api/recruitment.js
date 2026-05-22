@@ -345,12 +345,39 @@ module.exports = function recruitmentApi(db) {
             staffIds: [], // staffLine を notifyByKey に送らせない（空配列で全スタッフ送信を抑止）
           });
 
-          // 物件 senderGmail を取得 (ICS 添付メールの from に使う)
+          // 物件マスタ取得 (senderGmail + 作業時刻)
           let propertySenderGmail = "";
+          let propertyData = {};
           try {
             const pDoc = await db.collection("properties").doc(data.propertyId).get();
-            if (pDoc.exists) propertySenderGmail = (pDoc.data().senderGmail || "").trim();
+            if (pDoc.exists) {
+              propertyData = pDoc.data();
+              propertySenderGmail = (propertyData.senderGmail || "").trim();
+            }
           } catch (_) {}
+          // ICS イベントの開始/終了時刻を物件マスタから決定
+          // - 清掃: cleaningStartTime || baseWorkTime.start || "10:30" / 終了は baseWorkTime.end (なければ +cleaningDuration分 or +90分)
+          // - 直前点検: inspectionStartTime || "10:00" / 終了は +60分
+          const baseStart = propertyData.baseWorkTime?.start || "";
+          const baseEnd = propertyData.baseWorkTime?.end || "";
+          const _icsStartTime = data.workType === "pre_inspection"
+            ? (propertyData.inspectionStartTime || "10:00")
+            : (propertyData.cleaningStartTime || baseStart || "10:30");
+          let _icsEndTime;
+          if (data.workType === "pre_inspection") {
+            // +60分
+            const [h, m] = _icsStartTime.split(":").map(Number);
+            const total = h * 60 + m + 60;
+            _icsEndTime = `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+          } else if (baseEnd) {
+            _icsEndTime = baseEnd;
+          } else {
+            // cleaningDuration 分後 (なければ 90分)
+            const dur = Number(propertyData.cleaningDuration) > 0 ? Number(propertyData.cleaningDuration) : 90;
+            const [h, m] = _icsStartTime.split(":").map(Number);
+            const total = h * 60 + m + dur;
+            _icsEndTime = `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+          }
 
           // 確定スタッフ本人のみに staffLine 個別送信 + (任意) ICS 添付メール
           for (const staffDoc of staffSnap.docs) {
@@ -374,8 +401,10 @@ module.exports = function recruitmentApi(db) {
                 const ics = buildIcsEvent({
                   uid: `${workLabel === "清掃" ? "cleaning" : "inspection"}-${recruitmentId}-${staffDoc.id}@minpaku-v2`,
                   date: data.checkoutDate,
+                  startTime: _icsStartTime,
+                  endTime: _icsEndTime,
                   summary: `${workLabel}: ${data.propertyName || ""}`,
-                  description: `担当: ${data.selectedStaff || ""}\nWebアプリ: ${dashUrl}`,
+                  description: `担当: ${data.selectedStaff || ""}\n時間: ${_icsStartTime}〜${_icsEndTime}\nWebアプリ: ${dashUrl}`,
                   location: data.propertyName || "",
                   calName: `${workLabel}シフト (${sd.name || ""})`,
                 });

@@ -206,13 +206,47 @@ router.get("/staff-ical/:token", async (req, res) => {
     if (staff.googleCalendarEnabled === false) {
       return res.status(403).send("calendar sync disabled");
     }
-    // 確定済み recruitments を取得 (今日以降のみ、 過去 30 日まで)
+    // 確定済み recruitments を取得 (過去 30 日まで含む)
     const today = new Date();
     const past = new Date(today.getTime() - 30 * 86400 * 1000).toISOString().slice(0, 10);
     const recSnap = await db.collection("recruitments")
       .where("selectedStaffIds", "array-contains", sDoc.id)
       .where("checkoutDate", ">=", past)
       .get();
+    // 物件マスタを propertyId ごとに 1 回だけ取得 (キャッシュ)
+    const propIds = [...new Set(recSnap.docs.map(d => d.data().propertyId).filter(Boolean))];
+    const propCache = {};
+    for (const pid of propIds) {
+      try {
+        const pd = await db.collection("properties").doc(pid).get();
+        if (pd.exists) propCache[pid] = pd.data();
+      } catch (_) {}
+    }
+    // 物件マスタから清掃/点検の開始・終了時刻を決定するヘルパー
+    function resolveTimes(prop, workType) {
+      if (!prop) return null;
+      const baseStart = prop.baseWorkTime?.start || "";
+      const baseEnd = prop.baseWorkTime?.end || "";
+      let start, end;
+      if (workType === "pre_inspection") {
+        start = prop.inspectionStartTime || "10:00";
+        const [h, m] = start.split(":").map(Number);
+        const total = h * 60 + m + 60;
+        end = `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+      } else {
+        start = prop.cleaningStartTime || baseStart || "10:30";
+        if (baseEnd) {
+          end = baseEnd;
+        } else {
+          const dur = Number(prop.cleaningDuration) > 0 ? Number(prop.cleaningDuration) : 90;
+          const [h, m] = start.split(":").map(Number);
+          const total = h * 60 + m + dur;
+          end = `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+        }
+      }
+      return { start, end };
+    }
+
     const events = [];
     for (const rd of recSnap.docs) {
       const r = rd.data();
@@ -222,22 +256,31 @@ router.get("/staff-ical/:token", async (req, res) => {
       const propertyName = r.propertyName || "";
       const workLabel = r.workType === "pre_inspection" ? "直前点検" : "清掃";
       const url = `https://minpaku-v2.web.app/#/my-recruitment`;
+      const times = resolveTimes(propCache[r.propertyId], r.workType);
       events.push({
-        uid: `${workLabel === "清掃" ? "cleaning" : "inspection"}-${rd.id}@minpaku-v2`,
-        date: date.replace(/-/g, ""), // YYYYMMDD
-        nextDate: (() => {
-          const d = new Date(date + "T00:00:00.000Z");
-          d.setUTCDate(d.getUTCDate() + 1);
-          return d.toISOString().slice(0, 10).replace(/-/g, "");
-        })(),
+        uid: `${workLabel === "清掃" ? "cleaning" : "inspection"}-${rd.id}-${sDoc.id}@minpaku-v2`,
+        date,
+        startTime: times ? times.start : null,
+        endTime: times ? times.end : null,
         summary: `${workLabel}: ${propertyName}`,
-        description: `担当: ${r.selectedStaff || ""}\\n物件: ${propertyName}\\n詳細: ${url}`,
+        description: `担当: ${r.selectedStaff || ""}\\n${times ? `時間: ${times.start}〜${times.end}\\n` : ""}物件: ${propertyName}\\n詳細: ${url}`,
         location: propertyName,
       });
     }
-    // ICS 構築
+    // ICS 構築 (時間付き対応)
     const now = new Date();
     const dtstamp = now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    function ymdC(ymd) { return String(ymd || "").replace(/-/g, ""); }
+    function nextYmdC(ymd) {
+      const d = new Date(String(ymd) + "T00:00:00.000Z");
+      d.setUTCDate(d.getUTCDate() + 1);
+      return d.toISOString().slice(0, 10).replace(/-/g, "");
+    }
+    function hms(hm) {
+      const m = String(hm || "").match(/^(\d{1,2}):(\d{2})/);
+      if (!m) return null;
+      return `${String(parseInt(m[1], 10)).padStart(2, "0")}${String(parseInt(m[2], 10)).padStart(2, "0")}00`;
+    }
     const lines = [
       "BEGIN:VCALENDAR",
       "VERSION:2.0",
@@ -250,12 +293,33 @@ router.get("/staff-ical/:token", async (req, res) => {
       "X-PUBLISHED-TTL:PT1H",
     ];
     for (const ev of events) {
+      const startHms = hms(ev.startTime);
       lines.push(
         "BEGIN:VEVENT",
         `UID:${ev.uid}`,
         `DTSTAMP:${dtstamp}`,
-        `DTSTART;VALUE=DATE:${ev.date}`,
-        `DTEND;VALUE=DATE:${ev.nextDate}`,
+      );
+      if (startHms) {
+        // endTime が startTime 以下なら翌日
+        let endDate = ev.date;
+        const sM = ev.startTime.split(":").map(Number);
+        const eM = ev.endTime.split(":").map(Number);
+        if (eM[0] * 60 + eM[1] <= sM[0] * 60 + sM[1]) {
+          const d = new Date(ev.date + "T00:00:00.000Z");
+          d.setUTCDate(d.getUTCDate() + 1);
+          endDate = d.toISOString().slice(0, 10);
+        }
+        lines.push(
+          `DTSTART;TZID=Asia/Tokyo:${ymdC(ev.date)}T${startHms}`,
+          `DTEND;TZID=Asia/Tokyo:${ymdC(endDate)}T${hms(ev.endTime)}`,
+        );
+      } else {
+        lines.push(
+          `DTSTART;VALUE=DATE:${ymdC(ev.date)}`,
+          `DTEND;VALUE=DATE:${nextYmdC(ev.date)}`,
+        );
+      }
+      lines.push(
         `SUMMARY:${ev.summary}`,
         `DESCRIPTION:${ev.description}`,
         `LOCATION:${ev.location}`,
