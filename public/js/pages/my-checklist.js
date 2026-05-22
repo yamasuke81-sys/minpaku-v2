@@ -1185,18 +1185,26 @@ const MyChecklistPage = {
         });
         if (staffIds.size > 0) {
           // recruitments から timeeOverrideNames を取得 (タイミースタッフ実名表示用)
+          // recruitments.checkoutDate は文字列 "YYYY-MM-DD" のため Timestamp 型と不一致防止
           let timeeNames = {};
           try {
+            const coStr = (typeof c.checkoutDate === "string")
+              ? c.checkoutDate.slice(0, 10)
+              : (c.checkoutDate?.toDate
+                  ? c.checkoutDate.toDate().toLocaleDateString("sv-SE")
+                  : "");
             const recSnap = await db.collection("recruitments")
               .where("propertyId", "==", c.propertyId)
-              .where("checkoutDate", "==", c.checkoutDate)
+              .where("checkoutDate", "==", coStr)
               .limit(5)
               .get();
             recSnap.docs.forEach(rd => {
               const tn = rd.data().timeeOverrideNames;
               if (tn && typeof tn === "object") Object.assign(timeeNames, tn);
             });
-          } catch (_) { /* permission-denied のスタッフは無視 */ }
+          } catch (e) {
+            console.warn("[my-checklist] timeeOverrideNames 取得失敗", e);
+          }
 
           const staffSnaps = await Promise.all(
             Array.from(staffIds).map(id => db.collection("staff").doc(id).get())
