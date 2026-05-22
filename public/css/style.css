@@ -406,18 +406,26 @@ body.sidebar-hidden .app-main { margin-left: 0; }
 
 
 /* === 清掃チェックリスト 大カテゴリ アコーディオン安定化 === */
-/* タップ時に大きく見えるのを抑制: focus shadow/outline/tap-highlight を排除 */
-.mcl-cat .accordion-button {
-  -webkit-tap-highlight-color: transparent;
-  box-shadow: none !important;
-  outline: none !important;
-  transition: background-color 0.12s ease !important;
-}
+/* タップで文字サイズが変わる現象を全ステート (default/hover/focus/active/not-collapsed)
+   で font-size/weight/padding を !important 固定して抑止 */
+.mcl-cat .accordion-button,
+.mcl-cat .accordion-button:hover,
 .mcl-cat .accordion-button:focus,
-.mcl-cat .accordion-button:focus-visible {
+.mcl-cat .accordion-button:focus-visible,
+.mcl-cat .accordion-button:active,
+.mcl-cat .accordion-button:not(.collapsed) {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  line-height: 1.5 !important;
+  padding: 8px 12px !important;
   box-shadow: none !important;
   outline: none !important;
   border-color: transparent !important;
+  transform: none !important;
+  transition: background-color 0.12s ease !important;
 }
 .mcl-cat .accordion-button:not(.collapsed) {
   /* 展開時の Bootstrap デフォルト青背景を弱める (バウンス感の原因) */
