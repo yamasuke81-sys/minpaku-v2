@@ -1,6 +1,15 @@
 {
   "indexes": [
     {
+      "collectionGroup": "notificationQueue",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "batchSlot", "order": "ASCENDING" },
+        { "fieldPath": "scheduledForDate", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "shifts",
       "queryScope": "COLLECTION",
       "fields": [
