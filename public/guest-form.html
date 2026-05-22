@@ -1971,6 +1971,63 @@
       }
     }
 
+    // propertyId のみで来た場合に、公開APIから該当物件の未来 booking を取得して
+    // CI/CO/人数をデフォルト値として prefill する。複数あれば最も近いCIを採用 +
+    // 候補配列を _bookingCandidates に保存して送信時に検証する。
+    async function prefillFromPropertyId(pid) {
+      try {
+        const res = await fetch(`/public/upcoming-bookings/${encodeURIComponent(pid)}`);
+        if (!res.ok) return null;
+        const data = await res.json();
+        const items = data.items || [];
+        if (items.length === 0) return null;
+        const b = items[0];
+        window._bookingCandidates = items;
+        if (b.checkIn) { const el = document.getElementById("f_checkIn"); if (el) el.value = b.checkIn; }
+        if (b.checkOut) { const el = document.getElementById("f_checkOut"); if (el) el.value = b.checkOut; }
+        if (b.guestCount) {
+          const el = document.getElementById("f_guestCount");
+          if (el) { el.value = b.guestCount; renderGuestInputs(); }
+        }
+        const labelExtra = items.length > 1 ? ` (該当 ${items.length} 件中、最も近い予約)` : "";
+        const infoText = document.getElementById("bookingInfoText");
+        if (infoText) infoText.textContent = `${b.checkIn} ~ ${b.checkOut}${labelExtra}`;
+        const info = document.getElementById("bookingInfo");
+        if (info) info.classList.remove("d-none");
+        return b;
+      } catch (e) {
+        console.warn("[prefillFromPropertyId] エラー:", e);
+        return null;
+      }
+    }
+
+    // 入力された CI 日が候補のいずれかと一致するかチェックして警告表示
+    function validateCheckInAgainstCandidates() {
+      const cands = window._bookingCandidates;
+      if (!Array.isArray(cands) || cands.length === 0) return true;
+      const inp = document.getElementById("f_checkIn");
+      if (!inp) return true;
+      const v = String(inp.value || "").trim();
+      if (!v) return true;
+      const ok = cands.some(c => c.checkIn === v);
+      const warnEl = document.getElementById("ciMismatchWarn");
+      if (!warnEl) {
+        const el = document.createElement("div");
+        el.id = "ciMismatchWarn";
+        el.className = "alert alert-warning small py-1 px-2 mt-1 d-none";
+        inp.parentNode && inp.parentNode.insertBefore(el, inp.nextSibling);
+      }
+      const w = document.getElementById("ciMismatchWarn");
+      if (!ok) {
+        const candList = cands.map(c => `${c.checkIn}〜${c.checkOut}`).join(" / ");
+        w.innerHTML = `⚠️ 入力されたチェックイン日 (${v}) はこの物件の予約日と一致していません。<br>該当する予約: ${candList}`;
+        w.classList.remove("d-none");
+      } else {
+        w.classList.add("d-none");
+      }
+      return ok;
+    }
+
     async function prefillFromBooking(bid) {
       try {
         const doc = await db.collection("bookings").doc(bid).get(); if (!doc.exists) return;
@@ -2622,6 +2679,18 @@
         document.getElementById("carOverError")?.scrollIntoView({ behavior: "smooth", block: "center" }); return;
       }
 
+      // CI 日が候補と不一致なら確認ダイアログ
+      if (!validateCheckInAgainstCandidates()) {
+        const cands = window._bookingCandidates || [];
+        const list = cands.map(c => `・${c.checkIn} 〜 ${c.checkOut}`).join("\n");
+        const ok = window.confirm(`⚠️ 入力されたチェックイン日が予約日と一致していません。\n\n該当する予約:\n${list}\n\nこのまま送信しますか？`);
+        if (!ok) {
+          const inp = document.getElementById("f_checkIn");
+          inp && inp.scrollIntoView({ behavior: "smooth", block: "center" });
+          return;
+        }
+      }
+
       // 割り当て不可チェック
       const vtSels = document.querySelectorAll(".vt-select");
       if (vtSels.length > 0) {
@@ -3049,7 +3118,13 @@
         await prefillFromEditToken(_editToken);
       } else if (params.bookingId) {
         await prefillFromBooking(params.bookingId);
+      } else if (params.propertyId) {
+        // propertyId のみ → 公開APIで未来 booking を取得して CI/CO を prefill
+        await prefillFromPropertyId(params.propertyId);
       }
+      // CI 入力変更時に候補との一致をチェック
+      const _ciEl = document.getElementById("f_checkIn");
+      if (_ciEl) _ciEl.addEventListener("change", validateCheckInAgainstCandidates);
       if (params.checkIn) { const el = document.getElementById("f_checkIn"); if (el) el.value = params.checkIn; }
       if (params.checkOut) { const el = document.getElementById("f_checkOut"); if (el) el.value = params.checkOut; }
       if (params.guests) { const el = document.getElementById("f_guestCount"); if (el) { el.value = params.guests; renderGuestInputs(); } }

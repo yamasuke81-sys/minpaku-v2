@@ -154,4 +154,41 @@ router.post("/upload-failed", express.json(), async (req, res) => {
   }
 });
 
+// GET /public/upcoming-bookings/:propertyId
+// 該当物件の未来 booking (status=confirmed, checkIn >= today JST) を返す
+// 個人情報 (guestName) は除外、ゲストフォームの CI/CO デフォルト値補完用
+router.get("/upcoming-bookings/:propertyId", async (req, res) => {
+  try {
+    const pid = req.params.propertyId;
+    if (!pid) return res.status(400).json({ error: "propertyId 必須" });
+    // 物件存在チェック
+    const propDoc = await admin.firestore().collection("properties").doc(pid).get();
+    if (!propDoc.exists || propDoc.data().active === false) {
+      return res.status(404).json({ error: "物件が見つかりません" });
+    }
+    // 今日 (JST) 以降の未来 booking
+    const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    const snap = await admin.firestore().collection("bookings")
+      .where("propertyId", "==", pid)
+      .where("status", "==", "confirmed")
+      .where("checkIn", ">=", today)
+      .orderBy("checkIn", "asc")
+      .limit(10)
+      .get();
+    const items = snap.docs.map(d => {
+      const x = d.data();
+      return {
+        checkIn: x.checkIn,
+        checkOut: x.checkOut,
+        guestCount: x.guestCount || null,
+        source: x.source || "",
+      };
+    });
+    res.json({ propertyId: pid, items });
+  } catch (e) {
+    console.error("[public/upcoming-bookings]", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;

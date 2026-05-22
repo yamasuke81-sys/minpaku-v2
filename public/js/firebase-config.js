@@ -17,6 +17,15 @@ const USE_EMULATOR = location.hostname === "localhost" || location.hostname === 
 
 firebase.initializeApp(firebaseConfig);
 
+// Auth 永続化を LOCAL (IndexedDB) に明示固定: ブラウザを閉じても、 Service Worker を
+// unregister しても、 「最新版に更新」で caches.delete() しても認証情報を維持。
+// デフォルトでも LOCAL のはずだが、 ブラウザ差/SDK バージョン差での挙動を明示的に固定する。
+try {
+  firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch((e) => {
+    console.warn("[firebase-config] setPersistence(LOCAL) 失敗:", e && e.message);
+  });
+} catch (e) { /* SDK 未ロード等は無視 */ }
+
 if (USE_EMULATOR) {
   firebase.auth().useEmulator("http://127.0.0.1:9099");
   firebase.firestore().useEmulator("127.0.0.1", 8080);
