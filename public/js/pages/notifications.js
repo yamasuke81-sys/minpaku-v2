@@ -114,9 +114,6 @@ const NotificationsPage = {
       defaultMsg: "📨 請求書が提出されました\n\n{staff} さんから {month}月分の請求書が届きました。\n合計: {total}\n確認: {url}" },
     { key: "cleaning_done", label: "清掃完了通知", desc: "清掃チェックリスト完了時にWebアプリ管理者に通知", icon: "bi-clipboard-check", group: "cleaning", varGroup: "cleaning", defaultTiming: "immediate",
       defaultMsg: "✨ 清掃完了\n\n{date} {property}\n{staff}さんが{time}に清掃を完了しました。\n詳細: {url}" },
-    // 直前点検完了通知 (cleaning_done とは独立して送信先を設定可能)
-    { key: "pre_inspection_done", label: "直前点検完了通知", desc: "直前点検チェックリスト完了時にWebアプリ管理者に通知（清掃完了通知とは独立して送信先を設定可能）", icon: "bi-search-heart", group: "cleaning", varGroup: "cleaning", defaultTiming: "immediate",
-      defaultMsg: "✨ 直前点検完了\n\n{date} {property}\n{staff}さんが{time}に直前点検を完了しました。\n詳細: {url}" },
     { key: "laundry_put_out", label: "ランドリー 出した", desc: "スタッフが「洗濯物を出した」ボタンを押した時にWebアプリ管理者等へ通知", icon: "bi-arrow-up-circle", group: "cleaning", varGroup: "laundry", defaultTiming: "immediate",
       defaultMsg: "🧺 ランドリー 出した\n\n{date} {property}\n{staff}さんが{time}に洗濯物を出しました。\n詳細: {url}" },
     { key: "laundry_collected", label: "ランドリー 回収した", desc: "スタッフが「洗濯物を回収した」ボタンを押した時にWebアプリ管理者等へ通知", icon: "bi-arrow-down-circle", group: "cleaning", varGroup: "laundry", defaultTiming: "immediate",

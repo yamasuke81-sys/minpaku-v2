@@ -378,9 +378,13 @@ const ChecklistPage = {
       const numBadge = meta.num !== undefined && meta.num !== ""
         ? `<span class="badge me-1" style="background:${meta.color};color:#fff;min-width:22px;">${this.esc(String(meta.num))}</span>`
         : "";
+      // workType バッジ: 清掃=[清](オレンジ) / 直前点検=[直](紫)
+      const workTypeBadge = c.workType === "pre_inspection"
+        ? `<span class="badge ms-1" style="background:#a78bfa;color:#fff;font-size:0.7rem;">[直]</span>`
+        : `<span class="badge ms-1" style="background:#fd7e14;color:#fff;font-size:0.7rem;">[清]</span>`;
       const propHtml = opts.showProp
-        ? `${numBadge}<strong>${this.esc(c.propertyName || "(物件不明)")}</strong>`
-        : "";
+        ? `${numBadge}<strong>${this.esc(c.propertyName || "(物件不明)")}</strong>${workTypeBadge}`
+        : workTypeBadge;
       return `
         <a href="#/my-checklist/${this.escAttr(c.shiftId || "")}" class="list-group-item list-group-item-action" data-checklist-id="${this.escAttr(c.id)}" data-date="${this.escAttr(c._dateStr)}">
           <div class="d-flex align-items-center gap-2 flex-wrap">

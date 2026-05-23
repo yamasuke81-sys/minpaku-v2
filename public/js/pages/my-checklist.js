@@ -140,7 +140,7 @@ const MyChecklistPage = {
         </select>
         <div class="form-check ms-2">
           <input class="form-check-input" type="checkbox" id="mclListShowPast">
-          <label class="form-check-label small" for="mclListShowPast">完了済も表示</label>
+          <label class="form-check-label small" for="mclListShowPast">7日以上前の完了済も表示</label>
         </div>
       </div>
       <div id="mclPropFilterBar" class="d-flex flex-wrap gap-1 mb-3"></div>
@@ -289,8 +289,12 @@ const MyChecklistPage = {
     let items = (this._listData || []).filter(c => !hiddenIds.has(c.propertyId));
     if (pid) items = items.filter(c => c.propertyId === pid);
     if (!showPast) {
-      // 既定: 今日以降 + 今日より前で未完了 (status != completed)
-      items = items.filter(c => c._dateStr >= today || c.status !== "completed");
+      // 既定: 今日以降 + 過去3日以内の完了済みも表示 + それより古い完了済みは非表示
+      const d = new Date();
+      d.setDate(d.getDate() - 3);
+      // JST 考慮: toLocaleDateString("sv-SE") で "YYYY-MM-DD" 形式取得
+      const threeDaysAgo = d.toLocaleDateString("sv-SE");
+      items = items.filter(c => c._dateStr >= threeDaysAgo || c.status !== "completed");
     }
 
     if (!items.length) {
@@ -1955,20 +1959,20 @@ const MyChecklistPage = {
 
     const completeSection = isCompleted
       ? `
-        <div class="card" style="background:#0d6efd;border-color:#0d6efd;color:#fff;max-width:280px;margin:0 auto;">
-          <div class="card-body p-2">
-            <div class="d-flex align-items-center gap-2">
-              <i class="bi bi-check-circle-fill" style="font-size:1.2rem;color:#fff;"></i>
+        <div class="card" style="background:#0d6efd;border-color:#0d6efd;color:#fff;max-width:200px;margin:0 auto;">
+          <div class="card-body" style="padding:6px 10px;">
+            <div class="d-flex align-items-center gap-1">
+              <i class="bi bi-check-circle-fill" style="font-size:0.9rem;color:#fff;flex-shrink:0;"></i>
               <div class="flex-grow-1" style="min-width:0;">
-                <div style="color:#fff;font-size:0.85rem;font-weight:600;line-height:1.1;">${completeDoneLabel}</div>
-                <div style="color:rgba(255,255,255,0.9);font-size:0.7rem;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                <div style="color:#fff;font-size:0.75rem;font-weight:600;line-height:1.2;">${completeDoneLabel}</div>
+                <div style="color:rgba(255,255,255,0.9);font-size:0.65rem;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
                   ${this.escapeHtml(c.completedBy?.name || "")} ${fmtTs(c.completedAt)}
                 </div>
               </div>
             </div>
-            <div class="mt-2 d-flex gap-1 justify-content-center flex-wrap">
-              <a href="#/my-checklist" class="btn btn-sm btn-light py-0 px-2" style="font-size:0.75rem;">一覧へ戻る</a>
-              <button type="button" class="btn btn-sm btn-outline-light py-0 px-2" id="mclRevertBtn" style="font-size:0.75rem;">
+            <div class="mt-1 d-flex gap-1 justify-content-center flex-wrap">
+              <a href="#/my-checklist" class="btn btn-light py-0 px-2" style="font-size:12px;padding:4px 10px !important;line-height:1.1;">一覧へ戻る</a>
+              <button type="button" class="btn btn-outline-light" id="mclRevertBtn" style="font-size:12px;padding:4px 10px !important;line-height:1.1;">
                 <i class="bi bi-arrow-counterclockwise"></i> 未完了に戻す
               </button>
             </div>
