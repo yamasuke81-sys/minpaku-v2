@@ -443,6 +443,13 @@ exports.processBatchNotificationQueue = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/processBatchNotificationQueue"));
 
+// 日付モード (mode=date) 通知の毎時発火 — monthEnd/monthlyDay/weekly/daily に対応
+exports.runDateScheduledNotifications = onSchedule({
+  schedule: "0 * * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/runDateScheduledNotifications"));
+
 // 直前点検リマインド（毎時実行）— inspection.enabled=true 物件のチェックイン前日に通知
 exports.sendInspectionReminder = onSchedule({
   schedule: "0 * * * *",

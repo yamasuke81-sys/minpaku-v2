@@ -518,7 +518,7 @@
 
         <div class="notify-mode-event align-items-center gap-1 ${showEventBlock?"d-flex":"d-none"}" data-key="${dk}" data-idx="${idx}">
           <select class="form-select form-select-sm notify-timing-select" style="width:auto;" data-key="${dk}" data-idx="${idx}" data-field="timing">
-            ${[["immediate","即時"],["5min","5分後"],["15min","15分後"],["30min","30分後"],["1hour","1時間後"],["morning","翌朝6時"],["evening","当日18時"],["custom","カスタム（分）"],["beforeEvent","N日前のHH:MM"]].map(([v,l]) => `<option value="${v}" ${timing===v?"selected":""}>${l}</option>`).join("")}
+            ${[["immediate","即時"],["morning","翌朝6時"],["evening","当日18時"],["beforeEvent","N日前のHH:MM"]].map(([v,l]) => `<option value="${v}" ${timing===v?"selected":""}>${l}</option>`).join("")}
           </select>
           <input type="number" class="form-control form-control-sm notify-timing-minutes ${showMinutes?"":"d-none"}"
             style="width:90px;" data-key="${dk}" data-idx="${idx}" data-field="timingMinutes"
