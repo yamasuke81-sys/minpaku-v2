@@ -346,95 +346,60 @@
     <!-- ==================== -->
     <div id="videos">
       <h2 class="section-title">▶ 案内動画</h2>
-      <p class="small text-muted mb-3">各項目をタップすると動画が表示されます。</p>
-      <div class="accordion" id="videoAccordion">
-        <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#video1">
-              ① 駐車場までのルート
-            </button>
-          </h2>
-          <div id="video1" class="accordion-collapse collapse" data-bs-parent="#videoAccordion">
-            <div class="accordion-body">
-              <div class="video-container">
-                <iframe data-src="https://www.youtube.com/embed/Gq_CcMIk-pg"
-                        width="100%" height="250"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowfullscreen></iframe>
-              </div>
+      <!-- 常時展開: アコーディオンを廃止して全動画を縦並びで表示 -->
+      <div id="videoAccordion">
+        <div class="mb-4">
+          <h6 class="fw-bold mt-3 mb-2" data-bs-target="#video1">① 駐車場までのルート</h6>
+          <div id="video1" class="accordion-collapse show">
+            <div class="video-container mb-2">
+              <iframe data-src="https://www.youtube.com/embed/Gq_CcMIk-pg"
+                      width="100%" height="250"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowfullscreen></iframe>
             </div>
           </div>
         </div>
-        <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#video2">
-              ② 駐車場からホテルまで
-            </button>
-          </h2>
-          <div id="video2" class="accordion-collapse collapse" data-bs-parent="#videoAccordion">
-            <div class="accordion-body">
-              <div class="video-container">
-                <iframe data-src="https://www.youtube.com/embed/ZgmVT1iXTi4"
-                        width="100%" height="250"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowfullscreen></iframe>
-              </div>
+        <div class="mb-4">
+          <h6 class="fw-bold mt-3 mb-2" data-bs-target="#video2">② 駐車場からホテルまで</h6>
+          <div id="video2" class="accordion-collapse show">
+            <div class="video-container mb-2">
+              <iframe data-src="https://www.youtube.com/embed/ZgmVT1iXTi4"
+                      width="100%" height="250"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowfullscreen></iframe>
             </div>
           </div>
         </div>
-        <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#video3">
-              ③ キーボックスからカギを取り出す
-            </button>
-          </h2>
-          <div id="video3" class="accordion-collapse collapse" data-bs-parent="#videoAccordion">
-            <div class="accordion-body">
-              <div class="video-container">
-                <iframe data-src="https://www.youtube.com/embed/Is-dv-GV22Y"
-                        width="100%" height="250"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowfullscreen></iframe>
-              </div>
+        <div class="mb-4">
+          <h6 class="fw-bold mt-3 mb-2" data-bs-target="#video3">③ キーボックスからカギを取り出す</h6>
+          <div id="video3" class="accordion-collapse show">
+            <div class="video-container mb-2">
+              <iframe data-src="https://www.youtube.com/embed/Is-dv-GV22Y"
+                      width="100%" height="250"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowfullscreen></iframe>
             </div>
           </div>
         </div>
-        <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#video4">
-              ④ 玄関のカギを開ける
-            </button>
-          </h2>
-          <div id="video4" class="accordion-collapse collapse" data-bs-parent="#videoAccordion">
-            <div class="accordion-body">
-              <div class="video-container">
-                <iframe data-src="https://www.youtube.com/embed/2ZsniOWWsW0"
-                        width="100%" height="250"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowfullscreen></iframe>
-              </div>
+        <div class="mb-4">
+          <h6 class="fw-bold mt-3 mb-2" data-bs-target="#video4">④ 玄関のカギを開ける</h6>
+          <div id="video4" class="accordion-collapse show">
+            <div class="video-container mb-2">
+              <iframe data-src="https://www.youtube.com/embed/2ZsniOWWsW0"
+                      width="100%" height="250"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowfullscreen></iframe>
             </div>
           </div>
         </div>
-        <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#video5">
-              ⑤ 玄関のカギを閉める
-            </button>
-          </h2>
-          <div id="video5" class="accordion-collapse collapse" data-bs-parent="#videoAccordion">
-            <div class="accordion-body">
-              <div class="video-container">
-                <iframe data-src="https://www.youtube.com/embed/LvxFvVoL96Y"
-                        width="100%" height="250"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowfullscreen></iframe>
-              </div>
+        <div class="mb-4">
+          <h6 class="fw-bold mt-3 mb-2" data-bs-target="#video5">⑤ 玄関のカギを閉める</h6>
+          <div id="video5" class="accordion-collapse show">
+            <div class="video-container mb-2">
+              <iframe data-src="https://www.youtube.com/embed/LvxFvVoL96Y"
+                      width="100%" height="250"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowfullscreen></iframe>
             </div>
           </div>
         </div>
@@ -534,18 +499,16 @@
       </p>
 
       <!-- グループ: 禁止事項 -->
+      <!-- 常時展開: アコーディオンを廃止して見出し+本文の縦並びに変更 -->
       <p class="rule-group-title">禁止事項</p>
-      <div class="accordion" id="rulesProhibited">
+      <div id="rulesProhibited">
         <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#rule-pet">
-              🐾 ペットについて
-            </button>
-          </h2>
-          <div id="rule-pet" class="accordion-collapse collapse" data-bs-parent="#rulesProhibited">
+          <h6 class="px-3 py-2 mb-0 fw-semibold" data-bs-target="#rule-pet" style="border-bottom:1px solid #dee2e6;">
+            🐾 ペットについて
+          </h6>
+          <div id="rule-pet" class="accordion-collapse show">
             <div class="accordion-body">
-              <ul class="mb-0">
+              <ul class="mb-3">
                 <li>ペットの宿泊は禁止です。</li>
                 <li>確認された場合、特殊清掃費用を請求いたします。</li>
               </ul>
@@ -553,15 +516,12 @@
           </div>
         </div>
         <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#rule-smoking">
-              🚭 禁煙（タバコ・ベイプ・電子タバコ）
-            </button>
-          </h2>
-          <div id="rule-smoking" class="accordion-collapse collapse" data-bs-parent="#rulesProhibited">
+          <h6 class="px-3 py-2 mb-0 fw-semibold" data-bs-target="#rule-smoking" style="border-bottom:1px solid #dee2e6;">
+            🚭 禁煙（タバコ・ベイプ・電子タバコ）
+          </h6>
+          <div id="rule-smoking" class="accordion-collapse show">
             <div class="accordion-body">
-              <ul class="mb-0">
+              <ul class="mb-3">
                 <li>室内は電子タバコを含め完全禁煙です。</li>
                 <li>屋外テラスでの喫煙は可能ですが、吸い殻のポイ捨ては禁止です。</li>
                 <li>近隣から苦情が入った場合、ご退室の可能性があります。</li>
@@ -574,22 +534,20 @@
       </div>
 
       <!-- グループ: 時間に関するルール -->
+      <!-- 常時展開: アコーディオンを廃止して見出し+本文の縦並びに変更 -->
       <p class="rule-group-title">時間に関するルール</p>
-      <div class="accordion" id="rulesTime">
+      <div id="rulesTime">
         <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#rule-checkin">
-              🏠 チェックイン
-            </button>
-          </h2>
-          <div id="rule-checkin" class="accordion-collapse collapse" data-bs-parent="#rulesTime">
+          <h6 class="px-3 py-2 mb-0 fw-semibold" data-bs-target="#rule-checkin" style="border-bottom:1px solid #dee2e6;">
+            🏠 チェックイン
+          </h6>
+          <div id="rule-checkin" class="accordion-collapse show">
             <div class="accordion-body">
               <!-- チェックインアイコン画像 -->
               <img src="img/house-rules/checkin.png" alt="チェックイン"
                    style="display:block;width:100%;max-width:320px;margin:0 auto 12px;border-radius:8px;"
                    loading="lazy">
-              <ul class="mb-0">
+              <ul class="mb-3">
                 <li>チェックイン時間：15:00〜20:00</li>
                 <li class="text-danger">20:00を過ぎる場合は必ず事前にホストへご連絡ください。</li>
                 <li>20:00以降はホストと連絡がつきにくくなります。ご不明点がございましたら、本ページ（ハウスルール）をよくお読みいただき、ご自身での解決をお願いいたします。</li>
@@ -598,19 +556,16 @@
           </div>
         </div>
         <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#rule-checkout">
-              👋 チェックアウト
-            </button>
-          </h2>
-          <div id="rule-checkout" class="accordion-collapse collapse" data-bs-parent="#rulesTime">
+          <h6 class="px-3 py-2 mb-0 fw-semibold" data-bs-target="#rule-checkout" style="border-bottom:1px solid #dee2e6;">
+            👋 チェックアウト
+          </h6>
+          <div id="rule-checkout" class="accordion-collapse show">
             <div class="accordion-body">
               <!-- チェックアウトアイコン画像 -->
               <img src="img/house-rules/checkout.png" alt="チェックアウト"
                    style="display:block;width:100%;max-width:320px;margin:0 auto 12px;border-radius:8px;"
                    loading="lazy">
-              <ul class="mb-0">
+              <ul class="mb-3">
                 <li>チェックアウトは10:00まで。10:00を過ぎると清掃スタッフが入室します。</li>
                 <li class="text-danger">10:00超過の場合、15分につき<strong>2,000円/人</strong>のペナルティが発生します。</li>
               </ul>
@@ -618,19 +573,16 @@
           </div>
         </div>
         <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button"
-                    data-bs-toggle="collapse" data-bs-target="#rule-staffhours">
-              📞 スタッフの対応時間
-            </button>
-          </h2>
-          <div id="rule-staffhours" class="accordion-collapse collapse" data-bs-parent="#rulesTime">
+          <h6 class="px-3 py-2 mb-0 fw-semibold" data-bs-target="#rule-staffhours" style="border-bottom:1px solid #dee2e6;">
+            📞 スタッフの対応時間
+          </h6>
+          <div id="rule-staffhours" class="accordion-collapse show">
             <div class="accordion-body">
               <!-- スタッフ対応時間アイコン画像 -->
               <img src="img/house-rules/staffhours.png" alt="スタッフ対応時間"
                    style="display:block;width:100%;max-width:320px;margin:0 auto 12px;border-radius:8px;"
                    loading="lazy">
-              <p class="mb-0">6:00〜20:00。この時間帯以外は連絡がつきにくい場合があります。</p>
+              <p class="mb-3">6:00〜20:00。この時間帯以外は連絡がつきにくい場合があります。</p>
             </div>
           </div>
         </div>

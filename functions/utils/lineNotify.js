@@ -674,10 +674,18 @@ async function notifyOwner(db, type, title, body, vars, propertyOverrides) {
  * @param {string} propertyId - 対象物件ID
  * @param {string} title - 通知タイトル（ログ用）
  * @param {string} body - 送信テキスト
+ * @param {object} [opts] - オプション
+ * @param {boolean} [opts.sendLine=true] - LINE 送信を行うか（targets.subOwnerLine の値を渡す）
+ * @param {boolean} [opts.sendEmail=true] - メール送信を行うか（targets.subOwnerEmail の値を渡す）
+ *   ※ sendEmail=false の場合はメール送信をスキップする。
+ *   ※ 省略時は後方互換で両方 true として扱う（既存呼び出し元への影響なし）。
  * @returns {Promise<{success: boolean, sent: number}>}
  */
-async function notifySubOwners(db, propertyId, title, body) {
+async function notifySubOwners(db, propertyId, title, body, opts = {}) {
   if (!propertyId) return { success: false, sent: 0 };
+  // opts が渡されていない（旧呼び出し元）は後方互換で両方 true
+  const doLine  = opts.sendLine  !== false;
+  const doEmail = opts.sendEmail !== false;
   let sentCount = 0;
   try {
     const { channelToken } = await getNotificationSettings_(db);
@@ -710,53 +718,60 @@ async function notifySubOwners(db, propertyId, title, body) {
       const sData = s.data();
       if (!sData.active) continue;
 
-      // 物件オーナー専用 LINE User ID → 未設定なら staff.lineUserId にフォールバック
-      const subOwnerLineId = sData.subOwnerLineUserId || sData.lineUserId;
-      if (subOwnerLineId) {
-        // まず物件別 Bot で送信を試み、失敗ならグローバル Bot にフォールバック
-        // 注: LINE User ID は Bot 単位でスコープされるため、物件 Bot に友達追加していない
-        //     サブオーナーは物件 Bot で送ると失敗する。その場合はグローバル Bot へ。
-        let result = { success: false, error: "no-token" };
-        let usedBot = "";
-        if (propBotToken) {
-          result = await sendLineMessage(propBotToken, subOwnerLineId, body);
-          usedBot = propBotName || "物件Bot";
-          if (!result.success) {
-            console.warn(`物件オーナー(${sData.name}) 物件Bot送信失敗 → グローバルにフォールバック: ${result.error}`);
+      // ---- LINE 送信 (doLine=true の場合のみ) ----
+      if (doLine) {
+        // 物件オーナー専用 LINE User ID → 未設定なら staff.lineUserId にフォールバック
+        const subOwnerLineId = sData.subOwnerLineUserId || sData.lineUserId;
+        if (subOwnerLineId) {
+          // まず物件別 Bot で送信を試み、失敗ならグローバル Bot にフォールバック
+          // 注: LINE User ID は Bot 単位でスコープされるため、物件 Bot に友達追加していない
+          //     サブオーナーは物件 Bot で送ると失敗する。その場合はグローバル Bot へ。
+          let result = { success: false, error: "no-token" };
+          let usedBot = "";
+          if (propBotToken) {
+            result = await sendLineMessage(propBotToken, subOwnerLineId, body);
+            usedBot = propBotName || "物件Bot";
+            if (!result.success) {
+              console.warn(`物件オーナー(${sData.name}) 物件Bot送信失敗 → グローバルにフォールバック: ${result.error}`);
+            }
           }
+          if (!result.success && channelToken) {
+            result = await sendLineMessage(channelToken, subOwnerLineId, body);
+            usedBot = "グローバル";
+          }
+          if (result.success) sentCount++;
+          console.log(`物件オーナー(${sData.name}) LINE送信: ${result.success ? "成功" : "失敗"} (id=${subOwnerLineId.slice(0,8)}..., bot=${usedBot}, fallback=${!sData.subOwnerLineUserId})`);
+          try {
+            await db.collection("notifications").add({
+              type: "sub_owner_notify",
+              title,
+              body: body.slice(0, 1000),
+              staffId: s.id,
+              staffName: sData.name,
+              propertyId,
+              sentAt: new Date(),
+              channel: "line",
+              target: "sub_owner",
+              success: result.success,
+              error: result.error || null,
+            });
+          } catch (e) { console.error("通知ログ記録エラー:", e); }
         }
-        if (!result.success && channelToken) {
-          result = await sendLineMessage(channelToken, subOwnerLineId, body);
-          usedBot = "グローバル";
-        }
-        if (result.success) sentCount++;
-        console.log(`物件オーナー(${sData.name}) LINE送信: ${result.success ? "成功" : "失敗"} (id=${subOwnerLineId.slice(0,8)}..., bot=${usedBot}, fallback=${!sData.subOwnerLineUserId})`);
-        try {
-          await db.collection("notifications").add({
-            type: "sub_owner_notify",
-            title,
-            body: body.slice(0, 1000),
-            staffId: s.id,
-            staffName: sData.name,
-            propertyId,
-            sentAt: new Date(),
-            channel: "line",
-            target: "sub_owner",
-            success: result.success,
-            error: result.error || null,
-          });
-        } catch (e) { console.error("通知ログ記録エラー:", e); }
       }
 
-      // 物件オーナー専用メール → 未設定なら staff.email にフォールバック
-      const subOwnerMail = sData.subOwnerEmail || sData.email;
-      if (subOwnerMail) {
-        try {
-          await sendNotificationEmail_(subOwnerMail, title, body, propertySenderGmail || null, { preferFromHeader: true });
-          sentCount++;
-          console.log(`物件オーナー(${sData.name}) メール送信成功: ${subOwnerMail} (fallback=${!sData.subOwnerEmail})`);
-        } catch (e) {
-          console.error(`物件オーナー(${sData.name}) メール通知エラー:`, e.message);
+      // ---- メール送信 (doEmail=true の場合のみ) ----
+      // subOwnerEmail チェックが OFF の場合は送らない（LINE ON でもメールは飛ばない）
+      if (doEmail) {
+        // 物件オーナー専用メール → 未設定なら staff.email にフォールバック
+        const subOwnerMail = sData.subOwnerEmail || sData.email;
+        if (subOwnerMail) {
+          try {
+            await sendNotificationEmail_(subOwnerMail, title, body, propertySenderGmail || null, { preferFromHeader: true });
+            sentCount++;
+            console.log(`物件オーナー(${sData.name}) メール送信成功: ${subOwnerMail} (fallback=${!sData.subOwnerEmail})`);
+          } catch (e) {
+            console.error(`物件オーナー(${sData.name}) メール通知エラー:`, e.message);
+          }
         }
       }
     }
@@ -1369,11 +1384,16 @@ async function notifyByKey(db, notifyKey, options = {}) {
   }
 
   // (d) サブオーナー LINE / メール (notifySubOwners が両方束ねている)
+  // targets.subOwnerLine / targets.subOwnerEmail を個別に渡し、
+  // LINE=ON でもメール OFF のときはメールを飛ばさないようにする
   if ((targets.subOwnerLine || targets.subOwnerEmail) && propertyId) {
     tasks.push((async () => {
       try {
         const text = typeof resolvedBody === "string" ? resolvedBody : `[Flex] ${title}`;
-        const r = await notifySubOwners(db, propertyId, title, text);
+        const r = await notifySubOwners(db, propertyId, title, text, {
+          sendLine:  !!targets.subOwnerLine,
+          sendEmail: !!targets.subOwnerEmail,
+        });
         sent.subOwner = r.sent;
       } catch (e) { errors.push({ channel: "subOwner", error: e.message }); }
     })());

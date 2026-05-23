@@ -213,6 +213,7 @@ const CleaningFlowPage = {
     },
     {
       // 直前点検完了通知 (cleaning_done とは独立して物件別送信先を設定可能)
+      // showIf: "inspection.enabled" → 物件の inspection.enabled=true の場合のみ表示
       key: "pre_inspection_done",
       label: "直前点検完了通知",
       icon: "bi-search-heart",
@@ -223,6 +224,8 @@ const CleaningFlowPage = {
       arrowTo: "owner",
       linkHash: "#/notifications",
       linkLabel: "通知設定",
+      showIf: "inspection.enabled",
+      hint: "物件管理で「直前点検」を有効にした物件のみ表示されます。",
     },
     // ---- Phase 4: 月末 ----
     {
@@ -641,11 +644,22 @@ const CleaningFlowPage = {
     }
   },
 
+  // showIf フィールドのドット記法パスを評価して boolean を返す
+  _evalShowIf(property, showIf) {
+    if (!showIf) return true;
+    const val = this._getNested(property, showIf);
+    // 未設定 (undefined/null) は false 扱い (明示的に true にした物件のみ表示)
+    return val === true;
+  },
+
   // ステップ配列からグリッド行HTMLを生成
   _renderStepRows(steps, property, trackHint) {
     if (!steps.length) return "";
     let html = "";
     steps.forEach((step) => {
+      // showIf 条件が設定されている場合、条件を満たさないステップはスキップ
+      if (step.showIf && !this._evalShowIf(property, step.showIf)) return;
+
       const enabled = this._isEnabled(property, step);
       const flow = property.cleaningFlow || {};
       const memo = flow[step.key]?.memo || "";
@@ -702,6 +716,10 @@ const CleaningFlowPage = {
     const statusBadge = (step.status === "未実装" || step.unimplemented)
       ? `<span class="badge bg-secondary ms-1" style="font-size:10px;">未実装</span>`
       : "";
+    // 直前点検完了通知は紫色バッジで清掃完了通知と区別
+    const inspectionBadge = (step.key === "pre_inspection_done")
+      ? `<span class="badge ms-1" style="font-size:9px;background:#7c3aed;color:#fff;">直前点検</span>`
+      : "";
     let syncBadge = "";
     if (step.propertyField) {
       syncBadge = `<span class="badge bg-success-subtle text-success border border-success-subtle ms-1 rf-sync-badge" style="font-size:9px;" title="properties.${step.propertyField} に保存 (物件ごと)"><i class="bi bi-arrow-left-right"></i> 同期</span>`;
@@ -749,7 +767,7 @@ const CleaningFlowPage = {
         <div class="rf-card-header" data-fold="${foldId}" style="cursor:pointer;">
           <i class="bi ${step.icon} rf-card-icon"></i>
           <span class="rf-card-title" title="${this._esc(step.label)}">${this._esc(step.label)}</span>
-          ${statusBadge}${syncBadge}${arrowBadge}
+          ${statusBadge}${inspectionBadge}${syncBadge}${arrowBadge}
           <div class="ms-auto d-flex align-items-center gap-1">
             ${headerToggleHtml}
             <i class="bi bi-chevron-down rf-chevron" data-fold="${foldId}" style="font-size:0.75rem;transition:transform 0.2s;"></i>
