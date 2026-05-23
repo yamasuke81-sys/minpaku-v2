@@ -13,6 +13,7 @@ const PropertyChecklistPage = {
   activeAreaId: null,
   dirty: false,              // 未保存変更あり?
   sortables: [],             // Sortable インスタンスのキャッシュ
+  currentWorkType: "cleaning",  // 現在選択中の作業種別 ("cleaning" | "pre_inspection")
 
   async render(container, pathParams) {
     this.propertyId = (pathParams || [])[0];
@@ -20,6 +21,9 @@ const PropertyChecklistPage = {
       container.innerHTML = `<div class="alert alert-danger">物件IDが未指定です</div>`;
       return;
     }
+
+    // ページ表示時に作業種別を清掃に初期化（物件切替時に持ち越さない）
+    this.currentWorkType = "cleaning";
 
     // .app-main の上下 padding を無効化 (固定ヘッダー + spacer で位置調整するため不要)
     document.body.classList.add("mcl-shift-active");
@@ -31,6 +35,7 @@ const PropertyChecklistPage = {
             <i class="bi bi-arrow-left"></i>
           </a>
           <h6 class="mb-0 flex-grow-1" id="pclHeader" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">チェックリスト編集</h6>
+          <span id="pclWorkTypeLabel" class="badge bg-secondary" style="font-size:11px;white-space:nowrap;"></span>
           <button class="btn btn-outline-warning btn-sm" id="btnRegenerate" title="原紙を既存のチェックリストに反映 (未着手・進行中を選べる)">
             <i class="bi bi-arrow-clockwise"></i> 未着手を最新化
           </button>
@@ -39,6 +44,17 @@ const PropertyChecklistPage = {
           </button>
           <button class="btn btn-success btn-sm" id="btnSave" disabled>
             <i class="bi bi-check2"></i> 保存
+          </button>
+        </div>
+        <!-- 作業種別タブ (清掃 / 直前チェック) -->
+        <div class="d-flex gap-2 mt-2" id="pclWorkTypeTabs">
+          <button class="btn btn-sm pcl-wt-tab" data-wt="cleaning"
+            style="flex:1;font-weight:600;border-radius:6px;border:2px solid #0d6efd;background:#0d6efd;color:#fff;">
+            <i class="bi bi-broom"></i> 清掃
+          </button>
+          <button class="btn btn-sm pcl-wt-tab" data-wt="pre_inspection"
+            style="flex:1;font-weight:600;border-radius:6px;border:2px solid #ced4da;background:#f8f9fa;color:#495057;">
+            <i class="bi bi-search"></i> 直前チェック
           </button>
         </div>
       </div>
@@ -55,6 +71,30 @@ const PropertyChecklistPage = {
     document.getElementById("btnSave").addEventListener("click", () => this.save());
     document.getElementById("btnCopyFrom").addEventListener("click", () => this.openCopyModal());
     document.getElementById("btnRegenerate").addEventListener("click", () => this.openRegenerateModal());
+
+    // 作業種別タブのクリックイベント
+    document.getElementById("pclWorkTypeTabs").addEventListener("click", async (ev) => {
+      const btn = ev.target.closest(".pcl-wt-tab");
+      if (!btn) return;
+      const newWt = btn.dataset.wt;
+      if (newWt === this.currentWorkType) return;
+      // 未保存の変更がある場合は確認
+      if (this.dirty) {
+        const ok = await this.showConfirmDialog({
+          title: "作業種別を切り替え",
+          message: "未保存の変更があります。破棄して切り替えますか？",
+          confirmLabel: "破棄して切り替え",
+          danger: true,
+        });
+        if (!ok) return;
+        this.dirty = false;
+      }
+      this.currentWorkType = newWt;
+      this._updateWorkTypeTabs();
+      // テンプレートを再取得して画面を再描画
+      await this.loadData();
+    });
+
     window.addEventListener("beforeunload", this._beforeUnloadHandler = (e) => {
       if (this.dirty) { e.preventDefault(); e.returnValue = ""; }
     });
@@ -99,6 +139,8 @@ const PropertyChecklistPage = {
   },
 
   async loadData() {
+    document.getElementById("pclBody").innerHTML =
+      `<div class="text-center text-muted py-5"><div class="spinner-border"></div></div>`;
     try {
       const [prop, tmpl] = await Promise.all([
         this.fetchProperty(),
@@ -112,10 +154,14 @@ const PropertyChecklistPage = {
         tmpl.areas.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
       }
 
-      document.getElementById("pclHeader").textContent =
-        `チェックリスト編集: ${this.property?.name || this.propertyId}`;
+      const propName = this.property?.name || this.propertyId;
+      document.getElementById("pclHeader").textContent = `チェックリスト編集: ${propName}`;
+      this._updateWorkTypeTabs();
 
       if (!tmpl) {
+        // テンプレートが存在しない場合: 空テンプレを仮生成して案内を出す
+        this.template = { areas: [], version: 0 };
+        this.activeAreaId = null;
         this.renderEmptyState();
         return;
       }
@@ -132,6 +178,26 @@ const PropertyChecklistPage = {
     }
   },
 
+  // 作業種別タブのスタイルと workTypeLabel を更新
+  _updateWorkTypeTabs() {
+    const wtLabels = {
+      cleaning: "清掃テンプレート編集中",
+      pre_inspection: "直前チェックテンプレート編集中",
+    };
+    const labelEl = document.getElementById("pclWorkTypeLabel");
+    if (labelEl) {
+      labelEl.textContent = wtLabels[this.currentWorkType] || "";
+      labelEl.style.background = this.currentWorkType === "pre_inspection" ? "#a78bfa" : "#fd7e14";
+    }
+    const tabs = document.querySelectorAll(".pcl-wt-tab");
+    tabs.forEach(tab => {
+      const isActive = tab.dataset.wt === this.currentWorkType;
+      tab.style.borderColor = isActive ? "#0d6efd" : "#ced4da";
+      tab.style.background = isActive ? "#0d6efd" : "#f8f9fa";
+      tab.style.color = isActive ? "#fff" : "#495057";
+    });
+  },
+
   async fetchProperty() {
     try {
       return await API.properties.get(this.propertyId);
@@ -141,24 +207,45 @@ const PropertyChecklistPage = {
   },
 
   async fetchTemplate() {
-    return await API.checklist.getTemplateTree(this.propertyId);
+    return await API.checklist.getTemplateTree(this.propertyId, this.currentWorkType);
   },
 
   renderEmptyState() {
+    const wtLabel = this.currentWorkType === "pre_inspection" ? "直前チェック" : "清掃";
     document.getElementById("pclBody").innerHTML = `
       <div class="empty-state fade-in text-center py-5">
         <i class="bi bi-list-check display-3 text-muted"></i>
-        <p class="mt-3">この物件にはチェックリストがまだありません</p>
+        <p class="mt-3">この物件には<strong>${this.escapeHtml(wtLabel)}テンプレート</strong>がまだありません</p>
+        <p class="text-muted small">エリアを追加して保存すると、このworkType用テンプレートが作成されます。<br>または他の宿・マスタからコピーして新規作成もできます。</p>
+        ${this.currentWorkType === "cleaning" ? `
         <button class="btn btn-primary me-2" id="btnInitFromMaster">
           <i class="bi bi-download"></i> マスタからコピーして新規作成
-        </button>
+        </button>` : ""}
         <button class="btn btn-outline-primary" id="btnInitFromOther">
           <i class="bi bi-clipboard"></i> 別の宿からコピー
         </button>
+        <div class="mt-3">
+          <button class="btn btn-outline-success" id="btnInitBlank">
+            <i class="bi bi-plus-circle"></i> 空のテンプレートを作成（エリアを手動追加）
+          </button>
+        </div>
       </div>
     `;
-    document.getElementById("btnInitFromMaster").addEventListener("click", () => this.copyFrom("master"));
+    document.getElementById("btnInitFromMaster")?.addEventListener("click", () => this.copyFrom("master"));
     document.getElementById("btnInitFromOther").addEventListener("click", () => this.openCopyModal());
+    document.getElementById("btnInitBlank").addEventListener("click", () => {
+      // 空テンプレートをメモリ上に作成して編集開始
+      this.template = { areas: [], version: 0 };
+      this.dirty = true;
+      const btn = document.getElementById("btnSave");
+      if (btn) {
+        btn.disabled = false;
+        btn.classList.remove("btn-success");
+        btn.classList.add("btn-warning");
+        btn.innerHTML = `<i class="bi bi-save"></i> 保存（未保存）`;
+      }
+      this.renderTree();
+    });
   },
 
   renderTree() {
@@ -1021,7 +1108,7 @@ const PropertyChecklistPage = {
     btn.disabled = true;
     btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> 保存中...`;
     try {
-      await API.checklist.saveTemplateTree(this.propertyId, this.template);
+      await API.checklist.saveTemplateTree(this.propertyId, this.template, this.currentWorkType);
       this.dirty = false;
       btn.innerHTML = `<i class="bi bi-check2"></i> 保存`;
       btn.classList.remove("btn-warning");
@@ -1096,7 +1183,7 @@ const PropertyChecklistPage = {
       try {
         // 未保存の編集があれば先に保存（最新化はFirestore上の保存済み原紙を読むため）
         if (this.dirty) {
-          await API.checklist.saveTemplateTree(this.propertyId, this.template);
+          await API.checklist.saveTemplateTree(this.propertyId, this.template, this.currentWorkType);
           this.dirty = false;
           const saveBtn = document.getElementById("btnSave");
           if (saveBtn) {
@@ -1106,7 +1193,7 @@ const PropertyChecklistPage = {
             saveBtn.disabled = true;
           }
         }
-        const result = await API.checklist.regenerate(this.propertyId, { alsoInProgress: scope === "inProgress" });
+        const result = await API.checklist.regenerate(this.propertyId, { alsoInProgress: scope === "inProgress", workType: this.currentWorkType });
         modal.hide();
         const s = result.summary || {};
         showToast(
@@ -1125,22 +1212,23 @@ const PropertyChecklistPage = {
 
   async openCopyModal() {
     const properties = (await API.properties.list(true)).filter(p => p.type === "minpaku" && p.id !== this.propertyId);
-    // 既存テンプレートを持つ物件のみに絞る
+    // 同じ workType のテンプレートを持つ物件のみに絞る
     const withTmpl = [];
     for (const p of properties) {
-      const t = await API.checklist.getTemplateTree(p.id);
+      const t = await API.checklist.getTemplateTree(p.id, this.currentWorkType);
       if (t && t.areas?.length) withTmpl.push(p);
     }
+    const wtLabel = this.currentWorkType === "pre_inspection" ? "直前チェック" : "清掃";
 
     const html = `
       <div class="modal fade" id="copyModal" tabindex="-1">
         <div class="modal-dialog"><div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">チェックリストをコピー</h5>
+            <h5 class="modal-title">${this.escapeHtml(wtLabel)}テンプレートをコピー</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
-            <p class="text-muted small">現在のチェックリストは上書きされます。よろしければコピー元を選んでください。</p>
+            <p class="text-muted small">現在の<strong>${this.escapeHtml(wtLabel)}</strong>テンプレートは上書きされます。よろしければコピー元を選んでください。</p>
             <div class="list-group">
               <button class="list-group-item list-group-item-action" data-src="master">
                 <strong><i class="bi bi-star"></i> マスタ（全項目の原本）</strong>
@@ -1170,19 +1258,20 @@ const PropertyChecklistPage = {
   },
 
   async copyFrom(sourceType, sourcePropertyId = null) {
+    const wtLabel = this.currentWorkType === "pre_inspection" ? "直前チェック" : "清掃";
     const ok = await this.showConfirmDialog({
-      title: "チェックリストをコピー",
-      message: `${sourceType === "master" ? "マスタ" : "他物件"}からコピーします。現在の内容は上書きされます。よろしいですか？`,
+      title: `${wtLabel}テンプレートをコピー`,
+      message: `${sourceType === "master" ? "マスタ" : "他物件"}から${wtLabel}テンプレートをコピーします。現在の内容は上書きされます。よろしいですか？`,
       confirmLabel: "コピーする", danger: true
     });
     if (!ok) return;
     try {
-      const res = await API.checklist.copyTemplate(this.propertyId, sourceType, sourcePropertyId);
+      const res = await API.checklist.copyTemplate(this.propertyId, sourceType, sourcePropertyId, this.currentWorkType);
       this.template = res;
       this.activeAreaId = this.template.areas[0]?.id || null;
       this.dirty = false;
       this.renderTree();
-      showToast("コピー完了", "チェックリストをコピーしました", "success");
+      showToast("コピー完了", `${wtLabel}テンプレートをコピーしました`, "success");
     } catch (e) {
       console.error(e);
       showToast("エラー", "コピー失敗: " + (e.message || ""), "error");

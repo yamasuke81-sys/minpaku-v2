@@ -2,7 +2,7 @@
  * シフト作成時トリガー
  * - shifts/{shiftId} が作成された時に、物件の checklistTemplate をスナップショットコピーして
  *   checklists/{checklistId} を自動生成する（複数スタッフが即座に共有編集できる状態にする）
- * - propertyId の checklistTemplates が未設定の場合は生成しない（ログだけ出す）
+ * - propertyId の checklistTemplates が未設定の場合は areas=[] の空テンプレでスナップショットを作成
  * - 既に同 shiftId の checklist がある場合はスキップ（冪等）
  */
 const admin = require("firebase-admin");
@@ -29,13 +29,20 @@ module.exports = async (event) => {
     return;
   }
 
-  // テンプレート取得
-  const tmplDoc = await db.collection("checklistTemplates").doc(shift.propertyId).get();
+  // workType に応じてテンプレートドキュメントIDを解決
+  // pre_inspection → {propertyId}_pre_inspection、それ以外 → {propertyId}_cleaning
+  const wt = (shift.workType === "pre_inspection") ? "pre_inspection" : "cleaning";
+  const tmplDocId = `${shift.propertyId}_${wt}`;
+  const tmplDoc = await db.collection("checklistTemplates").doc(tmplDocId).get();
+
+  let tmpl;
   if (!tmplDoc.exists) {
-    console.log(`[onShiftCreated] テンプレート未設定 propertyId=${shift.propertyId}, skip`);
-    return;
+    // テンプレート未設定の場合は空 areas でスナップショット作成（スキップしない）
+    console.log(`[onShiftCreated] テンプレート未設定 docId=${tmplDocId}、空テンプレで生成`);
+    tmpl = { areas: [], version: 1 };
+  } else {
+    tmpl = tmplDoc.data();
   }
-  const tmpl = tmplDoc.data();
 
   // 物件名取得（なければ shift から引き継ぎ）
   let propertyName = shift.propertyName || "";

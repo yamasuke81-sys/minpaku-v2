@@ -1114,35 +1114,60 @@ const API = {
 
   // チェックリスト API
   checklist: {
+    // workType ("cleaning" | "pre_inspection") → Firestore ドキュメントID を解決
+    // バックエンドのスキーマ変更（{propertyId}_cleaning 形式）に対応
+    _templateDocId(propertyId, workType) {
+      const wt = workType === "pre_inspection" ? "pre_inspection" : "cleaning";
+      return `${propertyId}_${wt}`;
+    },
+
     // === ツリー構造版（新UI用） ===
     async getMaster() {
       const doc = await db.collection("checklistMaster").doc("main").get();
       return doc.exists ? doc.data() : null;
     },
 
-    async getTemplateTree(propertyId) {
-      const doc = await db.collection("checklistTemplates").doc(propertyId).get();
-      return doc.exists ? { id: doc.id, ...doc.data() } : null;
+    // workType 省略時は "cleaning" として後方互換を維持
+    async getTemplateTree(propertyId, workType) {
+      // 新スキーマ ({propertyId}_cleaning 等) を先に試みる
+      const newDocId = this._templateDocId(propertyId, workType);
+      const newDoc = await db.collection("checklistTemplates").doc(newDocId).get();
+      if (newDoc.exists) return { id: newDoc.id, ...newDoc.data() };
+      // 旧スキーマ ({propertyId} のまま) にフォールバック (移行前の物件用)
+      if (!workType || workType === "cleaning") {
+        const oldDoc = await db.collection("checklistTemplates").doc(propertyId).get();
+        if (oldDoc.exists) return { id: oldDoc.id, ...oldDoc.data() };
+      }
+      return null;
     },
 
-    async saveTemplateTree(propertyId, tree) {
+    // workType 省略時は "cleaning"
+    async saveTemplateTree(propertyId, tree, workType) {
+      const docId = this._templateDocId(propertyId, workType);
       const data = {
         propertyId,
+        workType: workType === "pre_inspection" ? "pre_inspection" : "cleaning",
         areas: tree.areas || [],
         _meta: tree._meta || null,
         version: (tree.version || 1) + 1,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       };
-      await db.collection("checklistTemplates").doc(propertyId).set(data, { merge: true });
+      await db.collection("checklistTemplates").doc(docId).set(data, { merge: true });
       return data;
     },
 
     // 原紙を既存 checklists に反映 (方針C 手動再生成)
-    // opts: { alsoInProgress?: boolean } — 進行中も最新化するか
+    // opts: { alsoInProgress?: boolean, workType?: string }
     // Firestore 直接書き込み版 (Cloud Functions 経由で HTML レスポンスが返るケースを回避)
     async regenerate(propertyId, opts = {}) {
       const alsoInProgress = !!opts.alsoInProgress;
-      const tmplDoc = await db.collection("checklistTemplates").doc(propertyId).get();
+      const workType = opts.workType || "cleaning";
+      const docId = this._templateDocId(propertyId, workType);
+      // 新スキーマを先に試みて旧スキーマにフォールバック
+      let tmplDoc = await db.collection("checklistTemplates").doc(docId).get();
+      if (!tmplDoc.exists && workType === "cleaning") {
+        tmplDoc = await db.collection("checklistTemplates").doc(propertyId).get();
+      }
       if (!tmplDoc.exists) throw new Error("原紙(テンプレート)が見つかりません");
       const tmpl = tmplDoc.data();
       const newAreas = tmpl.areas || [];
@@ -1156,11 +1181,16 @@ const API = {
         (node.subSubCategories || []).forEach(walk);
       };
       newAreas.forEach(walk);
-      const snap = await db.collection("checklists").where("propertyId", "==", propertyId).get();
+      // workType でフィルタして対象 checklist を特定
+      let query = db.collection("checklists").where("propertyId", "==", propertyId);
+      const snap = await query.get();
       let updated = 0, skippedCompleted = 0, skippedInProgress = 0;
       const batch = db.batch();
       for (const doc of snap.docs) {
         const c = doc.data();
+        // workType が一致するものだけ対象
+        const cWorkType = c.workType || "cleaning";
+        if (cWorkType !== workType) continue;
         if (c.status === "completed") { skippedCompleted++; continue; }
         const states = c.itemStates || {};
         const hasWork = Object.values(states).some(s => s && (s.checked || s.needsRestock));
@@ -1181,21 +1211,31 @@ const API = {
       return { ok: true, propertyId, summary: { updated, skippedCompleted, skippedInProgress } };
     },
 
-    async copyTemplate(propertyId, sourceType, sourcePropertyId = null) {
+    // workType 省略時は "cleaning"
+    async copyTemplate(propertyId, sourceType, sourcePropertyId = null, workType) {
+      const wt = workType === "pre_inspection" ? "pre_inspection" : "cleaning";
       let src;
       if (sourceType === "master") {
         const d = await db.collection("checklistMaster").doc("main").get();
         if (!d.exists) throw new Error("マスタが存在しません");
         src = d.data();
       } else if (sourceType === "template" && sourcePropertyId) {
-        const d = await db.collection("checklistTemplates").doc(sourcePropertyId).get();
+        // コピー元も同じ workType を参照
+        const srcDocId = this._templateDocId(sourcePropertyId, wt);
+        let d = await db.collection("checklistTemplates").doc(srcDocId).get();
+        // 旧スキーマにフォールバック
+        if (!d.exists && wt === "cleaning") {
+          d = await db.collection("checklistTemplates").doc(sourcePropertyId).get();
+        }
         if (!d.exists) throw new Error("コピー元テンプレートが存在しません");
         src = d.data();
       } else {
         throw new Error("sourceType と sourcePropertyId を指定してください");
       }
+      const destDocId = this._templateDocId(propertyId, wt);
       const data = {
         propertyId,
+        workType: wt,
         sourcePropertyId: sourceType === "template" ? sourcePropertyId : null,
         copiedFrom: sourceType,
         copiedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -1204,8 +1244,8 @@ const API = {
         version: 1,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       };
-      await db.collection("checklistTemplates").doc(propertyId).set(data);
-      return { id: propertyId, ...data };
+      await db.collection("checklistTemplates").doc(destDocId).set(data);
+      return { id: destDocId, ...data };
     },
 
     // === レガシー: フラット構造 ===

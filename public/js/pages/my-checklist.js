@@ -64,7 +64,7 @@ const MyChecklistPage = {
     await this.attach();
   },
 
-  // ヘッダー HTML: 「日付 [#番号] 物件名」 (日付フル表示優先、物件名は番号付きで見切れ可)
+  // ヘッダー HTML: 「[直/清] 日付 [#番号] 物件名」 (日付フル表示優先、物件名は番号付きで見切れ可)
   _buildHeaderHtml(c) {
     const dateStr = this.fmtDate(c.checkoutDate);
     const propName = c.propertyName || "";
@@ -72,7 +72,13 @@ const MyChecklistPage = {
     const numBadge = meta.number
       ? `<span class="badge" style="background:${meta.color || "#6c757d"};color:#fff;min-width:22px;font-size:11px;">#${this.escapeHtml(String(meta.number))}</span>`
       : "";
-    return `<span style="white-space:nowrap;flex-shrink:0;margin-right:8px;">${this.escapeHtml(dateStr)}</span>`
+    // 作業種別バッジ: 直前チェック=紫 [直] / 清掃=オレンジ [清]
+    const workType = c.workType || "cleaning";
+    const wtBadge = workType === "pre_inspection"
+      ? `<span class="badge" style="background:#a78bfa;color:#fff;font-size:11px;white-space:nowrap;flex-shrink:0;margin-right:4px;">直前チェック</span>`
+      : "";
+    return wtBadge
+      + `<span style="white-space:nowrap;flex-shrink:0;margin-right:8px;">${this.escapeHtml(dateStr)}</span>`
       + `<span style="display:inline-flex;align-items:center;gap:4px;overflow:hidden;text-overflow:ellipsis;min-width:0;">${numBadge}<span style="overflow:hidden;text-overflow:ellipsis;">${this.escapeHtml(propName)}</span></span>`;
   },
 
@@ -326,10 +332,15 @@ const MyChecklistPage = {
       const propHtml = opts.showProp
         ? `${numBadge}<strong>${this.escapeHtml(c.propertyName || "(物件不明)")}</strong>`
         : "";
+      // 作業種別バッジ: 直前チェック=紫 [直] / 清掃=オレンジ [清]
+      const wtBadge = c.workType === "pre_inspection"
+        ? `<span class="badge" style="background:#a78bfa;color:#fff;font-size:11px;">[直]</span>`
+        : `<span class="badge" style="background:#fd7e14;color:#fff;font-size:11px;">[清]</span>`;
       return `
         <a href="#/my-checklist/${c.shiftId}" class="list-group-item list-group-item-action" data-checklist-id="${c.id}" data-date="${c._dateStr}">
           <div class="d-flex align-items-center gap-2 flex-wrap">
             ${dateHtml}
+            ${wtBadge}
             ${propHtml}
             ${statusBadge}
             <span class="text-muted small ms-auto">${c._done}/${c._total} (${pct}%)</span>

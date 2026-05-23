@@ -5,6 +5,25 @@
 const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
 
+// ===== ヘルパー =====
+
+/**
+ * workType から Firestore ドキュメントID を解決する
+ * 例: "tsZybhDMcPrxqgcRy7wp" + "pre_inspection" → "tsZybhDMcPrxqgcRy7wp_pre_inspection"
+ */
+function templateDocId(propertyId, workType) {
+  const wt = (workType === "pre_inspection") ? "pre_inspection" : "cleaning";
+  return `${propertyId}_${wt}`;
+}
+
+/**
+ * リクエストから workType を解決する（query → body → デフォルト "cleaning"）
+ */
+function resolveWorkType(req) {
+  const q = (req.query && req.query.workType) || (req.body && req.body.workType) || "cleaning";
+  return q === "pre_inspection" ? "pre_inspection" : "cleaning";
+}
+
 module.exports = function checklistApi(db) {
   const router = Router();
 
@@ -26,8 +45,10 @@ module.exports = function checklistApi(db) {
   router.get("/templates/:propertyId/tree", async (req, res) => {
     try {
       const { propertyId } = req.params;
-      const doc = await db.collection("checklistTemplates").doc(propertyId).get();
-      if (!doc.exists) return res.status(404).json({ error: "テンプレート未作成", propertyId });
+      const workType = resolveWorkType(req);
+      const docId = templateDocId(propertyId, workType);
+      const doc = await db.collection("checklistTemplates").doc(docId).get();
+      if (!doc.exists) return res.status(404).json({ error: "テンプレート未作成", propertyId, workType });
       res.json({ id: doc.id, ...doc.data() });
     } catch (e) {
       console.error("テンプレート取得エラー:", e);
@@ -42,19 +63,22 @@ module.exports = function checklistApi(db) {
         return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
       const { propertyId } = req.params;
+      const workType = resolveWorkType(req);
+      const docId = templateDocId(propertyId, workType);
       const { areas, _meta } = req.body;
       if (!Array.isArray(areas)) {
         return res.status(400).json({ error: "areas配列が必要です" });
       }
       const data = {
         propertyId,
+        workType,
         areas,
         _meta: _meta || null,
         updatedAt: FieldValue.serverTimestamp(),
         version: (req.body.version || 1)
       };
-      await db.collection("checklistTemplates").doc(propertyId).set(data, { merge: true });
-      res.json({ id: propertyId, ...data });
+      await db.collection("checklistTemplates").doc(docId).set(data, { merge: true });
+      res.json({ id: docId, ...data });
     } catch (e) {
       console.error("テンプレート保存エラー:", e);
       res.status(500).json({ error: "テンプレートの保存に失敗しました" });
@@ -73,7 +97,9 @@ module.exports = function checklistApi(db) {
       const { propertyId } = req.params;
       const alsoInProgress = !!req.body.alsoInProgress;
 
-      const tmplDoc = await db.collection("checklistTemplates").doc(propertyId).get();
+      const workType = resolveWorkType(req);
+      const docId = templateDocId(propertyId, workType);
+      const tmplDoc = await db.collection("checklistTemplates").doc(docId).get();
       if (!tmplDoc.exists) return res.status(404).json({ error: "原紙(テンプレート)が見つかりません" });
       const tmpl = tmplDoc.data();
       const newAreas = tmpl.areas || [];
@@ -136,7 +162,7 @@ module.exports = function checklistApi(db) {
   });
 
   // 別物件 or マスタからコピー ※Webアプリ管理者のみ
-  // body: { sourceType: "master" | "template", sourcePropertyId?: string }
+  // body: { sourceType: "master" | "template", sourcePropertyId?: string, workType?: string }
   router.post("/templates/:propertyId/copyFrom", async (req, res) => {
     try {
       if (req.user.role !== "owner") {
@@ -144,6 +170,9 @@ module.exports = function checklistApi(db) {
       }
       const { propertyId } = req.params;
       const { sourceType, sourcePropertyId } = req.body;
+      // コピー先・コピー元を同一 workType で揃える
+      const workType = resolveWorkType(req);
+      const destDocId = templateDocId(propertyId, workType);
 
       let sourceData;
       if (sourceType === "master") {
@@ -151,7 +180,9 @@ module.exports = function checklistApi(db) {
         if (!doc.exists) return res.status(404).json({ error: "マスタが存在しません" });
         sourceData = doc.data();
       } else if (sourceType === "template" && sourcePropertyId) {
-        const doc = await db.collection("checklistTemplates").doc(sourcePropertyId).get();
+        // コピー元も同一 workType のドキュメントから取得
+        const srcDocId = templateDocId(sourcePropertyId, workType);
+        const doc = await db.collection("checklistTemplates").doc(srcDocId).get();
         if (!doc.exists) return res.status(404).json({ error: "コピー元テンプレートが存在しません" });
         sourceData = doc.data();
       } else {
@@ -160,6 +191,7 @@ module.exports = function checklistApi(db) {
 
       const data = {
         propertyId,
+        workType,
         sourcePropertyId: sourceType === "template" ? sourcePropertyId : null,
         copiedFrom: sourceType,
         copiedAt: FieldValue.serverTimestamp(),
@@ -168,8 +200,8 @@ module.exports = function checklistApi(db) {
         updatedAt: FieldValue.serverTimestamp(),
         version: 1
       };
-      await db.collection("checklistTemplates").doc(propertyId).set(data);
-      res.json({ id: propertyId, ...data });
+      await db.collection("checklistTemplates").doc(destDocId).set(data);
+      res.json({ id: destDocId, ...data });
     } catch (e) {
       console.error("テンプレートコピーエラー:", e);
       res.status(500).json({ error: "テンプレートのコピーに失敗しました" });
