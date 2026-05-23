@@ -2,7 +2,7 @@
  * チェックリスト完了トリガー
  * status が "completed" に変わった瞬間だけ実行される
  * 処理A: 紐付くシフトを completed に更新
- * 処理B: Webアプリ管理者に清掃完了LINE通知 (通知 type: cleaning_done)
+ * 処理B: Webアプリ管理者に完了LINE通知 (workType により cleaning_done / pre_inspection_done を使い分け)
  * 処理C: スタッフにランドリー入力リマインドLINE通知 (通知 type: laundry_reminder)
  */
 const { notifyOwner, notifyStaff, notifyByKey, getNotificationSettings_ } = require("../utils/lineNotify");
@@ -34,6 +34,52 @@ function fmtTime(ts) {
   } catch (e) { return ""; }
 }
 
+/**
+ * スタッフ名を解決する
+ * 優先順: after.staffName → completedBy → staffId → staffIds[0] → "スタッフ"
+ * staffIds が複数の場合は全員分をカンマ連結して返す
+ */
+async function resolveStaffName(db, after) {
+  // (1) staffName が直接存在する場合はそれを使う
+  if (after.staffName) return after.staffName;
+
+  /**
+   * Firestore から staff/{id}.name を取得するヘルパー
+   * 取得失敗時は null を返す
+   */
+  const lookupName = async (staffId) => {
+    if (!staffId) return null;
+    try {
+      const doc = await db.collection("staff").doc(staffId).get();
+      if (doc.exists && doc.data().name) return doc.data().name;
+    } catch (_) { /* lookup 失敗は無視 */ }
+    return null;
+  };
+
+  // (2) completedBy オブジェクトの staffId / name を試みる
+  if (after.completedBy) {
+    if (after.completedBy.name) return after.completedBy.name;
+    const name = await lookupName(after.completedBy.staffId || after.completedBy.uid);
+    if (name) return name;
+  }
+
+  // (3) staffIds 配列が複数スタッフを持つ場合は全員の名前を連結
+  if (Array.isArray(after.staffIds) && after.staffIds.length > 0) {
+    const names = await Promise.all(after.staffIds.map(id => lookupName(id)));
+    const resolved = names.filter(Boolean);
+    if (resolved.length > 0) return resolved.join(", ");
+  }
+
+  // (4) staffId (単一) で lookup
+  if (after.staffId) {
+    const name = await lookupName(after.staffId);
+    if (name) return name;
+  }
+
+  // (5) 最終フォールバック
+  return "スタッフ";
+}
+
 module.exports = async function onChecklistComplete(event) {
   const before = event.data.before.data();
   const after = event.data.after.data();
@@ -45,7 +91,15 @@ module.exports = async function onChecklistComplete(event) {
   const admin = require("firebase-admin");
   const db = admin.firestore();
 
-  const { shiftId, staffId, date, propertyName, staffName, completedAt, propertyId } = after;
+  const { shiftId, staffId, date, propertyName, completedAt, propertyId } = after;
+
+  // workType により通知キーと文言を切り替える
+  const isPreInspection = after.workType === "pre_inspection";
+  const notifyKey = isPreInspection ? "pre_inspection_done" : "cleaning_done";
+  const workLabelStr = workLabel(after.workType); // "直前点検" or "清掃" etc.
+
+  // スタッフ名を解決 (空欄バグ修正: staffName が空でも lookup でフォールバック)
+  const resolvedStaffName = await resolveStaffName(db, after);
 
   // 物件別オーバーライドを取得
   let propertyOverrides = {};
@@ -135,8 +189,9 @@ module.exports = async function onChecklistComplete(event) {
       ? "★".repeat(rating) + "☆".repeat(Math.max(0, 5 - rating)) + ` (${rating}/5)`
       : "未評価";
 
-    // (6) 本文構築
-    let ownerMsg = `✨ 清掃完了\n\n${dateStr} ${propertyName || ""}\n${staffName || "スタッフ"}さんが${timeStr}に清掃を完了しました。`;
+    // (6) 本文構築 (workType に応じてタイトルと作業名を切り替え)
+    const completeTitle = isPreInspection ? "直前点検完了" : "清掃完了";
+    let ownerMsg = `✨ ${completeTitle}\n\n${dateStr} ${propertyName || ""}\n${resolvedStaffName}さんが${timeStr}に${workLabelStr}を完了しました。`;
     ownerMsg += `\n\nゲストの使い方: ${ratingText}`;
     if (lowStockNames.length > 0) {
       ownerMsg += `\n\n📦 在庫切れかけ:\n${lowStockNames.map(n => `・${n}`).join("\n")}`;
@@ -152,9 +207,9 @@ module.exports = async function onChecklistComplete(event) {
     const vars = {
       date: dateStr,
       property: propertyName || "",
-      staff: staffName || "",
+      staff: resolvedStaffName,
       time: timeStr,
-      work: workLabel(after.workType),
+      work: workLabelStr,
       workType: after.workType || "cleaning",
       url: checklistUrl,
       rating: ratingText,
@@ -164,8 +219,9 @@ module.exports = async function onChecklistComplete(event) {
       photoCount: String(photoUrlsAll.length),
     };
     // notifyByKey でチャネル別に発射 (ownerLine/groupLine/staffLine/ownerEmail/discord/...)
-    await notifyByKey(db, "cleaning_done", {
-      title: "清掃完了",
+    // workType により "pre_inspection_done" / "cleaning_done" を使い分ける
+    await notifyByKey(db, notifyKey, {
+      title: completeTitle,
       body: ownerMsg,
       vars,
       propertyId: propertyId || null,
@@ -187,8 +243,8 @@ module.exports = async function onChecklistComplete(event) {
     const vars = {
       date: dateStr,
       property: propertyName || "",
-      staff: staffName || "",
-      work: workLabel(after.workType),
+      staff: resolvedStaffName,
+      work: workLabelStr,
       workType: after.workType || "cleaning",
       url: checklistUrl,
     };

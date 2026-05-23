@@ -1947,6 +1947,12 @@ const MyChecklistPage = {
         </div>
       </div>`;
 
+    // workType に応じて完了ボタン・完了済み文言を切り替え
+    const isPreInsp = (c.workType === "pre_inspection");
+    const completeDoneLabel = isPreInsp ? "直前点検完了済み" : "清掃完了済み";
+    const completeBtnLine1 = isPreInsp ? "直前" : "清掃";
+    const completeBtnLine2 = "完了";
+
     const completeSection = isCompleted
       ? `
         <div class="card" style="background:#0d6efd;border-color:#0d6efd;color:#fff;max-width:280px;margin:0 auto;">
@@ -1954,7 +1960,7 @@ const MyChecklistPage = {
             <div class="d-flex align-items-center gap-2">
               <i class="bi bi-check-circle-fill" style="font-size:1.2rem;color:#fff;"></i>
               <div class="flex-grow-1" style="min-width:0;">
-                <div style="color:#fff;font-size:0.85rem;font-weight:600;line-height:1.1;">清掃完了済み</div>
+                <div style="color:#fff;font-size:0.85rem;font-weight:600;line-height:1.1;">${completeDoneLabel}</div>
                 <div style="color:rgba(255,255,255,0.9);font-size:0.7rem;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
                   ${this.escapeHtml(c.completedBy?.name || "")} ${fmtTs(c.completedAt)}
                 </div>
@@ -1970,8 +1976,8 @@ const MyChecklistPage = {
         </div>`
       : `
         <button type="button" class="btn btn-success" id="mclCompleteBtn" style="font-size:12px;padding:4px 10px;line-height:1.1;min-width:48px;white-space:nowrap;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-weight:700;">
-          <span>清掃</span>
-          <span>完了</span>
+          <span>${completeBtnLine1}</span>
+          <span>${completeBtnLine2}</span>
         </button>`;
 
     // タブに応じて表示切替:
@@ -2017,8 +2023,10 @@ const MyChecklistPage = {
 
   async revertChecklist() {
     if (!this.checklistId) return;
+    // workType に応じて確認メッセージを切り替え
+    const revertWorkLabel = (this.checklist?.workType === "pre_inspection") ? "直前点検完了" : "清掃完了";
     const ok = await showConfirm(
-      "清掃完了を取消して「進行中」に戻しますか？\n既に送信された通知は取消されません。",
+      `${revertWorkLabel}を取消して「進行中」に戻しますか？\n既に送信された通知は取消されません。`,
       { title: "未完了に戻す", okLabel: "戻す", okClass: "btn-warning" }
     );
     if (!ok) return;
@@ -2710,21 +2718,23 @@ const MyChecklistPage = {
 
   async completeChecklist(allDone, unchecked) {
     if (!this.checklistId) return;
+    const c = this.checklist || {};
+    // workType に応じて確認ダイアログの文言を切り替え
+    const completeWorkLabel = (c.workType === "pre_inspection") ? "直前点検完了" : "清掃完了";
     // 1. 未チェック確認
     if (!allDone) {
       const ok = await showConfirm(
-        `未チェックの項目が ${unchecked} 件あります。それでも清掃完了にしますか？`,
-        { title: "清掃完了の確認", okLabel: "完了にする", okClass: "btn-success" }
+        `未チェックの項目が ${unchecked} 件あります。それでも${completeWorkLabel}にしますか？`,
+        { title: `${completeWorkLabel}の確認`, okLabel: "完了にする", okClass: "btn-success" }
       );
       if (!ok) return;
     }
     // 2. 写真ゼロ確認
-    const c = this.checklist || {};
     const hasPhotos = (c.beforePhotos && c.beforePhotos.length > 0)
                    || (c.afterPhotos && c.afterPhotos.length > 0);
     if (!hasPhotos) {
       const okPhoto = await showConfirm(
-        "清掃前・後の写真がまだ1枚もアップロードされていません。\n写真なしで清掃完了にしますか？",
+        `前・後の写真がまだ1枚もアップロードされていません。\n写真なしで${completeWorkLabel}にしますか？`,
         { title: "写真なしで完了", okLabel: "このまま完了にする", okClass: "btn-warning" }
       );
       if (!okPhoto) return;
@@ -2770,9 +2780,9 @@ const MyChecklistPage = {
         },
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
-      showToast("清掃完了", "お疲れさまでした！ Webアプリ管理者に通知しました。", "success");
+      showToast(completeWorkLabel, "お疲れさまでした！ Webアプリ管理者に通知しました。", "success");
     } catch (e) {
-      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check2-circle"></i> 清掃完了にする'; }
+      if (btn) { btn.disabled = false; btn.innerHTML = `<i class="bi bi-check2-circle"></i> ${completeWorkLabel}にする`; }
       showToast("エラー", e.message, "error");
     }
   },
