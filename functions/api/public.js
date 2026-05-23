@@ -207,12 +207,16 @@ router.get("/staff-ical/:token", async (req, res) => {
       return res.status(403).send("calendar sync disabled");
     }
     // 確定済み recruitments を取得 (過去 30 日まで含む)
+    // index 不要のため array-contains のみで取得、 日付フィルタはクライアント側
     const today = new Date();
     const past = new Date(today.getTime() - 30 * 86400 * 1000).toISOString().slice(0, 10);
-    const recSnap = await db.collection("recruitments")
+    const recSnapAll = await db.collection("recruitments")
       .where("selectedStaffIds", "array-contains", sDoc.id)
-      .where("checkoutDate", ">=", past)
       .get();
+    const recSnap = { docs: recSnapAll.docs.filter(d => {
+      const co = String(d.data().checkoutDate || "").slice(0, 10);
+      return co && co >= past;
+    }) };
     // 物件マスタを propertyId ごとに 1 回だけ取得 (キャッシュ)
     const propIds = [...new Set(recSnap.docs.map(d => d.data().propertyId).filter(Boolean))];
     const propCache = {};
