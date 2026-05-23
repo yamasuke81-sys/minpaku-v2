@@ -2,8 +2,13 @@
  * 未確定アラート（毎時チェック）
  * 当日の清掃でスタッフ未確定 → 🔴即時LINE通知
  * 同じ募集について1日1回のみ通知（重複防止）
+ *
+ * 修正 (2026-05-24):
+ * 旧実装は notifyOwner() を一括呼び出ししており、物件別 channelOverrides.alert の
+ * ON/OFF 設定が全く無視されていた（設定で OFF にしても必ず送信される）。
+ * → 募集を物件単位でまとめ、notifyByKey() 経由で物件別設定を尊重して送信するよう修正。
  */
-const { notifyOwner } = require("../utils/lineNotify");
+const { notifyByKey } = require("../utils/lineNotify");
 
 module.exports = async function alertUnconfirmed(event) {
   const admin = require("firebase-admin");
@@ -38,40 +43,71 @@ module.exports = async function alertUnconfirmed(event) {
   const toNotify = urgent.filter((r) => !alreadyNotified.has(r.id));
   if (toNotify.length === 0) return;
 
-  // アラートテキスト生成
-  let text = "🔴 緊急アラート\n\n";
+  // 物件ごとにまとめて notifyByKey() で送信（物件別 channelOverrides を尊重）
+  // propertyId が未設定の募集は propertyId=null で一括処理する
+  const byProperty = new Map(); // propertyId → [recruitment, ...]
   for (const r of toNotify) {
-    const isToday = r.checkoutDate === today;
-    text += `${isToday ? "【本日】" : "【明日】"} ${r.checkoutDate} 清掃スタッフ未確定\n`;
-    if (r.propertyName) text += `  物件: ${r.propertyName}\n`;
-    const responses = r.responses || [];
-    const available = responses.filter((x) => x.response === "◎" || x.response === "△");
-    if (available.length > 0) {
-      text += `  回答あり: ${available.map((x) => `${x.staffName}(${x.response})`).join(", ")}\n`;
-      text += "  → 選定してスタッフを確定してください\n";
-    } else {
-      text += "  回答なし → タイミーなどの外部手配を検討してください\n";
-    }
-    text += "\n";
+    const pid = r.propertyId || null;
+    if (!byProperty.has(pid)) byProperty.set(pid, []);
+    byProperty.get(pid).push(r);
   }
 
-  // 送信
-  const result = await notifyOwner(db, "alert", "未確定アラート", text);
+  for (const [pid, recruitments] of byProperty) {
+    // アラートテキスト生成（物件グループ単位）
+    let text = "🔴 緊急アラート\n\n";
+    for (const r of recruitments) {
+      const isToday = r.checkoutDate === today;
+      text += `${isToday ? "【本日】" : "【明日】"} ${r.checkoutDate} 清掃スタッフ未確定\n`;
+      if (r.propertyName) text += `  物件: ${r.propertyName}\n`;
+      const responses = r.responses || [];
+      const available = responses.filter((x) => x.response === "◎" || x.response === "△");
+      if (available.length > 0) {
+        text += `  回答あり: ${available.map((x) => `${x.staffName}(${x.response})`).join(", ")}\n`;
+        text += "  → 選定してスタッフを確定してください\n";
+      } else {
+        text += "  回答なし → タイミーなどの外部手配を検討してください\n";
+      }
+      text += "\n";
+    }
+    const propertyName = recruitments[0]?.propertyName || "";
 
-  // 通知ログにrecruitmentIdを記録（重複防止用）
-  if (result.success) {
-    for (const r of toNotify) {
-      try {
-        await db.collection("notifications").add({
-          type: "alert",
-          recruitmentId: r.id,
-          title: `未確定アラート: ${r.checkoutDate}`,
-          body: "",
-          sentAt: new Date(),
-          channel: "line",
-          success: true,
-        });
-      } catch (e) { /* ログ記録失敗は無視 */ }
+    // notifyByKey で物件別 channelOverrides.alert を参照して送信先を決定
+    // (OFF にした物件は送信されない。propertyId=null の場合はグローバル設定のみ参照)
+    let result;
+    try {
+      result = await notifyByKey(db, "alert", {
+        title: `未確定アラート${propertyName ? `: ${propertyName}` : ""}`,
+        body: text,
+        vars: {
+          date: today,
+          property: propertyName,
+          url: "https://minpaku-v2.web.app/#/recruitment",
+        },
+        propertyId: pid,
+      });
+    } catch (e) {
+      console.error(`[alertUnconfirmed] notifyByKey エラー (pid=${pid}):`, e.message);
+      result = null;
+    }
+
+    const anySuccess = result && Object.values(result.sent || {}).some(v => v && v !== 0);
+
+    // 通知ログにrecruitmentIdを記録（重複防止用）
+    if (anySuccess) {
+      for (const r of recruitments) {
+        try {
+          await db.collection("notifications").add({
+            type: "alert",
+            recruitmentId: r.id,
+            propertyId: pid || null,
+            title: `未確定アラート: ${r.checkoutDate}`,
+            body: "",
+            sentAt: new Date(),
+            channel: "multi",
+            success: true,
+          });
+        } catch (e) { /* ログ記録失敗は無視 */ }
+      }
     }
   }
 };

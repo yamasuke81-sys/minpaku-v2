@@ -498,6 +498,15 @@ const CleaningFlowPage = {
     // 既存の _renderPropertySelector の 1 物件選択 UI だけで運用)
     this.selectedPropertyIds = this.properties.map(p => p.id);
 
+    // デバッグ: inspection.enabled フィールドの取得状況を確認
+    this.properties.forEach(p => {
+      if (p.inspection) {
+        console.debug(`[CleaningFlow] ${p.name}: inspection.enabled=${p.inspection.enabled} (type: ${typeof p.inspection.enabled})`);
+      } else {
+        console.debug(`[CleaningFlow] ${p.name}: inspection フィールド未設定`);
+      }
+    });
+
     this._renderPropertySelector();
     this._renderSwimLane();
   },
@@ -648,8 +657,9 @@ const CleaningFlowPage = {
   _evalShowIf(property, showIf) {
     if (!showIf) return true;
     const val = this._getNested(property, showIf);
-    // 未設定 (undefined/null) は false 扱い (明示的に true にした物件のみ表示)
-    return val === true;
+    // 未設定 (undefined/null/false) は false 扱い。truthy な値 (true, 1, "true" など) は表示。
+    // ※ Firestore の boolean が JS boolean として取得されるが、念のため truthy チェックで受ける
+    return val != null && val !== false && !!val;
   },
 
   // ステップ配列からグリッド行HTMLを生成
@@ -658,7 +668,12 @@ const CleaningFlowPage = {
     let html = "";
     steps.forEach((step) => {
       // showIf 条件が設定されている場合、条件を満たさないステップはスキップ
-      if (step.showIf && !this._evalShowIf(property, step.showIf)) return;
+      if (step.showIf) {
+        const showIfVal = this._getNested(property, step.showIf);
+        const show = this._evalShowIf(property, step.showIf);
+        console.debug(`[CleaningFlow] showIf check: step=${step.key} property=${property.name} showIf=${step.showIf} val=${showIfVal} show=${show}`);
+        if (!show) return;
+      }
 
       const enabled = this._isEnabled(property, step);
       const flow = property.cleaningFlow || {};
