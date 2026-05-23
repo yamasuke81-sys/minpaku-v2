@@ -450,3 +450,61 @@ body.sidebar-hidden .app-main { margin-left: 0; }
     white-space: nowrap;
   }
 }
+
+/* === チェックリスト詳細画面 タップバウンス抑止 (2026-05-23) === */
+
+/* 清掃/直前点検 完了ボタン */
+#mclCompleteBtn,
+#mclCompleteBtn:hover,
+#mclCompleteBtn:focus,
+#mclCompleteBtn:focus-visible,
+#mclCompleteBtn:active {
+  -webkit-tap-highlight-color: transparent !important;
+  font-size: 12px !important;
+  padding: 4px 10px !important;
+  line-height: 1.1 !important;
+  box-shadow: none !important;
+  outline: none !important;
+  transform: none !important;
+  transition: background-color 0.12s ease !important;
+}
+
+/* 未完了に戻すボタン */
+#mclRevertBtn,
+#mclRevertBtn:hover,
+#mclRevertBtn:focus,
+#mclRevertBtn:focus-visible,
+#mclRevertBtn:active {
+  -webkit-tap-highlight-color: transparent !important;
+  font-size: 0.75rem !important;
+  padding: 0 0.5rem !important;
+  box-shadow: none !important;
+  outline: none !important;
+  transform: none !important;
+  transition: background-color 0.12s ease !important;
+}
+
+/* エリアタブ (大カテゴリ) のタップバウンス抑止 */
+.mcl-area-tabs-wrap .nav-link,
+.mcl-area-tabs-wrap .nav-link:hover,
+.mcl-area-tabs-wrap .nav-link:focus,
+.mcl-area-tabs-wrap .nav-link:focus-visible,
+.mcl-area-tabs-wrap .nav-link:active,
+.mcl-area-tabs-wrap .nav-link.active {
+  -webkit-tap-highlight-color: transparent !important;
+  font-size: 12px !important;
+  padding: 5px 10px !important;
+  font-weight: 600 !important;
+  line-height: 1.2 !important;
+  box-shadow: none !important;
+  outline: none !important;
+  border-width: 1px !important;
+  transform: none !important;
+  transition: background-color 0.12s ease, border-color 0.12s ease !important;
+}
+
+.mcl-area-tabs-wrap .nav-link .badge {
+  font-size: 9px !important;
+  padding: 2px 4px !important;
+  transform: none !important;
+}
