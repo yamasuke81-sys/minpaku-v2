@@ -30,28 +30,42 @@ const db = admin.firestore();
     console.log("");
   }
 
-  // 対象日に該当するもの: completedAt (Firestore Timestamp) の YYYY-MM-DD を比較
-  const targets = all.filter(({ c }) => {
-    if (!c.completedAt || !c.completedAt.toDate) return false;
-    const iso = c.completedAt.toDate().toISOString().slice(0, 10);
-    return iso === TARGET_DATE;
-  });
+  // 引数 (環境変数 DATE) で日付指定があればその日付、なければ最新 1件を再発火
+  // 例: DATE=2026-05-23 node functions/scripts/refireInspectionNotification.js
+  const dateFilter = process.env.DATE || "";
+  let targets;
+  if (dateFilter) {
+    targets = all.filter(({ c }) => {
+      if (!c.completedAt || !c.completedAt.toDate) return false;
+      return c.completedAt.toDate().toISOString().slice(0, 10) === dateFilter;
+    });
+    console.log(`日付フィルタ ${dateFilter} で該当: ${targets.length}件`);
+  } else {
+    // completedAt 降順で最新 1件
+    targets = all
+      .filter(({ c }) => c.completedAt && c.completedAt.toDate)
+      .sort((a, b) => b.c.completedAt.toMillis() - a.c.completedAt.toMillis())
+      .slice(0, 1);
+    console.log(`最新の completed 1件を対象: ${targets.length}件`);
+  }
 
-  console.log(`\n対象日 ${TARGET_DATE} を含むドキュメント: ${targets.length}件`);
   if (targets.length === 0) {
     console.log("→ 対象なし。終了。");
     return;
   }
 
-  for (const { id } of targets) {
+  for (const { id, c } of targets) {
     console.log(`[再発火] id=${id}`);
     const ref = db.collection("checklists").doc(id);
+    // 元の completedAt を保存しておき、後で復元する (再発火で書き換えないため)
+    const originalCompletedAt = c.completedAt;
     await ref.update({ status: "in_progress", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
     console.log(`  → in_progress (1.5秒待機)`);
     await new Promise(r => setTimeout(r, 1500));
     await ref.update({
       status: "completed",
-      completedAt: admin.firestore.FieldValue.serverTimestamp(),
+      // completedAt は元の値を維持 (上書きしない)
+      completedAt: originalCompletedAt,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     console.log(`  → completed (onChecklistComplete 発火するはず)`);
