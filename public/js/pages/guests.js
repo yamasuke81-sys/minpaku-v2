@@ -78,6 +78,12 @@ const GuestsPage = {
 
     this.modal = new bootstrap.Modal(document.getElementById("guestModal"));
     this.detailModal = new bootstrap.Modal(document.getElementById("guestDetailModal"));
+
+    // 詳細モーダルを閉じた時に一覧を再描画（キーボックス予約タグ等を即時反映）
+    document.getElementById("guestDetailModal").addEventListener("hidden.bs.modal", () => {
+      this.renderTable();
+    });
+
     this.bindEvents();
 
     // 物件フィルタ初期化
@@ -932,13 +938,17 @@ const GuestsPage = {
     const kbSentAt = g.keyboxSentAt;
     let kbStatusHtml;
     if (kbSentAt) {
+      // 送信済み: 解除不可
       const sentStr = (kbSentAt.toDate ? kbSentAt.toDate() : new Date(kbSentAt)).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
       kbStatusHtml = `<span class="badge bg-secondary"><i class="bi bi-send-check"></i> 送信済み (${this.escapeHtml(sentStr)})</span>`;
     } else if (kbConfirmedAt) {
+      // 予約済み: 再予約ボタン + 予約解除ボタンを表示
       const confStr = (kbConfirmedAt.toDate ? kbConfirmedAt.toDate() : new Date(kbConfirmedAt)).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
       kbStatusHtml = `<span class="badge bg-success"><i class="bi bi-check-circle"></i> 予約済み (${this.escapeHtml(confStr)})</span>
-        <button class="btn btn-sm btn-outline-secondary ms-2" id="btnKeyboxReReserve">再予約</button>`;
+        <button class="btn btn-sm btn-outline-secondary ms-2" id="btnKeyboxReReserve">再予約</button>
+        <button class="btn btn-sm btn-outline-danger ms-1" id="btnKeyboxCancel"><i class="bi bi-x-circle"></i> 予約を解除</button>`;
     } else {
+      // 未予約: 予約ボタンのみ
       kbStatusHtml = `<button class="btn btn-primary" id="btnKeyboxReserve"><i class="bi bi-key"></i> キーボックス送信を予約する</button>
         <span class="badge bg-warning text-dark ms-2"><i class="bi bi-clock"></i> 未予約</span>`;
     }
@@ -1123,6 +1133,14 @@ const GuestsPage = {
     bindKeyboxBtn("btnKeyboxReserve");
     bindKeyboxBtn("btnKeyboxReReserve");
 
+    // キーボックス予約解除ボタンのハンドラ
+    const btnCancel = document.getElementById("btnKeyboxCancel");
+    if (btnCancel) {
+      btnCancel.addEventListener("click", async () => {
+        await this._cancelKeyboxSend(g);
+      });
+    }
+
     this.detailModal.show();
   },
 
@@ -1193,11 +1211,53 @@ const GuestsPage = {
         keyboxConfirmedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
       showToast("完了", "キーボックス送信を予約しました", "success");
-      // 一覧再読込 → モーダル再描画
+      // 一覧再読込 → モーダル内のデータも最新化 (鍵予約済タグの即時反映)
       await this.loadGuests();
       this.showDetail(g.id);
     } catch (e) {
       showToast("エラー", `予約失敗: ${e.message}`, "error");
+    }
+  },
+
+  /**
+   * キーボックス送信予約解除
+   * 送信済みの場合はエラー、それ以外は API 経由で予約フラグをクリア
+   */
+  async _cancelKeyboxSend(g) {
+    if (!g || !g.id) {
+      showToast("エラー", "ゲストIDが不明です", "error");
+      return;
+    }
+
+    // 送信済みは解除不可（UI 側でも念のためガード）
+    if (g.keyboxSentAt) {
+      showToast("エラー", "既に送信済みのため予約を解除できません", "error");
+      return;
+    }
+
+    const ok = await showConfirm(
+      `キーボックス送信の予約を解除しますか？\n\nゲスト: ${g.guestName || "?"}\nチェックイン: ${g.checkIn || "?"}\n\n解除後は再度「予約する」ボタンから予約し直せます。`,
+      { title: "予約を解除", okLabel: "解除する", okClass: "btn-danger" }
+    );
+    if (!ok) return;
+
+    try {
+      // バックエンド API 経由で Firestore フィールドをクリア
+      const res = await fetch(`/api/keybox/cancel/${encodeURIComponent(g.id)}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || `HTTP ${res.status}`);
+      }
+      showToast("完了", "キーボックス送信の予約を解除しました", "success");
+      // 一覧再読込 → モーダル再描画（未予約状態に切替）
+      await this.loadGuests();
+      // guestList が更新されたので最新データでモーダルを再表示
+      this.showDetail(g.id);
+    } catch (e) {
+      showToast("エラー", `解除失敗: ${e.message}`, "error");
     }
   },
 

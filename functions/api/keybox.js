@@ -1,11 +1,17 @@
 /**
  * キーボックス確認API
  *
- * GET /keybox-confirm/:guestId?token=...
+ * GET /keybox/confirm/:guestId?token=...
  *   - オーナーがOKボタンを押した時の受口
  *   - token を検証し keyboxConfirmedAt をセット
  *   - 送信予定時刻が既に過ぎていれば即時送信
  *   - 完了画面HTMLを返す
+ *
+ * DELETE /keybox/cancel/:guestId
+ *   - キーボックス送信予約を解除する
+ *   - keyboxSentAt が存在する場合は解除不可（送信済みエラー）
+ *   - keyboxConfirmedAt / keyboxConfirmToken / keyboxScheduledSendAt /
+ *     keyboxScheduledByOperator をすべてクリア
  */
 const { Router } = require("express");
 const { computeScheduledSendAt, formatScheduledSendAt, sendKeyboxEmail } = require("../utils/keyboxSender");
@@ -122,6 +128,49 @@ module.exports = function keyboxApi(db) {
     } catch (e) {
       console.error("keybox-confirm エラー:", e.message);
       return res.status(500).send(htmlPage("エラー", `⚠️ 処理中にエラーが発生しました: ${e.message}`));
+    }
+  });
+
+  // ── キーボックス送信予約キャンセルエンドポイント ──────────────────────────
+  // DELETE /keybox/cancel/:guestId
+  //   - keyboxSentAt がある場合は解除不可（送信済み）
+  //   - keyboxConfirmedAt / keyboxConfirmToken / keyboxScheduledSendAt /
+  //     keyboxScheduledByOperator を削除してキャンセル完了
+  router.delete("/cancel/:guestId", async (req, res) => {
+    const { guestId } = req.params;
+    if (!guestId) {
+      return res.status(400).json({ error: "guestId が必要です" });
+    }
+
+    try {
+      const admin = require("firebase-admin");
+      const docRef = db.collection("guestRegistrations").doc(guestId);
+      const doc = await docRef.get();
+
+      if (!doc.exists) {
+        return res.status(404).json({ error: "名簿データが見つかりません" });
+      }
+
+      const data = doc.data();
+
+      // 送信済みの場合は解除不可
+      if (data.keyboxSentAt) {
+        return res.status(409).json({ error: "既に送信済みのため予約を解除できません" });
+      }
+
+      // 予約フィールドをすべてクリア
+      await docRef.update({
+        keyboxConfirmedAt: admin.firestore.FieldValue.delete(),
+        keyboxConfirmToken: admin.firestore.FieldValue.delete(),
+        keyboxScheduledSendAt: admin.firestore.FieldValue.delete(),
+        keyboxScheduledByOperator: admin.firestore.FieldValue.delete(),
+      });
+
+      console.log(`キーボックス予約解除: guestId=${guestId} guestName=${data.guestName || "-"}`);
+      return res.json({ ok: true, message: "キーボックス送信の予約を解除しました" });
+    } catch (e) {
+      console.error("keybox cancel エラー:", e.message);
+      return res.status(500).json({ error: `処理中にエラーが発生しました: ${e.message}` });
     }
   });
 

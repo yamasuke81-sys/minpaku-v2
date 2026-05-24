@@ -1116,6 +1116,12 @@ const PropertiesPage = {
                 <input type="text" class="form-control form-control-sm ch-name" data-idx="${i}"
                   placeholder="例: ○○物件 Bot #${i + 1}" value="${this.escapeHtml(ch.name || "")}">
               </div>
+              <div class="col-12">
+                <label class="form-label small mb-1">オーナー LINE User ID（ownerLine 用・任意）</label>
+                <input type="text" class="form-control form-control-sm ch-owner-userid" data-idx="${i}"
+                  placeholder="U... （この Bot でオーナー個人に送る場合に設定）" value="${this.escapeHtml(ch.ownerLineUserId || "")}">
+                <div class="form-text">設定するとこの Bot からオーナー個人へ直接通知されます。未設定の場合はグローバル設定の Bot にフォールバックします。</div>
+              </div>
             </div>
           </div>
         </div>
@@ -1196,6 +1202,8 @@ const PropertiesPage = {
           this._lineChannels[idx].groupId = el.value.trim();
         } else if (el.classList.contains("ch-name")) {
           this._lineChannels[idx].name = el.value.trim();
+        } else if (el.classList.contains("ch-owner-userid")) {
+          this._lineChannels[idx].ownerLineUserId = el.value.trim();
         } else if (el.classList.contains("ch-enabled")) {
           this._lineChannels[idx].enabled = el.checked;
         }
@@ -1222,11 +1230,13 @@ const PropertiesPage = {
       const groupEl = container.querySelector(`.ch-groupid[data-idx="${i}"]`);
       const nameEl = container.querySelector(`.ch-name[data-idx="${i}"]`);
       const enabledEl = container.querySelector(`.ch-enabled[data-idx="${i}"]`);
+      const ownerUserIdEl = container.querySelector(`.ch-owner-userid[data-idx="${i}"]`);
 
       if (tokenEl && tokenEl.value.trim()) ch.token = tokenEl.value.trim();
       if (groupEl) ch.groupId = groupEl.value.trim();
       if (nameEl) ch.name = nameEl.value.trim();
       if (enabledEl) ch.enabled = enabledEl.checked;
+      if (ownerUserIdEl) ch.ownerLineUserId = ownerUserIdEl.value.trim();
     });
 
     // _legacy フラグは送信不要なので除去

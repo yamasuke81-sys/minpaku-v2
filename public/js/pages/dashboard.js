@@ -1236,6 +1236,7 @@ const DashboardPage = {
       } else if (kbError) {
         kbBadge = `<span class="badge bg-danger" title="${this.esc(String(kbError))}"><i class="bi bi-exclamation-triangle"></i> エラー</span>`;
       } else if (kbConfirmedAt) {
+        // 予約済み: バッジを緑で表示
         const s = (kbConfirmedAt.toDate ? kbConfirmedAt.toDate() : new Date(kbConfirmedAt)).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
         kbBadge = `<span class="badge bg-success"><i class="bi bi-check-circle"></i> 予約済 (${this.esc(s)})</span>`;
       } else {
@@ -1245,10 +1246,15 @@ const DashboardPage = {
       const kbBtn = gid
         ? `<button class="btn btn-sm btn-primary" id="calBtnKeyboxSend" data-guest-id="${this.esc(gid)}"><i class="bi bi-key"></i> ${kbBtnLabel}</button>`
         : "";
+      // 予約済みかつ未送信の場合のみ解除ボタンを表示
+      const kbCancelBtn = (gid && kbConfirmedAt && !kbSentAt)
+        ? `<button class="btn btn-sm btn-outline-danger" id="calBtnKeyboxCancel" data-guest-id="${this.esc(gid)}"><i class="bi bi-x-circle"></i> 予約を解除</button>`
+        : "";
       return `<div class="d-flex flex-wrap align-items-center gap-2 mb-3 p-2 border rounded bg-light">
         <i class="bi bi-key-fill text-warning" style="font-size:1.2rem;"></i>
         <span class="fw-semibold small">キーボックス送信</span>
         ${kbBtn}
+        ${kbCancelBtn}
         <span>${kbBadge}</span>
       </div>`;
     })();
@@ -1781,6 +1787,49 @@ const DashboardPage = {
         const modalInst = bootstrap.Modal.getInstance(modalEl);
         if (modalInst) modalInst.hide();
         if (this.refreshCalendar) this.refreshCalendar();
+        // GuestsPage の一覧も更新して「鍵予約済」タグを即時反映
+        if (typeof GuestsPage !== "undefined" && typeof GuestsPage.loadGuests === "function") {
+          try { await GuestsPage.loadGuests(); } catch (_) {}
+        }
+      });
+    }
+
+    // キーボックス予約解除ボタン (ダッシュボードモーダルB用)
+    const btnKeyboxCancel = document.getElementById("calBtnKeyboxCancel");
+    if (btnKeyboxCancel) {
+      btnKeyboxCancel.addEventListener("click", async () => {
+        const gid = btnKeyboxCancel.dataset.guestId;
+        if (!gid) return;
+
+        const ok = await showConfirm(
+          `キーボックス送信の予約を解除しますか？\n\nゲスト: ${guestData.guestName || "-"}\nチェックイン: ${guestData.checkIn || "-"}\n\n解除後は再度「予約する」ボタンから予約し直せます。`,
+          { title: "予約を解除", okLabel: "解除する", okClass: "btn-danger" }
+        );
+        if (!ok) return;
+
+        try {
+          const res = await fetch(`/api/keybox/cancel/${encodeURIComponent(gid)}`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+          });
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(json.error || `HTTP ${res.status}`);
+          }
+          showToast("完了", "キーボックス送信の予約を解除しました", "success");
+        } catch (e) {
+          showToast("エラー", `解除失敗: ${e.message}`, "error");
+          return;
+        }
+
+        // モーダルを閉じてカレンダーと名簿一覧を更新
+        const modalInst = bootstrap.Modal.getInstance(modalEl);
+        if (modalInst) modalInst.hide();
+        if (this.refreshCalendar) this.refreshCalendar();
+        // GuestsPage の一覧も更新して「鍵予約済」タグを即時反映
+        if (typeof GuestsPage !== "undefined" && typeof GuestsPage.loadGuests === "function") {
+          try { await GuestsPage.loadGuests(); } catch (_) {}
+        }
       });
     }
 
