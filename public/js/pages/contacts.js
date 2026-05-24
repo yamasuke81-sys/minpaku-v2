@@ -400,13 +400,17 @@ const ContactsPage = {
           </div>
           <div class="small text-muted prop-ch-group-result" data-prop-id="${propId}" data-idx="${i}"></div>
         </td>
+        <td>
+          <input class="form-control form-control-sm c-prop-ch-input" data-prop-id="${propId}" data-idx="${i}" data-field="basicId" value="${this._esc(c?.basicId || "")}" placeholder="@example">
+          <div class="small text-muted mt-1">LINE 公式アカウントの Basic ID。物件編集モーダルと同期されます。</div>
+        </td>
         <td><button type="button" class="btn btn-sm btn-outline-danger c-prop-ch-remove" data-prop-id="${propId}" data-idx="${i}"><i class="bi bi-x-lg"></i></button></td>
       </tr>
     `).join("");
     return `
       <table class="table table-sm align-middle mb-2">
-        <thead class="table-light"><tr><th style="width:140px;">Bot 名</th><th><span class="badge bg-info-subtle text-info border me-1">📤 送信元</span>チャネルアクセストークン</th><th><span class="badge bg-success-subtle text-success border me-1">📨 受信先</span>グループ ID</th><th style="width:50px;"></th></tr></thead>
-        <tbody class="prop-ch-rows" data-prop-id="${propId}">${rows || `<tr><td colspan="4" class="text-muted small">未登録</td></tr>`}</tbody>
+        <thead class="table-light"><tr><th style="width:140px;">Bot 名</th><th><span class="badge bg-info-subtle text-info border me-1">📤 送信元</span>チャネルアクセストークン</th><th><span class="badge bg-success-subtle text-success border me-1">📨 受信先</span>グループ ID</th><th style="width:160px;">Basic ID (@xxx)</th><th style="width:50px;"></th></tr></thead>
+        <tbody class="prop-ch-rows" data-prop-id="${propId}">${rows || `<tr><td colspan="5" class="text-muted small">未登録</td></tr>`}</tbody>
       </table>
       <div class="d-flex gap-2">
         <button type="button" class="btn btn-sm btn-outline-secondary c-prop-ch-add" data-prop-id="${propId}"><i class="bi bi-plus"></i> Bot 追加</button>
@@ -616,6 +620,10 @@ const ContactsPage = {
         </div>
         <div class="small text-muted prop-ch-group-result" data-prop-id="${propId}" data-idx="${idx}"></div>
       </td>
+      <td>
+        <input class="form-control form-control-sm c-prop-ch-input" data-prop-id="${propId}" data-idx="${idx}" data-field="basicId" value="" placeholder="@example">
+        <div class="small text-muted mt-1">LINE 公式アカウントの Basic ID。物件編集モーダルと同期されます。</div>
+      </td>
       <td><button type="button" class="btn btn-sm btn-outline-danger c-prop-ch-remove" data-prop-id="${propId}" data-idx="${idx}"><i class="bi bi-x-lg"></i></button></td>
     `;
     tbody.appendChild(tr);
@@ -632,7 +640,8 @@ const ContactsPage = {
       r.querySelectorAll("[data-idx]").forEach(el => el.dataset.idx = i);
     });
     if (rows.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="4" class="text-muted small">未登録</td></tr>`;
+      // Basic ID 列追加により colspan を 5 に更新
+      tbody.innerHTML = `<tr><td colspan="5" class="text-muted small">未登録</td></tr>`;
     }
   },
 
@@ -657,15 +666,19 @@ const ContactsPage = {
         const name = r.querySelector('.c-prop-ch-input[data-field="name"]')?.value.trim() || "";
         const tokenInput = r.querySelector('.c-prop-ch-input[data-field="token"]')?.value.trim() || "";
         const groupId = r.querySelector('.c-prop-ch-input[data-field="groupId"]')?.value.trim() || "";
+        // Basic ID 入力欄の値を取得（空文字はフィールド削除扱い）
+        const basicIdInput = r.querySelector('.c-prop-ch-input[data-field="basicId"]')?.value.trim() || "";
         // 重要: token が空で既存値があれば既存値を維持 (空送信でトークン破壊しない)
         const existingCh = existing[idx] || {};
         const token = tokenInput || existingCh.token || "";
         if (token || groupId || name) {
-          // 既存の botInfo・basicId は維持 (token 変更時は botInfo をトリガーが上書きする)
+          // 既存の botInfo は維持 (token 変更時は botInfo をトリガーが上書きする)
           const ch = { name, token, groupId, enabled: true };
           if (existingCh.botInfo && existingCh.token === token) ch.botInfo = existingCh.botInfo;
-          // 手動入力 basicId を既存から引き継ぐ（contacts 画面には入力欄なし）
-          if (existingCh.basicId) ch.basicId = existingCh.basicId;
+          // Basic ID: 入力値を優先、空の場合はフィールドを含めない（削除扱い）
+          if (basicIdInput) {
+            ch.basicId = basicIdInput;
+          }
           channels.push(ch);
         }
       });
