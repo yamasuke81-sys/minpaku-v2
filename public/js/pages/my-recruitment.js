@@ -20,9 +20,12 @@ const MyRecruitmentPage = {
   // 初回描画完了フラグ
   _initialRenderDone: false,
 
-  async render(container) {
+  async render(container, pathParams) {
     const authIsOwner = Auth.isOwner();
     const authIsSubOwner = Auth.isSubOwner();
+    // URL パスパラメータから recruitmentId を取得 (#/my-recruitment/{id} 形式対応)
+    // 通知からの直リンク時に、該当募集を自動的に開くために使用
+    this._pendingOpenId = (pathParams && pathParams[0]) ? pathParams[0] : null;
     // ビューモード判定: #/schedule → owner ビュー、#/my-recruitment → staff ビュー
     const _hash = (location.hash || "").split("?")[0];
     const isScheduleRoute = _hash === "#/schedule" || _hash.startsWith("#/schedule/");
@@ -1861,6 +1864,23 @@ const MyRecruitmentPage = {
         container.scrollLeft = Math.max(0, container.scrollLeft + delta);
       }
       this._initialScrollDone = true;
+
+      // URL に recruitmentId が含まれている場合 (通知からの直リンク)、
+      // 初回スクロール後に該当募集の詳細モーダルを自動表示する
+      if (this._pendingOpenId) {
+        const pendingId = this._pendingOpenId;
+        this._pendingOpenId = null; // 再描画時の二重起動を防ぐ
+        const recruit = this.recruitments.find(r => r.id === pendingId);
+        if (recruit && typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
+          // renderCalendar() は同期関数のため即時非同期で処理
+          (async () => {
+            if (typeof RecruitmentPage.ensureLoaded === "function") {
+              await RecruitmentPage.ensureLoaded();
+            }
+            RecruitmentPage.openDetailModal(recruit, { viewMode: isOwnerView ? "owner" : "staff" });
+          })();
+        }
+      }
     }
 
     // 要対応 / お知らせ描画

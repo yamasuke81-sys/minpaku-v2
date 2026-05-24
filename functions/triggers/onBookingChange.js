@@ -787,7 +787,8 @@ module.exports = async function onBookingChange(event) {
   try {
     const { settings } = await getNotificationSettings_(db);
     const appUrl = settings?.appUrl || "https://minpaku-v2.web.app";
-    const recruitUrl = `${appUrl}/#/my-recruitment`;
+    // 該当募集の回答ページを直接開く URL (recruitmentId を末尾に付与)
+    const recruitUrl = `${appUrl}/#/my-recruitment/${recruitmentId}`;
     // 復元検知: before あり + before=cancelled + after=confirmed
     // (誤キャンセルからの復元 / 一度キャンセルした予約をやり直すケース)
     const isRestored = before && wasCancelled && !nowCancelled;
@@ -957,7 +958,8 @@ module.exports = async function onBookingChange(event) {
       if (!insRecruitmentId) return;
       const { settings: s2 } = await getNotificationSettings_(db);
       const appUrl2 = s2?.appUrl || "https://minpaku-v2.web.app";
-      const recruitUrl2 = `${appUrl2}/#/my-recruitment`;
+      // 該当直前点検募集の回答ページを直接開く URL (insRecruitmentId を末尾に付与)
+      const recruitUrl2 = `${appUrl2}/#/my-recruitment/${insRecruitmentId}`;
       const memo2 = `直前点検: ゲスト ${guestName || "不明"} (${source || ""})`;
       // 復元検知 (キャンセル復元時の再募集メッセージ追加)
       const isRestored2 = before && wasCancelled && !nowCancelled;
