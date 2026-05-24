@@ -1889,10 +1889,18 @@
         const data = await res.json();
         const latest = String(data.version || "").trim();
         if (latest && latest !== CURRENT) {
-          console.log("[version] new version detected:", latest, "current:", CURRENT);
+          console.log("[version] new version detected:", latest, "current:", CURRENT, "→ 自動更新します");
           _newVersion = latest;
           _pendingReload = true;
-          showUpdateModal();
+          // ユーザーへ短く案内してから自動 forceReload（SW unregister + cache 削除 + cache-bust リロード）
+          try {
+            // 小さなトーストで「更新します」とだけ知らせる（モーダルで操作待ちはしない）
+            const t = document.createElement("div");
+            t.textContent = "新しいバージョンに自動更新します…";
+            t.style.cssText = "position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#0d6efd;color:#fff;padding:10px 16px;border-radius:6px;z-index:99999;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,0.2);";
+            document.body.appendChild(t);
+          } catch (_) {}
+          setTimeout(() => forceReload(), 1200);
         }
       } catch (_) {}
       finally { _checking = false; }
