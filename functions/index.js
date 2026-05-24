@@ -167,6 +167,10 @@ app.use("/booking-timeline", bookingTimelineApi(db));
 const keyboxApi = require("./api/keybox");
 app.use("/keybox", keyboxApi(db));
 
+// ========== LINE プロフィール取得 API ==========
+const lineProfileApi = require("./api/line-profile");
+app.use("/line-profile", lineProfileApi(db));
+
 // gmail-auth は authenticate の前に登録済み（認証不要）
 
 // ========== グローバルエラーハンドラ (HTMLレスポンス漏れ防止) ==========

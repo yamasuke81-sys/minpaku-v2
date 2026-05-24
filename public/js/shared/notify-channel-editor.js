@@ -425,17 +425,20 @@
    */
   function _renderTargetRow(dk, field, checked, icon, label, subLabel, iconStyle) {
     // プレースホルダー (hydrateBadges で非同期差し込み)
-    // - actions: 1行目右端の ✏️ + ↗ ボタン
-    // - value:   3行目の値バッジ + フォールバックバッジ
+    // - actions:   1行目右端の ✏️ + ↗ ボタン
+    // - value:     3行目の値バッジ + フォールバックバッジ（送信元設定値）
+    // - recipient: 4行目の受信先バッジ（名前/アドレス）
     const actionsPlaceholder = `<span class="notify-target-actions notify-target-placeholder d-inline-flex align-items-center gap-1" data-field="${field}" data-slot="actions"></span>`;
     const valuePlaceholder = `<span class="notify-target-value notify-target-placeholder d-inline-flex align-items-center gap-1 flex-wrap" data-field="${field}" data-slot="value"></span>`;
+    const recipientPlaceholder = `<span class="notify-target-recipient notify-target-placeholder d-inline-flex align-items-center gap-1 flex-wrap" data-field="${field}" data-slot="recipient"></span>`;
     const iconEl = iconStyle
       ? `<i class="bi ${icon}" style="${iconStyle}"></i>`
       : `<i class="bi ${icon}"></i>`;
-    // 3行構成:
+    // 4行構成:
     //   1行目: チェックボックス + アイコン+見出し + (右端) ✏️↗
     //   2行目: 送信元注記 (薄字)
-    //   3行目: 値バッジ + フォールバックバッジ
+    //   3行目: 値バッジ + フォールバックバッジ（送信元設定値）
+    //   4行目: 受信先ラベル + 名前/アドレスバッジ
     return `
       <div class="notify-target-block mb-2" data-field="${field}">
         <div class="d-flex align-items-center gap-2">
@@ -449,6 +452,10 @@
         </div>
         ${subLabel ? `<div class="text-muted ps-4" style="font-size:0.72em;line-height:1.2;">${subLabel}</div>` : ""}
         <div class="ps-4 mt-1">${valuePlaceholder}</div>
+        <div class="ps-4 mt-1 d-flex align-items-center gap-1 flex-wrap">
+          <span class="text-muted" style="font-size:0.72em;white-space:nowrap;">受信先:</span>
+          ${recipientPlaceholder}
+        </div>
       </div>`;
   }
 

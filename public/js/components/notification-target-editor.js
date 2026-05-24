@@ -26,6 +26,80 @@
   // 物件データのキャッシュ（pid → data）
   let _propertyCache = {};
 
+  // ========== LINE プロフィール取得（API 経由）==========
+
+  // LINE ID → 表示名のメモリキャッシュ（ページリロードまで保持）
+  const _lineNameCache = {};
+
+  /**
+   * LINE ユーザー表示名を API 経由で取得する。
+   * メモリキャッシュがあればそれを返す。失敗時は userId をそのまま返す。
+   *
+   * @param {string} userId  - LINE User ID (Uxxxxxxxx...)
+   * @param {string} [propertyId] - キャッシュ先物件ID
+   * @returns {Promise<string>} displayName
+   */
+  async function fetchLineUserName(userId, propertyId) {
+    if (!userId) return "";
+    const cacheKey = `user:${userId}:${propertyId || ""}`;
+    if (_lineNameCache[cacheKey] !== undefined) return _lineNameCache[cacheKey];
+
+    // 「取得中」を入れてから非同期取得
+    _lineNameCache[cacheKey] = userId; // 失敗時フォールバックとして ID を先に入れておく
+    try {
+      const idToken = await firebase.auth().currentUser?.getIdToken();
+      if (!idToken) return userId;
+      const params = new URLSearchParams({ userId });
+      if (propertyId) params.set("propertyId", propertyId);
+      const resp = await fetch(`/api/line-profile/user?${params}`, {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        const name = data.displayName || userId;
+        _lineNameCache[cacheKey] = name;
+        return name;
+      }
+    } catch (e) {
+      console.warn("[NotifyTargetEditor] LINE ユーザー名取得失敗:", e.message);
+    }
+    return _lineNameCache[cacheKey];
+  }
+
+  /**
+   * LINE グループ名を API 経由で取得する。
+   * メモリキャッシュがあればそれを返す。失敗時は groupId をそのまま返す。
+   *
+   * @param {string} groupId  - LINE Group ID (Cxxxxxxxx...)
+   * @param {string} [propertyId] - キャッシュ先物件ID
+   * @returns {Promise<string>} groupName
+   */
+  async function fetchLineGroupName(groupId, propertyId) {
+    if (!groupId) return "";
+    const cacheKey = `group:${groupId}:${propertyId || ""}`;
+    if (_lineNameCache[cacheKey] !== undefined) return _lineNameCache[cacheKey];
+
+    _lineNameCache[cacheKey] = groupId;
+    try {
+      const idToken = await firebase.auth().currentUser?.getIdToken();
+      if (!idToken) return groupId;
+      const params = new URLSearchParams({ groupId });
+      if (propertyId) params.set("propertyId", propertyId);
+      const resp = await fetch(`/api/line-profile/group?${params}`, {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        const name = data.groupName || groupId;
+        _lineNameCache[cacheKey] = name;
+        return name;
+      }
+    } catch (e) {
+      console.warn("[NotifyTargetEditor] LINE グループ名取得失敗:", e.message);
+    }
+    return _lineNameCache[cacheKey];
+  }
+
   /**
    * 指定物件の Firestore ドキュメントを取得（キャッシュあり）
    * @param {string} pid
@@ -81,6 +155,8 @@
     _notifSettings = null;
     _staffList = null;
     _propertyCache = {};
+    // LINE 名前キャッシュも破棄（メモリキャッシュはオブジェクトを再生成）
+    Object.keys(_lineNameCache).forEach(k => delete _lineNameCache[k]);
   }
 
   // ========== 値の取得 ==========
@@ -687,6 +763,150 @@
         : `<span class="badge bg-light text-dark border" style="font-size:0.72em;max-width:100%;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(value)}">${escapeHtml(truncate(value, 40))}</span>${fallbackBadge}`;
     };
 
+    /**
+     * 「受信先」情報をテキストで返す（同期）。
+     * LINE ID の場合は後から非同期で名前に置換するため、まず ID を返す。
+     *
+     * @param {string} field
+     * @returns {{ text: string, lineIds: string[], isLine: boolean, isGroup: boolean }}
+     */
+    const resolveRecipientInfo = (field) => {
+      const ns2 = ns || {};
+      const sl2 = sl || [];
+
+      // ownerLine: settings/notifications.lineOwnerUserId → ユーザー表示名
+      if (field === "ownerLine") {
+        const uid = ns2.lineOwnerUserId || ns2.lineOwnerId || "";
+        return { text: uid || "", lineIds: uid ? [uid] : [], isLine: true, isGroup: false };
+      }
+      // ownerEmail: ownerEmail アドレス
+      if (field === "ownerEmail") {
+        return { text: ns2.ownerEmail || "", lineIds: [], isLine: false, isGroup: false };
+      }
+      // groupLine: 物件の lineChannels[].groupId → グループ名
+      if (field === "groupLine") {
+        let channels = Array.isArray(propData.lineChannels) ? propData.lineChannels : [];
+        if (channels.length === 0 && propData.lineGroupId) {
+          channels = [{ groupId: propData.lineGroupId }];
+        }
+        const active = channels.filter(c => c.groupId);
+        const ids = active.map(c => c.groupId);
+        const text = ids.join(", ") || "";
+        return { text, lineIds: ids, isLine: true, isGroup: true };
+      }
+      // staffLine: アクティブスタッフの lineUserId 複数 → 表示名列挙
+      if (field === "staffLine") {
+        const active = sl2.filter(s => s.active !== false && s.lineUserId);
+        const ids = active.map(s => s.lineUserId);
+        // スタッフ名が既知なのでここでは名前を直接使う
+        const names = active.map(s => s.name || s.lineUserId);
+        return { text: names.join("、") || "", lineIds: ids, isLine: true, isGroup: false, names };
+      }
+      // staffEmail: アクティブスタッフのメールアドレス複数
+      if (field === "staffEmail") {
+        const active = sl2.filter(s => s.active !== false && s.email);
+        const text = active.map(s => s.email).join(", ") || "";
+        return { text, lineIds: [], isLine: false, isGroup: false };
+      }
+      // subOwnerLine: サブオーナーの lineUserId
+      if (field === "subOwnerLine") {
+        const resolved = resolveSubOwnerValues("subOwnerLine", sl2, propertyId);
+        const ids = resolved.map(r => r.value).filter(Boolean);
+        const names = resolved.map(r => r.name);
+        return { text: ids.join(", ") || "", lineIds: ids, isLine: true, isGroup: false, names };
+      }
+      // subOwnerEmail: サブオーナーのメールアドレス
+      if (field === "subOwnerEmail") {
+        const resolved = resolveSubOwnerValues("subOwnerEmail", sl2, propertyId);
+        const text = resolved.map(r => r.value).filter(Boolean).join(", ") || "";
+        return { text, lineIds: [], isLine: false, isGroup: false };
+      }
+      // discordOwner / discordSubOwner: Webhook URL のホスト名のみ表示
+      if (field === "discordOwner") {
+        const url = ns2.discordOwnerWebhookUrl || "";
+        let display = "";
+        if (url) {
+          try { display = new URL(url).hostname; } catch (_) { display = url.slice(0, 40); }
+        }
+        return { text: display, lineIds: [], isLine: false, isGroup: false };
+      }
+      if (field === "discordSubOwner") {
+        const resolved = resolveSubOwnerValues("discordSubOwner", sl2, propertyId);
+        const url = resolved[0]?.value || "";
+        let display = "";
+        if (url) {
+          try { display = new URL(url).hostname; } catch (_) { display = url.slice(0, 40); }
+        }
+        return { text: display, lineIds: [], isLine: false, isGroup: false };
+      }
+      // propertyEmail: 物件の senderGmail（送信元と同じアドレスが受信先）
+      if (field === "propertyEmail") {
+        const addr = propData.senderGmail || "";
+        return { text: addr, lineIds: [], isLine: false, isGroup: false };
+      }
+      return { text: "", lineIds: [], isLine: false, isGroup: false };
+    };
+
+    /**
+     * 受信先バッジの HTML を生成する（同期）。
+     * LINE の場合は「取得中...」プレースホルダーを出し、後から非同期で差し替える。
+     *
+     * @param {string} field
+     * @param {HTMLElement} targetSlot - 差し替え先 DOM 要素
+     */
+    const buildRecipientBadge = (field, info) => {
+      if (!info.text && !info.lineIds.length) {
+        return `<span class="text-muted" style="font-size:0.72em;font-style:italic;">（未設定）</span>`;
+      }
+
+      // LINE ユーザー/グループの場合: 「取得中...」→ 非同期で名前に差し替え
+      if (info.isLine && info.lineIds.length) {
+        const spans = info.lineIds.map((id, i) => {
+          // staffLine / subOwnerLine の場合は既知の名前を使う
+          const knownName = info.names ? info.names[i] : null;
+          const shortId = truncate(id, 12);
+          const displayText = knownName
+            ? `${escapeHtml(knownName)} (${escapeHtml(shortId)})`
+            : `<span class="line-name-loading" data-line-id="${escapeHtml(id)}" data-pid="${escapeHtml(propertyId || "")}" data-is-group="${info.isGroup ? "1" : "0"}">${escapeHtml(shortId)}</span>`;
+          return `<span class="badge bg-primary-subtle text-primary border ms-1" style="font-size:0.72em;" title="${escapeHtml(id)}">
+            <i class="bi bi-line" style="font-size:0.9em;"></i> ${displayText}
+          </span>`;
+        }).join("");
+        return spans;
+      }
+
+      // メール/Discord: テキスト表示
+      const truncated = truncate(info.text, 45);
+      return `<span class="badge bg-light text-dark border ms-1" style="font-size:0.72em;max-width:100%;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(info.text)}">${escapeHtml(truncated)}</span>`;
+    };
+
+    /**
+     * .line-name-loading スパンを見つけて非同期で表示名に置換する
+     * @param {HTMLElement} container
+     */
+    const resolveLineNamesAsync = async (container) => {
+      const loadingSpans = container.querySelectorAll(".line-name-loading");
+      if (!loadingSpans.length) return;
+
+      await Promise.all(Array.from(loadingSpans).map(async (span) => {
+        const lineId = span.dataset.lineId;
+        const pid = span.dataset.pid || propertyId;
+        const isGroup = span.dataset.isGroup === "1";
+        try {
+          const name = isGroup
+            ? await fetchLineGroupName(lineId, pid)
+            : await fetchLineUserName(lineId, pid);
+          const shortId = truncate(lineId, 12);
+          span.textContent = name !== lineId
+            ? `${name} (${shortId})`
+            : shortId;
+          span.classList.remove("line-name-loading");
+        } catch (e) {
+          console.warn("[NotifyTargetEditor] LINE 名前解決失敗:", e.message);
+        }
+      }));
+    };
+
     // アクション部分のみ HTML を返す (1行目右端用)
     const buildActionPart = (field) => {
       const isStaff = (field === "staffLine" || field === "staffEmail");
@@ -710,9 +930,15 @@
       const field = ph.dataset.field;
       const slot = ph.dataset.slot;
       let html = "";
-      if (slot === "actions") html = buildActionPart(field);
-      else if (slot === "value") html = buildValuePart(field);
-      else {
+      if (slot === "actions") {
+        html = buildActionPart(field);
+      } else if (slot === "value") {
+        html = buildValuePart(field);
+      } else if (slot === "recipient") {
+        // 受信先スロット: 送信先の名前/アドレスを表示
+        const info = resolveRecipientInfo(field);
+        html = buildRecipientBadge(field, info);
+      } else {
         // 旧来（slot指定なし）: 後方互換で全部
         html = buildValuePart(field) + buildActionPart(field);
       }
@@ -720,6 +946,9 @@
       ph.classList.remove("notify-target-placeholder");
       ph.innerHTML = html;
     });
+
+    // LINE 名前の非同期解決（.line-name-loading スパンを表示名に差し替え）
+    resolveLineNamesAsync(container);
 
     // ✏️ ボタンのクリックイベントをバインド
     container.querySelectorAll(".notify-target-edit-btn").forEach(btn => {
@@ -754,8 +983,8 @@
             // バッジを再描画するためキャッシュ破棄して再実行
             clearCache();
             if (typeof onSaved === "function") onSaved();
-            // 再描画: actions / value スロットそれぞれを placeholder に戻す
-            container.querySelectorAll(".notify-target-actions, .notify-target-value").forEach(span => {
+            // 再描画: actions / value / recipient スロットそれぞれを placeholder に戻す
+            container.querySelectorAll(".notify-target-actions, .notify-target-value, .notify-target-recipient").forEach(span => {
               span.classList.add("notify-target-placeholder");
               span.innerHTML = "";
             });
