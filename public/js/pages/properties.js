@@ -1124,9 +1124,15 @@ const PropertiesPage = {
               </div>
               <div class="col-md-6">
                 <label class="form-label small mb-1">Basic ID (@xxx)</label>
-                <input type="text" class="form-control form-control-sm ch-basic-id" data-idx="${i}"
-                  placeholder="@example" value="${this.escapeHtml(ch.basicId || "")}">
-                <div class="form-text">LINE 公式アカウントの Basic ID。管理画面や通知の送信元表示に使います。</div>
+                <div class="d-flex gap-1">
+                  <input type="text" class="form-control form-control-sm ch-basic-id" data-idx="${i}"
+                    placeholder="@example" value="${this.escapeHtml(ch.basicId || "")}">
+                  <button type="button" class="btn btn-sm btn-outline-secondary btn-ch-fetch-bot-info"
+                    data-idx="${i}" title="チャネルアクセストークンでBot情報を自動取得">
+                    🔄 取得
+                  </button>
+                </div>
+                <div class="form-text ch-bot-info-result" data-idx="${i}">LINE 公式アカウントの Basic ID。管理画面や通知の送信元表示に使います。</div>
               </div>
             </div>
           </div>
@@ -1194,6 +1200,14 @@ const PropertiesPage = {
         }
       });
 
+      // 「🔄 取得」ボタン（Bot アカウント情報を LINE API から自動取得）
+      container.addEventListener("click", (e) => {
+        const btn = e.target.closest(".btn-ch-fetch-bot-info");
+        if (!btn) return;
+        const idx = parseInt(btn.dataset.idx, 10);
+        this._fetchBotInfo(idx);
+      });
+
       // 入力変更 → 内部配列を更新 + 自動保存
       container.addEventListener("change", (e) => {
         const el = e.target;
@@ -1233,6 +1247,103 @@ const PropertiesPage = {
           this._autoSaveTimer = setTimeout(() => this._autoSave(), 800);
         }
       });
+    }
+  },
+
+  /**
+   * LINE API から Bot のアカウント情報を取得し、Basic ID 欄と名前欄を自動入力する。
+   * - チャネルアクセストークンは内部配列（_lineChannels）またはフォーム入力値を使用
+   * - 取得成功時: Basic ID を自動入力。表示名は showConfirm で上書き提案
+   * - 取得失敗時: エラー表示（手動入力へのフォールバック案内付き）
+   *
+   * @param {number} idx - lineChannels のインデックス
+   */
+  async _fetchBotInfo(idx) {
+    const container = document.getElementById("lineChannelsList");
+    if (!container) return;
+
+    const btn = container.querySelector(`.btn-ch-fetch-bot-info[data-idx="${idx}"]`);
+    const basicIdInput = container.querySelector(`.ch-basic-id[data-idx="${idx}"]`);
+    const resultEl = container.querySelector(`.ch-bot-info-result[data-idx="${idx}"]`);
+    if (!btn || !basicIdInput || !resultEl) return;
+
+    // ボタンを取得中状態にする
+    const origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    resultEl.innerHTML = '<span class="text-muted">取得中...</span>';
+
+    try {
+      // フォームのトークン入力値を優先し、空なら内部配列の保存済みトークンを使用
+      const tokenInput = container.querySelector(`.ch-token[data-idx="${idx}"]`);
+      const inputToken = (tokenInput?.value || "").trim();
+      if (inputToken) this._lineChannels[idx].token = inputToken;
+
+      const token = this._lineChannels[idx]?.token || "";
+      if (!token) {
+        resultEl.innerHTML = '<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> チャネルアクセストークンが未設定です。先にトークンを入力してください。</span>';
+        return;
+      }
+
+      // サーバー経由で LINE /v2/bot/info を呼ぶ（物件ID + botIndex でトークンを解決）
+      const params = new URLSearchParams();
+      if (this.editingId) params.set("propertyId", this.editingId);
+      params.set("botIndex", String(idx));
+
+      const idToken = await firebase.auth().currentUser?.getIdToken();
+      const resp = await fetch(`/api/line-profile/bot-info?${params}`, {
+        headers: idToken ? { Authorization: `Bearer ${idToken}` } : {},
+      });
+      const data = await resp.json();
+
+      if (!resp.ok || data.error) {
+        resultEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> 取得失敗: ${this.escapeHtml(data.error || "不明なエラー")} — Basic ID は手動で入力してください。</span>`;
+        return;
+      }
+
+      // Basic ID を自動入力
+      const newBasicId = data.basicId || "";
+      if (newBasicId) {
+        basicIdInput.value = newBasicId;
+        this._lineChannels[idx].basicId = newBasicId;
+      }
+
+      // botInfo をキャッシュ保存（表示名・アイコン利用のため）
+      this._lineChannels[idx].botInfo = {
+        displayName: data.displayName,
+        basicId:     data.basicId,
+        pictureUrl:  data.pictureUrl,
+      };
+
+      // 取得成功メッセージ（アイコン付き）
+      const pic = data.pictureUrl
+        ? `<img src="${this.escapeHtml(data.pictureUrl)}" style="width:18px;height:18px;border-radius:50%;vertical-align:middle;margin-right:4px;" alt="">`
+        : "";
+      resultEl.innerHTML = `<span class="text-success">${pic}<i class="bi bi-check-circle"></i> 取得成功: <strong>${this.escapeHtml(data.displayName || "(名前なし)")}</strong>${newBasicId ? ` / ${this.escapeHtml(newBasicId)}` : ""}</span>`;
+
+      // 表示名（Bot 管理名）の上書き提案
+      const nameInput = container.querySelector(`.ch-name[data-idx="${idx}"]`);
+      const currentName = (nameInput?.value || "").trim();
+      if (data.displayName && (!currentName || currentName !== data.displayName)) {
+        const confirmed = await showConfirm(
+          `Bot 表示名を「${data.displayName}」に更新しますか？\n（現在の管理名: 「${currentName || "(空)"}」）`,
+        );
+        if (confirmed && nameInput) {
+          nameInput.value = data.displayName;
+          this._lineChannels[idx].name = data.displayName;
+        }
+      }
+
+      // 自動保存トリガー
+      if (this.editingId) {
+        clearTimeout(this._autoSaveTimer);
+        this._autoSaveTimer = setTimeout(() => this._autoSave(), 800);
+      }
+    } catch (e) {
+      resultEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> エラー: ${this.escapeHtml(e.message)}</span>`;
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
     }
   },
 

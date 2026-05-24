@@ -203,6 +203,54 @@ module.exports = function lineProfileApi(db) {
     return res.json(profile);
   });
 
+  // ========== GET /bot-info ==========
+  /**
+   * Bot 自身のアカウント情報を取得する
+   * チャネルアクセストークン → LINE GET /v2/bot/info → basicId / displayName / pictureUrl
+   *
+   * Query:
+   *   propertyId - 物件ID（lineChannels からトークンを取得）
+   *   botIndex   - 使用する Bot のインデックス（省略可、0始まり）
+   *
+   * Response: { userId, basicId, displayName, pictureUrl, premiumId? }
+   * Error:    { error: "メッセージ" }
+   */
+  router.get("/bot-info", async (req, res) => {
+    const { propertyId, botIndex } = req.query;
+
+    // トークン解決（既存の resolveToken ヘルパーを使用）
+    const token = await resolveToken(
+      propertyId,
+      botIndex != null ? parseInt(botIndex, 10) : null,
+    );
+    if (!token) {
+      return res.status(400).json({
+        error: "チャネルアクセストークンが設定されていません。先にトークンを登録してください。",
+      });
+    }
+
+    // LINE Messaging API の Bot 情報エンドポイントを呼ぶ
+    const result = await lineGet(token, "/v2/bot/info");
+    if (!result.ok) {
+      // 401 はトークン無効の代表的なケース
+      const isUnauthorized = result.error && result.error.startsWith("HTTP 401");
+      return res.status(isUnauthorized ? 401 : 502).json({
+        error: isUnauthorized
+          ? "チャネルアクセストークンが無効です。LINE Developers Console で確認してください。"
+          : `LINE API エラー: ${result.error}`,
+      });
+    }
+
+    const info = result.data;
+    return res.json({
+      userId:      info.userId      || "",
+      basicId:     info.basicId     || "",
+      displayName: info.displayName || "",
+      pictureUrl:  info.pictureUrl  || "",
+      premiumId:   info.premiumId   || "",
+    });
+  });
+
   // ========== GET /group ==========
   /**
    * LINE グループ名を取得する

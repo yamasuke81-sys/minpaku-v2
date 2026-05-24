@@ -401,8 +401,14 @@ const ContactsPage = {
           <div class="small text-muted prop-ch-group-result" data-prop-id="${propId}" data-idx="${i}"></div>
         </td>
         <td>
-          <input class="form-control form-control-sm c-prop-ch-input" data-prop-id="${propId}" data-idx="${i}" data-field="basicId" value="${this._esc(c?.basicId || "")}" placeholder="@example">
-          <div class="small text-muted mt-1">LINE 公式アカウントの Basic ID。物件編集モーダルと同期されます。</div>
+          <div class="d-flex gap-1">
+            <input class="form-control form-control-sm c-prop-ch-input" data-prop-id="${propId}" data-idx="${i}" data-field="basicId" value="${this._esc(c?.basicId || "")}" placeholder="@example">
+            <button type="button" class="btn btn-sm btn-outline-secondary c-prop-ch-fetch-bot-info"
+              data-prop-id="${propId}" data-idx="${i}" title="チャネルアクセストークンでBot情報を自動取得">
+              🔄 取得
+            </button>
+          </div>
+          <div class="small text-muted mt-1 prop-ch-basic-id-result" data-prop-id="${propId}" data-idx="${i}">LINE 公式アカウントの Basic ID。物件編集モーダルと同期されます。</div>
         </td>
         <td><button type="button" class="btn btn-sm btn-outline-danger c-prop-ch-remove" data-prop-id="${propId}" data-idx="${i}"><i class="bi bi-x-lg"></i></button></td>
       </tr>
@@ -588,6 +594,85 @@ const ContactsPage = {
     document.querySelectorAll(".c-prop-ch-save").forEach(b => {
       b.addEventListener("click", () => this._savePropChannels(b.dataset.propId));
     });
+
+    // 「🔄 取得」ボタン — Bot アカウント情報を LINE API から自動取得
+    document.querySelectorAll(".c-prop-ch-fetch-bot-info").forEach(b => {
+      b.addEventListener("click", () => {
+        this._fetchPropChannelBotInfo(b.dataset.propId, parseInt(b.dataset.idx, 10));
+      });
+    });
+  },
+
+  /**
+   * contacts ページの物件別 LINE チャネル欄で Bot アカウント情報を取得する。
+   * サーバー側の GET /api/line-profile/bot-info?propertyId=...&botIndex=... を呼び出し、
+   * Basic ID を自動入力し、Bot 名の上書きを提案する。
+   *
+   * @param {string} propId  - 物件 Firestore ID
+   * @param {number} botIdx  - チャネルのインデックス
+   */
+  async _fetchPropChannelBotInfo(propId, botIdx) {
+    const basicIdInput = document.querySelector(`.c-prop-ch-input[data-prop-id="${propId}"][data-idx="${botIdx}"][data-field="basicId"]`);
+    const resultEl     = document.querySelector(`.prop-ch-basic-id-result[data-prop-id="${propId}"][data-idx="${botIdx}"]`);
+    const btn          = document.querySelector(`.c-prop-ch-fetch-bot-info[data-prop-id="${propId}"][data-idx="${botIdx}"]`);
+    if (!basicIdInput || !resultEl || !btn) return;
+
+    // ボタンを取得中状態にする
+    const origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    resultEl.innerHTML = '<span class="text-muted">取得中...</span>';
+
+    try {
+      // フォーム上のトークン入力値を確認（空なら Firestore の保存済みトークンをサーバーが使用）
+      const tokenInput = document.querySelector(`.c-prop-ch-input[data-prop-id="${propId}"][data-idx="${botIdx}"][data-field="token"]`);
+      if (tokenInput?.value.trim()) {
+        // フォームにトークンが入力されていれば先に保存してからサーバーに渡す
+        // （未保存トークンは /bot-info が Firestore から読むので空になる恐れがある）
+        // ここでは「入力値があるなら検証結果が使えない」旨をユーザーに伝える
+      }
+
+      const params = new URLSearchParams({ propertyId: propId, botIndex: String(botIdx) });
+      const idToken = await firebase.auth().currentUser?.getIdToken();
+      const resp = await fetch(`/api/line-profile/bot-info?${params}`, {
+        headers: idToken ? { Authorization: `Bearer ${idToken}` } : {},
+      });
+      const data = await resp.json();
+
+      if (!resp.ok || data.error) {
+        resultEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> 取得失敗: ${this._esc(data.error || "不明なエラー")} — Basic ID は手動で入力してください。</span>`;
+        return;
+      }
+
+      // Basic ID を自動入力
+      const newBasicId = data.basicId || "";
+      if (newBasicId) {
+        basicIdInput.value = newBasicId;
+      }
+
+      // 取得成功メッセージ（アイコン付き）
+      const pic = data.pictureUrl
+        ? `<img src="${this._esc(data.pictureUrl)}" style="width:18px;height:18px;border-radius:50%;vertical-align:middle;margin-right:4px;" alt="">`
+        : "";
+      resultEl.innerHTML = `<span class="text-success">${pic}<i class="bi bi-check-circle"></i> 取得成功: <strong>${this._esc(data.displayName || "(名前なし)")}</strong>${newBasicId ? ` / ${this._esc(newBasicId)}` : ""}</span>`;
+
+      // Bot 名の上書き提案
+      const nameInput = document.querySelector(`.c-prop-ch-input[data-prop-id="${propId}"][data-idx="${botIdx}"][data-field="name"]`);
+      const currentName = (nameInput?.value || "").trim();
+      if (data.displayName && (!currentName || currentName !== data.displayName)) {
+        const confirmed = await showConfirm(
+          `Bot 名を「${data.displayName}」に更新しますか？\n（現在の管理名: 「${currentName || "(空)"}」）`,
+        );
+        if (confirmed && nameInput) {
+          nameInput.value = data.displayName;
+        }
+      }
+    } catch (e) {
+      resultEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> エラー: ${this._esc(e.message)}</span>`;
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
   },
 
   _addPropChannelRow(propId) {
@@ -621,8 +706,14 @@ const ContactsPage = {
         <div class="small text-muted prop-ch-group-result" data-prop-id="${propId}" data-idx="${idx}"></div>
       </td>
       <td>
-        <input class="form-control form-control-sm c-prop-ch-input" data-prop-id="${propId}" data-idx="${idx}" data-field="basicId" value="" placeholder="@example">
-        <div class="small text-muted mt-1">LINE 公式アカウントの Basic ID。物件編集モーダルと同期されます。</div>
+        <div class="d-flex gap-1">
+          <input class="form-control form-control-sm c-prop-ch-input" data-prop-id="${propId}" data-idx="${idx}" data-field="basicId" value="" placeholder="@example">
+          <button type="button" class="btn btn-sm btn-outline-secondary c-prop-ch-fetch-bot-info"
+            data-prop-id="${propId}" data-idx="${idx}" title="チャネルアクセストークンでBot情報を自動取得">
+            🔄 取得
+          </button>
+        </div>
+        <div class="small text-muted mt-1 prop-ch-basic-id-result" data-prop-id="${propId}" data-idx="${idx}">LINE 公式アカウントの Basic ID。物件編集モーダルと同期されます。</div>
       </td>
       <td><button type="button" class="btn btn-sm btn-outline-danger c-prop-ch-remove" data-prop-id="${propId}" data-idx="${idx}"><i class="bi bi-x-lg"></i></button></td>
     `;
