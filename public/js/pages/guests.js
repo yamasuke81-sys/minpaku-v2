@@ -990,98 +990,76 @@ const GuestsPage = {
     }
 
     body.innerHTML = `
-      <!-- 物件ヘッダ + 予約元 -->
+      <!-- 物件ヘッダ + 予約元 (dashboard と同レイアウト) -->
       ${propBadgeHtml}
       ${sourceBadgeHtml ? `<div class="mb-3"><span class="small text-muted me-2">予約元:</span> ${sourceBadgeHtml}</div>` : ""}
 
-      <!-- キーボックス送信予約 -->
-      <div class="alert alert-light border d-flex align-items-center mb-3" style="background:#f8fafc;">
-        <div class="me-3"><i class="bi bi-key-fill text-warning" style="font-size:1.4rem;"></i></div>
-        <div class="flex-grow-1">
-          <div class="fw-semibold mb-1">キーボックス送信</div>
-          <div class="small">${kbStatusHtml}</div>
-        </div>
-      </div>
+      <!-- 基本情報: 物件名/予約元/CI-CO/人数のコンパクトサマリー -->
+      <h6 class="mb-2 text-primary">基本情報</h6>
+      <table class="table table-sm table-borderless mb-2">
+        <tr><th width="110" class="text-muted">チェックイン</th><td>${g.checkIn ? (typeof formatDateFull === "function" ? formatDateFull(g.checkIn) : formatDate(g.checkIn)) : "-"}${g.checkInTime ? ` <strong>${this.escapeHtml(g.checkInTime)}</strong>` : ""}</td></tr>
+        <tr><th class="text-muted">チェックアウト</th><td>${g.checkOut ? (typeof formatDateFull === "function" ? formatDateFull(g.checkOut) : formatDate(g.checkOut)) : "-"}${g.checkOutTime ? ` <strong>${this.escapeHtml(g.checkOutTime)}</strong>` : ""}${g._coMismatch ? `<br><span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle"></i> 予約サイトとCO日が異なります（${this.escapeHtml(g._coOriginal)} vs ${this.escapeHtml(g._coIncoming)}）</span>` : ""}</td></tr>
+        <tr><th class="text-muted">宿泊人数</th><td>${g.guestCount ? g.guestCount + "名" : "-"}${g.guestCountInfants ? `<small class="text-muted"> 乳幼児${g.guestCountInfants}名</small>` : ""}</td></tr>
+      </table>
 
-      <!-- 受信履歴 (折りたたみ) -->
-      ${historyRows ? `
-      <details class="mb-3 border rounded">
-        <summary class="p-2 bg-light fw-bold small" style="cursor:pointer;">
-          <i class="bi bi-clock-history"></i> 受信履歴・修正履歴
-        </summary>
-        <table class="table table-sm table-borderless mb-0 small">
-          ${historyRows}
-        </table>
-      </details>
-      ` : ""}
-      <div class="row g-3">
-        <div class="col-md-6">
-          <h6 class="border-bottom pb-1 mb-2">代表者情報</h6>
-          <table class="table table-sm table-borderless">
-            <tr><th style="width:120px">氏名</th><td><strong>${v(g.guestName)}</strong></td></tr>
-            <tr><th style="width:120px">国籍</th><td>${v(g.nationality || "日本")}</td></tr>
-            <tr><th style="width:120px">年齢</th><td>${v(repAge)}</td></tr>
-            <tr><th style="width:120px">住所</th><td>${v(g.address)}</td></tr>
-            <tr><th style="width:120px">電話番号</th><td>${v([g.phone, g.phone2].filter(Boolean).join(" / "))}</td></tr>
-            <tr><th style="width:120px">メール</th><td>${v(g.email)}</td></tr>
-            <tr><th style="width:120px">旅券番号</th><td>${v(g.passportNumber)}</td></tr>
-            <tr><th style="width:120px">旅の目的</th><td>${v(g.purpose)}</td></tr>
-          </table>
-        </div>
-        <div class="col-md-6">
-          <h6 class="border-bottom pb-1 mb-2">宿泊情報</h6>
-          <table class="table table-sm table-borderless">
-            <tr><th style="width:120px">チェックイン</th><td>${g.checkIn ? (typeof formatDateFull === "function" ? formatDateFull(g.checkIn) : formatDate(g.checkIn)) : "-"}${g.checkInTime ? ` <strong>${this.escapeHtml(g.checkInTime)}</strong>` : ""}</td></tr>
-            <tr><th>チェックアウト</th><td>${g.checkOut ? (typeof formatDateFull === "function" ? formatDateFull(g.checkOut) : formatDate(g.checkOut)) : "-"}${g.checkOutTime ? ` <strong>${this.escapeHtml(g.checkOutTime)}</strong>` : ""}${g._coMismatch ? `<br><span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle"></i> 予約サイトとCO日が異なります（${this.escapeHtml(g._coOriginal)} vs ${this.escapeHtml(g._coIncoming)}）</span>` : ""}</td></tr>
-            <tr><th>宿泊人数</th><td>${g.guestCount ? g.guestCount + "名" : "-"}${g.guestCountInfants ? ` ＋ 乳幼児${g.guestCountInfants}名（3才以下）` : ""}</td></tr>
-            <tr><th>予約元</th><td>${this.getSourceIcon(g.source)} ${v(g.bookingSite)}</td></tr>
-            <tr><th>BBQ</th><td>${typeof bbqToSymbol === "function" ? bbqToSymbol(g.bbq) : v(g.bbq)}</td></tr>
-            <tr><th>ベッド数（2名宿泊時）</th><td>${v(g.bedChoice)}</td></tr>
-            <tr><th>メモ</th><td>${vl(g.memo)}</td></tr>
-          </table>
-        </div>
-      </div>
+      <!-- 代表者情報 -->
+      <h6 class="mb-2 text-primary">代表者情報</h6>
+      <table class="table table-sm table-borderless mb-2">
+        <tr><th width="110" class="text-muted">氏名</th><td class="fw-bold">${v(g.guestName)}</td></tr>
+        <tr><th class="text-muted">国籍</th><td>${v(g.nationality || "日本")}</td></tr>
+        <tr><th class="text-muted">年齢</th><td>${v(repAge)}</td></tr>
+        <tr><th class="text-muted">住所</th><td>${v(g.address)}</td></tr>
+        <tr><th class="text-muted">電話番号</th><td>${v([g.phone, g.phone2].filter(Boolean).join(" / "))}</td></tr>
+        <tr><th class="text-muted">メール</th><td>${v(g.email)}</td></tr>
+        <tr><th class="text-muted">旅券番号</th><td>${v(g.passportNumber)}</td></tr>
+        <tr><th class="text-muted">旅の目的</th><td>${v(g.purpose)}</td></tr>
+      </table>
+
+      <!-- 宿泊情報 (BBQ/ベッド数/メモ) -->
+      <h6 class="mb-2 text-primary">宿泊情報</h6>
+      <table class="table table-sm table-borderless mb-2">
+        <tr><th width="110" class="text-muted">予約元</th><td>${this.getSourceIcon(g.source)} ${v(g.bookingSite)}</td></tr>
+        <tr><th class="text-muted">BBQ</th><td>${typeof bbqToSymbol === "function" ? bbqToSymbol(g.bbq) : v(g.bbq)}</td></tr>
+        <tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${v(g.bedChoice)}</td></tr>
+        <tr><th class="text-muted">メモ</th><td>${vl(g.memo)}</td></tr>
+      </table>
 
       <!-- 交通・駐車場 -->
-      <hr>
-      <h6><i class="bi bi-car-front"></i> 交通・駐車場</h6>
-      <table class="table table-sm table-borderless">
-        <tr><th style="width:120px">交通手段</th><td>${v(g.transport)}</td></tr>
-        <tr><th>車台数</th><td>${g.carCount ? g.carCount + "台" : "-"}</td></tr>
-        <tr><th>車種</th><td>${(g.vehicleTypes || []).length ? g.vehicleTypes.map(x => this.escapeHtml(x)).join(", ") : "-"}</td></tr>
-        <tr><th>駐車場割当</th><td>${parkingAllocText}</td></tr>
-        <tr><th>有料駐車場</th><td>${v(g.paidParking)}</td></tr>
+      <h6 class="mb-2 text-primary">交通・駐車場</h6>
+      <table class="table table-sm table-borderless mb-2">
+        <tr><th width="110" class="text-muted">交通手段</th><td>${v(g.transport)}</td></tr>
+        <tr><th class="text-muted">車台数</th><td>${g.carCount ? g.carCount + "台" : "-"}</td></tr>
+        <tr><th class="text-muted">車種</th><td>${(g.vehicleTypes || []).length ? g.vehicleTypes.map(x => this.escapeHtml(x)).join(", ") : "-"}</td></tr>
+        <tr><th class="text-muted">駐車場割当</th><td>${parkingAllocText}</td></tr>
+        <tr><th class="text-muted">有料駐車場</th><td>${v(g.paidParking)}</td></tr>
       </table>
 
       <!-- 緊急連絡先 -->
-      <hr>
-      <h6><i class="bi bi-telephone"></i> 緊急連絡先</h6>
-      <table class="table table-sm table-borderless">
-        <tr><th style="width:120px">氏名</th><td>${v(g.emergencyName)}</td></tr>
-        <tr><th>電話番号</th><td>${v(g.emergencyPhone)}</td></tr>
+      <h6 class="mb-2 text-primary">緊急連絡先</h6>
+      <table class="table table-sm table-borderless mb-2">
+        <tr><th width="110" class="text-muted">氏名</th><td>${v(g.emergencyName)}</td></tr>
+        <tr><th class="text-muted">電話番号</th><td>${v(g.emergencyPhone)}</td></tr>
       </table>
 
-      <!-- 前泊地・後泊地 -->
-      <hr>
-      <h6><i class="bi bi-signpost-2"></i> 前後泊</h6>
-      <table class="table table-sm table-borderless">
-        <tr><th style="width:120px">前泊地</th><td>${vl(g.previousStay)}</td></tr>
-        <tr><th>後泊地</th><td>${vl(g.nextStay)}</td></tr>
+      <!-- 前後泊 -->
+      <h6 class="mb-2 text-primary">前後泊</h6>
+      <table class="table table-sm table-borderless mb-2">
+        <tr><th width="110" class="text-muted">前泊地</th><td>${vl(g.previousStay)}</td></tr>
+        <tr><th class="text-muted">後泊地</th><td>${vl(g.nextStay)}</td></tr>
       </table>
 
       <!-- 同意状況 -->
-      <hr>
-      <h6><i class="bi bi-check-circle"></i> 同意状況</h6>
-      <table class="table table-sm table-borderless">
-        <tr><th style="width:120px">騒音ルール</th><td>${g.noiseAgree ? '<span class="badge bg-success">同意済</span>' : '<span class="badge bg-danger">未同意</span>'}</td></tr>
+      <h6 class="mb-2 text-primary">同意状況</h6>
+      <table class="table table-sm table-borderless mb-2">
+        <tr><th width="110" class="text-muted">騒音ルール</th><td>${g.noiseAgree ? '<span class="badge bg-success">同意済</span>' : '<span class="badge bg-danger">未同意</span>'}</td></tr>
       </table>
 
-      <!-- 同行者 -->
-      <hr>
-      <h6><i class="bi bi-people"></i> 同行者${companions.length > 0 ? `（${companions.length}名）` : ""}</h6>
+      <!-- 同行者 (dashboard と同レイアウト) -->
       ${companions.length > 0 ? `
+        <hr>
+        <h6 class="mb-2"><i class="bi bi-people"></i> 同行者（${companions.length}名）</h6>
         <div class="table-responsive">
-          <table class="table table-sm table-bordered">
+          <table class="table table-sm table-bordered mb-0">
             <thead class="table-light">
               <tr><th>氏名</th><th>年齢</th><th>住所</th><th>国籍</th><th>旅券番号</th></tr>
             </thead>
@@ -1098,23 +1076,43 @@ const GuestsPage = {
             </tbody>
           </table>
         </div>
-      ` : `<p class="text-muted small mb-0">同行者なし</p>`}
+      ` : ""}
 
-      <!-- パスポート写真 -->
-      <hr>
-      <h6><i class="bi bi-image"></i> パスポート写真</h6>
+      <!-- パスポート写真 (dashboard と同レイアウト) -->
       ${passportPhotos.length > 0 ? `
-        <div class="row g-2">
+        <hr>
+        <h6 class="mb-2"><i class="bi bi-image"></i> パスポート写真</h6>
+        <div class="d-flex flex-wrap gap-2">
           ${passportPhotos.map(p => `
-            <div class="col-auto">
-              <a href="${this.escapeHtml(p.url)}" target="_blank" rel="noopener" class="d-block text-center">
-                <img src="${this.escapeHtml(p.url)}" alt="${this.escapeHtml(p.name)}" style="max-width:200px;max-height:150px;border-radius:8px;border:1px solid #dee2e6;">
-                <small class="d-block mt-1 text-muted">${this.escapeHtml(p.name)}</small>
-              </a>
-            </div>
+            <a href="${this.escapeHtml(p.url)}" target="_blank" rel="noopener" class="text-center">
+              <img src="${this.escapeHtml(p.url)}" alt="${this.escapeHtml(p.name)}" style="max-width:140px;max-height:110px;border-radius:6px;border:1px solid #dee2e6;">
+              <small class="d-block text-muted">${this.escapeHtml(p.name)}</small>
+            </a>
           `).join("")}
         </div>
-      ` : `<p class="text-muted small mb-0">パスポート写真なし</p>`}
+      ` : ""}
+
+      <!-- 名簿受信・修正履歴 (折りたたみ、dashboard と同レイアウト) -->
+      ${historyRows ? `
+      <details class="mt-3 border rounded">
+        <summary class="p-2 bg-light fw-bold small" style="cursor:pointer;">
+          <i class="bi bi-clock-history"></i> 名簿受信・修正履歴
+        </summary>
+        <table class="table table-sm table-borderless mb-0 small">
+          ${historyRows}
+        </table>
+      </details>
+      ` : ""}
+
+      <!-- 操作ボタン: キーボックス送信予約 -->
+      <hr>
+      <div class="d-flex flex-wrap align-items-center gap-2">
+        <div class="d-flex align-items-center gap-2 flex-grow-1">
+          <i class="bi bi-key-fill text-warning" style="font-size:1.2rem;"></i>
+          <span class="fw-semibold small">キーボックス送信</span>
+          <span>${kbStatusHtml}</span>
+        </div>
+      </div>
     `;
 
     // キーボックス送信予約ボタン (新規 / 再予約) のハンドラ
