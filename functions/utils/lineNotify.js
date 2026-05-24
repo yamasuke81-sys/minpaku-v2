@@ -1360,16 +1360,28 @@ async function notifyByKey(db, notifyKey, options = {}) {
         }
 
         // 物件別 Bot 試行
-        // ownerLineUserId が設定されていればその User ID、なければグローバル ownerUserId で試行
-        const targetUserId = propOwnerUserId || ownerUserId;
-        if (propBotToken && targetUserId) {
-          const r1 = await sendLineMessage(propBotToken, targetUserId, text);
+        // ownerLineUserId が設定されている場合のみ物件別 Bot で送信する。
+        // ownerLineUserId が未設定の場合はグローバル ownerUserId で試行しない。
+        // (グローバル UserID は「民泊V2管理者」Bot に友達追加したユーザーであり、
+        //  物件別 Bot で送ると 400/403 エラーになりグローバル Bot へフォールバックしてしまうため)
+        console.log(`[ownerLine] propBotToken=${propBotToken ? "有" : "なし"} propOwnerUserId=${propOwnerUserId || "(未設定)"} propertyId=${propertyId || "なし"}`);
+        if (propBotToken && propOwnerUserId) {
+          // 物件別 Bot × 物件別 ownerLineUserId で送信
+          const r1 = await sendLineMessage(propBotToken, propOwnerUserId, text);
           if (r1.success) {
             sent.ownerLine = true;
-            console.log(`[ownerLine] 物件別 Bot で送信成功: ${propBotName || "(name未設定)"} → ${targetUserId.slice(0,10)}... (uid=${propOwnerUserId ? "物件別" : "グローバル"})`);
+            console.log(`[ownerLine] 物件別 Bot 送信成功: ${propBotName || "(name未設定)"} → ${propOwnerUserId.slice(0, 10)}...`);
             return;
           }
-          console.warn(`[ownerLine] 物件別 Bot 失敗 (${propBotName}) → グローバル Bot にフォールバック:`, r1.error);
+          // エラー詳細をログに残す (仮説D: 友達追加未了の場合 400 が返る)
+          console.warn(`[ownerLine] 物件別 Bot 送信失敗 (${propBotName}): ${r1.error} → グローバル Bot にフォールバック`);
+          if (r1.error && r1.error.includes("400")) {
+            console.warn(`[ownerLine] ⚠ 400エラー: オーナーが「${propBotName}」を友達追加していない可能性があります。LINEでBotを友達追加してください。`);
+          }
+        } else if (propBotToken && !propOwnerUserId) {
+          // ownerLineUserId 未設定: 物件別 Bot では送れないのでグローバルへスキップ
+          console.warn(`[ownerLine] ownerLineUserId が未設定のため物件別 Bot 送信をスキップ → グローバル Bot にフォールバック (物件: ${propBotName || propertyId})`);
+          console.warn(`[ownerLine] 修正方法: 物件設定 → LINE Bot → 「オーナー LINE User ID」に西山オーナーのUserIDを入力して保存してください。`);
         }
 
         // グローバル ownerLine (ownerLineChannels[] 戦略 / 後方互換単一チャネル)

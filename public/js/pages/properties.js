@@ -1209,7 +1209,13 @@ const PropertiesPage = {
         } else if (el.classList.contains("ch-name")) {
           this._lineChannels[idx].name = el.value.trim();
         } else if (el.classList.contains("ch-owner-userid")) {
-          this._lineChannels[idx].ownerLineUserId = el.value.trim();
+          // 空文字の場合はフィールドを除去（空文字保存だと notifyByKey でnullと同義だが明示的に除去）
+          const v = el.value.trim();
+          if (v) {
+            this._lineChannels[idx].ownerLineUserId = v;
+          } else {
+            delete this._lineChannels[idx].ownerLineUserId;
+          }
         } else if (el.classList.contains("ch-basic-id")) {
           // Basic ID: 空なら undefined（フィールドを消す）、@始まりまたは空のみ許容
           const v = el.value.trim();
@@ -1251,7 +1257,15 @@ const PropertiesPage = {
       if (groupEl) ch.groupId = groupEl.value.trim();
       if (nameEl) ch.name = nameEl.value.trim();
       if (enabledEl) ch.enabled = enabledEl.checked;
-      if (ownerUserIdEl) ch.ownerLineUserId = ownerUserIdEl.value.trim();
+      // ownerLineUserId: 空文字の場合はフィールドを除去する（空文字で保存すると || null でnullになり意図が不明確なため）
+      if (ownerUserIdEl) {
+        const v = ownerUserIdEl.value.trim();
+        if (v) {
+          ch.ownerLineUserId = v;
+        } else {
+          delete ch.ownerLineUserId;
+        }
+      }
       // Basic ID: 空なら削除、値があれば保存
       if (basicIdEl) {
         const v = basicIdEl.value.trim();
