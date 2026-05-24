@@ -324,9 +324,33 @@ const ContactsPage = {
         <table class="table table-sm align-middle mb-0">
           <thead class="table-light"><tr><th style="width:140px;">名前</th><th><span class="badge bg-success-subtle text-success border me-1">📨 受信先</span>スタッフ用 lineUserId</th><th><span class="badge bg-success-subtle text-success border me-1">📨 受信先</span>物件オーナー用 subOwnerLineUserId</th><th style="width:80px;"></th></tr></thead>
           <tbody>
-            ${this.staff.map(staff => `
+            ${this.staff.map(staff => {
+              // このスタッフがオーナーになっている物件を取得（ownerStaffId で照合）
+              const ownedProps = this.properties.filter(p => p.ownerStaffId === staff.id);
+              // 物件別 Bot に ownerLineUserId が設定されているかチェック（不整合検知用）
+              const ownerLineUids = ownedProps.flatMap(p =>
+                (Array.isArray(p.lineChannels) ? p.lineChannels : [])
+                  .map(ch => ch.ownerLineUserId)
+                  .filter(Boolean)
+              );
+              const hasMismatch = staff.lineUserId && ownerLineUids.some(uid => uid !== staff.lineUserId);
+              const ownerPropBadge = ownedProps.length > 0
+                ? `<span class="badge bg-info-subtle text-info border ms-1"
+                    title="オーナーの物件: ${ownedProps.map(p => p.name || p.id).join(', ')}"
+                    style="cursor:default;">
+                    <i class="bi bi-buildings"></i> ${ownedProps.length}件
+                  </span>`
+                : '';
+              const mismatchBadge = hasMismatch
+                ? `<span class="badge bg-warning-subtle text-warning border ms-1"
+                    title="物件設定の ownerLineUserId と不一致: ${ownerLineUids.join(', ')}"
+                    style="cursor:default;">
+                    <i class="bi bi-exclamation-triangle"></i> 不整合
+                  </span>`
+                : '';
+              return `
               <tr data-staff-id="${staff.id}">
-                <td class="small">${this._esc(staff.name || "(無名)")}</td>
+                <td class="small">${this._esc(staff.name || "(無名)")}${ownerPropBadge}${mismatchBadge}</td>
                 <td>
                   <div class="d-flex gap-1">
                     <input class="form-control form-control-sm c-line-input" id="staffLine_${staff.id}" data-target="staff" data-staff-id="${staff.id}" data-field="lineUserId" value="${this._esc(staff.lineUserId || "")}" placeholder="Uxxxxxxxxxx...">
@@ -345,7 +369,7 @@ const ContactsPage = {
                 </td>
                 <td><button class="btn btn-sm btn-primary c-save-row-btn" data-target="staff" data-staff-id="${staff.id}">保存</button></td>
               </tr>
-            `).join("")}
+            `}).join("")}
           </tbody>
         </table>
       </div></div>
@@ -1084,10 +1108,77 @@ const ContactsPage = {
       const local = this.staff.find(s => s.id === staffId);
       if (local) Object.assign(local, update);
       showToast("保存", "スタッフ情報を保存しました", "success");
+
+      // --- 連絡先マスタ → 物件設定: lineUserId 変更時に ownerLineUserId を同期 ---
+      const newLineUserId = (update.lineUserId || "").trim();
+      if (newLineUserId) {
+        await this._syncLineUserIdToProperties(staffId, newLineUserId);
+      }
     } catch (e) {
       showToast("エラー", "保存失敗: " + e.message, "error");
     } finally {
       btn.disabled = false; btn.innerHTML = orig;
+    }
+  },
+
+  /**
+   * スタッフの lineUserId を、そのスタッフがオーナーになっている物件の
+   * lineChannels[i].ownerLineUserId にも反映する。
+   * 確認ダイアログを表示してから更新する。
+   *
+   * @param {string} staffId      - スタッフ Firestore ID
+   * @param {string} newLineUserId - 更新後の lineUserId
+   */
+  async _syncLineUserIdToProperties(staffId, newLineUserId) {
+    try {
+      // このスタッフがオーナーになっている物件を検索（ownerStaffId で照合）
+      const snap = await db.collection("properties").where("ownerStaffId", "==", staffId).get();
+      if (snap.empty) return; // 関連物件なし
+
+      const targetProps = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const staffLocal = this.staff.find(s => s.id === staffId);
+      const staffName = staffLocal?.name || staffId;
+
+      // 変更が必要な物件だけ抽出（既に同じ値なら対象外）
+      const needsUpdate = targetProps.filter(p => {
+        const channels = Array.isArray(p.lineChannels) ? p.lineChannels : [];
+        // ownerLineUserId が存在するチャネルが少なくとも1つあり、かつ値が異なる場合
+        return channels.some(ch => ch.ownerLineUserId && ch.ownerLineUserId !== newLineUserId)
+          // または ownerLineUserId 未設定のチャネルが1つ以上ある場合（空欄に設定）
+          || channels.some(ch => !ch.ownerLineUserId);
+      });
+
+      if (needsUpdate.length === 0) return;
+
+      const propNames = needsUpdate.map(p => `・${p.name || p.id}`).join("\n");
+      const confirmed = await showConfirm(
+        `オーナー「${staffName}」の LINE User ID 更新を関連物件にも反映しますか？\n\n対象物件:\n${propNames}\n\n更新値: ${newLineUserId}`,
+        "物件設定に反映"
+      );
+      if (!confirmed) return;
+
+      // 各物件の lineChannels[*].ownerLineUserId を更新
+      const batch = db.batch();
+      for (const prop of needsUpdate) {
+        const channels = Array.isArray(prop.lineChannels) ? prop.lineChannels.map(ch => ({ ...ch })) : [];
+        // 全チャネルの ownerLineUserId を更新（空のチャネルにも設定）
+        channels.forEach(ch => {
+          ch.ownerLineUserId = newLineUserId;
+        });
+        const ref = db.collection("properties").doc(prop.id);
+        batch.update(ref, {
+          lineChannels: channels,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+        // ローカルキャッシュも更新
+        const localProp = this.properties.find(p => p.id === prop.id);
+        if (localProp) localProp.lineChannels = channels;
+      }
+      await batch.commit();
+      showToast("同期完了", `${needsUpdate.length} 件の物件に LINE User ID を反映しました`, "success");
+    } catch (e) {
+      console.warn("[_syncLineUserIdToProperties] 同期失敗:", e.message);
+      showToast("警告", `物件への同期に失敗しました: ${e.message}`, "warning");
     }
   },
 

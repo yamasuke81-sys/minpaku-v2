@@ -61,10 +61,10 @@ function pushMessages_(channelToken, userId, messages) {
       res.on("data", (chunk) => data += chunk);
       res.on("end", () => {
         if (res.statusCode === 200) {
-          resolve({ success: true });
+          resolve({ success: true, statusCode: 200 });
         } else {
           console.error("LINE API エラー:", res.statusCode, data);
-          resolve({ success: false, error: `HTTP ${res.statusCode}: ${data}` });
+          resolve({ success: false, statusCode: res.statusCode, error: `HTTP ${res.statusCode}: ${data}` });
         }
       });
     });
@@ -75,6 +75,46 @@ function pushMessages_(channelToken, userId, messages) {
     req.write(body);
     req.end();
   });
+}
+
+/**
+ * LINE API のレスポンスエラー文字列から HTTP ステータスコードを抽出する。
+ * pushMessages_ が返す error 文字列 "HTTP 429: {...}" 形式を前提とする。
+ * @param {object} result - pushMessages_ / sendLineMessage の返り値
+ * @returns {number|null}
+ */
+function extractHttpStatus_(result) {
+  if (result && typeof result.statusCode === "number") return result.statusCode;
+  if (result && result.error) {
+    const m = String(result.error).match(/^HTTP (\d{3})/);
+    if (m) return parseInt(m[1], 10);
+  }
+  return null;
+}
+
+/**
+ * LINE API エラーが「即座に次の Bot へフォールバックすべきエラー」か判定する。
+ * - 429: Too Many Requests (月間メッセージ制限超過)
+ * - 400: Bad Request (友達追加未了など)
+ * - 401: Unauthorized (トークン無効)
+ * @param {object} result - pushMessages_ / sendLineMessage の返り値
+ * @returns {boolean}
+ */
+function isFallbackError_(result) {
+  const code = extractHttpStatus_(result);
+  return code === 429 || code === 400 || code === 401;
+}
+
+/**
+ * HTTP ステータスコードに対応するエラー説明テキストを返す（ログ用）
+ * @param {number|null} code
+ * @returns {string}
+ */
+function statusCodeLabel_(code) {
+  if (code === 429) return "月間制限超過";
+  if (code === 400) return "友達追加未了など";
+  if (code === 401) return "トークン無効";
+  return "送信エラー";
 }
 
 /**
@@ -418,8 +458,9 @@ async function resolveMessage_(db, type, fallback, vars, propertyOverrides) {
  * @param {object} [vars] - customMessage 内の {変数名} に差し込む値
  * @param {object} [propertyOverrides] - properties/{pid}.channelOverrides (物件別上書き)
  * @param {object} [opts] - 追加オプション
- * @param {string} [opts.propBotToken] - 物件別 Bot トークン（指定時はグローバル Bot より優先使用）
- * @param {string} [opts.propBotName] - 物件別 Bot 名（ログ用）
+ * @param {object[]} [opts.propChannels] - 物件別 Bot 配列 [{token, name, ...}]（Bot#1→Bot#2 順でフォールバック）
+ * @param {string} [opts.propBotToken] - 後方互換: 旧呼び出し元が単一トークンを渡す場合（propChannels が空の時のみ使用）
+ * @param {string} [opts.propBotName] - 後方互換: 旧呼び出し元が Bot 名を渡す場合
  */
 async function notifyStaff(db, staffId, type, title, body, vars, propertyOverrides, opts = {}) {
   body = await resolveMessage_(db, type, body, vars, propertyOverrides);
@@ -442,17 +483,27 @@ async function notifyStaff(db, staffId, type, title, body, vars, propertyOverrid
     ? [{ type: "text", text: body.slice(0, 5000) }]
     : [body]; // Flexメッセージ等のオブジェクト
 
-  // 物件別 Bot を優先して送信を試みる。失敗時はグローバル Bot にフォールバック
+  // 物件別 Bot チャネル配列を解決（後方互換: propBotToken 単体指定にも対応）
+  const propChannels = Array.isArray(opts.propChannels) && opts.propChannels.length > 0
+    ? opts.propChannels
+    : (opts.propBotToken ? [{ token: opts.propBotToken, name: opts.propBotName || "物件Bot" }] : []);
+
+  // Bot#1 → Bot#2 → グローバル の順に送信試行
   let result = { success: false, error: "LINEチャネルトークン未設定" };
   let usedBot = "global";
 
-  if (opts.propBotToken) {
-    result = await pushMessages_(opts.propBotToken, lineUserId, messages);
+  for (let i = 0; i < propChannels.length; i++) {
+    const ch = propChannels[i];
+    const botLabel = `Bot#${i + 1} (${ch.name || "名称未設定"}${ch.basicId ? ", " + ch.basicId : ""})`;
+    result = await pushMessages_(ch.token, lineUserId, messages);
     if (result.success) {
-      usedBot = opts.propBotName || "物件Bot";
-    } else {
-      console.warn(`[notifyStaff] 物件Bot 送信失敗 (${opts.propBotName || "物件Bot"}) → グローバル Bot にフォールバック:`, result.error);
+      usedBot = botLabel;
+      break;
     }
+    const code = extractHttpStatus_(result);
+    const label = statusCodeLabel_(code);
+    const nextLabel = i + 1 < propChannels.length ? `Bot#${i + 2} 試行` : "グローバル試行";
+    console.warn(`[notifyStaff] ${botLabel} 送信失敗 (${code}: ${label}) → ${nextLabel}: ${result.error}`);
   }
 
   if (!result.success) {
@@ -460,7 +511,10 @@ async function notifyStaff(db, staffId, type, title, body, vars, propertyOverrid
       return { success: false, error: "LINEチャネルトークン未設定", staffName: staffData.name };
     }
     result = await pushMessages_(channelToken, lineUserId, messages);
-    usedBot = "global";
+    usedBot = "グローバル";
+    if (result.success) {
+      console.log(`[notifyStaff] グローバル送信成功: ${staffData.name}`);
+    }
   }
 
   // 通知ログ
@@ -711,21 +765,16 @@ async function notifySubOwners(db, propertyId, title, body, opts = {}) {
     const { channelToken } = await getNotificationSettings_(db);
     const propertySenderGmail = await resolveSenderGmail_(db, propertyId);
 
-    // 物件別 Bot トークン (lineChannels[0].token) を優先取得
-    // → サブオーナーに「どの物件からの通知か」を Bot 名で識別させるため
-    let propBotToken = null;
-    let propBotName = null;
+    // 物件別 Bot トークンをすべて取得 (lineChannels[])
+    // → Bot#1 → Bot#2 → グローバル の順でフォールバック
+    let propChannels = [];
     try {
       const pDoc = await db.collection("properties").doc(propertyId).get();
       if (pDoc.exists) {
         const pData = pDoc.data() || {};
-        const ch0 = Array.isArray(pData.lineChannels)
-          ? pData.lineChannels.find(c => c && c.enabled !== false && c.token)
-          : null;
-        if (ch0) {
-          propBotToken = ch0.token;
-          propBotName = ch0.name || "";
-        }
+        propChannels = Array.isArray(pData.lineChannels)
+          ? pData.lineChannels.filter(c => c && c.enabled !== false && c.token)
+          : [];
       }
     } catch (_) { /* 取得失敗時は無視してグローバル Bot にフォールバック */ }
 
@@ -743,18 +792,25 @@ async function notifySubOwners(db, propertyId, title, body, opts = {}) {
         // 物件オーナー専用 LINE User ID → 未設定なら staff.lineUserId にフォールバック
         const subOwnerLineId = sData.subOwnerLineUserId || sData.lineUserId;
         if (subOwnerLineId) {
-          // まず物件別 Bot で送信を試み、失敗ならグローバル Bot にフォールバック
-          // 注: LINE User ID は Bot 単位でスコープされるため、物件 Bot に友達追加していない
-          //     サブオーナーは物件 Bot で送ると失敗する。その場合はグローバル Bot へ。
+          // Bot#1 → Bot#2 → グローバル の順にフォールバック
+          // 注: LINE User ID は Bot 単位でスコープされるため、各 Bot に別途友達追加が必要
           let result = { success: false, error: "no-token" };
           let usedBot = "";
-          if (propBotToken) {
-            result = await sendLineMessage(propBotToken, subOwnerLineId, body);
-            usedBot = propBotName || "物件Bot";
-            if (!result.success) {
-              console.warn(`物件オーナー(${sData.name}) 物件Bot送信失敗 → グローバルにフォールバック: ${result.error}`);
+
+          for (let i = 0; i < propChannels.length; i++) {
+            const ch = propChannels[i];
+            const botLabel = `Bot#${i + 1} (${ch.name || "名称未設定"}${ch.basicId ? ", " + ch.basicId : ""})`;
+            result = await sendLineMessage(ch.token, subOwnerLineId, body);
+            if (result.success) {
+              usedBot = botLabel;
+              break;
             }
+            const code = extractHttpStatus_(result);
+            const label = statusCodeLabel_(code);
+            const nextLabel = i + 1 < propChannels.length ? `Bot#${i + 2} 試行` : "グローバル試行";
+            console.warn(`[subOwnerLine] ${sData.name} ${botLabel} 送信失敗 (${code}: ${label}) → ${nextLabel}`);
           }
+
           if (!result.success && channelToken) {
             result = await sendLineMessage(channelToken, subOwnerLineId, body);
             usedBot = "グローバル";
@@ -1144,18 +1200,26 @@ async function sendLineMessageForProperty(db, propertyId, text, logExtra = {}) {
             }
 
           } else {
-            // fallback: 残枠が多い順に試みる（デフォルト動作）
-            for (const ch of activeChannels) {
+            // fallback: Bot#1 → Bot#2 → ... の順に試みる（デフォルト動作）
+            // 残枠チェックに加え、429/400/401 エラー応答でも即座に次へフォールバックする
+            for (let i = 0; i < activeChannels.length; i++) {
+              const ch = activeChannels[i];
+              const botLabel = `Bot#${i + 1} (${ch.name || ch.groupId})`;
+              // 残枠チェック（余裕があれば試行、枯渇済みなら次へ）
               const quota = await getChannelQuota(ch.token);
-              if (quota.remaining > 0) {
-                result = await _trySendOne_(ch, text);
-                if (result.success) {
-                  usedChannelName = ch.name;
-                  break;
-                }
-              } else {
-                console.warn(`[LINE] チャネル「${ch.name || ch.groupId}」の無料枠が枯渇しています (used=${quota.used}/${quota.max})`);
+              if (quota.remaining <= 0) {
+                console.warn(`[LINE][fallback] ${botLabel} 無料枠が枯渇 (used=${quota.used}/${quota.max}) → 次のBot試行`);
+                continue;
               }
+              result = await _trySendOne_(ch, text);
+              if (result.success) {
+                usedChannelName = ch.name;
+                break;
+              }
+              const code = extractHttpStatus_(result);
+              const label = statusCodeLabel_(code);
+              const nextLabel = i + 1 < activeChannels.length ? `Bot#${i + 2} 試行` : "グローバル試行";
+              console.warn(`[LINE][fallback] ${botLabel} 送信失敗 (${code}: ${label}) → ${nextLabel}`);
             }
             if (!result || !result.success) {
               result = { success: false, error: "全チャネルで無料枠枯渇または送信失敗" };
@@ -1327,67 +1391,68 @@ async function notifyByKey(db, notifyKey, options = {}) {
   const tasks = [];
 
   // (a) Webアプリ管理者 LINE
-  // 物件別 Bot (lineChannels[0]) で送信を試みる。
-  // lineChannels[0].ownerLineUserId が設定されていればその User ID を使用する。
-  // なければグローバル設定の lineOwnerUserId を試行し、失敗時はグローバル Bot にフォールバック。
+  // Bot#1 (lineChannels[0]) → Bot#2 (lineChannels[1]) → グローバル Bot の順にフォールバック。
+  // 各 Bot は対応する ownerLineUserId を使用する。
+  // ownerLineUserId が未設定の Bot はスキップしてグローバルへ進む。
   if (targets.ownerLine) {
     tasks.push((async () => {
       try {
         const { channelToken, ownerUserId } = await getNotificationSettings_(db);
         const text = typeof resolvedBody === "string" ? resolvedBody : title;
 
-        // 物件別 Bot 優先 (propertyId 指定 + lineChannels[0].token があれば)
-        let propBotToken = null;
-        let propBotName = null;
-        let propOwnerUserId = null; // 物件別 Bot に対応したオーナー User ID
+        // 物件別 lineChannels[] を取得 (token があるものすべて)
+        let propChannels = [];
         if (propertyId) {
           try {
             const pd = await db.collection("properties").doc(propertyId).get();
             if (pd.exists) {
               const pData = pd.data() || {};
-              const ch0 = Array.isArray(pData.lineChannels)
-                ? pData.lineChannels.find(c => c && c.enabled !== false && c.token)
-                : null;
-              if (ch0) {
-                propBotToken = ch0.token;
-                propBotName = ch0.name || "";
-                // 物件別 Bot に対応した ownerLine 用 User ID
-                // lineChannels[0].ownerLineUserId に設定されていればそれを優先
-                propOwnerUserId = ch0.ownerLineUserId || null;
-              }
+              propChannels = Array.isArray(pData.lineChannels)
+                ? pData.lineChannels.filter(c => c && c.enabled !== false && c.token)
+                : [];
             }
           } catch (_) { /* 取得失敗時は無視してグローバルへ */ }
         }
 
-        // 物件別 Bot 試行
-        // ownerLineUserId が設定されている場合のみ物件別 Bot で送信する。
-        // ownerLineUserId が未設定の場合はグローバル ownerUserId で試行しない。
-        // (グローバル UserID は「民泊V2管理者」Bot に友達追加したユーザーであり、
-        //  物件別 Bot で送ると 400/403 エラーになりグローバル Bot へフォールバックしてしまうため)
-        console.log(`[ownerLine] propBotToken=${propBotToken ? "有" : "なし"} propOwnerUserId=${propOwnerUserId || "(未設定)"} propertyId=${propertyId || "なし"}`);
-        if (propBotToken && propOwnerUserId) {
-          // 物件別 Bot × 物件別 ownerLineUserId で送信
-          const r1 = await sendLineMessage(propBotToken, propOwnerUserId, text);
-          if (r1.success) {
+        console.log(`[ownerLine] 物件別Bot数=${propChannels.length} propertyId=${propertyId || "なし"}`);
+
+        // --- 物件別 Bot を順番に試行 ---
+        for (let i = 0; i < propChannels.length; i++) {
+          const ch = propChannels[i];
+          const botLabel = `Bot#${i + 1} (${ch.name || "名称未設定"}${ch.basicId ? ", " + ch.basicId : ""})`;
+          // ownerLineUserId が設定されている場合のみ物件別 Bot で送信できる
+          // (グローバル UserID は「民泊V2管理者」Bot に友達追加したユーザーであり、
+          //  物件別 Bot で送ると 400 エラーになるため ownerLineUserId 必須)
+          if (!ch.ownerLineUserId) {
+            console.warn(`[ownerLine] ${botLabel}: ownerLineUserId 未設定のためスキップ`);
+            continue;
+          }
+          const r = await sendLineMessage(ch.token, ch.ownerLineUserId, text);
+          if (r.success) {
             sent.ownerLine = true;
-            console.log(`[ownerLine] 物件別 Bot 送信成功: ${propBotName || "(name未設定)"} → ${propOwnerUserId.slice(0, 10)}...`);
+            console.log(`[ownerLine] 送信成功: ${botLabel} → ${ch.ownerLineUserId.slice(0, 10)}...`);
             return;
           }
-          // エラー詳細をログに残す (仮説D: 友達追加未了の場合 400 が返る)
-          console.warn(`[ownerLine] 物件別 Bot 送信失敗 (${propBotName}): ${r1.error} → グローバル Bot にフォールバック`);
-          if (r1.error && r1.error.includes("400")) {
-            console.warn(`[ownerLine] ⚠ 400エラー: オーナーが「${propBotName}」を友達追加していない可能性があります。LINEでBotを友達追加してください。`);
+          const code = extractHttpStatus_(r);
+          const label = statusCodeLabel_(code);
+          if (isFallbackError_(r)) {
+            // 429/400/401 は即座に次の Bot へフォールバック
+            const nextLabel = i + 1 < propChannels.length ? `Bot#${i + 2} 試行` : "グローバル試行";
+            console.warn(`[ownerLine] ${botLabel} 送信失敗 (${code}: ${label}) → ${nextLabel}`);
+          } else {
+            // それ以外のエラーでもフォールバックするが詳細をログに残す
+            console.warn(`[ownerLine] ${botLabel} 送信失敗 (${r.error}) → 次の Bot 試行`);
           }
-        } else if (propBotToken && !propOwnerUserId) {
-          // ownerLineUserId 未設定: 物件別 Bot では送れないのでグローバルへスキップ
-          console.warn(`[ownerLine] ownerLineUserId が未設定のため物件別 Bot 送信をスキップ → グローバル Bot にフォールバック (物件: ${propBotName || propertyId})`);
-          console.warn(`[ownerLine] 修正方法: 物件設定 → LINE Bot → 「オーナー LINE User ID」に西山オーナーのUserIDを入力して保存してください。`);
         }
 
-        // グローバル ownerLine (ownerLineChannels[] 戦略 / 後方互換単一チャネル)
+        // --- グローバル Bot (ownerLineChannels[] 戦略 / 後方互換単一チャネル) ---
         const r = await _sendOwnerLine_(settings, channelToken, ownerUserId, text);
         sent.ownerLine = r.success;
-        if (!r.success) errors.push({ channel: "ownerLine", error: r.error });
+        if (r.success) {
+          console.log(`[ownerLine] 送信成功: グローバル (民泊V2管理者)`);
+        } else {
+          errors.push({ channel: "ownerLine", error: r.error });
+        }
       } catch (e) { errors.push({ channel: "ownerLine", error: e.message }); }
     })());
   }
@@ -1405,26 +1470,21 @@ async function notifyByKey(db, notifyKey, options = {}) {
   }
 
   // (c) スタッフ個別 LINE
-  // 物件別 Bot (lineChannels[0].token) が存在する場合はそちらで送信を試みる。
-  // スタッフが物件別 Bot を友達追加していない場合は notifyStaff 内でグローバル Bot にフォールバック。
+  // Bot#1 (lineChannels[0]) → Bot#2 (lineChannels[1]) → グローバル Bot の順でフォールバック。
+  // notifyStaff に propChannels 配列を渡すことで内部でフォールバックを制御する。
   if (targets.staffLine) {
     tasks.push((async () => {
       try {
-        // 物件別 Bot トークンを取得（ownerLine のフェッチと独立して実行）
-        let staffPropBotToken = null;
-        let staffPropBotName = null;
+        // 物件別 Bot トークンをすべて取得（ownerLine のフェッチと独立して実行）
+        let staffPropChannels = [];
         if (propertyId) {
           try {
             const pd = await db.collection("properties").doc(propertyId).get();
             if (pd.exists) {
               const pData = pd.data() || {};
-              const ch0 = Array.isArray(pData.lineChannels)
-                ? pData.lineChannels.find(c => c && c.enabled !== false && c.token)
-                : null;
-              if (ch0) {
-                staffPropBotToken = ch0.token;
-                staffPropBotName = ch0.name || "";
-              }
+              staffPropChannels = Array.isArray(pData.lineChannels)
+                ? pData.lineChannels.filter(c => c && c.enabled !== false && c.token)
+                : [];
             }
           } catch (_) { /* 取得失敗時は無視してグローバルへ */ }
         }
@@ -1439,8 +1499,8 @@ async function notifyByKey(db, notifyKey, options = {}) {
           try {
             const r = await notifyStaff(
               db, sid, notifyKey, title, resolvedBody, vars, propertyOverrides,
-              // 物件別 Bot トークンを渡す（未設定時は notifyStaff 内でグローバル Bot を使用）
-              { propBotToken: staffPropBotToken, propBotName: staffPropBotName }
+              // 物件別 Bot 配列を渡す（未設定時は notifyStaff 内でグローバル Bot を使用）
+              { propChannels: staffPropChannels }
             );
             if (r && r.success) okCount++;
           } catch (e) { errors.push({ channel: "staffLine", staffId: sid, error: e.message }); }

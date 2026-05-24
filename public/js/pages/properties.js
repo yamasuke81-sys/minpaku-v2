@@ -690,14 +690,34 @@ const PropertiesPage = {
           const sRef = db.collection("staff").doc(ownerStaffId);
           const sDoc = await sRef.get();
           if (sDoc.exists) {
-            const owned = Array.isArray(sDoc.data().ownedPropertyIds) ? sDoc.data().ownedPropertyIds : [];
+            const sData = sDoc.data();
+            const owned = Array.isArray(sData.ownedPropertyIds) ? sData.ownedPropertyIds : [];
+            const staffUpdate = {
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            };
             if (!owned.includes(finalId)) {
-              owned.push(finalId);
-              await sRef.update({
-                ownedPropertyIds: owned,
-                isSubOwner: true, // 明示的に物件オーナー設定を ON
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-              });
+              staffUpdate.ownedPropertyIds = [...owned, finalId];
+              staffUpdate.isSubOwner = true; // 明示的に物件オーナー設定を ON
+            }
+
+            // --- 物件設定 → 連絡先マスタ: ownerLineUserId の同期 ---
+            // 保存した lineChannels のうち ownerLineUserId が入っているものを取得
+            const savedChannels = data.lineChannels || [];
+            const newOwnerLineUserId = savedChannels.reduce((found, ch) => found || ch.ownerLineUserId || "", "");
+            const existingStaffLineUserId = (sData.lineUserId || "").trim();
+            if (newOwnerLineUserId && newOwnerLineUserId !== existingStaffLineUserId) {
+              // 変更がある場合のみ確認ダイアログ
+              const confirmSync = await showConfirm(
+                `物件オーナー「${sData.name || ""}」の LINE User ID を連絡先マスタにも反映しますか？\n\n物件設定の値: ${newOwnerLineUserId}\n連絡先マスタの現在値: ${existingStaffLineUserId || "(未設定)"}`,
+                "連絡先マスタに反映"
+              );
+              if (confirmSync) {
+                staffUpdate.lineUserId = newOwnerLineUserId;
+              }
+            }
+
+            if (Object.keys(staffUpdate).length > 1) { // updatedAt 以外があれば更新
+              await sRef.update(staffUpdate);
             }
           }
         }
@@ -1118,9 +1138,22 @@ const PropertiesPage = {
               </div>
               <div class="col-12">
                 <label class="form-label small mb-1">オーナー LINE User ID（ownerLine 用・任意）</label>
-                <input type="text" class="form-control form-control-sm ch-owner-userid" data-idx="${i}"
-                  placeholder="U... （この Bot でオーナー個人に送る場合に設定）" value="${this.escapeHtml(ch.ownerLineUserId || "")}">
-                <div class="form-text">設定するとこの Bot からオーナー個人へ直接通知されます。未設定の場合はグローバル設定の Bot にフォールバックします。</div>
+                <div class="d-flex gap-1 align-items-center">
+                  <input type="text" class="form-control form-control-sm ch-owner-userid" data-idx="${i}"
+                    placeholder="${(() => {
+                      // 現在選択中のオーナースタッフの lineUserId を placeholder として表示
+                      const ownerStaffId = document.getElementById('propertyOwnerStaffId')?.value || '';
+                      const ownerStaff = (this._ownerStaffOptions || []).find(s => s.id === ownerStaffId);
+                      return ownerStaff?.lineUserId ? `連絡先マスタ: ${this.escapeHtml(ownerStaff.lineUserId)}` : 'U... （この Bot でオーナー個人に送る場合に設定）';
+                    })()}" value="${this.escapeHtml(ch.ownerLineUserId || "")}">
+                  <button type="button" class="btn btn-sm btn-outline-secondary btn-ch-fetch-owner-uid flex-shrink-0" data-idx="${i}"
+                    title="連絡先マスタのオーナー lineUserId を取得">
+                    <i class="bi bi-person-check"></i> 取得
+                  </button>
+                </div>
+                <div class="form-text">設定するとこの Bot からオーナー個人へ直接通知されます。未設定の場合はグローバル設定の Bot にフォールバックします。
+                  <span class="ch-owner-sync-hint" data-idx="${i}"></span>
+                </div>
               </div>
               <div class="col-md-6">
                 <label class="form-label small mb-1">Basic ID (@xxx)</label>
@@ -1208,6 +1241,14 @@ const PropertiesPage = {
         this._fetchBotInfo(idx);
       });
 
+      // 「取得」ボタン（連絡先マスタのオーナー lineUserId を ownerLineUserId 欄に入力）
+      container.addEventListener("click", async (e) => {
+        const btn = e.target.closest(".btn-ch-fetch-owner-uid");
+        if (!btn) return;
+        const idx = parseInt(btn.dataset.idx, 10);
+        await this._fetchOwnerLineUserId(idx);
+      });
+
       // 入力変更 → 内部配列を更新 + 自動保存
       container.addEventListener("change", (e) => {
         const el = e.target;
@@ -1247,6 +1288,61 @@ const PropertiesPage = {
           this._autoSaveTimer = setTimeout(() => this._autoSave(), 800);
         }
       });
+    }
+  },
+
+  /**
+   * 連絡先マスタ（staff コレクション）から現在のオーナースタッフの lineUserId を取得し、
+   * 指定インデックスの ownerLineUserId 欄に自動入力する。
+   * showConfirm で確認してから入力する。
+   *
+   * @param {number} idx - lineChannels のインデックス
+   */
+  async _fetchOwnerLineUserId(idx) {
+    const container = document.getElementById("lineChannelsList");
+    if (!container) return;
+    const input = container.querySelector(`.ch-owner-userid[data-idx="${idx}"]`);
+    const hintEl = container.querySelector(`.ch-owner-sync-hint[data-idx="${idx}"]`);
+    if (!input) return;
+
+    // 現在選択中のオーナースタッフを取得
+    const ownerStaffId = document.getElementById("propertyOwnerStaffId")?.value || "";
+    if (!ownerStaffId) {
+      if (hintEl) hintEl.innerHTML = '<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> オーナーが未選択です</span>';
+      return;
+    }
+    const ownerStaff = (this._ownerStaffOptions || []).find(s => s.id === ownerStaffId);
+    if (!ownerStaff) {
+      if (hintEl) hintEl.innerHTML = '<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> オーナー情報が見つかりません</span>';
+      return;
+    }
+    const lineUserId = (ownerStaff.lineUserId || "").trim();
+    if (!lineUserId) {
+      if (hintEl) hintEl.innerHTML = `<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> 「${this.escapeHtml(ownerStaff.name || "")}」の LINE User ID が連絡先マスタに未登録です</span>`;
+      return;
+    }
+
+    // 現在の値と同じなら何もしない
+    if ((input.value || "").trim() === lineUserId) {
+      if (hintEl) hintEl.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> 既に同じ値が入力されています</span>';
+      return;
+    }
+
+    // 確認ダイアログ
+    const confirmed = await showConfirm(
+      `オーナー「${ownerStaff.name || ""}」の LINE User ID を入力しますか？\n\n連絡先マスタの値: ${lineUserId}`,
+      "連絡先マスタから取得"
+    );
+    if (!confirmed) return;
+
+    input.value = lineUserId;
+    this._lineChannels[idx].ownerLineUserId = lineUserId;
+    if (hintEl) hintEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> 入力しました (${this.escapeHtml(ownerStaff.name || "")})</span>`;
+
+    // 自動保存トリガー
+    if (this.editingId) {
+      clearTimeout(this._autoSaveTimer);
+      this._autoSaveTimer = setTimeout(() => this._autoSave(), 800);
     }
   },
 
