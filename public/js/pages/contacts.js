@@ -661,9 +661,11 @@ const ContactsPage = {
         const existingCh = existing[idx] || {};
         const token = tokenInput || existingCh.token || "";
         if (token || groupId || name) {
-          // 既存の botInfo は維持 (token 変更時はトリガーが上書きする)
+          // 既存の botInfo・basicId は維持 (token 変更時は botInfo をトリガーが上書きする)
           const ch = { name, token, groupId, enabled: true };
           if (existingCh.botInfo && existingCh.token === token) ch.botInfo = existingCh.botInfo;
+          // 手動入力 basicId を既存から引き継ぐ（contacts 画面には入力欄なし）
+          if (existingCh.basicId) ch.basicId = existingCh.basicId;
           channels.push(ch);
         }
       });

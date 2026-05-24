@@ -1122,6 +1122,12 @@ const PropertiesPage = {
                   placeholder="U... （この Bot でオーナー個人に送る場合に設定）" value="${this.escapeHtml(ch.ownerLineUserId || "")}">
                 <div class="form-text">設定するとこの Bot からオーナー個人へ直接通知されます。未設定の場合はグローバル設定の Bot にフォールバックします。</div>
               </div>
+              <div class="col-md-6">
+                <label class="form-label small mb-1">Basic ID (@xxx)</label>
+                <input type="text" class="form-control form-control-sm ch-basic-id" data-idx="${i}"
+                  placeholder="@example" value="${this.escapeHtml(ch.basicId || "")}">
+                <div class="form-text">LINE 公式アカウントの Basic ID。管理画面や通知の送信元表示に使います。</div>
+              </div>
             </div>
           </div>
         </div>
@@ -1204,6 +1210,14 @@ const PropertiesPage = {
           this._lineChannels[idx].name = el.value.trim();
         } else if (el.classList.contains("ch-owner-userid")) {
           this._lineChannels[idx].ownerLineUserId = el.value.trim();
+        } else if (el.classList.contains("ch-basic-id")) {
+          // Basic ID: 空なら undefined（フィールドを消す）、@始まりまたは空のみ許容
+          const v = el.value.trim();
+          if (v === "") {
+            delete this._lineChannels[idx].basicId;
+          } else {
+            this._lineChannels[idx].basicId = v;
+          }
         } else if (el.classList.contains("ch-enabled")) {
           this._lineChannels[idx].enabled = el.checked;
         }
@@ -1231,12 +1245,22 @@ const PropertiesPage = {
       const nameEl = container.querySelector(`.ch-name[data-idx="${i}"]`);
       const enabledEl = container.querySelector(`.ch-enabled[data-idx="${i}"]`);
       const ownerUserIdEl = container.querySelector(`.ch-owner-userid[data-idx="${i}"]`);
+      const basicIdEl = container.querySelector(`.ch-basic-id[data-idx="${i}"]`);
 
       if (tokenEl && tokenEl.value.trim()) ch.token = tokenEl.value.trim();
       if (groupEl) ch.groupId = groupEl.value.trim();
       if (nameEl) ch.name = nameEl.value.trim();
       if (enabledEl) ch.enabled = enabledEl.checked;
       if (ownerUserIdEl) ch.ownerLineUserId = ownerUserIdEl.value.trim();
+      // Basic ID: 空なら削除、値があれば保存
+      if (basicIdEl) {
+        const v = basicIdEl.value.trim();
+        if (v) {
+          ch.basicId = v;
+        } else {
+          delete ch.basicId;
+        }
+      }
     });
 
     // _legacy フラグは送信不要なので除去

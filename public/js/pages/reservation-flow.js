@@ -1985,8 +1985,18 @@ const ReservationFlowPage = {
       return `<div class="mt-2 small text-muted"><i class="bi bi-info-circle"></i> この通知 (${this._esc(step.globalChannel)}) は通知設定タブで未定義です。</div>`;
     }
     // 送信元 (Bot 名) を物件別 Bot 情報で差し替え
+    // botInfo (LINE API 取得) があればそれを優先。なければ name + 手動 basicId で生成
     const lc = Array.isArray(property.lineChannels) ? property.lineChannels : [];
-    const propBot = (lc[0] && lc[0].botInfo) || (lc[1] && lc[1].botInfo) || null;
+    const _buildBotInfo = (ch) => {
+      if (!ch) return null;
+      if (ch.botInfo && (ch.botInfo.displayName || ch.botInfo.basicId)) return ch.botInfo;
+      if (ch.name || ch.basicId) {
+        // 手動入力フィールドからフォールバック生成
+        return { displayName: ch.name || null, basicId: ch.basicId || null };
+      }
+      return null;
+    };
+    const propBot = _buildBotInfo(lc[0]) || _buildBotInfo(lc[1]) || null;
     const propLabel = NCE.formatBotSender(propBot, "(送信元: 物件別 LINE Bot)");
     const globalBot = (this.settings && this.settings.lineBotInfo) || null;
     const globalLabel = NCE.formatBotSender(globalBot, "(送信元: LINE Bot)");
