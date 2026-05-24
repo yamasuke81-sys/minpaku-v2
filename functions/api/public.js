@@ -93,6 +93,10 @@ router.get("/guest-allocation/:token", async (req, res) => {
       vehicleTypes: d.vehicleTypes || [],
       parkingAllocation: d.parkingAllocation || null,
       paidParking: d.paidParking || null,
+      // 有料駐車場の車種情報 (guestRegistration に保存されている場合のみ返す)
+      // ※ フォームに車種入力がなければ空文字で返す (将来追加予定)
+      paidParkingVehicleType: d.paidParkingVehicleType || "",
+      paidParkingNote: d.paidParkingNote || "",
       bbq: d.bbq || null,
       bedChoice: d.bedChoice || null,
     });

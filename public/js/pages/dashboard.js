@@ -1049,29 +1049,9 @@ const DashboardPage = {
       }
     }
 
-    // 照合メール情報 (Webアプリ管理者限定 + viewMode=staff では更に非表示)
-    // クリックでモーダルを閉じ、アプリ内「メール照合」画面の該当行にフォーカス遷移
+    // 照合メール情報: 履歴タイムライン (email_confirmed イベントの extraHtml) に統合済み
+    // gmailRow セクションは廃止 (2026-05-24)
     const isOwnerView = (typeof Auth !== "undefined") && Auth?.isOwner?.();
-    let gmailRow = "";
-    if (isOwnerView && !isStaffView) {
-      if (b.emailMessageId || b.emailThreadId || b.emailSubject) {
-        const verifiedStr = b.emailVerifiedAt ? (typeof formatDateFull === "function" ? formatDateFull(b.emailVerifiedAt) : this.toDateStr(b.emailVerifiedAt)) : "";
-        const subjectText = b.emailSubject ? this.esc(b.emailSubject) : "(件名未取得)";
-        const focusId = b.emailMessageId || "";
-        gmailRow = `<tr><th class="text-muted">照合メール</th><td>
-          <a href="javascript:void(0)" class="small d-block ev-focus-link"
-             data-ev-focus-id="${this.esc(focusId)}" style="text-decoration:none">
-            <i class="bi bi-envelope-check text-success"></i> ${subjectText}
-            ${verifiedStr ? `<span class="text-muted ms-1">/ ${this.esc(verifiedStr)}</span>` : ""}
-          </a>
-          <small class="text-muted">タップで「メール照合」画面へ</small>
-        </td></tr>`;
-      } else {
-        gmailRow = `<tr><th class="text-muted">照合メール</th><td>
-          <small class="text-muted"><i class="bi bi-envelope-slash"></i> 未照合</small>
-        </td></tr>`;
-      }
-    }
 
     // 名簿データ取得: 物件IDあれば複合キーのみ (異物件混入防止のため CI単独キーへのフォールバックは廃止)
     const guestKey1 = b.propertyId && ci ? `${b.propertyId}_${ci}` : null;
@@ -1259,10 +1239,36 @@ const DashboardPage = {
       </div>`;
     })();
 
+    // 予約操作ボタン群 (キーボックス直下用: 日程変更 / キャンセル)
+    // オーナービュー専用。手動予約削除もここに統合
+    const scheduleActionsHtml = (() => {
+      if (isStaffView) return "";
+      const isCancelled = b.status === "cancelled" || b.status === "キャンセル" || b.status === "キャンセル済み";
+      const hasPrevSchedule = !!(b.previousCheckIn || b.previousCheckOut);
+      const isManualBk = b.manualOverride === true || /manual/i.test(String(b.source || ""));
+      const buttons = [];
+      if (!isCancelled) {
+        buttons.push(`<button class="btn btn-outline-primary btn-sm" id="calBtnChangeSchedule" data-booking-id="${this.esc(b.id)}"><i class="bi bi-calendar-event"></i> 日程変更</button>`);
+        if (hasPrevSchedule) {
+          buttons.push(`<button class="btn btn-outline-secondary btn-sm" id="calBtnUndoSchedule" data-booking-id="${this.esc(b.id)}" title="${this.esc(b.previousCheckIn || ci)}〜${this.esc(b.previousCheckOut || co)} に戻す"><i class="bi bi-arrow-counterclockwise"></i> 日程変更取消</button>`);
+        }
+        buttons.push(`<button class="btn btn-outline-warning btn-sm" id="calBtnCancelBooking" data-booking-id="${this.esc(b.id)}"><i class="bi bi-x-circle"></i> 予約キャンセル</button>`);
+      } else {
+        buttons.push(`<button class="btn btn-outline-success btn-sm" id="calBtnRestoreBooking" data-booking-id="${this.esc(b.id)}"><i class="bi bi-arrow-counterclockwise"></i> キャンセル取消</button>`);
+      }
+      if (isManualBk) {
+        buttons.push(`<button class="btn btn-outline-danger btn-sm" id="calBtnDeleteManualBooking" data-booking-id="${this.esc(b.id)}"><i class="bi bi-trash"></i> 削除</button>`);
+      }
+      if (buttons.length === 0) return "";
+      return `<div class="d-flex gap-2 flex-wrap mb-3">${buttons.join("")}</div>`;
+    })();
+
     document.getElementById("calEventBody").innerHTML = `
       <div class="d-flex gap-2 mb-1 flex-wrap align-items-center">${rosterBadge}${gasImportBtn}</div>
 
       ${kbTopHtml}
+
+      ${scheduleActionsHtml}
 
       <h6 class="mb-2 text-primary">基本情報</h6>
       <table class="table table-sm table-borderless mb-2">
@@ -1352,47 +1358,12 @@ const DashboardPage = {
       ${companionsHtml}
       ${isStaffView ? "" : passportHtml}
 
-      ${gmailRow ? `<hr><table class="table table-sm table-borderless mb-0">${gmailRow}</table>` : ""}
-
-      ${isStaffView ? "" : (() => {
-        // === 名簿リンクボタン (オーナービュー専用、キーボックスは最上部に移動済み) ===
-        const gid = guestData && guestData.id;
-        const rosterBtn = gid
-          ? `<button class="btn btn-sm btn-outline-secondary" id="calBtnOpenRoster" data-guest-id="${this.esc(gid)}"><i class="bi bi-clipboard-check"></i> 宿泊者名簿を開く</button>`
-          : `<button class="btn btn-sm btn-outline-secondary" disabled title="名簿エントリ未作成"><i class="bi bi-clipboard-x"></i> 名簿エントリなし</button>`;
-        return `<hr><div class="d-flex flex-wrap align-items-center gap-2">${rosterBtn}</div>`;
-      })()}
-
       <hr>
       <div>
         <strong class="small text-muted">清掃担当（CO: ${vd(co)}）</strong><br>
         ${cleaningHtml}
         ${recruit ? `<button class="btn btn-sm btn-outline-primary ms-2" id="calBtnOpenRecruit"><i class="bi bi-megaphone"></i> 募集詳細</button>` : ""}
       </div>
-      ${(() => {
-        // 予約操作ボタン群 (Webアプリ管理者視点のみ)
-        // - 日程変更 / 日程変更取消 (前回の日程に戻す) / キャンセル / 手動予約の削除
-        // - キャンセル取消は キャンセル後 60秒間 トーストの [取消す] で実現
-        if (isStaffView) return "";
-        const isCancelled = b.status === "cancelled" || b.status === "キャンセル" || b.status === "キャンセル済み";
-        const hasPrevSchedule = !!(b.previousCheckIn || b.previousCheckOut);
-        const isManualBk = b.manualOverride === true || /manual/i.test(String(b.source || ""));
-        const buttons = [];
-        if (!isCancelled) {
-          buttons.push(`<button class="btn btn-outline-primary btn-sm" id="calBtnChangeSchedule" data-booking-id="${this.esc(b.id)}"><i class="bi bi-calendar-event"></i> 日程変更</button>`);
-          if (hasPrevSchedule) {
-            buttons.push(`<button class="btn btn-outline-secondary btn-sm" id="calBtnUndoSchedule" data-booking-id="${this.esc(b.id)}" title="${this.esc(b.previousCheckIn || ci)}〜${this.esc(b.previousCheckOut || co)} に戻す"><i class="bi bi-arrow-counterclockwise"></i> 日程変更取消</button>`);
-          }
-          buttons.push(`<button class="btn btn-outline-warning btn-sm" id="calBtnCancelBooking" data-booking-id="${this.esc(b.id)}"><i class="bi bi-x-circle"></i> 予約キャンセル</button>`);
-        } else {
-          buttons.push(`<button class="btn btn-outline-success btn-sm" id="calBtnRestoreBooking" data-booking-id="${this.esc(b.id)}"><i class="bi bi-arrow-counterclockwise"></i> キャンセル取消</button>`);
-        }
-        if (isManualBk) {
-          buttons.push(`<button class="btn btn-outline-danger btn-sm" id="calBtnDeleteManualBooking" data-booking-id="${this.esc(b.id)}"><i class="bi bi-trash"></i> 削除</button>`);
-        }
-        if (buttons.length === 0) return "";
-        return `<hr><div class="d-flex gap-2 flex-wrap justify-content-end">${buttons.join("")}</div>`;
-      })()}
     `;
 
     // ===== 統合履歴タイムライン (オーナー専用、アコーディオン展開で遅延読込) =====
@@ -1450,22 +1421,71 @@ const DashboardPage = {
           // 名簿受信
           if (createdIso) {
             guestEvents.push({ type: "roster_received", timestamp: createdIso, label: "名簿受信", note: "" });
+            // TODO: guestRegistration に formResponseGmailId フィールドが追加されれば
+            //       linkUrl: `https://mail.google.com/mail/u/0/#all/${guestData.formResponseGmailId}`
+            //       linkLabel: "Gmailで開く" を追加する
           }
           // 完了メール送信 (受信と異なる場合)
           if (completeIso && completeIso !== createdIso) {
-            guestEvents.push({ type: "roster_complete_mail", timestamp: completeIso, label: "完了メール送信", note: "" });
+            // 完了メールの Gmail ID (formCompleteMailGmailId) が存在すれば直通リンクを追加
+            const completeLinkUrl = guestData.formCompleteMailGmailId
+              ? `https://mail.google.com/mail/u/0/#all/${guestData.formCompleteMailGmailId}`
+              : null;
+            guestEvents.push({
+              type: "roster_complete_mail",
+              timestamp: completeIso,
+              label: "完了メール送信",
+              note: "",
+              ...(completeLinkUrl ? { linkUrl: completeLinkUrl, linkLabel: "Gmailで開く" } : {}),
+            });
           }
           // 修正履歴 (editHistory 配列)
           editHistory.forEach((h) => {
             const iso = tsToIso(h.editedAt);
             if (!iso) return;
             const ch = Array.isArray(h.changes) ? h.changes.join(" / ") : (h.summary || "");
-            guestEvents.push({ type: "roster_updated", timestamp: iso, label: "名簿修正", note: ch });
+            // 修正通知メールの Gmail ID があれば直通リンクを追加
+            const updateLinkUrl = h.gmailId
+              ? `https://mail.google.com/mail/u/0/#all/${h.gmailId}`
+              : null;
+            guestEvents.push({
+              type: "roster_updated",
+              timestamp: iso,
+              label: "名簿修正",
+              note: ch,
+              ...(updateLinkUrl ? { linkUrl: updateLinkUrl, linkLabel: "Gmailで開く" } : {}),
+            });
           });
           // editHistory がない場合の最終更新
           if (editHistory.length === 0 && updatedIso && updatedIso !== createdIso) {
             const noteStr = updateMailIso ? `更新通知送信: ${updateMailIso}` : "";
             guestEvents.push({ type: "roster_updated", timestamp: updatedIso, label: "名簿更新", note: noteStr });
+          }
+
+          // ===== 照合メール情報を email_confirmed イベントに統合 (gmailRow セクション廃止の代替) =====
+          // b.emailMessageId / b.emailSubject が存在する場合、email_confirmed イベントを追加
+          // (timelineData 側にも email_confirmed が来る場合は重複しないよう注意)
+          if (isOwnerView && (b.emailMessageId || b.emailSubject)) {
+            const emailVerifiedIso = b.emailVerifiedAt
+              ? (b.emailVerifiedAt.toDate ? b.emailVerifiedAt.toDate().toISOString() : new Date(b.emailVerifiedAt).toISOString())
+              : null;
+            const subjectText = b.emailSubject || "(件名未取得)";
+            const focusId = b.emailMessageId || "";
+            // timelineData 側に email_confirmed が既にあればスキップ (重複防止)
+            const existingConfirmed = timelineData && Array.isArray(timelineData.events) &&
+              timelineData.events.some(ev => ev.type === "email_confirmed");
+            if (!existingConfirmed) {
+              guestEvents.push({
+                type: "email_confirmed",
+                timestamp: emailVerifiedIso || "",
+                label: `照合済: ${subjectText}`,
+                note: "「メール照合」画面で確認済み",
+                // メール照合画面へのフォーカスリンク (ev-focus-link クラスで処理)
+                linkUrl: focusId ? `#/email-verification?id=${encodeURIComponent(focusId)}` : "#/email-verification",
+                linkLabel: "メール照合画面へ",
+                _isFocusLink: true, // クライアント側でハッシュ遷移に変換するフラグ
+              });
+            }
           }
 
           // iCal/メール照合イベントと名簿イベントをマージして時系列降順ソート
@@ -1853,6 +1873,7 @@ const DashboardPage = {
     }
 
     // 照合メールリンク: モーダルを閉じてから #/email-verification?id=... へ遷移
+    // data-ev-focus-id がハッシュ URL 全体の場合はそのまま使い、messageId のみの場合は URL を組み立てる
     document.querySelectorAll("#calEventBody .ev-focus-link").forEach((a) => {
       a.addEventListener("click", (ev) => {
         ev.preventDefault();
@@ -1860,7 +1881,12 @@ const DashboardPage = {
         const modalInst = bootstrap.Modal.getInstance(modalEl);
         if (modalInst) modalInst.hide();
         setTimeout(() => {
-          location.hash = fid ? `#/email-verification?id=${encodeURIComponent(fid)}` : "#/email-verification";
+          if (fid.startsWith("#/")) {
+            // ハッシュ URL がそのまま入っている場合 (timeline の _isFocusLink イベント)
+            location.hash = fid.slice(1); // location.hash には '#' なしで渡す
+          } else {
+            location.hash = fid ? `/email-verification?id=${encodeURIComponent(fid)}` : "/email-verification";
+          }
         }, 180);
       });
     });
@@ -2086,9 +2112,17 @@ const DashboardPage = {
       </div>`;
     const items = data.events.map((ev) => {
       const icon = ICONS[ev.type] || "bi-circle";
-      const link = ev.linkUrl
-        ? `<a href="${this.esc(ev.linkUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary mt-1"><i class="bi bi-box-arrow-up-right"></i> ${this.esc(ev.linkLabel || "開く")}</a>`
-        : "";
+      let link = "";
+      if (ev.linkUrl) {
+        if (ev._isFocusLink) {
+          // ハッシュ遷移リンク: モーダルを閉じてから該当画面へ遷移 (ev-focus-link クラスで処理)
+          link = `<a href="javascript:void(0)" class="btn btn-sm btn-outline-secondary mt-1 ev-focus-link"
+            data-ev-focus-id="${this.esc(ev.linkUrl)}"><i class="bi bi-arrow-right-circle"></i> ${this.esc(ev.linkLabel || "開く")}</a>`;
+        } else {
+          // 通常の外部リンク (Gmail など)
+          link = `<a href="${this.esc(ev.linkUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary mt-1"><i class="bi bi-box-arrow-up-right"></i> ${this.esc(ev.linkLabel || "開く")}</a>`;
+        }
+      }
       const note = ev.note ? `<div class="small text-muted mt-1">${this.esc(ev.note)}</div>` : "";
       const source = ev.source ? `<div class="small text-muted">${this.esc(ev.source)}</div>` : "";
       return `
