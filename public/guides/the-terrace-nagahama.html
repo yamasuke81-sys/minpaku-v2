@@ -1072,11 +1072,10 @@
 
     document.getElementById('allocationTitle').textContent = ALLOC_I18N.title[lang];
 
+    // 物件名 / 日付 / 人数の meta 表示は不要 (ゲスト自身が知っている情報のため非表示)
     const meta = document.getElementById('allocationMeta');
-    const checkIn = data.checkIn || '';
-    const checkOut = data.checkOut || '';
-    const guests = data.guestCount ? ALLOC_I18N.guestsUnit[lang](data.guestCount) : '';
-    meta.textContent = [data.propertyName, `${checkIn} → ${checkOut}`, guests].filter(Boolean).join(' / ');
+    meta.textContent = '';
+    meta.style.display = 'none';
 
     const list = document.getElementById('allocationList');
     list.innerHTML = '';
@@ -1110,7 +1109,8 @@
       extras.appendChild(b);
     };
     if (data.paidParking === '利用する') addBadge(ALLOC_I18N.paidParking[lang]);
-    if (data.bbq === '利用する') addBadge(ALLOC_I18N.bbq[lang]);
+    // BBQ ご予約済みバッジは不要 (別セクションのハウスルールで案内するため)
+    // if (data.bbq === '利用する') addBadge(ALLOC_I18N.bbq[lang]);
     if (data.bedChoice) addBadge(ALLOC_I18N.bedChoice[lang](data.bedChoice));
 
     card.classList.add('show');
