@@ -1093,7 +1093,8 @@
         nameSpan.textContent = (SPOT_NAMES[a.spot] && SPOT_NAMES[a.spot][lang]) || a.spot;
         const labelSpan = document.createElement('span');
         labelSpan.className = 'spot-label';
-        labelSpan.textContent = a.label || '';
+        // 車種・サイズを表示 (vehicleType を優先、無ければ label をフォールバック)
+        labelSpan.textContent = a.vehicleType || a.label || '';
         li.appendChild(nameSpan);
         li.appendChild(labelSpan);
         list.appendChild(li);
