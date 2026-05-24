@@ -169,14 +169,14 @@
       padding-left: 0;
       padding-right: 0;
     }
-    /* accordion-body 内の p/ul をh6と同じ左端（px-3 = 1rem = 16px）から開始 */
+    /* accordion-body 内の p/ul は h6 (1rem = 16px) より少し右にインデントして階層感を出す */
     .accordion-body > p {
-      padding-left: 1rem;
+      padding-left: 2rem;
       padding-right: 1rem;
     }
-    /* ul の bullet は h6左端（1rem）+ 字下がり（1rem）= 2rem のインデント */
+    /* ul の bullet を h6左端 + さらに字下がり (3rem) にして階層を視認しやすく */
     .accordion-body > ul {
-      padding-left: 2rem;
+      padding-left: 3rem;
       padding-right: 1rem;
     }
 
@@ -1007,14 +1007,11 @@
     });
   }
 
-  /* 動画の遅延読み込み */
-  document.querySelectorAll('#videoAccordion .accordion-collapse').forEach(panel => {
-    panel.addEventListener('shown.bs.collapse', () => {
-      const iframe = panel.querySelector('iframe[data-src]');
-      if (iframe && !iframe.src) {
-        iframe.src = iframe.dataset.src;
-      }
-    });
+  /* 動画の遅延読み込み: 常時展開化に伴い、初期化時に直接 src を設定 */
+  document.querySelectorAll('#videoAccordion iframe[data-src]').forEach(iframe => {
+    if (!iframe.src) {
+      iframe.src = iframe.dataset.src;
+    }
   });
 
   /* 有料駐車場：事前予約チェックで詳細を開閉 */
