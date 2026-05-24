@@ -1222,8 +1222,41 @@ const DashboardPage = {
     const fRow = (fieldId, sectionId, html) => isFieldVisible(fieldId, sectionId) ? html : "";
     // staff & visibility 両方を満たす場合のみ表示
     const fRowStaff = (fieldId, sectionId, html) => (isStaffView ? "" : fRow(fieldId, sectionId, html));
+    // キーボックス送信エリア (最上部用: オーナービュー専用)
+    const kbTopHtml = (() => {
+      if (isStaffView) return "";
+      const gid = guestData && guestData.id;
+      const kbSentAt = guestData.keyboxSentAt;
+      const kbConfirmedAt = guestData.keyboxConfirmedAt;
+      const kbError = guestData.keyboxSendError;
+      let kbBadge;
+      if (kbSentAt) {
+        const s = (kbSentAt.toDate ? kbSentAt.toDate() : new Date(kbSentAt)).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+        kbBadge = `<span class="badge bg-secondary"><i class="bi bi-send-check"></i> 送信済 (${this.esc(s)})</span>`;
+      } else if (kbError) {
+        kbBadge = `<span class="badge bg-danger" title="${this.esc(String(kbError))}"><i class="bi bi-exclamation-triangle"></i> エラー</span>`;
+      } else if (kbConfirmedAt) {
+        const s = (kbConfirmedAt.toDate ? kbConfirmedAt.toDate() : new Date(kbConfirmedAt)).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+        kbBadge = `<span class="badge bg-success"><i class="bi bi-check-circle"></i> 予約済 (${this.esc(s)})</span>`;
+      } else {
+        kbBadge = `<span class="badge bg-warning text-dark"><i class="bi bi-clock"></i> 未予約</span>`;
+      }
+      const kbBtnLabel = kbConfirmedAt ? "再予約" : "キーボックス送信を予約";
+      const kbBtn = gid
+        ? `<button class="btn btn-sm btn-primary" id="calBtnKeyboxSend" data-guest-id="${this.esc(gid)}"><i class="bi bi-key"></i> ${kbBtnLabel}</button>`
+        : "";
+      return `<div class="d-flex flex-wrap align-items-center gap-2 mb-3 p-2 border rounded bg-light">
+        <i class="bi bi-key-fill text-warning" style="font-size:1.2rem;"></i>
+        <span class="fw-semibold small">キーボックス送信</span>
+        ${kbBtn}
+        <span>${kbBadge}</span>
+      </div>`;
+    })();
+
     document.getElementById("calEventBody").innerHTML = `
-      <div class="d-flex gap-2 mb-3 flex-wrap align-items-center">${rosterBadge}${gasImportBtn}</div>
+      <div class="d-flex gap-2 mb-1 flex-wrap align-items-center">${rosterBadge}${gasImportBtn}</div>
+
+      ${kbTopHtml}
 
       <h6 class="mb-2 text-primary">基本情報</h6>
       <table class="table table-sm table-borderless mb-2">
@@ -1315,77 +1348,13 @@ const DashboardPage = {
 
       ${gmailRow ? `<hr><table class="table table-sm table-borderless mb-0">${gmailRow}</table>` : ""}
 
-      ${(() => {
-        // 受信履歴・修正履歴 (guestRegistration ベース、ある場合のみ)
-        if (!guestData || !guestData.id) return "";
-        const tsToStr = (t) => {
-          if (!t) return null;
-          const d = t.toDate ? t.toDate() : (t.seconds ? new Date(t.seconds * 1000) : new Date(t));
-          if (isNaN(d.getTime())) return null;
-          return d.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
-        };
-        const createdStr = tsToStr(guestData.createdAt);
-        const updatedStr = tsToStr(guestData.updatedAt);
-        const completeStr = tsToStr(guestData.formCompleteMailSentAt);
-        const updateMailStr = tsToStr(guestData.formUpdateMailSentAt);
-        const editHistory = Array.isArray(guestData.editHistory) ? guestData.editHistory : [];
-        let rows = "";
-        if (createdStr) rows += `<tr><td class="text-muted small" style="width:130px;">名簿受信</td><td>${this.esc(createdStr)}</td></tr>`;
-        if (completeStr && completeStr !== createdStr) rows += `<tr><td class="text-muted small">完了メール送信</td><td>${this.esc(completeStr)}</td></tr>`;
-        if (editHistory.length > 0) {
-          const items = editHistory.slice().reverse().map((h) => {
-            const at = tsToStr(h.editedAt) || "-";
-            const ch = Array.isArray(h.changes) ? h.changes.join(" / ") : (h.summary || "");
-            return `<li class="small mb-1"><strong>${this.esc(at)}</strong>: ${this.esc(ch)}</li>`;
-          }).join("");
-          rows += `<tr><td class="text-muted small">修正履歴 (${editHistory.length}回)</td><td><ul class="mb-0 ps-3">${items}</ul></td></tr>`;
-        } else if (updatedStr && updatedStr !== createdStr) {
-          rows += `<tr><td class="text-muted small">最終更新</td><td>${this.esc(updatedStr)}${updateMailStr ? ` <span class="badge bg-light text-muted border ms-1">通知送信: ${this.esc(updateMailStr)}</span>` : ""}</td></tr>`;
-        }
-        if (!rows) return "";
-        return `<details class="mt-3 border rounded">
-          <summary class="p-2 bg-light fw-bold small" style="cursor:pointer;">
-            <i class="bi bi-clock-history"></i> 名簿受信・修正履歴
-          </summary>
-          <table class="table table-sm table-borderless mb-0 small">${rows}</table>
-        </details>`;
-      })()}
-
       ${isStaffView ? "" : (() => {
-        // === 名簿リンク + キーボックス送信 (オーナービュー専用) ===
+        // === 名簿リンクボタン (オーナービュー専用、キーボックスは最上部に移動済み) ===
         const gid = guestData && guestData.id;
-        // 名簿リンクボタン: guestRegistration ドキュメントが存在する時のみ
         const rosterBtn = gid
           ? `<button class="btn btn-sm btn-outline-secondary" id="calBtnOpenRoster" data-guest-id="${this.esc(gid)}"><i class="bi bi-clipboard-check"></i> 宿泊者名簿を開く</button>`
           : `<button class="btn btn-sm btn-outline-secondary" disabled title="名簿エントリ未作成"><i class="bi bi-clipboard-x"></i> 名簿エントリなし</button>`;
-
-        // キーボックス送信状態バッジ
-        const kbSentAt = guestData.keyboxSentAt;
-        const kbConfirmedAt = guestData.keyboxConfirmedAt;
-        const kbError = guestData.keyboxSendError;
-        let kbBadge;
-        if (kbSentAt) {
-          const s = (kbSentAt.toDate ? kbSentAt.toDate() : new Date(kbSentAt)).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
-          kbBadge = `<span class="badge bg-secondary"><i class="bi bi-send-check"></i> 送信済 (${this.esc(s)})</span>`;
-        } else if (kbError) {
-          kbBadge = `<span class="badge bg-danger" title="${this.esc(String(kbError))}"><i class="bi bi-exclamation-triangle"></i> エラー</span>`;
-        } else if (kbConfirmedAt) {
-          const s = (kbConfirmedAt.toDate ? kbConfirmedAt.toDate() : new Date(kbConfirmedAt)).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
-          kbBadge = `<span class="badge bg-success"><i class="bi bi-check-circle"></i> 予約済 (${this.esc(s)})</span>`;
-        } else {
-          kbBadge = `<span class="badge bg-warning text-dark"><i class="bi bi-clock"></i> 未予約</span>`;
-        }
-        const kbBtnLabel = kbConfirmedAt ? "再予約" : "キーボックス送信を予約";
-        const kbBtn = gid
-          ? `<button class="btn btn-sm btn-primary" id="calBtnKeyboxSend" data-guest-id="${this.esc(gid)}"><i class="bi bi-key"></i> ${kbBtnLabel}</button>`
-          : "";
-
-        return `<hr>
-          <div class="d-flex flex-wrap align-items-center gap-2">
-            ${rosterBtn}
-            ${kbBtn}
-            <span class="ms-1">${kbBadge}</span>
-          </div>`;
+        return `<hr><div class="d-flex flex-wrap align-items-center gap-2">${rosterBtn}</div>`;
       })()}
 
       <hr>
@@ -1420,7 +1389,8 @@ const DashboardPage = {
       })()}
     `;
 
-    // ===== 履歴タイムライン (オーナー専用、アコーディオン展開で遅延読込) =====
+    // ===== 統合履歴タイムライン (オーナー専用、アコーディオン展開で遅延読込) =====
+    // 名簿受信・修正履歴 (guestRegistration) + iCal同期 / メール照合 を時系列降順で統合表示
     if (typeof Auth !== "undefined" && Auth?.isOwner?.()) {
       const accordionId = "bookingHistoryAccordion_" + b.id.replace(/[^a-zA-Z0-9]/g, "_");
       const collapseId = accordionId + "_collapse";
@@ -1432,7 +1402,7 @@ const DashboardPage = {
             <h2 class="accordion-header">
               <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
                       data-bs-target="#${collapseId}" aria-expanded="false">
-                <i class="bi bi-clock-history me-2"></i> 履歴 (iCal同期 / メール照合)
+                <i class="bi bi-clock-history me-2"></i> 📜 履歴 (iCal同期 / メール照合 / 名簿)
               </button>
             </h2>
             <div id="${collapseId}" class="accordion-collapse collapse">
@@ -1455,8 +1425,63 @@ const DashboardPage = {
         loaded = true;
         contentEl.innerHTML = `<div class="text-muted small"><i class="spinner-border spinner-border-sm me-1"></i> 読み込み中...</div>`;
         try {
-          const data = await API.bookingTimeline.fetch(b.id);
-          contentEl.innerHTML = this._renderBookingTimeline(data);
+          // iCal/メール照合履歴を取得
+          const timelineData = await API.bookingTimeline.fetch(b.id);
+
+          // 名簿受信・修正履歴を guestData から抽出してイベント配列に変換
+          const guestEvents = [];
+          const tsToIso = (t) => {
+            if (!t) return null;
+            const d = t.toDate ? t.toDate() : (t.seconds ? new Date(t.seconds * 1000) : new Date(t));
+            return isNaN(d.getTime()) ? null : d.toISOString();
+          };
+          const createdIso = tsToIso(guestData.createdAt);
+          const completeIso = tsToIso(guestData.formCompleteMailSentAt);
+          const updatedIso = tsToIso(guestData.updatedAt);
+          const updateMailIso = tsToIso(guestData.formUpdateMailSentAt);
+          const editHistory = Array.isArray(guestData.editHistory) ? guestData.editHistory : [];
+
+          // 名簿受信
+          if (createdIso) {
+            guestEvents.push({ type: "roster_received", timestamp: createdIso, label: "名簿受信", note: "" });
+          }
+          // 完了メール送信 (受信と異なる場合)
+          if (completeIso && completeIso !== createdIso) {
+            guestEvents.push({ type: "roster_complete_mail", timestamp: completeIso, label: "完了メール送信", note: "" });
+          }
+          // 修正履歴 (editHistory 配列)
+          editHistory.forEach((h) => {
+            const iso = tsToIso(h.editedAt);
+            if (!iso) return;
+            const ch = Array.isArray(h.changes) ? h.changes.join(" / ") : (h.summary || "");
+            guestEvents.push({ type: "roster_updated", timestamp: iso, label: "名簿修正", note: ch });
+          });
+          // editHistory がない場合の最終更新
+          if (editHistory.length === 0 && updatedIso && updatedIso !== createdIso) {
+            const noteStr = updateMailIso ? `更新通知送信: ${updateMailIso}` : "";
+            guestEvents.push({ type: "roster_updated", timestamp: updatedIso, label: "名簿更新", note: noteStr });
+          }
+
+          // iCal/メール照合イベントと名簿イベントをマージして時系列降順ソート
+          const mergedEvents = [
+            ...(timelineData && Array.isArray(timelineData.events) ? timelineData.events : []),
+            ...guestEvents,
+          ].sort((a, b) => {
+            // timestamp が ISO 文字列の場合のみソート対象
+            const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+            const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+            return tb - ta; // 降順 (新しい順)
+          });
+
+          // 統合データを _renderBookingTimeline の形式に合わせて渡す
+          const mergedData = {
+            source: timelineData ? timelineData.source : (b.source || ""),
+            checkIn: timelineData ? timelineData.checkIn : (ci || ""),
+            checkOut: timelineData ? timelineData.checkOut : (co || ""),
+            unverified: timelineData ? timelineData.unverified : false,
+            events: mergedEvents,
+          };
+          contentEl.innerHTML = this._renderBookingTimeline(mergedData);
         } catch (e) {
           loaded = false;
           contentEl.innerHTML = `<div class="text-danger small">履歴の取得に失敗しました: ${this.esc(e.message || String(e))}</div>`;
@@ -1985,6 +2010,10 @@ const DashboardPage = {
       email_cancelled: "bi-envelope-x text-danger",
       email_changed: "bi-envelope-paper text-warning",
       email_pending: "bi-envelope-exclamation text-warning",
+      // 名簿系イベント (統合履歴で使用)
+      roster_received: "bi-file-earmark-person text-info",
+      roster_complete_mail: "bi-envelope-paper-heart text-success",
+      roster_updated: "bi-pencil-square text-warning",
     };
     const fmt = (iso) => {
       if (!iso) return "(時刻不明)";

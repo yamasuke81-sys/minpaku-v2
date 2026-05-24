@@ -994,6 +994,13 @@ const GuestsPage = {
       ${propBadgeHtml}
       ${sourceBadgeHtml ? `<div class="mb-3"><span class="small text-muted me-2">予約元:</span> ${sourceBadgeHtml}</div>` : ""}
 
+      <!-- キーボックス送信 (最上部に配置) -->
+      <div class="d-flex flex-wrap align-items-center gap-2 mb-3 p-2 border rounded bg-light">
+        <i class="bi bi-key-fill text-warning" style="font-size:1.2rem;"></i>
+        <span class="fw-semibold small">キーボックス送信</span>
+        <span>${kbStatusHtml}</span>
+      </div>
+
       <!-- 基本情報: 物件名/予約元/CI-CO/人数のコンパクトサマリー -->
       <h6 class="mb-2 text-primary">基本情報</h6>
       <table class="table table-sm table-borderless mb-2">
@@ -1092,27 +1099,17 @@ const GuestsPage = {
         </div>
       ` : ""}
 
-      <!-- 名簿受信・修正履歴 (折りたたみ、dashboard と同レイアウト) -->
+      <!-- 📜 統合履歴セクション (名簿受信 / 修正履歴、時系列降順) -->
       ${historyRows ? `
-      <details class="mt-3 border rounded">
+      <details class="mt-3 border rounded" open>
         <summary class="p-2 bg-light fw-bold small" style="cursor:pointer;">
-          <i class="bi bi-clock-history"></i> 名簿受信・修正履歴
+          <i class="bi bi-clock-history"></i> 📜 履歴 (名簿受信 / 修正)
         </summary>
         <table class="table table-sm table-borderless mb-0 small">
           ${historyRows}
         </table>
       </details>
       ` : ""}
-
-      <!-- 操作ボタン: キーボックス送信予約 -->
-      <hr>
-      <div class="d-flex flex-wrap align-items-center gap-2">
-        <div class="d-flex align-items-center gap-2 flex-grow-1">
-          <i class="bi bi-key-fill text-warning" style="font-size:1.2rem;"></i>
-          <span class="fw-semibold small">キーボックス送信</span>
-          <span>${kbStatusHtml}</span>
-        </div>
-      </div>
     `;
 
     // キーボックス送信予約ボタン (新規 / 再予約) のハンドラ
