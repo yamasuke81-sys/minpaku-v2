@@ -1080,13 +1080,25 @@
     const list = document.getElementById('allocationList');
     list.innerHTML = '';
     const alloc = Array.isArray(data.parkingAllocation) ? data.parkingAllocation : [];
-    if (alloc.length === 0) {
+
+    // 通常割当 + 有料駐車場(カフェ) を統合 → 物件の物理順 (unpaved → spot1 → spot5 → paid) で並び替え
+    const merged = [...alloc];
+    if (data.paidParking === '利用する') {
+      merged.push({
+        spot: 'paid',
+        vehicleType: data.paidParkingVehicleType || data.paidParkingNote || '',
+      });
+    }
+    const SPOT_ORDER = { unpaved: 0, spot1: 1, spot5: 2, paid: 3 };
+    merged.sort((a, b) => (SPOT_ORDER[a.spot] ?? 99) - (SPOT_ORDER[b.spot] ?? 99));
+
+    if (merged.length === 0) {
       const li = document.createElement('li');
       li.innerHTML = `<span class="spot-label"></span>`;
       li.querySelector('.spot-label').textContent = ALLOC_I18N.noCar[lang];
       list.appendChild(li);
     } else {
-      alloc.forEach(a => {
+      merged.forEach(a => {
         const li = document.createElement('li');
         const nameSpan = document.createElement('span');
         nameSpan.className = 'spot-name';
@@ -1109,9 +1121,8 @@
       b.textContent = text;
       extras.appendChild(b);
     };
-    if (data.paidParking === '利用する') addBadge(ALLOC_I18N.paidParking[lang]);
-    // BBQ ご予約済みバッジは不要 (別セクションのハウスルールで案内するため)
-    // if (data.bbq === '利用する') addBadge(ALLOC_I18N.bbq[lang]);
+    // 有料駐車場 (paidParking) は割当リスト内に「paid」エントリとして統合済みのためバッジは不要
+    // BBQ ご予約済みバッジも不要 (別セクションのハウスルールで案内するため)
     if (data.bedChoice) addBadge(ALLOC_I18N.bedChoice[lang](data.bedChoice));
 
     card.classList.add('show');
