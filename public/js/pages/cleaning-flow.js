@@ -224,8 +224,7 @@ const CleaningFlowPage = {
       arrowTo: "owner",
       linkHash: "#/notifications",
       linkLabel: "通知設定",
-      showIf: "inspection.enabled",
-      hint: "物件管理で「直前点検」を有効にした物件のみ表示されます。",
+      hint: "直前点検スタッフが点検完了を報告した際に送信されます。物件管理で「直前点検」を無効にすれば通知は発火しません。",
     },
     // ---- Phase 4: 月末 ----
     {

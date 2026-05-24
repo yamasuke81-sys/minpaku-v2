@@ -161,7 +161,24 @@
     }
 
     /* アコーディオン */
-    .accordion-body { font-size: 0.9rem; }
+    /* accordion-body のデフォルト padding を除去し、h6（px-3 = 1rem = 16px）と左端を揃える */
+    .accordion-body {
+      font-size: 0.9rem;
+      padding-top: 0.5rem;
+      padding-bottom: 0.5rem;
+      padding-left: 0;
+      padding-right: 0;
+    }
+    /* accordion-body 内の p/ul をh6と同じ左端（px-3 = 1rem = 16px）から開始 */
+    .accordion-body > p {
+      padding-left: 1rem;
+      padding-right: 1rem;
+    }
+    /* ul の bullet は h6左端（1rem）+ 字下がり（1rem）= 2rem のインデント */
+    .accordion-body > ul {
+      padding-left: 2rem;
+      padding-right: 1rem;
+    }
 
     /* ルールグループ見出し */
     .rule-group-title {
