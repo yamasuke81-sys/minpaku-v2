@@ -80,7 +80,18 @@ function maskToken(token) {
   }
 
   // channelOverrides の pre_inspection_done を確認
-  console.log("\n=== channelOverrides.pre_inspection_done ===");
+  // 主要通知キーの channelOverrides を全て出力
+  const checkKeys = ["recruit_start", "cleaning_done", "pre_inspection_done", "booking_change", "booking_cancel", "keybox_send"];
+  for (const key of checkKeys) {
+    console.log(`\n=== channelOverrides.${key} ===`);
+    const o = d.channelOverrides && d.channelOverrides[key];
+    if (!o) {
+      console.log("  (未設定 → デフォルト全 OFF 動作)");
+    } else {
+      console.log("  ", JSON.stringify(o, null, 2).replace(/\n/g, "\n  "));
+    }
+  }
+  console.log("\n=== channelOverrides.pre_inspection_done (再表示) ===");
   const ov = d.channelOverrides && d.channelOverrides.pre_inspection_done;
   if (!ov) {
     console.log("  (未設定)");
