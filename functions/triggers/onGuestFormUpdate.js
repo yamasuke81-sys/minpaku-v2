@@ -138,21 +138,8 @@ module.exports = async function onGuestFormUpdate(event) {
   // 差分計算
   const changes = calcChanges(before, after);
 
-  // editHistory[] に追記 (修正履歴の永続化、宿泊者情報詳細モーダルで表示)
-  try {
-    const admin = require("firebase-admin");
-    const changeLines = String(changes || "").split("\n").map((s) => s.trim()).filter(Boolean);
-    const entry = {
-      editedAt: admin.firestore.Timestamp.now(),
-      changes: changeLines.slice(0, 20), // 1 回あたり最大 20 件
-      summary: changeLines.length > 20 ? `${changeLines.length}件の変更` : "",
-    };
-    await event.data.after.ref.update({
-      editHistory: admin.firestore.FieldValue.arrayUnion(entry),
-    });
-  } catch (e) {
-    console.warn("[onGuestFormUpdate] editHistory 追記失敗:", e.message);
-  }
+  // editHistory[] 追記用の変更行を先に計算 (gmailId は後工程で付加)
+  const changeLines = String(changes || "").split("\n").map((s) => s.trim()).filter(Boolean);
 
   const confirmUrl = `${APP_URL}/#/guests?id=${encodeURIComponent(guestId)}`;
   const editUrl = after.editToken
@@ -246,6 +233,23 @@ module.exports = async function onGuestFormUpdate(event) {
   const renderDouble = (tmpl) =>
     String(tmpl || "").replace(/\{\{(\w+)\}\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ""));
 
+  // editHistory 追記済みフラグ (メール送信の成否・スキップ問わず必ず1回だけ追記する)
+  let editHistoryWritten = false;
+
+  // editHistory エントリ生成ヘルパー (gmailId はオプション)
+  function buildHistoryEntry(gmailId) {
+    const entry = {
+      editedAt: admin.firestore.Timestamp.now(),
+      changes: changeLines.slice(0, 20), // 1 回あたり最大 20 件
+      summary: changeLines.length > 20 ? `${changeLines.length}件の変更` : "",
+    };
+    if (gmailId) {
+      // 修正完了メールの Gmail messageId → 「Gmailで開く」リンクに使用
+      entry.gmailId = gmailId;
+    }
+    return entry;
+  }
+
   // === 1. 宿泊者宛 修正完了サンクスメール ===
   if (guestEmail) {
     let propUpdateMail = null;
@@ -305,15 +309,39 @@ module.exports = async function onGuestFormUpdate(event) {
           ? `${body}\n\n--------------------------------\n--- English follows ---\n--------------------------------\n\n${bodyEn}`
           : body;
 
-        await sendNotificationEmail_(guestEmail, finalSubject, finalBody, senderEmail, { strictFrom: true });
+        const updateSendResult = await sendNotificationEmail_(guestEmail, finalSubject, finalBody, senderEmail, { strictFrom: true });
         console.log(`名簿更新 宿泊者メール送信成功: ${guestEmail}`);
-        // 送信済み記録 (重複発火防止用)
+        // 送信済み記録 + editHistory 追記 (重複発火防止 + Gmailリンク用gmailId保存)
         try {
-          await event.data.after.ref.update({ formUpdateMailSentAt: new Date() });
+          const gmailId = updateSendResult && updateSendResult.messageId ? updateSendResult.messageId : null;
+          await event.data.after.ref.update({
+            formUpdateMailSentAt: new Date(),
+            editHistory: admin.firestore.FieldValue.arrayUnion(buildHistoryEntry(gmailId)),
+          });
+          editHistoryWritten = true;
         } catch (_) {}
       } catch (e) {
         console.error(`名簿更新 宿泊者メール送信失敗 (${guestEmail}):`, e.message);
+        // メール送信失敗時も editHistory は追記する (gmailId なし)
+        try {
+          await event.data.after.ref.update({
+            editHistory: admin.firestore.FieldValue.arrayUnion(buildHistoryEntry(null)),
+          });
+          editHistoryWritten = true;
+        } catch (_) {}
       }
+    }
+  }
+
+  // メール未送信ケース (guestEmail なし / updateMailEnabled=false / senderEmail 未設定) は
+  // 上のブロックで editHistory が追記されないため、ここで追記する
+  if (!editHistoryWritten) {
+    try {
+      await event.data.after.ref.update({
+        editHistory: admin.firestore.FieldValue.arrayUnion(buildHistoryEntry(null)),
+      });
+    } catch (e) {
+      console.warn("[onGuestFormUpdate] editHistory 追記失敗 (メール未送信ケース):", e.message);
     }
   }
 

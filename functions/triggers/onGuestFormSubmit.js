@@ -252,13 +252,18 @@ module.exports = async function onGuestFormSubmit(event) {
           ? `${guestBody}\n\n--------------------------------\n--- English follows ---\n--------------------------------\n\n${guestBodyEn}`
           : guestBody;
         // strictFrom: 担当者 Gmail が連携されていなければ送信しない (アプリ管理者から送らない)
-        await sendNotificationEmail_(guestEmail, finalSubject, finalBody, senderEmail, { strictFrom: true });
+        const sendResult = await sendNotificationEmail_(guestEmail, finalSubject, finalBody, senderEmail, { strictFrom: true });
         console.log(`宿泊者メール送信成功: ${guestEmail} (from=${senderEmail})`);
         try {
-          await db.collection("guestRegistrations").doc(guestId).update({
+          // sendResult.messageId が取れた場合は Firestore に保存 → 履歴セクションのGmailリンクに使用
+          const completeMailUpdate = {
             formCompleteMailSentAt: new Date(),
             formCompleteMailError: admin.firestore.FieldValue.delete(),
-          });
+          };
+          if (sendResult && sendResult.messageId) {
+            completeMailUpdate.formCompleteMailGmailId = sendResult.messageId;
+          }
+          await db.collection("guestRegistrations").doc(guestId).update(completeMailUpdate);
         } catch (_) {}
       } catch (e) {
         console.error(`宿泊者メール送信失敗 (${guestEmail}):`, e.message);

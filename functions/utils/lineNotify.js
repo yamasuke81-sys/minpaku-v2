@@ -854,7 +854,8 @@ function sendDiscord_(webhookUrl, content) {
 async function sendNotificationEmail_(to, subject, body, fromEmail, opts) {
   if (IS_EMULATOR) {
     console.log("[EMULATOR] would send email:", { to, subject, body, fromEmail });
-    return { ok: true, stub: true };
+    // エミュレータ時は messageId を null で返す (本番と同じ戻り値形式に統一)
+    return { ok: true, stub: true, messageId: null };
   }
   const { google } = require("googleapis");
   const admin = require("firebase-admin");
@@ -965,10 +966,13 @@ async function sendNotificationEmail_(to, subject, body, fromEmail, opts) {
   }
   const encodedMessage = Buffer.from(message).toString("base64url");
 
-  await gmail.users.messages.send({
+  // Gmail API の戻り値から messageId を取得して返す
+  const sendRes = await gmail.users.messages.send({
     userId: "me",
     requestBody: { raw: encodedMessage },
   });
+  // sendRes.data.id が Gmail の messageId (例: "18f3abc12345de67")
+  return { messageId: sendRes.data && sendRes.data.id ? sendRes.data.id : null };
 }
 
 // ========== 物件 Gmail 送信元解決 ==========

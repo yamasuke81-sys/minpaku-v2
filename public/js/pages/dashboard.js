@@ -1420,10 +1420,11 @@ const DashboardPage = {
 
           // 名簿受信
           if (createdIso) {
+            // TODO(formResponseGmailId): Google フォームから Firestore への直接書き込み経路では
+            //   受信メール自体の Gmail messageId を取得する手段がないため、現状はリンクなし。
+            //   将来的に Gmail API で受信メールを取り込む経路が実装された場合は
+            //   formResponseGmailId を保存してここで拾う。
             guestEvents.push({ type: "roster_received", timestamp: createdIso, label: "名簿受信", note: "" });
-            // TODO: guestRegistration に formResponseGmailId フィールドが追加されれば
-            //       linkUrl: `https://mail.google.com/mail/u/0/#all/${guestData.formResponseGmailId}`
-            //       linkLabel: "Gmailで開く" を追加する
           }
           // 完了メール送信 (受信と異なる場合)
           if (completeIso && completeIso !== createdIso) {
@@ -1456,10 +1457,20 @@ const DashboardPage = {
               ...(updateLinkUrl ? { linkUrl: updateLinkUrl, linkLabel: "Gmailで開く" } : {}),
             });
           });
-          // editHistory がない場合の最終更新
+          // editHistory がない場合の最終更新 (フォールバック)
           if (editHistory.length === 0 && updatedIso && updatedIso !== createdIso) {
             const noteStr = updateMailIso ? `更新通知送信: ${updateMailIso}` : "";
-            guestEvents.push({ type: "roster_updated", timestamp: updatedIso, label: "名簿更新", note: noteStr });
+            // formUpdateMailGmailId があれば修正完了メールの直通リンクを表示
+            const updateFallbackLinkUrl = guestData.formUpdateMailGmailId
+              ? `https://mail.google.com/mail/u/0/#all/${guestData.formUpdateMailGmailId}`
+              : null;
+            guestEvents.push({
+              type: "roster_updated",
+              timestamp: updatedIso,
+              label: "名簿更新",
+              note: noteStr,
+              ...(updateFallbackLinkUrl ? { linkUrl: updateFallbackLinkUrl, linkLabel: "Gmailで開く" } : {}),
+            });
           }
 
           // ===== 照合メール情報を email_confirmed イベントに統合 (gmailRow セクション廃止の代替) =====
