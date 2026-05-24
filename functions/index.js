@@ -365,8 +365,13 @@ exports.onGuestRegistrationToGas = onDocumentCreated(
 );
 
 // 予約変更時→清掃スケジュール自動生成
+// メモリ 256MB → 512MB に増量 (LINE通知 notifyByKey 内の累積処理で OOM していたため)
 exports.onBookingChange = onDocumentWritten(
-  "bookings/{bookingId}",
+  {
+    document: "bookings/{bookingId}",
+    memory: "512MiB",
+    timeoutSeconds: 540,
+  },
   require("./triggers/onBookingChange")
 );
 

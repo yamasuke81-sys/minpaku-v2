@@ -7,6 +7,7 @@ exports.orphanCleanup = onSchedule({
   timeZone: "Asia/Tokyo",
   region: "asia-northeast1",
   timeoutSeconds: 540,
+  memory: "512MiB",  // OOM対策: 全 shifts/checklists を読むため
 }, async (event) => {
   const db = admin.firestore();
   const stats = { orphanChecklists: 0, orphanShifts: 0, orphanRecs: 0, fixedPending: 0 };
