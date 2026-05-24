@@ -32,6 +32,7 @@ exports.photoCleanup = onSchedule({
   timeZone: "Asia/Tokyo",
   region: "asia-northeast1",
   timeoutSeconds: 540,
+  memory: "512MiB",  // OOM対策: 全 checklists + storage を走査するため
 }, async (_event) => {
   const db = admin.firestore();
   const bucket = getStorage().bucket();
