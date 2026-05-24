@@ -260,7 +260,7 @@ const ContactsPage = {
               <tr><td><strong>物件オーナー個別 Discord</strong></td><td>その物件オーナー宛 Discord 通知</td><td>—</td></tr>
             </tbody>
           </table>
-          <p class="text-muted small mb-0 mt-1">通知ごとの ON/OFF や宛先指定は <a href="#/cleaning-flow">清掃フロー構成</a> / <a href="#/reservation-flow">予約フロー構成</a> の各通知行で変更します。</p>
+          <p class="text-muted small mb-0 mt-1">通知ごとの ON/OFF や宛先指定は <a href="#/reservation-flow">予約/清掃フロー構成</a> の各通知行で変更します。</p>
         </div></div>
       </details>
 

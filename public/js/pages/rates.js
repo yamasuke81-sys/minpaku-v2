@@ -93,7 +93,7 @@ const RatesPage = {
     }
   },
 
-  // 物件選定 UI を清掃フロー (cleaning-flow.js の _renderPropertySelector) と同じ番号バッジ付きボタン群方式で描画
+  // 物件選定 UI を予約/清掃フロー (reservation-flow.js の _renderPropertySelector) と同じ番号バッジ付きボタン群方式で描画
   renderPropertySelector() {
     const wrap = document.getElementById("ratesPropertySelector");
     if (!wrap) return;

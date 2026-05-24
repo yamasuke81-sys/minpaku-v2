@@ -144,8 +144,7 @@ const NotificationsPage = {
             <strong>このページの「通知のON/OFF」「送信先」「本文テンプレ」は運用に反映されません</strong>
             <p class="small mb-2 mt-1">
               通知の有効/無効・宛先・カスタムメッセージはすべて
-              <a href="#/reservation-flow"><strong>予約フロー構成</strong></a> /
-              <a href="#/cleaning-flow"><strong>清掃フロー構成</strong></a> の物件別カードに統合されました。
+              <a href="#/reservation-flow"><strong>予約/清掃フロー構成</strong></a> の物件別カードに統合されました。
               このページの設定値は無視されます。下記の各通知種別カードは参考表示のみです。
             </p>
             <small class="text-muted">Webアプリ管理者の個別通知先（メール/Discord）など個人設定はここで編集します。</small>
@@ -233,8 +232,7 @@ const NotificationsPage = {
       <h5 class="mb-3">通知チャンネル設定 <small class="text-muted">（参考表示・運用には使われません）</small></h5>
       <div class="alert alert-secondary small mb-3">
         <i class="bi bi-archive"></i>
-        通知の ON/OFF・送信先・本文は <a href="#/reservation-flow" class="alert-link">予約フロー構成</a> /
-        <a href="#/cleaning-flow" class="alert-link">清掃フロー構成</a> の物件別カードでのみ設定できます。
+        通知の ON/OFF・送信先・本文は <a href="#/reservation-flow" class="alert-link">予約/清掃フロー構成</a> の物件別カードでのみ設定できます。
         ここの値を変更しても運用には反映されません。
       </div>
 

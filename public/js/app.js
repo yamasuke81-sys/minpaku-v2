@@ -21,8 +21,6 @@ const App = {
     laundry: LaundryPage,
     checklist: ChecklistPage,
     "reservation-flow": ReservationFlowPage,
-    // cleaning-flow は予約フローに統合済み (旧 hash 互換のため同じページにルーティング)
-    "cleaning-flow": ReservationFlowPage,
     "prepaid-cards": PrepaidCardsPage,
     reports: ReportsPage,
     command: CommandCenterPage,
@@ -560,7 +558,7 @@ const App = {
       const subOwnerAllowed = new Set([
         "schedule", "properties", "staff", "guests", "guest-guides",
         "recruitment", "laundry", "checklist", "prepaid-cards",
-        "reservation-flow", "cleaning-flow", "rates", "invoices",
+        "reservation-flow", "rates", "invoices",
         // チェックリスト管理画面 (#/checklist) からの遷移先・募集詳細からの遷移先
         "my-checklist", "property-checklist",
         // スタッフ向け画面 (物件オーナーがスタッフ視点で見る場合に必要)
