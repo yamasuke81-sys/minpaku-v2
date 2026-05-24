@@ -365,11 +365,12 @@ exports.onGuestRegistrationToGas = onDocumentCreated(
 );
 
 // 予約変更時→清掃スケジュール自動生成
-// メモリ 256MB → 512MB に増量 (LINE通知 notifyByKey 内の累積処理で OOM していたため)
+// メモリ 256→512→1024MiB に増量
+//   512MiB でも 529MB 使用で OOM していたため (iCal大量同期 + notifyByKey累積で肥大)
 exports.onBookingChange = onDocumentWritten(
   {
     document: "bookings/{bookingId}",
-    memory: "512MiB",
+    memory: "1GiB",
     timeoutSeconds: 540,
   },
   require("./triggers/onBookingChange")
