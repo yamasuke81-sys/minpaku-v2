@@ -694,6 +694,21 @@ const ReservationFlowPage = {
       linkHash: "#/notifications",
       linkLabel: "通知設定",
     },
+    // 直前点検チェックリスト完了時の通知 (workType="pre_inspection" のシフトのみ発火)
+    {
+      key: "pre_inspection_done",
+      label: "直前点検完了通知",
+      icon: "bi-search-heart",
+      lane: "staff",
+      phase: 3,
+      track: "staff",
+      globalChannel: "pre_inspection_done",
+      varGroup: "cleaning",
+      arrowTo: "owner",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+      hint: "直前点検チェックリスト完了時にWebアプリ管理者に通知。物件管理で「直前点検」を無効にすれば発火しません。",
+    },
 
     // ---- Phase 4: 月次精算 (請求書フロー) ----
     {
@@ -1872,6 +1887,10 @@ const ReservationFlowPage = {
       syncBadge = `<span class="badge bg-success-subtle text-success border border-success-subtle ms-1 rf-sync-badge" style="font-size:9px;" title="properties.${step.propertyField} に保存 (物件ごと・他タブと同期)"><i class="bi bi-arrow-left-right"></i> 同期</span>`;
     }
     const arrowBadge = ""; // 人マーク・矢印バッジは廃止
+    // pre_inspection_done は「直前点検」の紫バッジを付けて cleaning_done と区別
+    const preInspectionBadge = (step.key === "pre_inspection_done")
+      ? `<span class="badge ms-1" style="font-size:9px;background:#7c3aed;color:#fff;">直前点検</span>`
+      : "";
     const channelIconsHtml = this._renderChannelIcons(step, property);
 
     // フォールドID
@@ -1930,7 +1949,7 @@ const ReservationFlowPage = {
         <div class="rf-card-header" data-fold="${foldId}" style="cursor:pointer;">
           <i class="bi ${step.icon} rf-card-icon"></i>
           <span class="rf-card-title" title="${this._esc(step.label)}">${this._esc(step.label)}</span>
-          ${statusBadge}${syncBadge}${arrowBadge}${channelIconsHtml}
+          ${statusBadge}${syncBadge}${arrowBadge}${preInspectionBadge}${channelIconsHtml}
           <div class="ms-auto d-flex align-items-center gap-1">
             ${headerToggleHtml}
             <i class="bi bi-chevron-down rf-chevron" data-fold="${foldId}" style="font-size:0.75rem;transition:transform 0.2s;"></i>
