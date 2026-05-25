@@ -21,6 +21,30 @@ function _sanitizeLineChannels(raw) {
   }));
 }
 
+/**
+ * timeeAutofill オブジェクトのサニタイズ
+ * タイミー求人複製 URL + フォーム自動入力用パラメータ一式
+ * userscripts/timee-autofill.user.js が読む
+ */
+function _sanitizeTimeeAutofill(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const baseUrl = raw.baseUrl ? String(raw.baseUrl).trim() : "";
+  if (!baseUrl) return null;
+  return {
+    baseUrl,
+    start: raw.start ? String(raw.start).trim() : "10:00",
+    end: raw.end ? String(raw.end).trim() : "12:00",
+    restMin: Number(raw.restMin) || 0,
+    workers: Number(raw.workers) || 1,
+    wage: Number(raw.wage) || 0,
+    transport: Number(raw.transport) || 0,
+    autoMsg: raw.autoMsg === true || raw.autoMsg === "true",
+    autoMsgTarget: ["everyone", "first_matching_for_client"].includes(raw.autoMsgTarget)
+      ? raw.autoMsgTarget : "everyone",
+    groupIds: raw.groupIds ? String(raw.groupIds).trim() : "",
+  };
+}
+
 module.exports = function propertiesApi(db) {
   const router = Router();
   const collection = db.collection("properties");
@@ -160,6 +184,8 @@ module.exports = function propertiesApi(db) {
         baseWorkTime: (body.baseWorkTime && typeof body.baseWorkTime === "object")
           ? { start: String(body.baseWorkTime.start || "10:30"), end: String(body.baseWorkTime.end || "14:30") }
           : { start: "10:30", end: "14:30" },
+        // タイミー求人自動入力設定 (userscripts/timee-autofill.user.js が利用)
+        timeeAutofill: _sanitizeTimeeAutofill(body.timeeAutofill),
         // 物件別 LINE 連携設定（後方互換フィールド）
         lineEnabled: body.lineEnabled === true,
         lineChannelToken: body.lineChannelToken ? String(body.lineChannelToken).trim() : "",
@@ -223,6 +249,10 @@ module.exports = function propertiesApi(db) {
           start: String(body.baseWorkTime.start || "10:30"),
           end: String(body.baseWorkTime.end || "14:30"),
         };
+      }
+      // タイミー求人自動入力設定 (null 指定で削除)
+      if (body.timeeAutofill !== undefined) {
+        data.timeeAutofill = body.timeeAutofill === null ? null : _sanitizeTimeeAutofill(body.timeeAutofill);
       }
       // 物件別 LINE 連携設定（後方互換フィールド）
       if (body.lineEnabled !== undefined) data.lineEnabled = Boolean(body.lineEnabled);
