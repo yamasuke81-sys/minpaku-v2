@@ -149,13 +149,66 @@ module.exports = function guestEditApi(db) {
         console.error("Webアプリ管理者メール処理エラー:", e.message);
       }
 
-      // 宿泊者にメール（修正確認）
+      // 宿泊者にメール（修正受領サンクスメール）
+      // 物件別 properties/{pid}.formUpdateMail.{subject,body,subjectEn,bodyEn} を最優先で参照
+      // (グローバル settings/guestForm.emailTemplates.guestConfirmation は参照しない — 2026-05-27 廃止)
+      // 物件別未設定なら、ビルトインデフォルト文言を {key} 形式でレンダリングする。
       const guestEmail = mergedData.email;
       if (guestEmail) {
         try {
-          const guestSubject = renderTemplate(templates.guestConfirmation.subject, vars);
-          const guestBody = renderTemplate(templates.guestConfirmation.body, vars);
-          await sendNotificationEmail_(guestEmail, guestSubject, guestBody, senderGmail || null, { preferFromHeader: true });
+          // 物件別 formUpdateMail を取得
+          let propFormUpdateMail = null;
+          if (currentData.propertyId) {
+            try {
+              const pDoc = await db.collection("properties").doc(currentData.propertyId).get();
+              if (pDoc.exists) propFormUpdateMail = (pDoc.data() || {}).formUpdateMail || null;
+            } catch (_) {}
+          }
+
+          // 物件側で送信OFFされていればスキップ (formCompleteMail と同じ規約)
+          if (propFormUpdateMail && propFormUpdateMail.enabled === false) {
+            console.log(`[guest-edit] formUpdateMail.enabled=false のため修正メール送信スキップ`);
+          } else {
+            // ビルトインデフォルト (グローバル設定は参照しない)
+            const DEFAULT_SUBJECT = "【宿泊者名簿】修正を受け付けました - {guestName}様";
+            const DEFAULT_BODY = [
+              "{guestName} 様",
+              "",
+              "宿泊者名簿のご修正を受け付けました。",
+              "以下の内容で承りました。",
+              "",
+              "■ 変更内容",
+              "{changes}",
+              "",
+              "■ 最新内容",
+              "{summary}",
+              "",
+              "再度ご修正の必要がございましたら、下記リンクよりお手続きください。",
+              "{editUrl}",
+              "",
+              "※ Webアプリ管理者が確認済みにすると修正できなくなります。",
+              "",
+              "ご質問等ございましたら、本メールにご返信ください。",
+              "何卒よろしくお願い申し上げます。",
+            ].join("\n");
+
+            const renderSingle = (tmpl) => String(tmpl || "").replace(/\{(\w+)\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ""));
+            const renderDouble = (tmpl) => String(tmpl || "").replace(/\{\{(\w+)\}\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ""));
+            const subjectTmpl = (propFormUpdateMail && propFormUpdateMail.subject) ? propFormUpdateMail.subject : "";
+            const bodyTmpl    = (propFormUpdateMail && propFormUpdateMail.body)    ? propFormUpdateMail.body    : "";
+            const guestSubject = subjectTmpl ? renderDouble(subjectTmpl) : renderSingle(DEFAULT_SUBJECT);
+            const guestBody    = bodyTmpl    ? renderDouble(bodyTmpl)    : renderSingle(DEFAULT_BODY);
+            // 英訳併記 (formUpdateMail.subjectEn / bodyEn)
+            const subjectEnTmpl = (propFormUpdateMail && propFormUpdateMail.subjectEn) ? propFormUpdateMail.subjectEn : "";
+            const bodyEnTmpl    = (propFormUpdateMail && propFormUpdateMail.bodyEn)    ? propFormUpdateMail.bodyEn    : "";
+            const guestSubjectEn = subjectEnTmpl ? renderDouble(subjectEnTmpl) : "";
+            const guestBodyEn    = bodyEnTmpl    ? renderDouble(bodyEnTmpl)    : "";
+            const finalSubject = guestSubjectEn ? `${guestSubject} / ${guestSubjectEn}` : guestSubject;
+            const finalBody    = guestBodyEn
+              ? `${guestBody}\n\n--------------------------------\n--- English follows ---\n--------------------------------\n\n${guestBodyEn}`
+              : guestBody;
+            await sendNotificationEmail_(guestEmail, finalSubject, finalBody, senderGmail || null, { preferFromHeader: true });
+          }
         } catch (e) {
           console.error(`宿泊者メール送信失敗:`, e.message);
         }

@@ -131,27 +131,9 @@ function buildGuestSummaryText(data) {
 }
 
 // デフォルトメールテンプレート
+// 注: guestConfirmation (修正受領メール) は guest-edit.js 内のビルトインに移管 (2026-05-27)
+//     物件別 properties/{pid}.formUpdateMail が SSOT、未設定時はコード内デフォルト文言を使用
 const DEFAULT_TEMPLATES = {
-  guestConfirmation: {
-    subject: "【宿泊者名簿】ご記入ありがとうございます - {guestName}様",
-    body: `{guestName} 様
-
-宿泊者名簿のご記入ありがとうございます。
-以下の内容で受け付けました。
-
-{summary}
-
-内容に修正がある場合は、以下のリンクから修正できます:
-{editUrl}
-
-※ Webアプリ管理者が確認済みにすると修正できなくなります。
-
-詳しいご案内はゲストガイドをご覧ください:
-{guideUrl}
-
-ご不明な点がございましたらお気軽にご連絡ください。
-ご宿泊を楽しみにお待ちしております。`,
-  },
   ownerNotification: {
     subject: "【名簿受信】{guestName} ({checkIn}〜{checkOut})",
     body: `宿泊者名簿が届きました。

@@ -16,7 +16,6 @@ const App = {
     shifts: ShiftsPage,
     invoices: InvoicesPage,
     rates: RatesPage,
-    notifications: NotificationsPage,
     contacts: ContactsPage,
     laundry: LaundryPage,
     checklist: ChecklistPage,

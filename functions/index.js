@@ -296,12 +296,9 @@ exports.syncIcal = onSchedule({
 // OAuth トークン期限リマインダー（毎日 9:00 JST、6日経過で LINE+メール通知）
 exports.oauthReminder = require("./scheduled/oauthReminder").oauthReminder;
 
-// GAS版予約データ差分比較（毎時0分）— 設定に応じて dailyTime / beforeTime で実行
-exports.runGasComparisonHourly = onSchedule({
-  schedule: "0 * * * *",
-  region: "asia-northeast1",
-  timeZone: "Asia/Tokyo",
-}, require("./scheduled/compareGasReservations"));
+// GAS版予約データ差分比較は廃止 (2026-05-27)
+// 民泊 v2 へ移行完了のため compareGasReservations は不要。
+// onGuestRegistrationToGas (リバース連携) は引き続き settings/gasComparison.gasUrl/gasToken を参照する。
 
 // 孤児データクリーンアップ（毎日 2:00 JST）
 exports.orphanCleanup = require("./scheduled/orphanCleanup").orphanCleanup;
@@ -329,22 +326,7 @@ exports.scanSorterProcess = require("./scheduled/scanSorterProcess").scanSorterP
 // 請求書自動生成（毎月1日 2:00 JST に前月分生成）
 exports.generateInvoices = require("./scheduled/generateInvoices").generateInvoices;
 
-// GAS版予約データ差分比較 テスト実行（設定画面の「テスト実行」ボタンから呼び出す）
-exports.testGasComparison = onCall(
-  { region: "asia-northeast1" },
-  async (request) => {
-    // オーナー権限チェック
-    if (!request.auth) throw new Error("認証が必要です");
-    const role = request.auth.token.role;
-    if (role !== "owner" && role !== null && role !== undefined) {
-      throw new Error("Webアプリ管理者権限が必要です");
-    }
-    const { runComparison } = require("./scheduled/compareGasReservations");
-    // フロントから設定を直接渡すことも可能（未指定なら Firestore から読み込む）
-    const configOverride = request.data?.config || null;
-    return runComparison(db, configOverride);
-  }
-);
+// testGasComparison (onCall) も廃止 (2026-05-27)
 
 // ========== Firestoreトリガー ==========
 
