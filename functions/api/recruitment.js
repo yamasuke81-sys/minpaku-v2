@@ -527,6 +527,51 @@ module.exports = function recruitmentApi(db) {
    * - 全スタッフに recruit_start 通知 (変更後の日付について再募集)
    * Body: { recruitmentId, oldDate, newDate }
    */
+  /**
+   * 募集通知の即時再送 (オーナー専用)
+   * - 募集詳細モーダルから手動で発火
+   * - recruit_start 通知 (清掃 or 直前点検) を改めて発射
+   * - 既存の回答・選定状態は一切変更しない
+   */
+  router.post("/:id/notify", async (req, res) => {
+    try {
+      if (req.user.role !== "owner") {
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
+      }
+      const docRef = collection.doc(req.params.id);
+      const doc = await docRef.get();
+      if (!doc.exists) return res.status(404).json({ error: "募集が見つかりません" });
+      const r = doc.data();
+
+      const { settings } = await getNotificationSettings_(db);
+      const appUrl = settings?.appUrl || process.env.APP_BASE_URL || "https://minpaku-v2.web.app";
+      const recruitUrl = `${appUrl.replace(/\/$/, "")}/#/my-recruitment`;
+      const work = r.workType === "pre_inspection" ? "直前点検" : "清掃";
+      const propertyName = r.propertyName || "";
+      const memo = r.memo || "";
+
+      const result = await notifyByKey(db, "recruit_start", {
+        title: `${work}スタッフ募集: ${r.checkoutDate}`,
+        body: `🧹 ${work}スタッフ募集\n${r.checkoutDate} ${propertyName}\n${memo}\n回答: ${recruitUrl}`,
+        vars: {
+          date: r.checkoutDate,
+          checkoutDate: r.checkoutDate,
+          property: propertyName,
+          propertyName,
+          work,
+          url: recruitUrl,
+          memo,
+        },
+        propertyId: r.propertyId || null,
+      });
+
+      res.json({ message: `${work}募集通知を再送しました`, result });
+    } catch (e) {
+      console.error("募集通知再送エラー:", e);
+      res.status(500).json({ error: e.message || "募集通知の再送に失敗しました" });
+    }
+  });
+
   router.post("/notify-date-change", async (req, res) => {
     try {
       if (req.user.role !== "owner") {

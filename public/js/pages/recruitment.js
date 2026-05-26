@@ -114,7 +114,51 @@ const RecruitmentPage = {
       document.getElementById("btnDeleteRecruitmentInModal")?.addEventListener("click", () => {
         this.deleteRecruitmentFromModal();
       });
+      document.getElementById("btnNotifyRecruitment")?.addEventListener("click", () => {
+        this.sendRecruitmentNotification();
+      });
       this._quickBound = true;
+    }
+  },
+
+  /**
+   * 募集通知を即時再送 (オーナー専用)
+   * - 清掃 / 直前点検 の recruit_start 通知を改めて発射
+   * - 既存の回答・選定・状態は触らない
+   */
+  async sendRecruitmentNotification() {
+    const r = this._currentRecruitment;
+    if (!r) return;
+    if (!Auth || !Auth.isOwner || !Auth.isOwner()) {
+      await showAlert("オーナー権限が必要です");
+      return;
+    }
+    const work = r.workType === "pre_inspection" ? "直前点検" : "清掃";
+    const ok = await showConfirm(
+      `${work}スタッフ募集の通知を今すぐ送信します。\n\n日付: ${r.checkoutDate}\n物件: ${r.propertyName || "-"}\n\n通知設定 (LINE / メール 等) に従って一斉送信されます。`,
+      { title: "募集通知を送信", okLabel: "送信", okClass: "btn-primary" }
+    );
+    if (!ok) return;
+
+    const btn = document.getElementById("btnNotifyRecruitment");
+    const orig = btn ? btn.innerHTML : "";
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 送信中...'; }
+    try {
+      const token = await Auth.currentUser.getIdToken();
+      const res = await fetch(`/api/recruitment/${encodeURIComponent(r.id)}/notify`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      showToast("完了", `${work}募集通知を送信しました`, "success");
+    } catch (e) {
+      console.error("[sendRecruitmentNotification] エラー:", e);
+      await showAlert("募集通知の送信に失敗: " + (e.message || e));
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = orig; }
     }
   },
 
@@ -273,10 +317,12 @@ const RecruitmentPage = {
       const rb = document.getElementById("btnReopenRecruitment");
       const db = document.getElementById("btnChangeRecruitmentDate");
       const xb = document.getElementById("btnDeleteRecruitmentInModal");
+      const nb = document.getElementById("btnNotifyRecruitment");
       if (cb) cb.addEventListener("click", () => this.confirmRecruitment());
       if (rb) rb.addEventListener("click", () => this.reopenRecruitment());
       if (db) db.addEventListener("click", () => this.changeRecruitmentDate());
       if (xb) xb.addEventListener("click", () => this.deleteRecruitmentFromModal());
+      if (nb) nb.addEventListener("click", () => this.sendRecruitmentNotification());
       this._quickBound = true;
     }
   },
