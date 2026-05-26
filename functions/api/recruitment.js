@@ -563,6 +563,10 @@ module.exports = function recruitmentApi(db) {
           memo,
         },
         propertyId: r.propertyId || null,
+        // 手動「募集通知」ボタンはバッチ(朝8時/夜20時)をバイパスして必ず即時送信
+        // notifyByKey 内で _fromBatchQueue=true を見るとバッチ enqueue 分岐をスキップして
+        // 即時送信フローに進むため、ここで指定する
+        _fromBatchQueue: true,
       });
 
       res.json({ message: `${work}募集通知を再送しました`, result });
