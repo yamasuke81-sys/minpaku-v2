@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         タイミー 民泊清掃募集 自動入力
 // @namespace    https://minpaku-v2.web.app/
-// @version      0.1.0
+// @version      0.2.0
 // @description  v2 通知から開かれた募集作成フォームを、URL ハッシュパラメータで自動入力する
 // @author       minpaku-v2
 // @match        https://app-new.taimee.co.jp/clients/*/offers/*/offerings/new*
@@ -53,15 +53,28 @@
   }
 
   // 日付選択 (YYYY-MM-DD)
+  // 月/年セレクトを setNative する方式は react-datepicker の React state を更新できない場合があるため、
+  // 「前月へ/次月へ」ナビゲーションボタンを必要回数クリックして移動する方式を採用。
   async function pickDate(dateStr) {
     const [y, m, d] = (dateStr || '').split('-').map(Number);
     if (!y || !m || !d) return false;
-    const selects = document.querySelectorAll('.react-datepicker select');
-    if (selects.length >= 2) {
-      setNative(selects[0], String(m - 1)); // 月 (0-indexed)
-      setNative(selects[1], String(y));
-      await sleep(250);
+    const monthSel = document.querySelector('.react-datepicker__month-select');
+    const yearSel = document.querySelector('.react-datepicker__year-select');
+    if (!monthSel || !yearSel) return false;
+
+    const targetTotal = y * 12 + (m - 1);
+    let safety = 60; // 最大 5 年分のクリック
+    while (safety-- > 0) {
+      const curTotal = Number(yearSel.value) * 12 + Number(monthSel.value);
+      if (curTotal === targetTotal) break;
+      const btn = curTotal < targetTotal
+        ? document.querySelector('.react-datepicker__navigation--next')
+        : document.querySelector('.react-datepicker__navigation--previous');
+      if (!btn) return false;
+      btn.click();
+      await sleep(120);
     }
+
     const dd = String(d).padStart(3, '0');
     const cells = document.querySelectorAll(`.react-datepicker__day--${dd}`);
     for (const c of cells) {
