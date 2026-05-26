@@ -12,6 +12,7 @@ const {
 } = require("../utils/lineNotify");
 const { buildIcsEvent } = require("../utils/icsBuilder");
 const { addRecruitmentToActiveStaff, removeRecruitmentFromStaff, removeRecruitmentFromAllStaff } = require("../utils/inactiveStaff");
+const { shouldDeferRecruitStart } = require("../utils/recruitDeferral");
 
 module.exports = function recruitmentApi(db) {
   const router = Router();
@@ -85,6 +86,15 @@ module.exports = function recruitmentApi(db) {
           if (propDoc.exists) propertyOverrides = propDoc.data().channelOverrides || {};
         }
         if (shouldNotify) {
+          // 30日繰延フラグが ON で作業日が 30日超なら通知をスキップし notifyDeferred を立てる
+          if (shouldDeferRecruitStart(settings, data.checkoutDate)) {
+            await docRef.update({
+              notifyDeferred: true,
+              notifyDeferredReason: "within30Days",
+              updatedAt: FieldValue.serverTimestamp(),
+            });
+            console.log(`手動募集 ${docRef.id}: 30日繰延 (作業日=${data.checkoutDate})`);
+          } else {
           const appUrl = (settings && settings.appUrl) || process.env.APP_BASE_URL || "https://minpaku-v2.web.app";
           // タップで該当募集の詳細モーダルを直接開けるよう recruitmentId 付き
           const recruitUrl = `${appUrl.replace(/\/$/, "")}/#/my-recruitment/${docRef.id}`;
@@ -105,6 +115,7 @@ module.exports = function recruitmentApi(db) {
             vars: baseVars,
             propertyId: data.propertyId || null,
           });
+          }
         }
       } catch (notifyErr) {
         console.error("募集通知エラー（無視）:", notifyErr);

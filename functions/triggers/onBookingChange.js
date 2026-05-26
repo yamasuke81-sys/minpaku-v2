@@ -13,6 +13,7 @@ const {
   getNotificationSettings_,
 } = require("../utils/lineNotify");
 const { addRecruitmentToActiveStaff, removeRecruitmentFromAllStaff } = require("../utils/inactiveStaff");
+const { shouldDeferRecruitStart } = require("../utils/recruitDeferral");
 
 // YYYY-MM-DD 文字列から UTC midnight の Date を作成 (JST ズレなし)
 function toUtcMidnight(dateStr) {
@@ -816,30 +817,41 @@ module.exports = async function onBookingChange(event) {
   // ========== LINE通知 (recruit_start) ==========
   try {
     const { settings } = await getNotificationSettings_(db);
-    const appUrl = settings?.appUrl || "https://minpaku-v2.web.app";
-    // 該当募集の回答ページを直接開く URL (recruitmentId を末尾に付与)
-    const recruitUrl = `${appUrl}/#/my-recruitment/${recruitmentId}`;
-    // 復元検知: before あり + before=cancelled + after=confirmed
-    // (誤キャンセルからの復元 / 一度キャンセルした予約をやり直すケース)
-    const isRestored = before && wasCancelled && !nowCancelled;
-    const restoreNote = isRestored
-      ? "\n※ 自動キャンセルからの復元による再募集です。前回の回答は引き継がれていません。"
-      : "";
-    const titleSuffix = isRestored ? " (再募集)" : "";
-    // notifyByKey で ownerLine/groupLine/staffLine を一括送信
-    await notifyByKey(db, "recruit_start", {
-      title: `清掃スタッフ募集: ${checkOut}${titleSuffix}`,
-      body: `【清掃スタッフ募集${titleSuffix}】\n${checkOut} ${propertyName}\n${memo}${restoreNote}\n回答: ${recruitUrl}`,
-      vars: {
-        date: checkOut,
-        property: propertyName || "",
-        work: "清掃",
-        url: recruitUrl,
-        memo: memo || "",
-        note: restoreNote.trim(),
-      },
-      propertyId: propertyId || null,
-    });
+    // 30日繰延フラグが ON で作業日が 30日超なら、通知を発火せず notifyDeferred を立てる
+    // (dispatchDeferredRecruits バッチが日付経過で 30日以内に入ったタイミングで自動発火)
+    if (shouldDeferRecruitStart(settings, checkOut)) {
+      await db.collection("recruitments").doc(recruitmentId).update({
+        notifyDeferred: true,
+        notifyDeferredReason: "within30Days",
+        updatedAt: now,
+      });
+      console.log(`予約 ${bookingId}: 清掃募集を 30日繰延 (作業日=${checkOut}) recruitmentId=${recruitmentId}`);
+    } else {
+      const appUrl = settings?.appUrl || "https://minpaku-v2.web.app";
+      // 該当募集の回答ページを直接開く URL (recruitmentId を末尾に付与)
+      const recruitUrl = `${appUrl}/#/my-recruitment/${recruitmentId}`;
+      // 復元検知: before あり + before=cancelled + after=confirmed
+      // (誤キャンセルからの復元 / 一度キャンセルした予約をやり直すケース)
+      const isRestored = before && wasCancelled && !nowCancelled;
+      const restoreNote = isRestored
+        ? "\n※ 自動キャンセルからの復元による再募集です。前回の回答は引き継がれていません。"
+        : "";
+      const titleSuffix = isRestored ? " (再募集)" : "";
+      // notifyByKey で ownerLine/groupLine/staffLine を一括送信
+      await notifyByKey(db, "recruit_start", {
+        title: `清掃スタッフ募集: ${checkOut}${titleSuffix}`,
+        body: `【清掃スタッフ募集${titleSuffix}】\n${checkOut} ${propertyName}\n${memo}${restoreNote}\n回答: ${recruitUrl}`,
+        vars: {
+          date: checkOut,
+          property: propertyName || "",
+          work: "清掃",
+          url: recruitUrl,
+          memo: memo || "",
+          note: restoreNote.trim(),
+        },
+        propertyId: propertyId || null,
+      });
+    }
   } catch (e) {
     console.error("LINE通知エラー:", e);
   }
@@ -1018,6 +1030,16 @@ module.exports = async function onBookingChange(event) {
     try {
       if (!insRecruitmentId) return;
       const { settings: s2 } = await getNotificationSettings_(db);
+      // 30日繰延フラグが ON で作業日 (=checkIn) が 30日超なら notifyDeferred を立てて発火スキップ
+      if (shouldDeferRecruitStart(s2, checkIn)) {
+        await db.collection("recruitments").doc(insRecruitmentId).update({
+          notifyDeferred: true,
+          notifyDeferredReason: "within30Days",
+          updatedAt: now,
+        });
+        console.log(`予約 ${bookingId}: 直前点検募集を 30日繰延 (作業日=${checkIn}) recruitmentId=${insRecruitmentId}`);
+        return;
+      }
       const appUrl2 = s2?.appUrl || "https://minpaku-v2.web.app";
       // 該当直前点検募集の回答ページを直接開く URL (insRecruitmentId を末尾に付与)
       const recruitUrl2 = `${appUrl2}/#/my-recruitment/${insRecruitmentId}`;

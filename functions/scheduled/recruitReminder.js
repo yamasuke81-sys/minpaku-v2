@@ -91,6 +91,11 @@ module.exports = async function recruitReminder() {
 
       for (const rd of recSnap.docs) {
         const r = rd.data();
+        // 30日繰延中 (recruit_start 未発火) の募集はリマインド対象外
+        if (r.notifyDeferred === true) {
+          console.log(`[recruitReminder] notifyDeferred のためスキップ rec=${rd.id}`);
+          continue;
+        }
         const responses = r.responses || [];
         const respondedIds = new Set(responses.map(x => x.staffId).filter(Boolean));
         // assignedPropertyIds に当該物件を含むスタッフのみ対象

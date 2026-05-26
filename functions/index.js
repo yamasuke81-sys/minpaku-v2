@@ -244,6 +244,14 @@ exports.recruitReminder = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/recruitReminder"));
 
+// 30日繰延された募集の自動発火 (毎日 JST 08:00)
+// 予約時点で 30日より先だった募集が、日付経過で 30日以内に入ったら recruit_start を発射する
+exports.dispatchDeferredRecruits = onSchedule({
+  schedule: "0 8 * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/dispatchDeferredRecruits"));
+
 // Gmail受信監視（5分おき）— Gmail API有効化後にコメント解除
 // 前提: settings/gmail { enabled: true, userEmail: "..." }
 // exports.watchGmail = onSchedule({

@@ -116,6 +116,8 @@
     { key: "recruit_response", label: "スタッフ回答通知", desc: "スタッフが募集に回答(◎/△/×)した時にWebアプリ管理者へ通知", icon: "bi-reply", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
       defaultMsg: "📋 募集に回答がありました\n\n日付: {date} ({property})\n{staff}: {response}\n候補: {count}名" },
     { key: "recruit_start", label: "作業スタッフ募集", desc: "新しい清掃/直前点検に対してスタッフへ募集通知を送信", icon: "bi-megaphone", group: "recruit", varGroup: "recruit", defaultTiming: "immediate",
+      // 「30日以内の予約のみ募集を開始する」切替トグル(deferUntil30Days)を表示
+      deferUntil30DaysToggle: true,
       defaultMsg: "🧹 {work}スタッフ募集\n\n{date} {property}\n{work}スタッフを募集しています。\n回答をお願いします（◎OK / △微妙 / ×NG）\n\n回答: {url}" },
     { key: "recruit_remind", label: "募集リマインド", desc: "回答が集まらない場合にリマインド送信", icon: "bi-alarm", group: "recruit", varGroup: "recruit", defaultTiming: "evening",
       defaultMsg: "📋 {work}募集 回答のお願い\n\n{date} {property}\nまだ回答が届いていません（現在{count}件）。\n回答: {url}" },
@@ -274,6 +276,8 @@
     const customMessage = ch.customMessage || "";
     const msgValue = customMessage || n.defaultMsg || n.desc;
     const vars = SYSTEM_VARIABLES[n.varGroup] || [];
+    // 30日繰延トグル (recruit_start カードのみ): 既存値がなければ false (=従来通り即時通知)
+    const deferUntil30Days = !!ch.deferUntil30Days;
 
     // タイミング配列化 (旧データは単一フィールドから復元)
     const timings = Array.isArray(ch.timings) && ch.timings.length
@@ -354,6 +358,22 @@
                 <span class="form-check-label small"><i class="bi bi-bell text-success"></i> Web Push(Webアプリ管理者)</span>
               </label>
             </div>
+
+            <!-- 30日繰延トグル (recruit_start のみ) -->
+            ${n.deferUntil30DaysToggle ? `
+            <div class="alert alert-info py-2 px-3 mb-2 d-flex align-items-center justify-content-between" style="font-size:0.875rem;">
+              <div class="d-flex align-items-start gap-2">
+                <i class="bi bi-calendar-range mt-1"></i>
+                <div>
+                  <div><strong>30日以内の予約のみ募集を開始する</strong></div>
+                  <div class="small text-muted mt-1">ONにすると、作業日が今日から30日より先の予約では募集通知を発火させず、日付経過で30日以内に入ったタイミング(毎朝 JST 08:00 バッチ)で自動発火します。30日以内に入っている予約はそのまま即時通知されます。</div>
+                </div>
+              </div>
+              <div class="form-check form-switch ms-2" style="white-space:nowrap;">
+                <input class="form-check-input" type="checkbox" data-key="${dk}" data-field="deferUntil30Days" ${deferUntil30Days ? "checked" : ""}>
+              </div>
+            </div>
+            ` : ""}
 
             <!-- タスク6: ランドリーリマインド専用タイミングUI (清掃日基準) -->
             ${n.laundryReminderTiming ? _renderLaundryReminderTimingUI(dk, ch) : `
@@ -663,6 +683,9 @@
       timings,
       ...(laundryTimingMode !== undefined ? { laundryTimingMode, laundryTimingHours, laundryTimingDays, laundryTimingTime } : {}),
     };
+    // 30日繰延トグル (recruit_start のみ): カード内に該当要素がある場合のみ保存
+    const deferEl = scope.querySelector(`[data-key="${cssEsc(dk)}"][data-field="deferUntil30Days"]`);
+    if (deferEl) entry.deferUntil30Days = !!deferEl.checked;
     // 後方互換: 旧UIの単一フィールドにも代表値を埋める
     if (timings[0]) {
       const t0 = timings[0];
