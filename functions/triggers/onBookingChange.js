@@ -872,9 +872,14 @@ module.exports = async function onBookingChange(event) {
             `物件: ${propertyName}`,
           ];
           if (guestName) lines.push(`ゲスト: ${guestName}${source ? `（${source}）` : ""}`);
-          lines.push(``, `下記タップでタイミーが開き、項目が自動入力されます。内容確認のうえ「求人を作成」を押してください。`);
+          lines.push(``, `▼ PC Chrome でタップ → 自動入力 → 「求人を作成」`);
           if (urlGroup) lines.push(``, `▶ グループ限定で募集を作成`, urlGroup);
           if (urlNewWorker) lines.push(``, `▶ 初回ワーカー限定で募集を作成`, urlNewWorker);
+          // Dispatch 経由完全無人化用 slash command
+          // (スマホ Claude アプリ Dispatch で常時起動 PC の Claude Code に送る)
+          lines.push(``, `▼ スマホ完結 (Dispatch コピペ用)`,
+            `/timee-post ${bookingId} group_limited`,
+            `/timee-post ${bookingId} new_worker_for_client_limited`);
           bodyText = lines.join("\n");
         } else {
           // フォールバック: 物件に timeeAutofill 未設定 → 従来のトップ URL
