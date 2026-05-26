@@ -653,10 +653,20 @@ const RecruitmentPage = {
       }
     }
 
-    // スタッフビュー時: スタッフ確定ボタン・募集再開ボタンを非表示
+    // スタッフビュー時: スタッフ確定ボタン・募集再開ボタン・清掃日変更・削除・募集通知を非表示
+    const changeDateBtn = document.getElementById("btnChangeRecruitmentDate");
+    const deleteBtn = document.getElementById("btnDeleteRecruitmentInModal");
+    const notifyBtn = document.getElementById("btnNotifyRecruitment");
     if (isStaffView) {
       confirmBtn?.classList.add("d-none");
       reopenBtn?.classList.add("d-none");
+      changeDateBtn?.classList.add("d-none");
+      deleteBtn?.classList.add("d-none");
+      notifyBtn?.classList.add("d-none");
+    } else {
+      changeDateBtn?.classList.remove("d-none");
+      deleteBtn?.classList.remove("d-none");
+      notifyBtn?.classList.remove("d-none");
     }
 
     // A4: 自分の回答ボタン (◎△×) をモーダル上部に描画
@@ -666,8 +676,14 @@ const RecruitmentPage = {
     // 次の予約セクションを非同期描画
     this._renderNextBookingArea(r);
 
-    // タイミーメール照合履歴 (折りたたみ、非同期描画)
-    this._renderTimeeMatches(r);
+    // タイミーメール照合履歴 (折りたたみ、非同期描画) — スタッフビューでは非表示
+    const timeeMatchesEl = document.getElementById("detailTimeeMatches");
+    if (isStaffView) {
+      timeeMatchesEl?.classList.add("d-none");
+    } else {
+      timeeMatchesEl?.classList.remove("d-none");
+      this._renderTimeeMatches(r);
+    }
 
     this.detailModal.show();
   },

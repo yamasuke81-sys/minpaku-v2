@@ -1368,7 +1368,8 @@ const DashboardPage = {
 
     // ===== 統合履歴タイムライン (オーナー専用、アコーディオン展開で遅延読込) =====
     // 名簿受信・修正履歴 (guestRegistration) + iCal同期 / メール照合 を時系列降順で統合表示
-    if (typeof Auth !== "undefined" && Auth?.isOwner?.()) {
+    // スタッフビュー (my-recruitment 等から開かれた場合) では非表示
+    if (typeof Auth !== "undefined" && Auth?.isOwner?.() && !isStaffView) {
       const accordionId = "bookingHistoryAccordion_" + b.id.replace(/[^a-zA-Z0-9]/g, "_");
       const collapseId = accordionId + "_collapse";
       const contentId = accordionId + "_content";
