@@ -5,7 +5,7 @@
  */
 const express = require("express");
 const { sendNotificationEmail_, resolveSenderGmail_ } = require("../utils/lineNotify");
-const { renderTemplate, buildDiffText, buildGuestSummaryText, getTemplates } = require("../utils/emailTemplates");
+const { buildDiffText, buildGuestSummaryText } = require("../utils/emailTemplates");
 
 const APP_URL = "https://minpaku-v2.web.app";
 
@@ -119,7 +119,6 @@ module.exports = function guestEditApi(db) {
       const editUrl = `${APP_URL}/guest-form.html?edit=${currentData.editToken}${currentData.propertyId ? `&propertyId=${encodeURIComponent(currentData.propertyId)}` : ""}`;
       const confirmUrl = `${APP_URL}/#/guests`;
 
-      const templates = await getTemplates(db);
       const vars = {
         guestName, checkIn, checkOut,
         guestCount: mergedData.guestCount || "?",
@@ -132,22 +131,9 @@ module.exports = function guestEditApi(db) {
       // 物件の senderGmail を解決（null の場合はフォールバック）
       const senderGmail = await resolveSenderGmail_(db, currentData.propertyId || null).catch(() => null);
 
-      // Webアプリ管理者にメール（変更点付き）
-      try {
-        const notifDoc = await db.collection("settings").doc("notifications").get();
-        const notifyEmails = notifDoc.exists ? (notifDoc.data().notifyEmails || []) : [];
-        const ownerSubject = renderTemplate(templates.editNotification.subject, vars);
-        const ownerBody = renderTemplate(templates.editNotification.body, vars);
-        for (const email of notifyEmails) {
-          try {
-            await sendNotificationEmail_(email, ownerSubject, ownerBody, senderGmail || null, { preferFromHeader: true });
-          } catch (e) {
-            console.error(`Webアプリ管理者メール送信失敗 (${email}):`, e.message);
-          }
-        }
-      } catch (e) {
-        console.error("Webアプリ管理者メール処理エラー:", e.message);
-      }
+      // 管理者向け通知は onGuestFormUpdate トリガーが notifyByKey("roster_updated") で発火するため
+      // ここでは送信しない (旧実装はグローバル notifyEmails を直接 for ループしており、
+      // 物件別 channelOverrides.roster_updated を無視するバグがあった)
 
       // 宿泊者にメール（修正受領サンクスメール）
       // 物件別 properties/{pid}.formUpdateMail.{subject,body,subjectEn,bodyEn} を最優先で参照

@@ -146,19 +146,8 @@ const DEFAULT_TEMPLATES = {
 宿泊者の修正リンク:
 {editUrl}`,
   },
-  editNotification: {
-    subject: "【名簿修正】{guestName}様が名簿を修正しました",
-    body: `{guestName}様が宿泊者名簿を修正しました。
-
-【変更点】
-{changes}
-
-【最新の全データ】
-{summary}
-
-確認して問題がなければ「確認済み」にしてください。
-{confirmUrl}`,
-  },
+  // editNotification: 廃止 (2026-05-27) — 管理者向け名簿修正通知は onGuestFormUpdate トリガーの
+  // notifyByKey("roster_updated") で発火。guest-edit.js 内の for ループ直接送信は削除済み
   // ownerConfirmed: 廃止 (2026-04-30) — 「確認済み」ボタン押下時の宿泊者宛メールは送らない
   keyboxDelivery: {
     subject: "【本日チェックイン】キーボックス番号のご案内 - {guestName}様",
