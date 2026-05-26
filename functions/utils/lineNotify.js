@@ -605,7 +605,9 @@ async function notifyGroup(db, type, title, body, vars, propertyOverrides, prope
  * @returns {object} LINE Flexメッセージオブジェクト
  */
 function buildRecruitmentFlex(recruitment, baseUrl) {
-  const { checkoutDate, propertyName, memo } = recruitment;
+  const { checkoutDate, propertyName, memo, id: recruitmentId } = recruitment;
+  // recruitmentId があれば詳細モーダルを直接開く形に
+  const targetPath = recruitmentId ? `#/my-recruitment/${recruitmentId}` : "#/my-recruitment";
   const title = `${checkoutDate} 清掃スタッフ募集`;
   const bodyText = [
     `📅 日付: ${checkoutDate}`,
@@ -667,7 +669,7 @@ function buildRecruitmentFlex(recruitment, baseUrl) {
             action: {
               type: "uri",
               label: "回答する",
-              uri: `${baseUrl}#/my-recruitment`,
+              uri: `${baseUrl}${targetPath}`,
             },
             style: "primary",
             color: "#2196F3",

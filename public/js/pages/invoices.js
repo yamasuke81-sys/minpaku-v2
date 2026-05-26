@@ -10,9 +10,12 @@ const InvoicesPage = {
   selectedMonth: "",
   detailModal: null,
 
-  async render(container) {
+  async render(container, pathParams) {
     const now = new Date();
     this.selectedMonth = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+    // URL パスから invoiceId を取得 (#/invoices/{id} 形式対応)
+    // 通知メール/LINE からの直リンク時に該当請求書の詳細モーダルを自動表示する
+    this._pendingOpenId = (pathParams && pathParams[0]) ? pathParams[0] : null;
 
     container.innerHTML = `
       <div class="page-header">
@@ -102,6 +105,32 @@ const InvoicesPage = {
       }
       this.renderSummary();
       this.renderList();
+
+      // URL に invoiceId が含まれている場合 (通知からの直リンク)、
+      // 該当請求書の詳細モーダルを自動表示する
+      if (this._pendingOpenId) {
+        const pendingId = this._pendingOpenId;
+        this._pendingOpenId = null; // 再描画時の二重起動を防ぐ
+        let inv = this.invoices.find(i => i.id === pendingId);
+        if (!inv) {
+          // 別月の請求書の場合: 直接取得して該当月に切替えて再読み込み
+          try {
+            inv = await API.invoices.get(pendingId);
+            if (inv?.yearMonth && inv.yearMonth !== this.selectedMonth) {
+              this.selectedMonth = inv.yearMonth;
+              const sel = document.getElementById("invoiceMonth");
+              if (sel) sel.value = this.selectedMonth;
+              this.invoices = await API.invoices.list({ yearMonth: this.selectedMonth });
+              this.renderSummary();
+              this.renderList();
+            }
+          } catch (e) {
+            showToast("エラー", `請求書が見つかりません: ${e.message}`, "error");
+            return;
+          }
+        }
+        if (inv) this.openDetailModal(inv);
+      }
     } catch (e) {
       showToast("エラー", `請求書読み込み失敗: ${e.message}`, "error");
     }

@@ -14,6 +14,10 @@ module.exports = async function onRecruitmentChange(event) {
   const after = event.data.after?.data();
   if (!after) return;
 
+  // オーナー側の通知から該当募集の詳細モーダルを直接開くため、recruitmentId 付き URL を組み立て
+  // (recruitmentId は下流の `const recruitmentId = event.params.recruitmentId;` でも使用)
+  const ownerRecruitUrl = `https://minpaku-v2.web.app/#/schedule/${event.params.recruitmentId}`;
+
   // ========= 手動募集の新規作成 → 即 shift も作成 (チェックリスト自動生成のため) =========
   // 通常フロー (予約由来) は onBookingChange が shift を生成するが、
   // 手動募集 (manualCreated=true, bookingId=null) は shift 未生成 → onShiftCreated 不発火
@@ -220,7 +224,7 @@ module.exports = async function onRecruitmentChange(event) {
         body: `⚡ 早い者勝ちルールにより自動確定\n\n` +
           `日付: ${checkoutDate}${propertyName ? ` (${propertyName})` : ""}\n` +
           `担当: ${staffName}\n`,
-        vars: { date: checkoutDate, property: propertyName, staff: staffName, response, count: afterResponses.length, work: workLabel(after.workType), workType: after.workType || "cleaning" },
+        vars: { date: checkoutDate, property: propertyName, staff: staffName, response, count: afterResponses.length, work: workLabel(after.workType), workType: after.workType || "cleaning", url: ownerRecruitUrl },
         propertyId: propertyId || null,
       });
       return;
@@ -248,7 +252,7 @@ module.exports = async function onRecruitmentChange(event) {
   await notifyByKey(db, "recruit_response", {
     title: `募集回答: ${checkoutDate}`,
     body: text,
-    vars: { date: checkoutDate, property: propertyName, staff: staffName, response, count: available.length, work: workLabel(after.workType), workType: after.workType || "cleaning" },
+    vars: { date: checkoutDate, property: propertyName, staff: staffName, response, count: available.length, work: workLabel(after.workType), workType: after.workType || "cleaning", url: ownerRecruitUrl },
     propertyId: propertyId || null,
   });
 };

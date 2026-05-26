@@ -1882,7 +1882,8 @@ module.exports = function invoicesApi(db) {
       try {
         const { settings, channelToken } = await getNotificationSettings_(db);
         const appUrl = (settings && settings.appUrl) || "https://minpaku-v2.web.app";
-        const confirmUrl = `${appUrl}/#/invoices`;
+        // 該当請求書の詳細モーダルを直接開けるよう invoiceId 付き
+        const confirmUrl = `${appUrl.replace(/\/$/, "")}/#/invoices/${invoiceId}`;
         const linkLine = pdfSignedUrl ? `\nPDF: ${pdfSignedUrl}` : "";
         const title = `請求書提出: ${staffDoc.name} ${yearMonth}`;
         const ownerBody = `📨 請求書が提出されました\n\n${staffDoc.name} さんから ${m}月分の請求書が届きました。\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}${linkLine}\n確認: ${confirmUrl}`;
@@ -2295,7 +2296,8 @@ module.exports = function invoicesApi(db) {
         const total = Number(data.total || 0);
         const { settings, channelToken, ownerUserId } = await getNotificationSettings_(db);
         const appUrl = (settings && settings.appUrl) || "https://minpaku-v2.web.app";
-        const invoiceUrl = `${appUrl.replace(/\/$/, "")}/#/invoices`;
+        // 該当請求書の詳細モーダルを直接開けるよう invoiceId 付き
+        const invoiceUrl = `${appUrl.replace(/\/$/, "")}/#/invoices/${req.params.id}`;
         const body = `📨 請求書が確定されました\n\n` +
           `${data.staffName || "スタッフ"} さんの ${m || data.yearMonth}月分の請求書が確定しました。\n` +
           `合計: ¥${total.toLocaleString()}\n` +

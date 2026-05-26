@@ -263,7 +263,8 @@ router.get("/staff-ical/:token", async (req, res) => {
       if (!date) continue;
       const propertyName = r.propertyName || "";
       const workLabel = r.workType === "pre_inspection" ? "直前点検" : "清掃";
-      const url = `https://minpaku-v2.web.app/#/my-recruitment`;
+      // 該当募集の詳細モーダルを直接開けるよう recruitmentId 付き
+      const url = `https://minpaku-v2.web.app/#/my-recruitment/${rd.id}`;
       const times = resolveTimes(propCache[r.propertyId], r.workType);
       events.push({
         uid: `${workLabel === "清掃" ? "cleaning" : "inspection"}-${rd.id}-${sDoc.id}@minpaku-v2`,

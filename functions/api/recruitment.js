@@ -86,7 +86,8 @@ module.exports = function recruitmentApi(db) {
         }
         if (shouldNotify) {
           const appUrl = (settings && settings.appUrl) || process.env.APP_BASE_URL || "https://minpaku-v2.web.app";
-          const recruitUrl = `${appUrl.replace(/\/$/, "")}/#/my-recruitment`;
+          // タップで該当募集の詳細モーダルを直接開けるよう recruitmentId 付き
+          const recruitUrl = `${appUrl.replace(/\/$/, "")}/#/my-recruitment/${docRef.id}`;
           const work = data.workType === "pre_inspection" ? "直前点検" : "清掃";
           const baseVars = {
             date: data.checkoutDate,
@@ -317,7 +318,8 @@ module.exports = function recruitmentApi(db) {
             const { settings } = await getNotificationSettings_(db);
             appUrl = settings?.appUrl || appUrl;
           } catch (_) { /* デフォルトで続行 */ }
-          const dashUrl = `${appUrl.replace(/\/$/, "")}/#/my-dashboard`;
+          // 確定スタッフが該当募集の詳細モーダルを直接開けるよう recruitmentId 付きで遷移
+          const dashUrl = `${appUrl.replace(/\/$/, "")}/#/my-recruitment/${req.params.id}`;
           const staffSnap = await db.collection("staff").where("active", "==", true).get();
           // 確定スタッフ全員の表示名を ID 順で組み立て (テンプレ {staff} 用)
           const idToName = new Map();
@@ -545,7 +547,7 @@ module.exports = function recruitmentApi(db) {
 
       const { settings } = await getNotificationSettings_(db);
       const appUrl = settings?.appUrl || process.env.APP_BASE_URL || "https://minpaku-v2.web.app";
-      const recruitUrl = `${appUrl.replace(/\/$/, "")}/#/my-recruitment`;
+      const recruitUrl = `${appUrl.replace(/\/$/, "")}/#/my-recruitment/${req.params.id}`;
       const work = r.workType === "pre_inspection" ? "直前点検" : "清掃";
       const propertyName = r.propertyName || "";
       const memo = r.memo || "";
@@ -592,7 +594,7 @@ module.exports = function recruitmentApi(db) {
 
       const { settings } = await getNotificationSettings_(db);
       const appUrl = settings?.appUrl || "https://minpaku-v2.web.app";
-      const recruitUrl = `${appUrl}/#/my-recruitment`;
+      const recruitUrl = `${appUrl.replace(/\/$/, "")}/#/my-recruitment/${recruitmentId}`;
       const propertyName = r.propertyName || "";
       const responses = Array.isArray(r.responses) ? r.responses : [];
 

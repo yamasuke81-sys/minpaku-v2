@@ -34,7 +34,7 @@
       { name: "date",     label: "作業日",        sample: "2026/04/20",  source: "recruitment.checkoutDate" },
       { name: "property", label: "物件名",        sample: "長浜民泊A",    source: "recruitment.propertyName" },
       { name: "work",     label: "作業内容",      sample: "清掃",         source: "recruitment.workType (清掃 / 直前点検)" },
-      { name: "url",      label: "回答ページURL", sample: "https://minpaku-v2.web.app/#/my-recruitment", source: "自動生成" },
+      { name: "url",      label: "回答ページURL", sample: "https://minpaku-v2.web.app/#/my-recruitment/{recruitmentId}", source: "自動生成 (タップで該当募集の詳細モーダルを直接オープン)" },
       { name: "count",    label: "回答数",        sample: "3",           source: "recruitment.responses.length" },
       { name: "staff",    label: "確定スタッフ名", sample: "山田太郎",    source: "recruitment.selectedStaff" },
       { name: "memo",     label: "メモ",          sample: "BBQ後の片付けあり", source: "recruitment.memo" },
@@ -62,7 +62,7 @@
       { name: "staff",    label: "スタッフ名",  sample: "山田太郎",      source: "invoice.staffName" },
       { name: "property", label: "物件名",      sample: "長浜民泊A",     source: "invoice.propertyName" },
       { name: "total",    label: "合計金額",    sample: "¥45,000",      source: "invoice.total" },
-      { name: "url",      label: "確認/作成ページURL", sample: "https://minpaku-v2.web.app/#/my-invoice-create", source: "請求書要請: /#/my-invoice-create、提出通知: /#/invoices" },
+      { name: "url",      label: "確認/作成ページURL", sample: "https://minpaku-v2.web.app/#/invoices/{invoiceId}", source: "請求書要請: /#/my-invoice-create、提出通知/確定通知: /#/invoices/{invoiceId} (タップで該当請求書の詳細モーダルを直接オープン)" },
     ],
     cleaning: [
       { name: "date",       label: "清掃日",          sample: "2026/04/20",   source: "checklist.date" },
@@ -99,7 +99,7 @@
       { name: "property", label: "物件名",          sample: "長浜民泊A",    source: "recruitment.propertyName" },
       { name: "work",     label: "作業内容",        sample: "清掃",          source: "recruitment.workType" },
       { name: "staff",    label: "スタッフ名",      sample: "山田太郎",      source: "response.staffName (置換時)" },
-      { name: "url",      label: "回答ページURL",   sample: "https://minpaku-v2.web.app/#/my-recruitment", source: "自動生成" },
+      { name: "url",      label: "回答ページURL",   sample: "https://minpaku-v2.web.app/#/my-recruitment/{recruitmentId}", source: "自動生成 (タップで該当募集の詳細モーダルを直接オープン)" },
     ],
     morning_briefing: [
       { name: "date",         label: "今日の日付",        sample: "2026年5月7日(木)", source: "実行日" },

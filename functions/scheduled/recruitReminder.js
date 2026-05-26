@@ -111,7 +111,8 @@ module.exports = async function recruitReminder() {
         }
 
         const baseUrl = process.env.APP_BASE_URL || "https://minpaku-v2.web.app/";
-        const recruitUrl = `${baseUrl.replace(/\/$/, "")}/#/my-recruitment`;
+        // 該当募集の詳細モーダルを直接開けるよう recruitmentId 付き
+        const recruitUrl = `${baseUrl.replace(/\/$/, "")}/#/my-recruitment/${rd.id}`;
         const text = [
           `📋 募集回答のお願い (清掃日 ${tgt.beforeDays}日前)`,
           ``,
