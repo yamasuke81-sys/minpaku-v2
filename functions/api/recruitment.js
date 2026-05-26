@@ -86,8 +86,9 @@ module.exports = function recruitmentApi(db) {
           if (propDoc.exists) propertyOverrides = propDoc.data().channelOverrides || {};
         }
         if (shouldNotify) {
-          // 30日繰延フラグが ON で作業日が 30日超なら通知をスキップし notifyDeferred を立てる
-          if (shouldDeferRecruitStart(settings, data.checkoutDate)) {
+          // 30日繰延フラグ (物件別 channelOverrides.recruit_start.deferUntil30Days) が ON で
+          // 作業日が 30日超なら通知をスキップし notifyDeferred を立てる
+          if (shouldDeferRecruitStart(propertyOverrides, data.checkoutDate)) {
             await docRef.update({
               notifyDeferred: true,
               notifyDeferredReason: "within30Days",

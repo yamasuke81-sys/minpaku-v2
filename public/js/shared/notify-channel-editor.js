@@ -366,7 +366,7 @@
                 <i class="bi bi-calendar-range mt-1"></i>
                 <div>
                   <div><strong>30日以内の予約のみ募集を開始する</strong></div>
-                  <div class="small text-muted mt-1">ONにすると、作業日が今日から30日より先の予約では募集通知を発火させず、日付経過で30日以内に入ったタイミング(毎朝 JST 08:00 バッチ)で自動発火します。30日以内に入っている予約はそのまま即時通知されます。</div>
+                  <div class="small text-muted mt-1">この物件で ON にすると、作業日が今日から30日より先の予約では募集通知を発火させず、日付経過で30日以内に入ったタイミング(毎朝 JST 08:00 バッチ)で自動発火します。30日以内に入っている予約はそのまま即時通知されます。</div>
                 </div>
               </div>
               <div class="form-check form-switch ms-2" style="white-space:nowrap;">

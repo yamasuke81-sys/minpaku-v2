@@ -817,9 +817,10 @@ module.exports = async function onBookingChange(event) {
   // ========== LINE通知 (recruit_start) ==========
   try {
     const { settings } = await getNotificationSettings_(db);
-    // 30日繰延フラグが ON で作業日が 30日超なら、通知を発火せず notifyDeferred を立てる
+    // 30日繰延フラグ (物件別 channelOverrides.recruit_start.deferUntil30Days) が ON で
+    // 作業日が 30日超なら、通知を発火せず notifyDeferred を立てる
     // (dispatchDeferredRecruits バッチが日付経過で 30日以内に入ったタイミングで自動発火)
-    if (shouldDeferRecruitStart(settings, checkOut)) {
+    if (shouldDeferRecruitStart(propertyData.channelOverrides, checkOut)) {
       await db.collection("recruitments").doc(recruitmentId).update({
         notifyDeferred: true,
         notifyDeferredReason: "within30Days",
@@ -1030,8 +1031,9 @@ module.exports = async function onBookingChange(event) {
     try {
       if (!insRecruitmentId) return;
       const { settings: s2 } = await getNotificationSettings_(db);
-      // 30日繰延フラグが ON で作業日 (=checkIn) が 30日超なら notifyDeferred を立てて発火スキップ
-      if (shouldDeferRecruitStart(s2, checkIn)) {
+      // 30日繰延フラグ (物件別 channelOverrides.recruit_start.deferUntil30Days) が ON で
+      // 作業日 (=checkIn) が 30日超なら notifyDeferred を立てて発火スキップ
+      if (shouldDeferRecruitStart(propertyData.channelOverrides, checkIn)) {
         await db.collection("recruitments").doc(insRecruitmentId).update({
           notifyDeferred: true,
           notifyDeferredReason: "within30Days",
