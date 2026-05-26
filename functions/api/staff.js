@@ -227,6 +227,16 @@ function validateStaffData(body, isUpdate = false) {
   if (body.accountNumber !== undefined) data.accountNumber = String(body.accountNumber).trim();
   if (body.accountHolder !== undefined) data.accountHolder = String(body.accountHolder).trim();
   if (body.contractStartDate !== undefined) data.contractStartDate = body.contractStartDate;
+  // 電子契約 (GMOサイン)
+  if (body.contractStatus !== undefined) {
+    const allowed = ["none", "sent", "signed", "expired"];
+    const v = String(body.contractStatus || "none");
+    data.contractStatus = allowed.includes(v) ? v : "none";
+  }
+  if (body.contractSignedAt !== undefined) data.contractSignedAt = body.contractSignedAt || null;
+  if (body.contractServiceDocId !== undefined) data.contractServiceDocId = String(body.contractServiceDocId || "").trim();
+  if (body.contractUrl !== undefined) data.contractUrl = String(body.contractUrl || "").trim();
+  if (body.contractMemo !== undefined) data.contractMemo = String(body.contractMemo || "").trim();
   if (body.active !== undefined) data.active = Boolean(body.active);
   if (body.displayOrder !== undefined) data.displayOrder = Number(body.displayOrder) || 0;
   if (body.memo !== undefined) data.memo = String(body.memo).trim();

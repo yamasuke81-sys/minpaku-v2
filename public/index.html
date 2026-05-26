@@ -280,6 +280,63 @@
               <input type="text" class="form-control" id="staffSkills" placeholder="清掃,ベッドメイク,BBQ片付け">
             </div>
 
+            <!-- 電子契約 (業務委託) -->
+            <div class="col-12">
+              <hr>
+              <h6><i class="bi bi-file-earmark-check text-primary"></i> 業務委託 電子契約 (GMOサイン)</h6>
+              <p class="text-muted small mb-2">
+                清掃業務委託契約の電子締結状況を記録します。 締結は <strong>GMOサイン</strong> 上で行い、 完了後にこの画面で URL とステータスを更新してください。
+              </p>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">契約ステータス</label>
+              <select class="form-select" id="staffContractStatus">
+                <option value="none">未送付</option>
+                <option value="sent">送付済み (締結待ち)</option>
+                <option value="signed">締結済み</option>
+                <option value="expired">期限切れ/再締結要</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">電子署名日</label>
+              <input type="date" class="form-control" id="staffContractSignedAt">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">GMOサイン 文書ID (任意)</label>
+              <input type="text" class="form-control" id="staffContractServiceDocId" placeholder="GMOサイン側の文書ID">
+            </div>
+            <div class="col-12">
+              <label class="form-label">締結済み契約書 URL</label>
+              <div class="input-group">
+                <input type="url" class="form-control" id="staffContractUrl" placeholder="https://www.gmosign.com/...">
+                <button class="btn btn-outline-primary" type="button" id="btnOpenContractUrl" title="契約書を開く">
+                  <i class="bi bi-box-arrow-up-right"></i> 開く
+                </button>
+              </div>
+              <small class="text-muted">GMOサインの管理画面で締結完了後、 該当文書の詳細URL または PDF ダウンロード URL を貼り付け</small>
+            </div>
+            <div class="col-12">
+              <label class="form-label">契約備考 (任意)</label>
+              <textarea class="form-control" id="staffContractMemo" rows="2" placeholder="契約書バージョン、 再締結履歴など"></textarea>
+            </div>
+            <div class="col-12">
+              <details class="small">
+                <summary class="text-primary" style="cursor:pointer;"><i class="bi bi-question-circle"></i> GMOサインでの締結手順</summary>
+                <ol class="mt-2 mb-2 ps-3">
+                  <li><a href="https://www.gmosign.com/" target="_blank" rel="noopener">GMOサイン</a> を開く (アカウント未作成なら登録)</li>
+                  <li>管理画面で「業務委託契約書」のテンプレートを選択 (未作成なら最初に1つ作成して使い回す)</li>
+                  <li>送信先メールアドレスにこのスタッフの <strong>メールアドレス</strong> を指定</li>
+                  <li>送信 → 上の「契約ステータス」を <strong>送付済み</strong> に変更して保存</li>
+                  <li>相手が電子署名を完了したら GMOサインからメール通知が届く</li>
+                  <li>GMOサイン管理画面で締結済み文書の URL をコピー → 上の「契約書 URL」に貼り付け</li>
+                  <li>「契約ステータス」を <strong>締結済み</strong>、 「電子署名日」を入力して保存</li>
+                </ol>
+                <a href="https://www.gmosign.com/" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
+                  <i class="bi bi-box-arrow-up-right"></i> GMOサインを開く
+                </a>
+              </details>
+            </div>
+
             <!-- 銀行口座情報 (スキルの直下に配置) -->
             <div class="col-12"><hr><h6>銀行口座情報（報酬受取用）</h6></div>
             <div class="col-md-4">

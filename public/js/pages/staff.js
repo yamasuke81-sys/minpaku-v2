@@ -316,6 +316,7 @@ const StaffPage = {
             : ""}
           ${s.lineUserId ? '<span class="badge bg-success ms-1" title="LINE連携済み"><i class="bi bi-line"></i></span>' : ""}
           ${s.authUid ? '<span class="badge bg-info ms-1" title="アプリ認証済み"><i class="bi bi-person-check"></i></span>' : ""}
+          ${this.renderContractBadge(s)}
         </td>
         <td>
           <div class="btn-group btn-group-sm">
@@ -420,6 +421,19 @@ const StaffPage = {
         }
       }
     });
+  },
+
+  // 電子契約ステータスのバッジ
+  renderContractBadge(s) {
+    const status = s?.contractStatus || "none";
+    const map = {
+      none:    { cls: "bg-secondary",       label: "契約未",   title: "電子契約 未送付" },
+      sent:    { cls: "bg-warning text-dark", label: "契約送付", title: "電子契約 送付済み (締結待ち)" },
+      signed:  { cls: "bg-success",         label: "契約済",   title: "電子契約 締結済み" },
+      expired: { cls: "bg-danger",          label: "契約切",   title: "電子契約 期限切れ/再締結要" },
+    };
+    const m = map[status] || map.none;
+    return `<span class="badge ${m.cls} ms-1" title="${m.title}"><i class="bi bi-file-earmark-check"></i> ${m.label}</span>`;
   },
 
   renderDayChips(days) {
@@ -860,6 +874,32 @@ const StaffPage = {
     document.getElementById("staffContractDate").value = staff?.contractStartDate
       ? new Date(staff.contractStartDate.seconds ? staff.contractStartDate.seconds * 1000 : staff.contractStartDate).toISOString().split("T")[0]
       : "";
+
+    // 電子契約 (GMOサイン)
+    const cStatusEl = document.getElementById("staffContractStatus");
+    if (cStatusEl) cStatusEl.value = staff?.contractStatus || "none";
+    const cSignedEl = document.getElementById("staffContractSignedAt");
+    if (cSignedEl) {
+      cSignedEl.value = staff?.contractSignedAt
+        ? new Date(staff.contractSignedAt.seconds ? staff.contractSignedAt.seconds * 1000 : staff.contractSignedAt).toISOString().split("T")[0]
+        : "";
+    }
+    const cDocIdEl = document.getElementById("staffContractServiceDocId");
+    if (cDocIdEl) cDocIdEl.value = staff?.contractServiceDocId || "";
+    const cUrlEl = document.getElementById("staffContractUrl");
+    if (cUrlEl) cUrlEl.value = staff?.contractUrl || "";
+    const cMemoEl = document.getElementById("staffContractMemo");
+    if (cMemoEl) cMemoEl.value = staff?.contractMemo || "";
+    // 「開く」ボタン
+    const openBtn = document.getElementById("btnOpenContractUrl");
+    if (openBtn && !openBtn.dataset.cBound) {
+      openBtn.dataset.cBound = "1";
+      openBtn.addEventListener("click", () => {
+        const url = (document.getElementById("staffContractUrl")?.value || "").trim();
+        if (!url) { showToast("情報", "契約書 URL が未入力です", "info"); return; }
+        window.open(url, "_blank", "noopener");
+      });
+    }
     const isTimeeEl = document.getElementById("staffIsTimee");
     if (isTimeeEl) isTimeeEl.checked = !!staff?.isTimee;
 
@@ -1059,6 +1099,11 @@ const StaffPage = {
       zipCode: firstBp.zipCode || "",
       address: firstBp.address || "",
       contractStartDate: document.getElementById("staffContractDate").value || null,
+      contractStatus: (document.getElementById("staffContractStatus")?.value || "none"),
+      contractSignedAt: document.getElementById("staffContractSignedAt")?.value || null,
+      contractServiceDocId: (document.getElementById("staffContractServiceDocId")?.value || "").trim(),
+      contractUrl: (document.getElementById("staffContractUrl")?.value || "").trim(),
+      contractMemo: (document.getElementById("staffContractMemo")?.value || "").trim(),
       isTimee: !!document.getElementById("staffIsTimee")?.checked,
       googleCalendarEnabled: !!document.getElementById("staffGoogleCalendarEnabled")?.checked,
       calendarInviteEnabled: !!document.getElementById("staffCalendarInviteEnabled")?.checked,
