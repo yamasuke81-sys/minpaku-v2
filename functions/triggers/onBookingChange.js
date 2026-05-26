@@ -13,7 +13,7 @@ const {
   getNotificationSettings_,
 } = require("../utils/lineNotify");
 const { addRecruitmentToActiveStaff, removeRecruitmentFromAllStaff } = require("../utils/inactiveStaff");
-const { shouldDeferRecruitStart } = require("../utils/recruitDeferral");
+const { shouldDeferRecruitStart, shouldDeferByNotifyKey } = require("../utils/recruitDeferral");
 
 // YYYY-MM-DD 文字列から UTC midnight の Date を作成 (JST ズレなし)
 function toUtcMidnight(dateStr) {
@@ -22,34 +22,9 @@ function toUtcMidnight(dateStr) {
 }
 
 /**
- * タイミー求人複製 URL を生成する
- * propertyData.timeeAutofill に baseUrl + 自動入力パラメータを保持しておく
- * userscripts/timee-autofill.user.js が hash パラメータを読んでフォームに自動入力
- * @param {object} tf - propertyData.timeeAutofill
- * @param {string} checkOut - YYYY-MM-DD
- * @param {string} visibility - "group_limited" | "new_worker_for_client_limited"
- * @returns {string|null}
+ * タイミー求人複製 URL は ../utils/timeeAutofill に共通化済
  */
-function buildTimeeAutofillUrl_(tf, checkOut, visibility) {
-  if (!tf || !tf.baseUrl || !checkOut) return null;
-  // baseUrl に既存クエリがあれば & で、なければ ? で openExternalBrowser を付与
-  // (LINE 内蔵ブラウザ回避: 公式仕様で任意 URL に有効)
-  const url = new URL(tf.baseUrl);
-  url.searchParams.set("openExternalBrowser", "1");
-  const params = new URLSearchParams();
-  params.set("date", checkOut);
-  if (tf.start) params.set("start", tf.start);
-  if (tf.end) params.set("end", tf.end);
-  if (tf.restMin != null) params.set("restMin", String(tf.restMin));
-  if (tf.workers) params.set("workers", String(tf.workers));
-  params.set("visibility", visibility);
-  if (visibility === "group_limited" && tf.groupIds) params.set("groupIds", tf.groupIds);
-  if (tf.wage) params.set("wage", String(tf.wage));
-  if (tf.transport != null) params.set("transport", String(tf.transport));
-  if (tf.autoMsg != null) params.set("autoMsg", tf.autoMsg ? "true" : "false");
-  if (tf.autoMsgTarget) params.set("autoMsgTarget", tf.autoMsgTarget);
-  return `${url.toString()}#${params.toString()}`;
-}
+const { buildTimeeAutofillUrl_ } = require("../utils/timeeAutofill");
 
 // キャンセル済みステータス判定（module スコープで共有）
 function isCancelled(s) {
@@ -869,7 +844,21 @@ module.exports = async function onBookingChange(event) {
       const ovs = (propertyData.channelOverrides || {}).timee_posting || {};
       const NCE_default = false; // notify-channel-editor のデフォルトは false
       const enabled = (ovs.enabled !== undefined) ? !!ovs.enabled : NCE_default;
-      if (enabled) {
+      // 30日繰延フラグ (物件別 channelOverrides.timee_posting.deferUntil30Days) が ON で
+      // 作業日 (=checkOut) が 30日超なら通知をスキップし bookings.timeeNotifyDeferred を立てる
+      // (dispatchDeferredRecruits バッチが日付経過で 30日以内に入ったタイミングで自動発火)
+      if (enabled && shouldDeferByNotifyKey(propertyData.channelOverrides, "timee_posting", checkOut)) {
+        try {
+          await db.collection("bookings").doc(bookingId).update({
+            timeeNotifyDeferred: true,
+            timeeNotifyDeferredReason: "within30Days",
+            updatedAt: admin_module.firestore.FieldValue.serverTimestamp(),
+          });
+          console.log(`予約 ${bookingId}: タイミー募集依頼を 30日繰延 (作業日=${checkOut})`);
+        } catch (uerr) {
+          console.error("timeeNotifyDeferred 更新エラー:", uerr);
+        }
+      } else if (enabled) {
         // タイミー求人複製 URL (グループ限定 / 初回ワーカー限定) を生成
         // Tampermonkey ユーザースクリプトが hash params からフォームを自動入力する
         const tf = propertyData.timeeAutofill;

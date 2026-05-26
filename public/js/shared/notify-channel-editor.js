@@ -201,6 +201,8 @@
       defaultMsg: "🔍 直前点検リマインド\n\n{date} チェックイン前の点検をお忘れなく\n物件: {property}\nゲスト: {guest}" },
     // タイミー募集依頼 (新規確定予約検知時に物件オーナー宛に通知)
     { key: "timee_posting", label: "タイミー募集依頼", desc: "新規予約確定時に物件オーナーへタイミーでの求人募集を依頼する通知", icon: "bi-clock-history", group: "recruit", varGroup: "booking", defaultTiming: "immediate",
+      // 「30日以内の予約のみ募集を開始する」切替トグル(deferUntil30Days)を表示
+      deferUntil30DaysToggle: true,
       defaultEnabled: false, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: true,
       defaultMsg: "🕐 タイミー募集依頼\n\nタイミー募集が必要な予約が入りました。\nチェックアウト日時: {date}\n物件: {property}\n\nこの日の求人募集をタイミーでお願いします。\n\nタイミー: https://app-new.taimee.co.jp/account" },
   ];
@@ -359,14 +361,14 @@
               </label>
             </div>
 
-            <!-- 30日繰延トグル (recruit_start のみ) -->
+            <!-- 30日繰延トグル (recruit_start / timee_posting 等の deferUntil30DaysToggle:true 通知のみ) -->
             ${n.deferUntil30DaysToggle ? `
             <div class="alert alert-info py-2 px-3 mb-2 d-flex align-items-center justify-content-between" style="font-size:0.875rem;">
               <div class="d-flex align-items-start gap-2">
                 <i class="bi bi-calendar-range mt-1"></i>
                 <div>
-                  <div><strong>30日以内の予約のみ募集を開始する</strong></div>
-                  <div class="small text-muted mt-1">この物件で ON にすると、作業日が今日から30日より先の予約では募集通知を発火させず、日付経過で30日以内に入ったタイミング(毎朝 JST 08:00 バッチ)で自動発火します。30日以内に入っている予約はそのまま即時通知されます。</div>
+                  <div><strong>30日以内の予約のみ通知する</strong></div>
+                  <div class="small text-muted mt-1">この物件で ON にすると、作業日が今日から30日より先の予約ではこの通知を発火させず、日付経過で30日以内に入ったタイミング(毎朝 JST 08:00 バッチ)で自動発火します。30日以内に入っている予約はそのままタイミング設定どおりに通知されます。</div>
                 </div>
               </div>
               <div class="form-check form-switch ms-2" style="white-space:nowrap;">

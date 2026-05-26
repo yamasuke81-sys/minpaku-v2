@@ -26,24 +26,30 @@ function daysUntilJst(workDateStr, now = new Date()) {
 }
 
 /**
- * 物件別の channelOverrides.recruit_start.deferUntil30Days を見て、
+ * 任意の通知キーに対し、物件別 channelOverrides.{notifyKey}.deferUntil30Days を見て
  * 作業日 workDateStr について繰延べるか判定。
- * 通知設定タブは廃止されており、設定 SSOT は properties/{pid}.channelOverrides[notifyKey]
- * (予約フロー画面の物件カード内トグル) のため、グローバル settings は参照しない。
+ * 設定 SSOT は properties/{pid}.channelOverrides[notifyKey] (予約フロー画面の物件カード内トグル)。
  * @param {object|null} propertyOverrides properties/{pid}.channelOverrides
+ * @param {string} notifyKey 通知キー (例: "recruit_start" / "timee_posting")
  * @param {string} workDateStr "YYYY-MM-DD"
  * @param {Date} [now]
  * @returns {boolean}
  */
-function shouldDeferRecruitStart(propertyOverrides, workDateStr, now = new Date()) {
-  const ch = (propertyOverrides && propertyOverrides.recruit_start) || {};
+function shouldDeferByNotifyKey(propertyOverrides, notifyKey, workDateStr, now = new Date()) {
+  const ch = (propertyOverrides && propertyOverrides[notifyKey]) || {};
   if (!ch.deferUntil30Days) return false;
   const diff = daysUntilJst(workDateStr, now);
   return diff > DEFER_THRESHOLD_DAYS;
 }
 
+// 後方互換ラッパー (recruit_start 専用)
+function shouldDeferRecruitStart(propertyOverrides, workDateStr, now = new Date()) {
+  return shouldDeferByNotifyKey(propertyOverrides, "recruit_start", workDateStr, now);
+}
+
 module.exports = {
   DEFER_THRESHOLD_DAYS,
   daysUntilJst,
+  shouldDeferByNotifyKey,
   shouldDeferRecruitStart,
 };
