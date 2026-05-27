@@ -569,13 +569,32 @@ const MyInvoiceCreatePage = {
     el.innerHTML = `
       <div class="card mb-3">
         <div class="card-body py-2" style="font-size:0.8rem;">
-          <h6 class="mb-2" style="font-size:0.9rem;"><i class="bi bi-cash-stack"></i> 報酬単価</h6>
-          <table class="table table-sm mb-0" style="font-size:0.8rem;">
-            <tbody>${rows.join("")}</tbody>
-          </table>
+          <button class="btn btn-link p-0 text-decoration-none w-100 text-start collapsed d-flex align-items-center"
+                  type="button" data-bs-toggle="collapse" data-bs-target="#myRatesCollapse"
+                  aria-expanded="false" aria-controls="myRatesCollapse"
+                  style="font-size:0.9rem; color:inherit;">
+            <i class="bi bi-chevron-right me-1 myrates-caret" style="transition:transform 0.2s;"></i>
+            <i class="bi bi-cash-stack me-1"></i> 報酬単価
+          </button>
+          <div class="collapse" id="myRatesCollapse">
+            <table class="table table-sm mb-0 mt-2" style="font-size:0.8rem;">
+              <tbody>${rows.join("")}</tbody>
+            </table>
+          </div>
         </div>
       </div>
     `;
+    // caret アニメーション (Bootstrap collapse のショウ/ヒドイベントで回転)
+    const collapseEl = document.getElementById("myRatesCollapse");
+    const caret = el.querySelector(".myrates-caret");
+    if (collapseEl && caret) {
+      collapseEl.addEventListener("show.bs.collapse", () => {
+        caret.style.transform = "rotate(90deg)";
+      });
+      collapseEl.addEventListener("hide.bs.collapse", () => {
+        caret.style.transform = "rotate(0deg)";
+      });
+    }
   },
 
   addManualRow(data = { date: "", key: "", label: "", amount: "", memo: "" }) {
