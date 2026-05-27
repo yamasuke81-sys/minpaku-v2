@@ -427,6 +427,19 @@ const RecruitmentPage = {
       if (db) db.addEventListener("click", () => this.changeRecruitmentDate());
       if (xb) xb.addEventListener("click", () => this.deleteRecruitmentFromModal());
       if (nb) nb.addEventListener("click", () => this.sendRecruitmentNotification());
+      // タイミー Dispatch / ステータス手動切替 (横カレンダー等から open された経路にも対応)
+      document.querySelectorAll('[data-dispatch-visibility]').forEach(el => {
+        el.addEventListener("click", async (e) => {
+          e.preventDefault();
+          await this.dispatchTimee(el.getAttribute("data-dispatch-visibility"));
+        });
+      });
+      document.querySelectorAll('[data-timee-status]').forEach(el => {
+        el.addEventListener("click", async (e) => {
+          e.preventDefault();
+          await this.changeTimeeStatus(el.getAttribute("data-timee-status"));
+        });
+      });
       this._quickBound = true;
     }
   },
