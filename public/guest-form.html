@@ -1552,6 +1552,12 @@
         _safeToggle("paidParkingSelect", "d-none", true);
         _safeSet("f_paidParking", "required", false);
         _safeToggle("carOverError", "d-none", true);
+      } else {
+        // 「車」を選択した時点で、f_carCount に既存値 (ブラウザ autocomplete や復元値) が
+        // 入っていれば、その時点で車種選択・駐車場割り当て UI を即時描画する。
+        // (これがないと、ユーザーが台数を change しない限り分岐 UI が出てこないバグになる)
+        const ccEl = document.getElementById("f_carCount");
+        if (ccEl && ccEl.value) updateCarUI();
       }
     }
 
