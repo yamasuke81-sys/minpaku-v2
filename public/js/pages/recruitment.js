@@ -117,7 +117,58 @@ const RecruitmentPage = {
       document.getElementById("btnNotifyRecruitment")?.addEventListener("click", () => {
         this.sendRecruitmentNotification();
       });
+      // タイミー自動募集 (Dispatch 経由) — ドロップダウン項目をクリックで発火
+      document.querySelectorAll('[data-dispatch-visibility]').forEach(el => {
+        el.addEventListener("click", async (e) => {
+          e.preventDefault();
+          const visibility = el.getAttribute("data-dispatch-visibility");
+          await this.dispatchTimee(visibility);
+        });
+      });
       this._quickBound = true;
+    }
+  },
+
+  /**
+   * タイミー自動募集を Dispatch 経由で実行
+   * - dispatchQueue に command を書き、PC リスナースクリプトが拾って Chrome 起動 → Tampermonkey 自動入力
+   */
+  async dispatchTimee(visibility) {
+    const r = this._currentRecruitment;
+    if (!r) return;
+    if (!Auth?.isOwner?.()) {
+      await showAlert("オーナー権限が必要です");
+      return;
+    }
+    if (!r.bookingId) {
+      await showAlert("この募集には予約が紐付いていません (手動作成の募集は対象外)");
+      return;
+    }
+    const visLabel = visibility === "group_limited" ? "グループ限定" : "初回ワーカー限定";
+    const ok = await showConfirm(
+      `タイミー求人を【${visLabel}】で自動作成します。\n\n` +
+      `日付: ${r.checkoutDate}\n物件: ${r.propertyName || "-"}\n\n` +
+      `Dispatch リスナー (PC) が待機している必要があります。`,
+      { title: "タイミー自動募集", okLabel: "ディスパッチ送信", okClass: "btn-info" }
+    );
+    if (!ok) return;
+
+    try {
+      const token = await Auth.currentUser.getIdToken();
+      const res = await fetch("/api/dispatch/timee", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({ recruitmentId: r.id, visibility }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      showToast("送信完了", `Dispatch にコマンド送信しました (id=${json.id?.slice(0,8)}...)`, "success");
+    } catch (e) {
+      console.error("[dispatchTimee] エラー:", e);
+      await showAlert(`送信失敗: ${e.message}`);
     }
   },
 

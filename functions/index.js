@@ -167,6 +167,9 @@ app.use("/booking-timeline", bookingTimelineApi(db));
 const keyboxApi = require("./api/keybox");
 app.use("/keybox", keyboxApi(db));
 
+const dispatchApi = require("./api/dispatch");
+app.use("/dispatch", dispatchApi(db));
+
 // ========== LINE プロフィール取得 API ==========
 const lineProfileApi = require("./api/line-profile");
 app.use("/line-profile", lineProfileApi(db));

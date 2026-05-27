@@ -1194,6 +1194,15 @@
           <button type="button" class="btn btn-primary" id="btnNotifyRecruitment">
             <i class="bi bi-megaphone"></i> 募集通知
           </button>
+          <div class="btn-group" role="group">
+            <button type="button" class="btn btn-outline-info dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" id="btnDispatchTimee" title="Claude Dispatch でタイミー求人を自動作成">
+              <i class="bi bi-robot"></i> タイミー自動募集
+            </button>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="#" data-dispatch-visibility="group_limited">▶ グループ限定で募集</a></li>
+              <li><a class="dropdown-item" href="#" data-dispatch-visibility="new_worker_for_client_limited">▶ 初回ワーカー限定で募集</a></li>
+            </ul>
+          </div>
           <button type="button" class="btn btn-success" id="btnConfirmRecruitment">
             <i class="bi bi-check-circle"></i> スタッフ確定
           </button>
