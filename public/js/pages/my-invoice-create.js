@@ -239,6 +239,7 @@ const MyInvoiceCreatePage = {
     document.getElementById("invMonth").addEventListener("change", () => this.loadSummary());
     document.getElementById("invPropertySel").addEventListener("change", (e) => {
       this.propertyId = e.target.value || null;
+      this.renderMyRates();
       this.loadSummary();
     });
     document.getElementById("btnSubmitInvoice").addEventListener("click", () => this.submit());
@@ -485,80 +486,93 @@ const MyInvoiceCreatePage = {
           // type 表示順: pre_inspection → cleaning_by_count → other
           const order = { pre_inspection: 1, cleaning_by_count: 2, other: 3 };
           myItems.sort((a, b) => (order[a.type] || 9) - (order[b.type] || 9));
+          // propertyId キーで引けるよう object 形式でも保持
           this._myRatesByProperty.push({ propertyId, propertyName, items: myItems });
         }
       }
+      this._myRatesIndex = {};
+      for (const g of this._myRatesByProperty) this._myRatesIndex[g.propertyId] = g;
     } catch (e) {
       console.warn("報酬単価マスタ読込失敗:", e.message);
     }
   },
 
-  // 「あなたの報酬単価」セクション描画
+  // 「報酬単価」セクション描画 (プルダウンで選択中の物件のみ)
+  // 表示対象 item:
+  //   - type === "pre_inspection" (直前点検)
+  //   - type === "cleaning_by_count" (清掃 1/2/3人別)
+  //   - type === "other" のうち、name に「ランドリー」+ 補助語 (出し / 受け取り / 搬出 / 回収) を含むもの
+  // ランドリー単体 (name === "ランドリー") は除外
   renderMyRates() {
     const el = document.getElementById("myRatesPanel");
     if (!el) return;
-    const sections = (this._myRatesByProperty || []).map(group => {
-      // 各 item を 1人/2人/3人 別に展開して行を作る
-      const allRows = [];
-      for (const it of group.items) {
-        const sortedCounts = Object.keys(it.rates).map(Number).sort((a, b) => a - b);
-        for (const c of sortedCounts) {
-          const suffix = it.isCleaningByCount ? `${c}人作業` : "";
-          const label = suffix ? `${this._esc(it.name)}${suffix}` : this._esc(it.name);
-          allRows.push(`
-            <tr>
-              <td>${label}</td>
-              <td class="text-end"><span class="badge bg-primary fs-6">¥${it.rates[c].toLocaleString()}</span></td>
-            </tr>
-          `);
-        }
-        // 特別加算は item 単位で 1 回だけ表示 (人数行の後)
-        if ((it.specialRates || []).length > 0) {
-          const specialHtml = it.specialRates.map(s => {
-            let range;
-            if (s.recurYearly) {
-              const [rsm, rsd] = String(s.recurStart || "").split("-");
-              const [rem, red] = String(s.recurEnd || "").split("-");
-              range = `${parseInt(rsm,10)||"?"}/${parseInt(rsd,10)||"?"}〜${parseInt(rem,10)||"?"}/${parseInt(red,10)||"?"} (毎年)`;
-            } else {
-              range = `${s.start || "?"}〜${s.end || "?"}`;
-            }
-            return `<div class="small text-muted ps-3" style="border-left:2px solid #ffc107;">
-              └ <strong>${this._esc(s.name)}</strong> (${range}): +¥${Number(s.addAmount || 0).toLocaleString()}
-            </div>`;
-          }).join("");
-          allRows.push(`<tr><td colspan="2" class="pt-0 pb-2 border-0">${specialHtml}</td></tr>`);
-        }
-      }
-      return `
-        <div class="mb-3">
-          <div class="fw-semibold mb-2 text-secondary"><i class="bi bi-building"></i> ${this._esc(group.propertyName)}</div>
-          <table class="table table-sm mb-0">
-            <thead class="table-light">
-              <tr><th>項目</th><th class="text-end" style="width:140px;">単価</th></tr>
-            </thead>
-            <tbody>${allRows.join("")}</tbody>
-          </table>
-        </div>
-      `;
-    });
 
-    if (sections.length === 0) {
-      el.innerHTML = `<div class="alert alert-secondary small mb-3">
-        <i class="bi bi-info-circle"></i> あなた向けの報酬単価がまだ登録されていません。
-      </div>`;
+    if (!this.propertyId) {
+      el.innerHTML = "";
+      return;
+    }
+    const group = this._myRatesIndex && this._myRatesIndex[this.propertyId];
+    if (!group) {
+      el.innerHTML = "";
+      return;
+    }
+
+    const includeAsLaundry = (name) => {
+      const n = String(name || "");
+      if (n === "ランドリー") return false; // 単体は除外
+      return /ランドリー/.test(n) && /(出し|受け取り|受取|搬出|回収)/.test(n);
+    };
+
+    const rows = [];
+    for (const it of group.items) {
+      const okType =
+        it.type === "pre_inspection" ||
+        it.type === "cleaning_by_count" ||
+        (it.type === "other" && includeAsLaundry(it.name));
+      if (!okType) continue;
+
+      const sortedCounts = Object.keys(it.rates).map(Number).sort((a, b) => a - b);
+      for (const c of sortedCounts) {
+        const suffix = it.isCleaningByCount ? `${c}人作業` : "";
+        const label = suffix ? `${this._esc(it.name)}${suffix}` : this._esc(it.name);
+        rows.push(`
+          <tr>
+            <td>${label}</td>
+            <td class="text-end">¥${it.rates[c].toLocaleString()}</td>
+          </tr>
+        `);
+      }
+      // 特別加算 (お盆 / 正月など) は item 単位で 1 回表示
+      if ((it.specialRates || []).length > 0) {
+        const specialHtml = it.specialRates.map(s => {
+          let range;
+          if (s.recurYearly) {
+            const [rsm, rsd] = String(s.recurStart || "").split("-");
+            const [rem, red] = String(s.recurEnd || "").split("-");
+            range = `${parseInt(rsm,10)||"?"}/${parseInt(rsd,10)||"?"}〜${parseInt(rem,10)||"?"}/${parseInt(red,10)||"?"} (毎年)`;
+          } else {
+            range = `${s.start || "?"}〜${s.end || "?"}`;
+          }
+          return `<div class="text-muted ps-3" style="border-left:2px solid #ffc107; font-size:0.75rem;">
+            └ ${this._esc(s.name)} (${range}): +¥${Number(s.addAmount || 0).toLocaleString()}
+          </div>`;
+        }).join("");
+        rows.push(`<tr><td colspan="2" class="pt-0 pb-2 border-0">${specialHtml}</td></tr>`);
+      }
+    }
+
+    if (rows.length === 0) {
+      el.innerHTML = "";
       return;
     }
 
     el.innerHTML = `
       <div class="card mb-3">
-        <div class="card-body">
-          <h6 class="mb-2"><i class="bi bi-cash-stack"></i> あなたの報酬単価</h6>
-          <div class="small text-muted mb-3">
-            ※ あなた個人に設定された単価のみを表示しています (他のスタッフの単価は表示されません)。<br>
-            ※ お盆・正月などの特別加算がある場合は黄色の枠線でインデント表示します。
-          </div>
-          ${sections.join("")}
+        <div class="card-body py-2" style="font-size:0.8rem;">
+          <h6 class="mb-2" style="font-size:0.9rem;"><i class="bi bi-cash-stack"></i> 報酬単価</h6>
+          <table class="table table-sm mb-0" style="font-size:0.8rem;">
+            <tbody>${rows.join("")}</tbody>
+          </table>
         </div>
       </div>
     `;
