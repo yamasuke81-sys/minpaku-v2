@@ -1243,9 +1243,13 @@ const GuestsPage = {
 
     try {
       // バックエンド API 経由で Firestore フィールドをクリア
+      const token = await Auth.currentUser.getIdToken();
       const res = await fetch(`/api/keybox/cancel/${encodeURIComponent(g.id)}`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
