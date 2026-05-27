@@ -5,7 +5,7 @@
 const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
 const { getStorage } = require("firebase-admin/storage");
-const { notifyOwner, notifyGroup, notifyByKey, getNotificationSettings_, sendLineMessage, sendNotificationEmail_, resolveNotifyTargets, resolveSenderGmail_ } = require("../utils/lineNotify");
+const { notifyOwner, notifyGroup, notifyByKey, notifyStaff, getNotificationSettings_, sendLineMessage, sendNotificationEmail_, resolveNotifyTargets, resolveSenderGmail_ } = require("../utils/lineNotify");
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
@@ -1903,9 +1903,15 @@ module.exports = function invoicesApi(db) {
         });
 
         // スタッフ個別LINE: 提出者本人のみに送信（全スタッフ同報は絶対禁止）
-        if (staffDoc.lineUserId && channelToken) {
+        // 物件別 Bot をフォールバック付きで使う（グローバル channelToken 直送を廃止）
+        if (staffDoc.lineUserId) {
+          const pDoc = await db.collection("properties").doc(propertyId).get().catch(() => null);
+          const propChannels = (pDoc?.exists ? pDoc.data().lineChannels : []) || [];
+          const lineChannelsFiltered = propChannels.filter((c) => c.token);
           const staffLineBody = `📨 ${yearMonth} の請求書を提出しました\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}${linkLine}\n確認: ${confirmUrl}`;
-          sendLineMessage(channelToken, staffDoc.lineUserId, staffLineBody)
+          notifyStaff(db, staffDoc.id, "invoice_submitted",
+            `請求書提出: ${yearMonth}`, staffLineBody,
+            {}, null, { propChannels: lineChannelsFiltered })
             .catch((e) => console.error("提出者LINE送信失敗:", e.message));
         }
 
@@ -2290,11 +2296,12 @@ module.exports = function invoicesApi(db) {
         confirmedAt: FieldValue.serverTimestamp(),
       });
 
-      // Webアプリ管理者通知: LINE はWebアプリ管理者本人のみ、メールは ownerEmail 1件
+      // Webアプリ管理者通知: notifyByKey("invoice_confirmed") 経由で物件別 channelOverrides を反映
+      // TODO: フロントの NOTIFICATIONS マスタに "invoice_confirmed" 種別を追加すること（別タスク #21）
       try {
         const [, m] = String(data.yearMonth || "").split("-");
         const total = Number(data.total || 0);
-        const { settings, channelToken, ownerUserId } = await getNotificationSettings_(db);
+        const { settings } = await getNotificationSettings_(db);
         const appUrl = (settings && settings.appUrl) || "https://minpaku-v2.web.app";
         // 該当請求書の詳細モーダルを直接開けるよう invoiceId 付き
         const invoiceUrl = `${appUrl.replace(/\/$/, "")}/#/invoices/${req.params.id}`;
@@ -2303,21 +2310,20 @@ module.exports = function invoicesApi(db) {
           `合計: ¥${total.toLocaleString()}\n` +
           `確認: ${invoiceUrl}`;
 
-        // LINE: Webアプリ管理者 UserID にのみ送信
-        if (channelToken && ownerUserId) {
-          sendLineMessage(channelToken, ownerUserId, body).catch((e) => console.error("LINE送信失敗:", e.message));
-        }
-
-        // メール: ownerEmail 1件のみ
-        const ownerEmail = settings && (settings.ownerEmail || (settings.notifyEmails && settings.notifyEmails[0]));
-        if (ownerEmail) {
-          resolveSenderGmail_(db, data.propertyId || null).catch(() => null).then((sg) => {
-            sendNotificationEmail_(ownerEmail, `【請求書確定】${data.staffName || ""} ${data.yearMonth}`, body, sg || null, { preferFromHeader: true })
-              .catch((e) => console.error("Webアプリ管理者への確定通知メール失敗:", e.message));
-          });
-        }
+        await notifyByKey(db, "invoice_confirmed", {
+          title: `【請求書確定】${data.staffName || ""} ${data.yearMonth}`,
+          body,
+          vars: {
+            month: m || data.yearMonth,
+            staff: data.staffName || "スタッフ",
+            property: data.propertyName || "",
+            total: `¥${total.toLocaleString()}`,
+            url: invoiceUrl,
+          },
+          propertyId: data.propertyId || null,
+        });
       } catch (notifyErr) {
-        console.error("請求書提出通知エラー（無視）:", notifyErr);
+        console.error("請求書確定通知エラー（無視）:", notifyErr);
       }
 
       res.json({ message: "請求書を確定しました" });
