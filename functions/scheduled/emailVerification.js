@@ -617,6 +617,7 @@ const scheduled = onSchedule(
     region: "asia-northeast1",
     timeZone: "Asia/Tokyo",
     concurrency: 1, // 重複実行防止
+    memory: "512MiB", // Gmail 本文バッファ + bookings 横断クエリで OOM リスク (2026-05-28)
   },
   async (_event) => {
     const admin = require("firebase-admin");

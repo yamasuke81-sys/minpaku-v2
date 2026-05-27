@@ -545,14 +545,22 @@ const API = {
     },
 
     async confirm(recruitmentId) {
-      const doc = await db.collection("recruitments").doc(recruitmentId).get();
-      if (!doc.exists) throw new Error("募集が見つかりません");
-      if (!doc.data().selectedStaff) throw new Error("スタッフが選定されていません");
-      await db.collection("recruitments").doc(recruitmentId).update({
-        status: "スタッフ確定済み",
-        confirmedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      // 旧実装は Firestore 直接書き込みだったため、サーバー側 recruitment.js /confirm の
+      // notifyByKey("staff_confirm") + ICS 添付メール + shift upsert が一切実行されない
+      // バグがあった (2026-05-28 発覚)。REST API 経由に修正。
+      const token = await Auth.currentUser.getIdToken();
+      const res = await fetch(`/api/recruitment/${encodeURIComponent(recruitmentId)}/confirm`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      return res.json().catch(() => ({}));
     },
 
     async reopen(recruitmentId) {

@@ -303,6 +303,7 @@ exports.syncIcal = onSchedule({
   schedule: "every 5 minutes",
   region: "asia-northeast1",
   timeZone: "Asia/Tokyo",
+  memory: "512MiB", // bookings 全件 × 3 種類クエリ + iCal バッファで OOM リスク高 (2026-05-28)
 }, require("./scheduled/syncIcal"));
 
 // OAuth トークン期限リマインダー（毎日 9:00 JST、6日経過で LINE+メール通知）
