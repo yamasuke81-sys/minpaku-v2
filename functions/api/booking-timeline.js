@@ -99,6 +99,11 @@ module.exports = function (db) {
         if (!meta && x.matchStatus === "pending_request") {
           meta = KIND_META["request"];
         }
+        // kind=unknown でも紐付け済 (matchedBookingId あり) なら「関連メール」として表示
+        // (RE: のご予約 / お問い合わせ 等、件名で予約に紐付くが kind 抽出できないメール)
+        if (!meta && x.matchedBookingId) {
+          meta = { type: "email_related", label: "関連メール受信" };
+        }
         if (!meta) return;
 
         const ts = x.receivedAt && x.receivedAt.toDate
