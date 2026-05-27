@@ -248,6 +248,14 @@ exports.recruitReminder = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/recruitReminder"));
 
+// Cloud Functions の OOM (Memory limit exceeded) を検知して error_alert で通知 (毎10分)
+// recruitment confirm 中の OOM で staff_confirm が完走せず不達になった事例 (2026-05-27) の対策
+exports.monitorOOM = onSchedule({
+  schedule: "*/10 * * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/monitorOOM"));
+
 // 30日繰延された募集の自動発火 (毎日 JST 08:00)
 // 予約時点で 30日より先だった募集が、日付経過で 30日以内に入ったら recruit_start を発射する
 exports.dispatchDeferredRecruits = onSchedule({
