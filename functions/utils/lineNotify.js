@@ -11,14 +11,16 @@ const IS_EMULATOR = process.env.FUNCTIONS_EMULATOR === "true";
 /**
  * v2 アプリの URL に openExternalBrowser=1 を付与し、LINE 内蔵ブラウザではなく
  * OS デフォルトブラウザで開かせる (LINE 公式仕様)。
- * - 対象: minpaku-v2.web.app / minpaku-v2.firebaseapp.com を含む URL
+ * - 対象:
+ *   - minpaku-v2.web.app / minpaku-v2.firebaseapp.com (Hosting)
+ *   - *.a.run.app (Cloud Functions Gen2 / Cloud Run; OAuth 失効通知の gmail-auth エンドポイント等)
  * - 既に openExternalBrowser=... が含まれていれば変更しない
  * - Query 有無は ? / & を自動判定
  * - フラグメント (#/...) より前に挿入
  */
 function appendOpenExternalBrowser(text) {
   if (!text || typeof text !== "string") return text;
-  const re = /https:\/\/minpaku-v2\.(?:web\.app|firebaseapp\.com)[^\s)<>"]*/g;
+  const re = /https:\/\/(?:minpaku-v2\.(?:web\.app|firebaseapp\.com)|[\w-]+\.a\.run\.app)[^\s)<>"]*/g;
   return text.replace(re, (url) => {
     if (/[?&]openExternalBrowser=/.test(url)) return url;
     // fragment を分離
