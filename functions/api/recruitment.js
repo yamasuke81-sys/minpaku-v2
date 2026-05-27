@@ -339,13 +339,16 @@ module.exports = function recruitmentApi(db) {
           const allConfirmedNames = hasIdList
             ? selectedIds.map(id => idToName.get(id) || "").filter(Boolean).join("、")
             : selectedNames.join("、");
-          const text = `✅ 清掃確定のお知らせ\n\n${data.checkoutDate} ${data.propertyName || ""}\n担当: ${allConfirmedNames}\nよろしくお願いします。\n詳細: ${dashUrl}`;
+          const work = data.workType === "pre_inspection" ? "直前点検" : "清掃";
+          const text = `✅ ${work}確定のお知らせ\n\n${data.checkoutDate} ${data.propertyName || ""}\n担当: ${allConfirmedNames}\nよろしくお願いします。\n詳細: ${dashUrl}`;
           const confirmVars = {
             date: data.checkoutDate,
             checkoutDate: data.checkoutDate,
             property: data.propertyName || "",
             propertyName: data.propertyName || "",
             staff: allConfirmedNames,
+            work,
+            workType: data.workType || "cleaning",
             url: dashUrl,
           };
 
