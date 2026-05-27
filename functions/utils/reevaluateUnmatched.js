@@ -197,11 +197,16 @@ async function applyRematchTransaction_(db, evRef, bookingId, evDataAtScan, pars
 async function reevaluateGlobalUnmatched_(db, log) {
   const result = { rematched: 0, scanned: 0, errors: [] };
 
-  // 1. active 物件の bookings を chunk クエリで全取得
+  // 1. active 物件の bookings を chunk クエリで全取得 + 物件名→propertyId マップを構築
   let bookingsArr = [];
+  const propertyNameMap = []; // [{ name, propertyId }] - subject から物件名を逆引きする用
   try {
     const propsSnap = await db.collection("properties").where("active", "==", true).get();
     const propIds = propsSnap.docs.map((d) => d.id);
+    for (const p of propsSnap.docs) {
+      const name = p.data()?.name || "";
+      if (name) propertyNameMap.push({ name, propertyId: p.id });
+    }
     for (let i = 0; i < propIds.length; i += 30) {
       const chunk = propIds.slice(i, i + 30);
       if (chunk.length === 0) continue;
@@ -239,7 +244,26 @@ async function reevaluateGlobalUnmatched_(db, log) {
       if (!ext) continue;
       result.scanned++;
 
-      const match = findBookingMatch(bookingsArr, ext, null);
+      // subject から物件名を逆引きして propertyId を推定 (新規取込ルートと同じ補完を再評価でも適用)
+      // 例: subject="瀬戸内海ビュー大テラス｜...のご予約" → "the Terrace 長浜" を抽出して propertyId 復元
+      // ※ Airbnb 等の subject は物件 listing 名なので properties.name と完全一致しない可能性あり。
+      //   従って完全一致 + 部分一致 (4文字以上連続一致) で広めに判定
+      let propertyIdHint = null;
+      const haystack = `${ev.subject || ""} ${ev.bodyText || ""} ${ev.bodyHtml || ""}`;
+      for (const { name, propertyId } of propertyNameMap) {
+        if (!name) continue;
+        if (haystack.includes(name)) { propertyIdHint = propertyId; break; }
+        // 短い物件名は部分一致のみ。長い名前は 4文字以上の連続部分でも一致判定
+        if (name.length >= 4) {
+          for (let i = 0; i + 4 <= name.length; i++) {
+            const sub = name.slice(i, i + 4);
+            if (haystack.includes(sub)) { propertyIdHint = propertyId; break; }
+          }
+          if (propertyIdHint) break;
+        }
+      }
+
+      const match = findBookingMatch(bookingsArr, ext, propertyIdHint);
       if (!match || !match.id) continue;
 
       const ok = await applyGlobalRematchTransaction_(db, evDoc.ref, match, ev, ext);
