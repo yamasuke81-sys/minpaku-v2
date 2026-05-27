@@ -415,9 +415,31 @@ const MyInvoiceCreatePage = {
 
   // 報酬単価マスタから、このスタッフに適用されるレートを収集
   // ついでに「あなたの報酬単価」セクション用のキャッシュも構築 (specialRates 含む)
+  //
+  // データ構造 (rates.js / propertyWorkItems):
+  //   item.type = "cleaning_by_count" | "pre_inspection" | "other"
+  //   item.rateMode = "common" | "perStaff"
+  //   item.commonRates = { 1: 5000, 2: 4500, 3: 4000 } (人数別) ※旧 commonRate(scalar) もフォールバック
+  //   item.staffRates = { [staffId]: { 1, 2, 3 } } ※旧 scalar もフォールバック
+  //   item.specialRates = [{name, addAmount, recurYearly, recurStart, recurEnd, start, end}]
   async loadWorkItemOptions() {
     this.workItemOptions = [];
-    this._myRatesByProperty = []; // [{propertyName, items:[{name, rate, specialRates}]}]
+    this._myRatesByProperty = []; // [{propertyName, items:[{name, type, rates:{1,2,3}, specialRates}]}]
+    // 指定 item / count に対する自分の単価を解決 (perStaff > common, scalar → object フォールバック)
+    const resolveRate = (it, count) => {
+      // staffRates 取得 (rateMode 関係なく perStaff データがあれば優先)
+      const sr = it.staffRates && it.staffRates[this.staffId];
+      if (sr != null) {
+        if (typeof sr === "number") return sr; // 旧 scalar 形式
+        if (sr[count] != null) return Number(sr[count]) || 0;
+        // 当該 count の値がない場合 perStaff としては未設定 → common にフォールバック
+      }
+      // commonRates (人数別 object)
+      if (it.commonRates && it.commonRates[count] != null) return Number(it.commonRates[count]) || 0;
+      // 旧 commonRate (scalar)
+      if (typeof it.commonRate === "number") return it.commonRate;
+      return 0;
+    };
     try {
       const propSnap = await db.collection("properties").get();
       const propMap = {};
@@ -430,21 +452,39 @@ const MyInvoiceCreatePage = {
         const items = (doc.data().items || []).filter(i => i && i.name);
         const myItems = [];
         for (const it of items) {
-          const staffRate = it.staffRates && it.staffRates[this.staffId];
-          const rate = (staffRate !== undefined && staffRate !== null && staffRate !== "") ? Number(staffRate) : Number(it.commonRate || 0);
-          if (!rate) continue; // 0 or null は除外
-          this.workItemOptions.push({
-            key: `${propertyId}:${it.id || it.name}`,
-            label: `${propertyName} / ${it.name}`,
-            amount: rate,
-          });
+          const isCleaningByCount = it.type === "cleaning_by_count";
+          // 清掃 (人数別) は 1/2/3 人それぞれの単価、それ以外は 1 のみ
+          const counts = isCleaningByCount ? [1, 2, 3] : [1];
+          const rates = {};
+          for (const c of counts) {
+            const r = resolveRate(it, c);
+            if (r > 0) rates[c] = r;
+          }
+          if (Object.keys(rates).length === 0) continue; // 自分には単価設定がない
+
+          // workItemOptions (請求書作成プルダウン用) — 人数別の場合は 3 行に分けて追加
+          for (const c of Object.keys(rates).map(Number).sort((a,b) => a-b)) {
+            const suffix = isCleaningByCount ? `${c}人作業` : "";
+            const itemLabel = suffix ? `${it.name}${suffix}` : it.name;
+            this.workItemOptions.push({
+              key: `${propertyId}:${it.id || it.name}:${c}`,
+              label: `${propertyName} / ${itemLabel}`,
+              amount: rates[c],
+            });
+          }
+
           myItems.push({
             name: it.name,
-            rate,
+            type: it.type || "other",
+            isCleaningByCount,
+            rates,
             specialRates: (it.specialRates || []).filter(s => s && s.name && Number(s.addAmount) > 0),
           });
         }
         if (myItems.length > 0) {
+          // type 表示順: pre_inspection → cleaning_by_count → other
+          const order = { pre_inspection: 1, cleaning_by_count: 2, other: 3 };
+          myItems.sort((a, b) => (order[a.type] || 9) - (order[b.type] || 9));
           this._myRatesByProperty.push({ propertyId, propertyName, items: myItems });
         }
       }
@@ -458,29 +498,38 @@ const MyInvoiceCreatePage = {
     const el = document.getElementById("myRatesPanel");
     if (!el) return;
     const sections = (this._myRatesByProperty || []).map(group => {
-      const rows = group.items.map(it => {
-        const specialHtml = (it.specialRates || []).map(s => {
-          let range;
-          if (s.recurYearly) {
-            const pad = (v) => String(v || "").padStart(2, "0");
-            const [rsm, rsd] = String(s.recurStart || "").split("-");
-            const [rem, red] = String(s.recurEnd || "").split("-");
-            range = `${parseInt(rsm,10)||"?"}/${parseInt(rsd,10)||"?"}〜${parseInt(rem,10)||"?"}/${parseInt(red,10)||"?"} (毎年)`;
-          } else {
-            range = `${s.start || "?"}〜${s.end || "?"}`;
-          }
-          return `<div class="small text-muted ps-3" style="border-left:2px solid #ffc107;">
-            └ <strong>${this._esc(s.name)}</strong> (${range}): +¥${Number(s.addAmount || 0).toLocaleString()}
-          </div>`;
-        }).join("");
-        return `
-          <tr>
-            <td>${this._esc(it.name)}</td>
-            <td class="text-end"><span class="badge bg-primary fs-6">¥${it.rate.toLocaleString()}</span></td>
-          </tr>
-          ${specialHtml ? `<tr><td colspan="2" class="pt-0 border-0">${specialHtml}</td></tr>` : ""}
-        `;
-      }).join("");
+      // 各 item を 1人/2人/3人 別に展開して行を作る
+      const allRows = [];
+      for (const it of group.items) {
+        const sortedCounts = Object.keys(it.rates).map(Number).sort((a, b) => a - b);
+        for (const c of sortedCounts) {
+          const suffix = it.isCleaningByCount ? `${c}人作業` : "";
+          const label = suffix ? `${this._esc(it.name)}${suffix}` : this._esc(it.name);
+          allRows.push(`
+            <tr>
+              <td>${label}</td>
+              <td class="text-end"><span class="badge bg-primary fs-6">¥${it.rates[c].toLocaleString()}</span></td>
+            </tr>
+          `);
+        }
+        // 特別加算は item 単位で 1 回だけ表示 (人数行の後)
+        if ((it.specialRates || []).length > 0) {
+          const specialHtml = it.specialRates.map(s => {
+            let range;
+            if (s.recurYearly) {
+              const [rsm, rsd] = String(s.recurStart || "").split("-");
+              const [rem, red] = String(s.recurEnd || "").split("-");
+              range = `${parseInt(rsm,10)||"?"}/${parseInt(rsd,10)||"?"}〜${parseInt(rem,10)||"?"}/${parseInt(red,10)||"?"} (毎年)`;
+            } else {
+              range = `${s.start || "?"}〜${s.end || "?"}`;
+            }
+            return `<div class="small text-muted ps-3" style="border-left:2px solid #ffc107;">
+              └ <strong>${this._esc(s.name)}</strong> (${range}): +¥${Number(s.addAmount || 0).toLocaleString()}
+            </div>`;
+          }).join("");
+          allRows.push(`<tr><td colspan="2" class="pt-0 pb-2 border-0">${specialHtml}</td></tr>`);
+        }
+      }
       return `
         <div class="mb-3">
           <div class="fw-semibold mb-2 text-secondary"><i class="bi bi-building"></i> ${this._esc(group.propertyName)}</div>
@@ -488,7 +537,7 @@ const MyInvoiceCreatePage = {
             <thead class="table-light">
               <tr><th>項目</th><th class="text-end" style="width:140px;">単価</th></tr>
             </thead>
-            <tbody>${rows}</tbody>
+            <tbody>${allRows.join("")}</tbody>
           </table>
         </div>
       `;
