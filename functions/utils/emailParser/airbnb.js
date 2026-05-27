@@ -15,9 +15,18 @@
 // 純粋関数群 (単体テスト可能、Firestore 非依存)
 // ======================================================
 
-// 確認コード抽出: Airbnb は "HM" 接頭の英数 8 文字
+// 確認コード抽出: Airbnb は "HM" 接頭の英数 6〜12 文字
+// ※ 実測では 8 文字が多いが、将来的な桁数変動に備えて 6〜12 を許容
+// 検索対象: 本文テキスト (本文に含まれる URL も含む)
 function extractReservationCode(body) {
-  const m = /HM[A-Z0-9]{8}/.exec(String(body || ""));
+  const m = /HM[A-Z0-9]{6,12}/.exec(String(body || ""));
+  return m ? m[0] : null;
+}
+
+// 件名から確認コードを抽出 (件名に HM コードが含まれる場合)
+// 例: キャンセル件名「（HMJENWXRMS）」や通知件名内の HM コード
+function extractReservationCodeFromSubject(subject) {
+  const m = /HM[A-Z0-9]{6,12}/.exec(String(subject || ""));
   return m ? m[0] : null;
 }
 
@@ -233,7 +242,8 @@ function parseAirbnbEmail(input) {
   }
 
   // ========== kind=confirmed / change-approved / request / unknown: 本文主導 ==========
-  const reservationCode = extractReservationCode(body);
+  // 本文から優先取得し、取れなければ件名からフォールバック
+  const reservationCode = extractReservationCode(body) || extractReservationCodeFromSubject(subject);
   const guestName = extractGuestNameFromSubject(subject);
   const guestFirstName = extractGuestFirstNameFromBody(body);
   // checkIn: まず本文から取得を試みて、取れなかったら件名の「M月D日ご到着」から補完
@@ -289,6 +299,7 @@ module.exports = {
   parseAirbnbEmail,
   _pure: {
     extractReservationCode,
+    extractReservationCodeFromSubject,
     extractGuestNameFromSubject,
     extractCheckInFromSubject,
     extractGuestFirstNameFromBody,

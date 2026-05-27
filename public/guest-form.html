@@ -2676,6 +2676,101 @@
       }
     }
 
+    // ===== 新規名簿登録 (重複チェック付き) =====
+    // force=true の場合は重複チェックをスキップして登録
+    // 409 受信時は確認ダイアログを表示し、「新規として送信」が選ばれた場合は
+    // force=true で再試行する。「キャンセル」の場合は AbortError を throw して
+    // 呼び出し元の catch で送信ボタンを復元させる。
+    async function submitGuestRegistration(data, btn) {
+      const resp = await fetch("/api/public/guest-register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+
+      if (resp.status === 409) {
+        const dup = await resp.json().catch(() => ({}));
+        const name = dup.existingGuestName || "(不明)";
+        const ci   = dup.existingCheckIn   || "(不明)";
+        const msg  = currentLang === "ja"
+          ? `同一物件で既に名簿が登録されています。\n\n代表者: ${name}\nチェックイン: ${ci}\n\n修正の場合は登録メアド宛に届いたリンクからお願いします。\n新規予約の場合は「新規として送信」を押してください。`
+          : `A guest registration already exists for this property.\n\nGuest: ${name}\nCheck-in: ${ci}\n\nTo edit, please use the link sent to your registered email.\nTo register as a new booking, press "Submit as new".`;
+
+        return new Promise((resolve, reject) => {
+          // Bootstrap モーダルで確認
+          const modalId = "dupGuestModal";
+          let modalEl = document.getElementById(modalId);
+          if (!modalEl) {
+            modalEl = document.createElement("div");
+            modalEl.id = modalId;
+            modalEl.className = "modal fade";
+            modalEl.tabIndex = -1;
+            modalEl.setAttribute("aria-hidden", "true");
+            modalEl.innerHTML = `
+              <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                  <div class="modal-header bg-warning-subtle">
+                    <h5 class="modal-title"><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>${currentLang === "ja" ? "名簿の重複を検知" : "Duplicate registration detected"}</h5>
+                  </div>
+                  <div class="modal-body" id="dupGuestModalBody" style="white-space:pre-wrap;"></div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" id="dupGuestModalCancel">${currentLang === "ja" ? "キャンセル" : "Cancel"}</button>
+                    <button type="button" class="btn btn-primary" id="dupGuestModalForce">${currentLang === "ja" ? "新規として送信" : "Submit as new"}</button>
+                  </div>
+                </div>
+              </div>`;
+            document.body.appendChild(modalEl);
+          }
+          document.getElementById("dupGuestModalBody").textContent = msg;
+
+          const bsModal = new bootstrap.Modal(modalEl, { backdrop: "static", keyboard: false });
+
+          // 「キャンセル」→ ボタン復元して送信ループを中断
+          const cancelHandler = () => {
+            bsModal.hide();
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-send"></i> ' + (i18n[currentLang]?.submit || "送信");
+            reject(new DOMException("ユーザーがキャンセルしました", "AbortError"));
+          };
+          // 「新規として送信」→ force=true で再投稿
+          const forceHandler = async () => {
+            bsModal.hide();
+            try {
+              const resp2 = await fetch("/api/public/guest-register", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ...data, force: true }),
+              });
+              if (!resp2.ok) {
+                const body2 = await resp2.json().catch(() => ({}));
+                reject(new Error(body2.error || `送信エラー (${resp2.status})`));
+              } else {
+                resolve();
+              }
+            } catch (e) {
+              reject(e);
+            }
+          };
+
+          document.getElementById("dupGuestModalCancel").onclick = cancelHandler;
+          document.getElementById("dupGuestModalForce").onclick  = forceHandler;
+          // モーダルが閉じられた後にイベントリスナーを削除
+          modalEl.addEventListener("hidden.bs.modal", () => {
+            document.getElementById("dupGuestModalCancel").onclick = null;
+            document.getElementById("dupGuestModalForce").onclick  = null;
+          }, { once: true });
+
+          bsModal.show();
+        });
+      }
+
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        throw new Error(body.error || `送信エラー (${resp.status})`);
+      }
+      // 201 Created → 正常
+    }
+
     // ===== 送信 =====
     async function submitForm(e) {
       e.preventDefault();
@@ -2836,9 +2931,10 @@
             throw new Error(body.error || `送信エラー (${resp.status})`);
           }
         } else {
-          // === 新規登録: Firestore 直書き ===
-          // (editToken・editTokenExpiresAt は onGuestFormSubmit トリガー側で生成される)
-          await db.collection("guestRegistrations").add(data);
+          // === 新規登録: POST /api/public/guest-register (重複チェック付き) ===
+          await submitGuestRegistration(data, btn);
+          // submitGuestRegistration は 409 時に重複ダイアログを表示して throw する。
+          // それ以外のエラーも throw されるので後続の catch に委ねる。
         }
         // successView のガイドリンク: 物件設定の guideUrlMode + guideShowOnSuccess に応じて切替
         try {

@@ -345,4 +345,77 @@ router.get("/staff-ical/:token", async (req, res) => {
   }
 });
 
+// POST /public/guest-register
+// ゲストフォーム新規登録 (重複チェック付き)
+// body: { ...guestData, force?: boolean }
+//   force=true の場合は重複チェックをスキップして登録
+router.post("/guest-register", express.json({ limit: "5mb" }), async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const body = req.body || {};
+    const force = body.force === true;
+
+    const propertyId = String(body.propertyId || "");
+    if (!propertyId) return res.status(400).json({ error: "propertyId 必須" });
+
+    // ===== 重複チェック =====
+    if (!force) {
+      // 同一物件の submitted/confirmed 名簿を取得
+      const existingSnap = await db.collection("guestRegistrations")
+        .where("propertyId", "==", propertyId)
+        .where("status", "in", ["submitted", "confirmed"])
+        .get();
+
+      // 正規化ヘルパー
+      const normName = (s) => String(s || "").replace(/\s+/g, " ").replace(/　/g, " ").trim().toLowerCase();
+      const normEmail = (s) => String(s || "").toLowerCase().trim();
+      const normPhone = (s) => String(s || "").replace(/-/g, "").replace(/\s/g, "").trim();
+
+      const inputName  = normName(body.guestName);
+      const inputEmail = normEmail(body.email);
+      const inputPhone = normPhone(body.phone);
+
+      let hit = null;
+      for (const doc of existingSnap.docs) {
+        const d = doc.data();
+        const nameMatch  = inputName  && normName(d.guestName)  === inputName;
+        const emailMatch = inputEmail && normEmail(d.email)      === inputEmail;
+        const phoneMatch = inputPhone && normPhone(d.phone)      === inputPhone;
+        if (nameMatch || emailMatch || phoneMatch) {
+          hit = { id: doc.id, ...d };
+          break;
+        }
+      }
+
+      if (hit) {
+        return res.status(409).json({
+          error: "duplicate",
+          existingId:        hit.id,
+          existingEditToken: hit.editToken || null,
+          existingCheckIn:   hit.checkIn   || null,
+          existingGuestName: hit.guestName || null,
+        });
+      }
+    }
+
+    // ===== 新規登録 =====
+    // force=true でスキップされた重複候補がある場合は status を "duplicate_override" でマーク
+    const data = { ...body };
+    delete data.force; // force フラグはDB保存しない
+    // undefined を除去 (Firestoreが受け付けない)
+    Object.keys(data).forEach(k => { if (data[k] === undefined) delete data[k]; });
+
+    // サーバー側でタイムスタンプを上書き保証
+    data.submittedAt  = admin.firestore.FieldValue.serverTimestamp();
+    data.createdAt    = admin.firestore.FieldValue.serverTimestamp();
+    data.updatedAt    = admin.firestore.FieldValue.serverTimestamp();
+
+    const docRef = await db.collection("guestRegistrations").add(data);
+    return res.status(201).json({ ok: true, id: docRef.id });
+  } catch (e) {
+    console.error("[public/guest-register]", e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;

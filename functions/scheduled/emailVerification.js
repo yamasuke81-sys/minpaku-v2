@@ -146,6 +146,9 @@ async function emailVerificationCore(db, opts = {}) {
   // 1. アクティブ物件の verificationEmails[] を全部集める (ownerId も保持)
   const propsSnap = await db.collection("properties").where("active", "==", true).get();
   const verificationTargets = [];
+  // 物件名 → propertyId マップ (本文中の物件名で propertyId を推定するフォールバック用)
+  // key: 物件名の正規化文字列 (半角スペース除去・小文字), value: propertyId
+  const propertyNameMap = {};
   for (const p of propsSnap.docs) {
     const pData = p.data();
     const veList = Array.isArray(pData.verificationEmails) ? pData.verificationEmails : [];
@@ -153,11 +156,16 @@ async function emailVerificationCore(db, opts = {}) {
       if (ve && ve.email) {
         verificationTargets.push({
           propertyId: p.id,
+          propertyName: pData.name || "",
           ownerId: pData.ownerId || "",  // サブオーナー対応スコープ用
           platform: ve.platform || "Unknown",
           email: ve.email,
         });
       }
+    }
+    // 物件名マップ登録 (verificationEmails 未登録物件も含む)
+    if (pData.name) {
+      propertyNameMap[pData.name] = p.id;
     }
   }
   if (verificationTargets.length === 0) {
@@ -258,7 +266,21 @@ async function emailVerificationCore(db, opts = {}) {
           // 同一メアドが複数物件で共用されている場合、platform 一致で絞れなければ null
           //   → 下流の findBookingMatch がオーナー全物件 bookings から reservationCode で特定する
           const matched = matchVerificationTarget(toHeader, myTargets, platformFromSender);
-          const propertyId = matched ? matched.propertyId : null;
+          // propertyId 推定: To ヘッダで特定できない場合は本文・件名に含まれる物件名で補完
+          let propertyId = matched ? matched.propertyId : null;
+          if (!propertyId) {
+            const searchText = (subject + " " + bodyText + " " + bodyHtml).toLowerCase();
+            for (const [propName, propId] of Object.entries(propertyNameMap)) {
+              // このオーナーの物件のみ対象 (myTargets に含まれる propertyId のみ許可)
+              const isMyProp = myTargets.some((t) => t.propertyId === propId);
+              if (!isMyProp) continue;
+              if (propName && searchText.includes(propName.toLowerCase())) {
+                propertyId = propId;
+                log.info && log.info(`[emailVerification] 物件名マッチで propertyId 補完: "${propName}" → ${propId} (msg=${msg.id})`);
+                break;
+              }
+            }
+          }
           const platform = platformFromSender !== "Unknown"
             ? platformFromSender
             : (matched && matched.platform) || "Unknown";
