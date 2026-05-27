@@ -111,6 +111,9 @@ const MyInvoiceCreatePage = {
         </div>
       </div>
 
+      <!-- あなたの報酬単価 (本人個別単価のみ表示、お盆/正月の特別加算も併記) -->
+      <div id="myRatesPanel"></div>
+
       <!-- 自動集計 (縦テーブル) -->
       <div class="card mb-3">
         <div class="card-body">
@@ -225,6 +228,7 @@ const MyInvoiceCreatePage = {
         this.propertyId = null; // スタッフ切替で物件選択リセット
         await this.loadStaffDoc();
         await this.loadWorkItemOptions();
+        this.renderMyRates();
         await this.rebuildPropertySelect();
         await this.loadSummary();
         await this.loadPastInvoices();
@@ -276,6 +280,7 @@ const MyInvoiceCreatePage = {
 
     await this.loadStaffDoc();
     await this.loadWorkItemOptions();
+    this.renderMyRates();
     await this.rebuildPropertySelect();
     await this.loadSummary();
     await this.loadPastInvoices();
@@ -409,8 +414,10 @@ const MyInvoiceCreatePage = {
   },
 
   // 報酬単価マスタから、このスタッフに適用されるレートを収集
+  // ついでに「あなたの報酬単価」セクション用のキャッシュも構築 (specialRates 含む)
   async loadWorkItemOptions() {
     this.workItemOptions = [];
+    this._myRatesByProperty = []; // [{propertyName, items:[{name, rate, specialRates}]}]
     try {
       const propSnap = await db.collection("properties").get();
       const propMap = {};
@@ -421,6 +428,7 @@ const MyInvoiceCreatePage = {
         const propertyId = doc.id;
         const propertyName = propMap[propertyId] || propertyId;
         const items = (doc.data().items || []).filter(i => i && i.name);
+        const myItems = [];
         for (const it of items) {
           const staffRate = it.staffRates && it.staffRates[this.staffId];
           const rate = (staffRate !== undefined && staffRate !== null && staffRate !== "") ? Number(staffRate) : Number(it.commonRate || 0);
@@ -430,11 +438,81 @@ const MyInvoiceCreatePage = {
             label: `${propertyName} / ${it.name}`,
             amount: rate,
           });
+          myItems.push({
+            name: it.name,
+            rate,
+            specialRates: (it.specialRates || []).filter(s => s && s.name && Number(s.addAmount) > 0),
+          });
+        }
+        if (myItems.length > 0) {
+          this._myRatesByProperty.push({ propertyId, propertyName, items: myItems });
         }
       }
     } catch (e) {
       console.warn("報酬単価マスタ読込失敗:", e.message);
     }
+  },
+
+  // 「あなたの報酬単価」セクション描画
+  renderMyRates() {
+    const el = document.getElementById("myRatesPanel");
+    if (!el) return;
+    const sections = (this._myRatesByProperty || []).map(group => {
+      const rows = group.items.map(it => {
+        const specialHtml = (it.specialRates || []).map(s => {
+          let range;
+          if (s.recurYearly) {
+            const pad = (v) => String(v || "").padStart(2, "0");
+            const [rsm, rsd] = String(s.recurStart || "").split("-");
+            const [rem, red] = String(s.recurEnd || "").split("-");
+            range = `${parseInt(rsm,10)||"?"}/${parseInt(rsd,10)||"?"}〜${parseInt(rem,10)||"?"}/${parseInt(red,10)||"?"} (毎年)`;
+          } else {
+            range = `${s.start || "?"}〜${s.end || "?"}`;
+          }
+          return `<div class="small text-muted ps-3" style="border-left:2px solid #ffc107;">
+            └ <strong>${this._esc(s.name)}</strong> (${range}): +¥${Number(s.addAmount || 0).toLocaleString()}
+          </div>`;
+        }).join("");
+        return `
+          <tr>
+            <td>${this._esc(it.name)}</td>
+            <td class="text-end"><span class="badge bg-primary fs-6">¥${it.rate.toLocaleString()}</span></td>
+          </tr>
+          ${specialHtml ? `<tr><td colspan="2" class="pt-0 border-0">${specialHtml}</td></tr>` : ""}
+        `;
+      }).join("");
+      return `
+        <div class="mb-3">
+          <div class="fw-semibold mb-2 text-secondary"><i class="bi bi-building"></i> ${this._esc(group.propertyName)}</div>
+          <table class="table table-sm mb-0">
+            <thead class="table-light">
+              <tr><th>項目</th><th class="text-end" style="width:140px;">単価</th></tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `;
+    });
+
+    if (sections.length === 0) {
+      el.innerHTML = `<div class="alert alert-secondary small mb-3">
+        <i class="bi bi-info-circle"></i> あなた向けの報酬単価がまだ登録されていません。
+      </div>`;
+      return;
+    }
+
+    el.innerHTML = `
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6 class="mb-2"><i class="bi bi-cash-stack"></i> あなたの報酬単価</h6>
+          <div class="small text-muted mb-3">
+            ※ あなた個人に設定された単価のみを表示しています (他のスタッフの単価は表示されません)。<br>
+            ※ お盆・正月などの特別加算がある場合は黄色の枠線でインデント表示します。
+          </div>
+          ${sections.join("")}
+        </div>
+      </div>
+    `;
   },
 
   addManualRow(data = { date: "", key: "", label: "", amount: "", memo: "" }) {
