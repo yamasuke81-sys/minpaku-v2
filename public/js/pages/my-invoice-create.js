@@ -228,8 +228,8 @@ const MyInvoiceCreatePage = {
         this.propertyId = null; // スタッフ切替で物件選択リセット
         await this.loadStaffDoc();
         await this.loadWorkItemOptions();
-        this.renderMyRates();
         await this.rebuildPropertySelect();
+        this.renderMyRates(); // propertyId 確定後に描画
         await this.loadSummary();
         await this.loadPastInvoices();
       });
@@ -281,8 +281,8 @@ const MyInvoiceCreatePage = {
 
     await this.loadStaffDoc();
     await this.loadWorkItemOptions();
-    this.renderMyRates();
     await this.rebuildPropertySelect();
+    this.renderMyRates(); // propertyId 確定後に描画
     await this.loadSummary();
     await this.loadPastInvoices();
   },
@@ -507,13 +507,41 @@ const MyInvoiceCreatePage = {
     const el = document.getElementById("myRatesPanel");
     if (!el) return;
 
+    // 共通カード描画ヘルパ (フォールバック / 通常表示で共有)
+    const renderCard = (innerHtml) => `
+      <div class="card mb-3">
+        <div class="card-body py-2" style="font-size:0.8rem;">
+          <button class="btn btn-link p-0 text-decoration-none w-100 text-start collapsed d-flex align-items-center"
+                  type="button" data-bs-toggle="collapse" data-bs-target="#myRatesCollapse"
+                  aria-expanded="false" aria-controls="myRatesCollapse"
+                  style="font-size:0.9rem; color:inherit;">
+            <i class="bi bi-chevron-right me-1 myrates-caret" style="transition:transform 0.2s;"></i>
+            <i class="bi bi-cash-stack me-1"></i> 報酬単価
+          </button>
+          <div class="collapse" id="myRatesCollapse">
+            ${innerHtml}
+          </div>
+        </div>
+      </div>
+    `;
+    const bindCaret = () => {
+      const collapseEl = document.getElementById("myRatesCollapse");
+      const caret = el.querySelector(".myrates-caret");
+      if (collapseEl && caret) {
+        collapseEl.addEventListener("show.bs.collapse", () => { caret.style.transform = "rotate(90deg)"; });
+        collapseEl.addEventListener("hide.bs.collapse", () => { caret.style.transform = "rotate(0deg)"; });
+      }
+    };
+
     if (!this.propertyId) {
-      el.innerHTML = "";
+      el.innerHTML = renderCard(`<div class="text-muted mt-2">物件を選択すると単価が表示されます。</div>`);
+      bindCaret();
       return;
     }
     const group = this._myRatesIndex && this._myRatesIndex[this.propertyId];
     if (!group) {
-      el.innerHTML = "";
+      el.innerHTML = renderCard(`<div class="text-muted mt-2">この物件にはあなた向けの単価が登録されていません。</div>`);
+      bindCaret();
       return;
     }
 
@@ -562,39 +590,17 @@ const MyInvoiceCreatePage = {
     }
 
     if (rows.length === 0) {
-      el.innerHTML = "";
+      el.innerHTML = renderCard(`<div class="text-muted mt-2">表示対象の単価項目がありません。</div>`);
+      bindCaret();
       return;
     }
 
-    el.innerHTML = `
-      <div class="card mb-3">
-        <div class="card-body py-2" style="font-size:0.8rem;">
-          <button class="btn btn-link p-0 text-decoration-none w-100 text-start collapsed d-flex align-items-center"
-                  type="button" data-bs-toggle="collapse" data-bs-target="#myRatesCollapse"
-                  aria-expanded="false" aria-controls="myRatesCollapse"
-                  style="font-size:0.9rem; color:inherit;">
-            <i class="bi bi-chevron-right me-1 myrates-caret" style="transition:transform 0.2s;"></i>
-            <i class="bi bi-cash-stack me-1"></i> 報酬単価
-          </button>
-          <div class="collapse" id="myRatesCollapse">
-            <table class="table table-sm mb-0 mt-2" style="font-size:0.8rem;">
-              <tbody>${rows.join("")}</tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    `;
-    // caret アニメーション (Bootstrap collapse のショウ/ヒドイベントで回転)
-    const collapseEl = document.getElementById("myRatesCollapse");
-    const caret = el.querySelector(".myrates-caret");
-    if (collapseEl && caret) {
-      collapseEl.addEventListener("show.bs.collapse", () => {
-        caret.style.transform = "rotate(90deg)";
-      });
-      collapseEl.addEventListener("hide.bs.collapse", () => {
-        caret.style.transform = "rotate(0deg)";
-      });
-    }
+    el.innerHTML = renderCard(`
+      <table class="table table-sm mb-0 mt-2" style="font-size:0.8rem;">
+        <tbody>${rows.join("")}</tbody>
+      </table>
+    `);
+    bindCaret();
   },
 
   addManualRow(data = { date: "", key: "", label: "", amount: "", memo: "" }) {
