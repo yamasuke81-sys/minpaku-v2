@@ -187,7 +187,10 @@ app.use((req, res) => {
 
 // API エクスポート
 // invoker: "public" → Cloud Runの「未認証の呼び出しを許可」を恒久設定（デプロイ時にリセットされない）
-exports.api = onRequest({ region: "asia-northeast1", invoker: "public" }, app);
+// memory 256→512MiB に増量 (2026-05-28 OOM 多発のため)
+// /email-verification/run や /confirm の同時実行で 278 MiB 超過、staff_confirm 通知の
+// 非同期処理が完了せず通知不達になっていた事例を踏まえ余裕を持たせる
+exports.api = onRequest({ region: "asia-northeast1", invoker: "public", memory: "512MiB" }, app);
 
 // ========== LINE Bot Webhook ==========
 // LINE Developers ConsoleのWebhook URLにこのエンドポイントを設定
