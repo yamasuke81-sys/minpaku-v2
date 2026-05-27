@@ -1101,6 +1101,7 @@
       <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title me-auto"><i class="bi bi-megaphone"></i> 募集詳細</h5>
+          <span id="detailTimeeStatusBadge" class="me-2"></span>
           <button type="button" class="btn btn-sm btn-ai-gradient me-2 d-none" id="btnOpenChecklistFromRecruitment" title="">
             <i class="bi bi-clipboard-check"></i> チェックリストを開く
           </button>
@@ -1201,6 +1202,10 @@
             <ul class="dropdown-menu">
               <li><a class="dropdown-item" href="#" data-dispatch-visibility="group_limited">▶ グループ限定で募集</a></li>
               <li><a class="dropdown-item" href="#" data-dispatch-visibility="new_worker_for_client_limited">▶ 初回ワーカー限定で募集</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item" href="#" data-timee-status="filled"><i class="bi bi-check-circle"></i> 完了に変更</a></li>
+              <li><a class="dropdown-item" href="#" data-timee-status="cancelled"><i class="bi bi-x-circle"></i> 取消に変更</a></li>
+              <li><a class="dropdown-item text-muted" href="#" data-timee-status=""><i class="bi bi-arrow-counterclockwise"></i> ステータスをクリア</a></li>
             </ul>
           </div>
           <button type="button" class="btn btn-success" id="btnConfirmRecruitment">

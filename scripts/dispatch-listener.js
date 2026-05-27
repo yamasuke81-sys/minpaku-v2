@@ -135,6 +135,17 @@ async function handleTimeePost(data) {
   if (!url) throw new Error("buildTimeeAutofillUrl が null を返した");
   console.log(`[listener] opening: ${url.slice(0, 80)}...`);
   openInBrowser(url);
+
+  // bookings に「タイミー募集中」状態をセット
+  try {
+    await db.collection("bookings").doc(bookingId).update({
+      timeeStatus: "posted",
+      timeePostedAt: admin.firestore.FieldValue.serverTimestamp(),
+      timeePostedVisibility: visibility,
+    });
+  } catch (e) {
+    console.warn(`[listener] timeeStatus 更新失敗 (${bookingId}):`, e.message);
+  }
 }
 
 // ================== onSnapshot 監視 ==================

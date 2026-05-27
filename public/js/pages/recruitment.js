@@ -125,7 +125,58 @@ const RecruitmentPage = {
           await this.dispatchTimee(visibility);
         });
       });
+      // タイミーステータス手動切替 (filled / cancelled / クリア)
+      document.querySelectorAll('[data-timee-status]').forEach(el => {
+        el.addEventListener("click", async (e) => {
+          e.preventDefault();
+          const status = el.getAttribute("data-timee-status");
+          await this.changeTimeeStatus(status);
+        });
+      });
       this._quickBound = true;
+    }
+  },
+
+  /** タイミー募集ステータスバッジを描画 */
+  _renderTimeeStatusBadge(timeeStatus) {
+    const el = document.getElementById("detailTimeeStatusBadge");
+    if (!el) return;
+    if (timeeStatus === "posted") {
+      el.innerHTML = `<span class="badge bg-warning text-dark"><i class="bi bi-robot"></i> タイミー募集中</span>`;
+    } else if (timeeStatus === "filled") {
+      el.innerHTML = `<span class="badge bg-success"><i class="bi bi-check-circle"></i> タイミー完了</span>`;
+    } else if (timeeStatus === "cancelled") {
+      el.innerHTML = `<span class="badge bg-secondary"><i class="bi bi-x-circle"></i> タイミー取消</span>`;
+    } else {
+      el.innerHTML = "";
+    }
+  },
+
+  /** タイミーステータスを手動切替 */
+  async changeTimeeStatus(status) {
+    const r = this._currentRecruitment;
+    if (!r || !r.bookingId) {
+      await showAlert("予約が紐付いていない募集ではタイミーステータスを更新できません");
+      return;
+    }
+    try {
+      const token = await Auth.currentUser.getIdToken();
+      const res = await fetch("/api/dispatch/timee-status", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({ bookingId: r.bookingId, status: status || "" }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      this._renderTimeeStatusBadge(status || null);
+      const label = status === "filled" ? "完了" : status === "cancelled" ? "取消" : status === "posted" ? "募集中" : "クリア";
+      showToast("更新完了", `タイミーステータスを「${label}」に変更しました`, "success");
+    } catch (e) {
+      console.error("[changeTimeeStatus] エラー:", e);
+      await showAlert(`更新失敗: ${e.message}`);
     }
   },
 
@@ -165,6 +216,8 @@ const RecruitmentPage = {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      // PC リスナーが拾うと bookings.timeeStatus="posted" になるが、UI 上は即時「募集中」表示に
+      this._renderTimeeStatusBadge("posted");
       showToast("送信完了", `Dispatch にコマンド送信しました (id=${json.id?.slice(0,8)}...)`, "success");
     } catch (e) {
       console.error("[dispatchTimee] エラー:", e);
@@ -734,6 +787,14 @@ const RecruitmentPage = {
     } else {
       timeeMatchesEl?.classList.remove("d-none");
       this._renderTimeeMatches(r);
+    }
+
+    // タイミー募集ステータスバッジ (bookings.timeeStatus を非同期で取得)
+    this._renderTimeeStatusBadge(null); // 一旦クリア
+    if (r.bookingId) {
+      db.collection("bookings").doc(r.bookingId).get()
+        .then(d => { if (d.exists) this._renderTimeeStatusBadge(d.data().timeeStatus || null); })
+        .catch(() => {});
     }
 
     this.detailModal.show();

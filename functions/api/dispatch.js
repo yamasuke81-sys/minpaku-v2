@@ -71,5 +71,43 @@ module.exports = function dispatchApi(db) {
     }
   });
 
+  // PUT /timee-status — タイミー募集ステータスの手動切替
+  // body: { bookingId, status: "posted" | "filled" | "cancelled" | null }
+  router.put("/timee-status", requireOwner_, async (req, res) => {
+    try {
+      const { bookingId, status } = req.body || {};
+      if (!bookingId) return res.status(400).json({ error: "bookingId が必要です" });
+      const allowed = ["posted", "filled", "cancelled", null, ""];
+      if (!allowed.includes(status)) {
+        return res.status(400).json({ error: "status の値が不正" });
+      }
+      const ref = db.collection("bookings").doc(bookingId);
+      const snap = await ref.get();
+      if (!snap.exists) return res.status(404).json({ error: "予約が見つかりません" });
+
+      const patch = {
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        timeeStatusUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        timeeStatusUpdatedBy: req.user.uid || "unknown",
+      };
+      if (status === null || status === "" || status === "cancelled") {
+        patch.timeeStatus = status === "cancelled" ? "cancelled" : admin.firestore.FieldValue.delete();
+        if (status === "" || status === null) {
+          patch.timeePostedAt = admin.firestore.FieldValue.delete();
+          patch.timeeFilledAt = admin.firestore.FieldValue.delete();
+        }
+      } else {
+        patch.timeeStatus = status;
+        if (status === "filled") patch.timeeFilledAt = admin.firestore.FieldValue.serverTimestamp();
+        if (status === "posted") patch.timeePostedAt = admin.firestore.FieldValue.serverTimestamp();
+      }
+      await ref.update(patch);
+      res.json({ ok: true, bookingId, status });
+    } catch (e) {
+      console.error("[dispatch/timee-status] エラー:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   return router;
 };
