@@ -1,0 +1,9 @@
+{
+  "name": "minpaku-v2-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PC 常駐型ツール (Firestore キュー監視等)",
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  }
+}

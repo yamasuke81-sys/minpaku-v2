@@ -51,22 +51,18 @@ function buildTimeeAutofillUrl(tf, checkOut, visibility) {
 
 // ================== 既定ブラウザで URL を開く ==================
 function openInBrowser(url) {
-  // Windows: start "" "url"
-  // macOS:   open "url"
-  // Linux:   xdg-open "url"
-  const platform = process.platform;
-  let cmd, args;
-  if (platform === "win32") {
-    cmd = "cmd";
-    args = ["/c", "start", '""', url];
-  } else if (platform === "darwin") {
-    cmd = "open";
-    args = [url];
+  // shell:true で OS デフォルトシェル経由 (Windows: cmd.exe, *nix: sh)
+  // URL を直接シェルに渡すので簡単。引用符のエスケープは Windows の "" + 二重引用符で対応
+  let cmdline;
+  if (process.platform === "win32") {
+    // start の第1引数 "" はタイトル指定 (省略不可)。URL は引用符で囲む
+    cmdline = `start "" "${url}"`;
+  } else if (process.platform === "darwin") {
+    cmdline = `open "${url}"`;
   } else {
-    cmd = "xdg-open";
-    args = [url];
+    cmdline = `xdg-open "${url}"`;
   }
-  const child = spawn(cmd, args, { detached: true, stdio: "ignore", shell: false });
+  const child = spawn(cmdline, [], { detached: true, stdio: "ignore", shell: true });
   child.unref();
 }
 
