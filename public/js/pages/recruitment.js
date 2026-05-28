@@ -137,14 +137,18 @@ const RecruitmentPage = {
     }
   },
 
-  /** タイミー募集ステータスバッジを描画 */
-  _renderTimeeStatusBadge(timeeStatus) {
+  /** タイミー募集ステータスバッジを描画 (posted/filled は URL リンク化) */
+  _renderTimeeStatusBadge(timeeStatus, postedUrl) {
     const el = document.getElementById("detailTimeeStatusBadge");
     if (!el) return;
+    const url = postedUrl || "";
+    const link = (inner, cls) => url
+      ? `<a href="${url}" target="_blank" rel="noopener" class="badge ${cls} text-decoration-none" title="タイミー求人ページを開く">${inner}</a>`
+      : `<span class="badge ${cls}">${inner}</span>`;
     if (timeeStatus === "posted") {
-      el.innerHTML = `<span class="badge bg-warning text-dark"><i class="bi bi-robot"></i> タイミー募集中</span>`;
+      el.innerHTML = link('<i class="bi bi-robot"></i> タイミー募集中 <i class="bi bi-box-arrow-up-right ms-1" style="font-size:0.7rem;"></i>', "bg-warning text-dark");
     } else if (timeeStatus === "filled") {
-      el.innerHTML = `<span class="badge bg-success"><i class="bi bi-check-circle"></i> タイミー完了</span>`;
+      el.innerHTML = link('<i class="bi bi-check-circle"></i> タイミー完了 <i class="bi bi-box-arrow-up-right ms-1" style="font-size:0.7rem;"></i>', "bg-success");
     } else if (timeeStatus === "cancelled") {
       el.innerHTML = `<span class="badge bg-secondary"><i class="bi bi-x-circle"></i> タイミー取消</span>`;
     } else {
@@ -171,7 +175,13 @@ const RecruitmentPage = {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-      this._renderTimeeStatusBadge(status || null);
+      // 既存の URL を保ったままバッジ再描画 (filled でもリンクは残す)
+      let postedUrl = null;
+      try {
+        const b = await db.collection("bookings").doc(r.bookingId).get();
+        postedUrl = b.exists ? (b.data().timeePostedUrl || null) : null;
+      } catch (_) {}
+      this._renderTimeeStatusBadge(status || null, postedUrl);
       const label = status === "filled" ? "完了" : status === "cancelled" ? "取消" : status === "posted" ? "募集中" : "クリア";
       showToast("更新完了", `タイミーステータスを「${label}」に変更しました`, "success");
     } catch (e) {
@@ -216,8 +226,20 @@ const RecruitmentPage = {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-      // PC リスナーが拾うと bookings.timeeStatus="posted" になるが、UI 上は即時「募集中」表示に
+      // PC リスナーが拾うと bookings.timeeStatus="posted" + timeePostedUrl が入る。
+      // ボタン押下時点では URL 未確定なので、PC リスナー処理完了を見越して 3 秒後に bookings を再取得して URL 反映
       this._renderTimeeStatusBadge("posted");
+      setTimeout(() => {
+        if (r.bookingId) {
+          db.collection("bookings").doc(r.bookingId).get()
+            .then(d => {
+              if (!d.exists) return;
+              const b = d.data();
+              this._renderTimeeStatusBadge(b.timeeStatus || "posted", b.timeePostedUrl || null);
+            })
+            .catch(() => {});
+        }
+      }, 3000);
       showToast("送信完了", `Dispatch にコマンド送信しました (id=${json.id?.slice(0,8)}...)`, "success");
     } catch (e) {
       console.error("[dispatchTimee] エラー:", e);
@@ -802,11 +824,15 @@ const RecruitmentPage = {
       this._renderTimeeMatches(r);
     }
 
-    // タイミー募集ステータスバッジ (bookings.timeeStatus を非同期で取得)
-    this._renderTimeeStatusBadge(null); // 一旦クリア
+    // タイミー募集ステータスバッジ (bookings.timeeStatus + timeePostedUrl を非同期で取得)
+    this._renderTimeeStatusBadge(null);
     if (r.bookingId) {
       db.collection("bookings").doc(r.bookingId).get()
-        .then(d => { if (d.exists) this._renderTimeeStatusBadge(d.data().timeeStatus || null); })
+        .then(d => {
+          if (!d.exists) return;
+          const b = d.data();
+          this._renderTimeeStatusBadge(b.timeeStatus || null, b.timeePostedUrl || null);
+        })
         .catch(() => {});
     }
 

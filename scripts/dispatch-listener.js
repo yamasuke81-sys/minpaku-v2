@@ -132,12 +132,13 @@ async function handleTimeePost(data) {
   console.log(`[listener] opening: ${url.slice(0, 80)}...`);
   openInBrowser(url);
 
-  // bookings に「タイミー募集中」状態をセット
+  // bookings に「タイミー募集中」状態 + 開いた URL を保存 (UI のバッジから再アクセス用)
   try {
     await db.collection("bookings").doc(bookingId).update({
       timeeStatus: "posted",
       timeePostedAt: admin.firestore.FieldValue.serverTimestamp(),
       timeePostedVisibility: visibility,
+      timeePostedUrl: url,
     });
   } catch (e) {
     console.warn(`[listener] timeeStatus 更新失敗 (${bookingId}):`, e.message);
