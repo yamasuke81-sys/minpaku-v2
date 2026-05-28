@@ -1900,6 +1900,32 @@
         if (d.bookingSite) { const el = document.getElementById("f_bookingSite"); if (el) el.value = d.bookingSite; }
         if (d.transport)   { const el = document.getElementById("f_transport");   if (el) { el.value = d.transport; updateTransportUI(); } }
         if (d.carCount)    { const el = document.getElementById("f_carCount");    if (el) el.value = d.carCount; }
+        // 乳幼児人数
+        if (d.guestCountInfants != null) {
+          const el = document.getElementById("f_guestCountInfants");
+          if (el) el.value = d.guestCountInfants;
+        }
+        // 車種 + 駐車場割当 + 有料駐車場 (transport=車 かつ carCount あり の時のみ意味あり)
+        // 順序: updateCarUI() で vt-select の DOM が生成される → 各 vt-select に値セット → runParkingAllocation() で再計算 → paidParking 反映
+        if (d.carCount && d.transport && (d.transport === "車" || d.transport === "Car")) {
+          if (typeof updateCarUI === "function") updateCarUI();
+          setTimeout(() => {
+            if (Array.isArray(d.vehicleTypes) && d.vehicleTypes.length > 0) {
+              document.querySelectorAll("#vehicleTypeList .vt-select").forEach((sel, i) => {
+                if (d.vehicleTypes[i]) {
+                  sel.value = d.vehicleTypes[i];
+                }
+              });
+            }
+            if (typeof updateLargeVehicleWarnings === "function") updateLargeVehicleWarnings();
+            if (typeof runParkingAllocation === "function") runParkingAllocation();
+            // 有料駐車場利用有無 (runParkingAllocation の後で反映)
+            if (d.paidParking) {
+              const ppSel = document.getElementById("f_paidParking");
+              if (ppSel) ppSel.value = d.paidParking;
+            }
+          }, 100);
+        }
         if (d.bbq)         { const el = document.getElementById("f_bbq");         if (el) el.value = d.bbq; }
         if (d.bedChoice)   { const el = document.getElementById("f_bedChoice");   if (el) el.value = d.bedChoice; }
         if (d.purpose)     { const el = document.getElementById("f_purpose");     if (el) el.value = d.purpose; }
