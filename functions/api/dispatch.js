@@ -16,6 +16,8 @@
  */
 const { Router } = require("express");
 const admin = require("firebase-admin");
+const { notifyByKey } = require("../utils/lineNotify");
+const { buildTimeeAutofillUrl_ } = require("../utils/timeeAutofill");
 
 module.exports = function dispatchApi(db) {
   const router = Router();
@@ -64,6 +66,49 @@ module.exports = function dispatchApi(db) {
       });
 
       console.log(`[dispatch] queued: ${command} (id=${ref.id})`);
+
+      // 並行で LINE/メール通知も発火 (Playwright 失敗時に yamasuke がスマホで Dispatch コピペできるよう、
+      // バックアップ経路として timee_posting 通知を送る。channelOverrides.timee_posting で送信先制御済)
+      try {
+        let pDoc, propertyName = r.propertyName || "";
+        if (r.propertyId) {
+          pDoc = await db.collection("properties").doc(r.propertyId).get();
+          if (pDoc.exists) propertyName = pDoc.data().name || propertyName;
+        }
+        const tf = pDoc?.data()?.timeeAutofill;
+        const urlGroup = buildTimeeAutofillUrl_(tf, r.checkoutDate, "group_limited");
+        const urlNewWorker = buildTimeeAutofillUrl_(tf, r.checkoutDate, "new_worker_for_client_limited");
+
+        const lines = [
+          `🕐 タイミー募集依頼 (手動発火)`,
+          ``,
+          `チェックアウト: ${r.checkoutDate}`,
+          `物件: ${propertyName}`,
+          ``,
+          `▼ PC では Playwright が並行で自動投稿を試行中`,
+          `▼ スマホで Dispatch 経由でやる場合はコピペ:`,
+          `/timee-post ${bookingId} ${visibility}`,
+        ];
+        if (urlGroup) lines.push(``, `▶ グループ限定で募集を作成 (PC Chrome)`, urlGroup);
+        if (urlNewWorker) lines.push(``, `▶ 初回ワーカー限定で募集を作成 (PC Chrome)`, urlNewWorker);
+
+        await notifyByKey(db, "timee_posting", {
+          title: `タイミー手動募集発火: ${r.checkoutDate} ${propertyName}`,
+          body: lines.join("\n"),
+          vars: {
+            date: r.checkoutDate,
+            property: propertyName,
+            url: urlGroup || urlNewWorker || "https://app-new.taimee.co.jp/account",
+            urlGroup: urlGroup || "",
+            urlNewWorker: urlNewWorker || "",
+          },
+          propertyId: r.propertyId || null,
+          _fromBatchQueue: true, // 即時送信 (バッチ繰延せず)
+        });
+      } catch (notifyErr) {
+        console.error("[dispatch/timee] notifyByKey 失敗 (Playwright 経路は継続):", notifyErr.message);
+      }
+
       res.json({ ok: true, id: ref.id, command });
     } catch (e) {
       console.error("[dispatch/timee] エラー:", e.message);

@@ -910,9 +910,10 @@ const GuestsPage = {
     const body = document.getElementById("guestDetailBody");
     const companions = g.guests || [];
 
-    // 駐車場割当の表示用テキスト生成
+    // 駐車場割当の表示用テキスト生成 (spot キーを日本語ラベルに変換)
+    const spotLabel = (k) => ({ unpaved: "未舗装駐車場", spot1: "1番", spot5: "5番", paid: "有料駐車場" }[k] || k || "");
     const parkingAllocText = (g.parkingAllocation || []).map(a =>
-      `${a.index}台目(${this.escapeHtml(a.vehicleType || "")}) → ${this.escapeHtml(a.spot || "")}`
+      `${a.index}台目(${this.escapeHtml(a.vehicleType || "")}) → ${this.escapeHtml(spotLabel(a.spot))}`
     ).join("<br>") || "-";
 
     // パスポート写真リンク生成（代表者 + 同行者）

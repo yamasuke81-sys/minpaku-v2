@@ -1078,9 +1078,10 @@ const DashboardPage = {
     const vb = (val) => (typeof bbqToSymbol === "function") ? bbqToSymbol(val) : v(val);
     // 代表者年齢 (allGuests[0].age)
     const repAge = guestData.allGuests?.[0]?.age || "";
-    // 駐車場割当テキスト
+    // 駐車場割当テキスト (spot キーを日本語ラベルに変換)
+    const spotLabel = (k) => ({ unpaved: "未舗装駐車場", spot1: "1番", spot5: "5番", paid: "有料駐車場" }[k] || k || "");
     const parkingAllocText = (guestData.parkingAllocation || []).map(a =>
-      `${a.index}台目(${this.esc(a.vehicleType || "")}) → ${this.esc(a.spot || "")}`
+      `${a.index}台目(${this.esc(a.vehicleType || "")}) → ${this.esc(spotLabel(a.spot))}`
     ).join("<br>") || "-";
     // 車種
     const vehicleTypes = Array.isArray(guestData.vehicleTypes) && guestData.vehicleTypes.length
