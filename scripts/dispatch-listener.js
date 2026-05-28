@@ -23,11 +23,19 @@
 
 const admin = require("firebase-admin");
 const { spawn } = require("child_process");
+const path = require("path");
+const { chromium } = require("playwright");
 
 if (!admin.apps.length) {
   admin.initializeApp({ projectId: "minpaku-v2" });
 }
 const db = admin.firestore();
+
+// Playwright 用専用 user-data-dir (タイミーログインセッション保持用)
+// 初回はこのプロファイルで Chromium 起動してタイミー手動ログイン → 以降は自動継続
+const PLAYWRIGHT_USER_DATA_DIR = path.join(process.env.USERPROFILE || process.env.HOME || ".", ".dispatch-playwright-chrome");
+// ヘッドフル (画面表示) を強制 (デバッグ + ユーザー視認用)
+const PLAYWRIGHT_HEADLESS = process.env.PLAYWRIGHT_HEADLESS === "1";
 
 // ================== タイミー URL 構築 (Cloud Functions の buildTimeeAutofillUrl_ と同等) ==================
 function buildTimeeAutofillUrl(tf, checkOut, visibility) {
@@ -129,8 +137,18 @@ async function handleTimeePost(data) {
 
   const url = buildTimeeAutofillUrl(tf, checkoutDate, visibility);
   if (!url) throw new Error("buildTimeeAutofillUrl が null を返した");
-  console.log(`[listener] opening: ${url.slice(0, 80)}...`);
-  openInBrowser(url);
+  console.log(`[listener] opening with Playwright: ${url.slice(0, 80)}...`);
+
+  // Playwright で Chromium 起動 + 求人作成ボタンまで自動押下
+  // 失敗時は openInBrowser にフォールバック (手動操作で続行できる)
+  let createdUrl = url;
+  try {
+    createdUrl = await autoSubmitTimeeJob(url);
+    console.log(`[listener] timee 求人作成完了: ${createdUrl}`);
+  } catch (e) {
+    console.error(`[listener] Playwright 自動投稿失敗 (${e.message}) → 既定ブラウザで開いてフォールバック`);
+    openInBrowser(url);
+  }
 
   // bookings に「タイミー募集中」状態 + 開いた URL を保存 (UI のバッジから再アクセス用)
   try {
@@ -138,11 +156,104 @@ async function handleTimeePost(data) {
       timeeStatus: "posted",
       timeePostedAt: admin.firestore.FieldValue.serverTimestamp(),
       timeePostedVisibility: visibility,
-      timeePostedUrl: url,
+      timeePostedUrl: createdUrl,
     });
   } catch (e) {
     console.warn(`[listener] timeeStatus 更新失敗 (${bookingId}):`, e.message);
   }
+}
+
+/**
+ * Playwright で Chromium を起動し、Tampermonkey 相当の自動入力 + 「求人を作成」ボタン押下まで自動化
+ * 戻り値: 求人作成後のページ URL (公開された求人ページの URL になる想定)
+ * 注意:
+ *   - 初回は専用 user-data-dir にタイミー手動ログインが必要
+ *   - タイミー側 UI が変わると DOM セレクタが壊れるため、その場合は手動で開く方が安全
+ */
+async function autoSubmitTimeeJob(url) {
+  const ctx = await chromium.launchPersistentContext(PLAYWRIGHT_USER_DATA_DIR, {
+    headless: PLAYWRIGHT_HEADLESS,
+    viewport: null, // フルウィンドウ
+    args: ["--start-maximized"],
+  });
+  const page = await ctx.newPage();
+  try {
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+
+    // タイミー未ログインなら "/sign_in" 等にリダイレクトされる想定
+    await page.waitForTimeout(2000); // 自動入力スクリプト相当の値反映を待つ猶予
+    if (/sign_in|login/i.test(page.url())) {
+      console.warn("[listener] タイミー未ログイン → 初回手動ログインが必要。ブラウザは開いたまま放置します");
+      // ログイン画面を残したまま return (yamasuke が手動ログイン → 次回以降は維持される)
+      return page.url();
+    }
+
+    // hash params から値を読み取り、フォームに入力 (Tampermonkey と同等処理)
+    await applyTimeeHashParams(page, url);
+
+    // 「求人を作成」ボタンを探してクリック
+    // セレクタ候補 (タイミー側 UI 変更で要メンテ):
+    //   1. テキストが「求人を作成」「保存」「投稿」「公開」を含むボタン
+    //   2. type=submit
+    const submitBtn = await page.locator(
+      'button:has-text("求人を作成"), button:has-text("作成する"), button:has-text("保存"), button[type="submit"]'
+    ).first();
+    if (!(await submitBtn.count())) {
+      throw new Error("「求人を作成」ボタンが見つからない (タイミー UI 変更の可能性)");
+    }
+    await submitBtn.waitFor({ state: "visible", timeout: 10000 });
+    await submitBtn.click();
+
+    // 確認ダイアログ or 公開完了画面への遷移を待つ
+    // 確認モーダルが出る場合は「OK」「公開」ボタンを再度押す
+    await page.waitForTimeout(2000);
+    const confirmBtn = page.locator(
+      'button:has-text("公開"), button:has-text("確定"), button:has-text("OK"), [role="dialog"] button:has-text("はい")'
+    ).first();
+    if (await confirmBtn.count()) {
+      try { await confirmBtn.click({ timeout: 3000 }); } catch (_) {}
+    }
+
+    // 求人作成完了後の URL を取得
+    await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
+    const finalUrl = page.url();
+    // ウィンドウは閉じずに残す (yamasuke が結果を確認できるよう)
+    return finalUrl;
+  } finally {
+    // ctx.close() は呼ばない — yamasuke が画面確認できるよう放置
+  }
+}
+
+/** Tampermonkey ユーザースクリプトと同等の hash params → フォーム入力ロジック */
+async function applyTimeeHashParams(page, fullUrl) {
+  // hash 部分を取り出して page.evaluate に渡す
+  const hashIdx = fullUrl.indexOf("#");
+  if (hashIdx < 0) return;
+  const hashStr = fullUrl.slice(hashIdx + 1);
+  await page.evaluate((hs) => {
+    const params = new URLSearchParams(hs);
+    const set = (sel, value) => {
+      if (value == null || value === "") return;
+      const el = document.querySelector(sel);
+      if (!el) return false;
+      el.focus();
+      const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set
+        || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
+      if (nativeSetter) nativeSetter.call(el, String(value));
+      else el.value = String(value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      el.blur();
+      return true;
+    };
+    // 主な候補セレクタ (Tampermonkey と同じ箇所、UI 変更で要メンテ)
+    set('input[name="date"], input[type="date"]', params.get("date"));
+    set('input[name="start_at"], input[name="start"]', params.get("start"));
+    set('input[name="end_at"], input[name="end"]', params.get("end"));
+    set('input[name="rest_minute"], input[name="restMin"]', params.get("restMin"));
+    set('input[name="workers"], input[name="recruit_count"]', params.get("workers"));
+    set('input[name="hourly_wage"], input[name="wage"]', params.get("wage"));
+  }, hashStr);
 }
 
 // ================== onSnapshot 監視 ==================
