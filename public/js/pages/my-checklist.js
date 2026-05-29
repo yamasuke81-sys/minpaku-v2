@@ -574,7 +574,13 @@ const MyChecklistPage = {
           // バッジ更新 + アクティブタブコンテンツ再描画 + タブスタイル確定を 1 rAF にまとめる
           requestAnimationFrame(() => {
             this._updateTabBadges();
-            this._renderActiveTopTab();
+            // 清掃チェックリストタブは DOM を再構築せず項目状態のみその場更新する
+            // (他スタッフのチェックでチラつき / アコーディオン開閉リセット / スクロールジャンプが起きるのを防ぐ)
+            if (this.activeTopTab === "checklist") {
+              this._syncChecklistDomInPlace();
+            } else {
+              this._renderActiveTopTab();
+            }
             if (this.activeTopTab !== savedActiveTopTab) {
               this.activeTopTab = savedActiveTopTab;
             }
@@ -1380,11 +1386,12 @@ const MyChecklistPage = {
               <table class="table table-sm table-borderless mb-0">
                 <tr><th class="text-muted" style="width:130px;">チェックイン</th><td>${ciDisplay}</td></tr>
                 <tr><th class="text-muted">宿泊人数</th><td>${(() => {
-                  // bookings.guestCount → 名簿の guestCount の順でフォールバック
-                  const gc = (typeof nb.guestCount === "number" && nb.guestCount > 0) ? nb.guestCount
-                    : (typeof nextGuest.guestCount === "number" && nextGuest.guestCount > 0) ? nextGuest.guestCount
-                    : null;
-                  return gc ? this.escapeHtml(String(gc)) + "名" : "-";
+                  // bookings.guestCount と 名簿の guestCount の max を採用 (予約詳細モーダル dashboard.js と同一仕様)
+                  // 理由: iCal由来の bookings.guestCount は古いまま更新されないことがあり、名簿側で手動修正した値が反映されない不具合があった
+                  const gcA = (typeof nb.guestCount === "number") ? nb.guestCount : 0;
+                  const gcB = (typeof nextGuest.guestCount === "number") ? nextGuest.guestCount : 0;
+                  const gc = Math.max(gcA, gcB);
+                  return gc > 0 ? this.escapeHtml(String(gc)) + "名" : "-";
                 })()}</td></tr>
                 ${isFieldVisible("bbq", "facility") ? `<tr><th class="text-muted">BBQ</th><td>${vb(nextGuest.bbq)}</td></tr>` : ""}
                 ${isFieldVisible("bedChoice", "facility") ? `<tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${nextGuest.bedChoice ? this.escapeHtml(String(nextGuest.bedChoice)) : "-"}</td></tr>` : ""}
@@ -1443,6 +1450,102 @@ const MyChecklistPage = {
 
     this._renderChecklistNotes();
     this.renderFooter();
+  },
+
+  // 清掃チェックリストタブを DOM 再構築せず、項目のチェック状態・記名行・
+  // カテゴリ/ボタンのバッジだけをその場で書き換える (チラつき・アコーディオン開閉リセット・
+  // スクロールジャンプを防ぐ)。他スタッフの更新反映と自分のチェック反映の両方で使う。
+  _syncChecklistDomInPlace() {
+    const c = this.checklist;
+    if (!c) return;
+    const content = document.getElementById("mclAreaContent");
+    if (!content) return; // チェックリストタブが未描画なら何もしない
+    const states = c.itemStates || {};
+
+    // 各項目カード: チェック状態 + 背景 + 要補充 + 記名/編集中行を更新
+    content.querySelectorAll(".mcl-item[data-item-id]").forEach(card => {
+      const id = card.dataset.itemId;
+      const st = states[id] || {};
+      const checked = !!st.checked;
+      const cb = card.querySelector(".mcl-check");
+      if (cb && cb.checked !== checked) cb.checked = checked;
+      card.classList.toggle("bg-success", checked);
+      card.classList.toggle("bg-opacity-10", checked);
+      const rcb = card.querySelector(".mcl-restock");
+      if (rcb) {
+        const nr = !!st.needsRestock;
+        if (rcb.checked !== nr) rcb.checked = nr;
+      }
+      const meta = card.querySelector(".mcl-item-meta");
+      if (meta) {
+        const html = this._renderItemMeta(st);
+        if (meta.innerHTML !== html) meta.innerHTML = html;
+      }
+    });
+
+    // 各カテゴリ: done/tot バッジ + 完了時の緑背景を更新 (開閉状態は触らない)
+    content.querySelectorAll(".mcl-cat[data-cat-id]").forEach(catEl => {
+      const cat = this._findCatById(c.templateSnapshot || [], catEl.dataset.catId);
+      if (!cat) return;
+      const done = this.countItemsDone(cat, states);
+      const tot = this.countItems([cat]);
+      const allDone = tot > 0 && done === tot;
+      const btn = catEl.querySelector(".accordion-button");
+      if (btn) {
+        btn.classList.toggle("bg-success", allDone);
+        btn.classList.toggle("bg-opacity-10", allDone);
+      }
+      const badge = catEl.querySelector(".accordion-button .badge");
+      if (badge) {
+        badge.className = `badge ${allDone ? "bg-success" : "bg-secondary"} ms-2`;
+        badge.style.fontSize = "10px";
+        badge.textContent = `${done}/${tot}`;
+      }
+    });
+
+    // 全チェック/全チェック外しボタンのラベル更新
+    const area = (c.templateSnapshot || []).find(a => a.id === this.activeAreaId);
+    if (area) {
+      const total = this.countItems([area]);
+      const done = this.countItemsDone(area, states);
+      const allChecked = total > 0 && done === total;
+      const toggleBtn = content.querySelector(".mcl-toggle-all-check");
+      if (toggleBtn) {
+        toggleBtn.dataset.allChecked = allChecked ? "1" : "0";
+        toggleBtn.innerHTML = `<i class="bi bi-check2-square"></i> ${allChecked ? "全チェック外し" : "全チェック"}`;
+      }
+    }
+  },
+
+  // templateSnapshot のツリーから id でカテゴリ(taskType/subCategory/subSubCategory)を再帰検索
+  _findCatById(areas, cid) {
+    let found = null;
+    const walk = (node) => {
+      if (found) return;
+      [...(node.taskTypes || []), ...(node.subCategories || []), ...(node.subSubCategories || [])].forEach(cat => {
+        if (found) return;
+        if (cat.id === cid) { found = cat; return; }
+        walk(cat);
+      });
+    };
+    (areas || []).forEach(walk);
+    return found;
+  },
+
+  // 項目カード内の「他スタッフ編集中」「✓ 記名 時刻」行の HTML を返す (in-place 更新で再利用)
+  _renderItemMeta(st) {
+    st = st || {};
+    const editingBy = st.editingBy;
+    const othersEditing = editingBy && editingBy.uid && editingBy.uid !== this.myUid() &&
+                          (Date.now() - (editingBy.at || 0) < 45000);
+    let html = "";
+    if (othersEditing) {
+      html += `<div class="small text-info mt-1"><i class="bi bi-person"></i> ${this.escapeHtml(editingBy.name || "他のスタッフ")}が編集中...</div>`;
+    }
+    if (st.checkedBy) {
+      html += `<div class="small text-muted mt-1">✓ ${this.escapeHtml(st.checkedBy.name || "")} ${this.fmtTime(st.checkedAt)}</div>`;
+    }
+    return html;
   },
 
   // ===== タブ3: 写真撮影 =====
@@ -2989,9 +3092,6 @@ const MyChecklistPage = {
     const st = (this.checklist.itemStates || {})[it.id] || {};
     const checked = !!st.checked;
     const needsRestock = !!st.needsRestock;
-    const editingBy = st.editingBy;
-    const othersEditing = editingBy && editingBy.uid && editingBy.uid !== this.myUid() &&
-                          (Date.now() - (editingBy.at || 0) < 45000);
 
     // カード全体がタップ可能: mcl-item-tap クラスで JS からチェックを切り替える
     // 要補充チェック・アコーディオンボタンはバブリングを止めて誤作動を防ぐ
@@ -3008,8 +3108,7 @@ const MyChecklistPage = {
               <span style="font-size:13px;">${this.escapeHtml(it.name)}</span>
               ${it.memo ? `<div class="small text-muted mt-1" style="font-size:11px;">${this.escapeHtml(it.memo)}</div>` : ""}
               ${this._renderInlineSampleThumbs(it, it.name)}
-              ${othersEditing ? `<div class="small text-info mt-1"><i class="bi bi-person"></i> ${this.escapeHtml(editingBy.name||"他のスタッフ")}が編集中...</div>` : ""}
-              ${st.checkedBy ? `<div class="small text-muted mt-1">✓ ${this.escapeHtml(st.checkedBy.name||"")} ${this.fmtTime(st.checkedAt)}</div>` : ""}
+              <div class="mcl-item-meta">${this._renderItemMeta(st)}</div>
             </div>
           </div>
           ${it.supplyItem ? `
@@ -3101,8 +3200,12 @@ const MyChecklistPage = {
         if (!cb) return;
         const newVal = !cb.checked;
         cb.checked = newVal;
+        // 楽観更新: カード背景を即トグル → updateItemState で local state 更新 →
+        // その場同期でカテゴリ/ボタンのバッジも反映 (DOM 再構築なし=アコーディオン維持)
+        card.classList.toggle("bg-success", newVal);
+        card.classList.toggle("bg-opacity-10", newVal);
         this.updateItemState(itemId, { checked: newVal });
-        // キャラクター演出は削除済み
+        this._syncChecklistDomInPlace();
       });
     });
 
@@ -3142,7 +3245,11 @@ const MyChecklistPage = {
         const prevMainScroll = mainEl ? mainEl.scrollTop : 0;
         this._updateHeaderStatus();
         this._updateTabBadges();
-        try { this._renderActiveTopTab(); } catch (_) {}
+        try {
+          // チェックリストタブは再構築せずその場更新 (アコーディオン開閉・スクロール維持)
+          if (this.activeTopTab === "checklist") this._syncChecklistDomInPlace();
+          else this._renderActiveTopTab();
+        } catch (_) {}
         // 2段階 rAF でレイアウト確定後にスクロール復元
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
@@ -3274,6 +3381,7 @@ const MyChecklistPage = {
   fmtTime(t) {
     if (!t) return "";
     const dt = t.toDate ? t.toDate() : new Date(t);
+    if (isNaN(dt.getTime())) return ""; // serverTimestamp sentinel 等は時刻表示なし
     return `${String(dt.getHours()).padStart(2,"0")}:${String(dt.getMinutes()).padStart(2,"0")}`;
   },
 
