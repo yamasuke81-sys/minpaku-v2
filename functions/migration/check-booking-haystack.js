@@ -1,0 +1,21 @@
+const admin = require("firebase-admin");
+admin.initializeApp({ projectId: "minpaku-v2" });
+const db = admin.firestore();
+(async () => {
+  const id = "ical_1418fb94e984-cfb48d2ceaa6181fe2bab0da414b0581@airbnb.com";
+  const snap = await db.collection("bookings").doc(id).get();
+  const d = snap.data();
+  console.log("propertyId:", d.propertyId);
+  console.log("CI/CO:", d.checkIn, d.checkOut);
+  console.log("guestName:", d.guestName);
+  console.log("source:", d.source);
+  console.log("icalUid:", d.icalUid);
+  console.log("icalUrl:", d.icalUrl?.slice(0, 100));
+  console.log("notes:", (d.notes || "").slice(0, 500));
+  console.log("description:", (d.description || "").slice(0, 500));
+  console.log("HM in notes?", /HMJF58H5K3/i.test(d.notes || ""));
+  console.log("HM in description?", /HMJF58H5K3/i.test(d.description || ""));
+  console.log("HM in icalUid?", /HMJF58H5K3/i.test(d.icalUid || ""));
+  console.log("HM in icalUrl?", /HMJF58H5K3/i.test(d.icalUrl || ""));
+  process.exit(0);
+})().catch(e => { console.error(e); process.exit(1); });

@@ -1,12 +1,18 @@
 {
   "projects": {
-    "default": "minpaku-v2"
+    "default": "minpaku-v2",
+    "relay": "v2-5-relay"
   },
   "targets": {
     "minpaku-v2": {
       "storage": {
         "default": [
           "minpaku-v2.firebasestorage.app"
+        ]
+      },
+      "hosting": {
+        "tempsite": [
+          "minpaku-v2-temp"
         ]
       }
     }

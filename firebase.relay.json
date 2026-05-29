@@ -1,0 +1,22 @@
+{
+  "hosting": {
+    "site": "v2-5-relay",
+    "public": "public",
+    "ignore": ["firebase.json", "firebase.relay.json", "**/.*", "**/node_modules/**"],
+    "headers": [
+      { "source": "/", "headers": [ { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" } ] },
+      { "source": "**/*.html", "headers": [ { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" } ] },
+      { "source": "**/*.js", "headers": [ { "key": "Cache-Control", "value": "no-cache, must-revalidate" } ] },
+      { "source": "**/*.css", "headers": [ { "key": "Cache-Control", "value": "no-cache, must-revalidate" } ] },
+      { "source": "/version.json", "headers": [ { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" } ] }
+    ],
+    "redirects": [
+      { "source": "/guest-guide.html", "destination": "/guides/the-terrace-nagahama.html", "type": 301 }
+    ],
+    "rewrites": [
+      { "source": "/form/**", "destination": "/guest-form.html" },
+      { "source": "/guide/**", "destination": "/guides/the-terrace-nagahama.html" },
+      { "source": "**", "destination": "/index.html" }
+    ]
+  }
+}
