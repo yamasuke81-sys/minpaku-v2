@@ -900,6 +900,49 @@ const StaffPage = {
         window.open(url, "_blank", "noopener");
       });
     }
+    // 報酬単価明示書 PDF ダウンロード
+    const dlBtn = document.getElementById("btnDownloadRateCardPdf");
+    if (dlBtn) {
+      // 新規スタッフ (id 未確定) は無効化
+      dlBtn.disabled = !staff?.id;
+      dlBtn.title = staff?.id ? "" : "先にスタッフを保存してください";
+      if (!dlBtn.dataset.rcBound) {
+        dlBtn.dataset.rcBound = "1";
+        dlBtn.addEventListener("click", async () => {
+          const sid = document.getElementById("staffEditId")?.value;
+          if (!sid) { showToast("情報", "先にスタッフを保存してください", "info"); return; }
+          const originalHtml = dlBtn.innerHTML;
+          dlBtn.disabled = true;
+          dlBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 生成中...';
+          try {
+            const token = await firebase.auth().currentUser.getIdToken();
+            const res = await fetch(`https://api-5qrfx7ujcq-an.a.run.app/staff/${sid}/rate-card-pdf`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({ error: res.statusText }));
+              throw new Error(err.error || "失敗");
+            }
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            const sname = document.getElementById("staffName")?.value || sid;
+            a.href = url;
+            a.download = `報酬単価明示書_${sname}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            showToast("完了", "PDF をダウンロードしました", "success");
+          } catch (e) {
+            showToast("エラー", `PDF生成失敗: ${e.message}`, "error");
+          } finally {
+            dlBtn.disabled = false;
+            dlBtn.innerHTML = originalHtml;
+          }
+        });
+      }
+    }
     const isTimeeEl = document.getElementById("staffIsTimee");
     if (isTimeeEl) isTimeeEl.checked = !!staff?.isTimee;
 
