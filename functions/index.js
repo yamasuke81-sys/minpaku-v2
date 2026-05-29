@@ -259,6 +259,24 @@ exports.monitorOOM = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/monitorOOM"));
 
+// Firebase Hosting の古いリリース版を自動削除 + 容量超過前警告 (毎日 03:00 JST)
+// 背景: 2026-05-29 に 989 versions / 16.67GB まで膨らみ運用上の懸念に
+exports.cleanupHostingVersions = onSchedule({
+  schedule: "0 3 * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+  timeoutSeconds: 540,
+  memory: "512MiB",
+}, require("./scheduled/cleanupHostingVersions"));
+
+// Hosting 復活検知 (一時的) — 2026-05-29 Google Cloud Trust & Safety による suspension からの復帰を毎時 :30 にチェック
+// 復活通知が来たら index.js から外して削除する
+exports.watchHostingRecovery = onSchedule({
+  schedule: "30 * * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/watchHostingRecovery"));
+
 // 30日繰延された募集の自動発火 (毎日 JST 08:00)
 // 予約時点で 30日より先だった募集が、日付経過で 30日以内に入ったら recruit_start を発射する
 exports.dispatchDeferredRecruits = onSchedule({
