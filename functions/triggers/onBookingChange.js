@@ -763,10 +763,13 @@ module.exports = async function onBookingChange(event) {
   if (!shouldCreateRecruitment) return;
 
   // 募集自動生成
+  // 競合状態対策: bookingId + workType + checkoutDate ベースの決定的 docId + create() で冪等化
+  // (onBookingChange が並列発火しても同一 doc に収束し、2件目は AlreadyExists で安全に弾かれる)
   const memo = `ゲスト: ${guestName || "不明"} (${source || "不明"})`;
+  const deterministicId = `auto_${bookingId}_cleaning_${checkOut}`;
   let recruitmentId;
   try {
-    const recruitmentRef = await db.collection("recruitments").add({
+    await db.collection("recruitments").doc(deterministicId).create({
       checkoutDate: checkOut,
       propertyId,
       propertyName,
@@ -780,11 +783,16 @@ module.exports = async function onBookingChange(event) {
       createdAt: now,
       updatedAt: now,
     });
-    recruitmentId = recruitmentRef.id;
+    recruitmentId = deterministicId;
     console.log(`予約 ${bookingId}: 募集自動生成完了 (${checkOut}) recruitmentId=${recruitmentId}`);
     // E: pendingRecruitmentIds に追加 + しきい値超過で非アクティブ化
     try { await addRecruitmentToActiveStaff(db, recruitmentId); } catch (e) { console.error("addRecruitmentToActiveStaff エラー:", e); }
   } catch (e) {
+    // 同時発火による重複は ALREADY_EXISTS (code=6) で弾かれる想定 — 通知含む後続は走らせない
+    if (e && (e.code === 6 || /already exists/i.test(String(e.message || "")))) {
+      console.log(`予約 ${bookingId}: 募集 ${deterministicId} は既存 (並列発火による重複生成を回避)`);
+      return;
+    }
     console.error("募集生成エラー:", e);
     return;
   }
