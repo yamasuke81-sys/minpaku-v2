@@ -1229,7 +1229,7 @@ const SettingsPage = {
     // 宿泊情報
     { id: "checkIn", label: "チェックイン日", labelEn: "Check-in Date", type: "date", required: true, section: "stay", mapping: "checkIn" },
     { id: "checkOut", label: "チェックアウト日", labelEn: "Check-out Date", type: "date", required: true, section: "stay", mapping: "checkOut" },
-    { id: "guestCount", label: "宿泊人数（大人）", labelEn: "Number of Guests (Adults)", type: "number", required: true, section: "stay", mapping: "guestCount", defaultValue: "1" },
+    { id: "guestCount", label: "宿泊人数", labelEn: "Number of Guests", type: "number", required: true, section: "stay", mapping: "guestCount", defaultValue: "1" },
     { id: "guestCountInfants", label: "3才以下の乳幼児", labelEn: "Infants (under 3)", type: "number", required: false, section: "stay", mapping: "guestCountInfants", defaultValue: "0" },
     { id: "bookingSite", label: "どこでこのホテルを予約しましたか？", labelEn: "Where did you book this accommodation?", type: "select", required: true, section: "stay", mapping: "bookingSite", options: ["Airbnb", "Booking.com", "じゃらん", "楽天トラベル", "直接予約", "その他"], optionsEn: ["Airbnb", "Booking.com", "Jalan", "Rakuten Travel", "Direct booking", "Other"] },
     // 代表者情報

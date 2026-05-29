@@ -171,6 +171,7 @@
           <div class="col-6" data-field-id="guestCount">
             <label class="form-label" for="f_guestCount" id="lbl_guestCount"></label>
             <input type="number" class="form-control" id="f_guestCount" min="1" max="20" value="1" required>
+            <div class="form-text text-danger" id="lbl_guestCountHint"></div>
           </div>
           <div class="col-6" data-field-id="guestCountInfants">
             <label class="form-label" for="f_guestCountInfants" id="lbl_guestCountInfants"></label>
@@ -587,7 +588,8 @@
         lateCheckOutSummary: "⚠️ 10:00を過ぎないようご注意ください",
         lateCheckOutNote1: "10:00に清掃スタッフが入室します。",
         lateCheckOutNote2: "10:00を超過した場合、15分につき2,000円/人のペナルティを請求します。",
-        guestCount: "宿泊人数（大人） <span class='required-mark'>*</span>",
+        guestCount: "宿泊人数 <span class='required-mark'>*</span>",
+        guestCountHint: "※3才以下の乳幼児を除く全員（4才以上のお子様を含む）の人数を入力してください。",
         guestCountInfants: "3才以下の乳幼児",
         bookingSite: "どこのサイトから予約しましたか？ <span class='required-mark'>*</span>",
         bookingSiteOtherPh: "予約サイト名を入力",
@@ -711,7 +713,8 @@
         lateCheckOutSummary: "⚠️ Please check out before 10:00",
         lateCheckOutNote1: "Cleaning staff will enter at 10:00.",
         lateCheckOutNote2: "Late check-out penalty: ¥2,000/person per 15 minutes after 10:00.",
-        guestCount: "Number of Guests (Adults) <span class='required-mark'>*</span>",
+        guestCount: "Number of Guests <span class='required-mark'>*</span>",
+        guestCountHint: "* Enter the total number of guests excluding infants under 3 (include children aged 4 and above).",
         guestCountInfants: "Infants (under 3)",
         bookingSite: "Where did you book? <span class='required-mark'>*</span>",
         bookingSiteOtherPh: "Enter booking site name",
@@ -836,7 +839,8 @@
         lateCheckOutSummary: "⚠️ 10:00를 넘지 않도록 주의해 주십시오",
         lateCheckOutNote1: "10:00에 청소 스태프가 입실합니다.",
         lateCheckOutNote2: "10:00를 초과할 경우, 15분당 2,000엔/인의 벌금이 청구됩니다.",
-        guestCount: "숙박 인원 (성인) <span class='required-mark'>*</span>",
+        guestCount: "숙박 인원 <span class='required-mark'>*</span>",
+        guestCountHint: "※3세 이하 유아를 제외한 전원(4세 이상의 어린이 포함)의 인원수를 입력해 주세요.",
         guestCountInfants: "3세 이하 유아",
         bookingSite: "어떤 사이트에서 예약하셨습니까? <span class='required-mark'>*</span>",
         bookingSiteOtherPh: "예약 사이트 이름을 입력",
@@ -995,7 +999,8 @@
         lateCheckOutSummary: "⚠️ 请注意不要超过 10:00",
         lateCheckOutNote1: "清洁人员将于 10:00 进入房间。",
         lateCheckOutNote2: "如果超过 10:00，将收取每人每 15 分钟 2,000 日元的罚款。",
-        guestCount: "住宿人数（成人） <span class='required-mark'>*</span>",
+        guestCount: "住宿人数 <span class='required-mark'>*</span>",
+        guestCountHint: "※请输入除3岁以下婴幼儿外的全部人数（包括4岁以上的儿童）。",
         guestCountInfants: "3岁以下婴幼儿",
         bookingSite: "您是通过哪个网站预订的？ <span class='required-mark'>*</span>",
         bookingSiteOtherPh: "请输入预订网站名称",
@@ -1154,7 +1159,8 @@
         lateCheckOutSummary: "⚠️ 請注意不要超過 10:00",
         lateCheckOutNote1: "清潔人員將於 10:00 入內。",
         lateCheckOutNote2: "如果超過 10:00，每人每 15 分鐘將收取 2,000 日圓的罰款。",
-        guestCount: "住宿人數（成人） <span class='required-mark'>*</span>",
+        guestCount: "住宿人數 <span class='required-mark'>*</span>",
+        guestCountHint: "※請輸入除3歲以下嬰幼兒外的全部人數（包括4歲以上的兒童）。",
         guestCountInfants: "3歲以下嬰幼兒",
         bookingSite: "您是從哪個網站預訂的？ <span class='required-mark'>*</span>",
         bookingSiteOtherPh: "請輸入預訂網站名稱",
@@ -1333,7 +1339,7 @@
       setText("btnGoToGame", t.noiseNextBtn);
       setText("noiseCancelMsg", t.noiseCancelMsg);
       ["sec_stay","sec_guests","sec_facility","sec_survey","sec_emergency","sec_agreement"].forEach(id => setText(id, t[id]));
-      ["checkIn","checkOut","checkInTime","checkOutTime","guestCount","guestCountInfants","bookingSite","transport","carCount","bbq","bedChoice","purpose","previousStay","nextStay","emergencyName","emergencyPhone","houseRuleAgree"].forEach(k => setHtml("lbl_" + k, t[k]));
+      ["checkIn","checkOut","checkInTime","checkOutTime","guestCount","guestCountHint","guestCountInfants","bookingSite","transport","carCount","bbq","bedChoice","purpose","previousStay","nextStay","emergencyName","emergencyPhone","houseRuleAgree"].forEach(k => setHtml("lbl_" + k, t[k]));
       setText("lbl_lateCheckOutSummary", t.lateCheckOutSummary);
       setText("lbl_lateCheckOutNote1", t.lateCheckOutNote1);
       setText("lbl_lateCheckOutNote2", t.lateCheckOutNote2);

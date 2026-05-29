@@ -69,8 +69,8 @@
     },
     {
       id: "guestCount",
-      label: "宿泊人数（大人）",
-      labelEn: "Number of Guests (Adults)",
+      label: "宿泊人数",
+      labelEn: "Number of Guests",
       type: "number",
       required: true,
       section: "stay",

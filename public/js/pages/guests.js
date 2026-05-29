@@ -1723,7 +1723,7 @@ const GuestsPage = {
     { id: "checkInTime",       label: "チェックイン時刻",       labelEn: "Check-in Time",             type: "select", required: true,  section: "stay" },
     { id: "checkOut",          label: "チェックアウト日",       labelEn: "Check-out Date",            type: "date",   required: true,  section: "stay" },
     { id: "checkOutTime",      label: "チェックアウト時刻",     labelEn: "Check-out Time",            type: "select", required: true,  section: "stay" },
-    { id: "guestCount",        label: "宿泊人数（大人）",       labelEn: "Adults",                    type: "number", required: true,  section: "stay" },
+    { id: "guestCount",        label: "宿泊人数",               labelEn: "Number of Guests",          type: "number", required: true,  section: "stay" },
     { id: "guestCountInfants", label: "3才以下の乳幼児",        labelEn: "Infants (under 3)",         type: "number", required: false, section: "stay" },
     { id: "bookingSite",       label: "予約サイト",             labelEn: "Booking Site",              type: "select", required: true,  section: "stay" },
     // === 宿泊者情報（人数分繰り返し、先頭が代表者）===
@@ -1762,7 +1762,7 @@ const GuestsPage = {
     { id: "checkInTime",       label: "チェックイン時刻",        labelEn: "Check-in Time",        type: "select", required: true,  section: "stay",      mapping: "checkInTime",  options: ["15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00","19:30","20:00","20:00以降"], optionsEn: ["15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00","19:30","20:00","After 20:00"] },
     { id: "checkOut",          label: "チェックアウト日",        labelEn: "Check-out Date",       type: "date",   required: true,  section: "stay",      mapping: "checkOut" },
     { id: "checkOutTime",      label: "チェックアウト時刻",      labelEn: "Check-out Time",       type: "select", required: true,  section: "stay",      mapping: "checkOutTime", options: ["7:00","7:30","8:00","8:30","9:00","9:30","10:00"], optionsEn: ["7:00","7:30","8:00","8:30","9:00","9:30","10:00"] },
-    { id: "guestCount",        label: "宿泊人数（大人）",        labelEn: "Adults",               type: "number", required: true,  section: "stay",      mapping: "guestCount",   defaultValue: "1" },
+    { id: "guestCount",        label: "宿泊人数",                labelEn: "Number of Guests",     type: "number", required: true,  section: "stay",      mapping: "guestCount",   defaultValue: "1" },
     { id: "guestCountInfants", label: "3才以下の乳幼児",         labelEn: "Infants (under 3)",    type: "number", required: false, section: "stay",      mapping: "guestCountInfants", defaultValue: "0" },
     { id: "bookingSite",       label: "予約サイト",              labelEn: "Booking Site",         type: "select", required: true,  section: "stay",      mapping: "bookingSite",  options: ["Airbnb","Booking.com","楽天トラベル","じゃらん","Agoda","VRBO","Trip.com","自社公式ウェブサイト","直接予約","その他"], optionsEn: ["Airbnb","Booking.com","Rakuten Travel","Jalan","Agoda","VRBO","Trip.com","Official Website","Direct booking","Other"] },
     // === セクション2: 宿泊者情報（同行者リスト、先頭が代表者）===
