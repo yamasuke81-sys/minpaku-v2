@@ -334,10 +334,24 @@ module.exports = function recruitmentApi(db) {
           const dashUrl = `${appUrl.replace(/\/$/, "")}/#/my-recruitment/${req.params.id}`;
           const staffSnap = await db.collection("staff").where("active", "==", true).get();
           // 確定スタッフ全員の表示名を ID 順で組み立て (テンプレ {staff} 用)
-          const idToName = new Map();
-          staffSnap.docs.forEach(d => idToName.set(d.id, d.data().name || ""));
+          // isTimee=true のスタッフは recruitments.timeeOverrideNames[id] を「（実名）」として併記
+          // 例: タイミーA（松葉 唯華）、タイミーB（廣川 美羽、友田 彩）
+          const idToInfo = new Map();
+          staffSnap.docs.forEach(d => {
+            const sd = d.data();
+            idToInfo.set(d.id, { name: sd.name || "", isTimee: sd.isTimee === true });
+          });
+          const timeeOverrideNames = data.timeeOverrideNames || {};
+          const buildStaffDisplayName_ = (id, fallbackName) => {
+            const info = idToInfo.get(id);
+            const baseName = info?.name || fallbackName || "";
+            if (info?.isTimee && timeeOverrideNames[id]) {
+              return `${baseName}（${timeeOverrideNames[id]}）`;
+            }
+            return baseName;
+          };
           const allConfirmedNames = hasIdList
-            ? selectedIds.map(id => idToName.get(id) || "").filter(Boolean).join("、")
+            ? selectedIds.map(id => buildStaffDisplayName_(id)).filter(Boolean).join("、")
             : selectedNames.join("、");
           const work = data.workType === "pre_inspection" ? "直前点検" : "清掃";
           const text = `✅ ${work}確定のお知らせ\n\n${data.checkoutDate} ${data.propertyName || ""}\n担当: ${allConfirmedNames}\nよろしくお願いします。\n詳細: ${dashUrl}`;
@@ -421,7 +435,7 @@ module.exports = function recruitmentApi(db) {
                   startTime: _icsStartTime,
                   endTime: _icsEndTime,
                   summary: `${workLabel}: ${data.propertyName || ""}`,
-                  description: `担当: ${data.selectedStaff || ""}\n時間: ${_icsStartTime}〜${_icsEndTime}\nWebアプリ: ${dashUrl}`,
+                  description: `担当: ${allConfirmedNames || data.selectedStaff || ""}\n時間: ${_icsStartTime}〜${_icsEndTime}\nWebアプリ: ${dashUrl}`,
                   location: data.propertyName || "",
                   calName: `${workLabel}シフト (${sd.name || ""})`,
                 });
