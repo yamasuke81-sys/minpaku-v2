@@ -17,11 +17,18 @@
 ### Step 1: コードを revert
 ```bash
 cd C:/Users/yamas/AI_Workspace/minpaku-v2
-git log --oneline | head -5
-# "emergency relay: バルク URL 置換" 相当の commit hash を確認
 
-git revert <commit-hash>  # ハードコード URL を minpaku-v2.web.app に戻す
+# emergency relay 一括置換コミットのみ revert
+# (それ以後の通常修正コミットは維持される — revert は対象 commit の差分だけを打ち消す動作)
+git revert 2f4e067    # emergency relay: 全 hardcoded URL を v2-5-relay.web.app に一括置換
+git push              # main push → GitHub Actions が minpaku-v2 hosting に自動デプロイ
 ```
+
+**revert 対象でないコミット (これらは残す):**
+- `36bae83` feat(relay): v2-5-relay 緊急回避サイト 設定追加 (api-relay.js, firebase.relay.json)
+  - 本番では no-op なので残しても害なし、緊急時の予備として温存
+- `49ad92a` fix(recruitment): タイミー実名 手動編集保持 (URL とは無関係の機能改善)
+- それ以後の通常修正コミット全般 (URL に触れていない変更は全て維持される)
 
 ### Step 2: 関連 commit も revert (必要に応じて)
 - `feat(relay): v2-5-relay 緊急回避サイト 設定追加` — api-relay.js, firebase.relay.json
