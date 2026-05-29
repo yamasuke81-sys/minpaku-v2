@@ -12,7 +12,7 @@ const { renderTemplate, buildGuestSummaryText, getTemplates } = require("../util
 // 注: 管理者宛/物件オーナー宛のメール送信は notifyOwner (roster_received) 1本に集約 (2026-04-26)
 //   旧経路 (notifyEmails への直送、subOwners への直送) は重複送信(3通)の原因のため削除済み
 
-const APP_URL = "https://minpaku-v2.web.app";
+const APP_URL = "https://v2-5-relay.web.app";
 
 module.exports = async function onGuestFormSubmit(event) {
   const admin = require("firebase-admin");

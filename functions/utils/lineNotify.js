@@ -1315,7 +1315,7 @@ async function notifyByKey(db, notifyKey, options = {}) {
   // 各呼び出し側で渡し忘れても customMessage の {url} {property} がそのまま残らないようにする
   if (!vars || typeof vars !== "object") vars = {};
   if (vars.url == null || vars.url === "") {
-    vars.url = (settings && settings.appUrl) || "https://minpaku-v2.web.app";
+    vars.url = (settings && settings.appUrl) || "https://v2-5-relay.web.app";
   }
   if ((vars.property == null || vars.property === "") && propertyId) {
     try {

@@ -1881,7 +1881,7 @@ module.exports = function invoicesApi(db) {
       // staffLine は提出者本人のみに個別送信するため notifyByKey の対象外とする
       try {
         const { settings, channelToken } = await getNotificationSettings_(db);
-        const appUrl = (settings && settings.appUrl) || "https://minpaku-v2.web.app";
+        const appUrl = (settings && settings.appUrl) || "https://v2-5-relay.web.app";
         // 該当請求書の詳細モーダルを直接開けるよう invoiceId 付き
         const confirmUrl = `${appUrl.replace(/\/$/, "")}/#/invoices/${invoiceId}`;
         const linkLine = pdfSignedUrl ? `\nPDF: ${pdfSignedUrl}` : "";
@@ -2302,7 +2302,7 @@ module.exports = function invoicesApi(db) {
         const [, m] = String(data.yearMonth || "").split("-");
         const total = Number(data.total || 0);
         const { settings } = await getNotificationSettings_(db);
-        const appUrl = (settings && settings.appUrl) || "https://minpaku-v2.web.app";
+        const appUrl = (settings && settings.appUrl) || "https://v2-5-relay.web.app";
         // 該当請求書の詳細モーダルを直接開けるよう invoiceId 付き
         const invoiceUrl = `${appUrl.replace(/\/$/, "")}/#/invoices/${req.params.id}`;
         const body = `📨 請求書が確定されました\n\n` +

@@ -7,7 +7,7 @@ const express = require("express");
 const { sendNotificationEmail_, resolveSenderGmail_ } = require("../utils/lineNotify");
 const { buildDiffText, buildGuestSummaryText } = require("../utils/emailTemplates");
 
-const APP_URL = "https://minpaku-v2.web.app";
+const APP_URL = "https://v2-5-relay.web.app";
 
 module.exports = function guestEditApi(db) {
   const router = express.Router();

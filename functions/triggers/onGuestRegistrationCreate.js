@@ -129,7 +129,7 @@ function inferPropertyId(guest, bookings) {
 // メール送信 (onGuestFormSubmit 側で行うためこの関数は廃止)
 // ==============================
 const DEFAULT_GUIDE_URL = "";
-const APP_URL = "https://minpaku-v2.web.app";
+const APP_URL = "https://v2-5-relay.web.app";
 
 // eslint-disable-next-line no-unused-vars
 async function _sendRegistrationEmails_deprecated(db, guestData, guestId) {

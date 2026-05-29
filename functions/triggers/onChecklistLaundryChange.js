@@ -445,7 +445,7 @@ module.exports = async (event) => {
 
       // 通知設定から対象チャネルと appUrl を取得（物件別オーバーライド適用）
       const { settings } = await getNotificationSettings_(db);
-      const appUrl = settings?.appUrl || "https://minpaku-v2.web.app";
+      const appUrl = settings?.appUrl || "https://v2-5-relay.web.app";
       const shiftId = after.shiftId || "";
       const checklistUrl = shiftId ? `${appUrl}/#/my-checklist/${shiftId}` : `${appUrl}/#/my-checklist`;
 

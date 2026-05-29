@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         タイミー 民泊清掃募集 自動入力
-// @namespace    https://minpaku-v2.web.app/
+// @namespace    https://v2-5-relay.web.app/
 // @version      0.2.0
 // @description  v2 通知から開かれた募集作成フォームを、URL ハッシュパラメータで自動入力する
 // @author       minpaku-v2
 // @match        https://app-new.taimee.co.jp/clients/*/offers/*/offerings/new*
 // @run-at       document-idle
 // @grant        none
-// @updateURL    https://minpaku-v2.web.app/userscripts/timee-autofill.user.js
-// @downloadURL  https://minpaku-v2.web.app/userscripts/timee-autofill.user.js
+// @updateURL    https://v2-5-relay.web.app/userscripts/timee-autofill.user.js
+// @downloadURL  https://v2-5-relay.web.app/userscripts/timee-autofill.user.js
 // ==/UserScript==
 
 (function () {

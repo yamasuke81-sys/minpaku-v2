@@ -58,7 +58,7 @@ const StaffGuidePage = {
               <ol class="mb-2">
                 <li>Webアプリ管理者から LINE またはメールで届いた
                   <strong>個別の招待URL</strong> をタップ
-                  <div class="small text-muted">（例：https://minpaku-v2.web.app/invite.html?token=xxxxx）</div>
+                  <div class="small text-muted">（例：https://v2-5-relay.web.app/invite.html?token=xxxxx）</div>
                 </li>
                 <li>「<span class="text-success">○○さん</span>」とご自身の名前が表示されることを確認</li>
                 <li>緑色の <strong>「LINEで参加する」</strong> ボタンをタップ</li>
@@ -84,7 +84,7 @@ const StaffGuidePage = {
             <div class="card-body">
               <ol class="mb-2">
                 <li>
-                  <a href="https://minpaku-v2.web.app/" target="_blank" rel="noopener">https://minpaku-v2.web.app/</a>
+                  <a href="https://v2-5-relay.web.app/" target="_blank" rel="noopener">https://v2-5-relay.web.app/</a>
                   を開く（ブックマーク／ホーム画面追加推奨）
                 </li>
                 <li>ログイン状態が保持されていれば、そのままスタッフ画面が開きます。

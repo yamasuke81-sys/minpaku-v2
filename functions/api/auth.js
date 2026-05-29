@@ -571,7 +571,7 @@ module.exports = function authApi(db) {
       });
 
       // ホスト名を環境変数またはデフォルトから取得
-      const baseUrl = process.env.APP_BASE_URL || "https://minpaku-v2.web.app";
+      const baseUrl = process.env.APP_BASE_URL || "https://v2-5-relay.web.app";
       const inviteUrl = `${baseUrl}/invite.html?token=${token}`;
 
       res.json({ success: true, inviteUrl, token, expiresAt: expiresAt.toISOString() });

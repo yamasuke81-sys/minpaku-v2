@@ -111,7 +111,7 @@ module.exports = async function onChecklistComplete(event) {
   } catch (_) { /* 失敗しても継続 */ }
 
   // 通知用の共通変数を組み立て (日付整形・URL生成)
-  let appUrl = "https://minpaku-v2.web.app";
+  let appUrl = "https://v2-5-relay.web.app";
   try {
     const { settings } = await getNotificationSettings_(db);
     appUrl = settings?.appUrl || appUrl;

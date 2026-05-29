@@ -16,7 +16,7 @@ module.exports = async function onRecruitmentChange(event) {
 
   // オーナー側の通知から該当募集の詳細モーダルを直接開くため、recruitmentId 付き URL を組み立て
   // (recruitmentId は下流の `const recruitmentId = event.params.recruitmentId;` でも使用)
-  const ownerRecruitUrl = `https://minpaku-v2.web.app/#/schedule/${event.params.recruitmentId}`;
+  const ownerRecruitUrl = `https://v2-5-relay.web.app/#/schedule/${event.params.recruitmentId}`;
 
   // ========= 手動募集の新規作成 → 即 shift も作成 (チェックリスト自動生成のため) =========
   // 通常フロー (予約由来) は onBookingChange が shift を生成するが、

@@ -76,7 +76,7 @@ module.exports = function gmailAuthApi(db) {
     if (context === "emailVerification") {
       return {
         label: "メール照合に戻る",
-        href: "https://minpaku-v2.web.app/#/email-verification",
+        href: "https://v2-5-relay.web.app/#/email-verification",
       };
     }
     if (context === "property") {
@@ -86,12 +86,12 @@ module.exports = function gmailAuthApi(db) {
         : "#/properties";
       return {
         label: "物件管理に戻る",
-        href: `https://minpaku-v2.web.app/${hash}`,
+        href: `https://v2-5-relay.web.app/${hash}`,
       };
     }
     return {
       label: "税理士資料に戻る",
-      href: "https://minpaku-v2.web.app/#/tax-docs",
+      href: "https://v2-5-relay.web.app/#/tax-docs",
     };
   }
 

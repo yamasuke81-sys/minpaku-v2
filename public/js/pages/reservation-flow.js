@@ -25,7 +25,7 @@ const ReservationFlowPage = {
       { name: "date",     label: "作業日",        sample: "2026/04/20" },
       { name: "property", label: "物件名",        sample: "長浜民泊A" },
       { name: "work",     label: "作業内容",      sample: "清掃" },
-      { name: "url",      label: "回答ページURL", sample: "https://minpaku-v2.web.app/#/my-recruitment" },
+      { name: "url",      label: "回答ページURL", sample: "https://v2-5-relay.web.app/#/my-recruitment" },
       { name: "count",    label: "回答数",        sample: "3" },
       { name: "staff",    label: "確定スタッフ名", sample: "山田太郎" },
       { name: "memo",     label: "メモ",          sample: "BBQ後の片付けあり" },
@@ -38,13 +38,13 @@ const ReservationFlowPage = {
       { name: "guest",    label: "ゲスト名",        sample: "John Smith" },
       { name: "nights",   label: "宿泊数",          sample: "2" },
       { name: "site",     label: "予約サイト",       sample: "Airbnb" },
-      { name: "url",      label: "名簿ページURL",   sample: "https://minpaku-v2.web.app/#/guests" },
+      { name: "url",      label: "名簿ページURL",   sample: "https://v2-5-relay.web.app/#/guests" },
     ],
     staff: [
       { name: "staff",    label: "スタッフ名",  sample: "山田太郎" },
       { name: "date",     label: "対象日",      sample: "2026/04/20" },
       { name: "property", label: "物件名",      sample: "長浜民泊A" },
-      { name: "url",      label: "マイページURL", sample: "https://minpaku-v2.web.app/#/my-dashboard" },
+      { name: "url",      label: "マイページURL", sample: "https://v2-5-relay.web.app/#/my-dashboard" },
       { name: "reason",   label: "理由",        sample: "直近15回の募集に無回答" },
     ],
     invoice: [
@@ -52,28 +52,28 @@ const ReservationFlowPage = {
       { name: "staff",    label: "スタッフ名",  sample: "山田太郎" },
       { name: "property", label: "物件名",      sample: "長浜民泊A" },
       { name: "total",    label: "合計金額",    sample: "¥45,000" },
-      { name: "url",      label: "確認/作成ページURL", sample: "https://minpaku-v2.web.app/#/my-invoice-create" },
+      { name: "url",      label: "確認/作成ページURL", sample: "https://v2-5-relay.web.app/#/my-invoice-create" },
     ],
     cleaning: [
       { name: "date",     label: "清掃日",          sample: "2026/04/20" },
       { name: "property", label: "物件名",          sample: "長浜民泊A" },
       { name: "staff",    label: "スタッフ名",       sample: "山田太郎" },
       { name: "time",     label: "完了時刻",        sample: "14:30" },
-      { name: "url",      label: "チェックリストURL", sample: "https://minpaku-v2.web.app/#/my-checklist/xxx" },
+      { name: "url",      label: "チェックリストURL", sample: "https://v2-5-relay.web.app/#/my-checklist/xxx" },
     ],
     laundry: [
       { name: "date",     label: "清掃日",          sample: "2026/04/20" },
       { name: "property", label: "物件名",          sample: "長浜民泊A" },
       { name: "staff",    label: "担当スタッフ",     sample: "山田太郎" },
       { name: "time",     label: "実施時刻",         sample: "19:30" },
-      { name: "url",      label: "チェックリストURL", sample: "https://minpaku-v2.web.app/#/my-checklist/xxx" },
+      { name: "url",      label: "チェックリストURL", sample: "https://v2-5-relay.web.app/#/my-checklist/xxx" },
     ],
     guestUpdate: [
       { name: "guestName",     label: "ゲスト名",        sample: "John Smith" },
       { name: "propertyName",  label: "物件名",          sample: "長浜民泊A" },
       { name: "checkin",       label: "チェックイン日",   sample: "2026/04/20" },
       { name: "changes",       label: "変更内容",        sample: "代表者の年齢: 30 → 35" },
-      { name: "confirmUrl",    label: "確認URL",         sample: "https://minpaku-v2.web.app/#/guests?id=xxx" },
+      { name: "confirmUrl",    label: "確認URL",         sample: "https://v2-5-relay.web.app/#/guests?id=xxx" },
     ],
   },
 
@@ -1301,7 +1301,7 @@ const ReservationFlowPage = {
       checkInFormatted:  "2026年4月30日(木) 15:00",
       checkOutFormatted: "2026年5月2日(土) 10:00",
       guestCount:   "4",
-      editUrl:      "https://minpaku-v2.web.app/guest-form.html?edit=sample-token",
+      editUrl:      "https://v2-5-relay.web.app/guest-form.html?edit=sample-token",
       changes:      "代表者の年齢: 30 → 35",
     };
 
@@ -1340,7 +1340,7 @@ const ReservationFlowPage = {
       sampleVars.wifiPassword    = "xxxx1234";
       sampleVars.wifiInfo        = "SSID: MyWifi / PW: xxxx1234";
       sampleVars.postCode        = "5678";
-      sampleVars.guideUrl        = "https://minpaku-v2.web.app/guide/?propertyId=xxx";
+      sampleVars.guideUrl        = "https://v2-5-relay.web.app/guide/?propertyId=xxx";
     }
 
     const updatePreview = () => {

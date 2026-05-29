@@ -10,7 +10,7 @@ const GUIDE_MAP = {
   "RZV9IwtQgMAsvrdM3j8J": { slug: "yado-komachi-hiroshima" },
 };
 
-const GUIDE_BASE_URL = "https://minpaku-v2.web.app/guides";
+const GUIDE_BASE_URL = "https://v2-5-relay.web.app/guides";
 
 function getAutoGuideUrl(propertyId) {
   const m = GUIDE_MAP[propertyId];

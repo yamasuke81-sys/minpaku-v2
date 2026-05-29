@@ -21,7 +21,7 @@ const admin = require("firebase-admin");
 const { notifyByKey } = require("../utils/lineNotify");
 const { workLabel } = require("../utils/workType");
 
-const APP_URL = "https://minpaku-v2.web.app";
+const APP_URL = "https://v2-5-relay.web.app";
 const NOTIFY_TYPE = "staff_undecided";
 
 function nowJst() {

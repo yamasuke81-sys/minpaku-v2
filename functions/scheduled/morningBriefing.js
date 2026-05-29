@@ -221,7 +221,7 @@ module.exports = async function morningBriefing(event) {
       checkOutsToday: String(checkouts.length),
       cleaningsToday: String(coSnap.size), // CO日 = 清掃日
       alerts: alertsText.join("\n"),
-      url: "https://minpaku-v2.web.app/",
+      url: "https://v2-5-relay.web.app/",
     },
   });
 

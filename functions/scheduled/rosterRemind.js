@@ -16,7 +16,7 @@
 const admin = require("firebase-admin");
 const { notifyByKey } = require("../utils/lineNotify");
 
-const APP_URL = "https://minpaku-v2.web.app";
+const APP_URL = "https://v2-5-relay.web.app";
 const NOTIFY_TYPE = "roster_remind";
 
 // JST の今 → { date: "YYYY-MM-DD", hour: 0..23 }

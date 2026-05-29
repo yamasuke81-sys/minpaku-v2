@@ -34,7 +34,7 @@
       { name: "date",     label: "作業日",        sample: "2026/04/20",  source: "recruitment.checkoutDate" },
       { name: "property", label: "物件名",        sample: "長浜民泊A",    source: "recruitment.propertyName" },
       { name: "work",     label: "作業内容",      sample: "清掃",         source: "recruitment.workType (清掃 / 直前点検)" },
-      { name: "url",      label: "回答ページURL", sample: "https://minpaku-v2.web.app/#/my-recruitment/{recruitmentId}", source: "自動生成 (タップで該当募集の詳細モーダルを直接オープン)" },
+      { name: "url",      label: "回答ページURL", sample: "https://v2-5-relay.web.app/#/my-recruitment/{recruitmentId}", source: "自動生成 (タップで該当募集の詳細モーダルを直接オープン)" },
       { name: "count",    label: "回答数",        sample: "3",           source: "recruitment.responses.length" },
       { name: "staff",    label: "確定スタッフ名", sample: "山田太郎",    source: "recruitment.selectedStaff" },
       { name: "memo",     label: "メモ",          sample: "BBQ後の片付けあり", source: "recruitment.memo" },
@@ -47,14 +47,14 @@
       { name: "guest",    label: "ゲスト名",        sample: "John Smith", source: "booking.guestName" },
       { name: "nights",   label: "宿泊数",          sample: "2",          source: "自動計算" },
       { name: "site",     label: "予約サイト",       sample: "Airbnb",     source: "booking.source" },
-      { name: "url",      label: "名簿ページURL",   sample: "https://minpaku-v2.web.app/#/guests", source: "自動生成" },
-      { name: "editUrl",  label: "名簿修正用URL (ゲスト用)", sample: "https://minpaku-v2.web.app/guest-form.html?edit=...&propertyId=...", source: "guestRegistrations.editToken (30日間有効)" },
+      { name: "url",      label: "名簿ページURL",   sample: "https://v2-5-relay.web.app/#/guests", source: "自動生成" },
+      { name: "editUrl",  label: "名簿修正用URL (ゲスト用)", sample: "https://v2-5-relay.web.app/guest-form.html?edit=...&propertyId=...", source: "guestRegistrations.editToken (30日間有効)" },
     ],
     staff: [
       { name: "staff",    label: "スタッフ名",  sample: "山田太郎",      source: "staff.name" },
       { name: "date",     label: "対象日",      sample: "2026/04/20",   source: "shift.date" },
       { name: "property", label: "物件名",      sample: "長浜民泊A",     source: "shift.propertyName" },
-      { name: "url",      label: "マイページURL", sample: "https://minpaku-v2.web.app/#/my-dashboard", source: "自動生成" },
+      { name: "url",      label: "マイページURL", sample: "https://v2-5-relay.web.app/#/my-dashboard", source: "自動生成" },
       { name: "reason",   label: "理由",        sample: "直近15回の募集に無回答", source: "staff.inactiveReason" },
     ],
     invoice: [
@@ -62,7 +62,7 @@
       { name: "staff",    label: "スタッフ名",  sample: "山田太郎",      source: "invoice.staffName" },
       { name: "property", label: "物件名",      sample: "長浜民泊A",     source: "invoice.propertyName" },
       { name: "total",    label: "合計金額",    sample: "¥45,000",      source: "invoice.total" },
-      { name: "url",      label: "確認/作成ページURL", sample: "https://minpaku-v2.web.app/#/invoices/{invoiceId}", source: "請求書要請: /#/my-invoice-create、提出通知/確定通知: /#/invoices/{invoiceId} (タップで該当請求書の詳細モーダルを直接オープン)" },
+      { name: "url",      label: "確認/作成ページURL", sample: "https://v2-5-relay.web.app/#/invoices/{invoiceId}", source: "請求書要請: /#/my-invoice-create、提出通知/確定通知: /#/invoices/{invoiceId} (タップで該当請求書の詳細モーダルを直接オープン)" },
     ],
     cleaning: [
       { name: "date",       label: "清掃日",          sample: "2026/04/20",   source: "checklist.date" },
@@ -70,7 +70,7 @@
       { name: "staff",      label: "スタッフ名",       sample: "山田太郎",      source: "checklist.staffName" },
       { name: "time",       label: "完了時刻",        sample: "14:30",        source: "checklist.completedAt" },
       { name: "work",       label: "作業内容",         sample: "清掃",         source: "checklist.workType (清掃 / 直前点検)" },
-      { name: "url",        label: "チェックリストURL", sample: "https://minpaku-v2.web.app/#/my-checklist/xxx", source: "自動生成 (該当シフトのチェックリストページ)" },
+      { name: "url",        label: "チェックリストURL", sample: "https://v2-5-relay.web.app/#/my-checklist/xxx", source: "自動生成 (該当シフトのチェックリストページ)" },
       { name: "rating",     label: "ゲストの使い方★",  sample: "★★★★☆ (4/5)", source: "booking.cleanlinessRating (清掃完了時にスタッフが5段階評価)" },
       { name: "memos",      label: "メモ一覧",         sample: "・カーペット汚れ\n・水栓緩い", source: "checklist.notes[].text" },
       { name: "lowStock",   label: "在庫切れかけ項目",   sample: "・ビニール袋\n・ティッシュ", source: "checklist.itemStates[id].needsRestock=true の項目名" },
@@ -83,7 +83,7 @@
       { name: "staff",    label: "担当スタッフ",     sample: "山田太郎",     source: "checklist.laundry.*.by.name" },
       { name: "time",     label: "実施時刻",         sample: "19:30",       source: "checklist.laundry.*.at" },
       { name: "work",     label: "作業内容",         sample: "清掃",         source: "checklist.workType" },
-      { name: "url",      label: "チェックリストURL", sample: "https://minpaku-v2.web.app/#/my-checklist/xxx", source: "自動生成 (該当シフトのチェックリストページ)" },
+      { name: "url",      label: "チェックリストURL", sample: "https://v2-5-relay.web.app/#/my-checklist/xxx", source: "自動生成 (該当シフトのチェックリストページ)" },
     ],
     inspection: [
       { name: "date",     label: "チェックイン日",   sample: "2026/04/20",   source: "booking.checkIn" },
@@ -99,7 +99,7 @@
       { name: "property", label: "物件名",          sample: "長浜民泊A",    source: "recruitment.propertyName" },
       { name: "work",     label: "作業内容",        sample: "清掃",          source: "recruitment.workType" },
       { name: "staff",    label: "スタッフ名",      sample: "山田太郎",      source: "response.staffName (置換時)" },
-      { name: "url",      label: "回答ページURL",   sample: "https://minpaku-v2.web.app/#/my-recruitment/{recruitmentId}", source: "自動生成 (タップで該当募集の詳細モーダルを直接オープン)" },
+      { name: "url",      label: "回答ページURL",   sample: "https://v2-5-relay.web.app/#/my-recruitment/{recruitmentId}", source: "自動生成 (タップで該当募集の詳細モーダルを直接オープン)" },
     ],
     morning_briefing: [
       { name: "date",         label: "今日の日付",        sample: "2026年5月7日(木)", source: "実行日" },
@@ -107,7 +107,7 @@
       { name: "checkOutsToday", label: "本日チェックアウト件数", sample: "1", source: "本日 CO 数 (今日が CO の予約)" },
       { name: "cleaningsToday", label: "本日清掃件数",      sample: "1",            source: "本日 確定済 cleaning shifts" },
       { name: "alerts",         label: "要対応一覧",        sample: "・5/8 YADO 募集回答待ち",        source: "未確定募集 / 回答未完 等" },
-      { name: "url",            label: "管理画面URL",       sample: "https://minpaku-v2.web.app/", source: "固定" },
+      { name: "url",            label: "管理画面URL",       sample: "https://v2-5-relay.web.app/", source: "固定" },
     ],
   };
 

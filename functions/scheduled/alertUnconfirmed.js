@@ -81,7 +81,7 @@ module.exports = async function alertUnconfirmed(event) {
         vars: {
           date: today,
           property: propertyName,
-          url: "https://minpaku-v2.web.app/#/recruitment",
+          url: "https://v2-5-relay.web.app/#/recruitment",
         },
         propertyId: pid,
       });

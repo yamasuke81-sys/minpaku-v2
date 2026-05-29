@@ -94,7 +94,7 @@ module.exports = async function sendKeyboxScheduled() {
           vars: {
             guest: data.guestName || "?",
             checkin: data.checkIn || "?",
-            url: `https://minpaku-v2.web.app/#/guests?id=${encodeURIComponent(guestId)}`,
+            url: `https://v2-5-relay.web.app/#/guests?id=${encodeURIComponent(guestId)}`,
           },
           propertyId,
         });

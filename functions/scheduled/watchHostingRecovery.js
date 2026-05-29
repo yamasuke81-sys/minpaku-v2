@@ -55,11 +55,18 @@ module.exports = async function watchHostingRecovery() {
 
   if (!isUp) return;
 
-  // 復活検知 → 1回だけ通知
+  // 復活検知 → settings.appUrl を元に戻して 1 回だけ通知
   try {
+    // appUrl を本番URLに即時切替 (Cloud Functions 経由の通知が即 minpaku-v2.web.app を指すように)
+    await db.collection("settings").doc("notifications").set({
+      appUrl: "https://minpaku-v2.web.app",
+      appUrlRestoredAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    console.log("[watchHostingRecovery] settings.appUrl を minpaku-v2 に自動復元");
+
     await notifyByKey(db, "error_alert", {
       title: "✅ minpaku-v2.web.app 復活検知",
-      body: `Hosting が復活しました。\n\nURL: ${TARGET_URL}\nHTTP: ${r.status}\n\nGoogle Cloud の suspension が解除されたものと思われます。動作確認の上、watchHostingRecovery を index.js から外してください。`,
+      body: `Hosting が復活しました。\n\nURL: ${TARGET_URL}\nHTTP: ${r.status}\n\n[自動対応済]\n- settings/notifications.appUrl を https://minpaku-v2.web.app に復元\n\n[手動対応のお願い]\n1. git revert <emergency commit> でハードコード URL を元に戻す\n2. firebase deploy --only functions,hosting\n3. minpaku-v2.web.app に hosting も再デプロイ\n4. 動作確認後、watchHostingRecovery を index.js から外して削除`,
       vars: { url: TARGET_URL, status: String(r.status) },
       propertyId: null,
     });

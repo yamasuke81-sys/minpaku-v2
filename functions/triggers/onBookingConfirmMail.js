@@ -9,7 +9,7 @@ const {
   getNotificationSettings_,
 } = require("../utils/lineNotify");
 
-const APP_URL = "https://minpaku-v2.web.app";
+const APP_URL = "https://v2-5-relay.web.app";
 const NOTIFY_TYPE = "booking_confirm_mail";
 
 module.exports = async function onBookingConfirmMail(event) {

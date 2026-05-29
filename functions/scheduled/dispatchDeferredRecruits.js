@@ -47,7 +47,7 @@ module.exports = async function dispatchDeferredRecruits() {
     }
 
     const { settings } = await getNotificationSettings_(db);
-    const appUrl = settings?.appUrl || "https://minpaku-v2.web.app";
+    const appUrl = settings?.appUrl || "https://v2-5-relay.web.app";
 
     let fired = 0;
     let stillDeferred = 0;

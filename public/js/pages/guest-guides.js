@@ -213,7 +213,7 @@ const GuestGuidesPage = {
    - public/js/guide-map.js
    - functions/utils/guideMap.js
 4. deploy（git commit & push → GitHub Actions で自動デプロイ）
-5. 完了後、URL https://minpaku-v2.web.app/guides/${newSlug}.html を確認`;
+5. 完了後、URL https://v2-5-relay.web.app/guides/${newSlug}.html を確認`;
     document.getElementById("gImportPrompt").value = prompt;
   },
 

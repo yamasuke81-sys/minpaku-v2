@@ -115,7 +115,7 @@ module.exports = async function recruitReminder() {
           continue;
         }
 
-        const baseUrl = process.env.APP_BASE_URL || "https://minpaku-v2.web.app/";
+        const baseUrl = process.env.APP_BASE_URL || "https://v2-5-relay.web.app/";
         // 該当募集の詳細モーダルを直接開けるよう recruitmentId 付き
         const recruitUrl = `${baseUrl.replace(/\/$/, "")}/#/my-recruitment/${rd.id}`;
         const text = [

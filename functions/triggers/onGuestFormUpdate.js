@@ -26,7 +26,7 @@ function hasGuestChanges(before, after) {
   return GUEST_INPUT_FIELDS.some(f => JSON.stringify(before[f]) !== JSON.stringify(after[f]));
 }
 
-const APP_URL = "https://minpaku-v2.web.app";
+const APP_URL = "https://v2-5-relay.web.app";
 
 // 全フィールドの日本語ラベルマッピング
 const FIELD_LABELS = {
