@@ -866,15 +866,19 @@ const RecruitmentPage = {
 
     const newValue = finalNames.join("、");
     const overrides = recruitment.timeeOverrideNames || {};
+    // 手動編集された staffId はロックフラグを参照してスキップ
+    // (手動で追記/削除した内容を auto-fill で上書きしないため)
+    const locked = recruitment.timeeOverrideNamesLocked || {};
     const updates = {};
     const changedIds = [];
     for (const tid of timeeStaffIds) {
+      if (locked[tid]) continue; // 手動編集済みは触らない
       if ((overrides[tid] || "") !== newValue) {
         updates[`timeeOverrideNames.${tid}`] = newValue;
         changedIds.push(tid);
       }
     }
-    if (changedIds.length === 0) return; // 既に全 isTimee に同値が入っている
+    if (changedIds.length === 0) return; // 既に全 isTimee に同値が入っている / ロック済み
 
     // Firestore に書き込み
     try {
@@ -1432,6 +1436,8 @@ const RecruitmentPage = {
     const currentSelectedIds = Array.isArray(recruitment.selectedStaffIds) ? recruitment.selectedStaffIds : [];
     // タイミー実名 (オーナー/管理者が入力した「実際に来る人の名前」、確定状態に関わらず編集可)
     const timeeNames = (recruitment.timeeOverrideNames && typeof recruitment.timeeOverrideNames === "object") ? recruitment.timeeOverrideNames : {};
+    // 手動編集ロック (true のスタッフは auto-fill 対象外)
+    const timeeLocked = (recruitment.timeeOverrideNamesLocked && typeof recruitment.timeeOverrideNamesLocked === "object") ? recruitment.timeeOverrideNamesLocked : {};
 
     // 並び: 回答内容によるソートはやめ、displayOrder のみで安定表示
     const rows = allStaff.map(s => {
@@ -1493,12 +1499,17 @@ const RecruitmentPage = {
             ${this.escapeHtml(s.name)}
             ${s.isOwner ? '<span class="badge bg-info ms-1" title="Webアプリ管理者">OWN</span>' : ""}
             ${(s.isTimee && !isStaffView) ? `
-              <div class="mt-1">
+              <div class="mt-1 d-flex align-items-center gap-1" style="max-width:280px;">
                 <input type="text" class="form-control form-control-sm timee-name-input"
                        data-staff-id="${s.id}"
                        value="${this.escapeHtml(timeeNames[s.id] || "")}"
                        placeholder="タイミーで来る人の名前 (複数は「、」区切り)"
-                       style="font-size:12px;max-width:240px;font-family:'Hiragino Sans','Yu Gothic',Meiryo,sans-serif;">
+                       style="font-size:12px;font-family:'Hiragino Sans','Yu Gothic',Meiryo,sans-serif;">
+                ${timeeLocked[s.id] ? `
+                  <button type="button" class="btn btn-link p-0 timee-name-unlock" data-staff-id="${s.id}"
+                          title="手動編集ロック中 (クリックで解除して自動更新を再開)"
+                          style="font-size:14px;line-height:1;color:#dc3545;text-decoration:none;">🔒</button>
+                ` : ""}
               </div>` : ""}
           </td>
           <td>
@@ -1609,21 +1620,27 @@ const RecruitmentPage = {
         try {
           const dbRef = firebase.firestore();
           const fieldPath = `timeeOverrideNames.${sid}`;
+          // 手動編集ロック: 以降の auto-fill (タイミーメール照合) で上書きされないようにマーク
+          const lockPath = `timeeOverrideNamesLocked.${sid}`;
           if (val) {
             await dbRef.collection("recruitments").doc(recruitmentId).update({
               [fieldPath]: val,
+              [lockPath]: true,
               updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
             });
           } else {
-            // 空にしたら削除
+            // 空にしたら削除 + ロックは立てる (手動で削除した名前を auto-fill で復活させない)
             await dbRef.collection("recruitments").doc(recruitmentId).update({
               [fieldPath]: firebase.firestore.FieldValue.delete(),
+              [lockPath]: true,
               updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
             });
           }
           // ローカル state にも反映 (再描画時のため)
           if (this._currentRecruitment) {
             this._currentRecruitment.timeeOverrideNames = this._currentRecruitment.timeeOverrideNames || {};
+            this._currentRecruitment.timeeOverrideNamesLocked = this._currentRecruitment.timeeOverrideNamesLocked || {};
+            this._currentRecruitment.timeeOverrideNamesLocked[sid] = true;
             if (val) this._currentRecruitment.timeeOverrideNames[sid] = val;
             else delete this._currentRecruitment.timeeOverrideNames[sid];
           }
@@ -1639,6 +1656,33 @@ const RecruitmentPage = {
       inp.addEventListener("blur", save);
       inp.addEventListener("keydown", (e) => {
         if (e.key === "Enter") { e.preventDefault(); inp.blur(); }
+      });
+    });
+
+    // タイミー実名 手動編集ロック解除ボタン
+    tbody.querySelectorAll(".timee-name-unlock").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const recruitmentId = document.getElementById("detailRecruitId").value;
+        if (!recruitmentId) return;
+        const sid = btn.dataset.staffId;
+        const ok = await (window.showConfirm ? showConfirm("自動更新を再開しますか?", "このスタッフのタイミー実名欄について、ロックを解除します。\n以降タイミーメール照合の結果で自動上書きされます。") : confirm("自動更新を再開しますか?"));
+        if (!ok) return;
+        try {
+          const dbRef = firebase.firestore();
+          const lockPath = `timeeOverrideNamesLocked.${sid}`;
+          await dbRef.collection("recruitments").doc(recruitmentId).update({
+            [lockPath]: firebase.firestore.FieldValue.delete(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+          if (this._currentRecruitment && this._currentRecruitment.timeeOverrideNamesLocked) {
+            delete this._currentRecruitment.timeeOverrideNamesLocked[sid];
+          }
+          btn.remove();
+          if (window.showToast) showToast("解除", "ロックを解除しました。次回タイミーメール照合で更新されます。", "info");
+        } catch (e) {
+          console.error("[timee-name-unlock] 解除失敗:", e);
+          if (window.showToast) showToast("エラー", `解除失敗: ${e.message}`, "error");
+        }
       });
     });
 
