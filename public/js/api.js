@@ -433,6 +433,21 @@ const API = {
       if (!res.ok) throw new Error(data.error || "再計算失敗");
       return data;
     },
+
+    /**
+     * 間違いマーク / 解除 (Cloud Functions の /invoices/:id/void|unvoid を呼び出す)
+     */
+    async setVoid(id, voided) {
+      const CF_BASE = "https://api-5qrfx7ujcq-an.a.run.app";
+      const token = await firebase.auth().currentUser.getIdToken();
+      const res = await fetch(`${CF_BASE}/invoices/${id}/${voided ? "void" : "unvoid"}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "操作失敗");
+      return data;
+    },
   },
 
   // 募集管理 API（回答はドキュメント内 responses[] に埋め込み — N+1クエリ解消）

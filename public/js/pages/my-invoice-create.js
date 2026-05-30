@@ -976,18 +976,23 @@ const MyInvoiceCreatePage = {
     const orig = btn.innerHTML;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 送信中...';
     try {
-      const token = await firebase.auth().currentUser.getIdToken();
       // Webアプリ管理者へのメッセージ (請求書メモ) — 毎月可変
       const invoiceMemo = document.getElementById("invoiceMemoText")?.value || "";
       const body = { yearMonth: ym, propertyId: this.propertyId, manualItems, invoiceMemo };
       if (this.isOwner && this.staffId) body.asStaffId = this.staffId;
-      const res = await fetch(`${this.CF_BASE}/invoices/my-submit`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "送信失敗");
+
+      let result = await this._postSubmit(body);
+      // 既に送信済み (409) → 重複発行するか確認して再送信
+      if (!result.ok && result.status === 409 && result.data.code === "ALREADY_SUBMITTED") {
+        const dup = await showConfirm(
+          `${ym} の請求書は既に送信済みです。\n重複して新しく発行しますか？\n（古い請求書には後で「間違い」マークを付けられます）`,
+          { title: "重複発行の確認" }
+        );
+        if (!dup) return;
+        result = await this._postSubmit({ ...body, allowDuplicate: true });
+      }
+      if (!result.ok) throw new Error(result.data.error || "送信失敗");
+      const data = result.data;
       document.getElementById("invResult").innerHTML = `
         <div class="alert alert-success">
           <i class="bi bi-check-circle"></i> 請求書 <strong>${data.id}</strong> を送信しました（合計 ¥${(data.total||0).toLocaleString()}）
@@ -1004,6 +1009,52 @@ const MyInvoiceCreatePage = {
       btn.disabled = false;
       btn.innerHTML = orig;
     }
+  },
+
+  // my-submit を呼んで {ok, status, data} を返す
+  async _postSubmit(body) {
+    const token = await firebase.auth().currentUser.getIdToken();
+    const res = await fetch(`${this.CF_BASE}/invoices/my-submit`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, status: res.status, data };
+  },
+
+  // 間違いマーク / 解除
+  async _markVoid(id, makeVoid) {
+    const msg = makeVoid
+      ? "この請求書を「間違い」としてマークしますか？\n新しい請求書と混同しないよう打ち消し表示になります。"
+      : "「間違い」マークを解除しますか？";
+    const ok = await showConfirm(msg, { title: makeVoid ? "間違いマーク" : "マーク解除" });
+    if (!ok) return;
+    try {
+      const token = await firebase.auth().currentUser.getIdToken();
+      const res = await fetch(`${this.CF_BASE}/invoices/${id}/${makeVoid ? "void" : "unvoid"}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "操作に失敗しました");
+      showToast("完了", data.message || "更新しました", "success");
+      await this.loadPastInvoices();
+    } catch (e) {
+      showToast("エラー", e.message, "error");
+    }
+  },
+
+  // Firestore タイムスタンプ ({_seconds}/{seconds}/toDate/文字列) を yyyy/MM/dd HH:mm に整形
+  _fmtTs(ts) {
+    if (!ts) return "";
+    let d;
+    if (ts.toDate) d = ts.toDate();
+    else if (typeof ts === "object" && (ts._seconds != null || ts.seconds != null)) d = new Date((ts._seconds ?? ts.seconds) * 1000);
+    else d = new Date(ts);
+    if (isNaN(d.getTime())) return "";
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
   },
 
   // PDFプレビュー: /my-preview-pdf を POST で呼んで PDF Blob を取得、
@@ -1139,6 +1190,13 @@ const MyInvoiceCreatePage = {
           if (ch) ch.style.transform = isOpen ? "" : "rotate(180deg)";
         });
       });
+      // 間違いマーク / 解除
+      listEl.querySelectorAll(".past-void").forEach(btn => {
+        btn.addEventListener("click", () => this._markVoid(btn.dataset.id, true));
+      });
+      listEl.querySelectorAll(".past-unvoid").forEach(btn => {
+        btn.addEventListener("click", () => this._markVoid(btn.dataset.id, false));
+      });
     } catch (e) {
       listEl.innerHTML = `<div class="alert alert-danger mb-0 small"><i class="bi bi-exclamation-triangle"></i> 読み込みエラー: ${this._esc(e.message)}</div>`;
     }
@@ -1156,6 +1214,17 @@ const MyInvoiceCreatePage = {
     const pdfBtn = inv.pdfUrl
       ? `<a href="${this._esc(inv.pdfUrl)}" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-pdf"></i> PDF</a>`
       : "";
+
+    // 発行日 (submittedAt 優先、なければ createdAt)
+    const issuedStr = this._fmtTs(inv.submittedAt || inv.createdAt);
+    // 間違いマーク状態
+    const isVoided = !!inv.voided;
+    const voidBadge = isVoided
+      ? `<span class="badge bg-danger ms-2"><i class="bi bi-exclamation-triangle"></i> 間違い</span>`
+      : "";
+    const voidBtn = isVoided
+      ? `<button class="btn btn-sm btn-outline-secondary past-unvoid" data-id="${this._esc(inv.id)}"><i class="bi bi-arrow-counterclockwise"></i> 間違い解除</button>`
+      : `<button class="btn btn-sm btn-outline-danger past-void" data-id="${this._esc(inv.id)}"><i class="bi bi-exclamation-triangle"></i> 間違い</button>`;
 
     // 明細テーブル
     const shiftRows = (inv.details?.shifts || inv.shifts || []).map(s => {
@@ -1182,17 +1251,20 @@ const MyInvoiceCreatePage = {
       : "";
 
     return `
-      <div class="border rounded p-2 mb-2">
+      <div class="border rounded p-2 mb-2 ${isVoided ? "border-danger bg-danger bg-opacity-10" : ""}" ${isVoided ? 'style="opacity:.75;"' : ""}>
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
           <div>
-            <strong>${this._esc(inv.yearMonth || "")}</strong>
+            <strong ${isVoided ? 'style="text-decoration:line-through;"' : ""}>${this._esc(inv.yearMonth || "")}</strong>
             <span class="badge ${st.cls} ms-2">${st.label}</span>
+            ${voidBadge}
             ${propBadge}
+            ${issuedStr ? `<div class="text-muted small mt-1"><i class="bi bi-calendar-check"></i> 発行日: ${this._esc(issuedStr)}</div>` : ""}
           </div>
           <div class="d-flex align-items-center gap-2 flex-wrap">
-            <span class="fw-bold">¥${(inv.total||0).toLocaleString()}</span>
+            <span class="fw-bold ${isVoided ? "text-decoration-line-through text-muted" : ""}">¥${(inv.total||0).toLocaleString()}</span>
             ${pdfBtn}
             ${hasDetail ? `<button class="btn btn-sm btn-outline-secondary past-toggle-detail" data-target="${detailId}"><i class="bi bi-chevron-down past-chevron" style="transition:transform 0.2s;"></i> 明細</button>` : ""}
+            ${voidBtn}
           </div>
         </div>
         ${hasDetail ? `

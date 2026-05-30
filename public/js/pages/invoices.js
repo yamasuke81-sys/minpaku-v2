@@ -138,7 +138,8 @@ const InvoicesPage = {
 
   renderSummary() {
     const container = document.getElementById("invoiceSummary");
-    const total = this.invoices.reduce((s, i) => s + (i.total || 0), 0);
+    // 合計は「間違い」マーク済みを除外
+    const total = this.invoices.filter(i => !i.voided).reduce((s, i) => s + (i.total || 0), 0);
     const draftCount = this.invoices.filter(i => i.status === "draft").length;
     const confirmedCount = this.invoices.filter(i => i.status === "confirmed").length;
     const paidCount = this.invoices.filter(i => i.status === "paid").length;
@@ -225,13 +226,13 @@ const InvoicesPage = {
           </tbody>
           <tfoot class="table-light">
             <tr>
-              <th>合計</th>
+              <th>合計<span class="text-muted small fw-normal">（間違い除く）</span></th>
               <th></th>
-              <th class="text-end">${filteredInvoices.reduce((s, i) => s + (i.details?.shiftCount || 0), 0)}回</th>
-              <th class="text-end">${formatCurrency(filteredInvoices.reduce((s, i) => s + (i.basePayment || 0), 0))}</th>
-              <th class="text-end">${formatCurrency(filteredInvoices.reduce((s, i) => s + (i.laundryFee || 0), 0))}</th>
-              <th class="text-end">${formatCurrency(filteredInvoices.reduce((s, i) => s + (i.transportationFee || 0), 0))}</th>
-              <th class="text-end fw-bold">${formatCurrency(filteredInvoices.reduce((s, i) => s + (i.total || 0), 0))}</th>
+              <th class="text-end">${filteredInvoices.filter(i => !i.voided).reduce((s, i) => s + (i.details?.shiftCount || 0), 0)}回</th>
+              <th class="text-end">${formatCurrency(filteredInvoices.filter(i => !i.voided).reduce((s, i) => s + (i.basePayment || 0), 0))}</th>
+              <th class="text-end">${formatCurrency(filteredInvoices.filter(i => !i.voided).reduce((s, i) => s + (i.laundryFee || 0), 0))}</th>
+              <th class="text-end">${formatCurrency(filteredInvoices.filter(i => !i.voided).reduce((s, i) => s + (i.transportationFee || 0), 0))}</th>
+              <th class="text-end fw-bold">${formatCurrency(filteredInvoices.filter(i => !i.voided).reduce((s, i) => s + (i.total || 0), 0))}</th>
               <th></th>
               <th></th>
             </tr>
@@ -264,6 +265,25 @@ const InvoicesPage = {
     container.querySelectorAll(".btn-invoice-delete").forEach(btn => {
       btn.addEventListener("click", () => this.deleteInvoice(btn.dataset.id));
     });
+
+    container.querySelectorAll(".btn-invoice-void").forEach(btn => {
+      btn.addEventListener("click", () => this.voidInvoice(btn.dataset.id, btn.dataset.voided !== "1"));
+    });
+  },
+
+  async voidInvoice(id, makeVoid) {
+    const msg = makeVoid
+      ? "この請求書を「間違い」としてマークしますか？\n新しい請求書と混同しないよう打ち消し表示になり、合計から除外されます。"
+      : "「間違い」マークを解除しますか？";
+    const ok = await showConfirm(msg, { title: makeVoid ? "間違いマーク" : "マーク解除" });
+    if (!ok) return;
+    try {
+      const result = await API.invoices.setVoid(id, makeVoid);
+      showToast("完了", result.message || "更新しました", "success");
+      await this.loadInvoices();
+    } catch (e) {
+      showToast("エラー", e.message, "error");
+    }
   },
 
   renderRow(inv) {
@@ -273,6 +293,10 @@ const InvoicesPage = {
       confirmed: '<span class="badge bg-success">確認済み</span>',
       paid: '<span class="badge bg-primary">支払済み</span>',
     }[inv.status] || `<span class="badge bg-secondary">${this.esc(inv.status)}</span>`;
+
+    const isVoided = !!inv.voided;
+    const voidBadge = isVoided ? ' <span class="badge bg-danger">間違い</span>' : "";
+    const issuedStr = this.fmtIssued(inv.submittedAt || inv.createdAt);
 
     const shiftCount = inv.details?.shiftCount || inv.details?.shifts?.length || 0;
 
@@ -285,15 +309,18 @@ const InvoicesPage = {
     }).join("") || '<span class="text-muted small">-</span>';
 
     return `
-      <tr>
-        <td><strong>${this.esc(inv.staffName || inv.staffId)}</strong></td>
+      <tr ${isVoided ? 'class="text-muted" style="opacity:.7;"' : ""}>
+        <td>
+          <strong ${isVoided ? 'style="text-decoration:line-through;"' : ""}>${this.esc(inv.staffName || inv.staffId)}</strong>
+          ${issuedStr ? `<div class="text-muted small">発行 ${this.esc(issuedStr)}</div>` : ""}
+        </td>
         <td>${propBadges}</td>
         <td class="text-end">${shiftCount}回</td>
         <td class="text-end">${formatCurrency(inv.basePayment || 0)}</td>
         <td class="text-end">${formatCurrency(inv.laundryFee || 0)}</td>
         <td class="text-end">${formatCurrency(inv.transportationFee || 0)}</td>
         <td class="text-end fw-bold">${formatCurrency(inv.total || 0)}</td>
-        <td>${statusBadge}</td>
+        <td>${statusBadge}${voidBadge}</td>
         <td>
           <div class="btn-group btn-group-sm">
             <button class="btn btn-outline-primary btn-invoice-detail" data-id="${inv.id}" title="詳細">
@@ -314,6 +341,9 @@ const InvoicesPage = {
                 <i class="bi bi-cash-coin"></i>
               </button>
             ` : ""}
+            <button class="btn ${isVoided ? "btn-outline-secondary" : "btn-outline-dark"} btn-invoice-void" data-id="${inv.id}" data-voided="${isVoided ? "1" : "0"}" title="${isVoided ? "間違いマークを解除" : "間違いとしてマーク"}">
+              <i class="bi ${isVoided ? "bi-arrow-counterclockwise" : "bi-exclamation-triangle"}"></i>
+            </button>
             ${inv.status === "draft" ? `
               <button class="btn btn-outline-danger btn-invoice-delete" data-id="${inv.id}" title="削除">
                 <i class="bi bi-trash"></i>
@@ -323,6 +353,18 @@ const InvoicesPage = {
         </td>
       </tr>
     `;
+  },
+
+  // Firestore タイムスタンプを yyyy/MM/dd HH:mm に整形 (発行日表示用)
+  fmtIssued(ts) {
+    if (!ts) return "";
+    let d;
+    if (ts.toDate) d = ts.toDate();
+    else if (typeof ts === "object" && (ts._seconds != null || ts.seconds != null)) d = new Date((ts._seconds ?? ts.seconds) * 1000);
+    else d = new Date(ts);
+    if (isNaN(d.getTime())) return "";
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
   },
 
   openDetailModal(inv) {

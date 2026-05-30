@@ -1820,8 +1820,45 @@ module.exports = function invoicesApi(db) {
       } catch (_) { /* ignore */ }
 
       // invoiceId: 物件別化のため propertyId 短縮形を末尾に付与
-      const invoiceId = `INV-${yearMonth.replace("-", "")}-${staffDoc.id.substring(0, 6)}-${propertyId.substring(0, 6)}`;
+      const baseInvoiceId = `INV-${yearMonth.replace("-", "")}-${staffDoc.id.substring(0, 6)}-${propertyId.substring(0, 6)}`;
       const [, m] = yearMonth.split("-").map(Number);
+      const allowDuplicate = !!(req.body && req.body.allowDuplicate);
+
+      // 発行先 invoiceId を決定 (重複発行対応)
+      //  - 既存なし: baseId で新規発行
+      //  - 既存が draft: baseId を上書き
+      //  - 既存が submitted/paid: allowDuplicate なら -r2,-r3... の空きIDへ、なければ 409
+      let invoiceId = baseInvoiceId;
+      let revision = 0;
+      let isNewDoc = false;
+      {
+        const baseSnap = await collection.doc(baseInvoiceId).get();
+        if (!baseSnap.exists) {
+          isNewDoc = true;
+        } else if (baseSnap.data().status === "draft") {
+          // 下書きは従来通り上書き
+        } else if (allowDuplicate) {
+          for (let n = 2; n <= 50; n++) {
+            const candidate = `${baseInvoiceId}-r${n}`;
+            const cSnap = await collection.doc(candidate).get();
+            if (!cSnap.exists || cSnap.data().status === "draft") {
+              invoiceId = candidate;
+              revision = n;
+              isNewDoc = !cSnap.exists;
+              break;
+            }
+          }
+          if (revision === 0) {
+            return res.status(409).json({ error: "重複発行の上限に達しました。Webアプリ管理者に連絡してください" });
+          }
+        } else {
+          return res.status(409).json({
+            error: "この月の請求書は既に送信済みです。重複して発行する場合は確認画面で続行してください",
+            code: "ALREADY_SUBMITTED",
+          });
+        }
+      }
+
       const invoiceData = {
         yearMonth,
         staffId: staffDoc.id,
@@ -1835,6 +1872,7 @@ module.exports = function invoicesApi(db) {
         prepaidExpense: computed.prepaidExpense || 0,
         total: computed.total,
         status: "submitted",
+        revision,
         byProperty: computed.byProperty || {},
         details: {
           shifts: computed.shifts,
@@ -1850,20 +1888,9 @@ module.exports = function invoicesApi(db) {
         submittedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       };
-      // 既存ドキュメントの status 確認
-      const existing = await collection.doc(invoiceId).get();
-      if (existing.exists) {
-        const existingStatus = existing.data().status;
-        // submitted / paid は再送信不可 (409 Conflict)
-        if (existingStatus === "submitted" || existingStatus === "paid") {
-          return res.status(409).json({
-            error: "この月の請求書は既に送信済みです。修正はWebアプリ管理者に連絡してください",
-          });
-        }
-      } else {
-        // 初回作成時のみ createdAt をセット
-        invoiceData.createdAt = FieldValue.serverTimestamp();
-      }
+      // 初回作成時のみ createdAt をセット / リビジョン発行なら基底IDを記録
+      if (isNewDoc) invoiceData.createdAt = FieldValue.serverTimestamp();
+      if (revision > 0) invoiceData.baseInvoiceId = baseInvoiceId;
 
       await collection.doc(invoiceId).set(invoiceData, { merge: true });
 
@@ -2162,6 +2189,63 @@ module.exports = function invoicesApi(db) {
     } catch (e) {
       console.error("支払済みマークエラー:", e);
       res.status(500).json({ error: "支払済みマークに失敗しました" });
+    }
+  });
+
+  // 間違いマーク (void) — スタッフ本人 or Webアプリ管理者。支払済みは管理者のみ
+  router.put("/:id/void", async (req, res) => {
+    try {
+      const docRef = collection.doc(req.params.id);
+      const doc = await docRef.get();
+      if (!doc.exists) return res.status(404).json({ error: "請求書が見つかりません" });
+      const data = doc.data();
+      const isOwner = req.user.role === "owner";
+      const isMine = data.staffId && data.staffId === req.user.staffId;
+      if (!isOwner && !isMine) {
+        return res.status(403).json({ error: "アクセス権限がありません" });
+      }
+      if (data.status === "paid" && !isOwner) {
+        return res.status(403).json({ error: "支払済みの請求書はWebアプリ管理者のみ操作できます" });
+      }
+      const byName = isMine ? (data.staffName || "") : (req.user.name || "Webアプリ管理者");
+      await docRef.update({
+        voided: true,
+        voidedAt: FieldValue.serverTimestamp(),
+        voidedBy: { uid: req.user.uid || "", staffId: req.user.staffId || "", name: byName },
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      res.json({ message: "間違いとしてマークしました" });
+    } catch (e) {
+      console.error("void エラー:", e);
+      res.status(500).json({ error: "間違いマークに失敗しました" });
+    }
+  });
+
+  // 間違いマーク解除 — スタッフ本人 or Webアプリ管理者。支払済みは管理者のみ
+  router.put("/:id/unvoid", async (req, res) => {
+    try {
+      const docRef = collection.doc(req.params.id);
+      const doc = await docRef.get();
+      if (!doc.exists) return res.status(404).json({ error: "請求書が見つかりません" });
+      const data = doc.data();
+      const isOwner = req.user.role === "owner";
+      const isMine = data.staffId && data.staffId === req.user.staffId;
+      if (!isOwner && !isMine) {
+        return res.status(403).json({ error: "アクセス権限がありません" });
+      }
+      if (data.status === "paid" && !isOwner) {
+        return res.status(403).json({ error: "支払済みの請求書はWebアプリ管理者のみ操作できます" });
+      }
+      await docRef.update({
+        voided: false,
+        voidedAt: null,
+        voidedBy: null,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      res.json({ message: "間違いマークを解除しました" });
+    } catch (e) {
+      console.error("unvoid エラー:", e);
+      res.status(500).json({ error: "間違いマーク解除に失敗しました" });
     }
   });
 
