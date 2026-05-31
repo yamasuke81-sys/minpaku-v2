@@ -616,12 +616,33 @@ const MyChecklistPage = {
     try {
       history.pushState({ checklistBackTrap: true }, "", location.href);
     } catch (_) { return; }
+    // 戻る遷移先: 直前ページ優先、なければロール別フォールバック
+    this._backHash = this._resolveBackHash();
     this._popHandler = () => {
-      // 戻るが押された → 募集画面へ (アプリ終了を回避)
-      location.hash = "#/my-recruitment";
+      // 戻るが押された → 来た画面へ (アプリ終了を回避)
+      location.hash = this._backHash || "#/my-recruitment";
     };
     window.addEventListener("popstate", this._popHandler);
     this._backTrapInstalled = true;
+  },
+
+  // 戻る先ハッシュを判定: チェックリスト一覧/物件チェックリスト編集→管理者一覧、
+  // スケジュール→スケジュール、募集→募集。直リンク等で不明な場合はロール別フォールバック。
+  _resolveBackHash() {
+    const prev = (typeof App !== "undefined" && App.previousPage) || null;
+    const map = {
+      "checklist": "#/checklist",
+      "property-checklist": "#/checklist",
+      "schedule": "#/schedule",
+      "my-recruitment": "#/my-recruitment",
+      "my-checklist": "#/my-checklist"
+    };
+    if (prev && map[prev]) return map[prev];
+    // フォールバック: 管理者(オーナー/サブオーナー)は管理者一覧、スタッフは募集
+    if (typeof Auth !== "undefined" && (Auth.isOwner?.() || Auth.isSubOwner?.())) {
+      return "#/checklist";
+    }
+    return "#/my-recruitment";
   },
 
   uninstallBackTrap() {

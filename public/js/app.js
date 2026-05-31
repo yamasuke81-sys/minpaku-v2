@@ -4,6 +4,7 @@
  */
 const App = {
   currentPage: null,
+  previousPage: null,   // 直前に表示していたページ名 (戻る遷移先の判定に使用)
 
   // Webアプリ管理者用ページ
   pages: {
@@ -614,6 +615,8 @@ const App = {
 
     const page = availablePages[pageName];
     if (page) {
+      // 直前ページを記録 (戻る遷移先の判定に使用)
+      if (this.currentPage && this.currentPage !== pageName) this.previousPage = this.currentPage;
       this.currentPage = pageName;
       // viewAsStaff バッジを対象ページに応じて再評価（対象外ページに移動したら隠す）
       this._renderViewAsBadge();
