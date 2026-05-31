@@ -1184,7 +1184,10 @@ const API = {
     // Firestore 直接書き込み版 (Cloud Functions 経由で HTML レスポンスが返るケースを回避)
     async regenerate(propertyId, opts = {}) {
       const alsoInProgress = !!opts.alsoInProgress;
-      const workType = opts.workType || "cleaning";
+      // workType は pre_inspection 以外を cleaning に正規化。
+      // checklist.workType には shift 由来の cleaning_by_count 等が入るため、生値比較だと取りこぼす
+      const normWt = (w) => (w === "pre_inspection" ? "pre_inspection" : "cleaning");
+      const workType = normWt(opts.workType);
       const docId = this._templateDocId(propertyId, workType);
       // 新スキーマを先に試みて旧スキーマにフォールバック
       let tmplDoc = await db.collection("checklistTemplates").doc(docId).get();
@@ -1212,7 +1215,7 @@ const API = {
       for (const doc of snap.docs) {
         const c = doc.data();
         // workType が一致するものだけ対象
-        const cWorkType = c.workType || "cleaning";
+        const cWorkType = normWt(c.workType);
         if (cWorkType !== workType) continue;
         if (c.status === "completed") { skippedCompleted++; continue; }
         const states = c.itemStates || {};
