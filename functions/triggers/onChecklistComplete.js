@@ -142,22 +142,25 @@ module.exports = async function onChecklistComplete(event) {
 
   // ---- 処理B: Webアプリ管理者に清掃完了通知 (type: cleaning_done) ----
   try {
-    // (1) ゲスト評価★: checklist.bookingId → shift.bookingId の順で booking 解決 → cleanlinessRating
-    let rating = null;
-    try {
-      let bookingId = after.bookingId || null;
-      if (!bookingId && shiftId) {
-        const sDoc = await db.collection("shifts").doc(shiftId).get();
-        if (sDoc.exists) bookingId = sDoc.data().bookingId || null;
-      }
-      if (bookingId) {
-        const bDoc = await db.collection("bookings").doc(bookingId).get();
-        if (bDoc.exists) {
-          const r = bDoc.data().cleanlinessRating;
-          if (typeof r === "number") rating = r;
+    // (1) ゲスト評価★: checklist 側を一次ソースとし、無ければ booking にフォールバック
+    //   (スタッフは bookings に書き込めず checklist のみ更新するため、checklist 優先)
+    let rating = (typeof after.cleanlinessRating === "number") ? after.cleanlinessRating : null;
+    if (rating === null) {
+      try {
+        let bookingId = after.bookingId || null;
+        if (!bookingId && shiftId) {
+          const sDoc = await db.collection("shifts").doc(shiftId).get();
+          if (sDoc.exists) bookingId = sDoc.data().bookingId || null;
         }
-      }
-    } catch (_) { /* 評価取得失敗は無視 */ }
+        if (bookingId) {
+          const bDoc = await db.collection("bookings").doc(bookingId).get();
+          if (bDoc.exists) {
+            const r = bDoc.data().cleanlinessRating;
+            if (typeof r === "number") rating = r;
+          }
+        }
+      } catch (_) { /* 評価取得失敗は無視 */ }
+    }
 
     // (2) メモ抽出
     const notes = Array.isArray(after.notes) ? after.notes : [];
@@ -185,7 +188,7 @@ module.exports = async function onChecklistComplete(event) {
     const photoMore = photoUrlsAll.length > PHOTO_LIMIT ? `\n... 他${photoUrlsAll.length - PHOTO_LIMIT}枚` : "";
 
     // (5) ★評価テキスト
-    const ratingText = (typeof rating === "number" && rating >= 0)
+    const ratingText = (typeof rating === "number" && rating >= 1)
       ? "★".repeat(rating) + "☆".repeat(Math.max(0, 5 - rating)) + ` (${rating}/5)`
       : "未評価";
 

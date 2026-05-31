@@ -2907,7 +2907,8 @@ const MyChecklistPage = {
       const staffId = this._effectiveStaffId() || "";
       const staffName = this.staffDoc?.name || user?.displayName || "";
 
-      // 評価を booking に保存
+      // 評価を booking にも保存 (オーナー/サブオーナーのみ書き込み可。スタッフは権限エラーになるが
+      // checklist 側に保存するので問題なし)
       if (rating > 0 || rating === 0) {
         try {
           // bookingId は checklist.bookingId → shift.bookingId の順で取得
@@ -2924,11 +2925,12 @@ const MyChecklistPage = {
             });
           }
         } catch (e) {
-          console.warn("[completeChecklist] 評価保存失敗 (続行):", e.message);
+          console.warn("[completeChecklist] booking への評価保存失敗 (続行):", e.message);
         }
       }
 
-      await firebase.firestore().collection("checklists").doc(this.checklistId).update({
+      // 評価は checklist 側にも保存 (スタッフも書き込み可。完了通知の一次ソース)
+      const checklistUpdate = {
         status: "completed",
         completedAt: firebase.firestore.FieldValue.serverTimestamp(),
         completedBy: {
@@ -2936,7 +2938,13 @@ const MyChecklistPage = {
           name: staffName,
         },
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      });
+      };
+      if (typeof rating === "number" && rating >= 0) {
+        checklistUpdate.cleanlinessRating = rating;
+        checklistUpdate.cleanlinessRatedBy = staffId;
+        checklistUpdate.cleanlinessRatedAt = firebase.firestore.FieldValue.serverTimestamp();
+      }
+      await firebase.firestore().collection("checklists").doc(this.checklistId).update(checklistUpdate);
       showToast(completeWorkLabel, "お疲れさまでした！ Webアプリ管理者に通知しました。", "success");
     } catch (e) {
       if (btn) { btn.disabled = false; btn.innerHTML = `<i class="bi bi-check2-circle"></i> ${completeWorkLabel}にする`; }
