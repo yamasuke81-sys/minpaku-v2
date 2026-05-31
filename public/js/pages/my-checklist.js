@@ -1844,7 +1844,13 @@ const MyChecklistPage = {
     const c = this.checklist;
     if (!c) return;
     const headerEl = document.getElementById("mclHeader");
-    if (headerEl) headerEl.innerHTML = this._buildHeaderHtml(c);
+    if (headerEl) {
+      // ヘッダ内容(日付/物件名/作業種別)はチェック操作では変化しない。
+      // 変化が無いのに毎回 innerHTML を作り直すと sticky ヘッダが再描画され画面全体がチラつくため、
+      // 実際に内容が変わった時のみ書き換える。
+      const html = this._buildHeaderHtml(c);
+      if (headerEl.innerHTML !== html) headerEl.innerHTML = html;
+    }
     const total = this.countItems(c.templateSnapshot || []);
     const done = this.countDone(c.templateSnapshot || [], c.itemStates || {});
     const statusEl = document.getElementById("mclStatus");
