@@ -33,7 +33,15 @@ module.exports = async (event) => {
   // pre_inspection → {propertyId}_pre_inspection、それ以外 → {propertyId}_cleaning
   const wt = (shift.workType === "pre_inspection") ? "pre_inspection" : "cleaning";
   const tmplDocId = `${shift.propertyId}_${wt}`;
-  const tmplDoc = await db.collection("checklistTemplates").doc(tmplDocId).get();
+  let tmplDoc = await db.collection("checklistTemplates").doc(tmplDocId).get();
+
+  // 旧スキーマ ({propertyId} のまま) にフォールバック (移行前の物件用)
+  // ※ api.js / checklist.js には同じフォールバックがあるが onShiftCreated に欠落していたため、
+  //   清掃テンプレが旧 docId にしかない物件で checklist が項目0(0/0)で生成されていた
+  if (!tmplDoc.exists && wt === "cleaning") {
+    const oldDoc = await db.collection("checklistTemplates").doc(shift.propertyId).get();
+    if (oldDoc.exists) tmplDoc = oldDoc;
+  }
 
   let tmpl;
   if (!tmplDoc.exists) {

@@ -52,6 +52,38 @@ const App = {
     Auth.init();
     window.addEventListener("hashchange", () => this.route());
     this.initSidebar();
+    this.initAutoRefresh();
+  },
+
+  // バックグラウンドから戻った時に最新状態へ自動更新する
+  // (アプリを開きっぱなしで他データが更新された後、手動リロード不要にする)
+  _hiddenAt: 0,
+  // 既に onSnapshot でリアルタイム同期しているページは対象外
+  _realtimePages: new Set(["schedule", "my-recruitment", "my-checklist"]),
+
+  initAutoRefresh() {
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) this._hiddenAt = Date.now();
+      else this._maybeAutoRefresh();
+    });
+    window.addEventListener("focus", () => this._maybeAutoRefresh());
+  },
+
+  _maybeAutoRefresh() {
+    if (!Auth.currentUser) return;
+    // 5秒未満の離脱(タブ瞬間切替など)は誤発火防止のためスキップ
+    const hiddenMs = this._hiddenAt ? Date.now() - this._hiddenAt : 0;
+    this._hiddenAt = 0;
+    if (hiddenMs < 5000) return;
+    // モーダル表示中(入力途中など)は中断しない
+    if (document.querySelector(".modal.show")) return;
+    // リアルタイム同期済みページは再描画不要
+    if (this._realtimePages.has(this.currentPage)) return;
+    try {
+      this.route();
+    } catch (e) {
+      console.warn("自動更新エラー:", e.message);
+    }
   },
 
   initSidebar() {
