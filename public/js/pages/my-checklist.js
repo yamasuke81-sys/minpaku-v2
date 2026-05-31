@@ -1358,6 +1358,27 @@ const MyChecklistPage = {
         return "-";
       };
 
+      // the Terrace 長浜 専用: 宿泊人数別ベッド構成 (2名は bedChoice の選択値を使用)
+      const TERRACE_PID = "tsZybhDMcPrxqgcRy7wp";
+      const terraceBedConfig = (n, bedChoice) => {
+        if (n === 2) {
+          return bedChoice ? this.escapeHtml(String(bedChoice)) : "2階リビングマットレス または 1階セミダブルx2";
+        }
+        const map = {
+          1: ["2階リビングマットレス（枕1）"],
+          3: ["セミダブル2（枕1と1）", "シングル1"],
+          4: ["セミダブル2（枕1と1）", "シングル2"],
+          5: ["セミダブル2（枕1と1）", "シングル3"],
+          6: ["セミダブル2（枕1と1）", "シングル4"],
+          7: ["セミダブル2（枕2と1）", "シングル4"],
+          8: ["セミダブル2（枕2と2）", "シングル4"],
+          9: ["セミダブル2（枕2と2）", "シングル4", "2階マットレス（枕1）"],
+          10: ["セミダブル2（枕2と2）", "シングル4", "2階マットレス（枕2）"],
+        };
+        const lines = map[n];
+        return lines ? lines.map(s => this.escapeHtml(s)).join("<br>") : "-";
+      };
+
       const propName = c.propertyName || "";
       const src = nextBooking ? (nextBooking.source || nextBooking.bookingSite || "") : "";
       const srcBadge = src.toLowerCase().includes("airbnb")
@@ -1371,6 +1392,11 @@ const MyChecklistPage = {
       let nextHtml = "";
       if (nextBooking) {
         const nb = nextBooking;
+        // 宿泊人数: bookings.guestCount と 名簿の guestCount の max を採用 (予約詳細モーダル dashboard.js と同一仕様)
+        // 理由: iCal由来の bookings.guestCount は古いまま更新されないことがあり、名簿側で手動修正した値が反映されない不具合があった
+        const gcA = (typeof nb.guestCount === "number") ? nb.guestCount : 0;
+        const gcB = (typeof nextGuest.guestCount === "number") ? nextGuest.guestCount : 0;
+        const gc = Math.max(gcA, gcB);
         const nbCiDate = fmtDateFull(nb.checkIn);
         const ciDisplay = nextGuest.checkInTime
           ? `${nbCiDate} <strong>${this.escapeHtml(nextGuest.checkInTime)}</strong>`
@@ -1385,16 +1411,13 @@ const MyChecklistPage = {
               </div>
               <table class="table table-sm table-borderless mb-0">
                 <tr><th class="text-muted" style="width:130px;">チェックイン</th><td>${ciDisplay}</td></tr>
-                <tr><th class="text-muted">宿泊人数</th><td>${(() => {
-                  // bookings.guestCount と 名簿の guestCount の max を採用 (予約詳細モーダル dashboard.js と同一仕様)
-                  // 理由: iCal由来の bookings.guestCount は古いまま更新されないことがあり、名簿側で手動修正した値が反映されない不具合があった
-                  const gcA = (typeof nb.guestCount === "number") ? nb.guestCount : 0;
-                  const gcB = (typeof nextGuest.guestCount === "number") ? nextGuest.guestCount : 0;
-                  const gc = Math.max(gcA, gcB);
-                  return gc > 0 ? this.escapeHtml(String(gc)) + "名" : "-";
-                })()}</td></tr>
+                <tr><th class="text-muted">宿泊人数</th><td>${gc > 0 ? this.escapeHtml(String(gc)) + "名" : "-"}</td></tr>
                 ${isFieldVisible("bbq", "facility") ? `<tr><th class="text-muted">BBQ</th><td>${vb(nextGuest.bbq)}</td></tr>` : ""}
-                ${isFieldVisible("bedChoice", "facility") ? `<tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${nextGuest.bedChoice ? this.escapeHtml(String(nextGuest.bedChoice)) : "-"}</td></tr>` : ""}
+                ${isFieldVisible("bedChoice", "facility") ? (
+                  c.propertyId === TERRACE_PID
+                    ? `<tr><th class="text-muted">ベッド数（人数別）</th><td>${gc > 0 ? terraceBedConfig(gc, nextGuest.bedChoice) : "-"}</td></tr>`
+                    : `<tr><th class="text-muted">ベッド数（2名宿泊時）</th><td>${nextGuest.bedChoice ? this.escapeHtml(String(nextGuest.bedChoice)) : "-"}</td></tr>`
+                ) : ""}
                 ${isFieldVisible("transport", "facility") ? `<tr><th class="text-muted">交通手段</th><td>${nextGuest.transport ? this.escapeHtml(nextGuest.transport) : "-"}</td></tr>` : ""}
                 ${isFieldVisible("carCount", "facility") ? `<tr><th class="text-muted">車台数</th><td>${nextGuest.carCount ? this.escapeHtml(String(nextGuest.carCount)) + "台" : "-"}</td></tr>` : ""}
                 ${isFieldVisible("paidParking", "facility") ? `<tr><th class="text-muted">有料駐車場</th><td>${nextGuest.paidParking ? this.escapeHtml(nextGuest.paidParking) : "-"}</td></tr>` : ""}
