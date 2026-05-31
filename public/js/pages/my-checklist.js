@@ -827,12 +827,10 @@ const MyChecklistPage = {
   _wireHelperButtons(c) {
     const propertyId = c?.propertyId;
     const propertyName = c?.propertyName || "";
-    const checklistId = this.checklistId || c?.id || "";
     if (!propertyId) return;
-    // 日付単位 QR: cid 優先、p / n は後方互換のため併記
-    const params = [];
-    if (checklistId) params.push(`cid=${encodeURIComponent(checklistId)}`);
-    params.push(`p=${encodeURIComponent(propertyId)}`);
+    // 物件固定 QR: cid は付けず p / n のみ。
+    // guest-checklist 側は /helper-checklist/active で直近の未完了チェックリストを自動選択する
+    const params = [`p=${encodeURIComponent(propertyId)}`];
     if (propertyName) params.push(`n=${encodeURIComponent(propertyName)}`);
     const url = window.withExternalBrowser(`${location.origin}/guest-checklist.html?${params.join("&")}`);
     const copyBtn = document.getElementById("mclHelperCopyBtn");
