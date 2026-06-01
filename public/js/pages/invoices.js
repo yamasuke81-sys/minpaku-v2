@@ -405,33 +405,7 @@ const InvoicesPage = {
       return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
     };
 
-    // 物件別内訳 HTML
-    const byPropertyEntries = Object.entries(byProperty);
-    const byPropertyHtml = byPropertyEntries.length ? `
-      <h6><i class="bi bi-building"></i> 物件別内訳</h6>
-      <table class="table table-sm table-bordered mb-3">
-        <thead class="table-light">
-          <tr><th>物件</th><th class="text-end">清掃回数</th><th class="text-end">清掃報酬</th><th class="text-end">ランドリー</th><th class="text-end fw-bold">小計</th></tr>
-        </thead>
-        <tbody>
-          ${byPropertyEntries.map(([pid, bp]) => {
-            const p = (this.properties || []).find(pp => pp.id === pid);
-            const label = p
-              ? `${renderPropertyNumberBadge(p)}${this.esc(p.name)}`
-              : this.esc(bp.propertyName || pid);
-            return `
-            <tr>
-              <td>${label}</td>
-              <td class="text-end">${bp.shiftCount || 0}回</td>
-              <td class="text-end">${formatCurrency(bp.shiftAmount || 0)}</td>
-              <td class="text-end">${formatCurrency(bp.laundryAmount || 0)}</td>
-              <td class="text-end fw-bold">${formatCurrency(bp.total || 0)}</td>
-            </tr>
-          `;
-          }).join("")}
-        </tbody>
-      </table>
-    ` : "";
+    // 物件別内訳は明細構築後に「除外後＋手動込み」で再集計する（下部で生成）
 
     // 作業明細・ランドリー立替・手動追加項目を1つの表に統合（日付順ソート）
     const dateMs = (val) => {
@@ -497,6 +471,64 @@ const InvoicesPage = {
     mergedRows.sort((a, b) => a.ms - b.ms);
     // 除外行は小計に含めない（合計と一致させる）
     const mergedSubtotal = mergedRows.reduce((s, r) => s + (r.excluded ? 0 : r.amount), 0);
+
+    // 物件別内訳を「除外後＋手動込み」で再集計（保存データは触らず表示のみ）
+    const propAgg = {};
+    const ensureProp = (pid, name) => {
+      if (!propAgg[pid]) propAgg[pid] = { name: name || "", cleanCount: 0, shiftAmount: 0, laundryAmount: 0, manualAmount: 0 };
+      return propAgg[pid];
+    };
+    shifts.forEach(s => {
+      if (excludedIds.has(s.shiftId)) return; // 除外は計上しない
+      const a = ensureProp(s.propertyId, s.propertyName);
+      a.shiftAmount += s.amount || 0;
+      if (s.workType === "cleaning_by_count") a.cleanCount += 1;
+    });
+    laundry.forEach(l => {
+      if (excludedIds.has(l.id)) return;
+      const a = ensureProp(l.propertyId || inv.propertyId, inv.propertyName);
+      a.laundryAmount += l.amount || 0;
+    });
+    // 手動項目はラベル先頭の物件名で割り当て（不明は請求書の主物件へ）
+    const propIdByName = {};
+    (this.properties || []).forEach(p => { propIdByName[p.name] = p.id; });
+    manualItems.forEach(item => {
+      let pid = inv.propertyId;
+      const slash = (item.label || "").indexOf(" / ");
+      if (slash > 0) {
+        const pname = item.label.slice(0, slash);
+        if (propIdByName[pname]) pid = propIdByName[pname];
+      }
+      ensureProp(pid, inv.propertyName).manualAmount += item.amount || 0;
+    });
+    const propEntries = Object.entries(propAgg);
+    const byPropertyHtml = propEntries.length ? `
+      <h6><i class="bi bi-building"></i> 物件別内訳</h6>
+      <table class="table table-sm table-bordered mb-3">
+        <thead class="table-light">
+          <tr><th>物件</th><th class="text-end">清掃</th><th class="text-end">作業報酬</th><th class="text-end">立替</th><th class="text-end">手動</th><th class="text-end fw-bold">小計</th></tr>
+        </thead>
+        <tbody>
+          ${propEntries.map(([pid, a]) => {
+            const p = (this.properties || []).find(pp => pp.id === pid);
+            const label = p
+              ? `${renderPropertyNumberBadge(p)}${this.esc(p.name)}`
+              : this.esc(a.name || pid);
+            const sub = a.shiftAmount + a.laundryAmount + a.manualAmount;
+            return `
+            <tr>
+              <td>${label}</td>
+              <td class="text-end">${a.cleanCount}回</td>
+              <td class="text-end">${formatCurrency(a.shiftAmount)}</td>
+              <td class="text-end">${formatCurrency(a.laundryAmount)}</td>
+              <td class="text-end">${formatCurrency(a.manualAmount)}</td>
+              <td class="text-end fw-bold">${formatCurrency(sub)}</td>
+            </tr>
+          `;
+          }).join("")}
+        </tbody>
+      </table>
+    ` : "";
 
     document.getElementById("invoiceDetailBody").innerHTML = `
       <div class="row mb-3">
