@@ -683,8 +683,13 @@ module.exports = async function onBookingChange(event) {
 
   if (shouldCreateShift) {
     // シフト自動生成
+    // 競合状態対策: bookingId + workType + checkoutDate ベースの決定的 docId + create() で冪等化
+    // (onBookingChange が並列発火しても同一 doc に収束し、2件目は AlreadyExists で安全に弾かれる。
+    //  募集側 [auto_${bookingId}_cleaning_${checkOut}] と同方式。これがないと .add() の自動IDで
+    //  同日同物件のチェックリストが複数生成されていた)
+    const shiftDocId = `auto_${bookingId}_cleaning_${checkOut}`;
     try {
-      await db.collection("shifts").add({
+      await db.collection("shifts").doc(shiftDocId).create({
         date: checkOutDate,
         propertyId,
         propertyName,
@@ -698,9 +703,13 @@ module.exports = async function onBookingChange(event) {
         createdAt: now,
         updatedAt: now,
       });
-      console.log(`予約 ${bookingId}: シフト自動生成完了 (${checkOut})`);
+      console.log(`予約 ${bookingId}: シフト自動生成完了 (${checkOut}) shiftId=${shiftDocId}`);
     } catch (e) {
-      console.error("シフト生成エラー:", e);
+      if (e && (e.code === 6 || /already exists/i.test(String(e.message || "")))) {
+        console.log(`予約 ${bookingId}: シフト ${shiftDocId} は既存 (並列発火による重複生成を回避)`);
+      } else {
+        console.error("シフト生成エラー:", e);
+      }
     }
   }
 
