@@ -18,6 +18,7 @@ const MyInvoiceCreatePage = {
   _summaryRows: [],    // 集計行キャッシュ (縦テーブル表示用)
   propertyId: null,    // 選択中の物件ID (物件別請求書)
   propertyMap: {},     // { id: {name, ...} } 物件マスタキャッシュ
+  _editingInvoiceId: null, // 送信済み請求書を編集再送中の invoiceId (null=新規作成)
 
   // 請求書記載情報の必須項目
   REQUIRED_STAFF_FIELDS: ["name", "address", "email", "bankName", "branchName", "accountNumber", "accountHolder"],
@@ -110,6 +111,9 @@ const MyInvoiceCreatePage = {
           </div>
         </div>
       </div>
+
+      <!-- 編集モードバナー (送信済み請求書の編集再送時に表示) -->
+      <div id="editModeBanner" class="d-none"></div>
 
       <!-- あなたの報酬単価 (本人個別単価のみ表示、お盆/正月の特別加算も併記) -->
       <div id="myRatesPanel"></div>
@@ -658,6 +662,17 @@ const MyInvoiceCreatePage = {
     });
     tr.querySelector(".m-del").addEventListener("click", () => { tr.remove(); this.updateTotal(); });
     [labelInput, amountInput, memoInput, dateInput].forEach(i => i.addEventListener("input", () => this.updateTotal()));
+
+    // 復元データがあれば値を流し込む (送信済み請求書の編集再送など)
+    // ラベル表記ゆれを避けるため「その他(手入力)」として復元する
+    if (data && (data.label || (data.amount !== "" && data.amount != null) || data.memo)) {
+      presetSel.value = "__custom__";
+      labelInput.classList.remove("d-none");
+      labelInput.value = data.label || "";
+      amountInput.value = (data.amount != null && data.amount !== "") ? data.amount : "";
+      memoInput.value = data.memo || "";
+      this.updateTotal();
+    }
   },
 
   async loadSummary() {
@@ -971,7 +986,13 @@ const MyInvoiceCreatePage = {
       };
     }).filter(i => i.label || i.amount);
 
-    const ok = await showConfirm(`${ym} の請求書をWebアプリ管理者へ送信します。よろしいですか？`, { title: "送信確認" });
+    const editing = !!this._editingInvoiceId;
+    const ok = await showConfirm(
+      editing
+        ? `${ym} の請求書を上書きして再送します。よろしいですか？`
+        : `${ym} の請求書をWebアプリ管理者へ送信します。よろしいですか？`,
+      { title: editing ? "再送確認" : "送信確認" }
+    );
     if (!ok) return;
 
     const btn = document.getElementById("btnSubmitInvoice");
@@ -983,10 +1004,12 @@ const MyInvoiceCreatePage = {
       const invoiceMemo = document.getElementById("invoiceMemoText")?.value || "";
       const body = { yearMonth: ym, propertyId: this.propertyId, manualItems, invoiceMemo };
       if (this.isOwner && this.staffId) body.asStaffId = this.staffId;
+      // 編集再送: 既存IDを上書き (重複発行しない)
+      if (editing) body.overwriteId = this._editingInvoiceId;
 
       let result = await this._postSubmit(body);
-      // 既に送信済み (409) → 重複発行するか確認して再送信
-      if (!result.ok && result.status === 409 && result.data.code === "ALREADY_SUBMITTED") {
+      // 新規作成で既に送信済み (409) → 重複発行するか確認して再送信
+      if (!editing && !result.ok && result.status === 409 && result.data.code === "ALREADY_SUBMITTED") {
         const dup = await showConfirm(
           `${ym} の請求書は既に送信済みです。\n重複して新しく発行しますか？\n（古い請求書には後で「間違い」マークを付けられます）`,
           { title: "重複発行の確認" }
@@ -998,10 +1021,12 @@ const MyInvoiceCreatePage = {
       const data = result.data;
       document.getElementById("invResult").innerHTML = `
         <div class="alert alert-success">
-          <i class="bi bi-check-circle"></i> 請求書 <strong>${data.id}</strong> を送信しました（合計 ¥${(data.total||0).toLocaleString()}）
+          <i class="bi bi-check-circle"></i> 請求書 <strong>${data.id}</strong> を${editing ? "上書き・再送" : "送信"}しました（合計 ¥${(data.total||0).toLocaleString()}）
         </div>
       `;
-      showToast("送信完了", "Webアプリ管理者へ請求書を送信しました", "success");
+      showToast(editing ? "再送完了" : "送信完了", editing ? "請求書を上書きして再送しました" : "Webアプリ管理者へ請求書を送信しました", "success");
+      // 編集モードを解除して通常状態に戻す
+      if (editing) this._exitEditMode(true);
       // 送信成功後は折りたたみを閉じる
       this.toggleStaffInfo(false);
       // 過去一覧をリフレッシュ
@@ -1045,6 +1070,78 @@ const MyInvoiceCreatePage = {
       await this.loadPastInvoices();
     } catch (e) {
       showToast("エラー", e.message, "error");
+    }
+  },
+
+  // 送信済み請求書を編集モードに切替: 月・物件・追加明細・メモを復元しフォームへ読込
+  async _editInvoice(inv) {
+    if (!inv || !inv.id) return;
+    // 月をセット
+    const monthEl = document.getElementById("invMonth");
+    if (monthEl && inv.yearMonth) monthEl.value = inv.yearMonth;
+    // 物件をセット
+    this.propertyId = inv.propertyId || null;
+    await this.rebuildPropertySelect();
+    const propSel = document.getElementById("invPropertySel");
+    if (propSel && this.propertyId) propSel.value = this.propertyId;
+    // 編集モード ON (月・物件はロックして取り違えを防ぐ)
+    this._editingInvoiceId = inv.id;
+    if (monthEl) monthEl.disabled = true;
+    if (propSel) propSel.disabled = true;
+    // 自動集計を再計算 (除外も最新で反映)
+    this.renderMyRates();
+    await this.loadSummary();
+    // 追加明細を復元
+    const tbody = document.getElementById("manualRows");
+    if (tbody) tbody.innerHTML = "";
+    const items = (inv.details && inv.details.manualItems) || inv.manualItems || [];
+    items.forEach(mi => this.addManualRow({
+      date: mi.date || "", label: mi.label || "", amount: mi.amount || "", memo: mi.memo || "",
+    }));
+    // メモ復元
+    const memoEl = document.getElementById("invoiceMemoText");
+    if (memoEl) memoEl.value = inv.invoiceMemo || "";
+    this.updateTotal();
+    // 送信ボタン文言変更 + バナー表示
+    const btn = document.getElementById("btnSubmitInvoice");
+    if (btn) btn.innerHTML = '<i class="bi bi-pencil-square"></i> 編集を保存して再送';
+    this._renderEditBanner(inv);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    if (typeof showToast === "function") showToast("編集モード", `${inv.yearMonth} の請求書を編集しています`, "info");
+  },
+
+  // 編集モードバナーを描画
+  _renderEditBanner(inv) {
+    const el = document.getElementById("editModeBanner");
+    if (!el) return;
+    el.className = "alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2";
+    el.innerHTML = `
+      <div>
+        <i class="bi bi-pencil-square"></i> <strong>${this._esc(inv.yearMonth || "")} の請求書を編集中</strong>
+        <span class="small text-muted ms-2">保存すると同じ請求書が上書き・再送されます。</span>
+      </div>
+      <button class="btn btn-sm btn-outline-secondary" id="btnCancelEdit"><i class="bi bi-x"></i> 編集をやめる</button>
+    `;
+    document.getElementById("btnCancelEdit")?.addEventListener("click", () => this._exitEditMode(true));
+  },
+
+  // 編集モードを解除して通常作成状態に戻す
+  _exitEditMode(resetForm) {
+    this._editingInvoiceId = null;
+    const monthEl = document.getElementById("invMonth");
+    const propSel = document.getElementById("invPropertySel");
+    if (monthEl) monthEl.disabled = false;
+    if (propSel) propSel.disabled = false;
+    const btn = document.getElementById("btnSubmitInvoice");
+    if (btn) btn.innerHTML = '<i class="bi bi-send"></i> Webアプリ管理者へ送信';
+    const banner = document.getElementById("editModeBanner");
+    if (banner) { banner.className = "d-none"; banner.innerHTML = ""; }
+    if (resetForm) {
+      const tbody = document.getElementById("manualRows");
+      if (tbody) tbody.innerHTML = "";
+      const memoEl = document.getElementById("invoiceMemoText");
+      if (memoEl) memoEl.value = "";
+      this.loadSummary();
     }
   },
 
@@ -1200,6 +1297,11 @@ const MyInvoiceCreatePage = {
       listEl.querySelectorAll(".past-unvoid").forEach(btn => {
         btn.addEventListener("click", () => this._markVoid(btn.dataset.id, false));
       });
+      // 編集して再送
+      listEl.querySelectorAll(".past-edit").forEach(btn => {
+        const inv = invoices.find(i => i.id === btn.dataset.id);
+        btn.addEventListener("click", () => this._editInvoice(inv));
+      });
     } catch (e) {
       listEl.innerHTML = `<div class="alert alert-danger mb-0 small"><i class="bi bi-exclamation-triangle"></i> 読み込みエラー: ${this._esc(e.message)}</div>`;
     }
@@ -1228,6 +1330,13 @@ const MyInvoiceCreatePage = {
     const voidBtn = isVoided
       ? `<button class="btn btn-sm btn-outline-secondary past-unvoid" data-id="${this._esc(inv.id)}"><i class="bi bi-arrow-counterclockwise"></i> 間違い解除</button>`
       : `<button class="btn btn-sm btn-outline-danger past-void" data-id="${this._esc(inv.id)}"><i class="bi bi-exclamation-triangle"></i> 間違い</button>`;
+
+    // 編集して再送ボタン: 送信済み (submitted) かつ間違いマークなしの本人請求書のみ
+    // (確認済み・支払済みはオーナー処理後のため対象外)
+    const canEdit = inv.status === "submitted" && !isVoided;
+    const editBtn = canEdit
+      ? `<button class="btn btn-sm btn-outline-primary past-edit" data-id="${this._esc(inv.id)}"><i class="bi bi-pencil"></i> 編集して再送</button>`
+      : "";
 
     // 明細テーブル
     const shiftRows = (inv.details?.shifts || inv.shifts || []).map(s => {
@@ -1267,6 +1376,7 @@ const MyInvoiceCreatePage = {
             <span class="fw-bold ${isVoided ? "text-decoration-line-through text-muted" : ""}">¥${(inv.total||0).toLocaleString()}</span>
             ${pdfBtn}
             ${hasDetail ? `<button class="btn btn-sm btn-outline-secondary past-toggle-detail" data-target="${detailId}"><i class="bi bi-chevron-down past-chevron" style="transition:transform 0.2s;"></i> 明細</button>` : ""}
+            ${editBtn}
             ${voidBtn}
           </div>
         </div>

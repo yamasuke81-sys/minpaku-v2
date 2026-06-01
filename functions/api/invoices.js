@@ -1835,15 +1835,39 @@ module.exports = function invoicesApi(db) {
       const baseInvoiceId = `INV-${yearMonth.replace("-", "")}-${staffDoc.id.substring(0, 6)}-${propertyId.substring(0, 6)}`;
       const [, m] = yearMonth.split("-").map(Number);
       const allowDuplicate = !!(req.body && req.body.allowDuplicate);
+      // 送信済み請求書の編集再送: 既存ドキュメントを同IDで上書き
+      const overwriteId = (req.body && typeof req.body.overwriteId === "string") ? req.body.overwriteId.trim() : "";
 
-      // 発行先 invoiceId を決定 (重複発行対応)
+      // 発行先 invoiceId を決定 (重複発行 / 編集再送 対応)
+      //  - overwriteId 指定: 本人の submitted/draft を同IDで上書き (重複を作らない)
       //  - 既存なし: baseId で新規発行
       //  - 既存が draft: baseId を上書き
       //  - 既存が submitted/paid: allowDuplicate なら -r2,-r3... の空きIDへ、なければ 409
       let invoiceId = baseInvoiceId;
       let revision = 0;
       let isNewDoc = false;
-      {
+      if (overwriteId) {
+        const exSnap = await collection.doc(overwriteId).get();
+        if (!exSnap.exists) {
+          return res.status(404).json({ error: "編集対象の請求書が見つかりません" });
+        }
+        const ex = exSnap.data();
+        // 本人確認 (owner は asStaffId 経由で代理可)
+        if (req.user.role !== "owner" && ex.staffId !== staffDoc.id) {
+          return res.status(403).json({ error: "他のスタッフの請求書は編集できません" });
+        }
+        // 確認済み・支払済みは編集不可
+        if (!["submitted", "draft"].includes(ex.status)) {
+          return res.status(400).json({ error: "送信済みの請求書のみ編集して再送できます (確認済み・支払済みは不可)" });
+        }
+        // 年月・物件の一致を確認 (取り違え防止)
+        if (ex.yearMonth !== yearMonth || ex.propertyId !== propertyId) {
+          return res.status(400).json({ error: "編集対象と年月・物件が一致しません" });
+        }
+        invoiceId = overwriteId;
+        revision = ex.revision || 0;
+        // createdAt は維持するため isNewDoc=false
+      } else {
         const baseSnap = await collection.doc(baseInvoiceId).get();
         if (!baseSnap.exists) {
           isNewDoc = true;
