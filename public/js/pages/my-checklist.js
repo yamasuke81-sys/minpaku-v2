@@ -1482,6 +1482,7 @@ const MyChecklistPage = {
           </button>
         </div>
         ${area.memo ? `<div class="alert alert-warning py-1 px-2 mb-2" style="font-size:12px;white-space:pre-wrap;"><i class="bi bi-sticky"></i> ${this.escapeHtml(area.memo)}</div>` : ""}
+        ${(() => { const t = this._renderInlineSampleThumbs(area, area.name); return t ? `<div class="px-1 pb-2">${t}</div>` : ""; })()}
         ${this.renderChildren(area)}
       </div>
       <div id="mclChecklistNotes" class="mt-4 px-1"></div>
@@ -3052,6 +3053,7 @@ const MyChecklistPage = {
         <span class="ms-auto small text-muted align-self-center">${done}/${total} チェック済</span>
       </div>
       ${area.memo ? `<div class="alert alert-warning py-1 px-2 mb-2" style="font-size:12px;white-space:pre-wrap;"><i class="bi bi-sticky"></i> ${this.escapeHtml(area.memo)}</div>` : ""}
+      ${(() => { const t = this._renderInlineSampleThumbs(area, area.name); return t ? `<div class="px-1 pb-2">${t}</div>` : ""; })()}
       ${this.renderChildren(area)}
     `;
     this.wireChildren(el);
