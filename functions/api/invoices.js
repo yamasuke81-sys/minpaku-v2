@@ -261,10 +261,6 @@ async function renderInvoicePdfBuffer(invoice, staff, client, propertyMap) {
       if (s.isTimee && s.timeeDetail) {
         const td = s.timeeDetail;
         memo = `タイミー ${td.start}〜${td.end}(${td.durationH}h) × ¥${td.hourlyRate}/h`;
-      } else {
-        const parts = [];
-        if (s.guestCount > 1) parts.push(`ゲスト${s.guestCount}名`);
-        if (parts.length) memo = parts.join(" / ");
       }
       const amt = s.amount || 0;
       // 0円項目は明細に出さない (例: ランドリー出し/受取で報酬が発生しない作業)
@@ -499,10 +495,6 @@ async function generateInvoicePdf_(db, invoiceId) {
       if (s.isTimee && s.timeeDetail) {
         const td = s.timeeDetail;
         memo = `タイミー ${td.start}〜${td.end}(${td.durationH}h) × ¥${td.hourlyRate}/h`;
-      } else {
-        const parts = [];
-        if (s.guestCount > 1) parts.push(`ゲスト${s.guestCount}名`);
-        if (parts.length) memo = parts.join(" / ");
       }
       const amt2 = s.amount || 0;
       // 0円項目は明細に出さない (例: ランドリー出し/受取で報酬が発生しない作業)
@@ -1395,13 +1387,6 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
       const td = s.timeeDetail;
       const timeePart = `タイミー ${td.start}〜${td.end}(${td.durationH}h) × ¥${td.hourlyRate}/h`;
       note = note ? `${note} / ${timeePart}` : timeePart;
-    } else {
-      const parts = [];
-      if (s.guestCount > 1) parts.push(`ゲスト${s.guestCount}名`);
-      if (parts.length) {
-        const extra = parts.join(" / ");
-        note = note ? `${note} / ${extra}` : extra;
-      }
     }
     // ランドリー系シフト(出し/受取/立替)は提出先(depot/リネン屋)名を note に追記
     if (s.workType === "laundry_put_out" || s.workType === "laundry_collected" || s.workType === "laundry_expense") {

@@ -430,10 +430,14 @@ const InvoicesPage = {
       if (s.isTimee && s.timeeDetail) {
         const td = s.timeeDetail;
         detail = `<br><small class="text-info">${td.start}〜${td.end}(${td.durationH}h) × ¥${(td.hourlyRate || 0).toLocaleString()}/h</small>`;
-      } else if (s.guestCount > 1) {
-        detail = `<small class="text-muted"> (ゲスト${s.guestCount}名)</small>`;
       }
-      const typeBadge = `<span class="badge bg-secondary">${workTypeLabel[s.workType] || s.workType || "清掃"}</span>${s.isTimee ? ' <span class="badge bg-info text-dark">タイミー</span>' : ""}`;
+      // 清掃は実際の作業人数を項目名に反映（データの staffCountOnDay）
+      let typeText = workTypeLabel[s.workType] || s.workType || "清掃";
+      if (s.workType === "cleaning_by_count") {
+        const n = s.staffCountOnDay || 0;
+        typeText = n ? `清掃${n}人作業` : "清掃";
+      }
+      const typeBadge = `<span class="badge bg-secondary">${typeText}</span>${s.isTimee ? ' <span class="badge bg-info text-dark">タイミー</span>' : ""}`;
       mergedRows.push({
         ms: dateMs(s.date),
         date: this.esc(fmtDate(s.date)),
