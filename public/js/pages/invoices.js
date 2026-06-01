@@ -289,6 +289,7 @@ const InvoicesPage = {
   renderRow(inv) {
     const statusBadge = {
       draft: '<span class="badge bg-secondary">下書き</span>',
+      submitted: '<span class="badge bg-warning text-dark">提出済み</span>',
       pending: '<span class="badge bg-warning text-dark">確認待ち</span>',
       confirmed: '<span class="badge bg-success">確認済み</span>',
       paid: '<span class="badge bg-primary">支払済み</span>',
@@ -331,7 +332,7 @@ const InvoicesPage = {
                 <i class="bi bi-arrow-clockwise"></i>
               </button>
             ` : ""}
-            ${inv.status === "draft" ? `
+            ${["draft", "submitted", "pending"].includes(inv.status) ? `
               <button class="btn btn-outline-success btn-invoice-confirm" data-id="${inv.id}" title="確認済みにする">
                 <i class="bi bi-check-lg"></i>
               </button>
@@ -645,6 +646,7 @@ const InvoicesPage = {
   getStatusBadge(status) {
     const map = {
       draft: '<span class="badge bg-secondary">下書き</span>',
+      submitted: '<span class="badge bg-warning text-dark">提出済み</span>',
       pending: '<span class="badge bg-warning text-dark">確認待ち</span>',
       confirmed: '<span class="badge bg-success">確認済み</span>',
       paid: '<span class="badge bg-primary">支払済み</span>',
