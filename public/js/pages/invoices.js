@@ -546,11 +546,12 @@ const InvoicesPage = {
       </div>
       <table class="table table-sm table-bordered mb-3">
         <thead class="table-light">
-          <tr><th>項目名</th><th class="text-end">金額</th>${isOwner ? "<th></th>" : ""}</tr>
+          <tr><th>日付</th><th>項目名</th><th class="text-end">金額</th>${isOwner ? "<th></th>" : ""}</tr>
         </thead>
         <tbody id="manualItemsBody">
           ${manualItems.length ? manualItems.map((item, idx) => `
             <tr>
+              <td>${this.esc(fmtDate(item.date))}</td>
               <td>${this.esc(item.label)}${item.memo ? `<br><small class="text-muted">${this.esc(item.memo)}</small>` : ""}</td>
               <td class="text-end">${formatCurrency(item.amount || 0)}</td>
               ${isOwner ? `
@@ -561,12 +562,12 @@ const InvoicesPage = {
                 </td>
               ` : ""}
             </tr>
-          `).join("") : `<tr><td colspan="${isOwner ? 3 : 2}" class="text-muted text-center small">手動追加項目なし</td></tr>`}
+          `).join("") : `<tr><td colspan="${isOwner ? 4 : 3}" class="text-muted text-center small">手動追加項目なし</td></tr>`}
         </tbody>
         ${manualItems.length ? `
           <tfoot class="table-light">
             <tr>
-              <th>小計</th>
+              <th colspan="2">小計</th>
               <th class="text-end">${formatCurrency(manualItems.reduce((s, i) => s + (i.amount || 0), 0))}</th>
               ${isOwner ? "<th></th>" : ""}
             </tr>
