@@ -397,6 +397,15 @@ async function generateInvoicePdf_(db, invoiceId) {
   // 物件のWebアプリ管理者 (ownerStaffId) → staff 情報を優先し、なければ clientInfo/既定
   const client = await resolveInvoiceRecipient_(db, invoice.propertyId || null, clientBase);
 
+  // Drive 保存に使う物件の送信元 Gmail (この物件の OAuth トークンで Drive へ保存)
+  let senderGmail = "";
+  if (invoice.propertyId) {
+    try {
+      const pDoc = await db.collection("properties").doc(invoice.propertyId).get();
+      if (pDoc.exists) senderGmail = pDoc.data().senderGmail || "";
+    } catch (_) {}
+  }
+
   const propertyIds = [...new Set((invoice.details?.shifts || []).map((s) => s.propertyId).filter(Boolean))];
   const propertyMap = {};
   if (propertyIds.length > 0) {
@@ -628,7 +637,7 @@ async function generateInvoicePdf_(db, invoiceId) {
 
   // Google Drive にも保存 (年月フォルダ自動作成) ※Drive API 有効時のみ
   try {
-    await uploadInvoiceToDrive_(db, tmpPath, invoice, staff);
+    await uploadInvoiceToDrive_(db, tmpPath, invoice, staff, senderGmail);
   } catch (e) {
     console.warn("Drive アップロード失敗(Firebase Storage は成功):", e.message);
   }
@@ -643,10 +652,11 @@ async function generateInvoicePdf_(db, invoiceId) {
  * その下に YYYY-MM フォルダを作成 (既存なら流用)
  * ファイル名: {invoiceId}_{staffName}_{yearMonth}.pdf
  *
- * Gmail OAuth と同じ refresh token を使うため、Drive scope が必要。
- * 既存の scope に drive.file が含まれている前提。不足時はスキップ。
+ * Gmail OAuth と同じ refresh token を使うため、drive.file scope が必要。
+ * fromEmail (物件の senderGmail) のトークンを優先し、無ければ先頭トークンにフォールバック。
+ * 物件Gmailで drive.file 再認可済みでないと権限不足で失敗する。
  */
-async function uploadInvoiceToDrive_(db, filePath, invoice, staff) {
+async function uploadInvoiceToDrive_(db, filePath, invoice, staff, fromEmail) {
   const admin = require("firebase-admin");
   const dbRef = admin.firestore();
 
@@ -661,9 +671,26 @@ async function uploadInvoiceToDrive_(db, filePath, invoice, staff) {
   const oauthDoc = await dbRef.collection("settings").doc("gmailOAuth").get();
   if (!oauthDoc.exists) throw new Error("Gmail/Drive OAuth 未設定");
   const { clientId, clientSecret } = oauthDoc.data();
-  const tokensSnap = await dbRef.collection("settings").doc("gmailOAuth").collection("tokens").limit(1).get();
-  if (tokensSnap.empty) throw new Error("OAuth tokens 未登録");
-  const tokenData = tokensSnap.docs[0].data();
+
+  // トークン解決: sendNotificationEmail_ と同じく fromEmail 優先 → 両ストアから先頭フォールバック
+  const cols = [
+    dbRef.collection("settings").doc("gmailOAuth").collection("tokens"),
+    dbRef.collection("settings").doc("gmailOAuthEmailVerification").collection("tokens"),
+  ];
+  let tokenData = null;
+  if (fromEmail) {
+    for (const col of cols) {
+      const byEmail = await col.where("email", "==", fromEmail).limit(1).get();
+      if (!byEmail.empty) { tokenData = byEmail.docs[0].data(); break; }
+    }
+  }
+  if (!tokenData) {
+    for (const col of cols) {
+      const snap = await col.limit(1).get();
+      if (!snap.empty) { tokenData = snap.docs[0].data(); break; }
+    }
+  }
+  if (!tokenData) throw new Error("OAuth tokens 未登録");
   if (!tokenData.refreshToken) throw new Error("refreshToken なし");
 
   const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);

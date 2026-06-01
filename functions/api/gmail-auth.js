@@ -150,6 +150,8 @@ module.exports = function gmailAuthApi(db) {
       const scopes = [
         "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/gmail.send",
+        // 請求書PDFを物件Gmailアカウントの Drive に保存するため (アプリが作成したファイルのみ操作)
+        "https://www.googleapis.com/auth/drive.file",
       ];
 
       const authUrl = oauth2Client.generateAuthUrl({
