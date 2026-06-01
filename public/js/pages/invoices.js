@@ -433,6 +433,65 @@ const InvoicesPage = {
       </table>
     ` : "";
 
+    // 作業明細・ランドリー立替・手動追加項目を1つの表に統合（日付順ソート）
+    const dateMs = (val) => {
+      if (!val) return Number.POSITIVE_INFINITY;
+      const d = val.toDate ? val.toDate() : (val.seconds ? new Date(val.seconds * 1000) : new Date(val));
+      const t = d.getTime();
+      return isNaN(t) ? Number.POSITIVE_INFINITY : t;
+    };
+    const workTypeLabel = {
+      cleaning_by_count: "清掃", pre_inspection: "直前点検", other: "その他",
+      laundry_put_out: "ランドリー出し", laundry_collected: "ランドリー受取", laundry_expense: "ランドリー立替",
+    };
+    const mergedRows = [];
+    shifts.forEach(s => {
+      const sp = (this.properties || []).find(pp => pp.id === s.propertyId);
+      const sLabel = sp
+        ? `${renderPropertyNumberBadge(sp)}${this.esc(sp.name)}`
+        : this.esc(s.propertyName || "-");
+      let detail = "";
+      if (s.isTimee && s.timeeDetail) {
+        const td = s.timeeDetail;
+        detail = `<br><small class="text-info">${td.start}〜${td.end}(${td.durationH}h) × ¥${(td.hourlyRate || 0).toLocaleString()}/h</small>`;
+      } else if (s.guestCount > 1) {
+        detail = `<small class="text-muted"> (ゲスト${s.guestCount}名)</small>`;
+      }
+      const typeBadge = `<span class="badge bg-secondary">${workTypeLabel[s.workType] || s.workType || "清掃"}</span>${s.isTimee ? ' <span class="badge bg-info text-dark">タイミー</span>' : ""}`;
+      mergedRows.push({
+        ms: dateMs(s.date),
+        date: this.esc(fmtDate(s.date)),
+        kind: '<span class="badge bg-primary">作業</span>',
+        content: `${sLabel} ${typeBadge}${detail}`,
+        amount: s.amount || 0,
+        action: "",
+      });
+    });
+    laundry.forEach(l => {
+      mergedRows.push({
+        ms: dateMs(l.date),
+        date: this.esc(fmtDate(l.date)),
+        kind: '<span class="badge bg-info text-dark">立替</span>',
+        content: this.esc(l.memo || "ランドリー立替"),
+        amount: l.amount || 0,
+        action: "",
+      });
+    });
+    manualItems.forEach((item, idx) => {
+      mergedRows.push({
+        ms: dateMs(item.date),
+        date: this.esc(fmtDate(item.date)),
+        kind: '<span class="badge bg-warning text-dark">手動</span>',
+        content: `${this.esc(item.label)}${item.memo ? `<br><small class="text-muted">${this.esc(item.memo)}</small>` : ""}`,
+        amount: item.amount || 0,
+        action: isOwner
+          ? `<button class="btn btn-outline-danger btn-xs btn-delete-manual-item" data-inv-id="${inv.id}" data-index="${idx}" style="padding:1px 6px;font-size:0.75rem;"><i class="bi bi-trash"></i></button>`
+          : "",
+      });
+    });
+    mergedRows.sort((a, b) => a.ms - b.ms);
+    const mergedSubtotal = mergedRows.reduce((s, r) => s + r.amount, 0);
+
     document.getElementById("invoiceDetailBody").innerHTML = `
       <div class="row mb-3">
         <div class="col-6">
@@ -452,44 +511,38 @@ const InvoicesPage = {
 
       ${byPropertyHtml}
 
-      <!-- 清掃明細 -->
-      <h6><i class="bi bi-calendar-check"></i> 作業明細（${shifts.length}件）</h6>
-      ${shifts.length ? `
-        <table class="table table-sm table-bordered mb-3">
-          <thead class="table-light">
-            <tr><th>日付</th><th>物件</th><th>種別</th><th class="text-end">報酬</th></tr>
-          </thead>
-          <tbody>
-            ${shifts.map(s => {
-              const typeLabel = {
-                cleaning_by_count: "清掃", pre_inspection: "直前点検", other: "その他",
-                laundry_put_out: "ランドリー出し", laundry_collected: "ランドリー受取", laundry_expense: "ランドリー立替",
-              }[s.workType] || s.workType || "清掃";
-              let detail = "";
-              if (s.isTimee && s.timeeDetail) {
-                const td = s.timeeDetail;
-                detail = `<br><small class="text-info">${td.start}〜${td.end}(${td.durationH}h) × ¥${(td.hourlyRate||0).toLocaleString()}/h</small>`;
-              } else if (s.guestCount > 1) {
-                detail = `<small class="text-muted"> (ゲスト${s.guestCount}名)</small>`;
-              }
-              const sp = (this.properties || []).find(pp => pp.id === s.propertyId);
-              const sLabel = sp
-                ? `${renderPropertyNumberBadge(sp)}${this.esc(sp.name)}`
-                : this.esc(s.propertyName || "-");
-              return `
-              <tr>
-                <td>${this.esc(fmtDate(s.date))}</td>
-                <td>${sLabel}${detail}</td>
-                <td><span class="badge bg-secondary">${typeLabel}</span>${s.isTimee ? ' <span class="badge bg-info text-dark">タイミー</span>' : ""}</td>
-                <td class="text-end">${formatCurrency(s.amount || 0)}</td>
-              </tr>`;
-            }).join("")}
-          </tbody>
-          <tfoot class="table-light">
-            <tr><th colspan="3">小計</th><th class="text-end">${formatCurrency(inv.basePayment || 0)}</th></tr>
-          </tfoot>
-        </table>
-      ` : '<p class="text-muted small">清掃なし</p>'}
+      <!-- 明細（作業・ランドリー立替・手動追加を日付順に統合） -->
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="mb-0"><i class="bi bi-list-ul"></i> 明細（${mergedRows.length}件）</h6>
+        ${isOwner ? `
+          <button class="btn btn-outline-secondary btn-sm" id="btnAddManualItem" data-inv-id="${inv.id}">
+            <i class="bi bi-plus"></i> 項目を追加
+          </button>
+        ` : ""}
+      </div>
+      <table class="table table-sm table-bordered mb-3">
+        <thead class="table-light">
+          <tr><th>日付</th><th>区分</th><th>内容</th><th class="text-end">金額</th>${isOwner ? "<th></th>" : ""}</tr>
+        </thead>
+        <tbody id="manualItemsBody">
+          ${mergedRows.length ? mergedRows.map(r => `
+            <tr>
+              <td class="text-nowrap">${r.date}</td>
+              <td>${r.kind}</td>
+              <td>${r.content}</td>
+              <td class="text-end">${formatCurrency(r.amount)}</td>
+              ${isOwner ? `<td class="text-center">${r.action}</td>` : ""}
+            </tr>
+          `).join("") : `<tr><td colspan="${isOwner ? 5 : 4}" class="text-muted text-center small">明細なし</td></tr>`}
+        </tbody>
+        <tfoot class="table-light">
+          <tr>
+            <th colspan="3">小計</th>
+            <th class="text-end">${formatCurrency(mergedSubtotal)}</th>
+            ${isOwner ? "<th></th>" : ""}
+          </tr>
+        </tfoot>
+      </table>
 
       <!-- 特別加算明細 -->
       ${special.length ? `
@@ -512,68 +565,6 @@ const InvoicesPage = {
           </tfoot>
         </table>
       ` : ""}
-
-      <!-- ランドリー立替明細 -->
-      ${laundry.length ? `
-        <h6><i class="bi bi-water"></i> ランドリー立替（${laundry.length}件）</h6>
-        <table class="table table-sm table-bordered mb-3">
-          <thead class="table-light">
-            <tr><th>日付</th><th>メモ</th><th class="text-end">金額</th></tr>
-          </thead>
-          <tbody>
-            ${laundry.map(l => `
-              <tr>
-                <td>${this.esc(fmtDate(l.date))}</td>
-                <td>${this.esc(l.memo || "")}</td>
-                <td class="text-end">${formatCurrency(l.amount || 0)}</td>
-              </tr>
-            `).join("")}
-          </tbody>
-          <tfoot class="table-light">
-            <tr><th colspan="2">小計</th><th class="text-end">${formatCurrency(inv.laundryFee || 0)}</th></tr>
-          </tfoot>
-        </table>
-      ` : ""}
-
-      <!-- 手動追加項目 -->
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h6 class="mb-0"><i class="bi bi-plus-circle"></i> 手動追加項目</h6>
-        ${isOwner ? `
-          <button class="btn btn-outline-secondary btn-sm" id="btnAddManualItem" data-inv-id="${inv.id}">
-            <i class="bi bi-plus"></i> 項目を追加
-          </button>
-        ` : ""}
-      </div>
-      <table class="table table-sm table-bordered mb-3">
-        <thead class="table-light">
-          <tr><th>日付</th><th>項目名</th><th class="text-end">金額</th>${isOwner ? "<th></th>" : ""}</tr>
-        </thead>
-        <tbody id="manualItemsBody">
-          ${manualItems.length ? manualItems.map((item, idx) => `
-            <tr>
-              <td>${this.esc(fmtDate(item.date))}</td>
-              <td>${this.esc(item.label)}${item.memo ? `<br><small class="text-muted">${this.esc(item.memo)}</small>` : ""}</td>
-              <td class="text-end">${formatCurrency(item.amount || 0)}</td>
-              ${isOwner ? `
-                <td class="text-center">
-                  <button class="btn btn-outline-danger btn-xs btn-delete-manual-item" data-inv-id="${inv.id}" data-index="${idx}" style="padding:1px 6px;font-size:0.75rem;">
-                    <i class="bi bi-trash"></i>
-                  </button>
-                </td>
-              ` : ""}
-            </tr>
-          `).join("") : `<tr><td colspan="${isOwner ? 4 : 3}" class="text-muted text-center small">手動追加項目なし</td></tr>`}
-        </tbody>
-        ${manualItems.length ? `
-          <tfoot class="table-light">
-            <tr>
-              <th colspan="2">小計</th>
-              <th class="text-end">${formatCurrency(manualItems.reduce((s, i) => s + (i.amount || 0), 0))}</th>
-              ${isOwner ? "<th></th>" : ""}
-            </tr>
-          </tfoot>
-        ` : ""}
-      </table>
 
       <!-- 合計 -->
       <table class="table table-bordered">
