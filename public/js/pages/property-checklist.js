@@ -507,7 +507,7 @@ const PropertyChecklistPage = {
             <div>${this.escapeHtml(it.name)}</div>
             <div class="small text-muted">
               ${it.supplyItem ? '<span class="badge bg-warning text-dark">在庫切れかけ</span>' : ""}
-              ${it.memo ? `<span class="ms-2">メモ: ${this.escapeHtml(it.memo)}</span>` : ""}
+              ${it.memo ? `<div style="white-space:pre-wrap;">メモ: ${this.escapeHtml(it.memo)}</div>` : ""}
             </div>
           </div>
           <button class="btn btn-sm btn-link" data-act="edit-item"><i class="bi bi-pencil"></i></button>

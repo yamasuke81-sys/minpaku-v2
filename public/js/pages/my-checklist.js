@@ -3164,7 +3164,7 @@ const MyChecklistPage = {
                    style="width:22px;height:22px;margin-top:2px;pointer-events:none;">
             <div class="flex-grow-1 lh-base">
               <span style="font-size:13px;">${this.escapeHtml(it.name)}</span>
-              ${it.memo ? `<div class="small text-muted mt-1" style="font-size:11px;">${this.escapeHtml(it.memo)}</div>` : ""}
+              ${it.memo ? `<div class="small text-muted mt-1" style="font-size:11px;white-space:pre-wrap;">${this.escapeHtml(it.memo)}</div>` : ""}
               ${this._renderInlineSampleThumbs(it, it.name)}
               <div class="mcl-item-meta">${this._renderItemMeta(st)}</div>
             </div>
