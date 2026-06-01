@@ -373,6 +373,7 @@ const PropertyChecklistPage = {
           </div>
         </div>
         <div class="px-3 pt-2">
+          ${area.memo ? `<div class="alert alert-warning py-1 px-2 small mb-2"><i class="bi bi-sticky"></i> ${this.escapeHtml(area.memo)}</div>` : ""}
           ${this.renderSampleImagesSection(area)}
         </div>
         <div class="card-body" id="areaInner">
@@ -561,6 +562,7 @@ const PropertyChecklistPage = {
                   ${l.addChild ? `<button class="btn btn-sm btn-outline-primary" data-act="${l.addChild}"><i class="bi bi-plus"></i> ${l.addChildLabel}</button>` : ""}
                 </div>
               </div>
+              ${cat.memo ? `<div class="alert alert-warning py-1 px-2 small mb-2"><i class="bi bi-sticky"></i> ${this.escapeHtml(cat.memo)}</div>` : ""}
               ${this.renderSampleImagesSection(cat)}
               ${this.renderChildrenContainer(cat, level)}
             </div>
@@ -827,12 +829,16 @@ const PropertyChecklistPage = {
   async addArea() {
     const r = await this.showFormDialog({
       title: "エリア追加",
-      fields: [{ name: "name", label: "エリア名", type: "text", placeholder: "例: 1階トイレ" }],
+      fields: [
+        { name: "name", label: "エリア名", type: "text", placeholder: "例: 1階トイレ" },
+        { name: "memo", label: "メモ（任意）", type: "textarea", placeholder: "このエリア全体の注意点など" }
+      ],
       submitLabel: "追加"
     });
     if (!r || !r.name) return;
     this.template.areas.push({
       id: this.genId("a"), name: r.name, sortOrder: this.template.areas.length + 1,
+      memo: r.memo || "",
       sampleImageUrl: "", sampleImages: [], directItems: [], taskTypes: []
     });
     this.activeAreaId = this.template.areas[this.template.areas.length - 1].id;
@@ -843,12 +849,16 @@ const PropertyChecklistPage = {
   async addTaskType(area) {
     const r = await this.showFormDialog({
       title: "掃除種類を追加",
-      fields: [{ name: "name", label: "掃除種類名", type: "text", placeholder: "例: 灰皿" }],
+      fields: [
+        { name: "name", label: "掃除種類名", type: "text", placeholder: "例: 灰皿" },
+        { name: "memo", label: "メモ（任意）", type: "textarea", placeholder: "この掃除種類の注意点など" }
+      ],
       submitLabel: "追加"
     });
     if (!r || !r.name) return;
     (area.taskTypes = area.taskTypes || []).push({
       id: this.genId("t"), name: r.name, sortOrder: area.taskTypes.length + 1,
+      memo: r.memo || "",
       sampleImageUrl: "", sampleImages: [], directItems: [], subCategories: []
     });
     this.markDirty();
@@ -858,12 +868,16 @@ const PropertyChecklistPage = {
   async addSubCategory(tt) {
     const r = await this.showFormDialog({
       title: "サブ分類を追加",
-      fields: [{ name: "name", label: "サブ分類名", type: "text", placeholder: "例: A、○○のとき" }],
+      fields: [
+        { name: "name", label: "サブ分類名", type: "text", placeholder: "例: A、○○のとき" },
+        { name: "memo", label: "メモ（任意）", type: "textarea", placeholder: "このサブ分類の注意点など" }
+      ],
       submitLabel: "追加"
     });
     if (!r || !r.name) return;
     (tt.subCategories = tt.subCategories || []).push({
       id: this.genId("s"), name: r.name, sortOrder: tt.subCategories.length + 1,
+      memo: r.memo || "",
       sampleImageUrl: "", sampleImages: [], directItems: [], subSubCategories: []
     });
     this.markDirty();
@@ -873,12 +887,16 @@ const PropertyChecklistPage = {
   async addSubSubCategory(sc) {
     const r = await this.showFormDialog({
       title: "サブサブ分類を追加",
-      fields: [{ name: "name", label: "サブサブ分類名", type: "text" }],
+      fields: [
+        { name: "name", label: "サブサブ分類名", type: "text" },
+        { name: "memo", label: "メモ（任意）", type: "textarea", placeholder: "このサブサブ分類の注意点など" }
+      ],
       submitLabel: "追加"
     });
     if (!r || !r.name) return;
     (sc.subSubCategories = sc.subSubCategories || []).push({
       id: this.genId("ss"), name: r.name, sortOrder: sc.subSubCategories.length + 1,
+      memo: r.memo || "",
       sampleImageUrl: "", sampleImages: [], items: []
     });
     this.markDirty();
@@ -941,11 +959,15 @@ const PropertyChecklistPage = {
     if (!node) return;
     const r = await this.showFormDialog({
       title: `${label}の変更`,
-      fields: [{ name: "name", label, type: "text", value: node.name }],
+      fields: [
+        { name: "name", label, type: "text", value: node.name },
+        { name: "memo", label: "メモ（任意）", type: "textarea", value: node.memo || "", placeholder: "この分類の注意点など" }
+      ],
       submitLabel: "変更"
     });
     if (!r || !r.name) return;
     node.name = r.name;
+    node.memo = r.memo || "";
     this.markDirty();
     this.renderTree();
   },
