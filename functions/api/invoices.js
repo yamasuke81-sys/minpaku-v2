@@ -2419,13 +2419,13 @@ module.exports = function invoicesApi(db) {
         const appUrl = (settings && settings.appUrl) || "https://v2-5-relay.web.app";
         // 該当請求書の詳細モーダルを直接開けるよう invoiceId 付き
         const invoiceUrl = `${appUrl.replace(/\/$/, "")}/#/invoices/${req.params.id}`;
-        const body = `📨 請求書が確定されました\n\n` +
-          `${data.staffName || "スタッフ"} さんの ${m || data.yearMonth}月分の請求書が確定しました。\n` +
+        const body = `✅ 請求書が承認されました\n\n` +
+          `${data.staffName || "スタッフ"} さんの ${m || data.yearMonth}月分の請求書を承認しました。\n` +
           `合計: ¥${total.toLocaleString()}\n` +
           `確認: ${invoiceUrl}`;
 
         await notifyByKey(db, "invoice_confirmed", {
-          title: `【請求書確定】${data.staffName || ""} ${data.yearMonth}`,
+          title: `【請求書承認】${data.staffName || ""} ${data.yearMonth}`,
           body,
           vars: {
             month: m || data.yearMonth,
@@ -2437,13 +2437,13 @@ module.exports = function invoicesApi(db) {
           propertyId: data.propertyId || null,
         });
       } catch (notifyErr) {
-        console.error("請求書確定通知エラー（無視）:", notifyErr);
+        console.error("請求書承認通知エラー（無視）:", notifyErr);
       }
 
-      res.json({ message: "請求書を確定しました" });
+      res.json({ message: "請求書を承認しました" });
     } catch (e) {
-      console.error("請求書確定エラー:", e);
-      res.status(500).json({ error: "請求書の確定に失敗しました" });
+      console.error("請求書承認エラー:", e);
+      res.status(500).json({ error: "請求書の承認に失敗しました" });
     }
   });
 

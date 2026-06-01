@@ -98,7 +98,7 @@ const ReservationFlowPage = {
     checklist_complete: { defaultMsg: "☑️ チェックリスト完了\n\n{date} {property}\n{staff}さんがチェックリストを完了しました。\n詳細: {url}", defaultTiming: "immediate", varGroup: "cleaning" },
     invoice_request:    { defaultMsg: "💰 {month}月分の請求書作成をお願いします\n\n作業明細をご確認の上、請求書の送信をお願いします。\n作成ページ: {url}", defaultTiming: "morning", varGroup: "invoice" },
     invoice_submitted:  { defaultMsg: "📨 請求書が提出されました\n\n{staff} さんから {month}月分の請求書が届きました。\n合計: {total}\n確認: {url}", defaultTiming: "immediate", varGroup: "invoice" },
-    invoice_confirmed:  { defaultMsg: "✅ 請求書確定\n\n{staff} さんの {month}月分が確定しました。\n合計: {total}\n\n確認: {url}", defaultTiming: "immediate", varGroup: "invoice" },
+    invoice_confirmed:  { defaultMsg: "✅ 請求書承認\n\n{staff} さんの {month}月分を承認しました。\n合計: {total}\n\n確認: {url}", defaultTiming: "immediate", varGroup: "invoice" },
     booking_cancel:     { defaultMsg: "❌ 予約キャンセル\n\n{checkin}〜{date} {property}\nゲスト: {guest}（{site}）\n予約がキャンセルされました。", defaultTiming: "immediate", varGroup: "booking" },
     booking_change:     { defaultMsg: "🔄 予約変更\n\n{property}\n新しい日程: {checkin}〜{date}（{nights}泊）\nゲスト: {guest}", defaultTiming: "immediate", varGroup: "booking" },
     cancel_request:     { defaultMsg: "🙋 出勤キャンセル要望\n\n{staff}さんから{date} {property}の出勤キャンセル要望がありました。", defaultTiming: "immediate", varGroup: "staff" },
@@ -740,7 +740,7 @@ const ReservationFlowPage = {
     },
     {
       key: "invoice_confirmed",
-      label: "請求書確定通知",
+      label: "請求書承認通知",
       icon: "bi-check2-circle",
       lane: "owner",
       phase: 4,

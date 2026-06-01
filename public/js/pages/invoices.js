@@ -164,7 +164,7 @@ const InvoicesPage = {
       <div class="col-6 col-md-3">
         <div class="card card-stat success">
           <div class="card-body py-2">
-            <div class="text-muted small">確認済み</div>
+            <div class="text-muted small">承認済み</div>
             <div class="fs-4 fw-bold">${confirmedCount}件</div>
           </div>
         </div>
@@ -290,8 +290,8 @@ const InvoicesPage = {
     const statusBadge = {
       draft: '<span class="badge bg-secondary">下書き</span>',
       submitted: '<span class="badge bg-warning text-dark">提出済み</span>',
-      pending: '<span class="badge bg-warning text-dark">確認待ち</span>',
-      confirmed: '<span class="badge bg-success">確認済み</span>',
+      pending: '<span class="badge bg-warning text-dark">承認待ち</span>',
+      confirmed: '<span class="badge bg-success">承認済み</span>',
       paid: '<span class="badge bg-primary">支払済み</span>',
     }[inv.status] || `<span class="badge bg-secondary">${this.esc(inv.status)}</span>`;
 
@@ -333,7 +333,7 @@ const InvoicesPage = {
               </button>
             ` : ""}
             ${["draft", "submitted", "pending"].includes(inv.status) ? `
-              <button class="btn btn-outline-success btn-invoice-confirm" data-id="${inv.id}" title="確認済みにする">
+              <button class="btn btn-outline-success btn-invoice-confirm" data-id="${inv.id}" title="承認する">
                 <i class="bi bi-check-lg"></i>
               </button>
             ` : ""}
@@ -647,8 +647,8 @@ const InvoicesPage = {
     const map = {
       draft: '<span class="badge bg-secondary">下書き</span>',
       submitted: '<span class="badge bg-warning text-dark">提出済み</span>',
-      pending: '<span class="badge bg-warning text-dark">確認待ち</span>',
-      confirmed: '<span class="badge bg-success">確認済み</span>',
+      pending: '<span class="badge bg-warning text-dark">承認待ち</span>',
+      confirmed: '<span class="badge bg-success">承認済み</span>',
       paid: '<span class="badge bg-primary">支払済み</span>',
     };
     return map[status] || `<span class="badge bg-secondary">${status}</span>`;
@@ -681,11 +681,11 @@ const InvoicesPage = {
 
   async confirmInvoice(id) {
     const inv = this.invoices.find(i => i.id === id);
-    const ok = await showConfirm(`${inv?.staffName || ""} の請求書を確認済みにしますか？`, "確認済みにする");
+    const ok = await showConfirm(`${inv?.staffName || ""} の請求書を承認しますか？`, "承認する");
     if (!ok) return;
     try {
       await API.invoices.confirm(id);
-      showToast("完了", "確認済みにしました", "success");
+      showToast("完了", "承認しました", "success");
       await this.loadInvoices();
     } catch (e) {
       showToast("エラー", e.message, "error");
