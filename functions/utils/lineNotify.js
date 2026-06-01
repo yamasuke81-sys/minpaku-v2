@@ -1580,11 +1580,12 @@ async function notifyByKey(db, notifyKey, options = {}) {
       try {
         const text = typeof resolvedBody === "string" ? resolvedBody : `[Flex] ${title}`;
         let snap;
-        if (staffIds && staffIds.length) {
-          // 個別取得
+        if (Array.isArray(staffIds)) {
+          // 明示的に配列指定された場合は staffLine と同じ扱い: 空配列なら誰にも送らない
           const docs = await Promise.all(staffIds.map(id => db.collection("staff").doc(id).get()));
           snap = { docs: docs.filter(d => d.exists) };
         } else {
+          // 未指定 (null/undefined) のときのみ active 全員
           snap = await db.collection("staff").where("active", "==", true).get();
         }
         let okCount = 0;

@@ -1921,12 +1921,15 @@ module.exports = function invoicesApi(db) {
           url: confirmUrl,
         };
 
-        // ownerLine/groupLine/ownerEmail/subOwner/discord 系を一括送信 (staffLine は除外)
+        // ownerLine/groupLine/propertyEmail/ownerEmail/subOwner/discord 系を一括送信
+        // propertyId を渡すことで物件別 channelOverrides["invoice_submitted"] が解決される
+        // (未指定だと「物件別のみ参照」ポリシーで全チャネル OFF になり提出通知が一切飛ばない)
         await notifyByKey(db, "invoice_submitted", {
           title,
           body: ownerBody,
           vars: notifyVars,
-          staffIds: [], // staffLine を notifyByKey に送らせない（空配列で全スタッフ送信を抑止）
+          propertyId,
+          staffIds: [], // staffLine/staffEmail を notifyByKey から除外（提出者本人へは別途個別送信）
         });
 
         // スタッフ個別LINE: 提出者本人のみに送信（全スタッフ同報は絶対禁止）
