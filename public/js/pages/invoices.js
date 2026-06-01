@@ -444,6 +444,8 @@ const InvoicesPage = {
       cleaning_by_count: "清掃", pre_inspection: "直前点検", other: "その他",
       laundry_put_out: "ランドリー出し", laundry_collected: "ランドリー受取", laundry_expense: "ランドリー立替",
     };
+    // 田中さんなどが「除外ボタン」で外した自動項目（refId = shiftId / ランドリーid）
+    const excludedIds = new Set((inv.excludedRows || []).map(r => r.refId).filter(Boolean));
     const mergedRows = [];
     shifts.forEach(s => {
       const sp = (this.properties || []).find(pp => pp.id === s.propertyId);
@@ -464,6 +466,7 @@ const InvoicesPage = {
         kind: '<span class="badge bg-primary">作業</span>',
         content: `${sLabel} ${typeBadge}${detail}`,
         amount: s.amount || 0,
+        excluded: excludedIds.has(s.shiftId),
         action: "",
       });
     });
@@ -474,6 +477,7 @@ const InvoicesPage = {
         kind: '<span class="badge bg-info text-dark">立替</span>',
         content: this.esc(l.memo || "ランドリー立替"),
         amount: l.amount || 0,
+        excluded: excludedIds.has(l.id),
         action: "",
       });
     });
@@ -484,13 +488,15 @@ const InvoicesPage = {
         kind: '<span class="badge bg-warning text-dark">手動</span>',
         content: `${this.esc(item.label)}${item.memo ? `<br><small class="text-muted">${this.esc(item.memo)}</small>` : ""}`,
         amount: item.amount || 0,
+        excluded: false,
         action: isOwner
           ? `<button class="btn btn-outline-danger btn-xs btn-delete-manual-item" data-inv-id="${inv.id}" data-index="${idx}" style="padding:1px 6px;font-size:0.75rem;"><i class="bi bi-trash"></i></button>`
           : "",
       });
     });
     mergedRows.sort((a, b) => a.ms - b.ms);
-    const mergedSubtotal = mergedRows.reduce((s, r) => s + r.amount, 0);
+    // 除外行は小計に含めない（合計と一致させる）
+    const mergedSubtotal = mergedRows.reduce((s, r) => s + (r.excluded ? 0 : r.amount), 0);
 
     document.getElementById("invoiceDetailBody").innerHTML = `
       <div class="row mb-3">
@@ -526,11 +532,11 @@ const InvoicesPage = {
         </thead>
         <tbody id="manualItemsBody">
           ${mergedRows.length ? mergedRows.map(r => `
-            <tr>
+            <tr class="${r.excluded ? "text-muted" : ""}">
               <td class="text-nowrap">${r.date}</td>
-              <td>${r.kind}</td>
-              <td>${r.content}</td>
-              <td class="text-end">${formatCurrency(r.amount)}</td>
+              <td>${r.kind}${r.excluded ? ' <span class="badge bg-light text-muted border">除外</span>' : ""}</td>
+              <td${r.excluded ? ' style="text-decoration:line-through;"' : ""}>${r.content}</td>
+              <td class="text-end${r.excluded ? " text-decoration-line-through" : ""}">${formatCurrency(r.amount)}</td>
               ${isOwner ? `<td class="text-center">${r.action}</td>` : ""}
             </tr>
           `).join("") : `<tr><td colspan="${isOwner ? 5 : 4}" class="text-muted text-center small">明細なし</td></tr>`}
