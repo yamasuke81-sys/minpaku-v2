@@ -373,7 +373,7 @@ const PropertyChecklistPage = {
           </div>
         </div>
         <div class="px-3 pt-2">
-          ${area.memo ? `<div class="alert alert-warning py-1 px-2 small mb-2"><i class="bi bi-sticky"></i> ${this.escapeHtml(area.memo)}</div>` : ""}
+          ${area.memo ? `<div class="alert alert-warning py-1 px-2 small mb-2" style="white-space:pre-wrap;"><i class="bi bi-sticky"></i> ${this.escapeHtml(area.memo)}</div>` : ""}
           ${this.renderSampleImagesSection(area)}
         </div>
         <div class="card-body" id="areaInner">
@@ -562,7 +562,7 @@ const PropertyChecklistPage = {
                   ${l.addChild ? `<button class="btn btn-sm btn-outline-primary" data-act="${l.addChild}"><i class="bi bi-plus"></i> ${l.addChildLabel}</button>` : ""}
                 </div>
               </div>
-              ${cat.memo ? `<div class="alert alert-warning py-1 px-2 small mb-2"><i class="bi bi-sticky"></i> ${this.escapeHtml(cat.memo)}</div>` : ""}
+              ${cat.memo ? `<div class="alert alert-warning py-1 px-2 small mb-2" style="white-space:pre-wrap;"><i class="bi bi-sticky"></i> ${this.escapeHtml(cat.memo)}</div>` : ""}
               ${this.renderSampleImagesSection(cat)}
               ${this.renderChildrenContainer(cat, level)}
             </div>
