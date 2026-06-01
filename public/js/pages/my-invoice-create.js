@@ -1145,6 +1145,27 @@ const MyInvoiceCreatePage = {
     }
   },
 
+  // Firestore タイムスタンプ / 文字列を YYYY-MM-DD に整形 (NaN 回避)
+  // 明細の shift.date は API から JSON 化され {_seconds,_nanoseconds} で届くため toDate が無い
+  _fmtDateOnly(val) {
+    if (!val) return "";
+    if (typeof val === "string") {
+      const m = val.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+      const d = new Date(val);
+      return isNaN(d.getTime()) ? "" : this._ymd(d);
+    }
+    let d;
+    if (val.toDate) d = val.toDate();
+    else if (typeof val === "object" && (val._seconds != null || val.seconds != null)) d = new Date((val._seconds ?? val.seconds) * 1000);
+    else d = new Date(val);
+    return isNaN(d.getTime()) ? "" : this._ymd(d);
+  },
+
+  _ymd(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  },
+
   // Firestore タイムスタンプ ({_seconds}/{seconds}/toDate/文字列) を yyyy/MM/dd HH:mm に整形
   _fmtTs(ts) {
     if (!ts) return "";
@@ -1344,8 +1365,7 @@ const MyInvoiceCreatePage = {
         cleaning_by_count: "清掃", pre_inspection: "直前点検", other: "その他",
         laundry_put_out: "ランドリー出し", laundry_collected: "ランドリー受取", laundry_expense: "ランドリー立替",
       }[s.workType] || s.workItemName || "清掃";
-      const d = s.date && s.date.toDate ? s.date.toDate() : (s.date ? new Date(s.date) : null);
-      const dStr = d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}` : "";
+      const dStr = this._fmtDateOnly(s.date);
       return `<tr><td>${this._esc(dStr)}</td><td>${this._esc(typeLabel)}</td><td class="text-end">¥${(s.amount||0).toLocaleString()}</td><td class="small text-muted">${this._esc(s.propertyName||"")}</td></tr>`;
     }).join("");
     const manualRows = (inv.details?.manualItems || inv.manualItems || []).map(m => `
