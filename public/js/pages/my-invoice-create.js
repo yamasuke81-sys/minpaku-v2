@@ -469,6 +469,7 @@ const MyInvoiceCreatePage = {
             const itemLabel = suffix ? `${it.name}${suffix}` : it.name;
             this.workItemOptions.push({
               key: `${propertyId}:${it.id || it.name}:${c}`,
+              propertyId,
               label: `${propertyName} / ${itemLabel}`,
               amount: rates[c],
             });
@@ -606,10 +607,12 @@ const MyInvoiceCreatePage = {
   addManualRow(data = { date: "", key: "", label: "", amount: "", memo: "" }) {
     const tbody = document.getElementById("manualRows");
     const tr = document.createElement("tr");
-    // プルダウン (work item) + 「その他」
-    const options = this.workItemOptions.map(o =>
-      `<option value="${o.key}" data-amount="${o.amount}" data-label="${this._esc(o.label)}">${this._esc(o.label)} (¥${o.amount.toLocaleString()})</option>`
-    ).join("");
+    // プルダウン (work item) + 「その他」: 選択中の物件の項目のみ表示
+    const options = this.workItemOptions
+      .filter(o => !this.propertyId || o.propertyId === this.propertyId)
+      .map(o =>
+        `<option value="${o.key}" data-amount="${o.amount}" data-label="${this._esc(o.label)}">${this._esc(o.label)} (¥${o.amount.toLocaleString()})</option>`
+      ).join("");
     // デフォルト日付は今月の 1 日
     const ym = document.getElementById("invMonth")?.value || "";
     const defaultDate = data.date || (ym ? `${ym}-01` : "");
