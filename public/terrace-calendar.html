@@ -249,7 +249,6 @@
           <tr><th>チェックイン</th><td>${formatDateFull(b.checkIn)} <strong>${v(b.checkInTime || "--:--")}</strong></td></tr>
           <tr><th>チェックアウト</th><td>${formatDateFull(b.checkOut)} <strong>${v(b.checkOutTime || "--:--")}</strong></td></tr>
           <tr><th>宿泊人数</th><td>${ppl}${infants}</td></tr>
-          <tr><th>予約サイト</th><td>${esc(si.label)}</td></tr>
           ${rosterRows}
         </table>
         ${compHtml}
