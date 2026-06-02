@@ -1271,6 +1271,33 @@ const DashboardPage = {
       if (!cars) return ""; // 有料駐車場利用なしなら非表示
       const gid = guestData && guestData.id;
       const reservedAt = guestData.paidParkingReservedAt;
+      // 通知テンプレと同じ本文を生成（コピーボタン用）。CI/CO・台数・料金を自動挿入
+      const DOW = ["日", "月", "火", "水", "木", "金", "土"];
+      const fmtMd = (s) => {
+        const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (!m) return String(s || "");
+        const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+        const dow = DOW[new Date(Date.UTC(y, mo - 1, d)).getUTCDay()];
+        return `${mo}/${d}（${dow}）`;
+      };
+      const ppCi = fmtMd(guestData.checkIn);
+      const ppCo = fmtMd(guestData.checkOut);
+      const ppFee = (cars * 2000).toLocaleString("en-US");
+      const ppCopyText =
+`有料駐車場利用希望が入りました。うみとやまとの石井様へ下記内容をLINE送信してください。
+
+お世話になっております！
+
+民泊の宿泊者から、御社の駐車場を利用させていただきたいとの申し出がございました。
+
+${ppCi}17:00〜
+${ppCo}9:30
+
+駐車台数：${cars}台
+
+料金：${ppFee}円（1台2,000円）
+
+ご利用させていただくことは可能でしょうか？`;
       let ppBadge;
       if (reservedAt) {
         const s = (reservedAt.toDate ? reservedAt.toDate() : new Date(reservedAt)).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
@@ -1285,10 +1312,13 @@ const DashboardPage = {
       const ppCancelBtn = (gid && reservedAt)
         ? `<button class="btn btn-sm btn-outline-danger" id="calBtnPaidParkingCancel" data-guest-id="${this.esc(gid)}"><i class="bi bi-x-circle"></i> 予約解除</button>`
         : "";
+      // 通知テンプレ本文をコピーするボタン（石井様へ LINE 送信用）
+      const ppCopyBtn = `<button class="btn btn-sm btn-outline-secondary" id="calBtnPaidParkingCopy" data-copy-text="${this.esc(encodeURIComponent(ppCopyText))}"><i class="bi bi-clipboard"></i> 文面コピー</button>`;
       return `<div class="d-flex flex-wrap align-items-center gap-2 mb-3 p-2 border rounded bg-light">
         <i class="bi bi-p-square-fill text-primary" style="font-size:1.2rem;"></i>
         <span class="fw-semibold small">有料駐車場予約（${cars}台）</span>
         ${ppBtn}
+        ${ppCopyBtn}
         ${ppCancelBtn}
         <span>${ppBadge}</span>
       </div>`;
@@ -1982,6 +2012,32 @@ const DashboardPage = {
         const modalInst = bootstrap.Modal.getInstance(modalEl);
         if (modalInst) modalInst.hide();
         if (this.refreshCalendar) this.refreshCalendar();
+      });
+    }
+
+    // 有料駐車場「文面コピー」ボタン: 通知テンプレ本文をクリップボードへ
+    const btnPpCopy = document.getElementById("calBtnPaidParkingCopy");
+    if (btnPpCopy) {
+      btnPpCopy.addEventListener("click", async () => {
+        const text = decodeURIComponent(btnPpCopy.dataset.copyText || "");
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+          } else {
+            // フォールバック: 一時 textarea 経由でコピー
+            const ta = document.createElement("textarea");
+            ta.value = text;
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand("copy");
+            document.body.removeChild(ta);
+          }
+          showToast("コピー完了", "通知文面をコピーしました", "success");
+        } catch (e) {
+          showToast("エラー", `コピー失敗: ${e.message}`, "error");
+        }
       });
     }
 
