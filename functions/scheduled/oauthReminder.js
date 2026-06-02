@@ -45,6 +45,27 @@ function buildFailureMessage(email, context, errorMsg, daysSinceSaved) {
   ].join("\n");
 }
 
+function buildScopeMissingMessage(email, context) {
+  const reauthUrl = buildReauthUrl(email, context);
+  return [
+    "⚠️ Gmail連携にドライブ権限がありません",
+    "",
+    `アカウント: ${email}`,
+    "用途: 請求書のGoogleドライブ保存",
+    "",
+    "このアカウントのGmail連携は有効ですが、Googleドライブへの",
+    "保存権限 (drive.file) が付与されていません。このままだと",
+    "請求書PDFがGoogleドライブに控え保存されません",
+    "(アプリ内では閲覧できます)。",
+    "",
+    "下記URLから再認可すると、同意画面にドライブ権限が追加で表示されます。",
+    "「許可」をタップしてください。",
+    "",
+    "▼ 再認可URL",
+    reauthUrl,
+  ].join("\n");
+}
+
 function buildRecoveryMessage(email, context) {
   return [
     "✅ Gmail OAuth 連携が復旧しました",
@@ -62,7 +83,7 @@ async function probeToken_(oauth2Client, refreshToken) {
   await oauth2Client.refreshAccessToken();
 }
 
-async function processCollection_(db, collectionPath, context, oauth2Client, ns) {
+async function processCollection_(db, collectionPath, context, oauth2Client, ns, requireDriveScope = false) {
   const tokensSnap = await db.collection("settings").doc(collectionPath).collection("tokens").get();
   if (tokensSnap.empty) return { ok: 0, failed: 0, recovered: 0, alerted: 0 };
 
@@ -108,6 +129,30 @@ async function processCollection_(db, collectionPath, context, oauth2Client, ns)
       await probeToken_(oauth2Client, refreshToken);
       ok++;
       console.log(`[oauthReminder] ${email} (${context}): ✓ OK`);
+
+      // ドライブ権限 (drive.file) の有無を確認 (請求書Drive保存用トークンのみ)
+      if (requireDriveScope) {
+        const scope = String(tokenData.scope || "");
+        const hasDriveScope = scope.includes("drive.file") || scope.includes("auth/drive");
+        const scopeFlagRef = db.collection("settings").doc("oauthAlerts").collection("byAccount").doc(`scope_${context}_${accountKey}`);
+        const scopeFlag = await scopeFlagRef.get();
+        if (!hasDriveScope) {
+          const lastMs = scopeFlag.exists ? (scopeFlag.data().lastAlertAt?.toMillis?.() || 0) : 0;
+          if (Date.now() - lastMs >= 24 * 60 * 60 * 1000) {
+            await sendScopeAlert_(ns, email, context);
+            await scopeFlagRef.set({
+              scopeMissing: true,
+              lastAlertAt: admin.firestore.FieldValue.serverTimestamp(),
+              accountEmail: email,
+            }, { merge: true });
+            alerted++;
+            console.warn(`[oauthReminder] ${email} (${context}): drive.file scope 欠落 → 通知`);
+          }
+        } else if (scopeFlag.exists && scopeFlag.data().scopeMissing === true) {
+          await scopeFlagRef.set({ scopeMissing: false, lastOkAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        }
+      }
+
       // 直前まで失敗していたなら復旧通知
       if (wasFailing) {
         await sendRecovery_(ns, email, context);
@@ -166,6 +211,25 @@ async function sendAlert_(ns, email, context, errorMsg, daysSince) {
   }
 }
 
+async function sendScopeAlert_(ns, email, context) {
+  const channelToken = ns.lineChannelToken || ns.lineToken;
+  const ownerUserId = ns.lineOwnerUserId || ns.lineOwnerId || ns.ownerUserId;
+  const notifyEmails = Array.isArray(ns.notifyEmails) ? ns.notifyEmails : [];
+  const text = buildScopeMissingMessage(email, context);
+  if (channelToken && ownerUserId) {
+    try {
+      const { sendLineMessage } = require("../utils/lineNotify");
+      await sendLineMessage(channelToken, ownerUserId, text);
+    } catch (e) { console.error("[oauthReminder] LINE 失敗:", e.message); }
+  }
+  for (const to of notifyEmails) {
+    try {
+      const { sendNotificationEmail_ } = require("../utils/lineNotify");
+      await sendNotificationEmail_(to, "Gmail連携にドライブ権限がありません", text);
+    } catch (e) { console.error(`[oauthReminder] メール失敗 (${to}):`, e.message); }
+  }
+}
+
 async function sendRecovery_(ns, email, context) {
   const channelToken = ns.lineChannelToken || ns.lineToken;
   const ownerUserId = ns.lineOwnerUserId || ns.lineOwnerId || ns.ownerUserId;
@@ -199,9 +263,10 @@ async function oauthReminderCore(db) {
   const nsDoc = await db.collection("settings").doc("notifications").get();
   const ns = nsDoc.exists ? nsDoc.data() : {};
 
-  // メール照合用 + 税理士資料用 を順に検査
-  const a = await processCollection_(db, "gmailOAuthEmailVerification", "emailVerification", oauth2Client, ns);
-  const b = await processCollection_(db, "gmailOAuth", "default", oauth2Client, ns);
+  // メール照合用 (物件Gmail = 請求書Drive保存にも使用) + 税理士資料用 を順に検査
+  // 第6引数 requireDriveScope=true: drive.file scope 欠落も検知して通知
+  const a = await processCollection_(db, "gmailOAuthEmailVerification", "emailVerification", oauth2Client, ns, true);
+  const b = await processCollection_(db, "gmailOAuth", "default", oauth2Client, ns, false);
 
   const total = {
     ok: a.ok + b.ok,

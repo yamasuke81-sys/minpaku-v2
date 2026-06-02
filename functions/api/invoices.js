@@ -632,6 +632,12 @@ async function generateInvoicePdf_(db, invoiceId) {
     await uploadInvoiceToDrive_(db, tmpPath, invoice, staff, senderGmail);
   } catch (e) {
     console.warn("Drive アップロード失敗(Firebase Storage は成功):", e.message);
+    // 沈黙したまま保存されない事態を防ぐため、24h 抑制つきで管理者に通知する
+    try {
+      await notifyDriveSaveFailure_(db, invoice, senderGmail, e.message);
+    } catch (ne) {
+      console.error("Drive 失敗通知の送信にも失敗:", ne.message);
+    }
   }
 
   try { fs.unlinkSync(tmpPath); } catch (_) {}
@@ -651,13 +657,6 @@ async function generateInvoicePdf_(db, invoiceId) {
 async function uploadInvoiceToDrive_(db, filePath, invoice, staff, fromEmail) {
   const admin = require("firebase-admin");
   const dbRef = admin.firestore();
-
-  // 設定から親フォルダID取得 (デフォルト: ユーザー指定フォルダ)
-  let parentFolderId = "1ucWQQtv8xYsblcWiSSg1gcpgC9dfa5kh";
-  try {
-    const s = await dbRef.collection("settings").doc("driveInvoice").get();
-    if (s.exists && s.data().parentFolderId) parentFolderId = s.data().parentFolderId;
-  } catch (_) {}
 
   const { google } = require("googleapis");
   const oauthDoc = await dbRef.collection("settings").doc("gmailOAuth").get();
@@ -689,6 +688,48 @@ async function uploadInvoiceToDrive_(db, filePath, invoice, staff, fromEmail) {
   oauth2Client.setCredentials({ refresh_token: tokenData.refreshToken });
   const drive = google.drive({ version: "v3", auth: oauth2Client });
 
+  // 親フォルダ解決: アプリ専用フォルダを自動作成して使う
+  // drive.file scope はアプリが作成したファイル/フォルダのみアクセス可。
+  // 旧 GAS 共有フォルダ (1ucWQQ...) は drive.file では触れず "File not found" になるため、
+  // アプリ自身が作った「民泊請求書(v2)」フォルダを My Drive 直下に作成し、その ID を永続化する。
+  const APP_FOLDER_NAME = "民泊請求書(v2)";
+  let parentFolderId = null;
+  try {
+    const s = await dbRef.collection("settings").doc("driveInvoice").get();
+    if (s.exists && s.data().parentFolderId) parentFolderId = s.data().parentFolderId;
+  } catch (_) {}
+
+  // 保存済み ID があればアクセス可能か検証 (drive.file で触れないものは無効扱い)
+  if (parentFolderId) {
+    try {
+      const meta = await drive.files.get({ fileId: parentFolderId, fields: "id, trashed" });
+      if (meta.data.trashed) parentFolderId = null;
+    } catch (_) {
+      parentFolderId = null; // File not found 等 → 作り直し
+    }
+  }
+
+  // 無効/未設定ならアプリ作成フォルダを名前検索 → 無ければ新規作成し永続化
+  if (!parentFolderId) {
+    const fSearch = await drive.files.list({
+      q: `name='${APP_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: "files(id, name)",
+      pageSize: 1,
+    });
+    if (fSearch.data.files && fSearch.data.files.length) {
+      parentFolderId = fSearch.data.files[0].id;
+    } else {
+      const createdParent = await drive.files.create({
+        requestBody: { name: APP_FOLDER_NAME, mimeType: "application/vnd.google-apps.folder" },
+        fields: "id",
+      });
+      parentFolderId = createdParent.data.id;
+    }
+    try {
+      await dbRef.collection("settings").doc("driveInvoice").set({ parentFolderId }, { merge: true });
+    } catch (_) {}
+  }
+
   // 年月フォルダを検索or作成
   const yearMonth = invoice.yearMonth || "";
   const folderName = yearMonth;  // "YYYY-MM"
@@ -719,6 +760,71 @@ async function uploadInvoiceToDrive_(db, filePath, invoice, staff, fromEmail) {
     fields: "id",
   });
   console.log(`Drive アップロード成功: ${fileName}`);
+}
+
+/**
+ * Drive 保存失敗を管理者に通知 (LINE + メール / 24h 抑制)
+ * 抑制キー: settings/driveAlerts/state.lastFailureAlertAt
+ * 請求書PDFは Firebase Storage には保存済みなので「Drive のみ未保存」である点を明記する。
+ */
+async function notifyDriveSaveFailure_(db, invoice, fromEmail, errorMsg) {
+  const admin = require("firebase-admin");
+  const dbRef = admin.firestore();
+
+  // 24h 抑制
+  const stateRef = dbRef.collection("settings").doc("driveAlerts");
+  const stateSnap = await stateRef.get();
+  if (stateSnap.exists) {
+    const lastMs = stateSnap.data().lastFailureAlertAt?.toMillis?.() || 0;
+    if (Date.now() - lastMs < 24 * 60 * 60 * 1000) {
+      console.log("[notifyDriveSaveFailure_] 24h 以内に通知済みのためスキップ");
+      return;
+    }
+  }
+
+  const reauthUrl = fromEmail
+    ? `https://api-5qrfx7ujcq-an.a.run.app/gmail-auth/start?context=property&email=${encodeURIComponent(fromEmail)}&openExternalBrowser=1`
+    : "https://api-5qrfx7ujcq-an.a.run.app/gmail-auth/start?openExternalBrowser=1";
+
+  const text = [
+    "🚨 請求書のGoogleドライブ保存に失敗しました",
+    "",
+    `対象請求書: ${invoice.staffName || ""} ${invoice.yearMonth || ""}`,
+    `送信元Gmail: ${fromEmail || "(不明)"}`,
+    `エラー: ${errorMsg}`,
+    "",
+    "※請求書PDFはアプリ側(Firebase Storage)には保存されているため、",
+    "　アプリ上での閲覧・再送は問題ありません。Googleドライブへの控え保存のみ失敗しています。",
+    "",
+    "Googleドライブ保存にはGmail連携(ドライブ権限)が必要です。",
+    "下記URLから物件Gmailで再認可してください。",
+    "",
+    "▼ 再認可URL",
+    reauthUrl,
+  ].join("\n");
+
+  try {
+    const nsDoc = await dbRef.collection("settings").doc("notifications").get();
+    const ns = nsDoc.exists ? nsDoc.data() : {};
+    const channelToken = ns.lineChannelToken || ns.lineToken;
+    const ownerUserId = ns.lineOwnerUserId || ns.lineOwnerId || ns.ownerUserId;
+    const notifyEmails = Array.isArray(ns.notifyEmails) ? ns.notifyEmails : [];
+    const { sendLineMessage, sendNotificationEmail_ } = require("../utils/lineNotify");
+    if (channelToken && ownerUserId) {
+      try { await sendLineMessage(channelToken, ownerUserId, text); }
+      catch (e) { console.error("[notifyDriveSaveFailure_] LINE 失敗:", e.message); }
+    }
+    for (const to of notifyEmails) {
+      try { await sendNotificationEmail_(to, "請求書のGoogleドライブ保存に失敗", text); }
+      catch (e) { console.error(`[notifyDriveSaveFailure_] メール失敗 (${to}):`, e.message); }
+    }
+  } finally {
+    await stateRef.set({
+      lastFailure: true,
+      lastFailureAlertAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastFailureMessage: errorMsg,
+    }, { merge: true });
+  }
 }
 
 /**
