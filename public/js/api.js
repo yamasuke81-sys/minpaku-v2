@@ -828,8 +828,10 @@ const API = {
         const targetMonth2 = m - 1 || 1;
         const targetYear1 = m === 2 ? year - 1 : year;
         const targetYear2 = m === 2 ? year : year;
-        const deadlineMonth = m + 1 > 12 ? 1 : m + 1;
-        const deadlineYear = m + 1 > 12 ? year + 1 : year;
+        // 提出期限: 対象期間の末月の翌月15日 = 偶数月 m の15日（同年）
+        // 例) 4・5月分(m=6) → 6/15、12・1月分(m=2) → 2/15
+        const deadlineMonth = m;
+        const deadlineYear = year;
         const id = `${year}-${String(m).padStart(2, "0")}`;
         metas.push({
           id,
