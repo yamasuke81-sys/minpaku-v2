@@ -901,13 +901,14 @@
             ? await fetchLineGroupName(lineId, pid)
             : await fetchLineUserName(lineId, pid);
           const shortId = truncate(lineId, 12);
-          // 正規の LINE 表示名 > スタッフ名(フォールバック) > shortId の順で表示
-          if (name && name !== lineId) {
-            span.textContent = `${name} (${shortId})`;
-          } else if (fallbackName) {
-            span.textContent = `${fallbackName} (${shortId})`;
+          const resolved = (name && name !== lineId) ? name : "";
+          // 表示ルール:
+          //   スタッフ名あり: 「スタッフ名 (LINE実名)」。LINE名が取れなければ「スタッフ名 (shortId)」
+          //   スタッフ名なし(ownerLine等): 「LINE実名」、取れなければ shortId
+          if (fallbackName) {
+            span.textContent = `${fallbackName} (${resolved || shortId})`;
           } else {
-            span.textContent = shortId;
+            span.textContent = resolved || shortId;
           }
           span.classList.remove("line-name-loading");
         } catch (e) {
