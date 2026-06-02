@@ -83,8 +83,8 @@ const ReportsPage = {
     `;
 
     this.bindEvents();
-    await this.loadTodokideNumber();
     await this.loadProperties();
+    await this.loadTodokideNumber();
     await this.loadPeriods();
   },
 
@@ -135,6 +135,7 @@ const ReportsPage = {
     const previewEl = document.getElementById("reportPreview");
     if (previewEl) previewEl.classList.add("d-none");
     this.renderPropSwitcher();
+    await this.loadTodokideNumber(); // 物件別の届出番号を再読込
     await this.loadPeriods();
   },
 
@@ -147,17 +148,29 @@ const ReportsPage = {
     });
   },
 
+  // 届出番号は物件ごとに異なる → settings/owner.todokideNumbers[propertyId] で管理
   async loadTodokideNumber() {
     try {
       const doc = await db.collection("settings").doc("owner").get();
-      if (doc.exists) this.todokideNumber = doc.data().todokideNumber || "";
-    } catch (e) { /* 無視 */ }
+      const data = doc.exists ? doc.data() : {};
+      const map = data.todokideNumbers || {};
+      let val = map[this.selectedPropertyId] || "";
+      // the Terrace 長浜 / 全物件は旧グローバル値(todokideNumber)をフォールバック
+      if (!val && (this.selectedPropertyId === this.TERRACE_PID || !this.selectedPropertyId)) {
+        val = data.todokideNumber || "";
+      }
+      this.todokideNumber = val;
+    } catch (e) { this.todokideNumber = ""; }
   },
 
   async saveTodokideNumber(val) {
     this.todokideNumber = val;
+    const key = this.selectedPropertyId || "_global";
     await db.collection("settings").doc("owner").set(
-      { todokideNumber: val, updatedAt: firebase.firestore.FieldValue.serverTimestamp() },
+      {
+        todokideNumbers: { [key]: val },
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      },
       { merge: true }
     );
   },
