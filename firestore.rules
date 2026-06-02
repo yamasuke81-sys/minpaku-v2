@@ -368,10 +368,21 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
 
-    // 定期報告（住宅宿泊事業法14条） — オーナーのみ
-    // reports/{periodId}: 報告済みフラグ・手動補正(overrides)を保持
-    match /reports/{periodId} {
-      allow read, write: if isOwner();
+    // 定期報告（住宅宿泊事業法14条）
+    // reports/{docId}: 報告済みフラグ・手動補正(overrides)を保持
+    //   - 旧形式: bare periodId (例 "2026-02") = the Terrace 長浜の全体集計
+    //   - 新形式: "{periodId}__{propertyId}" = 物件別
+    // オーナーは全件、サブオーナーは自所有物件(propertyId)のもののみ
+    match /reports/{docId} {
+      allow read: if isOwner()
+        || (isSubOwner()
+            && (resource == null
+                || (resource.data.propertyId is string
+                    && resource.data.propertyId in request.auth.token.ownedPropertyIds)));
+      allow write: if isOwner()
+        || (isSubOwner()
+            && request.resource.data.propertyId is string
+            && request.resource.data.propertyId in request.auth.token.ownedPropertyIds);
     }
 
     // お知らせ — 認証済みは閲覧・投稿可能。編集・削除はオーナー or 投稿者本人のみ

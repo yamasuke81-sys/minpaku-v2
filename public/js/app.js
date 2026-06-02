@@ -590,7 +590,7 @@ const App = {
       const subOwnerAllowed = new Set([
         "schedule", "properties", "staff", "guests", "guest-guides",
         "recruitment", "laundry", "checklist", "prepaid-cards",
-        "reservation-flow", "rates", "invoices",
+        "reservation-flow", "rates", "invoices", "reports",
         // チェックリスト管理画面 (#/checklist) からの遷移先・募集詳細からの遷移先
         "my-checklist", "property-checklist",
         // スタッフ向け画面 (物件オーナーがスタッフ視点で見る場合に必要)

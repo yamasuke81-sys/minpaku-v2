@@ -819,16 +819,10 @@ const API = {
     },
 
     async periods(propertyId) {
-      const snap = await db.collection("reports").get();
-      const reportMap = {};
-      snap.docs.forEach((doc) => {
-        reportMap[doc.id] = doc.data();
-      });
-
-      // 報告期間を生成
+      // 報告期間メタを生成
       const now = new Date();
       const year = now.getFullYear();
-      const periods = [];
+      const metas = [];
       for (let m = 2; m <= 12; m += 2) {
         const targetMonth1 = m - 2 || 12;
         const targetMonth2 = m - 1 || 1;
@@ -837,11 +831,7 @@ const API = {
         const deadlineMonth = m + 1 > 12 ? 1 : m + 1;
         const deadlineYear = m + 1 > 12 ? year + 1 : year;
         const id = `${year}-${String(m).padStart(2, "0")}`;
-        // 物件別スコープ → 旧 bare ID（the Terrace のみ）の順に参照
-        const scopedId = propertyId ? `${id}__${propertyId}` : id;
-        let rec = reportMap[scopedId];
-        if (!rec && propertyId === this._TERRACE_PID) rec = reportMap[id];
-        periods.push({
+        metas.push({
           id,
           targetMonths: [
             { year: targetYear1, month: targetMonth1 },
@@ -849,12 +839,19 @@ const API = {
           ],
           deadline: `${deadlineYear}-${String(deadlineMonth).padStart(2, "0")}-15`,
           label: `${targetYear1}年${targetMonth1}月・${targetYear2}年${targetMonth2}月`,
+        });
+      }
+      // 該当物件の報告ドキュメントのみ個別取得（サブオーナーのコレクション一括readを避ける）
+      const recs = await Promise.all(metas.map((meta) => this._getReportDoc(meta.id, propertyId)));
+      return metas.map((meta, i) => {
+        const rec = recs[i];
+        return {
+          ...meta,
           submitted: !!rec?.submittedAt,
           submittedAt: rec?.submittedAt || null,
           memo: rec?.memo || "",
-        });
-      }
-      return periods;
+        };
+      });
     },
 
     async aggregate(year1, month1, year2, month2, periodId, propertyId) {

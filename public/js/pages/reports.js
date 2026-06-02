@@ -96,6 +96,17 @@ const ReportsPage = {
     } catch (_) {
       this.properties = [];
     }
+    // 物件オーナー視点: 担当物件(ownedPropertyIds)のみに絞る
+    let owned = null;
+    if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
+      owned = App.impersonatingData.ownedPropertyIds || []; // 管理者が代理閲覧中
+    } else if (typeof Auth !== "undefined" && Auth.isSubOwner && Auth.isSubOwner()) {
+      owned = Array.isArray(Auth.currentUser?.ownedPropertyIds) ? Auth.currentUser.ownedPropertyIds : []; // サブオーナー本人
+    }
+    if (owned) {
+      const ownedSet = new Set(owned);
+      this.properties = this.properties.filter((p) => ownedSet.has(p.id));
+    }
     if (this.properties.length > 0) {
       const terrace = this.properties.find((p) => p.id === this.TERRACE_PID);
       this.selectedPropertyId = terrace ? terrace.id : this.properties[0].id;
