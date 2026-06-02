@@ -799,7 +799,26 @@ const API = {
 
   // 定期報告 API（住宅宿泊事業法14条）
   reports: {
-    async periods() {
+    // the Terrace 長浜 の物件ID。旧データ（bare periodId / propertyId未設定）はこの物件とみなす
+    _TERRACE_PID: "tsZybhDMcPrxqgcRy7wp",
+
+    // 物件別レポートドキュメントID。propertyId 未指定時は従来の bare ID
+    _docId(periodId, propertyId) {
+      return propertyId ? `${periodId}__${propertyId}` : periodId;
+    },
+
+    // 物件別レポートドキュメントを読む。the Terrace は旧 bare ID からフォールバック
+    async _getReportDoc(periodId, propertyId) {
+      const scoped = await db.collection("reports").doc(this._docId(periodId, propertyId)).get();
+      if (scoped.exists) return scoped.data();
+      if (propertyId === this._TERRACE_PID) {
+        const legacy = await db.collection("reports").doc(periodId).get();
+        if (legacy.exists) return legacy.data();
+      }
+      return null;
+    },
+
+    async periods(propertyId) {
       const snap = await db.collection("reports").get();
       const reportMap = {};
       snap.docs.forEach((doc) => {
@@ -818,6 +837,10 @@ const API = {
         const deadlineMonth = m + 1 > 12 ? 1 : m + 1;
         const deadlineYear = m + 1 > 12 ? year + 1 : year;
         const id = `${year}-${String(m).padStart(2, "0")}`;
+        // 物件別スコープ → 旧 bare ID（the Terrace のみ）の順に参照
+        const scopedId = propertyId ? `${id}__${propertyId}` : id;
+        let rec = reportMap[scopedId];
+        if (!rec && propertyId === this._TERRACE_PID) rec = reportMap[id];
         periods.push({
           id,
           targetMonths: [
@@ -826,21 +849,25 @@ const API = {
           ],
           deadline: `${deadlineYear}-${String(deadlineMonth).padStart(2, "0")}-15`,
           label: `${targetYear1}年${targetMonth1}月・${targetYear2}年${targetMonth2}月`,
-          submitted: !!reportMap[id]?.submittedAt,
-          submittedAt: reportMap[id]?.submittedAt || null,
-          memo: reportMap[id]?.memo || "",
+          submitted: !!rec?.submittedAt,
+          submittedAt: rec?.submittedAt || null,
+          memo: rec?.memo || "",
         });
       }
       return periods;
     },
 
-    async aggregate(year1, month1, year2, month2, periodId) {
-      // guestRegistrations を取得
+    async aggregate(year1, month1, year2, month2, periodId, propertyId) {
+      // guestRegistrations を取得（物件で絞り込み）
       const guestSnap = await db.collection("guestRegistrations").get();
-      const rawGuests = guestSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-
-      const bookingSnap = await db.collection("bookings").get();
-      const bookings = bookingSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      let rawGuests = guestSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      if (propertyId) {
+        rawGuests = rawGuests.filter((g) => {
+          if (g.propertyId) return g.propertyId === propertyId;
+          // propertyId 未設定の旧データは the Terrace とみなす
+          return propertyId === this._TERRACE_PID;
+        });
+      }
 
       const y1 = Number(year1), m1 = Number(month1);
       const y2 = Number(year2), m2 = Number(month2);
@@ -972,7 +999,9 @@ const API = {
 
       // 元データ（migrated_コレクション）から名簿にもbookingsにもないエントリを補完
       // iCal由来で氏名が空のためtransformでスキップされたデータを拾う
-      const migratedCollections = ["migrated_民泊メイン_フォームの回答_1"];
+      // migrated は the Terrace 長浜 専用の旧GASデータ → 他物件選択時は集計しない
+      const includeMigrated = !propertyId || propertyId === this._TERRACE_PID;
+      const migratedCollections = includeMigrated ? ["migrated_民泊メイン_フォームの回答_1"] : [];
       for (const colName of migratedCollections) {
         try {
           const mSnap = await db.collection(colName).get();
@@ -1011,11 +1040,11 @@ const API = {
 
       details.sort((a, b) => (a.checkIn || "").localeCompare(b.checkIn || ""));
 
-      // overrides を適用（レポート専用の手動補正値）
+      // overrides を適用（レポート専用の手動補正値・物件別）
       let overrides = {};
       try {
-        const reportDoc = await db.collection("reports").doc(periodId).get();
-        if (reportDoc.exists) overrides = reportDoc.data().overrides || {};
+        const rec = await this._getReportDoc(periodId, propertyId);
+        if (rec) overrides = rec.overrides || {};
       } catch (e) { /* 無視 */ }
 
       // overrides反映: 集計をやり直す
@@ -1062,36 +1091,45 @@ const API = {
       };
     },
 
-    // レポート専用の手動補正値を保存（宿泊者名簿には影響しない）
-    async saveOverride(periodId, checkIn, data) {
-      const ref = db.collection("reports").doc(periodId);
-      const doc = await ref.get();
-      const overrides = doc.exists ? (doc.data().overrides || {}) : {};
+    // レポート専用の手動補正値を保存（宿泊者名簿には影響しない・物件別）
+    async saveOverride(periodId, checkIn, data, propertyId) {
+      const ref = db.collection("reports").doc(this._docId(periodId, propertyId));
+      // 既存 overrides を取得（the Terrace は旧データから引き継ぎ）
+      const rec = await this._getReportDoc(periodId, propertyId);
+      const overrides = (rec && rec.overrides) ? { ...rec.overrides } : {};
       overrides[checkIn] = { ...overrides[checkIn], ...data };
-      await ref.set({ overrides, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+      await ref.set({
+        periodId, propertyId: propertyId || null, overrides,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
     },
 
-    async removeOverride(periodId, checkIn) {
-      const ref = db.collection("reports").doc(periodId);
-      const doc = await ref.get();
-      if (!doc.exists) return;
-      const overrides = doc.data().overrides || {};
+    async removeOverride(periodId, checkIn, propertyId) {
+      const ref = db.collection("reports").doc(this._docId(periodId, propertyId));
+      const rec = await this._getReportDoc(periodId, propertyId);
+      if (!rec) return;
+      const overrides = { ...(rec.overrides || {}) };
       delete overrides[checkIn];
-      await ref.update({ overrides, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+      await ref.set({
+        periodId, propertyId: propertyId || null, overrides,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
     },
 
-    async submit(periodId, memo) {
-      await db.collection("reports").doc(periodId).set({
+    async submit(periodId, memo, propertyId) {
+      await db.collection("reports").doc(this._docId(periodId, propertyId)).set({
         periodId,
+        propertyId: propertyId || null,
         submittedAt: firebase.firestore.FieldValue.serverTimestamp(),
         memo: memo || "",
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
     },
 
-    async unsubmit(periodId) {
-      await db.collection("reports").doc(periodId).set({
+    async unsubmit(periodId, propertyId) {
+      await db.collection("reports").doc(this._docId(periodId, propertyId)).set({
         periodId,
+        propertyId: propertyId || null,
         submittedAt: null,
         submittedBy: null,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),

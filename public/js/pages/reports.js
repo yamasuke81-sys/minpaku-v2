@@ -7,6 +7,10 @@ const ReportsPage = {
   currentPeriod: null,
   aggregateData: null,
   todokideNumber: "",
+  properties: [],
+  selectedPropertyId: null,
+  // the Terrace 長浜（旧データのデフォルト物件）
+  TERRACE_PID: "tsZybhDMcPrxqgcRy7wp",
 
   // 政府フォーム準拠の国籍リスト（固定順序）
   NATIONALITY_GRID: [
@@ -25,8 +29,8 @@ const ReportsPage = {
         </a>
       </div>
 
-      <!-- 物件フィルタ (目アイコン型) — 現状は UI のみ。集計は全物件を対象 -->
-      <div id="propEyeFilterHost-reports"></div>
+      <!-- 物件切替 (単一選択) — 物件ごとに定期報告を作成・提出 -->
+      <div id="reportPropSwitcher" class="mb-3"></div>
 
       <!-- 期限リマインダー -->
       <div id="reportReminder" class="d-none"></div>
@@ -80,20 +84,58 @@ const ReportsPage = {
 
     this.bindEvents();
     await this.loadTodokideNumber();
+    await this.loadProperties();
     await this.loadPeriods();
+  },
 
-    // 物件フィルタ (目アイコン型で UI 統一) — 現行 aggregate API は全物件集計のため
-    // 実際の絞り込みには未使用。API 側で propertyId 対応後に有効化予定
+  // 物件一覧を読み込み、切替チップを描画。デフォルトは the Terrace 長浜
+  async loadProperties() {
     try {
-      const props = (API.properties && typeof API.properties.listMinpakuNumbered === "function")
+      this.properties = (API.properties && typeof API.properties.listMinpakuNumbered === "function")
         ? await API.properties.listMinpakuNumbered() : [];
-      PropertyEyeFilter.render({
-        containerId: "propEyeFilterHost-reports",
-        tabKey: "reports",
-        properties: props,
-        onChange: () => {}, // 現状は再描画不要
-      });
-    } catch (_) {}
+    } catch (_) {
+      this.properties = [];
+    }
+    if (this.properties.length > 0) {
+      const terrace = this.properties.find((p) => p.id === this.TERRACE_PID);
+      this.selectedPropertyId = terrace ? terrace.id : this.properties[0].id;
+    } else {
+      this.selectedPropertyId = null; // 物件取得失敗時は全物件集計にフォールバック
+    }
+    this.renderPropSwitcher();
+  },
+
+  renderPropSwitcher() {
+    const host = document.getElementById("reportPropSwitcher");
+    if (!host) return;
+    if (this.properties.length === 0) { host.innerHTML = ""; return; }
+    host.innerHTML = `
+      <div class="d-flex align-items-center flex-wrap gap-2">
+        <span class="text-muted small me-1"><i class="bi bi-building"></i> 物件:</span>
+        ${this.properties.map((p) => {
+          const active = p.id === this.selectedPropertyId;
+          return `<button type="button"
+            class="btn btn-sm ${active ? "btn-primary" : "btn-outline-secondary"} btn-report-prop"
+            data-prop-id="${this.escapeHtml(p.id)}">
+            <span class="badge rounded-pill me-1" style="background:${p._color || "#6c757d"}">${p._num || ""}</span>${this.escapeHtml(p.name || "")}
+          </button>`;
+        }).join("")}
+      </div>`;
+    host.querySelectorAll(".btn-report-prop").forEach((btn) => {
+      btn.addEventListener("click", () => this.switchProperty(btn.dataset.propId));
+    });
+  },
+
+  // 物件を切り替え: プレビューを閉じて期間一覧を再読み込み
+  async switchProperty(propId) {
+    if (propId === this.selectedPropertyId) return;
+    this.selectedPropertyId = propId;
+    this.currentPeriod = null;
+    this.aggregateData = null;
+    const previewEl = document.getElementById("reportPreview");
+    if (previewEl) previewEl.classList.add("d-none");
+    this.renderPropSwitcher();
+    await this.loadPeriods();
   },
 
   bindEvents() {
@@ -122,7 +164,7 @@ const ReportsPage = {
 
   async loadPeriods() {
     try {
-      this.periods = await API.reports.periods();
+      this.periods = await API.reports.periods(this.selectedPropertyId);
       this.renderPeriods();
       this.checkReminder();
     } catch (e) {
@@ -233,7 +275,7 @@ const ReportsPage = {
     try {
       const tm = period.targetMonths;
       this.aggregateData = await API.reports.aggregate(
-        tm[0].year, tm[0].month, tm[1].year, tm[1].month, period.id
+        tm[0].year, tm[0].month, tm[1].year, tm[1].month, period.id, this.selectedPropertyId
       );
       this.renderPreview();
     } catch (e) {
@@ -288,6 +330,12 @@ const ReportsPage = {
                 placeholder="第M340XXXXX号" style="width:200px">
                <button class="btn btn-sm btn-primary ms-1" id="btnSaveTodokide">保存</button>`
           }
+        </div>
+        <div class="col-auto">
+          <strong>物件</strong>
+        </div>
+        <div class="col-auto">
+          <span class="badge bg-primary fs-6">${this.escapeHtml(this.selectedPropertyName())}</span>
         </div>
         <div class="col-auto">
           <strong>報告期間</strong>
@@ -509,7 +557,7 @@ const ReportsPage = {
         const ci = btn.dataset.ci;
         if (!confirm(`${ci} の補正を取消して元の値に戻しますか？`)) return;
         try {
-          await API.reports.removeOverride(this.currentPeriod.id, ci);
+          await API.reports.removeOverride(this.currentPeriod.id, ci, this.selectedPropertyId);
           showToast("完了", `${ci} の補正を取消しました`, "success");
           this.showPreview(this.currentPeriod);
         } catch (e2) {
@@ -547,7 +595,7 @@ const ReportsPage = {
       if (field === "guestCount") newValue = Number(newValue) || 0;
 
       try {
-        await API.reports.saveOverride(this.currentPeriod.id, ci, { [field]: newValue });
+        await API.reports.saveOverride(this.currentPeriod.id, ci, { [field]: newValue }, this.selectedPropertyId);
         showToast("保存", `${ci} を更新`, "success");
         this.showPreview(this.currentPeriod);
       } catch (e) {
@@ -573,10 +621,10 @@ const ReportsPage = {
 
     try {
       if (isSubmitted) {
-        await API.reports.unsubmit(this.currentPeriod.id);
+        await API.reports.unsubmit(this.currentPeriod.id, this.selectedPropertyId);
         showToast("完了", "報告済みを取消しました", "success");
       } else {
-        await API.reports.submit(this.currentPeriod.id, "");
+        await API.reports.submit(this.currentPeriod.id, "", this.selectedPropertyId);
         showToast("完了", "報告済みとして記録しました", "success");
       }
       await this.loadPeriods();
@@ -595,6 +643,11 @@ const ReportsPage = {
     } catch (e) {
       showToast("エラー", `操作失敗: ${e.message}`, "error");
     }
+  },
+
+  selectedPropertyName() {
+    const p = this.properties.find((x) => x.id === this.selectedPropertyId);
+    return p ? (p.name || "") : "全物件";
   },
 
   fmtDate(d) {
