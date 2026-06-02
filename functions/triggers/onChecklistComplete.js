@@ -240,6 +240,39 @@ module.exports = async function onChecklistComplete(event) {
     } catch (_) { /* ログ書き込み失敗は無視 */ }
   }
 
+  // ---- 処理B-2: ゴミ回収依頼通知 (清掃完了時にスタッフが「必要」を選んだ場合のみ) ----
+  // notifyByKey で物件別 channelOverrides.garbage_request を読み ON/OFF を判定
+  if (after.garbageRequest === true) {
+    try {
+      const vars = {
+        date: dateStr,
+        property: propertyName || "",
+        staff: resolvedStaffName,
+        time: timeStr,
+        work: workLabelStr,
+        workType: after.workType || "cleaning",
+        url: checklistUrl,
+      };
+      const garbageMsg = `🗑️ ゴミ回収依頼\n\n${dateStr} ${propertyName || ""}\n${resolvedStaffName}さんの清掃完了時に「ゴミ回収依頼が必要」と報告がありました。\nゴミ回収の手配をお願いします。\n\n詳細: ${checklistUrl}`;
+      await notifyByKey(db, "garbage_request", {
+        title: "ゴミ回収依頼",
+        body: garbageMsg,
+        vars,
+        propertyId: propertyId || null,
+      });
+    } catch (e) {
+      console.error("ゴミ回収依頼通知エラー:", e);
+      try {
+        await db.collection("error_logs").add({
+          type: "onChecklistComplete_garbageRequest",
+          message: e.message,
+          propertyId: propertyId || null,
+          createdAt: new Date(),
+        });
+      } catch (_) { /* ログ書き込み失敗は無視 */ }
+    }
+  }
+
   // ---- 処理C: ランドリー入力リマインド (物件別設定対応) ----
   // notifyByKey で物件別 channelOverrides.laundry_reminder を読み ON/OFFを判定
   try {

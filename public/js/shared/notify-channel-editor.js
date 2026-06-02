@@ -176,6 +176,10 @@
     // 直前点検完了通知 (cleaning_done とは独立して送信先を設定可能)
     { key: "pre_inspection_done", label: "直前点検完了通知", desc: "直前点検チェックリスト完了時にWebアプリ管理者に通知（清掃完了通知とは独立して送信先を設定可能）", icon: "bi-search-heart", group: "cleaning", varGroup: "cleaning", defaultTiming: "immediate",
       defaultMsg: "✨ 直前点検完了\n\n{date} {property}\n{staff}さんが{time}に直前点検を完了しました。\n\n📝 メモ:\n{memos}\n\n📷 写真 ({photoCount}枚):\n{photos}\n\n詳細: {url}" },
+    // ゴミ回収依頼 (清掃完了時にスタッフが「必要」を選んだ物件のみ発火。物件別ON/OFF)
+    { key: "garbage_request", label: "ゴミ回収依頼", desc: "清掃完了時にスタッフが「ゴミ回収依頼が必要」を選んだ時にWebアプリ管理者へ通知。ONにした物件のみ清掃完了画面に確認が表示されます。", icon: "bi-trash", group: "cleaning", varGroup: "cleaning", defaultTiming: "immediate",
+      defaultEnabled: false, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: false,
+      defaultMsg: "🗑️ ゴミ回収依頼\n\n{date} {property}\n{staff}さんの清掃完了時に「ゴミ回収依頼が必要」と報告がありました。\nゴミ回収の手配をお願いします。\n\n詳細: {url}" },
     { key: "laundry_put_out", label: "ランドリー 出した", desc: "スタッフが「洗濯物を出した」ボタンを押した時にWebアプリ管理者等へ通知", icon: "bi-arrow-up-circle", group: "cleaning", varGroup: "laundry", defaultTiming: "immediate",
       defaultMsg: "🧺 ランドリー 出した\n\n{date} {property}\n{staff}さんが{time}に洗濯物を出しました。\n詳細: {url}" },
     { key: "laundry_collected", label: "ランドリー 回収した", desc: "スタッフが「洗濯物を回収した」ボタンを押した時にWebアプリ管理者等へ通知", icon: "bi-arrow-down-circle", group: "cleaning", varGroup: "laundry", defaultTiming: "immediate",

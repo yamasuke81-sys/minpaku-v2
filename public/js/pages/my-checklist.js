@@ -2881,6 +2881,35 @@ const MyChecklistPage = {
       );
       if (!okPhoto) return;
     }
+    // 2.5 ゴミ回収依頼の確認 (物件の通知設定 garbage_request が ON の物件のみ)
+    //     押し間違い防止のため「必要」選択時は2段階確認する
+    let garbageRequest = null; // null=この物件は対象外 / true=依頼する / false=不要
+    try {
+      const pid = c.propertyId || null;
+      if (pid) {
+        const pSnap = await firebase.firestore().collection("properties").doc(pid).get();
+        const gov = pSnap.exists ? (pSnap.data().channelOverrides?.garbage_request) : null;
+        if (gov && gov.enabled === true) {
+          const need = await showConfirm(
+            "この物件のゴミ回収依頼は必要ですか？\n必要な場合のみ「必要」を選んでください。",
+            { title: "ゴミ回収依頼", okLabel: "必要（依頼する）", okClass: "btn-warning", cancelLabel: "不要（依頼しない）" }
+          );
+          if (need) {
+            // 2段階確認 (押し間違い防止)
+            const sure = await showConfirm(
+              "本当にゴミ回収を依頼しますか？\nWebアプリ管理者へ回収依頼の通知が送信されます。",
+              { title: "ゴミ回収依頼の確認", okLabel: "依頼する", okClass: "btn-danger", cancelLabel: "やめる" }
+            );
+            garbageRequest = !!sure;
+          } else {
+            garbageRequest = false;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[completeChecklist] ゴミ回収依頼の確認でエラー (続行):", e.message);
+    }
+
     // 3. ゲスト評価モーダル
     const rating = await this._askGuestRating();
     if (rating === null) return; // キャンセル
@@ -2928,6 +2957,10 @@ const MyChecklistPage = {
         checklistUpdate.cleanlinessRating = rating;
         checklistUpdate.cleanlinessRatedBy = staffId;
         checklistUpdate.cleanlinessRatedAt = firebase.firestore.FieldValue.serverTimestamp();
+      }
+      // ゴミ回収依頼フラグ (対象物件のみ true/false を記録。onChecklistComplete が true 時に通知送信)
+      if (garbageRequest !== null) {
+        checklistUpdate.garbageRequest = garbageRequest;
       }
       await firebase.firestore().collection("checklists").doc(this.checklistId).update(checklistUpdate);
       showToast(completeWorkLabel, "お疲れさまでした！ Webアプリ管理者に通知しました。", "success");
