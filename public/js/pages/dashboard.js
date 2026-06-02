@@ -1261,6 +1261,39 @@ const DashboardPage = {
       </div>`;
     })();
 
+    // 有料駐車場予約エリア (キーボックス送信の直下用: オーナービュー専用)
+    // paidParking が「1台利用」「2台利用」のときのみ表示。
+    // オーナーが石井様へ手動 LINE 後、「予約済にする」ボタンで予約完了を記録する。
+    const ppResHtml = (() => {
+      if (isStaffView) return "";
+      const pp = guestData && guestData.paidParking;
+      const cars = pp === "1台利用" ? 1 : (pp === "2台利用" ? 2 : 0);
+      if (!cars) return ""; // 有料駐車場利用なしなら非表示
+      const gid = guestData && guestData.id;
+      const reservedAt = guestData.paidParkingReservedAt;
+      let ppBadge;
+      if (reservedAt) {
+        const s = (reservedAt.toDate ? reservedAt.toDate() : new Date(reservedAt)).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+        ppBadge = `<span class="badge bg-success"><i class="bi bi-check-circle"></i> 予約済 (${this.esc(s)})</span>`;
+      } else {
+        ppBadge = `<span class="badge bg-warning text-dark"><i class="bi bi-clock"></i> 未予約</span>`;
+      }
+      // 未予約 → 「予約済にする」ボタン / 予約済 → 「予約解除」ボタン
+      const ppBtn = (gid && !reservedAt)
+        ? `<button class="btn btn-sm btn-primary" id="calBtnPaidParkingReserve" data-guest-id="${this.esc(gid)}"><i class="bi bi-p-square"></i> 予約済にする</button>`
+        : "";
+      const ppCancelBtn = (gid && reservedAt)
+        ? `<button class="btn btn-sm btn-outline-danger" id="calBtnPaidParkingCancel" data-guest-id="${this.esc(gid)}"><i class="bi bi-x-circle"></i> 予約解除</button>`
+        : "";
+      return `<div class="d-flex flex-wrap align-items-center gap-2 mb-3 p-2 border rounded bg-light">
+        <i class="bi bi-p-square-fill text-primary" style="font-size:1.2rem;"></i>
+        <span class="fw-semibold small">有料駐車場予約（${cars}台）</span>
+        ${ppBtn}
+        ${ppCancelBtn}
+        <span>${ppBadge}</span>
+      </div>`;
+    })();
+
     // 予約操作ボタン群 (キーボックス直下用: 日程変更 / キャンセル)
     // オーナービュー専用。手動予約削除もここに統合
     const scheduleActionsHtml = (() => {
@@ -1289,6 +1322,8 @@ const DashboardPage = {
       <div class="d-flex gap-2 mb-1 flex-wrap align-items-center">${rosterBadge}${gasImportBtn}</div>
 
       ${kbTopHtml}
+
+      ${ppResHtml}
 
       ${scheduleActionsHtml}
 
@@ -1895,6 +1930,58 @@ const DashboardPage = {
         if (typeof GuestsPage !== "undefined" && typeof GuestsPage.loadGuests === "function") {
           try { await GuestsPage.loadGuests(); } catch (_) {}
         }
+      });
+    }
+
+    // 有料駐車場「予約済にする」ボタン: guestRegistrations.paidParkingReservedAt をセット
+    const btnPpReserve = document.getElementById("calBtnPaidParkingReserve");
+    if (btnPpReserve) {
+      btnPpReserve.addEventListener("click", async () => {
+        const gid = btnPpReserve.dataset.guestId;
+        if (!gid) return;
+        const ok = await showConfirm(
+          `有料駐車場の予約を「予約済」にします。\n\nゲスト: ${guestData.guestName || "-"}\n利用: ${guestData.paidParking || "-"}\n\n石井様への手配完了後に押してください。`,
+          { title: "有料駐車場 予約済にする", okLabel: "予約済にする", okClass: "btn-primary" }
+        );
+        if (!ok) return;
+        try {
+          await firebase.firestore().collection("guestRegistrations").doc(gid).update({
+            paidParkingReservedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+          showToast("完了", "有料駐車場を予約済にしました", "success");
+        } catch (e) {
+          showToast("エラー", `更新失敗: ${e.message}`, "error");
+          return;
+        }
+        const modalInst = bootstrap.Modal.getInstance(modalEl);
+        if (modalInst) modalInst.hide();
+        if (this.refreshCalendar) this.refreshCalendar();
+      });
+    }
+
+    // 有料駐車場「予約解除」ボタン: paidParkingReservedAt を削除
+    const btnPpCancel = document.getElementById("calBtnPaidParkingCancel");
+    if (btnPpCancel) {
+      btnPpCancel.addEventListener("click", async () => {
+        const gid = btnPpCancel.dataset.guestId;
+        if (!gid) return;
+        const ok = await showConfirm(
+          `有料駐車場の予約済を解除しますか？\n\nゲスト: ${guestData.guestName || "-"}\n\n解除後は再度「予約済にする」から記録し直せます。`,
+          { title: "有料駐車場 予約解除", okLabel: "解除する", okClass: "btn-danger" }
+        );
+        if (!ok) return;
+        try {
+          await firebase.firestore().collection("guestRegistrations").doc(gid).update({
+            paidParkingReservedAt: firebase.firestore.FieldValue.delete(),
+          });
+          showToast("完了", "有料駐車場の予約済を解除しました", "success");
+        } catch (e) {
+          showToast("エラー", `解除失敗: ${e.message}`, "error");
+          return;
+        }
+        const modalInst = bootstrap.Modal.getInstance(modalEl);
+        if (modalInst) modalInst.hide();
+        if (this.refreshCalendar) this.refreshCalendar();
       });
     }
 
