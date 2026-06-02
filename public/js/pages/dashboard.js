@@ -1475,6 +1475,18 @@ const DashboardPage = {
             });
           }
 
+          // キーボックス案内メール送信 (guestData.keyboxSentAt)
+          //   ※ messageId を保存していないため Gmail 直通リンクは無し
+          const keyboxSentIso = tsToIso(guestData.keyboxSentAt);
+          if (keyboxSentIso) {
+            guestEvents.push({
+              type: "roster_keybox_mail",
+              timestamp: keyboxSentIso,
+              label: "キーボックス案内メール送信",
+              note: "宿泊者へキーボックス情報を送信",
+            });
+          }
+
           // ===== 照合メール情報を email_confirmed イベントに統合 (gmailRow セクション廃止の代替) =====
           // b.emailMessageId / b.emailSubject が存在する場合、email_confirmed イベントを追加
           // (timelineData 側にも email_confirmed が来る場合は重複しないよう注意)
@@ -2106,6 +2118,7 @@ const DashboardPage = {
       roster_received: "bi-file-earmark-person text-info",
       roster_complete_mail: "bi-envelope-paper-heart text-success",
       roster_updated: "bi-pencil-square text-warning",
+      roster_keybox_mail: "bi-key text-info",
     };
     const fmt = (iso) => {
       if (!iso) return "(時刻不明)";
