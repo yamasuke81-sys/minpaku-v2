@@ -368,6 +368,12 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
 
+    // 定期報告（住宅宿泊事業法14条） — オーナーのみ
+    // reports/{periodId}: 報告済みフラグ・手動補正(overrides)を保持
+    match /reports/{periodId} {
+      allow read, write: if isOwner();
+    }
+
     // お知らせ — 認証済みは閲覧・投稿可能。編集・削除はオーナー or 投稿者本人のみ
     match /announcements/{id} {
       allow read: if isAuthenticated();
