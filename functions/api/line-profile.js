@@ -68,7 +68,22 @@ module.exports = function lineProfileApi(db) {
    * @returns {Promise<string|null>}
    */
   async function resolveToken(propertyId, botIndex) {
-    // 物件の lineChannels を確認
+    const tokens = await resolveTokenList(propertyId, botIndex);
+    return tokens.length ? tokens[0] : null;
+  }
+
+  /**
+   * 解決順のトークン一覧を返す（物件 Bot 群 → グローバル Bot）。
+   * LINE User ID は Bot スコープなので、物件 Bot で 404 でも
+   * グローバル Bot で解決できる場合がある（配信ロジックと同じフォールバック）。
+   *
+   * @param {string} propertyId
+   * @param {number|null} botIndex
+   * @returns {Promise<string[]>} 重複排除済みトークン配列
+   */
+  async function resolveTokenList(propertyId, botIndex) {
+    const tokens = [];
+    // 物件の lineChannels
     if (propertyId) {
       try {
         const propSnap = await db.collection("properties").doc(propertyId).get();
@@ -76,27 +91,29 @@ module.exports = function lineProfileApi(db) {
           const propData = propSnap.data();
           const channels = Array.isArray(propData.lineChannels) ? propData.lineChannels : [];
           if (botIndex != null && channels[botIndex] && channels[botIndex].token) {
-            return channels[botIndex].token;
+            tokens.push(channels[botIndex].token);
+          } else {
+            // botIndex 未指定時は有効トークンを順に
+            channels.forEach(c => { if (c && c.token) tokens.push(c.token); });
           }
-          // botIndex 未指定時は最初の有効トークン
-          const firstValid = channels.find(c => c.token);
-          if (firstValid) return firstValid.token;
         }
       } catch (e) {
         console.warn("[line-profile] 物件データ取得失敗:", e.message);
       }
     }
-    // settings/notifications のグローバルトークンをフォールバック
+    // settings/notifications のグローバルトークン（フォールバック）
     try {
       const settingsSnap = await db.collection("settings").doc("notifications").get();
       if (settingsSnap.exists) {
         const s = settingsSnap.data();
-        return s.lineChannelToken || s.lineToken || null;
+        const g = s.lineChannelToken || s.lineToken || null;
+        if (g) tokens.push(g);
       }
     } catch (e) {
       console.warn("[line-profile] settings/notifications 取得失敗:", e.message);
     }
-    return null;
+    // 重複排除
+    return [...new Set(tokens)];
   }
 
   /**
@@ -166,9 +183,9 @@ module.exports = function lineProfileApi(db) {
       });
     }
 
-    // トークン解決
-    const token = await resolveToken(propertyId, botIndex != null ? parseInt(botIndex, 10) : null);
-    if (!token) {
+    // トークン解決（物件 Bot 群 → グローバル Bot の順に全て試す）
+    const tokens = await resolveTokenList(propertyId, botIndex != null ? parseInt(botIndex, 10) : null);
+    if (!tokens.length) {
       return res.status(200).json({
         userId,
         displayName: userId, // トークン未設定時は ID をそのまま返す
@@ -177,8 +194,12 @@ module.exports = function lineProfileApi(db) {
       });
     }
 
-    // LINE API 呼び出し
-    const result = await lineGet(token, `/v2/bot/profile/${encodeURIComponent(userId)}`);
+    // User ID は Bot スコープのため、解決できる Bot が見つかるまで順に試す
+    let result = { ok: false, error: "未試行" };
+    for (const token of tokens) {
+      result = await lineGet(token, `/v2/bot/profile/${encodeURIComponent(userId)}`);
+      if (result.ok) break;
+    }
     if (!result.ok) {
       return res.status(200).json({
         userId,
@@ -275,9 +296,9 @@ module.exports = function lineProfileApi(db) {
       });
     }
 
-    // トークン解決
-    const token = await resolveToken(propertyId, botIndex != null ? parseInt(botIndex, 10) : null);
-    if (!token) {
+    // トークン解決（物件 Bot 群 → グローバル Bot の順に全て試す）
+    const tokens = await resolveTokenList(propertyId, botIndex != null ? parseInt(botIndex, 10) : null);
+    if (!tokens.length) {
       return res.status(200).json({
         groupId,
         groupName: groupId,
@@ -285,8 +306,12 @@ module.exports = function lineProfileApi(db) {
       });
     }
 
-    // LINE API 呼び出し
-    const result = await lineGet(token, `/v2/bot/group/${encodeURIComponent(groupId)}/summary`);
+    // Group ID も Bot スコープのため、解決できる Bot を順に試す
+    let result = { ok: false, error: "未試行" };
+    for (const token of tokens) {
+      result = await lineGet(token, `/v2/bot/group/${encodeURIComponent(groupId)}/summary`);
+      if (result.ok) break;
+    }
     if (!result.ok) {
       return res.status(200).json({
         groupId,
