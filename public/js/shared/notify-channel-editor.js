@@ -109,6 +109,13 @@
       { name: "alerts",         label: "要対応一覧",        sample: "・5/8 YADO 募集回答待ち",        source: "未確定募集 / 回答未完 等" },
       { name: "url",            label: "管理画面URL",       sample: "https://v2-5-relay.web.app/", source: "固定" },
     ],
+    parking: [
+      { name: "ci",       label: "チェックイン日",   sample: "6/14（土）", source: "名簿 checkIn" },
+      { name: "co",       label: "チェックアウト日", sample: "6/15（日）", source: "名簿 checkOut" },
+      { name: "cars",     label: "駐車台数",         sample: "2",          source: "有料駐車場 1台利用/2台利用" },
+      { name: "fee",      label: "料金合計",         sample: "4,000",      source: "台数 × 2,000円" },
+      { name: "property", label: "物件名",           sample: "the Terrace 長浜", source: "物件" },
+    ],
   };
 
   // ========== 通知定義 ==========
@@ -148,6 +155,9 @@
       defaultMsg: "📨 宿泊者名簿が届きました\n\n{checkin} {property}\nゲスト: {guest}\n詳細: {url}" },
     { key: "roster_updated", label: "名簿更新通知 (修正受信)", desc: "宿泊者が修正リンクから名簿を再送信した時にWebアプリ管理者へ通知", icon: "bi-arrow-repeat", group: "booking", varGroup: "booking", defaultTiming: "immediate",
       defaultMsg: "🔄 宿泊者名簿が更新されました\n\n{checkin} {property}\nゲスト: {guest}\n\n変更内容:\n{changes}\n\n確認: {url}" },
+    { key: "paid_parking_notify", label: "有料駐車場 利用通知", desc: "宿泊者名簿で有料駐車場（1台/2台）が選ばれた時にWebアプリ管理者へ通知。内容をうみとやまとの石井様へLINE転送する運用", icon: "bi-p-square", group: "booking", varGroup: "parking", defaultTiming: "immediate",
+      defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: false,
+      defaultMsg: "有料駐車場利用希望が入りました。うみとやまとの石井様へ下記内容をLINE送信してください。\n\nお世話になっております！\n\n民泊の宿泊者から、御社の駐車場を利用させていただきたいとの申し出がございました。\n\n{ci}17:00〜\n{co}9:30\n\n駐車台数：{cars}台\n\n料金：{fee}円（1台2,000円）\n\nご利用させていただくことは可能でしょうか？" },
     { key: "form_complete_mail_failed", label: "名簿入力サンクスメール 送信失敗", desc: "宿泊者へ送るサンクスメールが送信エラーになった時、Webアプリ管理者等へ通知", icon: "bi-envelope-exclamation", group: "booking", varGroup: "booking", defaultTiming: "immediate",
       defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: true,
       defaultMsg: "⚠️ 完了メール送信失敗\n\n物件: {property}\nゲスト: {guest} ({email})\nエラー: {error}\n\n手動で連絡してください。" },

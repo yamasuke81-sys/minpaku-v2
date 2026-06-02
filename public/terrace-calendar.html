@@ -224,17 +224,19 @@
         ? '<span class="badge bg-success">同意済</span>'
         : '<span class="badge bg-secondary">未同意 / 未記入</span>';
 
+      // 宿泊者一覧 (代表者 + 同行者。氏名は PII のため非表示、年齢/国籍のみ)
       const companions = Array.isArray(b.companions) ? b.companions : [];
-      const compHtml = companions.length ? `
-        <hr><h6 class="mb-2"><i class="bi bi-people"></i> 同行者（${companions.length}名）</h6>
+      const guestRows = [];
+      if (b.hasRoster) guestRows.push({ isRep: true, age: b.repAge, nationality: b.nationality });
+      companions.forEach(c => guestRows.push({ isRep: false, age: c.age, nationality: c.nationality }));
+      const compHtml = guestRows.length ? `
+        <hr><h6 class="mb-2"><i class="bi bi-people"></i> 宿泊者一覧（${guestRows.length}名）</h6>
         <table class="table table-sm table-bordered mb-0">
-          <thead class="table-light"><tr><th>年齢</th><th>国籍</th></tr></thead>
-          <tbody>${companions.map(c => `<tr><td>${v(c.age)}</td><td>${v(c.nationality || "日本")}</td></tr>`).join("")}</tbody>
+          <thead class="table-light"><tr><th>区分</th><th>年齢</th><th>国籍</th></tr></thead>
+          <tbody>${guestRows.map(g => `<tr><td>${g.isRep ? '<span class="badge bg-primary">代表</span>' : '同行者'}</td><td>${v(g.age)}</td><td>${v(g.nationality || (g.isRep ? "-" : "日本"))}</td></tr>`).join("")}</tbody>
         </table>` : "";
 
       const rosterRows = b.hasRoster ? `
-        <tr><th>国籍</th><td>${v(b.nationality)}</td></tr>
-        <tr><th>代表者 年齢</th><td>${v(b.repAge)}</td></tr>
         <tr><th>旅の目的</th><td>${v(b.purpose)}</td></tr>
         <tr><th>BBQ</th><td>${bbqSymbol(b.bbq)}</td></tr>
         <tr><th>交通手段</th><td>${v(b.transport)}</td></tr>

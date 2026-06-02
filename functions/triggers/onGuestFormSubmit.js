@@ -9,6 +9,7 @@
 const crypto = require("crypto");
 const { notifyOwner, notifyByKey, sendNotificationEmail_ } = require("../utils/lineNotify");
 const { renderTemplate, buildGuestSummaryText, getTemplates } = require("../utils/emailTemplates");
+const { notifyPaidParking } = require("../utils/paidParkingNotify");
 // 注: 管理者宛/物件オーナー宛のメール送信は notifyOwner (roster_received) 1本に集約 (2026-04-26)
 //   旧経路 (notifyEmails への直送、subOwners への直送) は重複送信(3通)の原因のため削除済み
 
@@ -364,6 +365,16 @@ module.exports = async function onGuestFormSubmit(event) {
     console.warn("[roster_received] チャネル別エラー:", JSON.stringify(notifyResult.errors));
   }
   console.log(`[roster_received] sent=${JSON.stringify(notifyResult?.sent || {})} errors=${(notifyResult?.errors || []).length}`);
+
+  // === 3.5 有料駐車場 利用通知 (1台/2台のとき。石井様へ転送用) ===
+  try {
+    const ppResult = await notifyPaidParking(db, data, data.propertyId);
+    if (ppResult) {
+      console.log(`[paid_parking_notify] sent=${JSON.stringify(ppResult.sent || {})} errors=${(ppResult.errors || []).length}`);
+    }
+  } catch (e) {
+    console.warn("[paid_parking_notify] 送信失敗:", e.message);
+  }
 
   // === 4. bookingsコレクションとの照合・情報補完 ===
   try {

@@ -1090,11 +1090,32 @@ const DashboardPage = {
     const noiseBadge = guestData.noiseAgree
       ? '<span class="badge bg-success">同意済</span>'
       : '<span class="badge bg-danger">未同意</span>';
-    // 同行者
+    // 宿泊者一覧 (代表者 + 同行者をまとめて表示。氏名/年齢/住所/国籍/旅券番号)
     const companions = guestData.guests || [];
-    const companionsHtml = companions.length > 0 ? `
+    const guestRows = [
+      // 1 行目 = 代表者
+      {
+        isRep: true,
+        name: guestData.guestName || b.guestName || "",
+        age: repAge,
+        address: guestData.address,
+        nationality: guestData.nationality || b.nationality,
+        passportNumber: guestData.passportNumber,
+      },
+      // 2 行目以降 = 同行者
+      ...companions.map(c => ({
+        isRep: false,
+        name: c.name,
+        age: c.age,
+        address: c.address,
+        nationality: c.nationality,
+        passportNumber: c.passportNumber,
+      })),
+    ];
+    const hasAnyGuest = guestRows.some(g => g.name || g.age || g.nationality);
+    const companionsHtml = hasAnyGuest ? `
       <hr>
-      <h6 class="mb-2"><i class="bi bi-people"></i> 同行者（${companions.length}名）</h6>
+      <h6 class="mb-2"><i class="bi bi-people"></i> 宿泊者一覧（${guestRows.length}名）</h6>
       <div class="table-responsive">
         <table class="table table-sm table-bordered mb-0">
           <thead class="table-light"><tr>
@@ -1105,12 +1126,12 @@ const DashboardPage = {
             ${isStaffView ? "" : "<th>旅券番号</th>"}
           </tr></thead>
           <tbody>
-            ${companions.map(c => `<tr>
-              <td>${this.esc(c.name || "-")}</td>
-              <td>${this.esc(c.age || "-")}</td>
-              ${isStaffView ? "" : `<td>${this.esc(c.address || "-")}</td>`}
-              <td>${this.esc(c.nationality || "日本")}</td>
-              ${isStaffView ? "" : `<td>${this.esc(c.passportNumber || "-")}</td>`}
+            ${guestRows.map(g => `<tr>
+              <td>${g.isRep ? '<span class="badge bg-primary me-1">代表</span>' : ''}${this.esc(g.name || "-")}</td>
+              <td>${this.esc(g.age || "-")}</td>
+              ${isStaffView ? "" : `<td>${this.esc(g.address || "-")}</td>`}
+              <td>${this.esc(g.nationality || (g.isRep ? "-" : "日本"))}</td>
+              ${isStaffView ? "" : `<td>${this.esc(g.passportNumber || "-")}</td>`}
             </tr>`).join("")}
           </tbody>
         </table>
@@ -1273,7 +1294,6 @@ const DashboardPage = {
 
       <h6 class="mb-2 text-primary">基本情報</h6>
       <table class="table table-sm table-borderless mb-2">
-        ${isStaffView ? "" : `<tr><th width="110" class="text-muted">ゲスト名</th><td class="fw-bold">${v(b.guestName)}</td></tr>`}
         <tr><th width="110" class="text-muted">チェックイン</th><td>${vd(ci)} <strong>${this.esc(guestData.checkInTime || "--:--")}</strong></td></tr>
         <tr><th class="text-muted">チェックアウト</th><td>${vd(co)} <strong>${this.esc(guestData.checkOutTime || "--:--")}</strong></td></tr>
         <tr><th class="text-muted">宿泊人数</th><td>
@@ -1289,22 +1309,18 @@ const DashboardPage = {
       </table>
 
       ${(() => {
-        // 代表者情報セクション (国籍/年齢=companions, 他=companions/survey)
+        // 代表者の連絡先・目的セクション (氏名/年齢/住所/国籍/旅券番号 は「宿泊者一覧」表に集約)
         // 電話番号: phone と phone2 を両方表示する場合は「/」連結、片方のみなら片方
         const phoneCombined = [guestData.phone, guestData.phone2].filter(Boolean).join(" / ");
-        // 注: 代表者の連絡情報 (氏名/電話番号/メール 等) は予約管理上必須なので
+        // 注: 代表者の連絡情報 (電話番号/メール 等) は予約管理上必須なので
         //     物件のフォーム表示設定 (isFieldVisible) に関係なく**常に表示**する。
         //     スタッフ視点では isStaffView の判定で個別に隠す。
         const rows = [
-          `<tr><th width="110" class="text-muted">国籍</th><td>${v(guestData.nationality || b.nationality)}</td></tr>`,
-          `<tr><th width="110" class="text-muted">年齢</th><td>${v(repAge)}</td></tr>`,
-          isStaffView ? "" : `<tr><th width="110" class="text-muted">住所</th><td>${v(guestData.address)}</td></tr>`,
           isStaffView ? "" : `<tr><th width="110" class="text-muted">電話番号</th><td>${v(phoneCombined)}</td></tr>`,
           isStaffView ? "" : `<tr><th width="110" class="text-muted">メール</th><td>${v(guestData.email)}</td></tr>`,
-          isStaffView ? "" : `<tr><th width="110" class="text-muted">旅券番号</th><td>${v(guestData.passportNumber)}</td></tr>`,
           `<tr><th width="110" class="text-muted">旅の目的</th><td>${v(guestData.purpose)}</td></tr>`,
         ].filter(Boolean).join("");
-        return rows ? `<h6 class="mb-2 text-primary">代表者情報</h6><table class="table table-sm table-borderless mb-2">${rows}</table>` : "";
+        return rows ? `<h6 class="mb-2 text-primary">代表者 連絡先・目的</h6><table class="table table-sm table-borderless mb-2">${rows}</table>` : "";
       })()}
 
       ${(() => {

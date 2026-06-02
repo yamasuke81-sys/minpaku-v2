@@ -75,6 +75,13 @@ const ReservationFlowPage = {
       { name: "changes",       label: "変更内容",        sample: "代表者の年齢: 30 → 35" },
       { name: "confirmUrl",    label: "確認URL",         sample: "https://v2-5-relay.web.app/#/guests?id=xxx" },
     ],
+    parking: [
+      { name: "ci",       label: "チェックイン日",   sample: "6/14（土）" },
+      { name: "co",       label: "チェックアウト日", sample: "6/15（日）" },
+      { name: "cars",     label: "駐車台数",         sample: "2" },
+      { name: "fee",      label: "料金合計",         sample: "4,000" },
+      { name: "property", label: "物件名",           sample: "the Terrace 長浜" },
+    ],
   },
 
   // ========== 通知デフォルト値 (notifications.js の notifications 配列から参照) ==========
@@ -82,6 +89,7 @@ const ReservationFlowPage = {
     recruit_start:      { defaultMsg: "🧹 {work}スタッフ募集\n\n{date} {property}\n{work}スタッフを募集しています。\n回答をお願いします（◎OK / △微妙 / ×NG）\n\n回答: {url}", defaultTiming: "immediate", varGroup: "recruit" },
     double_booking:     { defaultMsg: "【⚠️ ダブルブッキング警告】\n物件: {property}\n日程: {checkin} 〜 {date}\n\n衝突予約が検出されました。至急確認してください。\n確認: {url}", defaultTiming: "immediate", varGroup: "booking" },
     roster_received:    { defaultMsg: "📨 宿泊者名簿が届きました\n\n{checkin} {property}\nゲスト: {guest}\n詳細: {url}", defaultTiming: "immediate", varGroup: "booking" },
+    paid_parking_notify: { defaultMsg: "有料駐車場利用希望が入りました。うみとやまとの石井様へ下記内容をLINE送信してください。\n\nお世話になっております！\n\n民泊の宿泊者から、御社の駐車場を利用させていただきたいとの申し出がございました。\n\n{ci}17:00〜\n{co}9:30\n\n駐車台数：{cars}台\n\n料金：{fee}円（1台2,000円）\n\nご利用させていただくことは可能でしょうか？", defaultTiming: "immediate", varGroup: "parking" },
     form_complete_mail_failed: { defaultMsg: "⚠️ 完了メール送信失敗\n\n物件: {property}\nゲスト: {guest} ({email})\nエラー: {error}\n\n手動で連絡してください。", defaultTiming: "immediate", varGroup: "booking" },
     passport_upload_failed: { defaultMsg: "📷 パスポート写真 アップロード失敗 (3回連続)\n\n物件: {property}\nゲスト: {guest} ({email})\nエラー: {error}\n\nゲストはご予約サイト経由でホストに連絡するよう案内されています。フォローしてください。", defaultTiming: "immediate", varGroup: "booking" },
     roster_updated:    { defaultMsg: "🔄 宿泊者名簿が更新されました\n\n{checkin} {property}\nゲスト: {guest}\n\n変更内容:\n{changes}\n\n確認: {url}", defaultTiming: "immediate", varGroup: "guestUpdate" },
@@ -282,6 +290,21 @@ const ReservationFlowPage = {
       arrowFrom: "guest",
       linkHash: "#/notifications",
       linkLabel: "通知設定",
+    },
+    // 4.5 有料駐車場 利用通知 (うみとやまと石井様への転送用)
+    {
+      key: "paid_parking_notify",
+      label: "有料駐車場 利用通知",
+      icon: "bi-p-square",
+      lane: "owner",
+      phase: 2,
+      track: "guest",
+      globalChannel: "paid_parking_notify",
+      varGroup: "parking",
+      arrowFrom: "guest",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+      hint: "宿泊者名簿で有料駐車場（1台/2台）が選ばれた時にWebアプリ管理者へ通知。内容をうみとやまとの石井様へLINE転送する運用。",
     },
     // 5. 名簿照合エラー通知
     {

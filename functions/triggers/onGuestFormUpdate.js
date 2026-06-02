@@ -10,6 +10,7 @@
  *   - formUpdateMailSentAt で1分以内の再発火を抑制
  */
 const { notifyByKey, sendNotificationEmail_ } = require("../utils/lineNotify");
+const { notifyPaidParking, parseCars } = require("../utils/paidParkingNotify");
 
 // ゲストが実際に入力するフィールドのみ (システムフィールド変更では発火しない)
 const GUEST_INPUT_FIELDS = [
@@ -361,5 +362,19 @@ module.exports = async function onGuestFormUpdate(event) {
     });
   } catch (e) {
     console.error("roster_updated 通知送信エラー:", e.message);
+  }
+
+  // === 3. 有料駐車場 利用通知 (修正で 1台/2台 に変わった場合のみ。submit と二重送信しない) ===
+  try {
+    const carsBefore = parseCars(before && before.paidParking);
+    const carsAfter  = parseCars(after && after.paidParking);
+    if (carsAfter > 0 && carsAfter !== carsBefore) {
+      const ppResult = await notifyPaidParking(db, after, after.propertyId);
+      if (ppResult) {
+        console.log(`[paid_parking_notify] (更新) sent=${JSON.stringify(ppResult.sent || {})}`);
+      }
+    }
+  } catch (e) {
+    console.warn("[paid_parking_notify] (更新) 送信失敗:", e.message);
   }
 };
