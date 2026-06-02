@@ -220,8 +220,6 @@
       const ppl = b.guestCount ? `${esc(b.guestCount)}名` : "-";
       const infants = b.guestCountInfants ? ` <small class="text-muted">乳幼児${esc(b.guestCountInfants)}名</small>` : "";
       const vehicleTypes = (Array.isArray(b.vehicleTypes) && b.vehicleTypes.length) ? b.vehicleTypes.map(esc).join(", ") : "-";
-      const parking = (Array.isArray(b.parkingAllocation) && b.parkingAllocation.length)
-        ? b.parkingAllocation.map(a => `${esc(a.index)}台目(${esc(a.vehicleType)}) → ${esc(a.spotLabel)}`).join("<br>") : "-";
       const noiseBadge = b.noiseAgree
         ? '<span class="badge bg-success">同意済</span>'
         : '<span class="badge bg-secondary">未同意 / 未記入</span>';
@@ -239,15 +237,11 @@
         <tr><th>代表者 年齢</th><td>${v(b.repAge)}</td></tr>
         <tr><th>旅の目的</th><td>${v(b.purpose)}</td></tr>
         <tr><th>BBQ</th><td>${bbqSymbol(b.bbq)}</td></tr>
-        <tr><th>ベッド数（2名宿泊時）</th><td>${v(b.bedChoice)}</td></tr>
         <tr><th>交通手段</th><td>${v(b.transport)}</td></tr>
         <tr><th>車台数</th><td>${b.carCount ? esc(b.carCount) + "台" : "-"}</td></tr>
         <tr><th>車種</th><td>${vehicleTypes}</td></tr>
-        <tr><th>有料駐車場</th><td>${v(b.paidParking)}</td></tr>
-        <tr><th>駐車場割当</th><td>${parking}</td></tr>
+        <tr><th>有料駐車場（うみとやまと）</th><td>${v(b.paidParking)}</td></tr>
         <tr><th>騒音ルール同意</th><td>${noiseBadge}</td></tr>
-        <tr><th>前泊地</th><td>${v(b.previousStay)}</td></tr>
-        <tr><th>後泊地</th><td>${v(b.nextStay)}</td></tr>
       ` : `<tr><td colspan="2" class="text-muted">この予約の宿泊者名簿はまだ記入されていません</td></tr>`;
 
       document.getElementById("bmBody").innerHTML = `
