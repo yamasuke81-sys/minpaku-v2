@@ -418,4 +418,125 @@ router.post("/guest-register", express.json({ limit: "5mb" }), async (req, res) 
   }
 });
 
+// GET /public/terrace-calendar?from=YYYY-MM-DD&to=YYYY-MM-DD
+// the Terrace 長浜 専用 公開カレンダー (近隣住民向け / ログイン不要)
+// 確定予約 (status=confirmed) のみ返す。
+// PII は一切返さない: 氏名・住所・電話番号・メール・旅券番号・パスポート写真・緊急連絡先 は除外。
+// 近隣が知りたい非個人情報 (滞在期間・人数・予約サイト・車/駐車・BBQ・騒音同意・目的等) のみ返す。
+const TERRACE_NAGAHAMA_ID = "tsZybhDMcPrxqgcRy7wp";
+
+router.get("/terrace-calendar", async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const pid = TERRACE_NAGAHAMA_ID;
+
+    // 期間決定 (未指定なら当月 1日〜月末 / JST基準)
+    const todayJst = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    let from = String(req.query.from || "").slice(0, 10);
+    let to = String(req.query.to || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) from = `${todayJst.slice(0, 7)}-01`;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      const [y, m] = from.split("-").map(Number);
+      const last = new Date(Date.UTC(y, m, 0)).getUTCDate(); // from の月末日
+      to = `${from.slice(0, 7)}-${String(last).padStart(2, "0")}`;
+    }
+    // 連泊が窓の前から続くケースを拾うため、取得下限を 31 日前まで広げる
+    const fromBuf = (() => {
+      const d = new Date(`${from}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() - 31);
+      return d.toISOString().slice(0, 10);
+    })();
+
+    // 物件名
+    let propertyName = "the Terrace 長浜";
+    try {
+      const propDoc = await db.collection("properties").doc(pid).get();
+      if (propDoc.exists && propDoc.data().name) propertyName = propDoc.data().name;
+    } catch (_) {}
+
+    // 予約取得 (propertyId + checkIn の既存インデックスを使用、status はメモリ側で絞る)
+    const bSnap = await db.collection("bookings")
+      .where("propertyId", "==", pid)
+      .where("checkIn", ">=", fromBuf)
+      .where("checkIn", "<=", to)
+      .orderBy("checkIn", "asc")
+      .get();
+
+    // guestRegistrations を物件分まとめて取得 (propertyId 単一フィールドのみ → 自動インデックス)
+    // 複合キー (`pid_checkIn`) と bookingId でマップ化
+    const gSnap = await db.collection("guestRegistrations").where("propertyId", "==", pid).get();
+    const gByKey = new Map();
+    const gById = new Map();
+    gSnap.forEach((doc) => {
+      const d = doc.data();
+      if (!["submitted", "confirmed"].includes(d.status || "")) return; // 提出済/確定のみ
+      const ci = String(d.checkIn || "").slice(0, 10);
+      if (ci) {
+        const k = `${pid}_${ci}`;
+        if (!gByKey.has(k)) gByKey.set(k, d);
+      }
+      if (d.bookingId) gById.set(d.bookingId, d);
+    });
+
+    const spotLabel = (k) => ({ unpaved: "未舗装駐車場", spot1: "1番", spot5: "5番", paid: "有料駐車場" }[k] || k || "");
+
+    const bookings = [];
+    bSnap.forEach((doc) => {
+      const b = doc.data();
+      if ((b.status || "") !== "confirmed") return; // 確定予約のみ
+      const ci = String(b.checkIn || "").slice(0, 10);
+      const co = String(b.checkOut || "").slice(0, 10);
+      if (!ci || !co) return;
+      if (co <= from) return; // 窓より前に終了する連泊は除外
+
+      // 名簿データ解決: bookingId 優先 → 複合キー
+      const g = gById.get(doc.id) || gByKey.get(`${pid}_${ci}`) || {};
+
+      // 同行者は 年齢・国籍 のみ (氏名・住所・旅券番号は返さない)
+      const companions = Array.isArray(g.guests)
+        ? g.guests.map((c) => ({ age: c.age || "", nationality: c.nationality || "日本" }))
+        : [];
+      const parkingAllocation = Array.isArray(g.parkingAllocation)
+        ? g.parkingAllocation.map((a) => ({
+            index: a.index,
+            vehicleType: a.vehicleType || "",
+            spotLabel: spotLabel(a.spot),
+          }))
+        : [];
+
+      bookings.push({
+        id: doc.id,
+        checkIn: ci,
+        checkOut: co,
+        checkInTime: g.checkInTime || "",
+        checkOutTime: g.checkOutTime || "",
+        source: b.source || b.bookingSite || "",
+        guestCount: b.guestCount || g.guestCount || null,
+        guestCountInfants: g.guestCountInfants || null,
+        nationality: g.nationality || b.nationality || "",
+        repAge: (g.allGuests && g.allGuests[0] && g.allGuests[0].age) || "",
+        purpose: g.purpose || "",
+        bbq: g.bbq === undefined ? null : g.bbq,
+        bedChoice: g.bedChoice || "",
+        transport: g.transport || "",
+        carCount: g.carCount || null,
+        vehicleTypes: Array.isArray(g.vehicleTypes) ? g.vehicleTypes : [],
+        paidParking: g.paidParking || "",
+        parkingAllocation,
+        noiseAgree: g.noiseAgree === true,
+        previousStay: g.previousStay || "",
+        nextStay: g.nextStay || "",
+        companions,
+        hasRoster: Object.keys(g).length > 0,
+      });
+    });
+
+    res.set("Cache-Control", "public, max-age=300"); // 5分キャッシュ
+    res.json({ propertyId: pid, propertyName, from, to, bookings });
+  } catch (e) {
+    console.error("[public/terrace-calendar]", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;

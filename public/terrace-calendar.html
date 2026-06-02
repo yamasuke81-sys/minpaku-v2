@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>the Terrace 長浜 予約状況</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <style>
+    :root { --cellW: 44px; --rowH: 60px; }
+    body { background: #f0f4f8; }
+    .page-header { background: linear-gradient(135deg, #2c3e50, #3498db); color: #fff; padding: 1rem 1rem 1.2rem; }
+    .page-header h1 { font-size: 1.15rem; margin: 0; font-weight: 700; }
+    .page-header p { margin: 0.3rem 0 0; font-size: 0.82rem; opacity: 0.85; }
+    .cal-wrap { max-width: 1000px; margin: 0 auto; }
+    .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: #555; align-items: center; }
+    .legend .dot { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; }
+    /* 横スクロールカレンダー */
+    .cal-scroll { overflow-x: auto; border: 1px solid #dee2e6; border-radius: 8px; background: #fff; -webkit-overflow-scrolling: touch; }
+    .cal-inner { position: relative; }
+    .cal-head { display: flex; border-bottom: 2px solid #dee2e6; position: sticky; top: 0; z-index: 5; background: #fff; }
+    .cal-corner { flex: 0 0 110px; min-width: 110px; position: sticky; left: 0; z-index: 6; background: #f8f9fa; border-right: 2px solid #dee2e6; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: #495057; }
+    .cal-day-hd { flex: 0 0 var(--cellW); width: var(--cellW); text-align: center; font-size: 11px; padding: 4px 0; border-right: 1px solid #f0f0f0; color: #555; }
+    .cal-day-hd .dow { font-size: 10px; color: #999; }
+    .cal-day-hd.sat { background: #eef5ff; color: #0d6efd; }
+    .cal-day-hd.sun { background: #fff0f0; color: #dc3545; }
+    .cal-day-hd.today { background: #fff7e0; font-weight: 700; }
+    .cal-row { display: flex; position: relative; height: var(--rowH); border-bottom: 1px solid #eee; }
+    .cal-rowlabel { flex: 0 0 110px; min-width: 110px; position: sticky; left: 0; z-index: 4; background: #fff; border-right: 2px solid #dee2e6; display: flex; align-items: center; padding: 0 8px; font-size: 12px; font-weight: 600; color: #2c3e50; }
+    .cal-track { position: relative; flex: 1 1 auto; }
+    .cal-cell { position: absolute; top: 0; bottom: 0; width: var(--cellW); border-right: 1px solid #f3f3f3; box-sizing: border-box; }
+    .cal-cell.sat { background: #f5f9ff; }
+    .cal-cell.sun { background: #fff7f7; }
+    .cal-cell.today { background: #fffbe9; }
+    .cal-bar { position: absolute; height: 24px; border-radius: 5px; color: #fff; font-size: 11px; font-weight: 600; display: flex; align-items: center; padding: 0 8px; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.2); overflow: hidden; white-space: nowrap; transition: filter .12s; }
+    .cal-bar:hover { filter: brightness(1.08); }
+    .empty-note { text-align: center; color: #888; padding: 28px 12px; font-size: 13px; }
+    .modal-body th { color: #6c757d; font-weight: 600; white-space: nowrap; width: 120px; }
+    .pii-note { font-size: 11px; color: #999; }
+  </style>
+</head>
+<body>
+  <div class="page-header">
+    <div class="cal-wrap">
+      <h1><i class="bi bi-calendar-check"></i> <span id="propName">the Terrace 長浜</span> 予約状況</h1>
+      <p>近隣のみなさま向けの予約状況カレンダーです。宿泊者の個人情報（氏名・住所・連絡先・旅券・写真）は表示していません。</p>
+    </div>
+  </div>
+
+  <div class="cal-wrap p-3">
+    <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+      <button class="btn btn-outline-secondary btn-sm" id="btnPrev"><i class="bi bi-chevron-left"></i></button>
+      <span class="fw-bold" id="monthLabel" style="min-width:120px;text-align:center;"></span>
+      <button class="btn btn-outline-secondary btn-sm" id="btnNext"><i class="bi bi-chevron-right"></i></button>
+      <button class="btn btn-outline-primary btn-sm" id="btnToday">今日</button>
+      <div class="legend ms-auto">
+        <span><span class="dot" style="background:#ff5a5f"></span>Airbnb</span>
+        <span><span class="dot" style="background:#003580"></span>Booking.com</span>
+        <span><span class="dot" style="background:#0d6efd"></span>直接予約</span>
+      </div>
+    </div>
+
+    <div class="cal-scroll" id="calScroll">
+      <div class="cal-inner" id="calInner">
+        <div class="empty-note"><span class="spinner-border spinner-border-sm me-2"></span>読み込み中...</div>
+      </div>
+    </div>
+    <p class="pii-note mt-2 mb-0"><i class="bi bi-shield-lock"></i> このページは確定済みの予約のみを表示します。表示内容は最大5分ほど遅れて反映される場合があります。</p>
+  </div>
+
+  <!-- 予約詳細モーダル -->
+  <div class="modal fade" id="bookingModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="bmTitle"></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body" id="bmBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    const API = "https://api-5qrfx7ujcq-an.a.run.app/public/terrace-calendar";
+    const DOW = ["日", "月", "火", "水", "木", "金", "土"];
+    let state = { year: 0, month: 0, bookings: [] }; // month: 1-12
+
+    function esc(s) {
+      return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+    function pad(n) { return String(n).padStart(2, "0"); }
+    function ymd(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+    function parseDate(s) { const [y, m, d] = String(s).slice(0, 10).split("-").map(Number); return new Date(y, m - 1, d); }
+    function daysBetween(a, b) { return Math.round((parseDate(b) - parseDate(a)) / 86400000); }
+    function addDays(s, n) { const d = parseDate(s); d.setDate(d.getDate() + n); return ymd(d); }
+    function formatDateFull(s) { if (!s) return "-"; const d = parseDate(s); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日(${DOW[d.getDay()]})`; }
+
+    function todayJst() {
+      const d = new Date(Date.now() + 9 * 3600 * 1000);
+      return d.toISOString().slice(0, 10);
+    }
+    function sourceInfo(src) {
+      const s = String(src || "").toLowerCase();
+      if (s.includes("airbnb")) return { color: "#ff5a5f", label: "Airbnb" };
+      if (s.includes("booking")) return { color: "#003580", label: "Booking.com" };
+      return { color: "#0d6efd", label: src ? esc(src) : "直接予約" };
+    }
+    function bbqSymbol(v) {
+      if (v === true) return "◎";
+      if (v === false) return "×";
+      const s = String(v == null ? "" : v).toLowerCase();
+      if (["yes", "y", "はい", "あり", "true", "1"].includes(s)) return "◎";
+      if (["no", "n", "いいえ", "なし", "false", "0"].includes(s)) return "×";
+      return v ? esc(v) : "−";
+    }
+
+    async function load() {
+      const from = `${state.year}-${pad(state.month)}-01`;
+      const lastDay = new Date(state.year, state.month, 0).getDate();
+      const to = `${state.year}-${pad(state.month)}-${pad(lastDay)}`;
+      document.getElementById("monthLabel").textContent = `${state.year}年${state.month}月`;
+      const inner = document.getElementById("calInner");
+      inner.innerHTML = `<div class="empty-note"><span class="spinner-border spinner-border-sm me-2"></span>読み込み中...</div>`;
+      try {
+        const r = await fetch(`${API}?from=${from}&to=${to}`);
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || "取得失敗");
+        state.bookings = data.bookings || [];
+        if (data.propertyName) document.getElementById("propName").textContent = data.propertyName;
+        render(from, to);
+      } catch (e) {
+        inner.innerHTML = `<div class="empty-note text-danger"><i class="bi bi-exclamation-triangle"></i> 読み込みに失敗しました: ${esc(e.message)}</div>`;
+      }
+    }
+
+    function render(from, to) {
+      const inner = document.getElementById("calInner");
+      const lastDay = new Date(state.year, state.month, 0).getDate();
+      const today = todayJst();
+      const cellW = 44;
+
+      // ヘッダー (日付列)
+      let headCells = "";
+      let cellBgs = "";
+      for (let day = 1; day <= lastDay; day++) {
+        const ds = `${state.year}-${pad(state.month)}-${pad(day)}`;
+        const dow = parseDate(ds).getDay();
+        const cls = dow === 0 ? "sun" : dow === 6 ? "sat" : "";
+        const todayCls = ds === today ? " today" : "";
+        headCells += `<div class="cal-day-hd ${cls}${todayCls}"><div>${day}</div><div class="dow">${DOW[dow]}</div></div>`;
+        const left = (day - 1) * cellW;
+        cellBgs += `<div class="cal-cell ${cls}${todayCls}" style="left:${left}px"></div>`;
+      }
+
+      // 予約バー
+      const propName = document.getElementById("propName").textContent;
+      let bars = "";
+      const lanes = []; // 重なり対策のレーン (lane[i] = 最後に埋まった日のindex)
+      const sorted = [...state.bookings].sort((a, b) => a.checkIn.localeCompare(b.checkIn));
+      sorted.forEach((b, i) => {
+        const barStart = b.checkIn < from ? from : b.checkIn;          // 表示開始日
+        const barEndExcl = b.checkOut > addDays(to, 1) ? addDays(to, 1) : b.checkOut; // 退去日(非占有)
+        const span = daysBetween(barStart, barEndExcl);
+        if (span <= 0) return;
+        const startIdx = daysBetween(from, barStart);
+        // レーン決定
+        let lane = 0;
+        while (lane < lanes.length && lanes[lane] > startIdx) lane++;
+        if (lane === lanes.length) lanes.push(0);
+        lanes[lane] = startIdx + span;
+        const si = sourceInfo(b.source);
+        const left = startIdx * cellW + 1;
+        const width = span * cellW - 2;
+        const top = 6 + lane * 26;
+        const ppl = b.guestCount ? `${b.guestCount}名` : "";
+        const carryL = b.checkIn < from ? "◀ " : "";
+        const carryR = b.checkOut > addDays(to, 1) ? " ▶" : "";
+        bars += `<div class="cal-bar" data-idx="${i}" title="${esc(si.label)} ${esc(ppl)}"
+          style="left:${left}px;width:${width}px;top:${top}px;background:${si.color}">${carryL}${esc(ppl || si.label)}${carryR}</div>`;
+      });
+      const trackW = lastDay * cellW;
+      const rowH = Math.max(60, 12 + lanes.length * 26);
+
+      inner.innerHTML = `
+        <div class="cal-head">
+          <div class="cal-corner">日付 →</div>
+          <div style="display:flex">${headCells}</div>
+        </div>
+        <div class="cal-row" style="height:${rowH}px">
+          <div class="cal-rowlabel">${esc(propName)}</div>
+          <div class="cal-track" style="width:${trackW}px;min-width:${trackW}px">
+            ${cellBgs}
+            ${bars}
+          </div>
+        </div>
+      `;
+      if (sorted.length === 0) {
+        inner.insertAdjacentHTML("beforeend", `<div class="empty-note"><i class="bi bi-moon-stars"></i> この月の確定予約はありません</div>`);
+      }
+
+      // バークリック → モーダル
+      inner.querySelectorAll(".cal-bar").forEach(el => {
+        el.addEventListener("click", () => showModal(sorted[Number(el.dataset.idx)]));
+      });
+
+      // 今日が見えるよう少しスクロール
+      const todayDay = today.startsWith(`${state.year}-${pad(state.month)}`) ? Number(today.slice(8, 10)) : 0;
+      if (todayDay > 3) document.getElementById("calScroll").scrollLeft = (todayDay - 3) * cellW;
+    }
+
+    function showModal(b) {
+      const si = sourceInfo(b.source);
+      const v = (x) => (x === null || x === undefined || x === "") ? "-" : esc(String(x));
+      document.getElementById("bmTitle").innerHTML =
+        `<i class="bi bi-calendar-event"></i> 予約詳細 <span class="badge" style="background:${si.color}">${esc(si.label)}</span>`;
+
+      const ppl = b.guestCount ? `${esc(b.guestCount)}名` : "-";
+      const infants = b.guestCountInfants ? ` <small class="text-muted">乳幼児${esc(b.guestCountInfants)}名</small>` : "";
+      const vehicleTypes = (Array.isArray(b.vehicleTypes) && b.vehicleTypes.length) ? b.vehicleTypes.map(esc).join(", ") : "-";
+      const parking = (Array.isArray(b.parkingAllocation) && b.parkingAllocation.length)
+        ? b.parkingAllocation.map(a => `${esc(a.index)}台目(${esc(a.vehicleType)}) → ${esc(a.spotLabel)}`).join("<br>") : "-";
+      const noiseBadge = b.noiseAgree
+        ? '<span class="badge bg-success">同意済</span>'
+        : '<span class="badge bg-secondary">未同意 / 未記入</span>';
+
+      const companions = Array.isArray(b.companions) ? b.companions : [];
+      const compHtml = companions.length ? `
+        <hr><h6 class="mb-2"><i class="bi bi-people"></i> 同行者（${companions.length}名）</h6>
+        <table class="table table-sm table-bordered mb-0">
+          <thead class="table-light"><tr><th>年齢</th><th>国籍</th></tr></thead>
+          <tbody>${companions.map(c => `<tr><td>${v(c.age)}</td><td>${v(c.nationality || "日本")}</td></tr>`).join("")}</tbody>
+        </table>` : "";
+
+      const rosterRows = b.hasRoster ? `
+        <tr><th>国籍</th><td>${v(b.nationality)}</td></tr>
+        <tr><th>代表者 年齢</th><td>${v(b.repAge)}</td></tr>
+        <tr><th>旅の目的</th><td>${v(b.purpose)}</td></tr>
+        <tr><th>BBQ</th><td>${bbqSymbol(b.bbq)}</td></tr>
+        <tr><th>ベッド数（2名宿泊時）</th><td>${v(b.bedChoice)}</td></tr>
+        <tr><th>交通手段</th><td>${v(b.transport)}</td></tr>
+        <tr><th>車台数</th><td>${b.carCount ? esc(b.carCount) + "台" : "-"}</td></tr>
+        <tr><th>車種</th><td>${vehicleTypes}</td></tr>
+        <tr><th>有料駐車場</th><td>${v(b.paidParking)}</td></tr>
+        <tr><th>駐車場割当</th><td>${parking}</td></tr>
+        <tr><th>騒音ルール同意</th><td>${noiseBadge}</td></tr>
+        <tr><th>前泊地</th><td>${v(b.previousStay)}</td></tr>
+        <tr><th>後泊地</th><td>${v(b.nextStay)}</td></tr>
+      ` : `<tr><td colspan="2" class="text-muted">この予約の宿泊者名簿はまだ記入されていません</td></tr>`;
+
+      document.getElementById("bmBody").innerHTML = `
+        <table class="table table-sm mb-0">
+          <tr><th>チェックイン</th><td>${formatDateFull(b.checkIn)} <strong>${v(b.checkInTime || "--:--")}</strong></td></tr>
+          <tr><th>チェックアウト</th><td>${formatDateFull(b.checkOut)} <strong>${v(b.checkOutTime || "--:--")}</strong></td></tr>
+          <tr><th>宿泊人数</th><td>${ppl}${infants}</td></tr>
+          <tr><th>予約サイト</th><td>${esc(si.label)}</td></tr>
+          ${rosterRows}
+        </table>
+        ${compHtml}
+        <p class="pii-note mt-3 mb-0"><i class="bi bi-shield-lock"></i> 個人を特定する情報（氏名・住所・電話番号・旅券番号・パスポート写真）は表示していません。</p>
+      `;
+      const m = bootstrap.Modal.getOrCreateInstance(document.getElementById("bookingModal"));
+      m.show();
+    }
+
+    function shiftMonth(delta) {
+      let m = state.month + delta, y = state.year;
+      if (m < 1) { m = 12; y--; } else if (m > 12) { m = 1; y++; }
+      state.year = y; state.month = m;
+      load();
+    }
+
+    document.getElementById("btnPrev").addEventListener("click", () => shiftMonth(-1));
+    document.getElementById("btnNext").addEventListener("click", () => shiftMonth(1));
+    document.getElementById("btnToday").addEventListener("click", () => {
+      const t = todayJst(); state.year = Number(t.slice(0, 4)); state.month = Number(t.slice(5, 7)); load();
+    });
+
+    // 初期表示: 当月
+    const t = todayJst();
+    state.year = Number(t.slice(0, 4));
+    state.month = Number(t.slice(5, 7));
+    load();
+  </script>
+</body>
+</html>
