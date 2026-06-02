@@ -473,9 +473,23 @@
     const iconEl = iconStyle
       ? `<i class="bi ${icon}" style="${iconStyle}"></i>`
       : `<i class="bi ${icon}"></i>`;
+    // 送信元注記の整形: "(送信元: X)" の外側括弧を外し「送信元:」ラベル + 値バッジに分解。
+    // 受信先行と同じ「ラベル: バッジ」形式に統一する (表示形式の統一)。
+    let senderValue = "";
+    if (subLabel) {
+      const inner = subLabel.replace(/^\(/, "").replace(/\)$/, ""); // 外側括弧除去
+      const m = inner.match(/^送信元:\s*(.*)$/);
+      senderValue = m ? m[1] : inner;
+    }
+    const senderRow = subLabel
+      ? `<div class="ps-4 mt-1 d-flex align-items-center gap-1 flex-wrap">
+          <span class="text-muted" style="font-size:0.72em;white-space:nowrap;">送信元:</span>
+          <span class="badge bg-light text-dark border" style="font-size:0.72em;max-width:100%;overflow:hidden;text-overflow:ellipsis;" title="${senderValue}">${senderValue}</span>
+        </div>`
+      : "";
     // 4行構成:
     //   1行目: チェックボックス + アイコン+見出し + (右端) ✏️↗
-    //   2行目: 送信元注記 (薄字)
+    //   2行目: 送信元ラベル + 値バッジ (受信先と同形式)
     //   3行目: 値バッジ + フォールバックバッジ（送信元設定値）
     //   4行目: 受信先ラベル + 名前/アドレスバッジ
     return `
@@ -489,7 +503,7 @@
           </label>
           ${actionsPlaceholder}
         </div>
-        ${subLabel ? `<div class="text-muted ps-4" style="font-size:0.72em;line-height:1.2;">${subLabel}</div>` : ""}
+        ${senderRow}
         <div class="ps-4 mt-1">${valuePlaceholder}</div>
         <div class="ps-4 mt-1 d-flex align-items-center gap-1 flex-wrap">
           <span class="text-muted" style="font-size:0.72em;white-space:nowrap;">受信先:</span>

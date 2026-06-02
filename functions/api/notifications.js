@@ -276,16 +276,18 @@ module.exports = function notificationsApi(db) {
             const owned = Array.isArray(s.ownedPropertyIds) ? s.ownedPropertyIds : [];
             if (!owned.includes(propertyId)) continue;
           }
-          if (targets.subOwnerLine && s.subOwnerLineUserId) {
+          // subOwnerLineUserId 未設定なら lineUserId にフォールバック (notifySubOwners と同じ)
+          const soLineId = s.subOwnerLineUserId || s.lineUserId;
+          if (targets.subOwnerLine && soLineId) {
             // 物件別 Bot 優先 → 失敗時グローバル Bot にフォールバック (notifySubOwners と同じパターン)
             try {
               const { sendLineMessage } = require("../utils/lineNotify");
               let r = { success: false, error: "no-token" };
               if (propBotToken) {
-                r = await sendLineMessage(propBotToken, s.subOwnerLineUserId, body);
+                r = await sendLineMessage(propBotToken, soLineId, body);
               }
               if (!r.success && channelToken) {
-                r = await sendLineMessage(channelToken, s.subOwnerLineUserId, body);
+                r = await sendLineMessage(channelToken, soLineId, body);
               }
               if (r.success) soLine++; else soFail++;
             } catch (e) { soFail++; }

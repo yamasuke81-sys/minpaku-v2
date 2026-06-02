@@ -859,15 +859,18 @@
         return `<span class="text-muted" style="font-size:0.72em;font-style:italic;">（未設定）</span>`;
       }
 
-      // LINE ユーザー/グループの場合: 「取得中...」→ 非同期で名前に差し替え
+      // LINE ユーザー/グループの場合: まず既知名(スタッフ名)を出し、非同期で正規の LINE アカウント名に差し替え
       if (info.isLine && info.lineIds.length) {
         const spans = info.lineIds.map((id, i) => {
-          // staffLine / subOwnerLine の場合は既知の名前を使う
+          // staffLine / subOwnerLine はスタッフ名を初期表示 & フォールバックに使う
           const knownName = info.names ? info.names[i] : null;
           const shortId = truncate(id, 12);
-          const displayText = knownName
+          // 送信元と同様、受信先も正規の LINE 表示名を API で解決する。
+          // data-fallback-name にスタッフ名を持たせ、解決失敗時はそれを使う。
+          const initial = knownName
             ? `${escapeHtml(knownName)} (${escapeHtml(shortId)})`
-            : `<span class="line-name-loading" data-line-id="${escapeHtml(id)}" data-pid="${escapeHtml(propertyId || "")}" data-is-group="${info.isGroup ? "1" : "0"}">${escapeHtml(shortId)}</span>`;
+            : escapeHtml(shortId);
+          const displayText = `<span class="line-name-loading" data-line-id="${escapeHtml(id)}" data-pid="${escapeHtml(propertyId || "")}" data-is-group="${info.isGroup ? "1" : "0"}" data-fallback-name="${escapeHtml(knownName || "")}">${initial}</span>`;
           return `<span class="badge bg-primary-subtle text-primary border ms-1" style="font-size:0.72em;" title="${escapeHtml(id)}">
             <i class="bi bi-line" style="font-size:0.9em;"></i> ${displayText}
           </span>`;
@@ -892,14 +895,20 @@
         const lineId = span.dataset.lineId;
         const pid = span.dataset.pid || propertyId;
         const isGroup = span.dataset.isGroup === "1";
+        const fallbackName = span.dataset.fallbackName || "";
         try {
           const name = isGroup
             ? await fetchLineGroupName(lineId, pid)
             : await fetchLineUserName(lineId, pid);
           const shortId = truncate(lineId, 12);
-          span.textContent = name !== lineId
-            ? `${name} (${shortId})`
-            : shortId;
+          // 正規の LINE 表示名 > スタッフ名(フォールバック) > shortId の順で表示
+          if (name && name !== lineId) {
+            span.textContent = `${name} (${shortId})`;
+          } else if (fallbackName) {
+            span.textContent = `${fallbackName} (${shortId})`;
+          } else {
+            span.textContent = shortId;
+          }
           span.classList.remove("line-name-loading");
         } catch (e) {
           console.warn("[NotifyTargetEditor] LINE 名前解決失敗:", e.message);
