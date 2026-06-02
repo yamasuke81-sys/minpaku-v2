@@ -156,7 +156,6 @@
       }
 
       // 予約バー
-      const propName = document.getElementById("propName").textContent;
       let bars = "";
       const lanes = []; // 重なり対策のレーン (lane[i] = 最後に埋まった日のindex)
       const sorted = [...state.bookings].sort((a, b) => a.checkIn.localeCompare(b.checkIn));
@@ -190,7 +189,7 @@
           <div style="display:flex">${headCells}</div>
         </div>
         <div class="cal-row" style="height:${rowH}px">
-          <div class="cal-rowlabel">${esc(propName)}</div>
+          <div class="cal-rowlabel"></div>
           <div class="cal-track" style="width:${trackW}px;min-width:${trackW}px">
             ${cellBgs}
             ${bars}
