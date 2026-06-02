@@ -2368,24 +2368,9 @@ const MyChecklistPage = {
           }, { merge: true });
         } catch (e) { console.warn("プリカ残高/購入処理失敗:", e.message); }
       }
-      // laundry コレクションにも記録 (請求書自動集計用)
-      // 立替金フラグ: cash/credit はスタッフ立替、prepaid/invoice はWebアプリ管理者支払(請求書除外)
-      const isReimbursable = info.paymentMethod === "cash" || info.paymentMethod === "credit";
-      try {
-        await firebase.firestore().collection("laundry").add({
-          date: new Date(),
-          staffId: this.staffDoc?.id || "",
-          propertyId: this.checklist?.propertyId || "",
-          amount: Number(info.amount) || 0,
-          depot: info.depot || "",
-          depotOther: info.depotOther || "",
-          paymentMethod: info.paymentMethod || "",
-          isReimbursable,  // 請求書集計時にこのフラグで立替金のみ加算
-          memo: info.note || "",
-          checklistId: this.checklistId,
-          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        });
-      } catch (e) { console.warn("laundry 集計追加失敗:", e.message); }
+      // laundry コレクションへの登録はサーバートリガー(onChecklistLaundryChange)が
+      // sourceChecklistId+sourceField で冪等に行うため、ここでは直接 add しない
+      // (二重書き込み防止: クライアント直書きすると重複レコードが生成されていた)
     } else {
       patch[`laundry.${key}`] = { at: firebase.firestore.FieldValue.serverTimestamp(), by };
     }
