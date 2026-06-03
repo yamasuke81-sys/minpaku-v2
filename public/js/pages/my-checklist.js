@@ -878,7 +878,7 @@ const MyChecklistPage = {
     if (navList.length <= 1) {
       // 1件以下なら前後移動の意味がないので非表示
       navEl.style.setProperty("display", "none", "important");
-      requestAnimationFrame(() => this._applyHeaderLayout());
+      this._relayoutAll();
       return;
     }
     navEl.style.setProperty("display", "flex", "important");
@@ -924,7 +924,17 @@ const MyChecklistPage = {
       if (target) go(target.shiftId);
     };
 
-    requestAnimationFrame(() => this._applyHeaderLayout());
+    // ナビ行の表示でヘッダー高さが変わるため、ヘッダーと上位タブ両方のレイアウトを再計算
+    this._relayoutAll();
+  },
+
+  // ヘッダー + 上位タブ/完了ボタン/大カテゴリタブの sticky 位置をまとめて再計算
+  // (日付ナビが async 表示されてヘッダー高さが変わった後に呼ぶ)
+  _relayoutAll() {
+    requestAnimationFrame(() => {
+      this._applyHeaderLayout();
+      if (typeof this._tabsResizeHandler === "function") this._tabsResizeHandler();
+    });
   },
 
   // ヘルパー用 URL コピー + 統合 QR モーダル (ヘルパー + タイミー 上下に並べて表示)
