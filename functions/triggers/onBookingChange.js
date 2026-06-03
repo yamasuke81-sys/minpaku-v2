@@ -286,7 +286,15 @@ module.exports = async function onBookingChange(event) {
     try {
       const ciChanged = before.checkIn && after.checkIn && before.checkIn !== after.checkIn;
       const coChanged = before.checkOut && after.checkOut && before.checkOut !== after.checkOut;
-      if (ciChanged || coChanged) {
+      // 売り止め/匿名ブロック (実ゲストなし) は変更通知を抑制 (cancel 側と対称)
+      // Airbnb の予約可能期間ローリング境界が Booking.com 経由で取り込まれ、
+      // 日付が毎日ズレて「予約変更」が毎日誤発火するのを防ぐ。
+      // 判定はプレースホルダ名ベース: 実名のある予約 (unverified=true でも) は誤抑制しない。
+      // (Booking.com 匿名ブロックは guestName="Booking.com予約" 固定。実名予約は照合前でも実名を持つ)
+      const isAnonymousBlock = after.guestName === "Booking.com予約" || !after.guestName;
+      if ((ciChanged || coChanged) && isAnonymousBlock) {
+        console.log(`[onBookingChange] 匿名ブロック (売り止め) のため booking_change 通知スキップ: ${event.params.bookingId} (${after.checkIn}〜${after.checkOut})`);
+      } else if (ciChanged || coChanged) {
         const changes = [];
         if (ciChanged) changes.push(`チェックイン: ${before.checkIn} → ${after.checkIn}`);
         if (coChanged) changes.push(`チェックアウト: ${before.checkOut} → ${after.checkOut}`);

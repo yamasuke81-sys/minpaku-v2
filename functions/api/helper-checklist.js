@@ -120,6 +120,55 @@ module.exports = function helperChecklistApi(db) {
   });
 
   // ============================================================
+  // GET /list?propertyId=...
+  // その物件の全チェックリストを checkoutDate 昇順で返す (前後移動 / 今日ボタン用)
+  //   { propertyId, propertyName, items: [{ checklistId, checkoutDate, status }] }
+  // ============================================================
+  router.get("/list", async (req, res) => {
+    try {
+      const propertyId = String(req.query.propertyId || "").trim();
+      if (!propertyId) return res.status(400).json({ error: "propertyId required" });
+
+      const propSnap = await db.collection("properties").doc(propertyId).get();
+      if (!propSnap.exists) return res.status(404).json({ error: "property not found" });
+
+      const snap = await db.collection("checklists")
+        .where("propertyId", "==", propertyId)
+        .get();
+
+      // checkoutDate は Timestamp / "YYYY-MM-DD" 文字列が混在しうるため両対応
+      const toMs = (co) => co?.toMillis ? co.toMillis()
+        : (typeof co === "string" ? Date.parse(co) : 0);
+      const toStr = (co) => co?.toDate
+        ? co.toDate().toISOString().slice(0, 10)
+        : (typeof co === "string" ? co.slice(0, 10) : null);
+
+      const items = [];
+      snap.forEach((d) => {
+        const data = d.data();
+        const coDate = toStr(data.checkoutDate);
+        if (!coDate) return;
+        items.push({
+          checklistId: d.id,
+          checkoutDate: coDate,
+          status: data.status || "",
+          _ms: toMs(data.checkoutDate),
+        });
+      });
+      items.sort((a, b) => a._ms - b._ms);
+
+      return res.json({
+        propertyId,
+        propertyName: propSnap.data().name || "",
+        items: items.map(({ checklistId, checkoutDate, status }) => ({ checklistId, checkoutDate, status })),
+      });
+    } catch (e) {
+      console.error("[helper-checklist list]", e);
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ============================================================
   // POST /toggle
   // body: { checklistId, itemId, checked (bool), restock (bool, optional) }
   // ============================================================

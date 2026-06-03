@@ -17,8 +17,33 @@
   .header-bar h1 { font-size:1.05rem; margin:0; font-weight:700; }
   .container { max-width:760px; padding:0 10px; }
 
+  /* 日付ナビ (前後 / 今日) */
+  .date-nav {
+    display:flex; align-items:center; gap:8px; margin-top:6px;
+  }
+  .date-nav .nav-btn {
+    background:rgba(255,255,255,0.2); border:1px solid rgba(255,255,255,0.4);
+    color:#fff; border-radius:8px; width:32px; height:32px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    font-size:1rem; padding:0;
+  }
+  .date-nav .nav-btn:disabled { opacity:0.35; cursor:default; }
+  .date-nav .nav-today {
+    background:rgba(255,255,255,0.2); border:1px solid rgba(255,255,255,0.4);
+    color:#fff; border-radius:8px; padding:0 12px; height:32px; cursor:pointer;
+    font-size:0.82rem; font-weight:600; white-space:nowrap; flex-shrink:0;
+  }
+  .date-nav .nav-date {
+    flex-grow:1; text-align:center; font-size:0.92rem; font-weight:600;
+    min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .date-nav .nav-date .nav-date-today {
+    background:#fff; color:#ff5e62; border-radius:999px;
+    padding:1px 8px; font-size:0.72rem; margin-left:4px;
+  }
+
   .area-tabs {
-    position:sticky; top:88px; z-index:20;
+    position:sticky; top:128px; z-index:20;
     background:#fff; padding:8px 4px; border-bottom:1px solid #e2e8f0;
     overflow-x:auto; white-space:nowrap; -webkit-overflow-scrolling:touch;
   }
@@ -101,7 +126,7 @@
 
   /* 上位タブ (チェックリスト / 見本写真) */
   .top-tabs {
-    position:sticky; top:42px; z-index:21;
+    position:sticky; top:82px; z-index:21;
     display:flex; gap:6px; padding:8px 10px 0; background:#fff;
   }
   .top-tab {
@@ -149,7 +174,13 @@
 <body>
 
 <div class="header-bar">
-  <h1><i class="bi bi-clipboard-check"></i> <span id="propName">清掃チェックリスト</span> <small id="propDate" style="font-weight:500;opacity:0.85;font-size:0.85rem;"></small></h1>
+  <h1><i class="bi bi-clipboard-check"></i> <span id="propName">清掃チェックリスト</span></h1>
+  <div id="dateNav" class="date-nav d-none">
+    <button type="button" id="navPrev" class="nav-btn" title="前の清掃"><i class="bi bi-chevron-left"></i></button>
+    <span id="navDate" class="nav-date"></span>
+    <button type="button" id="navNext" class="nav-btn" title="次の清掃"><i class="bi bi-chevron-right"></i></button>
+    <button type="button" id="navToday" class="nav-today" title="今日 / 直近の清掃へ"><i class="bi bi-calendar-day"></i> 今日</button>
+  </div>
 </div>
 
 <div id="topTabs" class="top-tabs d-none">
@@ -217,6 +248,11 @@
   let itemStates = {}; // サーバーから受信した最新状態
   let activeAreaId = null;
   let pendingItems = new Set(); // 送信中の itemId
+
+  // 物件内チェックリスト一覧 (前後移動 / 今日ボタン用)
+  let navList = [];          // [{ checklistId, checkoutDate, status }] checkoutDate 昇順
+  let navIdx = -1;           // navList 内の現在位置
+  let unsubChecklist = null; // 現在の checklist 購読解除関数
 
   // 離脱前確認: チェック済み項目が1つでもある or 送信中なら警告
   // ヘルパー画面は app.js (showConfirm) を読み込んでいないため、
@@ -619,13 +655,107 @@
     return;
   }
 
-  // === Step 1: チェックリスト概要を取得 ===
-  // - cid 指定 → byId エンドポイント (日付単位 QR)
-  // - propertyId のみ → active エンドポイント (物件単位 QR、後方互換)
-  const fetchUrl = cid
-    ? `${API_BASE}/helper-checklist/byId?id=${encodeURIComponent(cid)}`
-    : `${API_BASE}/helper-checklist/active?propertyId=${encodeURIComponent(propertyId)}`;
-  fetch(fetchUrl)
+  const todayStr = new Date().toLocaleDateString("sv-SE"); // "YYYY-MM-DD" (JST)
+
+  // navList 内で初期表示する位置を決定: 今日 → 直近未来 → 最後(過去最新)
+  function pickInitialIndex() {
+    if (!navList.length) return -1;
+    const exact = navList.findIndex(x => x.checkoutDate === todayStr);
+    if (exact >= 0) return exact;
+    const future = navList.findIndex(x => x.checkoutDate > todayStr);
+    if (future >= 0) return future;
+    return navList.length - 1; // 全部過去 → 最新
+  }
+
+  // 日付ナビ表示 (前後ボタンの活性 + 日付ラベル)
+  function renderDateNav() {
+    const navEl = document.getElementById("dateNav");
+    if (navList.length === 0) { navEl.classList.add("d-none"); return; }
+    navEl.classList.remove("d-none");
+    const cur = navList[navIdx];
+    const dateEl = document.getElementById("navDate");
+    if (cur && dateEl) {
+      const [y, m, d] = cur.checkoutDate.split("-").map(Number);
+      const dt = new Date(y, m - 1, d);
+      const days = ["日","月","火","水","木","金","土"];
+      const isToday = cur.checkoutDate === todayStr;
+      dateEl.innerHTML = `${m}/${d}(${days[dt.getDay()]})`
+        + (isToday ? `<span class="nav-date-today">今日</span>` : "")
+        + (cur.status === "completed" ? ` <span style="font-size:0.72rem;opacity:0.85;">✓完了</span>` : "");
+    }
+    document.getElementById("navPrev").disabled = navIdx <= 0;
+    document.getElementById("navNext").disabled = navIdx >= navList.length - 1;
+  }
+
+  // 指定 index のチェックリストを購読 (既存購読は解除)
+  function loadByIndex(idx) {
+    if (idx < 0 || idx >= navList.length) return;
+    navIdx = idx;
+    checklistId = navList[idx].checklistId;
+    renderDateNav();
+    subscribeChecklist(checklistId);
+  }
+
+  function subscribeChecklist(id) {
+    if (unsubChecklist) { unsubChecklist(); unsubChecklist = null; }
+    // 切替時はローディング表示 + 折りたたみ/タブ状態を維持
+    content.className = "loading";
+    content.innerHTML = `<div class="spinner-border text-primary" role="status"></div><div class="mt-2">読み込み中...</div>`;
+    activeAreaId = null;
+    unsubChecklist = firebase.firestore().collection("checklists").doc(id)
+      .onSnapshot(doc => {
+        if (!doc.exists) {
+          content.className = "empty-state";
+          content.innerHTML = `<i class="bi bi-x-circle fs-1 text-danger"></i><p class="mt-2">チェックリストが削除されました</p>`;
+          progressBar.classList.add("d-none");
+          return;
+        }
+        const data = doc.data();
+        // 物件名 / タイトル
+        document.title = `${propertyName || "清掃"} - ヘルパー用 清掃チェックリスト`;
+        const snapshot = data.templateSnapshot || [];
+        areas = snapshot.slice().sort((x,y) => (x.sortOrder||0) - (y.sortOrder||0));
+        itemStates = data.itemStates || {};
+        if (!activeAreaId && areas.length > 0) activeAreaId = areas[0].id;
+        if (areas.length === 0) {
+          content.className = "empty-state";
+          content.innerHTML = `<i class="bi bi-inbox fs-1 text-muted"></i><p class="mt-2">チェック項目がありません</p>`;
+          return;
+        }
+        renderTabs();
+        const photoN = collectSamples().length;
+        photoCountEl.textContent = photoN > 0 ? String(photoN) : "";
+        topTabsEl.classList.remove("d-none");
+        if (activeTopTab === "checklist") renderActiveArea();
+        else renderPhotos();
+        updateProgress();
+        progressBar.classList.remove("d-none");
+        liveStatus.innerHTML = `<i class="bi bi-broadcast text-success"></i> 同期中`;
+      }, err => {
+        console.error(err);
+        liveStatus.innerHTML = `<i class="bi bi-x-circle text-danger"></i> 同期エラー`;
+      });
+  }
+
+  // 前後ボタン / 今日ボタン
+  document.getElementById("navPrev").addEventListener("click", () => {
+    if (navIdx > 0) loadByIndex(navIdx - 1);
+  });
+  document.getElementById("navNext").addEventListener("click", () => {
+    if (navIdx < navList.length - 1) loadByIndex(navIdx + 1);
+  });
+  document.getElementById("navToday").addEventListener("click", () => {
+    const idx = pickInitialIndex();
+    if (idx >= 0) {
+      if (navList[idx].checkoutDate !== todayStr && navList.every(x => x.checkoutDate !== todayStr)) {
+        showToast("今日の清掃はありません。直近の清掃日を表示します");
+      }
+      loadByIndex(idx);
+    }
+  });
+
+  // === 物件の全チェックリスト一覧を取得 → 初期位置を決めて購読 ===
+  fetch(`${API_BASE}/helper-checklist/list?propertyId=${encodeURIComponent(propertyId)}`)
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
@@ -634,64 +764,25 @@
       return r.json();
     })
     .then(info => {
-      checklistId = info.checklistId;
-      // API が返した物件名を必ず採用 (URL の n= は表示前のプレースホルダ。
-      // checklistId は propertyId から逆引き済みなので、API 値が真実)
       if (info.propertyName) {
         document.getElementById("propName").textContent = info.propertyName;
-        document.title = `${info.propertyName} - ヘルパー用 清掃チェックリスト`;
       }
-      // 日付表示 (M/D(曜))
-      if (info.checkoutDate) {
-        const [y, m, d] = info.checkoutDate.split("-").map(Number);
-        const dt = new Date(y, m - 1, d);
-        const days = ["日","月","火","水","木","金","土"];
-        const dateEl = document.getElementById("propDate");
-        if (dateEl) dateEl.textContent = `${m}/${d}(${days[dt.getDay()]})`;
+      navList = Array.isArray(info.items) ? info.items : [];
+      if (navList.length === 0) {
+        content.className = "empty-state";
+        content.innerHTML = `<i class="bi bi-inbox fs-1 text-muted"></i><p class="mt-2">この物件にはチェックリストがありません<br><small class="text-muted">清掃シフトが作成されると表示されます</small></p>`;
+        return;
       }
-      // === Step 2: onSnapshot で checklist 本体を購読 ===
-      firebase.firestore().collection("checklists").doc(checklistId)
-        .onSnapshot(doc => {
-          if (!doc.exists) {
-            content.className = "empty-state";
-            content.innerHTML = `<i class="bi bi-x-circle fs-1 text-danger"></i><p class="mt-2">チェックリストが削除されました</p>`;
-            progressBar.classList.add("d-none");
-            return;
-          }
-          const data = doc.data();
-          const snapshot = data.templateSnapshot || [];
-          areas = snapshot.slice().sort((x,y) => (x.sortOrder||0) - (y.sortOrder||0));
-          itemStates = data.itemStates || {};
-          if (!activeAreaId && areas.length > 0) activeAreaId = areas[0].id;
-          if (areas.length === 0) {
-            content.className = "empty-state";
-            content.innerHTML = `<i class="bi bi-inbox fs-1 text-muted"></i><p class="mt-2">チェック項目がありません</p>`;
-            return;
-          }
-          renderTabs();
-          // 写真件数バッジ更新
-          const photoN = collectSamples().length;
-          if (photoN > 0) photoCountEl.textContent = String(photoN);
-          else photoCountEl.textContent = "";
-          topTabsEl.classList.remove("d-none");
-          // 現在のタブに応じて再描画
-          if (activeTopTab === "checklist") renderActiveArea();
-          else renderPhotos();
-          updateProgress();
-          progressBar.classList.remove("d-none");
-          liveStatus.innerHTML = `<i class="bi bi-broadcast text-success"></i> 同期中`;
-        }, err => {
-          console.error(err);
-          liveStatus.innerHTML = `<i class="bi bi-x-circle text-danger"></i> 同期エラー`;
-        });
+      // cid 指定があればその位置を優先、なければ 今日→直近未来→最新
+      let startIdx = -1;
+      if (cid) startIdx = navList.findIndex(x => x.checklistId === cid);
+      if (startIdx < 0) startIdx = pickInitialIndex();
+      loadByIndex(startIdx);
     })
     .catch(err => {
       console.error(err);
       content.className = "empty-state";
-      const msg = err.message === "no active checklist"
-        ? "現在この物件には進行中のチェックリストがありません<br><small class='text-muted'>清掃シフトが作成されると表示されます</small>"
-        : `読み込みに失敗しました<br><small class="text-muted">${esc(err.message)}</small>`;
-      content.innerHTML = `<i class="bi bi-inbox fs-1 text-muted"></i><p class="mt-2">${msg}</p>`;
+      content.innerHTML = `<i class="bi bi-inbox fs-1 text-muted"></i><p class="mt-2">読み込みに失敗しました<br><small class="text-muted">${esc(err.message)}</small></p>`;
     });
 })();
 </script>

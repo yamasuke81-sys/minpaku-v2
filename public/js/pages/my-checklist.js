@@ -52,6 +52,13 @@ const MyChecklistPage = {
             </button>
           </div>
         </div>
+        <!-- 同物件内の前後移動 / 今日ボタン -->
+        <div id="mclDateNav" class="d-flex align-items-center gap-2 mt-1" style="display:none !important;">
+          <button type="button" id="mclNavPrev" class="btn btn-sm btn-outline-secondary" title="前の清掃" style="padding:2px 8px;"><i class="bi bi-chevron-left"></i></button>
+          <span id="mclNavDate" class="flex-grow-1 text-center" style="font-size:12px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+          <button type="button" id="mclNavNext" class="btn btn-sm btn-outline-secondary" title="次の清掃" style="padding:2px 8px;"><i class="bi bi-chevron-right"></i></button>
+          <button type="button" id="mclNavToday" class="btn btn-sm btn-outline-primary flex-shrink-0" title="今日 / 直近の清掃へ" style="padding:2px 10px;font-size:11px;"><i class="bi bi-calendar-day"></i> 今日</button>
+        </div>
       </div>
       <div class="mcl-page-header-spacer"></div>
       <div id="mclBody"><div class="text-center text-muted py-5"><div class="spinner-border"></div></div></div>
@@ -682,6 +689,8 @@ const MyChecklistPage = {
     this._nextBooking = null;
     this._todayStaffNames = [];
     this._noteSelectedFiles = [];
+    this._navList = null;
+    this._navListPropertyId = null;
   },
 
   async resolveChecklistId() {
@@ -820,7 +829,102 @@ const MyChecklistPage = {
     // ヘルパー連携ボタン (URL コピー / QR 表示)
     this._wireHelperButtons(c);
 
+    // 同物件内の前後移動 / 今日ボタン
+    this._wireDateNav(c);
+
     this._renderActiveTopTab();
+  },
+
+  // 同物件のチェックリスト一覧を取得して前後/今日ナビを配線
+  // navList: [{ checklistId, shiftId, checkoutDate, status }] checkoutDate 昇順
+  async _wireDateNav(c) {
+    const propertyId = c?.propertyId;
+    const navEl = document.getElementById("mclDateNav");
+    if (!propertyId || !navEl) return;
+
+    const prevBtn = document.getElementById("mclNavPrev");
+    const nextBtn = document.getElementById("mclNavNext");
+    const todayBtn = document.getElementById("mclNavToday");
+    const dateEl = document.getElementById("mclNavDate");
+
+    // 一覧は物件が変わらない限り使い回す (再購読のたびの再取得を避ける)
+    if (!this._navList || this._navListPropertyId !== propertyId) {
+      this._navListPropertyId = propertyId;
+      this._navList = [];
+      try {
+        const db = firebase.firestore();
+        const snap = await db.collection("checklists")
+          .where("propertyId", "==", propertyId).get();
+        const toStr = (co) => co?.toDate
+          ? co.toDate().toLocaleDateString("sv-SE")
+          : (typeof co === "string" ? co.slice(0, 10) : null);
+        const toMs = (co) => co?.toMillis ? co.toMillis()
+          : (typeof co === "string" ? Date.parse(co) : 0);
+        const list = [];
+        snap.forEach(d => {
+          const data = d.data();
+          const ds = toStr(data.checkoutDate);
+          if (!ds || !data.shiftId) return;
+          list.push({ checklistId: d.id, shiftId: data.shiftId, checkoutDate: ds, status: data.status || "", _ms: toMs(data.checkoutDate) });
+        });
+        list.sort((a, b) => a._ms - b._ms);
+        this._navList = list;
+      } catch (e) {
+        console.warn("[my-checklist] navList 取得失敗", e);
+      }
+    }
+
+    const navList = this._navList || [];
+    if (navList.length <= 1) {
+      // 1件以下なら前後移動の意味がないので非表示
+      navEl.style.setProperty("display", "none", "important");
+      requestAnimationFrame(() => this._applyHeaderLayout());
+      return;
+    }
+    navEl.style.setProperty("display", "flex", "important");
+
+    const todayStr = new Date().toLocaleDateString("sv-SE");
+    const idx = navList.findIndex(x => x.shiftId === this.shiftId);
+
+    // 日付ラベル
+    if (dateEl) {
+      const cur = navList[idx] || null;
+      if (cur) {
+        const [y, m, d] = cur.checkoutDate.split("-").map(Number);
+        const dt = new Date(y, m - 1, d);
+        const days = ["日","月","火","水","木","金","土"];
+        const isToday = cur.checkoutDate === todayStr;
+        dateEl.innerHTML = `${y}/${m}/${d}(${days[dt.getDay()]})`
+          + (isToday ? ` <span class="badge bg-primary" style="font-size:10px;">今日</span>` : "")
+          + (cur.status === "completed" ? ` <span class="badge bg-success" style="font-size:10px;">完了</span>` : "");
+      } else {
+        dateEl.textContent = this.fmtDate(c.checkoutDate);
+      }
+    }
+
+    if (prevBtn) prevBtn.disabled = idx <= 0;
+    if (nextBtn) nextBtn.disabled = idx < 0 || idx >= navList.length - 1;
+
+    const go = (shiftId) => { if (shiftId) location.hash = `#/my-checklist/${shiftId}`; };
+
+    if (prevBtn) prevBtn.onclick = () => { if (idx > 0) go(navList[idx - 1].shiftId); };
+    if (nextBtn) nextBtn.onclick = () => { if (idx >= 0 && idx < navList.length - 1) go(navList[idx + 1].shiftId); };
+    if (todayBtn) todayBtn.onclick = () => {
+      // 今日 → 直近未来 → 最新 の順でフォールバック
+      let target = navList.find(x => x.checkoutDate === todayStr);
+      if (!target) target = navList.find(x => x.checkoutDate > todayStr);
+      if (!target) target = navList[navList.length - 1];
+      if (target && target.shiftId === this.shiftId) {
+        this.showToast ? this.showToast("表示中です") : null;
+        return;
+      }
+      if (target && target.checkoutDate !== todayStr && !navList.some(x => x.checkoutDate === todayStr)) {
+        if (typeof showToast === "function") showToast("今日の清掃はありません。直近の清掃日へ移動します");
+      }
+      if (target) go(target.shiftId);
+    };
+
+    requestAnimationFrame(() => this._applyHeaderLayout());
   },
 
   // ヘルパー用 URL コピー + 統合 QR モーダル (ヘルパー + タイミー 上下に並べて表示)
