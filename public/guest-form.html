@@ -2725,49 +2725,87 @@
         const dup = await resp.json().catch(() => ({}));
         const name = dup.existingGuestName || "(不明)";
         const ci   = dup.existingCheckIn   || "(不明)";
-        const msg  = currentLang === "ja"
-          ? `同一物件で既に名簿が登録されています。\n\n代表者: ${name}\nチェックイン: ${ci}\n\n修正の場合は登録メアド宛に届いたリンクからお願いします。\n新規予約の場合は「新規として送信」を押してください。`
-          : `A guest registration already exists for this property.\n\nGuest: ${name}\nCheck-in: ${ci}\n\nTo edit, please use the link sent to your registered email.\nTo register as a new booking, press "Submit as new".`;
+        const isJa = currentLang === "ja";
+        // 既存名簿の editToken があれば修正用URLを組み立てる
+        const editToken = dup.existingEditToken || "";
+        const editUrl = editToken
+          ? `${location.origin}/guest-form.html?edit=${encodeURIComponent(editToken)}&propertyId=${encodeURIComponent(data.propertyId || "")}`
+          : "";
+
+        const titleTxt = isJa ? "この物件の名簿は登録済みです" : "Registration already exists";
+        const leadTxt = isJa
+          ? `${name}さんの宿泊者名簿は既に登録されています（チェックイン: ${ci}）。\n再送信の必要はありません。`
+          : `A guest registration for ${name} already exists (Check-in: ${ci}).\nYou do not need to submit again.`;
+        const editLeadTxt = editUrl
+          ? (isJa ? "内容を修正したい場合は、下のボタンから修正用ページへお進みください。"
+                  : "If you need to make changes, use the button below to open the edit page.")
+          : (isJa ? "内容を修正したい場合は、登録時にお送りしたメール内の編集リンクからお願いします。"
+                  : "To make changes, please use the edit link in the email you received.");
+        const editBtnTxt = isJa ? "名簿を修正する" : "Edit my registration";
+        const closeTxt   = isJa ? "閉じる" : "Close";
+        const newTxt     = isJa ? "別の予約として新規登録する" : "Register as a different booking";
+        const newNoteTxt = isJa
+          ? "※ 同じ予約の方は押さないでください（名簿が二重に登録されます）"
+          : "※ Do not press if this is the same booking — it creates a duplicate.";
 
         return new Promise((resolve, reject) => {
-          // Bootstrap モーダルで確認
+          // bootstrap JS 非依存の自作モーダル (CSSクラスのみ流用)
           const modalId = "dupGuestModal";
-          let modalEl = document.getElementById(modalId);
-          if (!modalEl) {
-            modalEl = document.createElement("div");
-            modalEl.id = modalId;
-            modalEl.className = "modal fade";
-            modalEl.tabIndex = -1;
-            modalEl.setAttribute("aria-hidden", "true");
-            modalEl.innerHTML = `
-              <div class="modal-dialog modal-dialog-centered">
-                <div class="modal-content">
-                  <div class="modal-header bg-warning-subtle">
-                    <h5 class="modal-title"><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>${currentLang === "ja" ? "名簿の重複を検知" : "Duplicate registration detected"}</h5>
-                  </div>
-                  <div class="modal-body" id="dupGuestModalBody" style="white-space:pre-wrap;"></div>
-                  <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary" id="dupGuestModalCancel">${currentLang === "ja" ? "キャンセル" : "Cancel"}</button>
-                    <button type="button" class="btn btn-primary" id="dupGuestModalForce">${currentLang === "ja" ? "新規として送信" : "Submit as new"}</button>
+          document.getElementById(modalId)?.remove();
+          document.getElementById("dupGuestBackdrop")?.remove();
+
+          const modalEl = document.createElement("div");
+          modalEl.id = modalId;
+          modalEl.className = "modal fade show";
+          modalEl.tabIndex = -1;
+          modalEl.style.display = "block";
+          modalEl.innerHTML = `
+            <div class="modal-dialog modal-dialog-centered">
+              <div class="modal-content">
+                <div class="modal-header bg-success-subtle">
+                  <h5 class="modal-title"><i class="bi bi-check-circle-fill text-success me-2"></i>${titleTxt}</h5>
+                </div>
+                <div class="modal-body">
+                  <p style="white-space:pre-wrap;margin-bottom:.75rem;">${esc(leadTxt)}</p>
+                  <p class="small text-muted mb-0">${esc(editLeadTxt)}</p>
+                </div>
+                <div class="modal-footer flex-column align-items-stretch gap-2">
+                  ${editUrl ? `<a href="${editUrl}" class="btn btn-primary w-100"><i class="bi bi-pencil-square me-1"></i>${editBtnTxt}</a>` : ""}
+                  <button type="button" class="btn btn-outline-secondary w-100" id="dupGuestModalClose">${closeTxt}</button>
+                  <div class="text-center pt-1">
+                    <button type="button" class="btn btn-link btn-sm text-secondary p-0" id="dupGuestModalForce">${newTxt}</button>
+                    <div class="text-muted" style="font-size:.72rem;">${esc(newNoteTxt)}</div>
                   </div>
                 </div>
-              </div>`;
-            document.body.appendChild(modalEl);
-          }
-          document.getElementById("dupGuestModalBody").textContent = msg;
+              </div>
+            </div>`;
+          document.body.appendChild(modalEl);
 
-          const bsModal = new bootstrap.Modal(modalEl, { backdrop: "static", keyboard: false });
+          const backdrop = document.createElement("div");
+          backdrop.id = "dupGuestBackdrop";
+          backdrop.className = "modal-backdrop fade show";
+          document.body.appendChild(backdrop);
+          document.body.classList.add("modal-open");
+          document.body.style.overflow = "hidden";
 
-          // 「キャンセル」→ ボタン復元して送信ループを中断
-          const cancelHandler = () => {
-            bsModal.hide();
+          const closeModal = () => {
+            modalEl.remove();
+            backdrop.remove();
+            document.body.classList.remove("modal-open");
+            document.body.style.overflow = "";
+          };
+
+          // 「閉じる」→ ボタン復元して送信ループを中断
+          document.getElementById("dupGuestModalClose").onclick = () => {
+            closeModal();
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-send"></i> ' + (i18n[currentLang]?.submit || "送信");
             reject(new DOMException("ユーザーがキャンセルしました", "AbortError"));
           };
-          // 「新規として送信」→ force=true で再投稿
-          const forceHandler = async () => {
-            bsModal.hide();
+
+          // 「別の予約として新規登録」→ force=true で再投稿
+          document.getElementById("dupGuestModalForce").onclick = async () => {
+            closeModal();
             try {
               const resp2 = await fetch("/api/public/guest-register", {
                 method: "POST",
@@ -2784,16 +2822,7 @@
               reject(e);
             }
           };
-
-          document.getElementById("dupGuestModalCancel").onclick = cancelHandler;
-          document.getElementById("dupGuestModalForce").onclick  = forceHandler;
-          // モーダルが閉じられた後にイベントリスナーを削除
-          modalEl.addEventListener("hidden.bs.modal", () => {
-            document.getElementById("dupGuestModalCancel").onclick = null;
-            document.getElementById("dupGuestModalForce").onclick  = null;
-          }, { once: true });
-
-          bsModal.show();
+          // 「名簿を修正する」は <a href> でそのまま編集ページへ遷移 (Promiseは遷移で破棄)
         });
       }
 
