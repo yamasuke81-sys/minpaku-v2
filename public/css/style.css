@@ -427,8 +427,8 @@ body.sidebar-hidden .app-main { margin-left: 0; }
   transform: none !important;
   transition: background-color 0.12s ease !important;
 }
-.mcl-cat .accordion-button:not(.collapsed) {
-  /* 展開時の Bootstrap デフォルト青背景を弱める (バウンス感の原因) */
+/* 中カテゴリ見出しは開閉に関わらず常に着色 (未完了=薄青 / 完了=薄緑 bg-success) */
+.mcl-cat .accordion-button:not(.bg-success) {
   background-color: rgba(13,110,253,0.08) !important;
   color: inherit !important;
 }

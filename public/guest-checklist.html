@@ -117,7 +117,8 @@
   .gc-cat { margin-bottom:8px; border:1px solid #e2e8f0; border-radius:10px; overflow:hidden; background:#fff; }
   .gc-cat-header {
     display:flex; align-items:center; padding:10px 14px;
-    background:#f8fafc; cursor:pointer; user-select:none;
+    /* 開閉に関わらず常に着色 (未完了=薄青)。スタッフ用 .mcl-cat と統一 */
+    background:rgba(13,110,253,0.08); cursor:pointer; user-select:none;
     font-weight:600; font-size:0.95rem;
   }
   .gc-cat-header.all-done { background:#dcfce7; color:#166534; }
