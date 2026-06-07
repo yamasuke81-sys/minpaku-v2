@@ -548,6 +548,19 @@
             </div>
           </div>
         </div>
+        <div class="accordion-item">
+          <h6 class="px-3 py-2 mb-0 fw-semibold" data-bs-target="#rule-overcapacity" style="border-bottom:1px solid #dee2e6;">
+            👥 宿泊人数・利用人数
+          </h6>
+          <div id="rule-overcapacity" class="accordion-collapse show">
+            <div class="accordion-body">
+              <ul class="mb-3">
+                <li class="text-danger">宿泊人数が申告（予約）人数を超えていることが確認された場合、本来の正規宿泊料金（超過人数分を含む）に加え、超過1名につき<strong>10,000円</strong>の追加料金を請求いたします。</li>
+                <li class="text-danger">宿泊しない方が施設を利用される場合も、1名につき<strong>10,000円</strong>の追加料金を申し受けます。</li>
+              </ul>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- グループ: 時間に関するルール -->
@@ -910,12 +923,15 @@
     ["[data-bs-target=\"#rule-emergency\"]", "🚨 緊急時", "🚨 Emergency", "🚨 긴급 상황 시", "🚨 紧急情况", "🚨 緊急情況"],
     ["[data-bs-target=\"#rule-lost\"]", "📦 忘れ物・鍵について", "📦 Lost Items & Keys", "📦 분실물/열쇠에 관하여", "📦 关于遗失物品・钥匙", "📦 關於遺失物・鑰匙"],
     ["[data-bs-target=\"#rule-other\"]", "📝 その他", "📝 Other", "📝 기타", "📝 其他", "📝 其他"],
+    ["[data-bs-target=\"#rule-overcapacity\"]", "👥 宿泊人数・利用人数", "👥 Number of Guests / Visitors", "👥 숙박 인원·이용 인원", "👥 入住人数・使用人数", "👥 住宿人數・使用人數"],
     ["#rule-pet li:nth-child(1)", "ペットの宿泊は禁止です。", "Pets are not allowed.", "반려동물 숙박은 금지입니다.", "禁止携带宠物入住。", "禁止攜帶寵物入住。"],
     ["#rule-pet li:nth-child(2)", "確認された場合、特殊清掃費用を請求いたします。", "Special cleaning fees will be charged if pets are found.", "확인될 경우, 특수 청소 비용을 청구합니다.", "如发现，将收取特殊清洁费用。", "若發現，將收取特殊清潔費用。"],
     ["#rule-smoking li:nth-child(1)", "室内は電子タバコを含め完全禁煙です。", "Smoking is strictly prohibited indoors, including e-cigarettes.", "실내는 전자담배를 포함하여 완전 금연입니다.", "室内完全禁烟，包括电子烟。", "室內全面禁菸，包括電子菸。"],
     ["#rule-smoking li:nth-child(2)", "屋外テラスでの喫煙は可能ですが、吸い殻のポイ捨ては禁止です。", "Smoking is allowed on the outdoor terrace. No littering of cigarette butts.", "야외 테라스에서의 흡연은 가능하지만, 꽁초 무단 투기는 금지입니다.", "室外露台可以吸烟，但禁止乱扔烟头。", "戶外露台可吸菸，但禁止亂丟菸蒂。"],
     ["#rule-smoking li:nth-child(3)", "近隣から苦情が入った場合、ご退室の可能性があります。", "You may be asked to leave if neighbors complain.", "이웃으로부터 불만이 접수될 경우, 퇴실 조치될 수 있습니다.", "如果收到邻居投诉，您可能会被要求退房。", "若收到鄰居投訴，可能會被要求退房。"],
     ["#rule-smoking li:nth-child(4)", "室内での喫煙が確認された場合、消臭および特別清掃の費用として<strong>10,000円</strong>を請求いたします。", "If indoor smoking is confirmed, a <strong>¥10,000</strong> cleaning fee will be charged.", "실내 흡연이 확인될 경우, 탈취 및 특별 청소 비용으로 <strong>10,000엔</strong>을 청구합니다.", "如果发现室内吸烟，将收取<strong>10,000日元</strong>的除臭和特殊清洁费用。", "若發現室內吸菸，將收取<strong>10,000日圓</strong>的除臭及特殊清潔費用。"],
+    ["#rule-overcapacity li:nth-child(1)", "宿泊人数が申告（予約）人数を超えていることが確認された場合、本来の正規宿泊料金（超過人数分を含む）に加え、超過1名につき<strong>10,000円</strong>の追加料金を請求いたします。", "If the number of guests is found to exceed the declared (booked) number, an additional <strong>¥10,000</strong> per excess guest will be charged, in addition to the regular accommodation fee (including the charge for the excess guests).", "숙박 인원이 신고(예약) 인원을 초과한 것이 확인될 경우, 정규 숙박 요금(초과 인원분 포함)에 더하여 초과 1인당 <strong>10,000엔</strong>의 추가 요금을 청구합니다.", "如确认入住人数超过申报（预订）人数，除正常住宿费用（含超出人数部分）外，每超出1人将加收<strong>10,000日元</strong>的附加费用。", "若確認住宿人數超過申報（預約）人數，除正規住宿費用（含超出人數部分）外，每超出1人將加收<strong>10,000日圓</strong>的附加費用。"],
+    ["#rule-overcapacity li:nth-child(2)", "宿泊しない方が施設を利用される場合も、1名につき<strong>10,000円</strong>の追加料金を申し受けます。", "Even if a non-staying visitor uses the property, an additional <strong>¥10,000</strong> per person will be charged.", "숙박하지 않는 분이 시설을 이용하시는 경우에도 1인당 <strong>10,000엔</strong>의 추가 요금을 받습니다.", "即使是不住宿的人员使用本设施，也将按每人<strong>10,000日元</strong>收取附加费用。", "即使非住宿者使用本設施，也將按每人<strong>10,000日圓</strong>收取附加費用。"],
     ["#rule-checkin li:nth-child(1)", "チェックイン時間：15:00〜20:00", "Check-in: 15:00–20:00", "체크인 시간: 15:00~20:00", "入住时间：15:00〜20:00", "入住時間：15:00〜20:00"],
     ["#rule-checkin li:nth-child(2)", "20:00を過ぎる場合は必ず事前にホストへご連絡ください。", "Please contact the host in advance if arriving after 20:00.", "20:00를 넘을 경우 반드시 사전에 호스트에게 연락해 주십시오.", "如果超过20:00，请务必提前联系房东。", "若超過20:00，請務必提前聯繫房東。"],
     ["#rule-checkin li:nth-child(3)", "20:00以降はホストと連絡がつきにくくなります。ご不明点がございましたら、本ページ（ハウスルール）をよくお読みいただき、ご自身での解決をお願いいたします。", "The host may be difficult to reach after 20:00. Please refer to this page (House Rules) to resolve any questions on your own.", "20:00 이후에는 호스트와 연락이 어려울 수 있습니다. 궁금한 점이 있으시면 본 페이지 (하우스 규칙)를 잘 읽어보시고 직접 해결해 주십시오.", "20:00以后可能难以联系到房东。如有任何疑问，请仔细阅读本页面（房屋守则），并自行解决。", "20:00後可能難以聯繫到房東。如有任何疑問，請仔細閱讀本頁（房屋守則），並請自行解決。"],
