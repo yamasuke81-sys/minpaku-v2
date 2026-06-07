@@ -1629,7 +1629,7 @@ const MyChecklistPage = {
             <i class="bi bi-arrows-expand"></i> 全展開/折りたたみ
           </button>
         </div>
-        ${area.memo ? `<div class="alert alert-warning py-1 px-2 mb-2" style="font-size:12px;white-space:pre-wrap;"><i class="bi bi-sticky"></i> ${this.escapeHtml(area.memo)}</div>` : ""}
+        ${area.memo ? `<div class="alert alert-warning py-1 px-2 mb-2" style="font-size:11px;white-space:pre-wrap;"><i class="bi bi-sticky"></i> ${this.escapeHtml(area.memo)}</div>` : ""}
         ${(() => { const t = this._renderInlineSampleThumbs(area, area.name); return t ? `<div class="px-1 pb-2">${t}</div>` : ""; })()}
         ${this.renderChildren(area)}
       </div>
@@ -3218,7 +3218,7 @@ const MyChecklistPage = {
         </button>
         <span class="ms-auto small text-muted align-self-center">${done}/${total} チェック済</span>
       </div>
-      ${area.memo ? `<div class="alert alert-warning py-1 px-2 mb-2" style="font-size:12px;white-space:pre-wrap;"><i class="bi bi-sticky"></i> ${this.escapeHtml(area.memo)}</div>` : ""}
+      ${area.memo ? `<div class="alert alert-warning py-1 px-2 mb-2" style="font-size:11px;white-space:pre-wrap;"><i class="bi bi-sticky"></i> ${this.escapeHtml(area.memo)}</div>` : ""}
       ${(() => { const t = this._renderInlineSampleThumbs(area, area.name); return t ? `<div class="px-1 pb-2">${t}</div>` : ""; })()}
       ${this.renderChildren(area)}
     `;
@@ -3371,7 +3371,7 @@ const MyChecklistPage = {
           </h2>
           <div id="${collapseId}" class="accordion-collapse collapse show">
             <div class="accordion-body p-2">
-              ${cat.memo ? `<div class="alert alert-warning py-1 px-2 mb-2" style="font-size:12px;white-space:pre-wrap;"><i class="bi bi-sticky"></i> ${this.escapeHtml(cat.memo)}</div>` : ""}
+              ${cat.memo ? `<div class="alert alert-warning py-1 px-2 mb-2" style="font-size:11px;white-space:pre-wrap;"><i class="bi bi-sticky"></i> ${this.escapeHtml(cat.memo)}</div>` : ""}
               ${catThumbs ? `<div class="px-1 pb-2">${catThumbs}</div>` : ""}
               ${this.renderChildren(cat)}
             </div>
