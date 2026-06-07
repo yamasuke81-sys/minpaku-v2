@@ -334,25 +334,19 @@
     return out;
   }
 
-  // 見本写真サムネ列 (最大2枚 + "+N" オーバーレイ)。項目・中/大カテゴリで共用。
-  // my-checklist.js が全階層に見本写真をインライン表示するのに合わせる。
+  // 見本写真サムネ列。項目・中/大カテゴリで共用。
+  // my-checklist.js と同様に全枚数をインライン表示し、タップでライトボックス。
   function thumbsHtml(node, label) {
     const urls = itemSampleUrls(node);
     if (urls.length === 0) return "";
-    const MAX = 2;
-    const visible = urls.slice(0, MAX);
-    const extra = Math.max(0, urls.length - MAX);
     const allUrlsJson = esc(JSON.stringify(urls));
-    return `<div class="gc-thumbs" data-stop="1">` + visible.map((u, i) => {
-      const overlay = (i === MAX - 1 && extra > 0)
-        ? `<div class="gc-thumb-extra">+${extra}</div>` : "";
+    return `<div class="gc-thumbs" data-stop="1">` + urls.map((u, i) => {
       return `<div class="gc-thumb-wrap">
         <img src="${esc(u)}" loading="lazy" class="gc-thumb"
              data-thumb-url="${esc(u)}"
              data-thumb-label="${esc(label)}"
              data-thumb-all="${allUrlsJson}"
              data-thumb-idx="${i}">
-        ${overlay}
       </div>`;
     }).join("") + `</div>`;
   }
