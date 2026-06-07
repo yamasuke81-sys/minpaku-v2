@@ -325,13 +325,36 @@
     return n;
   }
 
-  // item に紐づく見本写真 URL の配列を返す
-  function itemSampleUrls(it) {
+  // ノード(項目/カテゴリ/大カテゴリ)に紐づく見本写真 URL の配列を返す
+  function itemSampleUrls(node) {
     const out = [];
-    const imgs = it.sampleImages || [];
+    const imgs = node.sampleImages || [];
     imgs.forEach(i => { if (i?.url) out.push(i.url); });
-    if (out.length === 0 && it.sampleImageUrl) out.push(it.sampleImageUrl);
+    if (out.length === 0 && node.sampleImageUrl) out.push(node.sampleImageUrl);
     return out;
+  }
+
+  // 見本写真サムネ列 (最大2枚 + "+N" オーバーレイ)。項目・中/大カテゴリで共用。
+  // my-checklist.js が全階層に見本写真をインライン表示するのに合わせる。
+  function thumbsHtml(node, label) {
+    const urls = itemSampleUrls(node);
+    if (urls.length === 0) return "";
+    const MAX = 2;
+    const visible = urls.slice(0, MAX);
+    const extra = Math.max(0, urls.length - MAX);
+    const allUrlsJson = esc(JSON.stringify(urls));
+    return `<div class="gc-thumbs" data-stop="1">` + visible.map((u, i) => {
+      const overlay = (i === MAX - 1 && extra > 0)
+        ? `<div class="gc-thumb-extra">+${extra}</div>` : "";
+      return `<div class="gc-thumb-wrap">
+        <img src="${esc(u)}" loading="lazy" class="gc-thumb"
+             data-thumb-url="${esc(u)}"
+             data-thumb-label="${esc(label)}"
+             data-thumb-all="${allUrlsJson}"
+             data-thumb-idx="${i}">
+        ${overlay}
+      </div>`;
+    }).join("") + `</div>`;
   }
 
   function renderItem(it) {
@@ -342,27 +365,8 @@
     const checkedBy = (checked && st.checkedBy)
       ? `<div class="gc-item-checkedby"><i class="bi bi-check-circle"></i> ${esc(st.checkedBy.name||"")} ${fmtTime(st.checkedBy.at || (st.checkedAt?.toMillis?.() || 0))}</div>`
       : "";
-    // 最大 2 枚の見本写真サムネ。3 枚以上ある場合は 2 枚目に "+N" オーバーレイ
-    let thumbs = "";
-    const urls = itemSampleUrls(it);
-    if (urls.length > 0) {
-      const MAX = 2;
-      const visible = urls.slice(0, MAX);
-      const extra = Math.max(0, urls.length - MAX);
-      const allUrlsJson = esc(JSON.stringify(urls));
-      thumbs = `<div class="gc-thumbs" data-stop="1">` + visible.map((u, i) => {
-        const overlay = (i === MAX - 1 && extra > 0)
-          ? `<div class="gc-thumb-extra">+${extra}</div>` : "";
-        return `<div class="gc-thumb-wrap">
-          <img src="${esc(u)}" loading="lazy" class="gc-thumb"
-               data-thumb-url="${esc(u)}"
-               data-thumb-label="${esc(it.name)}"
-               data-thumb-all="${allUrlsJson}"
-               data-thumb-idx="${i}">
-          ${overlay}
-        </div>`;
-      }).join("") + `</div>`;
-    }
+    // 見本写真サムネ (共通ヘルパー)
+    const thumbs = thumbsHtml(it, it.name);
     const supply = it.supplyItem ? `
       <div class="gc-supply-row" data-stop="1">
         <input class="form-check-input gc-restock" type="checkbox" id="sup-${esc(it.id)}" data-restock-id="${esc(it.id)}"
@@ -399,6 +403,7 @@
         </div>
         <div class="gc-cat-body">
           ${cat.memo ? `<div class="gc-memo"><i class="bi bi-sticky"></i> ${esc(cat.memo)}</div>` : ""}
+          ${thumbsHtml(cat, cat.name)}
           ${children.map(c => c.kind === "item" ? renderItem(c.data) : renderCat(c.data)).join("")}
         </div>
       </div>
@@ -414,6 +419,7 @@
         </button>
       </div>
       ${area.memo ? `<div class="gc-memo"><i class="bi bi-sticky"></i> ${esc(area.memo)}</div>` : ""}
+      ${thumbsHtml(area, area.name)}
       ${children.map(c => c.kind === "item" ? renderItem(c.data) : renderCat(c.data)).join("")}
     `;
   }
