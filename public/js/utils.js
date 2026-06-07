@@ -93,13 +93,13 @@ window.renderPropertyLabel = function(p, escFn) {
 };
 
 // BBQ などの三値 (true/false/未設定) を記号 ◎ / × / - に変換
-// 許容入力: true/false 真偽値、"true"/"false"/"yes"/"no"/"有"/"無"/"◎"/"×" 文字列、数値
+// 許容入力: true/false 真偽値、"利用する"/"利用しない"(フォーム保存値)/"yes"/"no"/"有"/"無"/"◎"/"×" 文字列、数値
 window.bbqToSymbol = function(val) {
   if (val === null || val === undefined || val === "") return "-";
   if (val === true) return "◎";
   if (val === false) return "×";
   const s = String(val).trim().toLowerCase();
-  if (["true", "yes", "y", "有", "あり", "◎", "1"].includes(s)) return "◎";
-  if (["false", "no", "n", "無", "なし", "×", "x", "0"].includes(s)) return "×";
+  if (["true", "yes", "y", "有", "あり", "利用する", "する", "◎", "1"].includes(s)) return "◎";
+  if (["false", "no", "n", "無", "なし", "利用しない", "しない", "×", "x", "0"].includes(s)) return "×";
   return "-";
 };
