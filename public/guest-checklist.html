@@ -79,6 +79,13 @@
   .gc-item-body { flex-grow:1; min-width:0; }
   .gc-item-name { font-size:0.95rem; line-height:1.4; }
   .gc-item-memo { font-size:0.8rem; color:#64748b; margin-top:4px; }
+  /* 大カテゴリ/中カテゴリのメモ (黄色カード) — my-checklist.js と同仕様 */
+  .gc-memo {
+    background:#fff8e1; border:1px solid #ffe69c; color:#664d03;
+    border-radius:8px; padding:8px 10px; margin:8px 4px;
+    font-size:0.85rem; line-height:1.5; white-space:pre-wrap;
+  }
+  .gc-memo i { margin-right:4px; }
   .gc-item-checkedby { font-size:0.72rem; color:#64748b; margin-top:4px; }
   .gc-supply-row {
     margin-top:8px; padding-top:8px; border-top:1px dashed #fde68a;
@@ -391,6 +398,7 @@
           <span class="gc-cat-toggle"><i class="bi bi-chevron-down"></i></span>
         </div>
         <div class="gc-cat-body">
+          ${cat.memo ? `<div class="gc-memo"><i class="bi bi-sticky"></i> ${esc(cat.memo)}</div>` : ""}
           ${children.map(c => c.kind === "item" ? renderItem(c.data) : renderCat(c.data)).join("")}
         </div>
       </div>
@@ -405,6 +413,7 @@
           <i class="bi bi-arrows-expand"></i> 全展開/折りたたみ
         </button>
       </div>
+      ${area.memo ? `<div class="gc-memo"><i class="bi bi-sticky"></i> ${esc(area.memo)}</div>` : ""}
       ${children.map(c => c.kind === "item" ? renderItem(c.data) : renderCat(c.data)).join("")}
     `;
   }

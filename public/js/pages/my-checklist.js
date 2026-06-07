@@ -1321,53 +1321,72 @@ const MyChecklistPage = {
 
       let staffNames = [];
       try {
-        // スタッフ権限では shifts の自由 query が permission-denied になる
-        // → 自分のシフトのみに絞ったクエリにする
         const myStaffId = Auth.currentUser?.staffId;
         const myRole = Auth.currentUser?.role;
-        let q = db.collection("shifts")
-          .where("propertyId", "==", c.propertyId)
-          .where("date", "==", c.checkoutDate);
-        if (myRole === "staff" && myStaffId) {
-          q = q.where("staffId", "==", myStaffId);
-        }
-        const shiftsSnap = await q.get();
-        const staffIds = new Set();
-        shiftsSnap.docs.forEach(d => {
-          const s = d.data();
-          (s.staffIds || (s.staffId ? [s.staffId] : [])).forEach(id => staffIds.add(id));
-        });
-        if (staffIds.size > 0) {
-          // recruitments から timeeOverrideNames を取得 (タイミースタッフ実名表示用)
-          // recruitments.checkoutDate は文字列 "YYYY-MM-DD" のため Timestamp 型と不一致防止
-          let timeeNames = {};
-          try {
-            const coStr = (typeof c.checkoutDate === "string")
-              ? c.checkoutDate.slice(0, 10)
-              : (c.checkoutDate?.toDate
-                  ? c.checkoutDate.toDate().toLocaleDateString("sv-SE")
-                  : "");
-            const recSnap = await db.collection("recruitments")
-              .where("propertyId", "==", c.propertyId)
-              .where("checkoutDate", "==", coStr)
-              .limit(5)
-              .get();
-            recSnap.docs.forEach(rd => {
-              const tn = rd.data().timeeOverrideNames;
-              if (tn && typeof tn === "object") Object.assign(timeeNames, tn);
-            });
-          } catch (e) {
-            console.warn("[my-checklist] timeeOverrideNames 取得失敗", e);
-          }
 
+        // recruitments.checkoutDate は文字列 "YYYY-MM-DD" のため Timestamp 型と不一致防止
+        const coStr = (typeof c.checkoutDate === "string")
+          ? c.checkoutDate.slice(0, 10)
+          : (c.checkoutDate?.toDate
+              ? c.checkoutDate.toDate().toLocaleDateString("sv-SE")
+              : "");
+
+        // 担当ソースは「確定済み募集の selectedStaffIds」を最優先する。
+        // シフトの staffIds は古い自動生成シフト (確定時 update 漏れ) で欠落することがあり、
+        // その場合 ランドリー等の別シフトから誤って担当を拾ってしまう。
+        // タイミー実名 (timeeOverrideNames) も同じ募集から取得して併記する。
+        let staffIdList = [];
+        let timeeNames = {};
+        try {
+          const recSnap = await db.collection("recruitments")
+            .where("propertyId", "==", c.propertyId)
+            .where("checkoutDate", "==", coStr)
+            .limit(5)
+            .get();
+          recSnap.docs.forEach(rd => {
+            const r = rd.data();
+            // 清掃募集 (pre_inspection 以外) の確定済みを担当ソースとして採用
+            const isCleaning = (r.workType || "cleaning") !== "pre_inspection";
+            if (isCleaning && r.status === "スタッフ確定済み"
+                && Array.isArray(r.selectedStaffIds) && r.selectedStaffIds.length) {
+              staffIdList = r.selectedStaffIds.slice();
+            }
+            const tn = r.timeeOverrideNames;
+            if (tn && typeof tn === "object") Object.assign(timeeNames, tn);
+          });
+        } catch (e) {
+          console.warn("[my-checklist] 確定募集取得失敗", e);
+        }
+
+        // 確定済み募集から取れない場合のみ shifts にフォールバック。
+        // スタッフ権限では shifts の自由 query が permission-denied になるため
+        // 自分のシフトのみに絞る。ランドリー系シフトからは担当を拾わない。
+        if (staffIdList.length === 0) {
+          let q = db.collection("shifts")
+            .where("propertyId", "==", c.propertyId)
+            .where("date", "==", c.checkoutDate);
+          if (myRole === "staff" && myStaffId) {
+            q = q.where("staffId", "==", myStaffId);
+          }
+          const shiftsSnap = await q.get();
+          const set = new Set();
+          shiftsSnap.docs.forEach(d => {
+            const s = d.data();
+            if (/^laundry/.test(s.workType || "")) return;
+            (s.staffIds || (s.staffId ? [s.staffId] : [])).forEach(id => set.add(id));
+          });
+          staffIdList = Array.from(set);
+        }
+
+        if (staffIdList.length > 0) {
           const staffSnaps = await Promise.all(
-            Array.from(staffIds).map(id => db.collection("staff").doc(id).get())
+            staffIdList.map(id => db.collection("staff").doc(id).get())
           );
           staffNames = staffSnaps.filter(d => d.exists).map(d => {
             const sd = d.data();
             const baseName = sd.name || "不明";
             // isTimee=true で timeeOverrideNames に実名があれば併記表示
-            // 形式: タイミーA（藤尾 真耶）/ タイミーB（廣川 美羽、友田 彩）
+            // 形式: タイミーA（松葉 唯華、中石 笑子）
             if (sd.isTimee && timeeNames[d.id]) {
               return `${baseName}（${timeeNames[d.id]}）`;
             }
