@@ -24,6 +24,15 @@
 const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
 
+// checkoutDate (Timestamp / "YYYY-MM-DD" 文字列) を JST の "YYYY-MM-DD" に整形する。
+// toISOString() は UTC のため、JST 0時で保存されたデータ (前日 15:00Z) が前日にズレる問題を回避。
+// (例: 清掃日変更で 6/9 にすると checklist.checkoutDate=6/8T15:00Z で保存され、UTC 切り出しだと 6/8 表示になる)
+function coToJstStr(co) {
+  if (co && co.toDate) return co.toDate().toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+  if (typeof co === "string") return co.slice(0, 10);
+  return null;
+}
+
 module.exports = function helperChecklistApi(db) {
   const router = Router();
 
@@ -72,9 +81,7 @@ module.exports = function helperChecklistApi(db) {
         chosen = candidates[0];
       }
 
-      const coDate = chosen.data.checkoutDate?.toDate
-        ? chosen.data.checkoutDate.toDate().toISOString().slice(0, 10)
-        : null;
+      const coDate = coToJstStr(chosen.data.checkoutDate);
 
       return res.json({
         checklistId: chosen.id,
@@ -104,9 +111,7 @@ module.exports = function helperChecklistApi(db) {
         ? await db.collection("properties").doc(data.propertyId).get()
         : null;
       const propName = (propSnap && propSnap.exists) ? (propSnap.data().name || "") : "";
-      const coDate = data.checkoutDate?.toDate
-        ? data.checkoutDate.toDate().toISOString().slice(0, 10)
-        : null;
+      const coDate = coToJstStr(data.checkoutDate);
       return res.json({
         checklistId: snap.id,
         propertyId: data.propertyId || "",
@@ -139,14 +144,11 @@ module.exports = function helperChecklistApi(db) {
       // checkoutDate は Timestamp / "YYYY-MM-DD" 文字列が混在しうるため両対応
       const toMs = (co) => co?.toMillis ? co.toMillis()
         : (typeof co === "string" ? Date.parse(co) : 0);
-      const toStr = (co) => co?.toDate
-        ? co.toDate().toISOString().slice(0, 10)
-        : (typeof co === "string" ? co.slice(0, 10) : null);
 
       const items = [];
       snap.forEach((d) => {
         const data = d.data();
-        const coDate = toStr(data.checkoutDate);
+        const coDate = coToJstStr(data.checkoutDate);
         if (!coDate) return;
         items.push({
           checklistId: d.id,

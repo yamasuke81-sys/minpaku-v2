@@ -377,10 +377,11 @@ const RecruitmentPage = {
           const cls = await dbRef.collection("checklists").where("shiftId", "==", sid).get();
           for (const cd of cls.docs) {
             // 注: checklist の日付フィールドは `checkoutDate` (Timestamp 型)。
-            // shifts.date / recruitments.checkoutDate と同じ型で揃える
-            // (renderChecklistSidebar は両型対応の toDateStr で照合)
+            // shifts.date と同じ UTC 0時基準で揃える (newDt = new Date(newDate) と同一)。
+            // 旧実装は `new Date(newDate + "T00:00:00")` でローカル(JST)解釈となり、
+            // shift.date(UTC 0時) と TZ 基準が食い違って helper API(UTC整形)で前日表示になっていた。
             await cd.ref.update({
-              checkoutDate: firebase.firestore.Timestamp.fromDate(new Date(newDate + "T00:00:00")),
+              checkoutDate: firebase.firestore.Timestamp.fromDate(newDt),
               updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
             });
             checklistUpdated++;
