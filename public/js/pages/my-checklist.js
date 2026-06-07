@@ -1484,12 +1484,11 @@ const MyChecklistPage = {
         return true;
       };
 
-      // BBQ表示ヘルパ
-      const vb = (val) => {
-        if (val === true || val === "Yes" || val === "あり" || val === "◎") return "◎";
-        if (val === false || val === "No" || val === "なし" || val === "×") return "×";
-        return "-";
-      };
+      // BBQ表示ヘルパ (共有の bbqToSymbol を使用。フォーム保存値「利用する/利用しない」も対応)
+      const vb = (val) => (typeof bbqToSymbol === "function")
+        ? bbqToSymbol(val)
+        : (val === true || val === "Yes" || val === "あり" || val === "◎" ? "◎"
+          : val === false || val === "No" || val === "なし" || val === "×" ? "×" : "-");
 
       // the Terrace 長浜 専用: 宿泊人数別ベッド構成 (2名は bedChoice の選択値を使用)
       const TERRACE_PID = "tsZybhDMcPrxqgcRy7wp";
