@@ -823,6 +823,8 @@ const MyChecklistPage = {
         this.activeAreaId = el.dataset.areaId;
         this._updateAreaTabStyles();
         this.renderTabChecklist();
+        // 切替後タブは先頭から表示する (前タブのスクロール位置を引き継がない)
+        this._scrollAreaToTop();
       });
     });
 
@@ -833,6 +835,20 @@ const MyChecklistPage = {
     this._wireDateNav(c);
 
     this._renderActiveTopTab();
+  },
+
+  // 大カテゴリタブ切替時、切替後タブの先頭 (固定タブ直下) までスクロールする。
+  // fixed/sticky の実装差に依存しないよう「コンテンツ先頭の現在位置」を
+  // 「固定エリアタブの下端」に合わせる相対スクロールで実現する。
+  _scrollAreaToTop() {
+    requestAnimationFrame(() => {
+      const content = document.getElementById("mclTopTabContent");
+      const tabs = document.querySelector(".mcl-area-tabs-wrap");
+      if (!content || !tabs) return;
+      // コンテンツ先頭が固定タブ下端より上 (= 前タブで下スクロール済み) の時だけ上へ補正
+      const delta = content.getBoundingClientRect().top - tabs.getBoundingClientRect().bottom;
+      if (delta < -1) window.scrollBy(0, delta);
+    });
   },
 
   // 同物件のチェックリスト一覧を取得して前後/今日ナビを配線

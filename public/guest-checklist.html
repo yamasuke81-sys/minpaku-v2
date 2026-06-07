@@ -434,8 +434,23 @@
         activeAreaId = t.dataset.areaId;
         renderActiveArea();
         renderTabs();
-        t.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+        // 横: 選択タブを中央へ (renderTabs で要素が作り直されるため再取得)
+        areaTabsEl.querySelector(`.area-tab[data-area-id="${CSS.escape(activeAreaId)}"]`)
+          ?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+        // 縦: 切替後タブは先頭から表示する (前タブのスクロール位置を引き継がない)
+        scrollAreaToTop();
       });
+    });
+  }
+
+  // 大カテゴリタブ切替時、切替後タブの先頭 (固定タブ直下) までスクロールする。
+  // コンテンツ先頭の現在位置を固定エリアタブの下端に合わせる相対スクロール。
+  function scrollAreaToTop() {
+    requestAnimationFrame(() => {
+      if (!content || !areaTabsEl) return;
+      // コンテンツ先頭が固定タブ下端より上 (= 前タブで下スクロール済み) の時だけ上へ補正
+      const delta = content.getBoundingClientRect().top - areaTabsEl.getBoundingClientRect().bottom;
+      if (delta < -1) window.scrollBy(0, delta);
     });
   }
 
