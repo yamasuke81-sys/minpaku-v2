@@ -86,6 +86,14 @@
     font-size:0.85rem; line-height:1.5; white-space:pre-wrap;
   }
   .gc-memo i { margin-right:4px; }
+  /* 次の予約タブ */
+  .nb-card { background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:14px 14px 6px; margin:10px 4px; }
+  .nb-head { font-weight:700; font-size:0.95rem; margin-bottom:10px; display:flex; align-items:center; gap:6px; }
+  .nb-badge { color:#fff; font-size:0.7rem; padding:2px 7px; border-radius:6px; }
+  .nb-row { display:flex; gap:10px; padding:7px 2px; border-top:1px solid #f1f5f9; }
+  .nb-row:first-of-type { border-top:none; }
+  .nb-label { flex:0 0 120px; color:#64748b; font-size:0.85rem; }
+  .nb-value { flex:1; font-size:0.9rem; white-space:pre-wrap; font-weight:600; }
   .gc-item-checkedby { font-size:0.72rem; color:#64748b; margin-top:4px; }
   .gc-supply-row {
     margin-top:8px; padding-top:8px; border-top:1px dashed #fde68a;
@@ -192,7 +200,7 @@
 
 <div id="topTabs" class="top-tabs d-none">
   <div class="top-tab active" data-top-tab="checklist"><i class="bi bi-check2-square"></i> チェックリスト</div>
-  <div class="top-tab" data-top-tab="photos"><i class="bi bi-camera"></i> 見本写真 <span id="photoCount" class="badge bg-secondary" style="font-size:0.65rem;"></span></div>
+  <div class="top-tab" data-top-tab="next"><i class="bi bi-calendar-event"></i> 次の予約</div>
 </div>
 
 <div id="areaTabs" class="area-tabs d-none"></div>
@@ -232,8 +240,7 @@
   const content = document.getElementById("content");
   const areaTabsEl = document.getElementById("areaTabs");
   const topTabsEl = document.getElementById("topTabs");
-  const photoCountEl = document.getElementById("photoCount");
-  let activeTopTab = "checklist"; // "checklist" | "photos"
+  let activeTopTab = "checklist"; // "checklist" | "next"
   const progressBar = document.getElementById("progressBar");
   const checkedCountEl = document.getElementById("checkedCount");
   const totalCountEl = document.getElementById("totalCount");
@@ -462,6 +469,44 @@
     wireArea(area);
   }
 
+  // 次の予約タブ: helper-checklist API から運用情報を取得して表示 (PII なし)
+  function renderNextBooking() {
+    content.className = "loading";
+    content.innerHTML = `<div class="spinner-border text-primary" role="status"></div><div class="mt-2">読み込み中...</div>`;
+    fetch(`${API_BASE}/helper-checklist/next-booking?checklistId=${encodeURIComponent(checklistId)}`)
+      .then(r => r.json())
+      .then(d => {
+        if (activeTopTab !== "next") return; // タブが切り替わっていたら破棄
+        if (!d || !d.hasNext) {
+          content.className = "empty-state";
+          content.innerHTML = `<i class="bi bi-calendar-x fs-1 text-muted"></i><p class="mt-2">次の予約はまだ入っていません</p>`;
+          return;
+        }
+        content.className = "";
+        const src = String(d.source || "");
+        const badge = src.toLowerCase().includes("airbnb")
+          ? '<span class="nb-badge" style="background:#FF5A5F">Airbnb</span>'
+          : src.toLowerCase().includes("booking")
+            ? '<span class="nb-badge" style="background:#003580">Booking.com</span>'
+            : src ? `<span class="nb-badge" style="background:#6c757d">${esc(src)}</span>` : "";
+        const rows = (d.fields || []).map(f => `
+          <div class="nb-row">
+            <div class="nb-label">${esc(f.label)}</div>
+            <div class="nb-value">${esc(f.value)}</div>
+          </div>`).join("");
+        content.innerHTML = `
+          <div class="nb-card">
+            <div class="nb-head"><i class="bi bi-arrow-right-circle"></i> 次の予約 ${badge}</div>
+            ${rows}
+          </div>`;
+      })
+      .catch(() => {
+        if (activeTopTab !== "next") return;
+        content.className = "empty-state";
+        content.innerHTML = `<i class="bi bi-x-circle fs-1 text-danger"></i><p class="mt-2">読み込みエラー</p>`;
+      });
+  }
+
   // === 見本写真の収集 (templateSnapshot 内の sampleImages / sampleImageUrl を再帰探索) ===
   function collectSamples() {
     const all = [];
@@ -569,7 +614,7 @@
       renderActiveArea();
     } else {
       areaTabsEl.classList.add("d-none");
-      renderPhotos();
+      renderNextBooking();
     }
   }
   topTabsEl.querySelectorAll(".top-tab").forEach(t => {
@@ -747,11 +792,9 @@
           return;
         }
         renderTabs();
-        const photoN = collectSamples().length;
-        photoCountEl.textContent = photoN > 0 ? String(photoN) : "";
         topTabsEl.classList.remove("d-none");
         if (activeTopTab === "checklist") renderActiveArea();
-        else renderPhotos();
+        else renderNextBooking();
         updateProgress();
         progressBar.classList.remove("d-none");
         liveStatus.innerHTML = `<i class="bi bi-broadcast text-success"></i> 同期中`;
