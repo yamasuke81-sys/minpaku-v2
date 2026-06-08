@@ -11,8 +11,6 @@ temp/
 *secret*
 *.key
 *serviceAccount*.json
-# ただしフックスクリプト自体は除外対象にしない
-!.claude/hooks/secret-scan.mjs
 
 # Firebase Emulator
 .emulator-data/
