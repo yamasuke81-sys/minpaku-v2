@@ -3,7 +3,16 @@ node_modules/
 *.log
 .env
 .env.local
+.env.*
 temp/
+
+# シークレット混入防止（全プロジェクト共通ルール）
+.credentials/
+*secret*
+*.key
+*serviceAccount*.json
+# ただしフックスクリプト自体は除外対象にしない
+!.claude/hooks/secret-scan.mjs
 
 # Firebase Emulator
 .emulator-data/
