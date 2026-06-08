@@ -28,9 +28,13 @@ service firebase.storage {
                    && request.resource.contentType.matches('image/.*')
                    && (request.auth.token.role == "owner"
                        || request.auth.token.role == "sub_owner"
-                       || propertyId in firestore.get(
-                            /databases/(default)/documents/staff/$(request.auth.uid)
-                          ).data.assignedPropertyIds);
+                       // スタッフ判定: doc は staffId をキーにしているため uid ではなく
+                       // カスタムクレーム staffId で参照する (uid 参照だと常に存在せず全拒否だった)
+                       || (request.auth.token.staffId != null
+                           && firestore.exists(/databases/(default)/documents/staff/$(request.auth.token.staffId))
+                           && propertyId in firestore.get(
+                                /databases/(default)/documents/staff/$(request.auth.token.staffId)
+                              ).data.get('assignedPropertyIds', [])));
       // 削除: オーナー/サブオーナー または アップロード者本人
       allow delete: if request.auth != null
                     && (request.auth.token.role == "owner"
