@@ -33,7 +33,9 @@ const msg =
   " を変更しました。配信反映のため次を忘れずに: " +
   "(1) public/index.html の該当 ?v= を全置換で更新＋バージョンバッジ更新" +
   "（忘れるとキャッシュで旧版配信）。" +
-  "(2) デプロイは relay 必須＋本番 git push の両系統（/deploy-v2 参照）。";
+  "(2) public/version.json の version も同じ値に揃える" +
+  "（index.html と不一致だと無限リロードが発生。過去2回再発）。" +
+  "(3) デプロイは relay 必須＋本番 git push の両系統（/deploy-v2 参照）。";
 
 process.stdout.write(
   JSON.stringify({
