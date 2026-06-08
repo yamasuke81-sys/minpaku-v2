@@ -3638,7 +3638,7 @@ const MyChecklistPage = {
         <div class="mcl-photo-thumb" style="position:relative;width:100px;height:100px;flex-shrink:0;">
           <img src="${this.escapeHtml(p.url)}" alt="${label}" loading="lazy"
                style="width:100%;height:100%;object-fit:cover;border-radius:6px;cursor:pointer;"
-               data-photo-url="${this.escapeHtml(p.url)}" class="mcl-photo-preview">
+               data-photo-url="${this.escapeHtml(p.url)}" data-kind="${kind}" data-idx="${i}" class="mcl-photo-preview">
           ${isCompleted ? "" : `
             <button type="button" class="btn btn-sm btn-danger mcl-photo-del"
                     data-kind="${kind}" data-idx="${i}"
@@ -3712,9 +3712,20 @@ const MyChecklistPage = {
       });
     });
 
-    // プレビュー拡大
+    // プレビュー拡大: 同種別(清掃前/清掃後)の全写真をスワイプ切替できるライトボックスで開く
     el.querySelectorAll(".mcl-photo-preview").forEach(img => {
-      img.addEventListener("click", () => this._previewPhotoUrl(img.dataset.photoUrl));
+      img.addEventListener("click", () => {
+        const kind = img.dataset.kind;
+        const idx = parseInt(img.dataset.idx, 10) || 0;
+        const list = (kind === "before" ? this.checklist.beforePhotos : this.checklist.afterPhotos) || [];
+        const urls = list.map(p => p && p.url).filter(Boolean);
+        const label = kind === "before" ? "清掃前" : "清掃後";
+        if (urls.length > 0) {
+          this._openSampleLightbox(urls, urls.map(() => label), Math.min(idx, urls.length - 1));
+        } else {
+          this._previewPhotoUrl(img.dataset.photoUrl);
+        }
+      });
     });
   },
 

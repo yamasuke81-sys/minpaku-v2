@@ -6,12 +6,15 @@
  *  - minpaku-v2.web.app が suspended になり、Hosting 全 site が "Site Not Found" を返す状態
  *  - 異議申立て (appeal) を提出済。24-72h で審査結果が出る
  *
+ * 【方針変更 2026-06-08】メインは v2-5-relay.web.app を恒久運用とする。
+ *  - 凍結解除後も relay をメインとする (ユーザー決定)
+ *  - そのため復活を検知しても appUrl は minpaku-v2 に戻さない (通知のみ)
+ *
  * 動作:
  *  - 毎時 30分 に https://minpaku-v2.web.app/ を叩く
  *  - HTTP 200 が返り、レスポンスに "Site Not Found" 文字列が含まれなければ復活と判定
  *  - settings/hostingWatch/state.recovered=true を立てて以降の通知を抑止
- *  - 復活時のみ notifyByKey("error_alert") で 1 回だけ通知
- *  - 復活確認後は手動で index.js から外して削除推奨 (常駐不要)
+ *  - 復活時のみ「復活したが relay 継続」を 1 回だけ通知 (appUrl は変更しない)
  */
 const admin = require("firebase-admin");
 const https = require("https");
@@ -55,18 +58,11 @@ module.exports = async function watchHostingRecovery() {
 
   if (!isUp) return;
 
-  // 復活検知 → settings.appUrl を元に戻して 1 回だけ通知
+  // 復活検知 → 通知のみ。relay を恒久メインとするため appUrl は minpaku-v2 に戻さない。
   try {
-    // appUrl を本番URLに即時切替 (Cloud Functions 経由の通知が即 minpaku-v2.web.app を指すように)
-    await db.collection("settings").doc("notifications").set({
-      appUrl: "https://minpaku-v2.web.app",
-      appUrlRestoredAt: admin.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
-    console.log("[watchHostingRecovery] settings.appUrl を minpaku-v2 に自動復元");
-
     await notifyByKey(db, "error_alert", {
-      title: "✅ minpaku-v2.web.app 復活検知",
-      body: `Hosting が復活しました。\n\nURL: ${TARGET_URL}\nHTTP: ${r.status}\n\n[自動対応済]\n- settings/notifications.appUrl を https://minpaku-v2.web.app に復元\n\n[手動対応のお願い]\n1. git revert <emergency commit> でハードコード URL を元に戻す\n2. firebase deploy --only functions,hosting\n3. minpaku-v2.web.app に hosting も再デプロイ\n4. 動作確認後、watchHostingRecovery を index.js から外して削除`,
+      title: "✅ minpaku-v2.web.app 復活検知 (メインは relay 継続)",
+      body: `Hosting (minpaku-v2.web.app) が復活しました。\n\nURL: ${TARGET_URL}\nHTTP: ${r.status}\n\n[方針] メインは v2-5-relay.web.app を恒久運用します。\n- appUrl は relay のまま (自動で minpaku-v2 に戻しません)\n- 凍結解除後も relay をメインとする (ユーザー決定 2026-06-08)`,
       vars: { url: TARGET_URL, status: String(r.status) },
       propertyId: null,
     });
@@ -74,7 +70,7 @@ module.exports = async function watchHostingRecovery() {
       recovered: true,
       recoveredAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
-    console.log("[watchHostingRecovery] 復活通知発火 + recovered フラグ ON");
+    console.log("[watchHostingRecovery] 復活検知。relayメイン継続のため appUrl は変更せず通知のみ");
   } catch (e) {
     console.error("[watchHostingRecovery] 通知失敗:", e.message);
   }

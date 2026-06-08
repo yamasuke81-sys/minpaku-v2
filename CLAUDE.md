@@ -1,5 +1,14 @@
 # 民泊管理v2 — アプリ設計書
 
+> ## 🚩 メインは v2-5-relay（恒久）— 2026-06-08 ユーザー決定
+> - **本番メイン = `https://v2-5-relay.web.app`**。`minpaku-v2.web.app` は使わない方針（Trust&Safety凍結中。凍結解除後も relay をメインとする）。
+> - フロント変更は **両方にデプロイ**する（relay 優先・必須、本番 minpaku-v2 も同時に修正をかける）：
+>   - relay: `firebase deploy --only hosting --config firebase.relay.json --project v2-5-relay`
+>   - 本番: `git push origin main`（GitHub Actions が minpaku-v2 hosting に自動デプロイ）
+> - Functions/Firestore/Storage/Auth は両 site 共用（`firebase deploy --only functions:<name> --project minpaku-v2`）。
+> - `settings/notifications.appUrl` は **relay 固定**。`watchHostingRecovery` は復活検知しても appUrl を minpaku-v2 に戻さない（通知のみ）。`docs/RELAY_ROLLBACK.md` のロールバック手順は**実行しない**。
+> - Storage バケット CORS に `v2-5-relay.web.app` 追加済（写真アップロード等に必須）。
+
 ## P3実装完了（2026-04-16）
 
 ### 実装済み機能(時系列要約)

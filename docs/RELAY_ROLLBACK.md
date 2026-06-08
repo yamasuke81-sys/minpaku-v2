@@ -1,5 +1,8 @@
 # v2-5-relay 緊急回避からの復旧手順
 
+> ## ⛔ 2026-06-08 方針変更: このロールバックは実行しない
+> **メインは v2-5-relay.web.app を恒久運用する**（ユーザー決定）。minpaku-v2.web.app の凍結が解除されても relay をメインとするため、以下の「本番復帰（ロールバック）手順」は**実行しないこと**。`watchHostingRecovery` も appUrl を minpaku-v2 に戻さないよう改修済み。本ドキュメントは履歴・参考として残置。
+
 ## 状況
 2026-05-29 Google Cloud Trust & Safety による suspension で `minpaku-v2.web.app` 配信不可となり、
 緊急回避として `v2-5-relay.web.app` を立てて URL を切替。
