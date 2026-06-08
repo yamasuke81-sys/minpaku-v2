@@ -3,6 +3,8 @@
     "origin": [
       "https://minpaku-v2.web.app",
       "https://minpaku-v2.firebaseapp.com",
+      "https://v2-5-relay.web.app",
+      "https://v2-5-relay.firebaseapp.com",
       "http://localhost:5000",
       "http://localhost:3000"
     ],
