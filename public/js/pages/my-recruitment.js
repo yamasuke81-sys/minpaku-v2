@@ -530,16 +530,36 @@ const MyRecruitmentPage = {
       if (this._propertyVisibility[p.id] === undefined) this._propertyVisibility[p.id] = true;
     });
 
-    // スタッフ並び: displayOrder 昇順、Webアプリ管理者(isOwner=true)は最下部に移動
-    let allStaff = staffSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    // impersonation: 対象スタッフ X のみに絞り込み
-    if (impersonatedAllowedStaff) {
-      allStaff = allStaff.filter(s => impersonatedAllowedStaff.has(s.id));
-    }
-    const nonOwner = allStaff.filter(s => !s.isOwner).sort((a,b) => (a.displayOrder||0) - (b.displayOrder||0));
-    const owner = allStaff.filter(s => s.isOwner).sort((a,b) => (a.displayOrder||0) - (b.displayOrder||0));
-    this.staffList = [...nonOwner, ...owner];
+    // スタッフ並び: displayOrder 昇順、Webアプリ管理者(isOwner=true)は最下部に移動。
+    // impersonation 中は対象スタッフ X のみに絞り込み。
+    const buildStaffList = (docs) => {
+      let allStaff = docs.map(d => ({ id: d.id, ...d.data() }));
+      if (impersonatedAllowedStaff) {
+        allStaff = allStaff.filter(s => impersonatedAllowedStaff.has(s.id));
+      }
+      const nonOwner = allStaff.filter(s => !s.isOwner).sort((a,b) => (a.displayOrder||0) - (b.displayOrder||0));
+      const owner = allStaff.filter(s => s.isOwner).sort((a,b) => (a.displayOrder||0) - (b.displayOrder||0));
+      return [...nonOwner, ...owner];
+    };
+    this.staffList = buildStaffList(staffSnap.docs);
     this._loadedFlags.staff = true;
+
+    // スタッフ一覧も onSnapshot でリアルタイム監視する。
+    // 旧実装は get() 一度きりで、管理者が追加した新規スタッフが
+    // ページをフルリロードするまで一覧に出ない不具合があった (本人の行も含む)。
+    const unsubStaff = db.collection("staff").where("active", "==", true).onSnapshot(
+      (snap) => {
+        this.staffList = buildStaffList(snap.docs);
+        this._loadedFlags.staff = true;
+        this._tryRenderCalendar();
+      },
+      (err) => {
+        console.error("staff onSnapshot エラー:", err);
+        this._loadedFlags.staff = true;
+        this._tryRenderCalendar();
+      }
+    );
+    this._unsubs.push(unsubStaff);
 
     // assignedPropertyIds の取得（スタッフドキュメントから読み取る）
     const assignedIds = Array.isArray(this.staffDoc?.assignedPropertyIds)
