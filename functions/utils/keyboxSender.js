@@ -106,6 +106,7 @@ async function sendKeyboxEmail(guest, property) {
     : "";
   // ガイドURL: 物件設定の guideUrl に ?guest=editToken を付与してゲスト固有の
   // 駐車場割当カード等が表示されるようにする (onGuestFormSubmit / onGuestFormUpdate と同方針)
+  const { buildGuideUrlBlock } = require("./guideMap");
   let guideUrl = "";
   const guideUrlBase = property.guideUrl || "";
   if (guideUrlBase) {
@@ -116,6 +117,8 @@ async function sendKeyboxEmail(guest, property) {
       guideUrl = guideUrlBase;
     }
   }
+  // 現行URLの下に退避用(リレーアプリ)URLのフォールバックを併記
+  guideUrl = buildGuideUrlBlock(guideUrl);
 
   // タスク8-2: Wi-Fi を SSID / パスワードに分割 (旧 wifiInfo は後方互換フォールバック)
   const wifiSSID     = property.wifiSSID     || (property.wifiInfo ? property.wifiInfo.split("/")[0]?.trim() : "") || "";

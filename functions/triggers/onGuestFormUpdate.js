@@ -148,7 +148,7 @@ module.exports = async function onGuestFormUpdate(event) {
     : "";
 
   // 物件情報取得
-  const { resolveGuideUrl } = require("../utils/guideMap");
+  const { resolveGuideUrl, buildGuideUrlBlock } = require("../utils/guideMap");
   let propertyName    = after.propertyName || "";
   let propertyAddress = "";
   let guideUrlBase    = "";
@@ -170,6 +170,8 @@ module.exports = async function onGuestFormUpdate(event) {
     const sep = guideUrlBase.includes("?") ? "&" : "?";
     guideUrl = `${guideUrlBase}${sep}guest=${encodeURIComponent(after.editToken || "")}`;
   }
+  // 現行URLの下に退避用(リレーアプリ)URLのフォールバックを併記
+  guideUrl = buildGuideUrlBlock(guideUrl);
 
   const addressMapUrl = propertyAddress
     ? "https://maps.google.com/?q=" + encodeURIComponent(propertyAddress)

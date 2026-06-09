@@ -30,4 +30,27 @@ function resolveGuideUrl(prop) {
   return getAutoGuideUrl(prop.id);
 }
 
-module.exports = { GUIDE_MAP, GUIDE_BASE_URL, getAutoGuideUrl, resolveGuideUrl };
+const RELAY_HOST = "v2-5-relay.web.app";
+
+/**
+ * guideUrl に退避用(リレーアプリ)URLのフォールバックを併記したテキストブロックを返す。
+ * 現行URLはそのまま残し、その下に案内文 + リレー版URLを追記する。
+ * 既にリレーURLの場合は重複を避けてそのまま返す。
+ * @param {string} guideUrl ゲスト案内ページURL
+ * @returns {string}
+ */
+function buildGuideUrlBlock(guideUrl) {
+  if (!guideUrl) return "";
+  let relayUrl = guideUrl;
+  try {
+    const u = new URL(guideUrl);
+    if (u.hostname === RELAY_HOST) return guideUrl; // 既にリレー → フォールバック不要
+    u.hostname = RELAY_HOST;
+    relayUrl = u.toString();
+  } catch (_) {
+    return guideUrl; // URL として解釈できなければそのまま
+  }
+  return `${guideUrl}\n開けない場合はこちらを開いてください:\n${relayUrl}`;
+}
+
+module.exports = { GUIDE_MAP, GUIDE_BASE_URL, getAutoGuideUrl, resolveGuideUrl, buildGuideUrlBlock };

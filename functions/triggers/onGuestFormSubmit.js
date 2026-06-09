@@ -59,7 +59,7 @@ module.exports = async function onGuestFormSubmit(event) {
   const templates = await getTemplates(db);
 
   // 物件情報取得 (宿名/住所/ガイドURL/担当者メール)
-  const { resolveGuideUrl } = require("../utils/guideMap");
+  const { resolveGuideUrl, buildGuideUrlBlock } = require("../utils/guideMap");
   let propertyName = "";
   let propertyAddress = "";
   let guideUrlBase = "";
@@ -83,6 +83,8 @@ module.exports = async function onGuestFormSubmit(event) {
     const sep = guideUrlBase.includes("?") ? "&" : "?";
     guideUrl = `${guideUrlBase}${sep}guest=${encodeURIComponent(editToken)}`;
   }
+  // 現行URLの下に退避用(リレーアプリ)URLのフォールバックを併記
+  guideUrl = buildGuideUrlBlock(guideUrl);
 
   // 送信者アドレス: 物件担当者 (物件オーナー最優先、なければ settings/notifications.ownerEmail)
   // onGuestFormSubmit は先に notifyEmails/subOwners を解決してから使うため、ここでは後続で決定する

@@ -103,12 +103,18 @@ const Auth = {
         // ユーザー名表示
         const nameEl = document.getElementById("userName");
         if (nameEl) nameEl.textContent = user.displayName || user.email;
-        user.getIdTokenResult().then((result) => {
-          this.currentUser.role = result.claims.role || "owner";
-          this.currentUser.staffId = result.claims.staffId || null;
-          this.currentUser.ownedPropertyIds = result.claims.ownedPropertyIds || [];
-          App.onAuthReady();
-        });
+        // 新規ログイン直後は custom token で付与したカスタムクレーム(staffId/role)が
+        // ID トークンにまだ反映されていないことがあるため、強制更新(true)で最新を取得する。
+        // これを怠ると新規スタッフ本人の名前が画面に出ず、リロード連打で直る症状になる。
+        // オフライン等で強制更新が失敗した場合はキャッシュ済みトークンにフォールバック。
+        user.getIdTokenResult(true)
+          .catch(() => user.getIdTokenResult())
+          .then((result) => {
+            this.currentUser.role = result.claims.role || "owner";
+            this.currentUser.staffId = result.claims.staffId || null;
+            this.currentUser.ownedPropertyIds = result.claims.ownedPropertyIds || [];
+            App.onAuthReady();
+          });
       } else {
         this.currentUser = null;
         this.loginModal.show();
