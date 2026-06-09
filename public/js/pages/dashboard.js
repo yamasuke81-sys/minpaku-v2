@@ -990,7 +990,8 @@ const DashboardPage = {
     //   抽出不可なので、フォールバックとして admin.booking.com トップへ飛ばす
     const buildBadge = (label, bg, href) => {
       const style = `background:${bg};color:#fff;text-decoration:none;`;
-      if (href) {
+      // スタッフビューでは Airbnb/Booking.com 管理画面への直リンクは不要 → プレーンバッジ表示
+      if (href && !isStaffView) {
         return `<a href="${this.esc(href)}" target="_blank" rel="noopener noreferrer" class="badge" style="${style}cursor:pointer;" title="${this.esc(label)} で開く">${label} <i class="bi bi-box-arrow-up-right" style="font-size:0.75em;"></i></a>`;
       }
       return `<span class="badge" style="${style}">${label}</span>`;

@@ -797,16 +797,20 @@ const RecruitmentPage = {
     const changeDateBtn = document.getElementById("btnChangeRecruitmentDate");
     const deleteBtn = document.getElementById("btnDeleteRecruitmentInModal");
     const notifyBtn = document.getElementById("btnNotifyRecruitment");
+    // タイミー自動募集ドロップダウン (管理者専用)
+    const timeeDispatchGroup = document.getElementById("detailTimeeDispatchGroup");
     if (isStaffView) {
       confirmBtn?.classList.add("d-none");
       reopenBtn?.classList.add("d-none");
       changeDateBtn?.classList.add("d-none");
       deleteBtn?.classList.add("d-none");
       notifyBtn?.classList.add("d-none");
+      timeeDispatchGroup?.classList.add("d-none");
     } else {
       changeDateBtn?.classList.remove("d-none");
       deleteBtn?.classList.remove("d-none");
       notifyBtn?.classList.remove("d-none");
+      timeeDispatchGroup?.classList.remove("d-none");
     }
 
     // A4: 自分の回答ボタン (◎△×) をモーダル上部に描画
