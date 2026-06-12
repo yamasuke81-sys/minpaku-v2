@@ -21,32 +21,43 @@ async function loadGasConfig_(db) {
 
 /**
  * HTTPS POST (JSON) を送信する簡易ラッパー
+ * GAS Web アプリは POST 成功時に必ず 302 で script.googleusercontent.com へ
+ * リダイレクトする仕様のため、302/301/303 は Location へ GET で追従して
+ * 実際の実行結果を取得する（追従しないと常に「失敗」扱いになる）
  * @param {string} url
  * @param {object} payload
  * @returns {Promise<{ status: number, body: string }>}
  */
 function postJson_(url, payload) {
-  return new Promise((resolve, reject) => {
-    const jsonStr = JSON.stringify(payload);
-    const parsed = new URL(url);
+  const jsonStr = JSON.stringify(payload);
+  const request = (targetUrl, method, redirectsLeft) => new Promise((resolve, reject) => {
+    const parsed = new URL(targetUrl);
     const options = {
       hostname: parsed.hostname,
       path: parsed.pathname + parsed.search,
-      method: "POST",
-      headers: {
+      method,
+      headers: method === "POST" ? {
         "Content-Type": "application/json",
         "Content-Length": Buffer.byteLength(jsonStr),
-      },
+      } : {},
     };
     const req = https.request(options, (res) => {
       let body = "";
       res.on("data", (chunk) => { body += chunk; });
-      res.on("end", () => resolve({ status: res.statusCode, body }));
+      res.on("end", () => {
+        const loc = res.headers.location;
+        if ([301, 302, 303].includes(res.statusCode) && loc && redirectsLeft > 0) {
+          resolve(request(loc, "GET", redirectsLeft - 1));
+        } else {
+          resolve({ status: res.statusCode, body });
+        }
+      });
     });
     req.on("error", reject);
-    req.write(jsonStr);
+    if (method === "POST") req.write(jsonStr);
     req.end();
   });
+  return request(url, "POST", 3);
 }
 
 module.exports = async function onGuestRegistrationToGas(event) {

@@ -214,12 +214,10 @@ exports.morningBriefing = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/morningBriefing"));
 
-// 未確定アラート（毎時チェック）— 当日/翌日の清掃スタッフ未確定を即時通知
-exports.alertUnconfirmed = onSchedule({
-  schedule: "0 * * * *",
-  region: "asia-northeast1",
-  timeZone: "Asia/Tokyo",
-}, require("./scheduled/alertUnconfirmed"));
+// alertUnconfirmed (未確定アラート) は 2026-06-12 廃止。
+// staffUndecidedRemind (物件別 channelOverrides.staff_undecided.timings) に完全に重複しており、
+// 通知キー "alert" はどの物件にも未定義のため一度も送信実績がなかった
+// (notifications type+sentAt インデックス不足で毎時クラッシュもしていた)。
 
 // 税理士資料Gmail収集（毎月3日 9:00 JST）
 exports.collectTaxDocs = onSchedule({
