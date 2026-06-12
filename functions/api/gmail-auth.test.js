@@ -46,10 +46,14 @@ describe("normalizeContext_", () => {
 describe("parseState_", () => {
   const { parseState_ } = loadHelpers();
 
+  // state = `${context}|${email}|${propertyId}|${ownerId}` の4フィールド形式 (2026-06 拡張)
+
   test("新形式 default|email を正しくパース", () => {
     assert.deepStrictEqual(parseState_("default|owner@example.com"), {
       context: "default",
       email: "owner@example.com",
+      propertyId: "",
+      ownerId: "",
     });
   });
 
@@ -57,6 +61,17 @@ describe("parseState_", () => {
     assert.deepStrictEqual(parseState_("emailVerification|verify@example.com"), {
       context: "emailVerification",
       email: "verify@example.com",
+      propertyId: "",
+      ownerId: "",
+    });
+  });
+
+  test("4フィールド形式 (propertyId/ownerId 付き) を正しくパース", () => {
+    assert.deepStrictEqual(parseState_("property|p@example.com|prop123|owner456"), {
+      context: "property",
+      email: "p@example.com",
+      propertyId: "prop123",
+      ownerId: "owner456",
     });
   });
 
@@ -64,27 +79,31 @@ describe("parseState_", () => {
     assert.deepStrictEqual(parseState_("legacy@example.com"), {
       context: "default",
       email: "legacy@example.com",
+      propertyId: "",
+      ownerId: "",
     });
   });
 
   test("空 state は context=default, email=''", () => {
-    assert.deepStrictEqual(parseState_(""), { context: "default", email: "" });
-    assert.deepStrictEqual(parseState_(undefined), { context: "default", email: "" });
+    assert.deepStrictEqual(parseState_(""), { context: "default", email: "", propertyId: "", ownerId: "" });
+    assert.deepStrictEqual(parseState_(undefined), { context: "default", email: "", propertyId: "", ownerId: "" });
   });
 
   test("未知 context は default にフォールバック (state 全体を email 扱い)", () => {
     assert.deepStrictEqual(parseState_("unknown|foo@example.com"), {
       context: "default",
       email: "unknown|foo@example.com",
+      propertyId: "",
+      ownerId: "",
     });
   });
 
-  test("email にパイプが含まれても最初のパイプで分割", () => {
-    // 仕様: "|"" を含むメールは RFC 的には quoted-string で可能だが、
-    // 実運用では起きない想定。最初の "|" で split する挙動を明示。
+  test("パイプは全てフィールド区切りとして扱う (3つ目以降は propertyId/ownerId)", () => {
     assert.deepStrictEqual(parseState_("emailVerification|a|b@example.com"), {
       context: "emailVerification",
-      email: "a|b@example.com",
+      email: "a",
+      propertyId: "b@example.com",
+      ownerId: "",
     });
   });
 
@@ -92,6 +111,8 @@ describe("parseState_", () => {
     assert.deepStrictEqual(parseState_("emailVerification|"), {
       context: "emailVerification",
       email: "",
+      propertyId: "",
+      ownerId: "",
     });
   });
 });

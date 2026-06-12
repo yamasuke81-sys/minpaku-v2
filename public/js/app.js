@@ -6,6 +6,15 @@ const App = {
   currentPage: null,
   previousPage: null,   // 直前に表示していたページ名 (戻る遷移先の判定に使用)
 
+  // ページ単位の onSnapshot 購読の登録先 (route() がページ切替時に一括解除する)
+  // 各ページの onSnapshot はファイル末尾のプロトタイプパッチで自動登録される
+  _pageUnsubs: [],
+  addUnsub(fn) { if (typeof fn === "function") this._pageUnsubs.push(fn); return fn; },
+  _flushPageUnsubs() {
+    const list = this._pageUnsubs.splice(0);
+    for (const fn of list) { try { fn(); } catch (_) {} }
+  },
+
   // Webアプリ管理者用ページ
   pages: {
     staff: StaffPage,
@@ -620,6 +629,8 @@ const App = {
       this.currentPage = pageName;
       // viewAsStaff バッジを対象ページに応じて再評価（対象外ページに移動したら隠す）
       this._renderViewAsBadge();
+      // 前ページの onSnapshot 購読を一括解除 (リスナーリーク防止。再描画時も render 内で再購読される)
+      this._flushPageUnsubs();
       page.render(document.getElementById("pageContainer"), path.slice(1));
       // ページ切り替え時にビュー最上部へスクロール
       try {
@@ -657,6 +668,8 @@ function showToast(title, message, type = "info") {
 // ブラウザ別ネイティブ UI を避け、意匠を統一するため使用する。
 function _escAttr(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/"/g, "&quot;"); }
 function _escHtml(s) { const d = document.createElement("div"); d.textContent = String(s == null ? "" : s); return d.innerHTML; }
+// 全ページ共通の HTML エスケープ (各ページのコピペ定義は本関数へ委譲済み)
+window.escapeHtml = _escHtml;
 
 /** Promise<boolean> を返す確認モーダル。OK=true / キャンセル=false */
 function showConfirm(message, opts = {}) {
@@ -785,3 +798,21 @@ function formatCurrency(amount) {
 
 // アプリ開始
 document.addEventListener("DOMContentLoaded", () => App.init());
+
+// ===== onSnapshot リーク対策 =====
+// 全ページの onSnapshot 購読をルーターが自動解除できるよう、
+// Query / DocumentReference の onSnapshot をラップして App._pageUnsubs に登録する。
+// (アプリ常駐の購読は現状ゼロ。常駐購読を作る場合はこのパッチより前に登録すること)
+(function () {
+  if (!window.firebase || !firebase.firestore) return;
+  const patch = (proto) => {
+    const orig = proto.onSnapshot;
+    proto.onSnapshot = function (...args) {
+      const unsub = orig.apply(this, args);
+      App.addUnsub(unsub);
+      return unsub;
+    };
+  };
+  patch(firebase.firestore.Query.prototype); // CollectionReference は Query を継承
+  patch(firebase.firestore.DocumentReference.prototype);
+})();

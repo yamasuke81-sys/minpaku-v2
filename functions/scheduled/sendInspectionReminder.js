@@ -14,19 +14,11 @@
  *   "YYYY-MM-DD_HH_dN" を記録
  */
 const admin = require("firebase-admin");
+const { nowJst, addDays } = require("../utils/dateUtils");
 const { notifyByKey } = require("../utils/lineNotify");
 
 const NOTIFY_TYPE = "inspection_reminder";
 
-function nowJst() {
-  const d = new Date(Date.now() + 9 * 3600 * 1000);
-  return { date: d.toISOString().slice(0, 10), hour: d.getUTCHours() };
-}
-function addDays(dateStr, n) {
-  const d = new Date(dateStr + "T00:00:00.000Z");
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-}
 function fmtDate(s) {
   if (!s) return "";
   const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);

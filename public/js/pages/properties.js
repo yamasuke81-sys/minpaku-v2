@@ -2092,9 +2092,5 @@ const PropertiesPage = {
 
   // ---- 共通ユーティリティ ----
 
-  escapeHtml(str) {
-    const div = document.createElement("div");
-    div.textContent = str;
-    return div.innerHTML;
-  },
+  escapeHtml(s) { return window.escapeHtml(s); },
 };

@@ -684,9 +684,5 @@ const ReportsPage = {
     return this.fmtDate(d);
   },
 
-  escapeHtml(str) {
-    const div = document.createElement("div");
-    div.textContent = str || "";
-    return div.innerHTML;
-  },
+  escapeHtml(s) { return window.escapeHtml(s); },
 };

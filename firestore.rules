@@ -136,7 +136,14 @@ service cloud.firestore {
     // - 全ユーザー (認証/未認証問わず) が write 可能
     // - read はオーナーのみ
     match /client_errors/{id} {
-      allow create: if true;
+      // 未認証で作成可だがフィールドとサイズを制限 (スパム/肥大化対策)
+      allow create: if request.resource.data.keys().hasOnly(
+            ['type','message','source','lineno','colno','stack','ua','url','uid','createdAt'])
+          && request.resource.data.type is string && request.resource.data.type.size() < 50
+          && request.resource.data.message is string && request.resource.data.message.size() < 4000
+          && (!('stack' in request.resource.data) || (request.resource.data.stack is string && request.resource.data.stack.size() < 4000))
+          && (!('ua' in request.resource.data) || (request.resource.data.ua is string && request.resource.data.ua.size() < 500))
+          && (!('url' in request.resource.data) || (request.resource.data.url is string && request.resource.data.url.size() < 1000));
       allow read: if isOwner();
     }
 
@@ -225,7 +232,8 @@ service cloud.firestore {
     // セッション状況 — 全セッションから書き込み可能（CTOダッシュボード用）
     match /sessions/{sessionId} {
       allow read: if isOwner();
-      allow create, update: if true;  // 各セッションから認証なしでも書ける
+      // 書き込み元 (biz-hq / biz-dashboard / 本アプリ) は全てオーナー認証済み (2026-06-13 絞り込み)
+      allow create, update: if isOwner();
     }
 
     // タスクキュー — オーナーのみ（司令塔）
@@ -294,14 +302,16 @@ service cloud.firestore {
     // エラーログ — オーナーのみ読み取り、Cloud Functionsから書き込み
     match /error_logs/{logId} {
       allow read: if isOwner();
-      allow create: if true;  // Cloud Functionsから認証なしで書き込み可能
+      // Cloud Functions (Admin SDK) はルールをバイパスするため公開許可は不要 (2026-06-13 絞り込み)
+      allow create: if isOwner();
       allow update, delete: if isOwner();
     }
 
     // 通知ログ — オーナーのみ読み取り、Cloud Functionsから書き込み
     match /notifications/{notifId} {
       allow read: if isOwner();
-      allow create: if true;
+      // Cloud Functions (Admin SDK) はルールをバイパスするため公開許可は不要 (2026-06-13 絞り込み)
+      allow create: if isOwner();
       allow update, delete: if isOwner();
     }
 

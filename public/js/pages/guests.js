@@ -1279,11 +1279,7 @@ const GuestsPage = {
     }
   },
 
-  escapeHtml(str) {
-    const div = document.createElement("div");
-    div.textContent = str || "";
-    return div.innerHTML;
-  },
+  escapeHtml(s) { return window.escapeHtml(s); },
 
   // escapeHtml の別名 (フォーム管理ロジックで使用)
   esc(str) {

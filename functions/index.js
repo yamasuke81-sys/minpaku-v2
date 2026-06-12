@@ -14,7 +14,16 @@ const db = admin.firestore();
 
 // Express アプリ
 const app = express();
-app.use(cors({ origin: true }));
+// CORS はホスティングドメインのみ許可 (GAS等のサーバー間通信は Origin ヘッダが無いため影響なし)
+app.use(cors({
+  origin: [
+    "https://v2-5-relay.web.app",
+    "https://v2-5-relay.firebaseapp.com",
+    "https://minpaku-v2.web.app",
+    "https://minpaku-v2.firebaseapp.com",
+    /^http:\/\/localhost(:\d+)?$/, // firebase serve / ローカル検証用
+  ],
+}));
 app.use(express.json());
 
 // Firebase Hosting rewrite 経由で来る URL は /api/** が保持されるので、
@@ -290,6 +299,14 @@ exports.expireStaleRecruitments = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/expireStaleRecruitments"));
 
+// 蓄積ログの日次クリーンアップ (毎日 03:30 JST)
+// notifications/error_logs/notificationQueue/client_errors の保持期間超過分をバッチ削除
+exports.logCleanup = onSchedule({
+  schedule: "30 3 * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/logCleanup"));
+
 // Gmail受信監視（5分おき）— Gmail API有効化後にコメント解除
 // 前提: settings/gmail { enabled: true, userEmail: "..." }
 // exports.watchGmail = onSchedule({
@@ -371,25 +388,25 @@ exports.generateInvoices = require("./scheduled/generateInvoices").generateInvoi
 
 // 募集変更→回答通知（AI秘書「黒子」）
 exports.onRecruitmentChange = onDocumentWritten(
-  "recruitments/{recruitmentId}",
+  { document: "recruitments/{recruitmentId}", region: "asia-northeast1" },
   require("./triggers/onRecruitmentChange")
 );
 
 // 宿泊者名簿受信→通知（AI秘書「黒子」）
 exports.onGuestFormSubmit = onDocumentCreated(
-  "guestRegistrations/{guestId}",
+  { document: "guestRegistrations/{guestId}", region: "asia-northeast1" },
   require("./triggers/onGuestFormSubmit")
 );
 
 // 宿泊者名簿 更新→修正完了メール + 更新通知
 exports.onGuestFormUpdate = onDocumentUpdated(
-  "guestRegistrations/{guestId}",
+  { document: "guestRegistrations/{guestId}", region: "asia-northeast1" },
   require("./triggers/onGuestFormUpdate")
 );
 
 // 宿泊者名簿 新規作成→GAS版スプシへ自動転記（リバース連携）
 exports.onGuestRegistrationToGas = onDocumentCreated(
-  "guestRegistrations/{guestId}",
+  { document: "guestRegistrations/{guestId}", region: "asia-northeast1" },
   require("./triggers/onGuestRegistrationToGas")
 );
 
@@ -399,49 +416,45 @@ exports.onGuestRegistrationToGas = onDocumentCreated(
 exports.onBookingChange = onDocumentWritten(
   {
     document: "bookings/{bookingId}",
+    region: "asia-northeast1",
     memory: "1GiB",
     timeoutSeconds: 540,
   },
   require("./triggers/onBookingChange")
 );
 
-// 宿泊者名簿 作成時→propertyId 未設定なら bookings から推論して補完
-// DEPRECATED: onGuestFormSubmit.js に統合済み (2026-04-26)
-// 重複メール送信(管理者宛3通)を防ぐため export を停止。ファイル本体は履歴のため残置。
-// exports.onGuestRegistrationCreate = onDocumentCreated(
-//   { document: "guestRegistrations/{guestId}", region: "asia-northeast1" },
-//   require("./triggers/onGuestRegistrationCreate")
-// );
+// onGuestRegistrationCreate は onGuestFormSubmit.js に統合済み (2026-04-26)、
+// ファイル本体も削除済み (2026-06-13。履歴は git 参照)。
 
 // シフト作成時→物件テンプレートをスナップショットしてチェックリスト自動生成
 exports.onShiftCreated = onDocumentCreated(
-  "shifts/{shiftId}",
+  { document: "shifts/{shiftId}", region: "asia-northeast1" },
   require("./triggers/onShiftCreated")
 );
 
 // チェックリスト原紙更新→該当物件の未着手 checklist を最新化 (方針B自動同期)
 // テンプレ全文を含むイベントペイロード+一括差し替えでメモリを食うため 512MiB (OOM 対策)
 exports.onChecklistTemplateUpdate = onDocumentUpdated(
-  { document: "checklistTemplates/{propertyId}", memory: "512MiB" },
+  { document: "checklistTemplates/{propertyId}", region: "asia-northeast1", memory: "512MiB" },
   require("./triggers/onChecklistTemplateUpdate")
 );
 
 // チェックリスト完了→シフト完了+通知
 exports.onChecklistComplete = onDocumentUpdated(
-  "checklists/{checklistId}",
+  { document: "checklists/{checklistId}", region: "asia-northeast1" },
   require("./triggers/onChecklistComplete")
 );
 
 // チェックリスト laundry フィールド変更→対応する通知 type を送信
 // (laundry_put_out / laundry_collected / laundry_stored)
 exports.onChecklistLaundryChange = onDocumentUpdated(
-  "checklists/{checklistId}",
+  { document: "checklists/{checklistId}", region: "asia-northeast1" },
   require("./triggers/onChecklistLaundryChange")
 );
 
 // エラーログ作成→AI翻訳+LINE通知（情シス機能）
 exports.onErrorLogCreated = onDocumentCreated(
-  "error_logs/{logId}",
+  { document: "error_logs/{logId}", region: "asia-northeast1" },
   require("./triggers/onErrorLogCreated")
 );
 

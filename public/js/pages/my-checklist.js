@@ -3612,9 +3612,7 @@ const MyChecklistPage = {
     return `${String(dt.getHours()).padStart(2,"0")}:${String(dt.getMinutes()).padStart(2,"0")}`;
   },
 
-  escapeHtml(s) {
-    return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-  },
+  escapeHtml(s) { return window.escapeHtml(s); },
 
   // ===== 写真セクション =====
   MAX_PHOTOS: 50,

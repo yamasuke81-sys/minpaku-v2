@@ -1926,11 +1926,7 @@ const RecruitmentPage = {
     }
   },
 
-  escapeHtml(str) {
-    const div = document.createElement("div");
-    div.textContent = str || "";
-    return div.innerHTML;
-  },
+  escapeHtml(s) { return window.escapeHtml(s); },
 
   // △理由入力の候補プリセット (共通)
   _TRIANGLE_REASON_PRESETS: [

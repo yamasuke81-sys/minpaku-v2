@@ -709,9 +709,7 @@ const StaffPage = {
     `).join("");
   },
 
-  escapeHtml(s) {
-    return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-  },
+  escapeHtml(s) { return window.escapeHtml(s); },
 
   // 所有物件チェックボックス (物件オーナー用)
   async renderOwnedPropertyCheckboxes(ownedIds) {
@@ -1379,9 +1377,5 @@ const StaffPage = {
     }
   },
 
-  escapeHtml(str) {
-    const div = document.createElement("div");
-    div.textContent = str || "";
-    return div.innerHTML;
-  },
+  escapeHtml(s) { return window.escapeHtml(s); },
 };

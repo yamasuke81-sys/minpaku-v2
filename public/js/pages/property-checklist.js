@@ -1539,9 +1539,5 @@ const PropertyChecklistPage = {
     return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,7)}`;
   },
 
-  escapeHtml(s) {
-    return String(s || "")
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-  }
+  escapeHtml(s) { return window.escapeHtml(s); }
 };
