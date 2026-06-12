@@ -413,8 +413,9 @@ exports.onShiftCreated = onDocumentCreated(
 );
 
 // チェックリスト原紙更新→該当物件の未着手 checklist を最新化 (方針B自動同期)
+// テンプレ全文を含むイベントペイロード+一括差し替えでメモリを食うため 512MiB (OOM 対策)
 exports.onChecklistTemplateUpdate = onDocumentUpdated(
-  "checklistTemplates/{propertyId}",
+  { document: "checklistTemplates/{propertyId}", memory: "512MiB" },
   require("./triggers/onChecklistTemplateUpdate")
 );
 

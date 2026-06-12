@@ -74,9 +74,12 @@ module.exports = async (event) => {
   const newVersion = after.version || 1;
   const newItemIds = collectItemIds(newAreas);
 
-  // 該当物件の全 checklist を取得
+  // 該当物件の checklist を取得
+  // templateSnapshot (数百項目の全文) を読み込むと OOM になるため、
+  // 判定に必要なフィールドだけ select で取得する (差し替えは update で書くだけ)
   const snap = await db.collection("checklists")
     .where("propertyId", "==", propertyId)
+    .select("workType", "status", "itemStates")
     .get();
 
   let updated = 0;
