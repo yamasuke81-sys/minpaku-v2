@@ -283,6 +283,13 @@ exports.dispatchDeferredRecruits = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/dispatchDeferredRecruits"));
 
+// 過去日付のまま残った「募集中」の自動クローズ → 期限切れ (毎日 JST 08:10)
+exports.expireStaleRecruitments = onSchedule({
+  schedule: "10 8 * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/expireStaleRecruitments"));
+
 // Gmail受信監視（5分おき）— Gmail API有効化後にコメント解除
 // 前提: settings/gmail { enabled: true, userEmail: "..." }
 // exports.watchGmail = onSchedule({
