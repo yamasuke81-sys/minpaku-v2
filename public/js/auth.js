@@ -103,18 +103,45 @@ const Auth = {
         // ユーザー名表示
         const nameEl = document.getElementById("userName");
         if (nameEl) nameEl.textContent = user.displayName || user.email;
-        // 新規ログイン直後は custom token で付与したカスタムクレーム(staffId/role)が
-        // ID トークンにまだ反映されていないことがあるため、強制更新(true)で最新を取得する。
-        // これを怠ると新規スタッフ本人の名前が画面に出ず、リロード連打で直る症状になる。
-        // オフライン等で強制更新が失敗した場合はキャッシュ済みトークンにフォールバック。
-        user.getIdTokenResult(true)
-          .catch(() => user.getIdTokenResult())
-          .then((result) => {
-            this.currentUser.role = result.claims.role || "owner";
-            this.currentUser.staffId = result.claims.staffId || null;
-            this.currentUser.ownedPropertyIds = result.claims.ownedPropertyIds || [];
+        // クレーム取得と描画開始 (2026-06-13 起動高速化):
+        // 旧実装は毎回 getIdTokenResult(true) の完了を待ってから描画しており、
+        // 起動のたびにトークンサーバーへの往復 (0.5〜2秒) でアプリ全体がブロックされていた。
+        // → キャッシュ済みトークンに role クレームがあれば即描画し、強制更新は裏で行う。
+        //    role が無いのは「新規ログイン直後でクレーム未反映」の場合のみ
+        //    (オーナー/サブオーナー/スタッフ全員に role クレームが付与されている)。
+        //    その場合だけ従来どおり強制更新を待つ (新規スタッフの名前が出ない症状の再発防止)。
+        const applyClaims = (result) => {
+          this.currentUser.role = result.claims.role || "owner";
+          this.currentUser.staffId = result.claims.staffId || null;
+          this.currentUser.ownedPropertyIds = result.claims.ownedPropertyIds || [];
+        };
+        user.getIdTokenResult().then((cached) => {
+          if (cached.claims.role) {
+            // 高速パス: キャッシュで即描画 → 裏で最新化し、変化があれば再描画
+            applyClaims(cached);
             App.onAuthReady();
-          });
+            user.getIdTokenResult(true).then((fresh) => {
+              const changed =
+                (fresh.claims.role || "owner") !== this.currentUser.role ||
+                (fresh.claims.staffId || null) !== this.currentUser.staffId ||
+                JSON.stringify(fresh.claims.ownedPropertyIds || []) !==
+                  JSON.stringify(this.currentUser.ownedPropertyIds || []);
+              if (changed) {
+                applyClaims(fresh);
+                App.onAuthReady();
+              }
+            }).catch(() => { /* オフライン等は次回起動時に更新される */ });
+          } else {
+            // 新規ログイン直後: クレーム反映を強制更新で待ってから描画。
+            // オフライン等で失敗した場合はキャッシュ済みトークンにフォールバック。
+            user.getIdTokenResult(true)
+              .catch(() => user.getIdTokenResult())
+              .then((result) => {
+                applyClaims(result);
+                App.onAuthReady();
+              });
+          }
+        });
       } else {
         this.currentUser = null;
         this.loginModal.show();
