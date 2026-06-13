@@ -56,6 +56,7 @@ module.exports = async function sendKeyboxScheduled() {
 
   let sentCount = 0;
   let remindCount = 0;
+  let orphanSkipCount = 0;
 
   for (const doc of snap.docs) {
     const data = doc.data();
@@ -63,6 +64,23 @@ module.exports = async function sendKeyboxScheduled() {
 
     // 既に送信済みならスキップ
     if (data.keyboxSentAt) continue;
+
+    // 孤児名簿ガード: bookingId が紐付いていて bookings に存在しない or cancelled ならスキップ
+    // 例: Airbnb 側でキャンセル → bookings からは削除されるが guestRegistrations が残るケース
+    if (data.bookingId) {
+      try {
+        const bSnap = await db.collection("bookings").doc(data.bookingId).get();
+        if (!bSnap.exists || bSnap.data().status === "cancelled") {
+          console.warn(`[orphan-skip] guestId=${guestId} guest=${data.guestName} bookingId=${data.bookingId} (booking 削除済/cancelled)`);
+          orphanSkipCount++;
+          continue;
+        }
+      } catch (e) {
+        console.warn(`bookings 突合失敗 (${guestId}): ${e.message} — 念のため送信スキップ`);
+        orphanSkipCount++;
+        continue;
+      }
+    }
 
     const propertyId = data.propertyId || "";
     const prop = await getPropData(propertyId);
@@ -132,5 +150,5 @@ module.exports = async function sendKeyboxScheduled() {
     }
   }
 
-  console.log(`sendKeyboxScheduled 完了: 送信=${sentCount}件, リマインド=${remindCount}件`);
+  console.log(`sendKeyboxScheduled 完了: 送信=${sentCount}件, リマインド=${remindCount}件, 孤児スキップ=${orphanSkipCount}件`);
 };

@@ -60,8 +60,27 @@ module.exports = async function morningBriefing(event) {
     db.collection("taxDocsChecklist").doc(currentYM).collection("entities").get(),
   ]);
 
-  const checkouts = coSnap.docs.map((d) => d.data());
-  const checkins = ciSnap.docs.map((d) => d.data());
+  // 孤児名簿フィルタ: bookingId が bookings に存在しない (or cancelled) ものは除外
+  // 例: Airbnb キャンセル → bookings から削除されるが guestRegistrations は残る
+  async function filterByLiveBooking(docs) {
+    const filtered = [];
+    for (const d of docs) {
+      const x = d.data();
+      if (x.bookingId) {
+        try {
+          const b = await db.collection("bookings").doc(x.bookingId).get();
+          if (!b.exists || b.data().status === "cancelled") {
+            console.warn(`[orphan-skip] morningBriefing guestId=${d.id} guest=${x.guestName} bookingId=${x.bookingId}`);
+            continue;
+          }
+        } catch (_) { /* 突合失敗時は念のため除外 */ continue; }
+      }
+      filtered.push(x);
+    }
+    return filtered;
+  }
+  const checkouts = await filterByLiveBooking(coSnap.docs);
+  const checkins = await filterByLiveBooking(ciSnap.docs);
   const unconfirmed = recruitSnap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
     .filter((r) => r.checkoutDate && r.checkoutDate <= threeDaysLater);
