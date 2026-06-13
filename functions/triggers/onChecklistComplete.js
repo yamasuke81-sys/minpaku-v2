@@ -170,10 +170,27 @@ module.exports = async function onChecklistComplete(event) {
       .map(s => `・${s}`);
 
     // (3) 在庫切れかけ抽出 (itemStates[id].needsRestock=true)
+    // checklist は templateSnapshot (areas ツリー) で保存されているため、再帰走査でフラット化する
+    // 構造: areas[].{directItems, items, taskTypes[], subCategories[], subSubCategories[]}
     const itemStates = after.itemStates || {};
-    const items = Array.isArray(after.items) ? after.items : [];
-    const lowStockNames = items
-      .filter(it => it && it.id && itemStates[it.id] && itemStates[it.id].needsRestock)
+    const flatItems = [];
+    const walkArea = (node) => {
+      if (!node || typeof node !== "object") return;
+      const list = [...(Array.isArray(node.directItems) ? node.directItems : []),
+                    ...(Array.isArray(node.items) ? node.items : [])];
+      list.forEach(it => { if (it && it.id) flatItems.push(it); });
+      (node.taskTypes || []).forEach(walkArea);
+      (node.subCategories || []).forEach(walkArea);
+      (node.subSubCategories || []).forEach(walkArea);
+    };
+    const areas = Array.isArray(after.templateSnapshot) ? after.templateSnapshot : [];
+    areas.forEach(walkArea);
+    // 後方互換: 旧 items フラット配列があれば併合
+    if (Array.isArray(after.items)) {
+      after.items.forEach(it => { if (it && it.id) flatItems.push(it); });
+    }
+    const lowStockNames = flatItems
+      .filter(it => itemStates[it.id] && itemStates[it.id].needsRestock)
       .map(it => it.name || it.title || it.id || "")
       .filter(Boolean);
 
