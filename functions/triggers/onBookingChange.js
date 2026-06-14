@@ -366,6 +366,31 @@ module.exports = async function onBookingChange(event) {
         } else {
           console.log(`[onBookingChange] キャンセル: ${bid} (同日別active予約あり、削除スキップ)`);
         }
+
+        // guestRegistrations は削除せず status を "cancelled" に更新 (お客様情報は残す方針)
+        // sendKeyboxScheduled は status "in" ["submitted","confirmed"] でフィルタしているので、
+        // status を cancelled にすればキーボックスメール誤送信は防げる。
+        // morningBriefing の孤児ガードは bookings.status が cancelled でも除外するので両立する。
+        try {
+          const grSnap = await db.collection("guestRegistrations")
+            .where("bookingId", "==", bid).get();
+          let updated = 0;
+          for (const g of grSnap.docs) {
+            const cur = g.data().status;
+            if (cur === "cancelled") continue;
+            await g.ref.update({
+              status: "cancelled",
+              cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
+              previousStatus: cur || null,
+            });
+            updated++;
+          }
+          if (updated > 0) {
+            console.log(`[onBookingChange] guestRegistrations を cancelled 化: ${updated}件 (bookingId=${bid})`);
+          }
+        } catch (e) {
+          console.error("[onBookingChange] guestRegistrations cancel 更新エラー:", e);
+        }
       } catch (e) {
         console.error("キャンセル連動削除エラー:", e);
       }
