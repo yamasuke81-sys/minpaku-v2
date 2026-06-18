@@ -1063,21 +1063,30 @@ const MyRecruitmentPage = {
             const s = String(b.status || "").toLowerCase();
             return s.includes("cancel") || b.status === "キャンセル" || b.status === "キャンセル済み";
           };
-          let starting = null, ending = null, middle = null;
+          // 1パス目: 非キャンセル予約(確定/保留)でこのセルの左右半分を確定
+          //   ending=左半分 / starting=右半分 / middle=両方 を占有
+          let aStart = null, aEnd = null, aMid = null;
           for (const b of propBookings) {
-            // キャンセル予約: 同日 CI に別の非キャンセル予約があるなら無視
-            if (isCancelled(b)) {
-              const sameDayActive = propBookings.find(o =>
-                o.id !== b.id && !isCancelled(o) &&
-                ((b.checkIn === d && o.checkIn === d) ||
-                 (b.checkOut === d && o.checkOut === d))
-              );
-              if (sameDayActive) continue;
-            }
-            if (b.checkIn === d) starting = b;
-            else if (b.checkOut === d) ending = b;
-            else if (b.checkIn < d && d < b.checkOut) middle = b;
+            if (isCancelled(b)) continue;
+            if (b.checkIn === d) aStart = b;
+            else if (b.checkOut === d) aEnd = b;
+            else if (b.checkIn < d && d < b.checkOut) aMid = b;
           }
+          const leftOcc = !!aEnd || !!aMid;   // 左半分を確定予約が占有
+          const rightOcc = !!aStart || !!aMid; // 右半分を確定予約が占有
+          // 2パス目: キャンセル予約は確定予約が占有していない半分にだけ描画
+          //   (キャンセルバーが日程の重なる新規予約の上に被って汚く見える問題への対処。
+          //    同日CI/CO一致だけでなく、中日が重なるケースでも確定予約を常に優先する)
+          let cStart = null, cEnd = null, cMid = null;
+          for (const b of propBookings) {
+            if (!isCancelled(b)) continue;
+            if (b.checkIn === d) { if (!rightOcc) cStart = b; }
+            else if (b.checkOut === d) { if (!leftOcc) cEnd = b; }
+            else if (b.checkIn < d && d < b.checkOut) { if (!leftOcc && !rightOcc) cMid = b; }
+          }
+          const starting = aStart || cStart;
+          const ending = aEnd || cEnd;
+          const middle = aMid || cMid;
           const isHdToday = dd.dateStr === todayStr;
           const tdBg = isHdToday ? "#e8f0fe" : (!dd.isCurrent ? "#e9ecef" : "#fff");
 
