@@ -2019,11 +2019,21 @@ const MyRecruitmentPage = {
       const co = coRaw && typeof formatDateFull === "function" ? formatDateFull(coRaw) : coRaw;
       const createdMs = toMs(r.createdAt);
       const updatedMs = toMs(r.updatedAt);
-      // 新規募集 (createdAt が 24h 以内)
-      if (createdMs && (now - createdMs) < H24 && r.status === "募集中") {
+      // 新規募集のお知らせ: 「実際に募集が開始された」ものだけ出す。
+      // - 30日繰延中 (notifyDeferred=true / 作業日が30日超) は通知が飛んでいない=「開始」していないので除外。
+      // - 開始時刻の基準は「繰延発火時刻 or 作成時刻」。繰延が日付経過で発火した時に正しくお知らせに出す。
+      // - 既読管理 / 別物件・キャンセル後の再予約は notifId(=募集ID単位)で区別されるため、ここは出す条件のみ調整。
+      const startMs = toMs(r.notifyDeferredFiredAt) || createdMs;
+      const workDays = r.checkoutDate
+        ? Math.round((new Date(r.checkoutDate + "T00:00:00") - new Date(new Date().setHours(0, 0, 0, 0))) / 86400000)
+        : null;
+      const within30 = workDays !== null && workDays >= 0 && workDays <= 30;
+      if (startMs && (now - startMs) < H24 && r.status === "募集中"
+          && r.notifyDeferred !== true && within30) {
+        const workLabel = r.workType === "pre_inspection" ? "直前点検" : "清掃";
         staffItems.push({
-          sortMs: createdMs, icon: "bi-megaphone", color: "primary",
-          text: `清掃募集開始しました: ${co}${propName ? " " + propName : ""}`,
+          sortMs: startMs, icon: "bi-megaphone", color: "primary",
+          text: `${workLabel}募集開始しました: ${co}${propName ? " " + propName : ""}`,
           notifId: `news-recruit-started-${r.id}`,
         });
       }
