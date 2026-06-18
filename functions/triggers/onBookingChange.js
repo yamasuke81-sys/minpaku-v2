@@ -58,6 +58,8 @@ async function cancelCleaningForDate_(db, propertyId, dateStr, excludeBookingId)
     .where("date", "==", dObj)
     .get();
   for (const s of shiftSnap.docs) {
+    // 直前点検(pre_inspection)は別予約のCI日が checkoutDate/date に入るため、清掃の片付けで誤削除しない
+    if ((s.data().workType || "cleaning_by_count") === "pre_inspection") continue;
     const cls = await db.collection("checklists").where("shiftId", "==", s.id).get();
     for (const c of cls.docs) await c.ref.delete();
     await s.ref.delete();
@@ -67,6 +69,7 @@ async function cancelCleaningForDate_(db, propertyId, dateStr, excludeBookingId)
     .where("checkoutDate", "==", dateStr)
     .get();
   for (const r of recSnap.docs) {
+    if ((r.data().workType || "cleaning") === "pre_inspection") continue; // 同上
     await removeRecruitmentFromAllStaff(db, r.id);
     await r.ref.delete();
   }
@@ -350,6 +353,9 @@ module.exports = async function onBookingChange(event) {
             .where("propertyId", "==", pid)
             .where("date", "==", coDate).get();
           for (const s of shiftSnap.docs) {
+            // 別予約のCI日由来の直前点検(checkoutDate=このCO日)を巻き添え削除しない。
+            // 自分(bid)の直前点検は削除対象に残す。
+            if ((s.data().workType || "cleaning_by_count") === "pre_inspection" && s.data().bookingId !== bid) continue;
             const cls = await db.collection("checklists").where("shiftId", "==", s.id).get();
             for (const c of cls.docs) await c.ref.delete();
             await s.ref.delete();
@@ -359,6 +365,7 @@ module.exports = async function onBookingChange(event) {
             .where("propertyId", "==", pid)
             .where("checkoutDate", "==", co).get();
           for (const r of recSnap.docs) {
+            if ((r.data().workType || "cleaning") === "pre_inspection" && r.data().bookingId !== bid) continue; // 同上
             await removeRecruitmentFromAllStaff(db, r.id);
             await r.ref.delete();
           }
@@ -658,16 +665,18 @@ module.exports = async function onBookingChange(event) {
   }
 
   // ========== シフト重複チェック ==========
-  const existingShifts = await db.collection("shifts")
+  const existingShiftsSnap = await db.collection("shifts")
     .where("date", "==", checkOutDate)
     .where("propertyId", "==", propertyId)
     .get();
+  // 清掃シフトのみ重複判定対象 (直前点検 pre_inspection は別作業/別予約のCI日なので除外)
+  const existingShiftDocs = existingShiftsSnap.docs.filter(s => (s.data().workType || "cleaning_by_count") !== "pre_inspection");
 
   // キャンセル済み予約に紐付く残留シフトを削除してから再生成する
-  let shouldCreateShift = existingShifts.empty;
-  if (!existingShifts.empty) {
+  let shouldCreateShift = existingShiftDocs.length === 0;
+  if (existingShiftDocs.length > 0) {
     let allStale = true;
-    for (const shiftDoc of existingShifts.docs) {
+    for (const shiftDoc of existingShiftDocs) {
       const shiftData = shiftDoc.data();
       const linkedBookingId = shiftData.bookingId;
       if (!linkedBookingId) {
@@ -692,7 +701,7 @@ module.exports = async function onBookingChange(event) {
 
     if (allStale) {
       // 全シフトが残留物 → 削除して再生成
-      for (const shiftDoc of existingShifts.docs) {
+      for (const shiftDoc of existingShiftDocs) {
         try {
           const cls = await db.collection("checklists").where("shiftId", "==", shiftDoc.id).get();
           for (const c of cls.docs) await c.ref.delete();
@@ -747,16 +756,18 @@ module.exports = async function onBookingChange(event) {
   }
 
   // ========== 募集重複チェック ==========
-  const existingRecruitments = await db.collection("recruitments")
+  const existingRecruitmentsSnap = await db.collection("recruitments")
     .where("checkoutDate", "==", checkOut)
     .where("propertyId", "==", propertyId)
     .get();
+  // 清掃募集のみ重複判定対象 (直前点検 pre_inspection は別作業/別予約のCI日が checkoutDate に入るので除外)
+  const existingRecruitmentDocs = existingRecruitmentsSnap.docs.filter(r => (r.data().workType || "cleaning") !== "pre_inspection");
 
   // キャンセル済み予約に紐付く残留募集を削除してから再生成する
-  let shouldCreateRecruitment = existingRecruitments.empty;
-  if (!existingRecruitments.empty) {
+  let shouldCreateRecruitment = existingRecruitmentDocs.length === 0;
+  if (existingRecruitmentDocs.length > 0) {
     let allStaleRec = true;
-    for (const recDoc of existingRecruitments.docs) {
+    for (const recDoc of existingRecruitmentDocs) {
       const recData = recDoc.data();
       const linkedBookingId = recData.bookingId;
       if (!linkedBookingId) {
@@ -781,7 +792,7 @@ module.exports = async function onBookingChange(event) {
 
     if (allStaleRec) {
       // 全募集が残留物 → 削除して再生成
-      for (const recDoc of existingRecruitments.docs) {
+      for (const recDoc of existingRecruitmentDocs) {
         try {
           await removeRecruitmentFromAllStaff(db, recDoc.id);
           await recDoc.ref.delete();
@@ -996,11 +1007,13 @@ module.exports = async function onBookingChange(event) {
     }
 
     // 同日他予約の checkOut があれば直前点検不要(清掃が兼ねる)
+    // ただしキャンセル済みの checkOut は清掃が無いので除外する
     const sameDayOutSnap = await db.collection("bookings")
       .where("propertyId", "==", propertyId)
-      .where("checkOut", "==", checkIn).limit(1).get();
-    if (!sameDayOutSnap.empty) {
-      console.log(`予約 ${bookingId}: ${checkIn} に他予約の checkOut あり → 直前点検スキップ`);
+      .where("checkOut", "==", checkIn).get();
+    const sameDayActiveOut = sameDayOutSnap.docs.some(d => !isCancelled(d.data().status));
+    if (sameDayActiveOut) {
+      console.log(`予約 ${bookingId}: ${checkIn} に他予約(active)の checkOut あり → 直前点検スキップ`);
       return;
     }
 
