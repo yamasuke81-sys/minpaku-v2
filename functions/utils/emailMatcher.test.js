@@ -290,8 +290,21 @@ describe("decideVerificationStatus", () => {
       "matched"
     );
   });
-  test("confirmed + unmatched → 'unmatched'", () => {
-    assert.strictEqual(decideVerificationStatus({ kind: "confirmed" }, null), "unmatched");
+  test("confirmed + unmatched (手がかりあり) → 'unmatched'", () => {
+    // 予約番号 or チェックイン日があれば再評価で後追い可能 → unmatched
+    assert.strictEqual(
+      decideVerificationStatus({ kind: "confirmed", reservationCode: "HMXXXX" }, null),
+      "unmatched"
+    );
+    assert.strictEqual(
+      decideVerificationStatus({ kind: "confirmed", checkIn: { date: "2026-08-14" } }, null),
+      "unmatched"
+    );
+  });
+  test("手がかり無し(予約番号もCIも無い)未照合 → 'ignored'", () => {
+    // メッセージスレッド等、永久に照合不能なノイズは終端化して再評価プールに入れない
+    assert.strictEqual(decideVerificationStatus({ kind: "confirmed" }, null), "ignored");
+    assert.strictEqual(decideVerificationStatus({ kind: "unknown" }, null), "ignored");
   });
   test("cancelled + matched → 'cancelled'", () => {
     assert.strictEqual(

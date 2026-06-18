@@ -1167,7 +1167,23 @@ const DashboardPage = {
     const propNameBadge = propNameForTitle
       ? `<span class="badge bg-light text-dark border ms-2" style="font-weight:500;">${propNumberBadge}${this.esc(propNameForTitle)}</span>`
       : "";
-    document.getElementById("calEventTitle").innerHTML = `<i class="bi bi-calendar-event"></i> 予約詳細 ${propNameBadge} ${sourceBadge}`;
+    // キャンセル予約は一目で分かるようにモーダル全体をグレー背景 + タイトルに赤バッジ
+    const isCancelledBooking = b.status === "cancelled" || b.status === "キャンセル" || b.status === "キャンセル済み";
+    const cancelTitleBadge = isCancelledBooking
+      ? `<span class="badge bg-danger ms-2"><i class="bi bi-x-octagon-fill"></i> キャンセル済み</span>`
+      : "";
+    document.getElementById("calEventTitle").innerHTML = `<i class="bi bi-calendar-event"></i> 予約詳細 ${propNameBadge} ${sourceBadge} ${cancelTitleBadge}`;
+    // モーダルは使い回されるため、キャンセル状態に応じて毎回スタイルを設定/解除する
+    const mc = modalEl.querySelector(".modal-content");
+    if (mc) {
+      if (isCancelledBooking) {
+        mc.style.background = "#dee2e6";       // グレー背景
+        mc.style.filter = "grayscale(0.35)";   // 中身も少し彩度を落とす
+      } else {
+        mc.style.background = "";
+        mc.style.filter = "";
+      }
+    }
 
     // 宿泊者名簿 表示/非表示判定
     // 保存先まとめ:

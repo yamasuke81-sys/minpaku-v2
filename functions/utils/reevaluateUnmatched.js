@@ -20,7 +20,8 @@
  */
 const { findBookingMatch, decideBookingUpdate } = require("./emailMatcher");
 
-const SCAN_LIMIT = 50; // 1 回の再評価で見る unmatched 上限
+const SCAN_LIMIT = 50; // 1 回の再評価で見る unmatched 上限 (物件スコープ)
+const GLOBAL_SCAN_LIMIT = 300; // global 再評価の上限。ノイズを ignored 化した上で本物の未照合を取りこぼさないよう広めに設定
 
 /**
  * 再評価のメイン
@@ -218,14 +219,16 @@ async function reevaluateGlobalUnmatched_(db, log) {
     return result;
   }
 
-  // 2. propertyId=null の emailVerifications を取得
-  // matchStatus フィールドの有無に依らず matchedBookingId 単独でも判定するため、
-  // ここでは propertyId=null のみで絞り込み、ループ内で「未マッチ」を再判定する
+  // 2. 未照合(matchStatus=unmatched)の emailVerifications を直接取得する。
+  // 以前は propertyId=null のみで limit 50 だったが、照合不能ノイズ(現 ignored)が
+  // 大量に滞留すると 50 枠を食い潰し、本物の確定メールが永遠に再評価されない
+  // (starvation)。matchStatus=unmatched に絞り、上限も広げて取りこぼしを防ぐ。
+  // ノイズは decideVerificationStatus 側で ignored に終端化済みなので未照合プールに入らない。
   let evDocs = [];
   try {
     const evSnap = await db.collection("emailVerifications")
-      .where("propertyId", "==", null)
-      .limit(SCAN_LIMIT)
+      .where("matchStatus", "==", "unmatched")
+      .limit(GLOBAL_SCAN_LIMIT)
       .get();
     evDocs = evSnap.docs;
   } catch (e) {

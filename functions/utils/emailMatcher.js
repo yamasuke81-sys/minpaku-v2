@@ -293,7 +293,14 @@ function decideVerificationStatus(parsedInfo, matchedBooking) {
   }
 
   if (!matchedBooking) {
-    return kind === "cancelled" ? "cancelled-unmatched" : "unmatched";
+    if (kind === "cancelled") return "cancelled-unmatched";
+    // 突合の手がかり(予約番号 or チェックイン日)が両方無いメールは永久に照合不能
+    // (Airbnbメッセージスレッド/レビュー/汎用通知等)。未照合プール(再評価対象)に入れず
+    // ignored で終端化する。これがないと findBookingMatch で拾えないノイズが溜まり、
+    // 救済バッチの枠を食い潰して本物の確定メールが埋もれる(starvation)。
+    const hasCode = !!parsedInfo.reservationCode;
+    const hasCI = !!(parsedInfo.checkIn && parsedInfo.checkIn.date);
+    return (hasCode || hasCI) ? "unmatched" : "ignored";
   }
   if (kind === "confirmed") return "matched";
   if (kind === "cancelled") return "cancelled";
