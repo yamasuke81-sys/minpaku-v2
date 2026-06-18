@@ -79,6 +79,12 @@
       <p id="formSubtitle">ご宿泊に必要な情報をご記入ください</p>
     </div>
     <div class="card-body px-4 py-3">
+      <!-- 旅館業法に基づく宿泊者名簿である旨の明示（法令準拠の周知・フィッシング誤判定対策） -->
+      <div class="alert alert-secondary small mb-3" id="legalNoticeBanner">
+        <i class="bi bi-info-circle me-1"></i>
+        <span id="lbl_legalNotice"></span>
+        <a href="/privacy-policy.html" target="_blank" rel="noopener" class="alert-link" id="lbl_privacyPolicyLink"></a>
+      </div>
       <div id="bookingInfo" class="alert alert-info d-none">
         <strong id="lbl_bookingInfo">ご予約情報</strong>: <span id="bookingInfoText"></span>
       </div>
@@ -567,6 +573,8 @@
       ja: {
         formTitle: "宿泊者名簿",
         formSubtitle: "ご宿泊に必要な情報をご記入ください",
+        legalNotice: "本フォームは、旅館業法 第6条および同法施行規則 第4条の2に基づき、宿泊施設運営者が宿泊者名簿を作成するためのものです。ご記入いただいた情報は宿泊者管理の目的にのみ利用し、第三者に提供することはありません。",
+        privacyPolicyLink: "個人情報の取り扱いについて",
         bookingInfo: "ご予約情報",
         noiseTitle: "⚠ 宴会について — 非常に重要なお願い",
         noiseIntro: "夜遅くまでにぎやかに過ごされたい場合は、トラブル防止のため他施設をご検討ください。<br><span class='text-muted'>※一般的な音量の会話であれば、夜間でも問題なくご利用いただけます。</span>",
@@ -692,6 +700,8 @@
       en: {
         formTitle: "Guest Registration",
         formSubtitle: "Please fill in the required information for your stay",
+        legalNotice: "This form is used by the accommodation operator to maintain a guest register as required by Japan's Hotel Business Act (Article 6). Your information is used only for guest management and is never shared with third parties.",
+        privacyPolicyLink: "Privacy Policy",
         bookingInfo: "Booking Info",
         noiseTitle: "⚠ A Note About Quiet Hours — Very Important",
         noiseIntro: "If you plan to stay up late and be loud, please consider other accommodations.<br><span class='text-muted'>* Normal conversation volume is perfectly fine, even at night.</span>",
@@ -814,6 +824,8 @@
       ko: {
         formTitle: "숙박객 명부",
         formSubtitle: "숙박에 필요한 정보를 기입해 주세요",
+        legalNotice: "본 양식은 일본 여관업법 제6조에 따라 숙박시설 운영자가 숙박객 명부를 작성하기 위한 것입니다. 기입하신 정보는 숙박객 관리 목적으로만 이용되며 제3자에게 제공되지 않습니다.",
+        privacyPolicyLink: "개인정보 취급방침",
         bookingInfo: "예약 정보",
         noiseTitle: "⚠ 연회에 관하여 — 매우 중요한 요청",
         noiseIntro: "늦은 시간까지 시끄럽게 보내고 싶으시다면, 문제 방지를 위해 다른 시설을 고려해 주십시오.<br><span class='text-muted'>※일반적인 음량의 대화는 야간에도 문제없이 이용 가능합니다.</span>",
@@ -974,6 +986,8 @@
       zh: {
         formTitle: "住客登记表",
         formSubtitle: "请填写住宿所需信息",
+        legalNotice: "本表格供住宿设施运营者依据日本《旅馆业法》第6条编制住客登记表使用。您填写的信息仅用于住客管理，绝不提供给第三方。",
+        privacyPolicyLink: "隐私政策",
         bookingInfo: "预订信息",
         noiseTitle: "⚠ 关于宴会 — 非常重要的请求",
         noiseIntro: "如果您想深夜喧哗，请考虑其他住宿，以避免不必要的麻烦。<br><span class='text-muted'>※如果是正常音量的对话，即使在夜间也可以使用。</span>",
@@ -1134,6 +1148,8 @@
       tw: {
         formTitle: "旅客名冊",
         formSubtitle: "請填寫住宿所需資訊",
+        legalNotice: "本表單供住宿設施營運者依據日本《旅館業法》第6條編製旅客名冊使用。您填寫的資訊僅用於旅客管理，絕不提供給第三方。",
+        privacyPolicyLink: "隱私權政策",
         bookingInfo: "您的預訂資訊",
         noiseTitle: "⚠ 關於舉辦宴會 — 非常重要的請求",
         noiseIntro: "如果您想玩到深夜，為了避免糾紛，請考慮其他住宿地點。<br><span class='text-muted'>※如果是正常音量的交談，即使在夜間也能正常使用。</span>",
@@ -1326,6 +1342,8 @@
       } catch (_) {}
       setText("formTitle", t.formTitle);
       setText("formSubtitle", t.formSubtitle);
+      setText("lbl_legalNotice", t.legalNotice);
+      setText("lbl_privacyPolicyLink", t.privacyPolicyLink);
       setText("lbl_bookingInfo", t.bookingInfo);
       setText("lbl_noiseTitle", t.noiseTitle);
       setHtml("lbl_noiseIntro", t.noiseIntro);
