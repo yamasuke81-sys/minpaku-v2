@@ -32,6 +32,7 @@ const App = {
     "reservation-flow": ReservationFlowPage,
     "prepaid-cards": PrepaidCardsPage,
     reports: ReportsPage,
+    pnl: PnlPage,
     command: CommandCenterPage,
     projects: ProjectsPage,
     "scan-sorter": ScanSorterPage,

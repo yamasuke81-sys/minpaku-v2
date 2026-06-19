@@ -241,6 +241,13 @@ module.exports = function propertiesApi(db) {
       if (body.monthlyFixedCost !== undefined) data.monthlyFixedCost = Number(body.monthlyFixedCost) || 0;
       if (body.purchasePrice !== undefined) data.purchasePrice = Number(body.purchasePrice) || 0;
       if (body.purchaseDate !== undefined) data.purchaseDate = body.purchaseDate;
+      // 収支機能 OTAマッピング (Airbnb収入レポート/Booking.com明細の物件突合用)
+      if (body.bookingPropertyId !== undefined) data.bookingPropertyId = String(body.bookingPropertyId).trim();
+      if (body.airbnbListingName !== undefined) data.airbnbListingName = String(body.airbnbListingName).trim();
+      if (body.airbnbListingAliases !== undefined) {
+        data.airbnbListingAliases = Array.isArray(body.airbnbListingAliases)
+          ? body.airbnbListingAliases.map((s) => String(s).trim()).filter(Boolean) : [];
+      }
       if (body.checklistTemplateId !== undefined) data.checklistTemplateId = body.checklistTemplateId;
       if (body.notes !== undefined) data.notes = String(body.notes).trim();
       if (body.active !== undefined) data.active = Boolean(body.active);

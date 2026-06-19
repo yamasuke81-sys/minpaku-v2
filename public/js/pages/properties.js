@@ -447,6 +447,14 @@ const PropertiesPage = {
     };
     document.getElementById("propertyNotes").value = property?.notes || "";
 
+    // OTA連携（収支用）
+    document.getElementById("propertyBookingPropertyId").value = property?.bookingPropertyId || "";
+    document.getElementById("propertyAirbnbListingName").value = property?.airbnbListingName || "";
+    document.getElementById("propertyAirbnbListingAliases").value =
+      Array.isArray(property?.airbnbListingAliases)
+        ? property.airbnbListingAliases.join(", ")
+        : (property?.airbnbListingAliases || "");
+
     // 物件オーナー (請求書宛名) プルダウンを構築 + 名義 / 編集リンク
     // 絞り込みのため現在編集中の物件 ID を保持
     this._currentEditingPropertyId = property?.id || "";
@@ -651,6 +659,11 @@ const PropertiesPage = {
         code: document.getElementById("propertyPostCode")?.value.trim() || null,
       },
       notes: document.getElementById("propertyNotes").value.trim(),
+      // OTA連携（収支用）
+      bookingPropertyId: document.getElementById("propertyBookingPropertyId")?.value.trim() || null,
+      airbnbListingName: document.getElementById("propertyAirbnbListingName")?.value.trim() || null,
+      airbnbListingAliases: (document.getElementById("propertyAirbnbListingAliases")?.value || "")
+        .split(",").map(s => s.trim()).filter(Boolean),
       // Webアプリ管理者 (請求書宛名用 staff ID) + 名義 (billingProfile ID)
       ownerStaffId: document.getElementById("propertyOwnerStaffId")?.value || null,
       ownerBillingProfileId: document.getElementById("propertyOwnerBillingProfileId")?.value || null,
@@ -807,6 +820,11 @@ const PropertiesPage = {
         code: document.getElementById("propertyPostCode")?.value.trim() || null,
       },
       notes: document.getElementById("propertyNotes").value.trim(),
+      // OTA連携（収支用）
+      bookingPropertyId: document.getElementById("propertyBookingPropertyId")?.value.trim() || null,
+      airbnbListingName: document.getElementById("propertyAirbnbListingName")?.value.trim() || null,
+      airbnbListingAliases: (document.getElementById("propertyAirbnbListingAliases")?.value || "")
+        .split(",").map(s => s.trim()).filter(Boolean),
       // Webアプリ管理者 (請求書宛名用 staff ID) + 名義 (billingProfile ID)
       ownerStaffId: document.getElementById("propertyOwnerStaffId")?.value || null,
       ownerBillingProfileId: document.getElementById("propertyOwnerBillingProfileId")?.value || null,

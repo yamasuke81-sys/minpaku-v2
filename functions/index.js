@@ -140,6 +140,10 @@ app.use("/checklist", checklistApi(db));
 const reportsApi = require("./api/reports");
 app.use("/reports", reportsApi(db));
 
+// ========== 収支管理 API ==========
+const pnlApi = require("./api/pnl");
+app.use("/pnl", pnlApi(db));
+
 // ========== スキャン自動仕分け API ==========
 const scanSorterApi = require("./api/scan-sorter");
 app.use("/scan-sorter", scanSorterApi(db));

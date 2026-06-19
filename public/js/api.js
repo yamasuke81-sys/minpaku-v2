@@ -450,6 +450,139 @@ const API = {
     },
   },
 
+  // ===== 収支 API =====
+  pnl: {
+    CF_BASE: "https://api-5qrfx7ujcq-an.a.run.app",
+
+    async _token() {
+      return firebase.auth().currentUser.getIdToken();
+    },
+
+    async _get(path) {
+      const token = await this._token();
+      const res = await fetch(`${this.CF_BASE}${path}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `GET ${path} 失敗`);
+      return data;
+    },
+
+    async _post(path, body) {
+      const token = await this._token();
+      const res = await fetch(`${this.CF_BASE}${path}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `POST ${path} 失敗`);
+      return data;
+    },
+
+    async _patch(path, body) {
+      const token = await this._token();
+      const res = await fetch(`${this.CF_BASE}${path}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `PATCH ${path} 失敗`);
+      return data;
+    },
+
+    async _put(path, body) {
+      const token = await this._token();
+      const res = await fetch(`${this.CF_BASE}${path}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `PUT ${path} 失敗`);
+      return data;
+    },
+
+    async _delete(path) {
+      const token = await this._token();
+      const res = await fetch(`${this.CF_BASE}${path}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `DELETE ${path} 失敗`);
+      return data;
+    },
+
+    // GET /pnl/summary?propertyId=&from=&to=
+    async summary(propertyId, from, to) {
+      return this._get(`/pnl/summary?propertyId=${encodeURIComponent(propertyId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+    },
+
+    // GET /pnl/:propertyId/:yearMonth
+    async getMonth(propertyId, yearMonth) {
+      return this._get(`/pnl/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}`);
+    },
+
+    // PATCH /pnl/:propertyId/:yearMonth
+    async patchMonth(propertyId, yearMonth, body) {
+      return this._patch(`/pnl/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}`, body);
+    },
+
+    // POST /pnl/:propertyId/:yearMonth/cleaning
+    async postCleaning(propertyId, yearMonth, body) {
+      return this._post(`/pnl/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}/cleaning`, body);
+    },
+
+    // PATCH /pnl/:propertyId/:yearMonth/cleaning/:rowId
+    async patchCleaning(propertyId, yearMonth, rowId, body) {
+      return this._patch(`/pnl/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}/cleaning/${encodeURIComponent(rowId)}`, body);
+    },
+
+    // DELETE /pnl/:propertyId/:yearMonth/cleaning/:rowId
+    async deleteCleaning(propertyId, yearMonth, rowId) {
+      return this._delete(`/pnl/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}/cleaning/${encodeURIComponent(rowId)}`);
+    },
+
+    // PUT /pnl/:propertyId/:yearMonth/expense/:catId
+    async putExpense(propertyId, yearMonth, catId, body) {
+      return this._put(`/pnl/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}/expense/${encodeURIComponent(catId)}`, body);
+    },
+
+    // GET /pnl/expense-categories
+    async getCategories() {
+      const data = await this._get("/pnl/expense-categories");
+      return Array.isArray(data) ? data : (data.categories || []);
+    },
+
+    // POST /pnl/expense-categories
+    async postCategory(body) {
+      return this._post("/pnl/expense-categories", body);
+    },
+
+    // PUT /pnl/expense-categories/:catId
+    async updateCategory(catId, body) {
+      return this._put(`/pnl/expense-categories/${encodeURIComponent(catId)}`, body);
+    },
+
+    // DELETE /pnl/expense-categories/:catId
+    async deleteCategory(catId) {
+      return this._delete(`/pnl/expense-categories/${encodeURIComponent(catId)}`);
+    },
+
+    // POST /pnl/import { dryRun }
+    async importDrive(body) {
+      return this._post("/pnl/import", body);
+    },
+
+    // POST /pnl/recalc/:propertyId/:yearMonth
+    // 宿泊日数(bookings)・清掃回数(shifts)を当月分から再集計してドキュメントに保存する
+    async recalc(propertyId, yearMonth) {
+      return this._post(`/pnl/recalc/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}`, {});
+    },
+  },
+
   // 募集管理 API（回答はドキュメント内 responses[] に埋め込み — N+1クエリ解消）
   recruitments: {
     async list(statusFilter = null) {
