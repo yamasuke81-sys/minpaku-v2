@@ -1578,7 +1578,7 @@ const MyChecklistPage = {
               </div>
               <table class="table table-sm table-borderless mb-0">
                 <tr><th class="text-muted" style="width:130px;">チェックイン</th><td>${ciDisplay}</td></tr>
-                <tr><th class="text-muted">宿泊人数</th><td>${gc > 0 ? this.escapeHtml(String(gc)) + "名" : "-"}</td></tr>
+                <tr><th class="text-muted">宿泊人数</th><td>${gc > 0 ? this.escapeHtml(String(gc)) + "名" : "-"}${nextGuest.guestCountInfants ? `<small class="text-muted"> 乳幼児${this.escapeHtml(String(nextGuest.guestCountInfants))}名</small>` : ""}</td></tr>
                 ${isFieldVisible("bbq", "facility") ? `<tr><th class="text-muted">BBQ</th><td>${vb(nextGuest.bbq)}</td></tr>` : ""}
                 ${isFieldVisible("bedChoice", "facility") ? (
                   c.propertyId === TERRACE_PID
