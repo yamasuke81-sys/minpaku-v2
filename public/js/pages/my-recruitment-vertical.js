@@ -256,7 +256,7 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
     });
 
     // ===== CSS注入 (バージョン管理) =====
-    const STYLE_VER = "v30";
+    const STYLE_VER = "v31";
     if (container._verticalStyleVer !== STYLE_VER) {
       container._verticalStyleVer = STYLE_VER;
       // 旧 style 要素を除去してから再注入 (CSS 更新を確実に反映)
@@ -273,6 +273,9 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
         #myCalContainer.v-mode .sticky-col { border-right:2px solid #dee2e6; }
         #myCalContainer.v-mode td.prop-block-end, #myCalContainer.v-mode th.prop-block-end { border-right:1px solid #dee2e6; }
         #myCalContainer.v-mode tbody tr > th[data-cal-date], #myCalContainer.v-mode tbody tr > td.v-date-cell { border-top:1px solid #e9ecef; }
+        /* 日付行の境界線 (全列に薄い区切り) */
+        #myCalContainer.v-mode tbody tr[data-row-date] > td,
+        #myCalContainer.v-mode tbody tr[data-row-date] > th { border-bottom: 1px solid #eef0f2; }
         #myCalContainer.v-mode tr.month-section > td { border-top:2px solid #adb5bd; border-bottom:2px solid #adb5bd; }
         /* 列間の縦線 (薄い区切り) — thead 全列 + tbody スタッフ列 */
         #myCalContainer.v-mode thead th { border-right: 1px solid #e9ecef; }
