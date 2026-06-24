@@ -256,7 +256,7 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
     });
 
     // ===== CSS注入 (バージョン管理) =====
-    const STYLE_VER = "v32";
+    const STYLE_VER = "v33";
     if (container._verticalStyleVer !== STYLE_VER) {
       container._verticalStyleVer = STYLE_VER;
       // 旧 style 要素を除去してから再注入 (CSS 更新を確実に反映)
@@ -502,20 +502,25 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
         // 中日 (middle): 全体  (top:0→bottom:0)
         let segs = "";
         const barStyle = "position:absolute;left:4px;right:4px;pointer-events:none;z-index:8;";
+        // bar の top/bottom を ±1px はみ出させて、行と行の間の border-bottom 1px を覆い隠し、
+        // 連泊バーが行間の薄線で分断されないようにする
         if (ending) {
           const c = bookingDisplayColor(ending, fallbackColor);
           const dec = bookingBarDecor(ending);
-          segs += `<div style="${barStyle}top:0;bottom:50%;background:${c};${dec}border-bottom-left-radius:999px;border-bottom-right-radius:999px;"></div>`;
+          // CO: 上半分 (前 row との連結のため top:-1px で上はみ出し)
+          segs += `<div style="${barStyle}top:-1px;bottom:50%;background:${c};${dec}border-bottom-left-radius:999px;border-bottom-right-radius:999px;"></div>`;
         }
         if (middle) {
           const c = bookingDisplayColor(middle, fallbackColor);
           const dec = bookingBarDecor(middle);
-          segs += `<div style="${barStyle}top:0;bottom:0;background:${c};${dec}"></div>`;
+          // 中日: 上下とも 1px はみ出して、前後 row の境界線を覆う
+          segs += `<div style="${barStyle}top:-1px;bottom:-1px;background:${c};${dec}"></div>`;
         }
         if (starting) {
           const c = bookingDisplayColor(starting, fallbackColor);
           const dec = bookingBarDecor(starting);
-          segs += `<div style="${barStyle}top:50%;bottom:0;background:${c};${dec}border-top-left-radius:999px;border-top-right-radius:999px;"></div>`;
+          // CI: 下半分 (次 row との連結のため bottom:-1px で下はみ出し)
+          segs += `<div style="${barStyle}top:50%;bottom:-1px;background:${c};${dec}border-top-left-radius:999px;border-top-right-radius:999px;"></div>`;
 
           // 名簿ドット (starting セル内、CI下半中央あたり)
           let hasGuest = false;
