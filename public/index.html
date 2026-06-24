@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>民泊管理v2</title>
   <!-- 緊急回避: v2-5-relay 経由時に /api/** を Cloud Run 直 URL にリレー (本番では no-op) -->
-  <script src="/js/api-relay.js?v=v0620a"></script>
+  <script src="/js/api-relay.js?v=v0625w"></script>
   <!-- Bootstrap 5 -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <!-- FullCalendar（ダッシュボード用） -->
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet">
-  <link href="css/style.css?v=v0620a" rel="stylesheet">
+  <link href="css/style.css?v=v0625w" rel="stylesheet">
   <!-- PWA -->
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0d6efd">
@@ -26,7 +26,7 @@
   <div class="app-topbar">
     <button class="btn btn-sm" id="btnToggleSidebar"><i class="bi bi-list fs-5"></i></button>
     <span class="fw-bold"><i class="bi bi-house-door"></i> 民泊管理</span>
-    <span class="badge bg-secondary" id="appVersionMobile">v0620a</span>
+    <span class="badge bg-secondary" id="appVersionMobile">v0625w</span>
     <button type="button" id="btnReloadCacheTop"
       title="最新版に更新 (キャッシュ削除 / ログイン維持)"
       style="margin-left:auto;background:transparent;border:1px solid rgba(0,0,0,0.15);color:inherit;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:13px;display:inline-flex;align-items:center;gap:4px;">
@@ -41,10 +41,11 @@
   <aside class="app-sidebar" id="appSidebar">
     <div class="sidebar-brand">
       <h5><i class="bi bi-house-door"></i> 民泊管理</h5>
-      <small>v0620a</small>
+      <small>v0625w</small>
     </div>
     <nav class="sidebar-nav" id="ownerNav">
       <a class="nav-link" href="#/schedule" data-page="schedule" data-sub-owner-show="1"><i class="bi bi-calendar-check"></i> 予約・清掃スケジュール</a>
+      <a class="nav-link" href="#/schedule-vertical" data-page="schedule-vertical" data-sub-owner-show="1"><i class="bi bi-layout-three-columns"></i> 【テスト】縦カレンダー</a>
       <a class="nav-link" href="#/cancelled-bookings" data-page="cancelled-bookings" data-sub-owner-show="1"><i class="bi bi-x-circle"></i> キャンセル予約一覧</a>
       <a class="nav-link" href="#/cal-compare" data-page="cal-compare"><i class="bi bi-columns-gap"></i> 新旧cal比較</a>
       <a class="nav-link" href="#/properties" data-page="properties" data-sub-owner-show="1"><i class="bi bi-buildings"></i> 物件</a>
@@ -114,6 +115,7 @@
     <!-- スタッフ用ナビ（ロールに応じて表示切替） -->
     <nav class="sidebar-nav d-none" id="staffNav">
       <a class="nav-link" href="#/my-recruitment" data-page="my-recruitment"><i class="bi bi-calendar-check"></i> 清掃スケジュール</a>
+      <a class="nav-link" href="#/my-recruitment-vertical" data-page="my-recruitment-vertical"><i class="bi bi-layout-three-columns"></i> 【テスト】縦カレンダー</a>
       <a class="nav-link" href="#/my-checklist" data-page="my-checklist"><i class="bi bi-clipboard-check"></i> チェックリスト</a>
       <a class="nav-link" href="#/my-invoice-create" data-page="my-invoice-create"><i class="bi bi-receipt"></i> 請求書</a>
       <a class="nav-link d-none" href="#/prepaid-cards" data-page="prepaid-cards" id="staffNavPrepaid"><i class="bi bi-credit-card-2-front"></i> プリカ管理</a>
@@ -1822,56 +1824,57 @@
   <!-- FCM (Firebase Cloud Messaging) — Web Push通知 -->
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-messaging-compat.js"></script>
   <!-- App -->
-  <script src="js/components/property-filter.js?v=v0620a"></script>
-  <script src="js/components/property-eye-filter.js?v=v0620a"></script>
-  <script src="js/components/property-ical-panel.js?v=v0620a"></script>
-  <script src="js/firebase-config.js?v=v0620a"></script>
-  <script src="js/utils.js?v=v0620a"></script>
-  <script src="js/liff-init.js?v=v0620a"></script>
-  <script src="js/fcm-client.js?v=v0620a"></script>
-  <script src="js/auth.js?v=v0620a"></script>
-  <script src="js/api.js?v=v0620a"></script>
-  <script src="js/guide-map.js?v=v0620a"></script>
-  <script src="js/pages/dashboard.js?v=v0620a"></script>
-  <script src="js/pages/staff.js?v=v0620a"></script>
-  <script src="js/shared/notify-channel-editor.js?v=v0620a"></script>
-  <script src="js/components/notification-target-editor.js?v=v0620a"></script>
-  <script src="js/components/notify-import-modal.js?v=v0620a"></script>
-  <script src="js/pages/properties.js?v=v0620a"></script>
-  <script src="js/pages/guest-guides.js?v=v0620a"></script>
-  <script src="js/pages/recruitment.js?v=v0620a"></script>
-  <script src="js/shared/form-schema.js?v=v0620a"></script>
-  <script src="js/pages/guests.js?v=v0620a"></script>
-  <script src="js/pages/shifts.js?v=v0620a"></script>
+  <script src="js/components/property-filter.js?v=v0625w"></script>
+  <script src="js/components/property-eye-filter.js?v=v0625w"></script>
+  <script src="js/components/property-ical-panel.js?v=v0625w"></script>
+  <script src="js/firebase-config.js?v=v0625w"></script>
+  <script src="js/utils.js?v=v0625w"></script>
+  <script src="js/liff-init.js?v=v0625w"></script>
+  <script src="js/fcm-client.js?v=v0625w"></script>
+  <script src="js/auth.js?v=v0625w"></script>
+  <script src="js/api.js?v=v0625w"></script>
+  <script src="js/guide-map.js?v=v0625w"></script>
+  <script src="js/pages/dashboard.js?v=v0625w"></script>
+  <script src="js/pages/staff.js?v=v0625w"></script>
+  <script src="js/shared/notify-channel-editor.js?v=v0625w"></script>
+  <script src="js/components/notification-target-editor.js?v=v0625w"></script>
+  <script src="js/components/notify-import-modal.js?v=v0625w"></script>
+  <script src="js/pages/properties.js?v=v0625w"></script>
+  <script src="js/pages/guest-guides.js?v=v0625w"></script>
+  <script src="js/pages/recruitment.js?v=v0625w"></script>
+  <script src="js/shared/form-schema.js?v=v0625w"></script>
+  <script src="js/pages/guests.js?v=v0625w"></script>
+  <script src="js/pages/shifts.js?v=v0625w"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
-  <script src="js/pages/contacts.js?v=v0620a"></script>
-  <script src="js/pages/laundry.js?v=v0620a"></script>
-  <script src="js/pages/checklist.js?v=v0620a"></script>
-  <script src="js/pages/reservation-flow.js?v=v0620a"></script>
-  <script src="js/pages/prepaid-cards.js?v=v0620a"></script>
-  <script src="js/pages/property-checklist.js?v=v0620a"></script>
-  <script src="js/pages/reports.js?v=v0620a"></script>
-  <script src="js/pages/pnl.js?v=v0620a"></script>
-  <script src="js/pages/projects.js?v=v0620a"></script>
-  <script src="js/pages/invoices.js?v=v0620a"></script>
-  <script src="js/pages/rates.js?v=v0620a"></script>
-  <script src="js/pages/command-center.js?v=v0620a"></script>
-  <script src="js/data-transformer.js?v=v0620a"></script>
-  <script src="js/pages/scan-sorter.js?v=v0620a"></script>
-  <script src="js/pages/tax-docs.js?v=v0620a"></script>
-  <script src="js/pages/email-verification.js?v=v0620a"></script>
-  <script src="js/pages/settings.js?v=v0620a"></script>
+  <script src="js/pages/contacts.js?v=v0625w"></script>
+  <script src="js/pages/laundry.js?v=v0625w"></script>
+  <script src="js/pages/checklist.js?v=v0625w"></script>
+  <script src="js/pages/reservation-flow.js?v=v0625w"></script>
+  <script src="js/pages/prepaid-cards.js?v=v0625w"></script>
+  <script src="js/pages/property-checklist.js?v=v0625w"></script>
+  <script src="js/pages/reports.js?v=v0625w"></script>
+  <script src="js/pages/pnl.js?v=v0625w"></script>
+  <script src="js/pages/projects.js?v=v0625w"></script>
+  <script src="js/pages/invoices.js?v=v0625w"></script>
+  <script src="js/pages/rates.js?v=v0625w"></script>
+  <script src="js/pages/command-center.js?v=v0625w"></script>
+  <script src="js/data-transformer.js?v=v0625w"></script>
+  <script src="js/pages/scan-sorter.js?v=v0625w"></script>
+  <script src="js/pages/tax-docs.js?v=v0625w"></script>
+  <script src="js/pages/email-verification.js?v=v0625w"></script>
+  <script src="js/pages/settings.js?v=v0625w"></script>
   <!-- スタッフ用ページ -->
-  <script src="js/pages/my-dashboard.js?v=v0620a"></script>
-  <script src="js/pages/cal-compare.js?v=v0620a"></script>
-  <script src="js/pages/cancelled-bookings.js?v=v0620a"></script>
-  <script src="js/pages/my-recruitment.js?v=v0620a"></script>
-  <script src="js/pages/my-checklist.js?v=v0620a"></script>
-  <script src="js/pages/my-invoice.js?v=v0620a"></script>
-  <script src="js/pages/my-invoice-create.js?v=v0620a"></script>
-  <script src="js/pages/staff-guide.js?v=v0620a"></script>
-  <script src="js/pages/announcements.js?v=v0620a"></script>
-  <script src="js/app.js?v=v0620a"></script>
+  <script src="js/pages/my-dashboard.js?v=v0625w"></script>
+  <script src="js/pages/cal-compare.js?v=v0625w"></script>
+  <script src="js/pages/cancelled-bookings.js?v=v0625w"></script>
+  <script src="js/pages/my-recruitment.js?v=v0625w"></script>
+  <script src="js/pages/my-recruitment-vertical.js?v=v0625w"></script>
+  <script src="js/pages/my-checklist.js?v=v0625w"></script>
+  <script src="js/pages/my-invoice.js?v=v0625w"></script>
+  <script src="js/pages/my-invoice-create.js?v=v0625w"></script>
+  <script src="js/pages/staff-guide.js?v=v0625w"></script>
+  <script src="js/pages/announcements.js?v=v0625w"></script>
+  <script src="js/app.js?v=v0625w"></script>
   <script>
   // ===== グローバルエラー収集 (リモート診断用) =====
   // window.onerror / unhandledrejection を Firestore client_errors に記録
@@ -2011,9 +2014,9 @@
       finally { _checking = false; }
     }
 
-    // チェック頻度: 初回 10 秒後 / 1 分おき / タブ復帰 / ハッシュ遷移
-    setTimeout(checkVersion, 10 * 1000);
-    setInterval(checkVersion, 60 * 1000);
+    // チェック頻度: 起動 1 秒後 (即時) / 30秒おき / タブ復帰 / ハッシュ遷移
+    setTimeout(checkVersion, 1 * 1000);
+    setInterval(checkVersion, 30 * 1000);
     window.addEventListener("hashchange", checkVersion);
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") checkVersion();

@@ -41,6 +41,8 @@ const App = {
     settings: SettingsPage,
     // 予約・清掃スケジュール (Webアプリ管理者用フル機能ビュー) — MyRecruitmentPage を view mode で分岐
     "schedule": MyRecruitmentPage,
+    // 【テスト】縦カレンダー (横カレンダーの縦横入れ替え版)
+    "schedule-vertical": MyRecruitmentPageVertical,
     // キャンセル予約一覧
     "cancelled-bookings": CancelledBookingsPage,
     // 新旧cal比較（オーナーのみ）
@@ -51,6 +53,7 @@ const App = {
   staffPages: {
     "my-dashboard": MyDashboardPage,
     "my-recruitment": MyRecruitmentPage,
+    "my-recruitment-vertical": MyRecruitmentPageVertical,
     "my-checklist": MyChecklistPage,
     "my-invoice": MyInvoicePage,
     "my-invoice-create": MyInvoiceCreatePage,
@@ -70,7 +73,7 @@ const App = {
   // (アプリを開きっぱなしで他データが更新された後、手動リロード不要にする)
   _hiddenAt: 0,
   // 既に onSnapshot でリアルタイム同期しているページは対象外
-  _realtimePages: new Set(["schedule", "my-recruitment", "my-checklist"]),
+  _realtimePages: new Set(["schedule", "schedule-vertical", "my-recruitment", "my-recruitment-vertical", "my-checklist"]),
 
   initAutoRefresh() {
     document.addEventListener("visibilitychange", () => {

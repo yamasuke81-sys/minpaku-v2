@@ -26,10 +26,14 @@ const MyRecruitmentPage = {
     // URL パスパラメータから recruitmentId を取得 (#/my-recruitment/{id} 形式対応)
     // 通知からの直リンク時に、該当募集を自動的に開くために使用
     this._pendingOpenId = (pathParams && pathParams[0]) ? pathParams[0] : null;
-    // ビューモード判定: #/schedule → owner ビュー、#/my-recruitment → staff ビュー
+    // ビューモード判定: #/schedule(-vertical) → owner ビュー、#/my-recruitment(-vertical) → staff ビュー
     const _hash = (location.hash || "").split("?")[0];
-    const isScheduleRoute = _hash === "#/schedule" || _hash.startsWith("#/schedule/");
+    const isScheduleRoute = _hash === "#/schedule" || _hash.startsWith("#/schedule/")
+      || _hash === "#/schedule-vertical" || _hash.startsWith("#/schedule-vertical/");
     this._viewMode = isScheduleRoute ? "owner" : "staff";
+    // 縦カレンダー版かどうか (renderCalendar の分岐用)
+    this._isVerticalRoute = _hash === "#/schedule-vertical" || _hash.startsWith("#/schedule-vertical/")
+      || _hash === "#/my-recruitment-vertical" || _hash.startsWith("#/my-recruitment-vertical/");
     // Webアプリ管理者ビュー: オーナー本人 or サブオーナー (サブオーナーは自物件のみ代理操作可)
     this.isOwnerView = this._viewMode === "owner" && (authIsOwner || authIsSubOwner);
     // サブオーナー判定 + 所有物件IDリスト (代理操作可否の絞り込みに使用)
