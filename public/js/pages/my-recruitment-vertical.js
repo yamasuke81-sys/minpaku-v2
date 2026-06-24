@@ -181,7 +181,7 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
     // ===== レイアウト定数 =====
     const stickyWN = 44; // 日付列幅 (px)
     const stickyW = stickyWN + "px";
-    this._rowH = 28;
+    this._rowH = 36; // 行高 (少し上げて視認性向上)
     const rowHN = this._rowH;
     const rowH = rowHN + "px";
     // thead 高さ (ユーザードラッグで伸縮、localStorage 永続化、下限なし)
@@ -256,7 +256,7 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
     });
 
     // ===== CSS注入 (バージョン管理) =====
-    const STYLE_VER = "v29";
+    const STYLE_VER = "v30";
     if (container._verticalStyleVer !== STYLE_VER) {
       container._verticalStyleVer = STYLE_VER;
       // 旧 style 要素を除去してから再注入 (CSS 更新を確実に反映)
