@@ -221,7 +221,7 @@ const App = {
   _viewAsStaffList: [],
 
   /** 管理者が viewAsStaff を切り替えられるページ */
-  VIEW_AS_TARGET_PAGES: ["my-recruitment", "my-checklist", "my-invoice-create"],
+  VIEW_AS_TARGET_PAGES: ["my-recruitment", "my-recruitment-vertical", "my-checklist", "my-invoice-create"],
 
   /** viewAsStaff を設定。localStorage に保存し、対象ページなら再描画 */
   setViewAsStaff(staffId) {
