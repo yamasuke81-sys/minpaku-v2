@@ -15,25 +15,21 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
   // 縦版描画中だけ container に "v-mode" クラスを付け、縦版 CSS をスコープ限定する。
   // ページ切替時 (detach) には全て掃除して、横版に汚染が残らないようにする。
   detach() {
-    // 親 detach (onSnapshot 解除など) を必ず先に
     const parentDetach = Object.getPrototypeOf(this).detach;
     if (typeof parentDetach === "function") parentDetach.call(this);
-    // 縦版固有のクラス・インラインスタイル・補助要素を全て除去
     const container = document.getElementById("myCalContainer");
     if (container) {
       container.classList.remove("v-mode");
-      // 縦版で書き換えたインラインスタイルを完全リセット
       ["position", "top", "max-height", "overflow-y", "overflow-x"].forEach(p => {
         container.style.removeProperty(p);
       });
       container.style.removeProperty("--v-thead-h");
     }
-    // 注入した style 要素を削除 (横版ページに残ると CSS 衝突する)
     document.getElementById("myCalVerticalStyle")?.remove();
-    // 縦版用に追加した上下矢印ボタンを削除
     document.getElementById("myCalVEdgePrev")?.remove();
     document.getElementById("myCalVEdgeNext")?.remove();
-    // 親 render() 由来の floating-month/edge ボタンの display:none 上書きを解除
+    // container 外に出した toolbar も削除
+    document.querySelector(".v-toolbar")?.remove();
     const fb = document.getElementById("myCalFloatingMonth");
     if (fb) fb.style.removeProperty("display");
     const ep = document.getElementById("myCalEdgePrev");
@@ -260,7 +256,7 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
     });
 
     // ===== CSS注入 (バージョン管理) =====
-    const STYLE_VER = "v26";
+    const STYLE_VER = "v27";
     if (container._verticalStyleVer !== STYLE_VER) {
       container._verticalStyleVer = STYLE_VER;
       // 旧 style 要素を除去してから再注入 (CSS 更新を確実に反映)
@@ -365,12 +361,16 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
       <div class="header-resizer" title="ドラッグで宿名・スタッフ名行の高さを変更" style="position:absolute;bottom:0;left:0;right:0;height:10px;cursor:row-resize;z-index:5;user-select:none;background:repeating-linear-gradient(to right, rgba(13,110,253,0.5) 0 6px, transparent 6px 12px);touch-action:none;"></div>
     </th>`;
 
-    // 手動縦書き: 1文字ずつ div に。英字も半角のまま縦並び (回転しない)
+    // 手動縦書き: 1文字ずつ div に。英数字は 90度回転して横倒し (省スペース)
     const verticalText = (text, fontSize) => {
       const chars = String(text).split('');
       const items = chars.map(ch => {
         if (ch === ' ' || ch === '　') return `<div style="height:4px;flex-shrink:0;"></div>`;
-        return `<div style="height:${fontSize}px;line-height:${fontSize}px;font-size:${fontSize}px;text-align:center;flex-shrink:0;font-family:inherit;">${this.esc(ch)}</div>`;
+        const isAlnum = /[A-Za-z0-9]/.test(ch);
+        if (isAlnum) {
+          return `<div style="height:${fontSize}px;line-height:${fontSize}px;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><span style="display:inline-block;transform:rotate(90deg);transform-origin:center;font-size:${fontSize}px;line-height:1;">${this.esc(ch)}</span></div>`;
+        }
+        return `<div style="height:${fontSize}px;line-height:${fontSize}px;font-size:${fontSize}px;text-align:center;flex-shrink:0;">${this.esc(ch)}</div>`;
       });
       return items.join('');
     };
@@ -664,8 +664,16 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
 
     html += `</tbody></table>`;
 
-    // コンテナ更新
-    container.innerHTML = toolbarHtml + html;
+    // コンテナ更新 — toolbar は container の外 (兄要素) に出して body スクロールに sticky:top:0 で貼り付ける
+    container.innerHTML = html;
+    // 既存 toolbar 要素を削除して、container の直前に再挿入
+    let existingTb = document.getElementById("vCalToolbar");
+    if (existingTb) existingTb.remove();
+    const tbWrap = document.createElement("div");
+    tbWrap.id = "vCalToolbar";
+    tbWrap.innerHTML = toolbarHtml;
+    const tbInner = tbWrap.firstElementChild;
+    container.parentElement.insertBefore(tbInner, container);
 
     // ===== リスナバインド =====
 
@@ -816,18 +824,20 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
       }
       parent = parent.parentElement;
     }
-    // ツールバー実高さで container.top を更新 (即時 + window resize 時)
+    // ツールバー実高さで container.top を動的計算 (即時 + 遅延 + window resize 時)
     const updateContainerTop = () => {
-      const tb = container.previousElementSibling; // toolbar (mb-2)
+      const tb = document.querySelector(".v-toolbar");
       let topPx = 0;
       if (tb) {
-        // toolbar は sticky:top:0 で 0px に固定中。実高さを container.top にする
-        topPx = Math.round(tb.getBoundingClientRect().height) + 2;
+        topPx = Math.round(tb.getBoundingClientRect().height) + 4;
       }
+      if (topPx < 30) topPx = 44; // toolbar 未レンダ時のフォールバック
       container.style.setProperty("top", topPx + "px", "important");
       container.style.setProperty("max-height", `calc(100vh - ${topPx + 10}px)`, "important");
     };
     updateContainerTop();
+    setTimeout(updateContainerTop, 50);
+    setTimeout(updateContainerTop, 300);
     if (!container._vTopBound) {
       container._vTopBound = true;
       window.addEventListener("resize", updateContainerTop, { passive: true });
