@@ -570,12 +570,18 @@ const MyRecruitmentPage = {
       ? this.staffDoc.assignedPropertyIds
       : (Auth.currentUser?.assignedPropertyIds || []);
     // viewAsStaff 中は管理者/物件オーナーでも当該スタッフの assignedPropertyIds で絞る
-    const canFilter = (!isOwner || !!this._viewAsStaffId) && Array.isArray(assignedIds) && assignedIds.length > 0 && assignedIds.length <= 10;
+    const mustFilterAsStaff = (!isOwner || !!this._viewAsStaffId);
+    const canFilter = mustFilterAsStaff && Array.isArray(assignedIds) && assignedIds.length > 0 && assignedIds.length <= 10;
+    // スタッフビュー時は担当外データを取得しない: 担当0件なら強制的に空クエリ、10件超は警告 (現状minpaku-v2は物件4件で発生せず)
+    const blockAllAsStaff = mustFilterAsStaff && (!Array.isArray(assignedIds) || assignedIds.length === 0);
 
     // --- recruitments onSnapshot ---
     let recruitQuery = db.collection("recruitments");
     if (canFilter) {
       recruitQuery = recruitQuery.where("propertyId", "in", assignedIds);
+    } else if (blockAllAsStaff) {
+      // 担当物件未設定スタッフは何も取得しない (権限超過防止)
+      recruitQuery = recruitQuery.where("propertyId", "==", "__NONE__");
     }
     const unsubRecruit = recruitQuery.onSnapshot(snap => {
       // 全件 (キャンセル含む) を保持 → お知らせセクションで使用
@@ -609,6 +615,8 @@ const MyRecruitmentPage = {
     let bookingQuery = db.collection("bookings");
     if (canFilter) {
       bookingQuery = bookingQuery.where("propertyId", "in", assignedIds);
+    } else if (blockAllAsStaff) {
+      bookingQuery = bookingQuery.where("propertyId", "==", "__NONE__");
     }
     const unsubBooking = bookingQuery.onSnapshot(snap => {
       // 全 booking ドキュメントを id でマップ化 (guestRegistrations の bookingId 紐付け判定用)
@@ -653,6 +661,8 @@ const MyRecruitmentPage = {
     let guestQuery = db.collection("guestRegistrations");
     if (canFilter) {
       guestQuery = guestQuery.where("propertyId", "in", assignedIds);
+    } else if (blockAllAsStaff) {
+      guestQuery = guestQuery.where("propertyId", "==", "__NONE__");
     }
     const unsubGuest = guestQuery.onSnapshot(snap => {
       const isOwnerView = this.isOwnerView;
@@ -1393,7 +1403,7 @@ const MyRecruitmentPage = {
           } else {
             symHtml = `<span style="display:inline-block;color:${symColor};font-size:14px;font-weight:bold;line-height:16px;vertical-align:middle;">−</span>`;
           }
-          return `<span class="${clickable ? 'cal-cell-item' : ''}" data-recruit-id="${recruit.id}" data-prop-id="${prop ? prop.id : ''}" data-prop-name="${prop ? this.esc(prop.name) : ''}" data-click-mode="${clickMode}" data-staff-id="${staff.id}" data-staff-name="${this.esc(staff.name)}" data-staff-email="${this.esc(staff.email||"")}" data-is-me="${isMe}" data-date="${dd.dateStr}" style="display:inline-flex;align-items:center;gap:3px;line-height:1;padding:1px 3px;border-radius:4px;${clickable ? 'cursor:pointer;' : ''}">${propBadge}${symHtml}</span>`;
+          return `<span class="${clickable ? 'cal-cell-item' : ''}" data-recruit-id="${recruit.id}" data-prop-id="${prop ? prop.id : ''}" data-prop-name="${prop ? this.esc(prop.name) : ''}" data-click-mode="${clickMode}" data-staff-id="${staff.id}" data-staff-name="${this.esc(staff.name)}" data-staff-email="${this.esc((isMe || this.isOwnerView) ? (staff.email || "") : "")}" data-is-me="${isMe}" data-date="${dd.dateStr}" style="display:inline-flex;align-items:center;gap:3px;line-height:1;padding:1px 3px;border-radius:4px;${clickable ? 'cursor:pointer;' : ''}">${propBadge}${symHtml}</span>`;
         });
 
         // 回答可能セル (自分が行動可能) は他月でも白背景に
@@ -1405,7 +1415,7 @@ const MyRecruitmentPage = {
               : (!dd.isCurrent ? "#e9ecef" : "")));
         // セル全体クリック: 内部アイテム (.cal-cell-item) と同じ挙動を td に付与
         const tdData = cellClickTarget
-          ? ` data-cell-click="1" data-recruit-id="${cellClickTarget.recruitId}" data-prop-id="${cellClickTarget.propId}" data-prop-name="${this.esc(cellClickTarget.propName || "")}" data-click-mode="${cellClickTarget.clickMode}" data-staff-id="${staff.id}" data-staff-name="${this.esc(staff.name)}" data-staff-email="${this.esc(staff.email||"")}" data-is-me="${isMe}" data-date="${dd.dateStr}"`
+          ? ` data-cell-click="1" data-recruit-id="${cellClickTarget.recruitId}" data-prop-id="${cellClickTarget.propId}" data-prop-name="${this.esc(cellClickTarget.propName || "")}" data-click-mode="${cellClickTarget.clickMode}" data-staff-id="${staff.id}" data-staff-name="${this.esc(staff.name)}" data-staff-email="${this.esc((isMe || this.isOwnerView) ? (staff.email || "") : "")}" data-is-me="${isMe}" data-date="${dd.dateStr}"`
           : "";
         const tdCursor = cellClickTarget ? "cursor:pointer;" : "";
         html += `<td class="text-center" data-col-date="${dd.dateStr}" style="background:${cellBg};height:${cellH};vertical-align:middle;padding:2px 3px;white-space:nowrap;${tdCursor}"${tdData}>
