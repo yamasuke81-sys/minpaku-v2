@@ -28,8 +28,8 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
     document.getElementById("myCalVerticalStyle")?.remove();
     document.getElementById("myCalVEdgePrev")?.remove();
     document.getElementById("myCalVEdgeNext")?.remove();
-    // container 外に出した toolbar も削除
-    document.querySelector(".v-toolbar")?.remove();
+    // container 外に出した toolbar も全て削除
+    document.querySelectorAll(".v-toolbar").forEach(el => el.remove());
     const fb = document.getElementById("myCalFloatingMonth");
     if (fb) fb.style.removeProperty("display");
     const ep = document.getElementById("myCalEdgePrev");
@@ -256,7 +256,7 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
     });
 
     // ===== CSS注入 (バージョン管理) =====
-    const STYLE_VER = "v27";
+    const STYLE_VER = "v28";
     if (container._verticalStyleVer !== STYLE_VER) {
       container._verticalStyleVer = STYLE_VER;
       // 旧 style 要素を除去してから再注入 (CSS 更新を確実に反映)
@@ -664,13 +664,11 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
 
     html += `</tbody></table>`;
 
-    // コンテナ更新 — toolbar は container の外 (兄要素) に出して body スクロールに sticky:top:0 で貼り付ける
+    // コンテナ更新 — toolbar は container の外に sticky:top:0 で貼り付ける
     container.innerHTML = html;
-    // 既存 toolbar 要素を削除して、container の直前に再挿入
-    let existingTb = document.getElementById("vCalToolbar");
-    if (existingTb) existingTb.remove();
+    // 既存 .v-toolbar をすべて削除 (再描画時に積み重ならないように)
+    document.querySelectorAll(".v-toolbar").forEach(el => el.remove());
     const tbWrap = document.createElement("div");
-    tbWrap.id = "vCalToolbar";
     tbWrap.innerHTML = toolbarHtml;
     const tbInner = tbWrap.firstElementChild;
     container.parentElement.insertBefore(tbInner, container);
