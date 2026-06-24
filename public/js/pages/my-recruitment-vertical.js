@@ -256,7 +256,7 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
     });
 
     // ===== CSS注入 (バージョン管理) =====
-    const STYLE_VER = "v28";
+    const STYLE_VER = "v29";
     if (container._verticalStyleVer !== STYLE_VER) {
       container._verticalStyleVer = STYLE_VER;
       // 旧 style 要素を除去してから再注入 (CSS 更新を確実に反映)
@@ -941,8 +941,8 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
       this.renderCalendar();
     });
 
-    // 「表示中物件だけ」フィルタ
-    container.querySelectorAll(".staff-filter-btn").forEach(btn => {
+    // 「表示中物件だけ」フィルタ (toolbar は container 外なので document 全体検索)
+    document.querySelectorAll(".v-toolbar .staff-filter-btn, #myCalContainer .staff-filter-btn").forEach(btn => {
       if (btn.dataset.wired === "1") return;
       btn.dataset.wired = "1";
       btn.addEventListener("click", () => {
@@ -954,7 +954,7 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
       });
     });
 
-    // 物件表示トグル
+    // 物件表示トグル (.prop-toggle は thead 内)
     container.querySelectorAll(".prop-toggle").forEach(btn => {
       btn.addEventListener("click", (ev) => {
         ev.stopPropagation();
@@ -965,8 +965,8 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
       });
     });
 
-    // 非表示物件の復旧ボタン
-    container.querySelectorAll(".prop-restore").forEach(btn => {
+    // 非表示物件の復旧ボタン (toolbar 内 → document 全体検索)
+    document.querySelectorAll(".v-toolbar .prop-restore").forEach(btn => {
       btn.addEventListener("click", () => {
         const pid = btn.dataset.propId;
         this._propertyVisibility[pid] = true;
