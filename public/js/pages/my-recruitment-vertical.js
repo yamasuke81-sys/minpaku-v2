@@ -181,7 +181,7 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
     // ===== レイアウト定数 =====
     const stickyWN = 44; // 日付列幅 (px)
     const stickyW = stickyWN + "px";
-    this._rowH = 36; // 行高 (少し上げて視認性向上)
+    this._rowH = 44; // 行高 (人数ラベルが入る最小)
     const rowHN = this._rowH;
     const rowH = rowHN + "px";
     // thead 高さ (ユーザードラッグで伸縮、localStorage 永続化、下限なし)
@@ -256,7 +256,7 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
     });
 
     // ===== CSS注入 (バージョン管理) =====
-    const STYLE_VER = "v31";
+    const STYLE_VER = "v32";
     if (container._verticalStyleVer !== STYLE_VER) {
       container._verticalStyleVer = STYLE_VER;
       // 旧 style 要素を除去してから再注入 (CSS 更新を確実に反映)
@@ -501,7 +501,7 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
         // CO (ending):   上半分 (top:0→bottom:50%)、下端を角丸
         // 中日 (middle): 全体  (top:0→bottom:0)
         let segs = "";
-        const barStyle = "position:absolute;left:4px;right:4px;pointer-events:none;z-index:2;";
+        const barStyle = "position:absolute;left:4px;right:4px;pointer-events:none;z-index:8;";
         if (ending) {
           const c = bookingDisplayColor(ending, fallbackColor);
           const dec = bookingBarDecor(ending);
@@ -531,12 +531,12 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
           const dotColor = hasGuest ? "#198754" : "#dc3545";
           const dotTitle = hasGuest ? "名簿提出済み" : "名簿未提出";
           // 名簿ドット: CIセル(下半)の上端寄りに配置 → 人数ラベルがその下に来る
-          segs += `<span style="position:absolute;left:50%;top:calc(50% + 4px);transform:translateX(-50%);width:8px;height:8px;border-radius:50%;background:${dotColor};border:1.5px solid #fff;z-index:4;pointer-events:none;" title="${dotTitle}"></span>`;
+          segs += `<span style="position:absolute;left:50%;top:calc(50% + 4px);transform:translateX(-50%);width:8px;height:8px;border-radius:50%;background:${dotColor};border:1.5px solid #fff;z-index:10;pointer-events:none;" title="${dotTitle}"></span>`;
         }
 
         // 人数ラベル (縦書き) — 名簿ドットの下に配置
         let labelHtml = "";
-        const vLabelStyle = "position:absolute;left:50%;transform:translateX(-50%);color:#fff;font-size:10px;font-weight:700;z-index:3;pointer-events:none;writing-mode:vertical-rl;-webkit-writing-mode:vertical-rl;text-orientation:mixed;-webkit-text-orientation:mixed;line-height:1;letter-spacing:0;";
+        const vLabelStyle = "position:absolute;left:50%;transform:translateX(-50%);color:#fff;font-size:10px;font-weight:700;z-index:9;pointer-events:none;writing-mode:vertical-rl;-webkit-writing-mode:vertical-rl;text-orientation:mixed;-webkit-text-orientation:mixed;line-height:1;letter-spacing:0;";
         if (middle) {
           // 連泊: CI+1日のセル中央に縦書き
           const ciNext = new Date(middle.checkIn + "T00:00:00");
@@ -550,9 +550,11 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
           const ciD = new Date(starting.checkIn + "T00:00:00");
           const n = Math.round((coD - ciD) / 86400000);
           if (n === 1) {
-            // 1泊: CIセル下半 のドット直下〜下端に縦書き (ドットが上、人数が下)
+            // 1泊: starting/ending 境界を跨いで縦書きラベル (両セル分の高さ確保)
+            // top:100% = startingセル下端、transform:translateY(-50%) で境界中央寄せ
+            // 高さは行高 + 余裕 (連泊と同じく見やすい)
             const cnt = starting.guestCount > 0 ? `${starting.guestCount}名` : "";
-            if (cnt) labelHtml = `<span style="${vLabelStyle}top:calc(50% + 16px);bottom:1px;display:flex;align-items:flex-start;justify-content:center;overflow:hidden;">${cnt}</span>`;
+            if (cnt) labelHtml = `<span style="${vLabelStyle}top:100%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;height:${Math.round(rowHN * 0.8)}px;">${cnt}</span>`;
           }
         }
 
