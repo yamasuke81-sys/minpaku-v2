@@ -3308,6 +3308,33 @@ const MyChecklistPage = {
                   : parent.subSubCategories ? "subSubCategories"
                   : null;
     const cats = catField ? (parent[catField]||[]).map(c => ({ kind:"cat", sortOrder: c.sortOrder||0, data: c })) : [];
+
+    // 選択式グループ: 子カテゴリを <select> に置き換え、選んだものだけ展開表示
+    if (parent.isSelectGroup && cats.length > 0) {
+      const sortedItems = [...items].sort((a,b) => a.sortOrder - b.sortOrder);
+      const sortedCats = [...cats].sort((a,b) => a.sortOrder - b.sortOrder);
+      const choices = this.checklist.selectedGroupChoices || {};
+      const selectedId = choices[parent.id] || "";
+      const selectedCat = sortedCats.find(c => c.data.id === selectedId)?.data;
+      const options = sortedCats.map(c =>
+        `<option value="${c.data.id}" ${c.data.id === selectedId ? "selected" : ""}>${this.escapeHtml(c.data.name)}</option>`
+      ).join("");
+      return `<div class="mcl-children">
+        ${sortedItems.map(m => this.renderItem(m.data)).join("")}
+        <div class="mcl-sg-wrapper mb-2 p-2" style="background:#eef5ff;border-radius:6px;" data-parent-id="${parent.id}">
+          <label class="form-label small text-primary mb-1 fw-bold"><i class="bi bi-ui-radios"></i> 以下から1つ選んでください</label>
+          <select class="form-select form-select-sm mcl-sg-select" data-parent-id="${parent.id}">
+            <option value="">— 選んでください —</option>
+            ${options}
+          </select>
+        </div>
+        ${selectedCat
+          ? this.renderCat(selectedCat)
+          : `<div class="alert alert-light small text-muted text-center my-2 py-2" style="font-size:12px;"><i class="bi bi-arrow-up"></i> 上のメニューから選んでください</div>`
+        }
+      </div>`;
+    }
+
     const merged = [...items, ...cats].sort((a,b) => a.sortOrder - b.sortOrder);
     return `<div class="mcl-children">
       ${merged.map(m => m.kind === "item" ? this.renderItem(m.data) : this.renderCat(m.data)).join("")}
@@ -3444,6 +3471,15 @@ const MyChecklistPage = {
       });
     });
 
+    // 選択式グループのセレクト
+    el.querySelectorAll(".mcl-sg-select").forEach(sel => {
+      sel.addEventListener("change", () => {
+        const parentId = sel.dataset.parentId;
+        const childId = sel.value || "";
+        this.updateSelectedGroupChoice(parentId, childId);
+      });
+    });
+
     // インライン見本写真サムネイル → ライトボックス (同 el 内の全サムネをスライド)
     const inlineThumbs = Array.from(el.querySelectorAll(".mcl-inline-sample-thumb"));
     inlineThumbs.forEach(img => {
@@ -3522,6 +3558,33 @@ const MyChecklistPage = {
     }
   },
 
+  // 選択式グループの選択値を Firestore に保存 (リアルタイム同期)
+  async updateSelectedGroupChoice(parentId, childId) {
+    const db = firebase.firestore();
+    // 楽観更新
+    this.checklist.selectedGroupChoices = this.checklist.selectedGroupChoices || {};
+    if (childId) this.checklist.selectedGroupChoices[parentId] = childId;
+    else delete this.checklist.selectedGroupChoices[parentId];
+
+    try {
+      const patch = {
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      };
+      if (childId) {
+        patch[`selectedGroupChoices.${parentId}`] = childId;
+      } else {
+        patch[`selectedGroupChoices.${parentId}`] = firebase.firestore.FieldValue.delete();
+      }
+      await db.collection("checklists").doc(this.checklistId).update(patch);
+      // 構造変化を伴う (選んだ子カテゴリだけ展開) ため、その場更新ではなくチェックリストタブを再描画
+      // ※ onSnapshot 経由でも遅れて再描画されるが、ユーザー体感を上げるため先に明示再描画
+      if (this.activeTopTab === "checklist") this._renderActiveTopTab();
+    } catch (e) {
+      console.error("updateSelectedGroupChoice error:", e);
+      if (typeof showToast === "function") showToast("保存失敗", e.message || "", "error");
+    }
+  },
+
   async markEditing(itemId, field) {
     this.editingField = { itemId, field };
     if (!this.checklistId) return;
@@ -3574,24 +3637,45 @@ const MyChecklistPage = {
   },
 
   countItems(nodes) {
+    const choices = (this.checklist && this.checklist.selectedGroupChoices) || {};
     let n = 0;
-    const walk = (arr) => arr.forEach(node => {
-      n += (node.directItems || []).length + (node.items || []).length;
+    const walkCats = (node) => {
+      const childCats = [...(node.taskTypes || []), ...(node.subCategories || []), ...(node.subSubCategories || [])];
+      if (node.isSelectGroup && childCats.length > 0) {
+        // 選択式グループ: 選ばれた子カテゴリのみカウント (未選択時は 0)
+        const sel = childCats.find(c => c.id === choices[node.id]);
+        if (sel) walk([sel]);
+        return;
+      }
       (node.taskTypes || []).forEach(c => walk([c]));
       (node.subCategories || []).forEach(c => walk([c]));
       (node.subSubCategories || []).forEach(c => walk([c]));
+    };
+    const walk = (arr) => arr.forEach(node => {
+      n += (node.directItems || []).length + (node.items || []).length;
+      walkCats(node);
     });
     walk(nodes);
     return n;
   },
   countDone(nodes, states) {
+    const choices = (this.checklist && this.checklist.selectedGroupChoices) || {};
     let n = 0;
-    const walk = (arr) => arr.forEach(node => {
-      const items = [...(node.directItems||[]), ...(node.items||[])];
-      items.forEach(it => { if (states[it.id]?.checked) n++; });
+    const walkCats = (node) => {
+      const childCats = [...(node.taskTypes || []), ...(node.subCategories || []), ...(node.subSubCategories || [])];
+      if (node.isSelectGroup && childCats.length > 0) {
+        const sel = childCats.find(c => c.id === choices[node.id]);
+        if (sel) walk([sel]);
+        return;
+      }
       (node.taskTypes || []).forEach(c => walk([c]));
       (node.subCategories || []).forEach(c => walk([c]));
       (node.subSubCategories || []).forEach(c => walk([c]));
+    };
+    const walk = (arr) => arr.forEach(node => {
+      const items = [...(node.directItems||[]), ...(node.items||[])];
+      items.forEach(it => { if (states[it.id]?.checked) n++; });
+      walkCats(node);
     });
     walk(nodes);
     return n;

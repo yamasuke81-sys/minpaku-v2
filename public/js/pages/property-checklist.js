@@ -562,6 +562,14 @@ const PropertyChecklistPage = {
                   ${l.addChild ? `<button class="btn btn-sm btn-outline-primary" data-act="${l.addChild}"><i class="bi bi-plus"></i> ${l.addChildLabel}</button>` : ""}
                 </div>
               </div>
+              ${level !== "ss" ? `
+                <div class="form-check form-switch mb-2" style="font-size:12px;">
+                  <input class="form-check-input pcl-select-group-toggle" type="checkbox" id="sg-${cat.id}" ${cat.isSelectGroup ? "checked" : ""} data-cat-level="${level}" data-cat-id="${cat.id}">
+                  <label class="form-check-label" for="sg-${cat.id}" title="ON にすると、清掃時に下の子カテゴリから 1 つだけ選んで表示する形になります">
+                    <i class="bi bi-ui-radios"></i> 選択式グループ（清掃時に配下からいずれか1つを選ぶ）
+                  </label>
+                </div>
+              ` : ""}
               ${cat.memo ? `<div class="alert alert-warning py-1 px-2 small mb-2" style="white-space:pre-wrap;"><i class="bi bi-sticky"></i> ${this.escapeHtml(cat.memo)}</div>` : ""}
               ${this.renderSampleImagesSection(cat)}
               ${this.renderChildrenContainer(cat, level)}
@@ -640,7 +648,23 @@ const PropertyChecklistPage = {
     });
 
     // 見本写真: input[type=file] change イベント (委譲では動かないため直接バインド)
+    // 選択式グループのトグルもここで拾う (change イベント)
     root.addEventListener("change", (ev) => {
+      // 選択式グループ トグル
+      const sgToggle = ev.target.closest(".pcl-select-group-toggle");
+      if (sgToggle) {
+        const level = sgToggle.dataset.catLevel;
+        const catId = sgToggle.dataset.catId;
+        const area = this.template.areas.find(a => a.id === this.activeAreaId);
+        if (!area) return;
+        const { node: cat } = this.resolveCategory(level, catId, area);
+        if (!cat) return;
+        if (sgToggle.checked) cat.isSelectGroup = true;
+        else delete cat.isSelectGroup;
+        this.markDirty();
+        return;
+      }
+
       const inp = ev.target.closest(".pcl-sample-img-input");
       if (!inp) return;
       const nodeId = inp.dataset.nodeId;
