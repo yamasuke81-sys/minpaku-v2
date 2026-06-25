@@ -833,33 +833,8 @@ module.exports = async function onBookingChange(event) {
         const preRecData = preRec.data();
         const preRecId = preRec.id;
 
-        // --- 通知対象スタッフを収集 ---
-        // 確定済みスタッフ (selectedStaffIds) を優先通知
-        const confirmedStaffIds = Array.isArray(preRecData.selectedStaffIds) ? preRecData.selectedStaffIds : [];
-
-        // 募集中・選定済み状態でも応募者がいれば通知する
-        let applicantStaffIds = [];
+        // --- グループLINEに1回だけ通知 ---
         try {
-          const responsesSnap = await db.collection("recruitments").doc(preRecId).collection("responses").get();
-          for (const resp of responsesSnap.docs) {
-            const rData = resp.data();
-            const rid = rData.staffId;
-            if (rid && !confirmedStaffIds.includes(rid) && !applicantStaffIds.includes(rid)) {
-              // 「×」以外の応募者（◎/△）を通知対象に
-              if (rData.response !== "×") {
-                applicantStaffIds.push(rid);
-              }
-            }
-          }
-        } catch (rErr) {
-          console.warn(`[直前点検→清掃切替] responses 取得エラー (${preRecId}):`, rErr.message);
-        }
-
-        const notifyTargetIds = [...new Set([...confirmedStaffIds, ...applicantStaffIds])];
-        console.log(`[直前点検→清掃切替] 通知対象スタッフID: [${notifyTargetIds.join(", ")}] (確定:${confirmedStaffIds.length}名, 応募者:${applicantStaffIds.length}名)`);
-
-        // --- 通知メッセージ送信 ---
-        if (notifyTargetIds.length > 0) {
           const displayDate = checkOut.replace(/-/g, "/");
           const notifyMsg = [
             `【直前点検不要のお知らせ】`,
@@ -869,32 +844,22 @@ module.exports = async function onBookingChange(event) {
             `作業がなくなり申し訳ありません。`,
           ].join("\n");
 
-          let notifySuccess = 0;
-          let notifyFail = 0;
-          for (const sid of notifyTargetIds) {
-            try {
-              const result = await notifyStaff(
-                db,
-                sid,
-                "pre_inspection_cancelled",
-                `直前点検不要: ${propertyName} ${displayDate}`,
-                notifyMsg,
-                { date: displayDate, property: propertyName || "" },
-                (propertyData.channelOverrides || {}),
-              );
-              if (result.success) {
-                notifySuccess++;
-                console.log(`[直前点検→清掃切替] 通知送信成功: staffId=${sid} (${result.staffName || ""})`);
-              } else {
-                notifyFail++;
-                console.warn(`[直前点検→清掃切替] 通知送信失敗: staffId=${sid} (${result.error || "不明"})`);
-              }
-            } catch (nErr) {
-              notifyFail++;
-              console.warn(`[直前点検→清掃切替] 通知エラー staffId=${sid}:`, nErr.message);
-            }
+          const groupResult = await notifyGroup(
+            db,
+            "pre_inspection_cancelled",
+            `直前点検不要: ${propertyName} ${displayDate}`,
+            notifyMsg,
+            { date: displayDate, property: propertyName || "" },
+            (propertyData.channelOverrides || {}),
+            propertyId,
+          );
+          if (groupResult.success) {
+            console.log(`[直前点検→清掃切替] グループ通知送信: ${propertyName} ${displayDate}`);
+          } else {
+            console.warn(`[直前点検→清掃切替] グループ通知失敗: ${groupResult.error || "不明"}`);
           }
-          console.log(`[直前点検→清掃切替] 通知結果: 成功=${notifySuccess}名, 失敗=${notifyFail}名`);
+        } catch (nErr) {
+          console.warn(`[直前点検→清掃切替] グループ通知エラー:`, nErr.message);
         }
 
         // --- 紐付く直前点検シフトを削除 ---
