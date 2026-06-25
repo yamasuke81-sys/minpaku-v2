@@ -833,21 +833,22 @@ module.exports = async function onBookingChange(event) {
         const preRecData = preRec.data();
         const preRecId = preRec.id;
 
-        // --- グループLINEに1回だけ通知 ---
+        // --- グループLINEに1回だけ通知 (グループ全体宛のメッセージ) ---
         try {
           const displayDate = checkOut.replace(/-/g, "/");
           const notifyMsg = [
-            `【直前点検不要のお知らせ】`,
+            `【清掃募集開始のお知らせ】`,
             ``,
-            `${propertyName} ${displayDate} の直前点検作業は、同日にチェックアウト予約が入ったため不要となりました。`,
-            `代わりに清掃募集が開始されます。`,
-            `作業がなくなり申し訳ありません。`,
+            `${propertyName} ${displayDate} の清掃募集を開始しました。`,
+            ``,
+            `なお、同日に直前点検の担当が確定していた方は、その作業はなくなります。`,
+            `急な変更で申し訳ありません。`,
           ].join("\n");
 
           const groupResult = await notifyGroup(
             db,
             "pre_inspection_cancelled",
-            `直前点検不要: ${propertyName} ${displayDate}`,
+            `清掃募集開始 (直前点検は中止): ${propertyName} ${displayDate}`,
             notifyMsg,
             { date: displayDate, property: propertyName || "" },
             (propertyData.channelOverrides || {}),
