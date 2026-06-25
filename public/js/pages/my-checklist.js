@@ -550,13 +550,19 @@ const MyChecklistPage = {
         if (!this.activeAreaId && this.checklist.templateSnapshot?.length) {
           this.activeAreaId = this.checklist.templateSnapshot[0].id;
         }
-        // templateSnapshot 自体が変わった場合のみ全体再構築 (項目追加/削除/見本写真変更も検知)
-        // itemStates 等の細かな変化では再構築しない (UX 維持)
-        const oldTmplHash = JSON.stringify(old?.templateSnapshot || null);
-        const newTmplHash = JSON.stringify(this.checklist.templateSnapshot || null);
+        // templateSnapshot の「構造」が変わった場合のみ全体再構築 (項目追加/削除/カテゴリ追加削除)
+        // JSON.stringify による全文比較は Firestore のフィールド順序のブレで偽陽性が出やすく、
+        // 他人のチェック反映時に全体再構築 → スクロールジャンプの原因になっていた。
+        // ID 集合だけのハッシュ比較に変更し、名前変更/フラグ変更/見本写真変更は
+        // 「未着手最新化」操作経由で反映する運用に統一する。
+        const oldTmplHash = this._templateStructureHash(old?.templateSnapshot);
+        const newTmplHash = this._templateStructureHash(this.checklist.templateSnapshot);
         const templateChanged = !old || oldTmplHash !== newTmplHash;
         if (templateChanged) {
-          this.renderTree();
+          // 初回 (!old) はスクロール保持不要 (新規描画なので 0 から)。
+          // 2回目以降の再構築 (原紙更新等) ではスクロール位置を保持
+          if (!old) this.renderTree();
+          else this._preserveScroll(() => this.renderTree());
         } else {
           // 楽観 UI 直後の自分自身の書き込みは再描画スキップ (チラツキ防止)
           // ユーザーがタップ操作中もスキップ (タップ判定がズレて誤遷移する事故防止)
@@ -3558,6 +3564,41 @@ const MyChecklistPage = {
     }
   },
 
+  // templateSnapshot の構造ハッシュ (ID 集合のみ) を返す。
+  // 名前/フラグ/見本写真の変更は検知しない (偽陽性によるスクロールジャンプ防止)。
+  _templateStructureHash(areas) {
+    if (!areas || !Array.isArray(areas)) return "null";
+    const parts = [];
+    const walk = (node) => {
+      parts.push(`n:${node.id || ""}`);
+      [...(node.directItems || []), ...(node.items || [])].forEach(it => parts.push(`i:${it.id || ""}`));
+      [...(node.taskTypes || []), ...(node.subCategories || []), ...(node.subSubCategories || [])].forEach(c => walk(c));
+    };
+    areas.forEach(walk);
+    return parts.join("|");
+  },
+
+  // スクロール位置を保持したまま callback を実行する共通ヘルパー
+  // DOM 全置換 (innerHTML 書き換え) を伴う再描画時に必ず使う。
+  // 2段階 rAF で復元するのは iOS Safari / LINE 内蔵ブラウザの「DOM変化直後の scrollTo 無視」対策
+  _preserveScroll(callback) {
+    const prevScrollY = window.scrollY || 0;
+    const mainEl = document.querySelector(".app-main");
+    const prevMainScroll = mainEl ? mainEl.scrollTop : 0;
+    const docEl = document.documentElement;
+    const prevDocScroll = docEl ? docEl.scrollTop : 0;
+    try { callback(); } catch (e) { console.error("_preserveScroll callback error:", e); }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        try {
+          window.scrollTo({ top: prevScrollY, behavior: "instant" });
+          if (mainEl) mainEl.scrollTop = prevMainScroll;
+          if (docEl && docEl.scrollTop !== prevDocScroll) docEl.scrollTop = prevDocScroll;
+        } catch (_) {}
+      });
+    });
+  },
+
   // 選択式グループの選択値を Firestore に保存 (リアルタイム同期)
   async updateSelectedGroupChoice(parentId, childId) {
     const db = firebase.firestore();
@@ -3575,10 +3616,14 @@ const MyChecklistPage = {
       } else {
         patch[`selectedGroupChoices.${parentId}`] = firebase.firestore.FieldValue.delete();
       }
+      // 自分の書き込みが onSnapshot で再描画されるのを抑制 (チラつき・スクロールジャンプ防止)
+      this._suppressRerenderUntil = Date.now() + 1500;
       await db.collection("checklists").doc(this.checklistId).update(patch);
       // 構造変化を伴う (選んだ子カテゴリだけ展開) ため、その場更新ではなくチェックリストタブを再描画
-      // ※ onSnapshot 経由でも遅れて再描画されるが、ユーザー体感を上げるため先に明示再描画
-      if (this.activeTopTab === "checklist") this._renderActiveTopTab();
+      // スクロール位置を保持して再描画
+      if (this.activeTopTab === "checklist") {
+        this._preserveScroll(() => this._renderActiveTopTab());
+      }
     } catch (e) {
       console.error("updateSelectedGroupChoice error:", e);
       if (typeof showToast === "function") showToast("保存失敗", e.message || "", "error");
