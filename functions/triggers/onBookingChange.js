@@ -815,6 +815,138 @@ module.exports = async function onBookingChange(event) {
 
   if (!shouldCreateRecruitment) return;
 
+  // ========== 直前点検→清掃 自動切替 ==========
+  // 「checkOut日 = 別予約のcheckIn日」に清掃募集を新規生成しようとしている = 直前点検が不要になるケース。
+  // 同日・同物件に pre_inspection 募集/シフトが残っていれば削除し、確定済み（またはそれ以外の応募者）に通知する。
+  try {
+    // 同日・同物件の直前点検募集を検索 (checkoutDate フィールドに checkIn 日が入っている)
+    const preInspRecSnap = await db.collection("recruitments")
+      .where("propertyId", "==", propertyId)
+      .where("checkoutDate", "==", checkOut)
+      .where("workType", "==", "pre_inspection")
+      .get();
+
+    if (!preInspRecSnap.empty) {
+      console.log(`[直前点検→清掃切替] ${checkOut} に直前点検募集 ${preInspRecSnap.size} 件を検出 → 削除＋通知処理開始`);
+
+      for (const preRec of preInspRecSnap.docs) {
+        const preRecData = preRec.data();
+        const preRecId = preRec.id;
+
+        // --- 通知対象スタッフを収集 ---
+        // 確定済みスタッフ (selectedStaffIds) を優先通知
+        const confirmedStaffIds = Array.isArray(preRecData.selectedStaffIds) ? preRecData.selectedStaffIds : [];
+
+        // 募集中・選定済み状態でも応募者がいれば通知する
+        let applicantStaffIds = [];
+        try {
+          const responsesSnap = await db.collection("recruitments").doc(preRecId).collection("responses").get();
+          for (const resp of responsesSnap.docs) {
+            const rData = resp.data();
+            const rid = rData.staffId;
+            if (rid && !confirmedStaffIds.includes(rid) && !applicantStaffIds.includes(rid)) {
+              // 「×」以外の応募者（◎/△）を通知対象に
+              if (rData.response !== "×") {
+                applicantStaffIds.push(rid);
+              }
+            }
+          }
+        } catch (rErr) {
+          console.warn(`[直前点検→清掃切替] responses 取得エラー (${preRecId}):`, rErr.message);
+        }
+
+        const notifyTargetIds = [...new Set([...confirmedStaffIds, ...applicantStaffIds])];
+        console.log(`[直前点検→清掃切替] 通知対象スタッフID: [${notifyTargetIds.join(", ")}] (確定:${confirmedStaffIds.length}名, 応募者:${applicantStaffIds.length}名)`);
+
+        // --- 通知メッセージ送信 ---
+        if (notifyTargetIds.length > 0) {
+          const displayDate = checkOut.replace(/-/g, "/");
+          const notifyMsg = [
+            `【直前点検不要のお知らせ】`,
+            ``,
+            `${propertyName} ${displayDate} の直前点検作業は、同日にチェックアウト予約が入ったため不要となりました。`,
+            `代わりに清掃募集が開始されます。`,
+            `作業がなくなり申し訳ありません。`,
+          ].join("\n");
+
+          let notifySuccess = 0;
+          let notifyFail = 0;
+          for (const sid of notifyTargetIds) {
+            try {
+              const result = await notifyStaff(
+                db,
+                sid,
+                "pre_inspection_cancelled",
+                `直前点検不要: ${propertyName} ${displayDate}`,
+                notifyMsg,
+                { date: displayDate, property: propertyName || "" },
+                (propertyData.channelOverrides || {}),
+              );
+              if (result.success) {
+                notifySuccess++;
+                console.log(`[直前点検→清掃切替] 通知送信成功: staffId=${sid} (${result.staffName || ""})`);
+              } else {
+                notifyFail++;
+                console.warn(`[直前点検→清掃切替] 通知送信失敗: staffId=${sid} (${result.error || "不明"})`);
+              }
+            } catch (nErr) {
+              notifyFail++;
+              console.warn(`[直前点検→清掃切替] 通知エラー staffId=${sid}:`, nErr.message);
+            }
+          }
+          console.log(`[直前点検→清掃切替] 通知結果: 成功=${notifySuccess}名, 失敗=${notifyFail}名`);
+        }
+
+        // --- 紐付く直前点検シフトを削除 ---
+        try {
+          const preShiftSnap = await db.collection("shifts")
+            .where("propertyId", "==", propertyId)
+            .where("workType", "==", "pre_inspection")
+            .where("bookingId", "==", preRecData.bookingId || "")
+            .get();
+          // bookingId が空の場合は date で絞り込む
+          const checkOutDateObj = toUtcMidnight(checkOut);
+          const preShiftByDateSnap = await db.collection("shifts")
+            .where("propertyId", "==", propertyId)
+            .where("workType", "==", "pre_inspection")
+            .where("date", "==", checkOutDateObj)
+            .get();
+          const allPreShiftDocs = [
+            ...preShiftSnap.docs,
+            ...preShiftByDateSnap.docs.filter(d => !preShiftSnap.docs.some(s => s.id === d.id)),
+          ];
+          for (const ps of allPreShiftDocs) {
+            try {
+              // チェックリストも削除
+              const cls = await db.collection("checklists").where("shiftId", "==", ps.id).get();
+              for (const c of cls.docs) await c.ref.delete();
+              await ps.ref.delete();
+              console.log(`[直前点検→清掃切替] 直前点検シフト削除: shiftId=${ps.id}`);
+            } catch (sdErr) {
+              console.warn(`[直前点検→清掃切替] シフト削除エラー (${ps.id}):`, sdErr.message);
+            }
+          }
+        } catch (sfErr) {
+          console.warn(`[直前点検→清掃切替] シフト検索エラー:`, sfErr.message);
+        }
+
+        // --- 直前点検募集を削除 ---
+        try {
+          await removeRecruitmentFromAllStaff(db, preRecId);
+          await preRec.ref.delete();
+          console.log(`[直前点検→清掃切替] 直前点検募集削除: recruitmentId=${preRecId}`);
+        } catch (rdErr) {
+          console.warn(`[直前点検→清掃切替] 募集削除エラー (${preRecId}):`, rdErr.message);
+        }
+      }
+
+      console.log(`[直前点検→清掃切替] 完了: ${checkOut} ${propertyName} の直前点検募集/シフトを削除し清掃募集を生成します`);
+    }
+  } catch (piErr) {
+    // 切替処理が失敗しても清掃募集生成は継続する
+    console.error("[直前点検→清掃切替] 処理エラー:", piErr);
+  }
+
   // 募集自動生成
   // 競合状態対策: bookingId + workType + checkoutDate ベースの決定的 docId + create() で冪等化
   // (onBookingChange が並列発火しても同一 doc に収束し、2件目は AlreadyExists で安全に弾かれる)
