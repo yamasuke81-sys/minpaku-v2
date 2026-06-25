@@ -31,10 +31,25 @@ jobs:
           echo "--- patched index.html (version line) ---"
           grep -E 'appVersionMobile' public/index.html | head -3
 
-      - name: Deploy to Firebase Hosting
-        uses: FirebaseExtended/action-hosting-deploy@v0
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          channelId: live
-          projectId: minpaku-v2
+          node-version: 20
+
+      # Google OAuth トークンエンドポイントへの一時障害 (Premature close 等) で
+      # 散発的に失敗していたため、デプロイ全体 (auth 含む) をリトライでラップする。
+      # firebase-tools も @13 に固定して latest 取得時の互換崩れを防ぐ。
+      - name: Deploy to Firebase Hosting (with retry)
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 5
+          retry_wait_seconds: 20
+          command: |
+            set -euo pipefail
+            SA_FILE="$RUNNER_TEMP/firebase-sa.json"
+            printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$SA_FILE"
+            export GOOGLE_APPLICATION_CREDENTIALS="$SA_FILE"
+            npx --yes firebase-tools@13 deploy --only hosting --project minpaku-v2 --non-interactive
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
