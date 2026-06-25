@@ -256,7 +256,7 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
     });
 
     // ===== CSS注入 (バージョン管理) =====
-    const STYLE_VER = "v33";
+    const STYLE_VER = "v34";
     if (container._verticalStyleVer !== STYLE_VER) {
       container._verticalStyleVer = STYLE_VER;
       // 旧 style 要素を除去してから再注入 (CSS 更新を確実に反映)
@@ -364,14 +364,18 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
       <div class="header-resizer" title="ドラッグで宿名・スタッフ名行の高さを変更" style="position:absolute;bottom:0;left:0;right:0;height:10px;cursor:row-resize;z-index:5;user-select:none;background:repeating-linear-gradient(to right, rgba(13,110,253,0.5) 0 6px, transparent 6px 12px);touch-action:none;"></div>
     </th>`;
 
-    // 手動縦書き: 1文字ずつ div に。英数字は 90度回転して横倒し (省スペース)
+    // 手動縦書き: 1文字ずつ div に。英数字は 90度回転して半角のまま横倒し
+    // 英字の見かけ高 = フォント文字幅 (半角の細さ) になるよう、div 高さも英字用に縮める
     const verticalText = (text, fontSize) => {
+      const alnumFontSize = Math.round(fontSize * 0.85);   // 英字フォントは少し小さく
+      const alnumDivH = Math.round(fontSize * 0.75);        // 英字行は縦に詰める (半角幅相当)
       const chars = String(text).split('');
       const items = chars.map(ch => {
-        if (ch === ' ' || ch === '　') return `<div style="height:4px;flex-shrink:0;"></div>`;
+        if (ch === ' ' || ch === '　') return `<div style="height:3px;flex-shrink:0;"></div>`;
         const isAlnum = /[A-Za-z0-9]/.test(ch);
         if (isAlnum) {
-          return `<div style="height:${fontSize}px;line-height:${fontSize}px;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><span style="display:inline-block;transform:rotate(90deg);transform-origin:center;font-size:${fontSize}px;line-height:1;">${this.esc(ch)}</span></div>`;
+          // span を 90度回転、半角サイズ・タイト spacing
+          return `<div style="height:${alnumDivH}px;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:visible;"><span style="display:inline-block;transform:rotate(90deg);transform-origin:center;font-size:${alnumFontSize}px;line-height:1;font-family:Arial,sans-serif;letter-spacing:0;">${this.esc(ch)}</span></div>`;
         }
         return `<div style="height:${fontSize}px;line-height:${fontSize}px;font-size:${fontSize}px;text-align:center;flex-shrink:0;">${this.esc(ch)}</div>`;
       });
