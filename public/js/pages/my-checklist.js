@@ -3599,6 +3599,82 @@ const MyChecklistPage = {
     });
   },
 
+  // 選択式グループの選択変更時、該当 mcl-sg-wrapper の直後の要素 (選ばれた子カテゴリ or
+  // 未選択プレースホルダ) だけを差し替える。DOM 全置換ではないのでスクロール位置に影響しない。
+  // wrapper の前にある items はそのまま、wrapper 自身もそのまま。
+  _syncSelectGroupDom(parentId, childId) {
+    const wrapper = document.querySelector(`.mcl-sg-wrapper[data-parent-id="${CSS.escape(parentId)}"]`);
+    if (!wrapper) return false;
+
+    // wrapper の後続要素 (前回選択された子カテゴリ or プレースホルダ) を全削除
+    while (wrapper.nextElementSibling) {
+      wrapper.nextElementSibling.remove();
+    }
+
+    // 親ノード (area または tt/sc) を templateSnapshot から検索
+    const areas = this.checklist?.templateSnapshot || [];
+    let parent = areas.find(a => a.id === parentId)
+              || this._findCatById(areas, parentId);
+    if (!parent) return false;
+
+    if (childId) {
+      const cats = [
+        ...(parent.taskTypes || []),
+        ...(parent.subCategories || []),
+        ...(parent.subSubCategories || []),
+      ];
+      const selectedCat = cats.find(c => c.id === childId);
+      if (selectedCat) {
+        wrapper.insertAdjacentHTML("afterend", this.renderCat(selectedCat));
+        const inserted = wrapper.nextElementSibling;
+        if (inserted) this.wireChildren(inserted);
+      }
+    } else {
+      wrapper.insertAdjacentHTML(
+        "afterend",
+        `<div class="alert alert-light small text-muted text-center my-2 py-2" style="font-size:12px;"><i class="bi bi-arrow-up"></i> 上のメニューから選んでください</div>`
+      );
+    }
+
+    // 親カテゴリの完了バッジを更新 (countItems が選択により変化するため)
+    this._refreshAncestorBadges(parentId);
+    return true;
+  },
+
+  // 指定カテゴリと、その祖先カテゴリの done/tot バッジを更新する。
+  // 選択式グループの選択により countItems が変わるため、自分自身も含めて再計算する。
+  _refreshAncestorBadges(catId) {
+    const states = this.checklist?.itemStates || {};
+    const updateOne = (el) => {
+      const cid = el.dataset.catId;
+      if (!cid) return;
+      const cat = this._findCatById(this.checklist?.templateSnapshot || [], cid);
+      if (!cat) return;
+      const done = this.countItemsDone(cat, states);
+      const tot = this.countItems([cat]);
+      const allDone = tot > 0 && done === tot;
+      const btn = el.querySelector(".accordion-button");
+      if (btn) {
+        btn.classList.toggle("bg-success", allDone);
+        btn.classList.toggle("bg-opacity-10", allDone);
+      }
+      const badge = el.querySelector(".accordion-button .badge");
+      if (badge) {
+        badge.className = `badge ${allDone ? "bg-success" : "bg-secondary"} ms-2`;
+        badge.style.fontSize = "10px";
+        badge.textContent = `${done}/${tot}`;
+      }
+    };
+    let cur = document.querySelector(`.mcl-cat[data-cat-id="${CSS.escape(catId)}"]`);
+    while (cur) {
+      updateOne(cur);
+      cur = cur.parentElement?.closest(".mcl-cat");
+    }
+    // エリアタブ + ヘッダーバッジ + タブ件数バッジも合わせて更新
+    this._updateTabBadges?.();
+    this._updateHeaderStatus?.();
+  },
+
   // 選択式グループの選択値を Firestore に保存 (リアルタイム同期)
   async updateSelectedGroupChoice(parentId, childId) {
     const db = firebase.firestore();
@@ -3618,12 +3694,15 @@ const MyChecklistPage = {
       }
       // 自分の書き込みが onSnapshot で再描画されるのを抑制 (チラつき・スクロールジャンプ防止)
       this._suppressRerenderUntil = Date.now() + 1500;
-      await db.collection("checklists").doc(this.checklistId).update(patch);
-      // 構造変化を伴う (選んだ子カテゴリだけ展開) ため、その場更新ではなくチェックリストタブを再描画
-      // スクロール位置を保持して再描画
+      // mcl-sg-wrapper の直後の要素 (前回選択された子カテゴリ or プレースホルダ) だけを
+      // 差し替える。DOM 全置換ではないため、スクロール位置は影響を受けない。
+      // 描画を Firestore 書き込みより先に行うことで、ユーザー操作の即時反映を体感的に保証する。
       if (this.activeTopTab === "checklist") {
-        this._preserveScroll(() => this._renderActiveTopTab());
+        const ok = this._syncSelectGroupDom(parentId, childId);
+        // 万一 DOM 差し替えに失敗した場合のみフォールバックで再描画
+        if (!ok) this._preserveScroll(() => this._renderActiveTopTab());
       }
+      await db.collection("checklists").doc(this.checklistId).update(patch);
     } catch (e) {
       console.error("updateSelectedGroupChoice error:", e);
       if (typeof showToast === "function") showToast("保存失敗", e.message || "", "error");
