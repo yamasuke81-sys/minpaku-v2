@@ -842,7 +842,7 @@ module.exports = async function onBookingChange(event) {
             `${propertyName} ${displayDate} の清掃募集を開始しました。`,
             ``,
             `なお、同日に直前点検の担当が確定していた方は、その作業はなくなります。`,
-            `急な変更で申し訳ありません。`,
+            `申し訳ありません。`,
           ].join("\n");
 
           const groupResult = await notifyGroup(
