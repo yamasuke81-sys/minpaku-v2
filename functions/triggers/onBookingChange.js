@@ -840,7 +840,9 @@ module.exports = async function onBookingChange(event) {
     shouldCreateRecruitment = false;
   }
 
-  if (!shouldCreateRecruitment) return;
+  // shouldCreateRecruitment=false (清掃募集既存) でも、後段の [直前点検→清掃切替] と
+  // 直前点検生成・孤児チェックは別ロジックなので継続する。清掃 add/通知だけ後で if ガードする。
+  // (旧 `return;` は pre_inspection の孤児検知を永久に止めてしまうため削除)
 
   // ========== 直前点検→清掃 自動切替 ==========
   // 「checkOut日 = 別予約のcheckIn日」に清掃募集を新規生成しようとしている = 直前点検が不要になるケース。
@@ -940,43 +942,50 @@ module.exports = async function onBookingChange(event) {
     console.error("[直前点検→清掃切替] 処理エラー:", piErr);
   }
 
-  // 募集自動生成
-  // 競合状態対策: bookingId + workType + checkoutDate ベースの決定的 docId + create() で冪等化
-  // (onBookingChange が並列発火しても同一 doc に収束し、2件目は AlreadyExists で安全に弾かれる)
+  // 清掃募集 add + LINE通知 + タイミー通知 は shouldCreateRecruitment=true 限定。
+  // (旧コードは清掃 add 直前に `return;` していたが、それだと後段の直前点検ブロックも止まってしまうため
+  //  if ブロックで囲み、return; をフラグ化して直前点検処理に進ませる)
   const memo = `ゲスト: ${guestName || "不明"} (${source || "不明"})`;
-  const deterministicId = `auto_${bookingId}_cleaning_${checkOut}`;
   let recruitmentId;
-  try {
-    await db.collection("recruitments").doc(deterministicId).create({
-      checkoutDate: checkOut,
-      propertyId,
-      propertyName,
-      bookingId,
-      workType: "cleaning",
-      status: "募集中",
-      selectedStaff: "",
-      selectedStaffIds: [],
-      memo,
-      responses: [],
-      createdAt: now,
-      updatedAt: now,
-    });
-    recruitmentId = deterministicId;
-    console.log(`予約 ${bookingId}: 募集自動生成完了 (${checkOut}) recruitmentId=${recruitmentId}`);
-    // E: pendingRecruitmentIds に追加 + しきい値超過で非アクティブ化
-    try { await addRecruitmentToActiveStaff(db, recruitmentId); } catch (e) { console.error("addRecruitmentToActiveStaff エラー:", e); }
-  } catch (e) {
-    // 同時発火による重複は ALREADY_EXISTS (code=6) で弾かれる想定 — 通知含む後続は走らせない
-    if (e && (e.code === 6 || /already exists/i.test(String(e.message || "")))) {
-      console.log(`予約 ${bookingId}: 募集 ${deterministicId} は既存 (並列発火による重複生成を回避)`);
-      return;
+  let recruitmentCreated = false;
+  if (shouldCreateRecruitment) {
+    // 募集自動生成
+    // 競合状態対策: bookingId + workType + checkoutDate ベースの決定的 docId + create() で冪等化
+    // (onBookingChange が並列発火しても同一 doc に収束し、2件目は AlreadyExists で安全に弾かれる)
+    const deterministicId = `auto_${bookingId}_cleaning_${checkOut}`;
+    try {
+      await db.collection("recruitments").doc(deterministicId).create({
+        checkoutDate: checkOut,
+        propertyId,
+        propertyName,
+        bookingId,
+        workType: "cleaning",
+        status: "募集中",
+        selectedStaff: "",
+        selectedStaffIds: [],
+        memo,
+        responses: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+      recruitmentId = deterministicId;
+      recruitmentCreated = true;
+      console.log(`予約 ${bookingId}: 募集自動生成完了 (${checkOut}) recruitmentId=${recruitmentId}`);
+      // E: pendingRecruitmentIds に追加 + しきい値超過で非アクティブ化
+      try { await addRecruitmentToActiveStaff(db, recruitmentId); } catch (e) { console.error("addRecruitmentToActiveStaff エラー:", e); }
+    } catch (e) {
+      // 同時発火による重複は ALREADY_EXISTS (code=6) で弾かれる想定 — 通知含む後続は走らせない (recruitmentCreated=false のまま)
+      if (e && (e.code === 6 || /already exists/i.test(String(e.message || "")))) {
+        console.log(`予約 ${bookingId}: 募集 ${deterministicId} は既存 (並列発火による重複生成を回避)`);
+      } else {
+        console.error("募集生成エラー:", e);
+      }
     }
-    console.error("募集生成エラー:", e);
-    return;
   }
 
-  // ========== LINE通知 (recruit_start) ==========
-  try {
+  // ========== LINE通知 (recruit_start) + タイミー通知 ==========
+  // recruitmentCreated=true の時のみ。(清掃募集の新規生成があったときに紐付けて発火する設計)
+  if (recruitmentCreated) try {
     const { settings } = await getNotificationSettings_(db);
     // 30日繰延フラグ (物件別 channelOverrides.recruit_start.deferUntil30Days) が ON で
     // 作業日が 30日超なら、通知を発火せず notifyDeferred を立てる
@@ -1021,7 +1030,8 @@ module.exports = async function onBookingChange(event) {
   // ========== タイミー募集依頼通知 (timee_posting) ==========
   // 新規確定予約検知時に物件オーナー宛にタイミー求人募集を依頼
   // 重複送信防止: bookings.timeeNotifySentAt が既に立っていればスキップ
-  try {
+  // recruitmentCreated=true 限定 (清掃募集の新規生成があったときのみ。既存予約への再発火では送らない)
+  if (recruitmentCreated) try {
     if (after.timeeNotifySentAt) {
       // 送信済み → スキップ
     } else {
