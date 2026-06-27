@@ -374,6 +374,33 @@ module.exports = async function onBookingChange(event) {
           console.log(`[onBookingChange] キャンセル: ${bid} (同日別active予約あり、削除スキップ)`);
         }
 
+        // pre_inspection は CI日 (=他予約のCO日と独立) のシフトなので、CO日ベースの削除では拾えない。
+        // bookingId 直接照合で自分に紐付く pre_inspection shift/recruitment/checklist を確実に削除。
+        // (これがないと bookingId 孤児の pre_inspection shift が残留し、次の同CI日予約で shift 不整合の原因になる)
+        try {
+          const ownPreShifts = await db.collection("shifts")
+            .where("bookingId", "==", bid)
+            .where("workType", "==", "pre_inspection")
+            .get();
+          for (const ps of ownPreShifts.docs) {
+            const cls = await db.collection("checklists").where("shiftId", "==", ps.id).get();
+            for (const c of cls.docs) await c.ref.delete();
+            await ps.ref.delete();
+            console.log(`[onBookingChange] キャンセル連動削除(pre_inspection shift): ${bid} shiftId=${ps.id}`);
+          }
+          const ownPreRecs = await db.collection("recruitments")
+            .where("bookingId", "==", bid)
+            .where("workType", "==", "pre_inspection")
+            .get();
+          for (const pr of ownPreRecs.docs) {
+            await removeRecruitmentFromAllStaff(db, pr.id);
+            await pr.ref.delete();
+            console.log(`[onBookingChange] キャンセル連動削除(pre_inspection recruitment): ${bid} recruitmentId=${pr.id}`);
+          }
+        } catch (e) {
+          console.error("[onBookingChange] pre_inspection 直接削除エラー:", e);
+        }
+
         // guestRegistrations は削除せず status を "cancelled" に更新 (お客様情報は残す方針)
         // sendKeyboxScheduled は status "in" ["submitted","confirmed"] でフィルタしているので、
         // status を cancelled にすればキーボックスメール誤送信は防げる。
@@ -1129,7 +1156,38 @@ module.exports = async function onBookingChange(event) {
     if (!insLinkedShiftSnap.empty) {
       console.log(`予約 ${bookingId}: bookingId紐付けの直前点検シフトが既存(日付移動済の可能性) → 再生成スキップ`);
     } else if (!insShiftSnap.empty) {
-      console.log(`予約 ${bookingId}: 直前点検シフト既存のためスキップ`);
+      // 孤児チェック: 既存shiftの bookingId が active 予約と紐付いているか検証。
+      // キャンセル済み予約由来の孤児なら削除して、当予約の bookingId で再生成する。
+      // (これがないと shift と recruitment の bookingId が乖離し、後続処理で削除誤動作の原因になる)
+      const existingShiftDoc = insShiftSnap.docs[0];
+      const existingBid = existingShiftDoc.data().bookingId;
+      let isOrphan = !existingBid;
+      if (existingBid) {
+        try {
+          const linkedBooking = await db.collection("bookings").doc(existingBid).get();
+          if (!linkedBooking.exists || isCancelled(linkedBooking.data().status)) isOrphan = true;
+        } catch (_) { /* 取得失敗時は安全側で残す */ }
+      }
+      if (isOrphan) {
+        console.log(`予約 ${bookingId}: 既存直前点検シフト ${existingShiftDoc.id} は孤児(bookingId=${existingBid || "なし"}) → 削除して再生成`);
+        const cls = await db.collection("checklists").where("shiftId", "==", existingShiftDoc.id).get();
+        for (const c of cls.docs) await c.ref.delete();
+        await existingShiftDoc.ref.delete();
+        await db.collection("shifts").add({
+          date: checkInDate,
+          propertyId, propertyName,
+          bookingId,
+          workType: "pre_inspection",
+          staffId: null, staffName: null, staffIds: [],
+          startTime: propertyData.inspectionStartTime || "10:00",
+          status: "unassigned",
+          assignMethod: "auto",
+          createdAt: now, updatedAt: now,
+        });
+        console.log(`予約 ${bookingId}: 直前点検シフト再生成 (${checkIn})`);
+      } else {
+        console.log(`予約 ${bookingId}: 直前点検シフト既存のためスキップ (active bookingId=${existingBid})`);
+      }
     } else {
       await db.collection("shifts").add({
         date: checkInDate,
@@ -1159,7 +1217,41 @@ module.exports = async function onBookingChange(event) {
     let insRecruitmentId = null;
     if (!insLinkedRecSnap.empty) {
       console.log(`予約 ${bookingId}: bookingId紐付けの直前点検募集が既存(日付移動済の可能性) → 再生成スキップ`);
-    } else if (insRecSnap.empty) {
+    } else if (!insRecSnap.empty) {
+      // 孤児チェック: 既存recruitmentの bookingId が active 予約と紐付いているか検証。
+      // キャンセル済み予約由来の孤児なら削除して、当予約の bookingId で再生成する。
+      const existingRecDoc = insRecSnap.docs[0];
+      const existingBid = existingRecDoc.data().bookingId;
+      let isOrphan = !existingBid;
+      if (existingBid) {
+        try {
+          const linkedBooking = await db.collection("bookings").doc(existingBid).get();
+          if (!linkedBooking.exists || isCancelled(linkedBooking.data().status)) isOrphan = true;
+        } catch (_) { /* 取得失敗時は安全側で残す */ }
+      }
+      if (isOrphan) {
+        console.log(`予約 ${bookingId}: 既存直前点検募集 ${existingRecDoc.id} は孤児(bookingId=${existingBid || "なし"}) → 削除して再生成`);
+        try { await removeRecruitmentFromAllStaff(db, existingRecDoc.id); } catch (_) {}
+        await existingRecDoc.ref.delete();
+        const insRef = await db.collection("recruitments").add({
+          checkoutDate: checkIn,
+          propertyId, propertyName,
+          bookingId,
+          workType: "pre_inspection",
+          status: "募集中",
+          selectedStaff: "",
+          selectedStaffIds: [],
+          memo: `直前点検: ゲスト ${guestName || "不明"} (${source || ""})`,
+          responses: [],
+          createdAt: now, updatedAt: now,
+        });
+        insRecruitmentId = insRef.id;
+        console.log(`予約 ${bookingId}: 直前点検募集再生成 (${checkIn})`);
+        try { await addRecruitmentToActiveStaff(db, insRecruitmentId); } catch (e) { console.error("addRecruitmentToActiveStaff(直前点検再生成) エラー:", e); }
+      } else {
+        console.log(`予約 ${bookingId}: 直前点検募集既存のためスキップ (active bookingId=${existingBid})`);
+      }
+    } else {
       const insRef = await db.collection("recruitments").add({
         checkoutDate: checkIn,           // 直前点検の実施日(=checkIn)
         propertyId, propertyName,

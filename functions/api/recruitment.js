@@ -505,7 +505,11 @@ module.exports = function recruitmentApi(db) {
           console.log(`shift 新規作成: propertyId=${data.propertyId}, date=${data.checkoutDate}`);
         } else {
           // 既存を更新
+          // bookingId も recruitment 側に合わせて上書きする。
+          // (キャンセル済み予約由来の孤児 shift が再利用された場合、bookingId が古いままだと
+          //  後続の bookingId 紐付け検索で削除誤動作する原因になる)
           await shiftSnap.docs[0].ref.update({
+            bookingId: data.bookingId || null,
             staffId: firstStaffId,
             staffName: firstStaffName,
             staffIds: data.selectedStaffIds || [],
@@ -513,7 +517,7 @@ module.exports = function recruitmentApi(db) {
             assignMethod: "manual_confirm",
             updatedAt: FieldValue.serverTimestamp(),
           });
-          console.log(`shift 更新: ${shiftSnap.docs[0].id}`);
+          console.log(`shift 更新: ${shiftSnap.docs[0].id} (bookingId=${data.bookingId || "null"})`);
         }
       } catch (shiftErr) {
         console.error("shift upsert エラー（確定は継続）:", shiftErr);
