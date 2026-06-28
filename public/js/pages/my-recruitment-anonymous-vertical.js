@@ -13,6 +13,32 @@
  */
 const MyRecruitmentPageAnonymousVertical = Object.assign(Object.create(MyRecruitmentPageVertical), {
 
+  // detach は縦版の実装を流用せず自前で持つ。
+  // 縦版 detach は Object.getPrototypeOf(this).detach で親を辿るが、
+  // 本ページは縦版を継承するため this が常に本ページ → getPrototypeOf(this) が
+  // 縦版を指し続けて無限再帰する。そこで祖父(MyRecruitmentPage.detach)を明示的に呼ぶ。
+  detach() {
+    if (typeof MyRecruitmentPage.detach === "function") MyRecruitmentPage.detach.call(this);
+    const container = document.getElementById("myCalContainer");
+    if (container) {
+      container.classList.remove("v-mode");
+      ["position", "top", "max-height", "overflow-y", "overflow-x"].forEach(p => {
+        container.style.removeProperty(p);
+      });
+      container.style.removeProperty("--v-thead-h");
+    }
+    document.getElementById("myCalVerticalStyle")?.remove();
+    document.getElementById("myCalVEdgePrev")?.remove();
+    document.getElementById("myCalVEdgeNext")?.remove();
+    document.querySelectorAll(".v-toolbar").forEach(el => el.remove());
+    const fb = document.getElementById("myCalFloatingMonth");
+    if (fb) fb.style.removeProperty("display");
+    const ep = document.getElementById("myCalEdgePrev");
+    if (ep) ep.style.removeProperty("display");
+    const en = document.getElementById("myCalEdgeNext");
+    if (en) en.style.removeProperty("display");
+  },
+
   // 集計の母数となる「その物件の担当スタッフ」を返す。
   //  - オーナーは母数から除外
   //  - 担当物件(assignedPropertyIds)に当該物件を含むスタッフ
