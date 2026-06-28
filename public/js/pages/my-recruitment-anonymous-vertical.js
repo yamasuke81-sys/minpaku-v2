@@ -290,7 +290,7 @@ const MyRecruitmentPageAnonymousVertical = Object.assign(Object.create(MyRecruit
     }
     const monthRowH = "22px";
     const propColW = "32px";   // 宿泊バー列
-    const aggColW = "164px";   // 集計列(清/直 + 自分 + 集計 を横一列に並べる幅)
+    const aggColW = "182px";   // 集計列(清/直 + 自分(確定時は✓確定) + 集計 を横一列に並べる幅)
 
     const isOwner = this.isOwnerView === true;
 
@@ -584,8 +584,24 @@ const MyRecruitmentPageAnonymousVertical = Object.assign(Object.create(MyRecruit
           // 自分の回答(ハイライト表示)
           const myResp = this._anonMyResponse(r);
           const myLabel = myResp === "未回答" ? "未回答" : myResp;
-          const myBadge = `<span title="あなたの回答" style="display:inline-flex;align-items:center;gap:2px;background:#eef3ff;border:1px solid #b6ccff;border-radius:3px;padding:0 4px;height:16px;font-size:10px;font-weight:700;line-height:1;"><span style="font-size:8px;color:#5b7cc0;">自分</span><span style="color:${respColor(myResp)};">${myLabel}</span></span>`;
-          html += `<td class="anon-agg-cell${isLastProp ? " prop-block-end" : ""}" data-recruit-id="${this.esc(r.id)}" data-prop-id="${this.esc(p.id)}" data-prop-name="${this.esc(p.name || "")}" data-date="${dd.dateStr}" data-col-date="${dd.dateStr}" title="${this.esc(cellTitle)}" style="height:${rowH};background:${cellBg};padding:2px 4px;vertical-align:middle;cursor:pointer;min-width:${aggColW};max-width:${aggColW};overflow:hidden;">
+          // 自分が選定/確定されているか(匿名化前の縦版と同じ判定)。確定ならセルを青で塗りつぶす。
+          let myConfirmed = false;
+          const selRaw = (r.selectedStaff || "").trim();
+          if (selRaw && (r.status === "選定済" || r.status === "スタッフ確定済み")) {
+            const selNames = selRaw.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean);
+            const selIds = Array.isArray(r.selectedStaffIds) ? r.selectedStaffIds : [];
+            myConfirmed = (this.staffId && selIds.includes(this.staffId))
+              || (this.staffDoc?.name && selNames.includes(this.staffDoc.name));
+          }
+          const isFinalized = r.status === "スタッフ確定済み";
+          const confLabel = isFinalized ? "確定" : "選定";
+          // 確定/選定セルは匿名化前と同じく青(#a7c7ff)で塗りつぶす
+          const finalBg = myConfirmed ? "#a7c7ff" : cellBg;
+          // 自分バッジ: 確定/選定時は緑系で「✓確定」を併記して目立たせる
+          const myBadge = myConfirmed
+            ? `<span title="あなたは${confLabel}されています" style="display:inline-flex;align-items:center;gap:2px;background:#198754;color:#fff;border-radius:3px;padding:0 5px;height:16px;font-size:10px;font-weight:700;line-height:1;"><span>自分</span><span>${myLabel}</span><span>✓${confLabel}</span></span>`
+            : `<span title="あなたの回答" style="display:inline-flex;align-items:center;gap:2px;background:#eef3ff;border:1px solid #b6ccff;border-radius:3px;padding:0 4px;height:16px;font-size:10px;font-weight:700;line-height:1;"><span style="font-size:8px;color:#5b7cc0;">自分</span><span style="color:${respColor(myResp)};">${myLabel}</span></span>`;
+          html += `<td class="anon-agg-cell${isLastProp ? " prop-block-end" : ""}" data-recruit-id="${this.esc(r.id)}" data-prop-id="${this.esc(p.id)}" data-prop-name="${this.esc(p.name || "")}" data-date="${dd.dateStr}" data-col-date="${dd.dateStr}" title="${this.esc(cellTitle)}" style="height:${rowH};background:${finalBg};padding:2px 4px;vertical-align:middle;cursor:pointer;min-width:${aggColW};max-width:${aggColW};overflow:hidden;">
             <div style="display:flex;flex-direction:row;align-items:center;justify-content:center;gap:5px;line-height:1.1;white-space:nowrap;">
               ${pill}${myBadge}
               <span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:700;">
