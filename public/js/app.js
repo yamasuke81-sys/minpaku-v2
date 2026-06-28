@@ -43,6 +43,8 @@ const App = {
     "schedule": MyRecruitmentPage,
     // 【テスト】縦カレンダー (横カレンダーの縦横入れ替え版)
     "schedule-vertical": MyRecruitmentPageVertical,
+    // 【テスト】匿名カレンダー (縦) — スタッフ個人列を撤廃し集計のみ表示
+    "schedule-anonymous-vertical": MyRecruitmentPageAnonymousVertical,
     // キャンセル予約一覧
     "cancelled-bookings": CancelledBookingsPage,
     // 新旧cal比較（オーナーのみ）
@@ -54,6 +56,8 @@ const App = {
     "my-dashboard": MyDashboardPage,
     "my-recruitment": MyRecruitmentPage,
     "my-recruitment-vertical": MyRecruitmentPageVertical,
+    // 【テスト】匿名カレンダー (縦) — スタッフ個人列を撤廃し集計のみ表示
+    "my-recruitment-anonymous-vertical": MyRecruitmentPageAnonymousVertical,
     "my-checklist": MyChecklistPage,
     "my-invoice": MyInvoicePage,
     "my-invoice-create": MyInvoiceCreatePage,
@@ -73,7 +77,7 @@ const App = {
   // (アプリを開きっぱなしで他データが更新された後、手動リロード不要にする)
   _hiddenAt: 0,
   // 既に onSnapshot でリアルタイム同期しているページは対象外
-  _realtimePages: new Set(["schedule", "schedule-vertical", "my-recruitment", "my-recruitment-vertical", "my-checklist"]),
+  _realtimePages: new Set(["schedule", "schedule-vertical", "schedule-anonymous-vertical", "my-recruitment", "my-recruitment-vertical", "my-recruitment-anonymous-vertical", "my-checklist"]),
 
   initAutoRefresh() {
     document.addEventListener("visibilitychange", () => {
@@ -221,7 +225,7 @@ const App = {
   _viewAsStaffList: [],
 
   /** 管理者が viewAsStaff を切り替えられるページ */
-  VIEW_AS_TARGET_PAGES: ["my-recruitment", "my-recruitment-vertical", "my-checklist", "my-invoice-create"],
+  VIEW_AS_TARGET_PAGES: ["my-recruitment", "my-recruitment-vertical", "my-recruitment-anonymous-vertical", "my-checklist", "my-invoice-create"],
 
   /** viewAsStaff を設定。localStorage に保存し、対象ページなら再描画 */
   setViewAsStaff(staffId) {

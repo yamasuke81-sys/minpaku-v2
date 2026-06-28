@@ -29,11 +29,14 @@ const MyRecruitmentPage = {
     // ビューモード判定: #/schedule(-vertical) → owner ビュー、#/my-recruitment(-vertical) → staff ビュー
     const _hash = (location.hash || "").split("?")[0];
     const isScheduleRoute = _hash === "#/schedule" || _hash.startsWith("#/schedule/")
-      || _hash === "#/schedule-vertical" || _hash.startsWith("#/schedule-vertical/");
+      || _hash === "#/schedule-vertical" || _hash.startsWith("#/schedule-vertical/")
+      || _hash === "#/schedule-anonymous-vertical" || _hash.startsWith("#/schedule-anonymous-vertical/");
     this._viewMode = isScheduleRoute ? "owner" : "staff";
     // 縦カレンダー版かどうか (renderCalendar の分岐用)
     this._isVerticalRoute = _hash === "#/schedule-vertical" || _hash.startsWith("#/schedule-vertical/")
-      || _hash === "#/my-recruitment-vertical" || _hash.startsWith("#/my-recruitment-vertical/");
+      || _hash === "#/my-recruitment-vertical" || _hash.startsWith("#/my-recruitment-vertical/")
+      || _hash === "#/schedule-anonymous-vertical" || _hash.startsWith("#/schedule-anonymous-vertical/")
+      || _hash === "#/my-recruitment-anonymous-vertical" || _hash.startsWith("#/my-recruitment-anonymous-vertical/");
     // Webアプリ管理者ビュー: オーナー本人 or サブオーナー (サブオーナーは自物件のみ代理操作可)
     this.isOwnerView = this._viewMode === "owner" && (authIsOwner || authIsSubOwner);
     // サブオーナー判定 + 所有物件IDリスト (代理操作可否の絞り込みに使用)
