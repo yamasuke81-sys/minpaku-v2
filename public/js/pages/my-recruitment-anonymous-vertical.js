@@ -53,6 +53,20 @@ const MyRecruitmentPageAnonymousVertical = Object.assign(Object.create(MyRecruit
     });
   },
 
+  // ログイン中スタッフ自身の回答を返す。'◎'|'△'|'×'|'未回答'
+  _anonMyResponse(recruit) {
+    const responses = Array.isArray(recruit.responses) ? recruit.responses : [];
+    const myId = this.staffId;
+    const myName = this.staffDoc?.name;
+    const myEmail = (this.staffDoc?.email || "").toLowerCase();
+    for (const r of responses) {
+      if (r.staffId && myId && r.staffId === myId) return r.response || "未回答";
+      if (r.staffName && myName && r.staffName === myName) return r.response || "未回答";
+      if (r.staffEmail && myEmail && r.staffEmail.toLowerCase() === myEmail) return r.response || "未回答";
+    }
+    return "未回答";
+  },
+
   // 募集の回答を集計する。返り値: { maru, sankaku, batsu, mikaito, total }
   _anonTally(recruit, pid) {
     const eligible = this._anonEligibleStaff(pid);
@@ -131,6 +145,12 @@ const MyRecruitmentPageAnonymousVertical = Object.assign(Object.create(MyRecruit
   },
 
   renderCalendar() {
+    // 管理者(オーナー)・物件オーナーは従来どおり個人別の回答状況を見る → 縦版描画に委譲。
+    // 匿名集計はスタッフ閲覧時のみ適用する。
+    if (this.isOwnerView) {
+      return MyRecruitmentPageVertical.renderCalendar.call(this);
+    }
+
     const container = document.getElementById("myCalContainer");
     if (!container) return;
     // 縦版マーカー: CSS を .v-mode でスコープ限定するため(親の縦版CSSを流用)
@@ -243,9 +263,17 @@ const MyRecruitmentPageAnonymousVertical = Object.assign(Object.create(MyRecruit
     }
     const monthRowH = "22px";
     const propColW = "32px";   // 宿泊バー列
-    const aggColW = "96px";    // 集計列(旧 清掃pill 列を拡張)
+    const aggColW = "108px";   // 集計列(旧 清掃pill 列を拡張)
 
     const isOwner = this.isOwnerView === true;
+
+    // 回答シンボル→色
+    const respColor = (resp) => {
+      if (resp === "◎") return "#198754";
+      if (resp === "△") return "#cc9a06";
+      if (resp === "×") return "#dc3545";
+      return "#6c757d";
+    };
 
     // 募集ステータス→色(集計セルの左帯)
     const statusColorOf = (r) => {
@@ -328,12 +356,13 @@ const MyRecruitmentPageAnonymousVertical = Object.assign(Object.create(MyRecruit
       : "";
 
     const legendHtml = `
-      <span class="ms-2" style="font-weight:600;"><i class="bi bi-bar-chart"></i> 集計凡例:</span>
-      <span style="color:#198754;font-weight:700;">●まる(可)</span>
-      <span style="color:#cc9a06;font-weight:700;">▲さんかく(条件付)</span>
-      <span style="color:#dc3545;font-weight:700;">✖ばつ(不可)</span>
-      <span style="color:#adb5bd;font-weight:700;">−未回答</span>
-      <span class="text-muted" style="font-size:11px;">(誰の回答かは表示されません)</span>`;
+      <span class="ms-2" style="font-weight:600;"><i class="bi bi-bar-chart"></i> 人数:</span>
+      <span style="color:#198754;font-weight:700;">●可</span>
+      <span style="color:#cc9a06;font-weight:700;">▲条件付</span>
+      <span style="color:#dc3545;font-weight:700;">✖不可</span>
+      <span style="color:#6c757d;font-weight:700;">未=未回答</span>
+      <span style="background:#eef3ff;border:1px solid #b6ccff;border-radius:3px;padding:0 4px;font-size:11px;font-weight:700;">自分=あなたの回答</span>
+      <span class="text-muted" style="font-size:11px;">(他の人が誰かは表示されません)</span>`;
 
     const toolbarHtml = `<div class="v-toolbar d-flex flex-wrap gap-2 align-items-center mb-2 px-2 py-1" style="position:sticky;top:0;z-index:200;font-size:12px;background:#eef5ff;border:1px solid #cfe2ff;border-radius:4px;box-shadow:0 2px 4px rgba(0,0,0,0.06);">
       <span><i class="bi bi-building"></i> 物件:</span>
@@ -519,14 +548,25 @@ const MyRecruitmentPageAnonymousVertical = Object.assign(Object.create(MyRecruit
           const t = this._anonTally(r, p.id);
           const sc = statusColorOf(r);
           const wt = r.workType === "pre_inspection" ? "直前点検" : "清掃";
+          const wtChar = r.workType === "pre_inspection" ? "直" : "清";
           const answered = t.maru + t.sankaku + t.batsu;
-          const cellTitle = `${wt}・${r.status || ""}（回答 ${answered}/${t.total}名）`;
-          html += `<td class="anon-agg-cell${isLastProp ? " prop-block-end" : ""}" data-recruit-id="${this.esc(r.id)}" data-prop-id="${this.esc(p.id)}" data-prop-name="${this.esc(p.name || "")}" data-date="${dd.dateStr}" data-col-date="${dd.dateStr}" title="${this.esc(cellTitle)}" style="height:${rowH};background:${cellBg};border-left:3px solid ${sc};padding:1px 3px;vertical-align:middle;cursor:pointer;min-width:${aggColW};max-width:${aggColW};overflow:hidden;">
-            <div style="display:flex;align-items:center;justify-content:center;gap:5px;flex-wrap:wrap;font-size:12px;font-weight:700;line-height:1.1;">
-              <span style="color:#198754;">●${t.maru}</span>
-              <span style="color:#cc9a06;">▲${t.sankaku}</span>
-              <span style="color:#dc3545;">✖${t.batsu}</span>
-              <span style="color:#adb5bd;">−${t.mikaito}</span>
+          const cellTitle = `${wt}・${r.status || ""}（回答 ${answered}/${t.total}名 ・ 未回答 ${t.mikaito}名）`;
+          // 清/直 ピル(文字入り。黄/薄紫は文字を濃色に)
+          const pillText = (sc === "#ffc107" || sc === "#a78bfa" || sc === "#c4b5fd") ? "#333" : "#fff";
+          const pill = `<span title="${this.esc(wt)}" style="display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 3px;background:${sc};color:${pillText};border-radius:3px;font-weight:700;font-size:10px;line-height:1;">${wtChar}</span>`;
+          // 自分の回答(ハイライト表示)
+          const myResp = this._anonMyResponse(r);
+          const myLabel = myResp === "未回答" ? "未回答" : myResp;
+          const myBadge = `<span title="あなたの回答" style="display:inline-flex;align-items:center;gap:2px;background:#eef3ff;border:1px solid #b6ccff;border-radius:3px;padding:0 4px;height:16px;font-size:10px;font-weight:700;line-height:1;"><span style="font-size:8px;color:#5b7cc0;">自分</span><span style="color:${respColor(myResp)};">${myLabel}</span></span>`;
+          html += `<td class="anon-agg-cell${isLastProp ? " prop-block-end" : ""}" data-recruit-id="${this.esc(r.id)}" data-prop-id="${this.esc(p.id)}" data-prop-name="${this.esc(p.name || "")}" data-date="${dd.dateStr}" data-col-date="${dd.dateStr}" title="${this.esc(cellTitle)}" style="height:${rowH};background:${cellBg};padding:2px 3px;vertical-align:middle;cursor:pointer;min-width:${aggColW};max-width:${aggColW};overflow:hidden;">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1.1;">
+              <div style="display:flex;align-items:center;justify-content:center;gap:3px;">${pill}${myBadge}</div>
+              <div style="display:flex;align-items:center;justify-content:center;gap:5px;flex-wrap:wrap;font-size:11px;font-weight:700;">
+                <span style="color:#198754;">●${t.maru}</span>
+                <span style="color:#cc9a06;">▲${t.sankaku}</span>
+                <span style="color:#dc3545;">✖${t.batsu}</span>
+                <span style="color:#6c757d;">未${t.mikaito}</span>
+              </div>
             </div>
           </td>`;
         } else {
