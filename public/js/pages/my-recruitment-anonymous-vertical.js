@@ -144,6 +144,33 @@ const MyRecruitmentPageAnonymousVertical = Object.assign(Object.create(MyRecruit
     new bootstrap.Modal(document.getElementById("responseModal")).show();
   },
 
+  // 匿名版の募集詳細モーダルを開く。
+  // RecruitmentPage.openDetailModal に anonymous フラグを渡し、回答者の個人名を伏せたまま
+  // 募集情報・集計・自分の回答(◎/△/×)を表示する。集計値はカレンダーのセルと一致させるため
+  // 算出済み tally を anonymousTally で渡す(母数=その物件の担当スタッフ)。
+  async _openAnonDetail(recruit) {
+    if (this._isInactive) {
+      showToast("非アクティブ", this.staffDoc?.inactiveReason || "直近15回の清掃募集について回答がなかったため、非アクティブとなりました。解除する場合はWebアプリ管理者までご連絡ください。", "warning");
+      return;
+    }
+    if (!recruit || typeof RecruitmentPage === "undefined" || !RecruitmentPage.openDetailModal) return;
+    // RecruitmentPage 側が参照するデータを供給
+    if (Array.isArray(this.staffList) && this.staffList.length) RecruitmentPage.staffList = this.staffList;
+    if (Array.isArray(this.recruitments) && this.recruitments.length) RecruitmentPage.recruitments = this.recruitments;
+    if (Array.isArray(this.minpakuProperties) && this.minpakuProperties.length) RecruitmentPage.properties = this.minpakuProperties;
+    const tally = this._anonTally(recruit, recruit.propertyId);
+    try {
+      if (typeof RecruitmentPage.ensureLoaded === "function") await RecruitmentPage.ensureLoaded();
+      RecruitmentPage.openDetailModal(recruit, {
+        viewMode: "staff",
+        anonymous: true,
+        anonymousTally: tally,
+      });
+    } catch (e) {
+      showToast("エラー", e.message || String(e), "error");
+    }
+  },
+
   renderCalendar() {
     // 管理者(オーナー)・物件オーナーは従来どおり個人別の回答状況を見る → 縦版描画に委譲。
     // 匿名集計はスタッフ閲覧時のみ適用する。
@@ -263,7 +290,7 @@ const MyRecruitmentPageAnonymousVertical = Object.assign(Object.create(MyRecruit
     }
     const monthRowH = "22px";
     const propColW = "32px";   // 宿泊バー列
-    const aggColW = "108px";   // 集計列(旧 清掃pill 列を拡張)
+    const aggColW = "164px";   // 集計列(清/直 + 自分 + 集計 を横一列に並べる幅)
 
     const isOwner = this.isOwnerView === true;
 
@@ -558,15 +585,15 @@ const MyRecruitmentPageAnonymousVertical = Object.assign(Object.create(MyRecruit
           const myResp = this._anonMyResponse(r);
           const myLabel = myResp === "未回答" ? "未回答" : myResp;
           const myBadge = `<span title="あなたの回答" style="display:inline-flex;align-items:center;gap:2px;background:#eef3ff;border:1px solid #b6ccff;border-radius:3px;padding:0 4px;height:16px;font-size:10px;font-weight:700;line-height:1;"><span style="font-size:8px;color:#5b7cc0;">自分</span><span style="color:${respColor(myResp)};">${myLabel}</span></span>`;
-          html += `<td class="anon-agg-cell${isLastProp ? " prop-block-end" : ""}" data-recruit-id="${this.esc(r.id)}" data-prop-id="${this.esc(p.id)}" data-prop-name="${this.esc(p.name || "")}" data-date="${dd.dateStr}" data-col-date="${dd.dateStr}" title="${this.esc(cellTitle)}" style="height:${rowH};background:${cellBg};padding:2px 3px;vertical-align:middle;cursor:pointer;min-width:${aggColW};max-width:${aggColW};overflow:hidden;">
-            <div style="display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1.1;">
-              <div style="display:flex;align-items:center;justify-content:center;gap:3px;">${pill}${myBadge}</div>
-              <div style="display:flex;align-items:center;justify-content:center;gap:5px;flex-wrap:wrap;font-size:11px;font-weight:700;">
+          html += `<td class="anon-agg-cell${isLastProp ? " prop-block-end" : ""}" data-recruit-id="${this.esc(r.id)}" data-prop-id="${this.esc(p.id)}" data-prop-name="${this.esc(p.name || "")}" data-date="${dd.dateStr}" data-col-date="${dd.dateStr}" title="${this.esc(cellTitle)}" style="height:${rowH};background:${cellBg};padding:2px 4px;vertical-align:middle;cursor:pointer;min-width:${aggColW};max-width:${aggColW};overflow:hidden;">
+            <div style="display:flex;flex-direction:row;align-items:center;justify-content:center;gap:5px;line-height:1.1;white-space:nowrap;">
+              ${pill}${myBadge}
+              <span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:700;">
                 <span style="color:#198754;">●${t.maru}</span>
                 <span style="color:#cc9a06;">▲${t.sankaku}</span>
                 <span style="color:#dc3545;">✖${t.batsu}</span>
                 <span style="color:#6c757d;">未${t.mikaito}</span>
-              </div>
+              </span>
             </div>
           </td>`;
         } else {
@@ -856,7 +883,7 @@ const MyRecruitmentPageAnonymousVertical = Object.assign(Object.create(MyRecruit
       });
     });
 
-    // 集計セルのタップ → 自分の回答だけ入力(他人の回答は見えない)
+    // 集計セルのタップ → 匿名版の募集詳細モーダル(他人の回答は見えない)
     if (!container._anonAggBound) {
       container._anonAggBound = true;
       container.addEventListener("click", (ev) => {
@@ -866,7 +893,7 @@ const MyRecruitmentPageAnonymousVertical = Object.assign(Object.create(MyRecruit
         const recruitId = td.dataset.recruitId;
         const recruit = this.recruitments.find(x => x.id === recruitId);
         if (!recruit) return;
-        this._openSelfRespond(recruit, td.dataset.date, td.dataset.propName);
+        this._openAnonDetail(recruit);
       });
     }
 

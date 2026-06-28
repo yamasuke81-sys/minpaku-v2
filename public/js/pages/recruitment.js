@@ -702,6 +702,10 @@ const RecruitmentPage = {
     // viewMode: "owner" | "staff"。省略時は Auth.isOwner() から判定
     const viewMode = options.viewMode || ((typeof Auth !== "undefined" && Auth.isOwner && Auth.isOwner()) ? "owner" : "staff");
     this._viewMode = viewMode;
+    // 匿名モード(スタッフ用匿名カレンダーから開いたとき): 他スタッフの個人名・回答を伏せる。
+    // 募集情報・集計・自分の回答は表示する。owner/通常の呼び出しでは false。
+    this._anonymous = options.anonymous === true;
+    this._anonymousTally = options.anonymousTally || null;
     const isStaffView = viewMode === "staff";
     const r = recruitment;
     const responses = r.responses || [];
@@ -753,6 +757,20 @@ const RecruitmentPage = {
         }).filter(Boolean);
         if (parts.length > 0) selDisplay = parts.join(",");
       }
+    }
+    // 匿名モード: 選定スタッフの実名を伏せ、「自分が選ばれているか」だけを示す
+    if (this._anonymous) {
+      let myId = (typeof App !== "undefined" && App.getViewAsStaffId && App.getViewAsStaffId())
+        || ((typeof Auth !== "undefined" && Auth.currentUser) ? Auth.currentUser.staffId : null);
+      let myName = null;
+      if (myId && Array.isArray(this.staffList)) {
+        const me = this.staffList.find(x => x.id === myId);
+        myName = me ? me.name : null;
+      }
+      const ids = Array.isArray(r.selectedStaffIds) ? r.selectedStaffIds : [];
+      const names = hasSel ? r.selectedStaff.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean) : [];
+      const meSel = (myId && ids.includes(myId)) || (myName && names.includes(myName));
+      selDisplay = hasSel ? (meSel ? "あなたが選ばれています" : "選定済み（あなた以外）") : "未選定";
     }
     selStaffEl.textContent = selDisplay;
     if (selWrap) {
@@ -1415,7 +1433,7 @@ const RecruitmentPage = {
       if (rr.staffName) respondedNames.add(rr.staffName);
       if (rr.staffEmail) respondedEmails.add(String(rr.staffEmail).toLowerCase());
     });
-    const allStaff = rawStaff.filter(s => {
+    let allStaff = rawStaff.filter(s => {
       if (s.isOwner === true) return true; // Webアプリ管理者は担当物件制限の対象外
       // 既に回答履歴がある場合は担当外でも残す (履歴保持)
       if (s.id && respondedIds.has(s.id)) return true;
@@ -1444,6 +1462,33 @@ const RecruitmentPage = {
     // 手動編集ロック (true のスタッフは auto-fill 対象外)
     const timeeLocked = (recruitment.timeeOverrideNamesLocked && typeof recruitment.timeeOverrideNamesLocked === "object") ? recruitment.timeeOverrideNamesLocked : {};
 
+    // 匿名モード: 全スタッフの個人別行は出さず、集計サマリ + 自分の行のみにする。
+    // (確定前スタッフは「自分の行」のボタンで回答するため、自分の行は残す必要がある)
+    let anonAggHtml = "";
+    if (this._anonymous) {
+      const tally = this._anonymousTally || (() => {
+        let m = 0, s = 0, b = 0;
+        allStaff.forEach(st => {
+          const rr = lookupResp(st);
+          const v = rr ? rr.response : null;
+          if (v === "◎") m++; else if (v === "△") s++; else if (v === "×") b++;
+        });
+        return { maru: m, sankaku: s, batsu: b, mikaito: allStaff.length - (m + s + b), total: allStaff.length };
+      })();
+      anonAggHtml = `<tr><td colspan="${isStaffView ? 3 : 4}" style="background:#f1f6ff;border-bottom:2px solid #cfe2ff;padding:8px;">
+        <div style="font-weight:700;font-size:13px;margin-bottom:5px;"><i class="bi bi-bar-chart"></i> 回答状況（登録 ${tally.total}名）</div>
+        <div style="display:flex;gap:14px;font-weight:700;font-size:15px;flex-wrap:wrap;">
+          <span style="color:#198754;">● 可 ${tally.maru}</span>
+          <span style="color:#cc9a06;">▲ 条件付 ${tally.sankaku}</span>
+          <span style="color:#dc3545;">✖ 不可 ${tally.batsu}</span>
+          <span style="color:#6c757d;">未回答 ${tally.mikaito}</span>
+        </div>
+        <div class="text-muted" style="font-size:11px;margin-top:5px;"><i class="bi bi-incognito"></i> 他のスタッフが誰かは表示されません。下のボタンで自分の回答を選べます。</div>
+      </td></tr>`;
+      // 自分の行のみ残す
+      allStaff = allStaff.filter(st => myStaffId && st.id === myStaffId);
+    }
+
     // 並び: 回答内容によるソートはやめ、displayOrder のみで安定表示
     const rows = allStaff.map(s => {
       const r = lookupResp(s);
@@ -1455,7 +1500,7 @@ const RecruitmentPage = {
       };
     }).sort((a, b) => (a.staff.displayOrder||0) - (b.staff.displayOrder||0));
 
-    tbody.innerHTML = rows.map(row => {
+    tbody.innerHTML = anonAggHtml + rows.map(row => {
       const s = row.staff;
       const checked = (currentSelectedIds.includes(s.id) || currentSelected.includes(s.name)) ? "checked" : "";
       // A2: 回答日時は "M/D HH:MM" に統一
