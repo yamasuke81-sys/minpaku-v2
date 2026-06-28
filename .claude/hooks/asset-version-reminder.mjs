@@ -30,12 +30,11 @@ if (!isAsset) process.exit(0);
 const msg =
   "【アセット更新リマインド】" +
   norm.split("/public/")[1] +
-  " を変更しました。配信反映のため次を忘れずに: " +
-  "(1) public/index.html の該当 ?v= を全置換で更新＋バージョンバッジ更新" +
-  "（忘れるとキャッシュで旧版配信）。" +
-  "(2) public/version.json の version も同じ値に揃える" +
-  "（index.html と不一致だと無限リロードが発生。過去2回再発）。" +
-  "(3) デプロイは relay 必須＋本番 git push の両系統（/deploy-v2 参照）。";
+  " を変更しました。配信前に `node scripts/bump-version.mjs` を実行すれば、" +
+  "index.html の全 ?v=・版数バッジ・version.json が1トークンに自動同期されます" +
+  "（手動で揃えるとversion.json漏れ→無限リロードを起こすため、必ずスクリプト経由で）。" +
+  "デプロイは /deploy-v2 推奨（bump→relay必須→本番git push を一括）。" +
+  "版数不整合のまま push/firebase deploy するとガードフックがブロックします。";
 
 process.stdout.write(
   JSON.stringify({
