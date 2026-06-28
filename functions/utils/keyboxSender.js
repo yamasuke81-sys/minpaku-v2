@@ -107,18 +107,19 @@ async function sendKeyboxEmail(guest, property) {
   // ガイドURL: 物件設定の guideUrl に ?guest=editToken を付与してゲスト固有の
   // 駐車場割当カード等が表示されるようにする (onGuestFormSubmit / onGuestFormUpdate と同方針)
   const { buildGuideUrlBlock } = require("./guideMap");
-  let guideUrl = "";
+  let guideUrlWithToken = "";
   const guideUrlBase = property.guideUrl || "";
   if (guideUrlBase) {
     if (guest.editToken) {
       const sep = guideUrlBase.includes("?") ? "&" : "?";
-      guideUrl = `${guideUrlBase}${sep}guest=${encodeURIComponent(guest.editToken)}`;
+      guideUrlWithToken = `${guideUrlBase}${sep}guest=${encodeURIComponent(guest.editToken)}`;
     } else {
-      guideUrl = guideUrlBase;
+      guideUrlWithToken = guideUrlBase;
     }
   }
-  // 現行URLの下に退避用(リレーアプリ)URLのフォールバックを併記
-  guideUrl = buildGuideUrlBlock(guideUrl);
+  // 現行URLの下に退避用(リレーアプリ)URLのフォールバックを併記。日本語/英語でラベルを出し分ける。
+  const guideUrl   = buildGuideUrlBlock(guideUrlWithToken);
+  const guideUrlEn = buildGuideUrlBlock(guideUrlWithToken, "en");
 
   // タスク8-2: Wi-Fi を SSID / パスワードに分割 (旧 wifiInfo は後方互換フォールバック)
   const wifiSSID     = property.wifiSSID     || (property.wifiInfo ? property.wifiInfo.split("/")[0]?.trim() : "") || "";
@@ -137,6 +138,20 @@ async function sendKeyboxEmail(guest, property) {
   const checkInTime = guest.checkInTime || property.checkInTime || "";
   const checkInDateJa = fmtDateJa(guest.checkIn);
   const checkInJa = checkInTime ? `${checkInDateJa} ${checkInTime}` : checkInDateJa;
+
+  // 英訳用の日付フォーマット (例: Mon, Jun 29, 2026 16:00)
+  const _enMon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const _enDow = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const fmtDateEn = (s) => {
+    if (!s) return "";
+    const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return s;
+    const d = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`);
+    if (isNaN(d.getTime())) return s;
+    return `${_enDow[d.getDay()]}, ${_enMon[d.getMonth()]} ${parseInt(m[3],10)}, ${m[1]}`;
+  };
+  const checkInDateEn = fmtDateEn(guest.checkIn);
+  const checkInEn = checkInTime ? `${checkInDateEn} ${checkInTime}` : checkInDateEn;
 
   const vars = {
     guestName:       guest.guestName || "ゲスト",
@@ -165,6 +180,18 @@ async function sendKeyboxEmail(guest, property) {
     postCode:        (property.post && property.post.code) || "",
   };
 
+  // 英語本文(subjectEn/bodyEn)描画用の変数セット。
+  // 日本語が混ざる値(日付・ポスト解錠手順・ガイドURLのフォールバックラベル)を英語版に差し替える。
+  // post.codeEn 未設定時は日本語の post.code をそのまま使う(暗証番号など言語非依存のケース)。
+  const varsEn = {
+    ...vars,
+    checkIn:      checkInEn || "?",
+    checkInDate:  checkInDateEn || "?",
+    guideUrl:     guideUrlEn,
+    postCode:     (property.post && property.post.codeEn) || (property.post && property.post.code) || "",
+    addressBlock: vars.addressBlockEn,
+  };
+
   // テンプレートを取得し、条件ブロック → 変数置換の順で展開
   const rawSubject = keyboxSend.subject || DEFAULT_SUBJECT;
   const rawBody    = keyboxSend.body    || DEFAULT_BODY;
@@ -176,8 +203,8 @@ async function sendKeyboxEmail(guest, property) {
   // 英訳併記 (keyboxSend.subjectEn / bodyEn)
   const rawSubjectEn = keyboxSend.subjectEn || "";
   const rawBodyEn    = keyboxSend.bodyEn    || "";
-  const subjectEn = rawSubjectEn ? renderTemplate(resolveIfBlocks(rawSubjectEn, flags), vars) : "";
-  const bodyEn    = rawBodyEn    ? renderTemplate(resolveIfBlocks(rawBodyEn,    flags), vars) : "";
+  const subjectEn = rawSubjectEn ? renderTemplate(resolveIfBlocks(rawSubjectEn, flags), varsEn) : "";
+  const bodyEn    = rawBodyEn    ? renderTemplate(resolveIfBlocks(rawBodyEn,    flags), varsEn) : "";
   const finalSubject = subjectEn ? `${subject} / ${subjectEn}` : subject;
   const finalBody    = bodyEn
     ? `${body}\n\n--------------------------------\n--- English follows ---\n--------------------------------\n\n${bodyEn}`

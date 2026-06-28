@@ -127,6 +127,11 @@ module.exports = function guestEditApi(db) {
         changes: diffText,
         summary, editUrl, confirmUrl,
       };
+      // 英語本文(subjectEn/bodyEn)描画用。変更差分を英語ラベルに差し替える。
+      const varsEn = {
+        ...vars,
+        changes: buildDiffText(previousSnapshot, newData, "en"),
+      };
 
       // 物件の senderGmail を解決（null の場合はフォールバック）
       const senderGmail = await resolveSenderGmail_(db, currentData.propertyId || null).catch(() => null);
@@ -180,6 +185,8 @@ module.exports = function guestEditApi(db) {
 
             const renderSingle = (tmpl) => String(tmpl || "").replace(/\{(\w+)\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ""));
             const renderDouble = (tmpl) => String(tmpl || "").replace(/\{\{(\w+)\}\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ""));
+            // 英語本文は varsEn(英語差分)で描画する
+            const renderDoubleEn = (tmpl) => String(tmpl || "").replace(/\{\{(\w+)\}\}/g, (_, k) => (varsEn[k] != null ? String(varsEn[k]) : ""));
             const subjectTmpl = (propFormUpdateMail && propFormUpdateMail.subject) ? propFormUpdateMail.subject : "";
             const bodyTmpl    = (propFormUpdateMail && propFormUpdateMail.body)    ? propFormUpdateMail.body    : "";
             const guestSubject = subjectTmpl ? renderDouble(subjectTmpl) : renderSingle(DEFAULT_SUBJECT);
@@ -187,8 +194,8 @@ module.exports = function guestEditApi(db) {
             // 英訳併記 (formUpdateMail.subjectEn / bodyEn)
             const subjectEnTmpl = (propFormUpdateMail && propFormUpdateMail.subjectEn) ? propFormUpdateMail.subjectEn : "";
             const bodyEnTmpl    = (propFormUpdateMail && propFormUpdateMail.bodyEn)    ? propFormUpdateMail.bodyEn    : "";
-            const guestSubjectEn = subjectEnTmpl ? renderDouble(subjectEnTmpl) : "";
-            const guestBodyEn    = bodyEnTmpl    ? renderDouble(bodyEnTmpl)    : "";
+            const guestSubjectEn = subjectEnTmpl ? renderDoubleEn(subjectEnTmpl) : "";
+            const guestBodyEn    = bodyEnTmpl    ? renderDoubleEn(bodyEnTmpl)    : "";
             const finalSubject = guestSubjectEn ? `${guestSubject} / ${guestSubjectEn}` : guestSubject;
             const finalBody    = guestBodyEn
               ? `${guestBody}\n\n--------------------------------\n--- English follows ---\n--------------------------------\n\n${guestBodyEn}`

@@ -37,9 +37,10 @@ const RELAY_HOST = "v2-5-relay.web.app";
  * 現行URLはそのまま残し、その下に案内文 + リレー版URLを追記する。
  * 既にリレーURLの場合は重複を避けてそのまま返す。
  * @param {string} guideUrl ゲスト案内ページURL
+ * @param {string} [lang]   "en" 指定時は英語のフォールバックラベルを使う(英語メール用)
  * @returns {string}
  */
-function buildGuideUrlBlock(guideUrl) {
+function buildGuideUrlBlock(guideUrl, lang) {
   if (!guideUrl) return "";
   let relayUrl = guideUrl;
   try {
@@ -50,7 +51,10 @@ function buildGuideUrlBlock(guideUrl) {
   } catch (_) {
     return guideUrl; // URL として解釈できなければそのまま
   }
-  return `${guideUrl}\n開けない場合はこちらを開いてください:\n${relayUrl}`;
+  const label = lang === "en"
+    ? "If the link above does not open, please use the link below:"
+    : "開けない場合はこちらを開いてください:";
+  return `${guideUrl}\n${label}\n${relayUrl}`;
 }
 
 module.exports = { GUIDE_MAP, GUIDE_BASE_URL, getAutoGuideUrl, resolveGuideUrl, buildGuideUrlBlock };

@@ -10,34 +10,35 @@ function renderTemplate(templateStr, variables) {
   });
 }
 
-// 2つのデータオブジェクトの差分テキストを生成
-function buildDiffText(previous, current) {
-  if (!previous || !current) return "（前回データなし）";
+// 2つのデータオブジェクトの差分テキストを生成。lang="en" で英語ラベル/文言。
+function buildDiffText(previous, current, lang) {
+  const en = lang === "en";
+  if (!previous || !current) return en ? "(no previous data)" : "（前回データなし）";
 
-  // 比較するフィールド（表示名付き）
+  // 比較するフィールド（日本語/英語ラベル付き）
   const fields = [
-    { key: "guestName", label: "代表者名" },
-    { key: "nationality", label: "国籍" },
-    { key: "address", label: "住所" },
-    { key: "phone", label: "電話番号" },
-    { key: "email", label: "メール" },
-    { key: "checkIn", label: "チェックイン日" },
-    { key: "checkOut", label: "チェックアウト日" },
-    { key: "checkInTime", label: "チェックイン時間" },
-    { key: "checkOutTime", label: "チェックアウト時間" },
-    { key: "guestCount", label: "宿泊人数" },
-    { key: "guestCountInfants", label: "乳幼児" },
-    { key: "bookingSite", label: "予約サイト" },
-    { key: "transport", label: "交通手段" },
-    { key: "carCount", label: "車の台数" },
-    { key: "paidParking", label: "有料駐車場" },
-    { key: "bbq", label: "BBQ" },
-    { key: "bedChoice", label: "ベッドの希望" },
-    { key: "purpose", label: "旅の目的" },
-    { key: "previousStay", label: "前泊地" },
-    { key: "nextStay", label: "後泊地" },
-    { key: "emergencyName", label: "緊急連絡先 氏名" },
-    { key: "emergencyPhone", label: "緊急連絡先 電話番号" },
+    { key: "guestName", label: "代表者名", labelEn: "Representative name" },
+    { key: "nationality", label: "国籍", labelEn: "Nationality" },
+    { key: "address", label: "住所", labelEn: "Address" },
+    { key: "phone", label: "電話番号", labelEn: "Phone" },
+    { key: "email", label: "メール", labelEn: "Email" },
+    { key: "checkIn", label: "チェックイン日", labelEn: "Check-in date" },
+    { key: "checkOut", label: "チェックアウト日", labelEn: "Check-out date" },
+    { key: "checkInTime", label: "チェックイン時間", labelEn: "Check-in time" },
+    { key: "checkOutTime", label: "チェックアウト時間", labelEn: "Check-out time" },
+    { key: "guestCount", label: "宿泊人数", labelEn: "Number of guests" },
+    { key: "guestCountInfants", label: "乳幼児", labelEn: "Infants" },
+    { key: "bookingSite", label: "予約サイト", labelEn: "Booking site" },
+    { key: "transport", label: "交通手段", labelEn: "Transportation" },
+    { key: "carCount", label: "車の台数", labelEn: "Number of cars" },
+    { key: "paidParking", label: "有料駐車場", labelEn: "Paid parking" },
+    { key: "bbq", label: "BBQ", labelEn: "BBQ" },
+    { key: "bedChoice", label: "ベッドの希望", labelEn: "Bed choice" },
+    { key: "purpose", label: "旅の目的", labelEn: "Purpose of trip" },
+    { key: "previousStay", label: "前泊地", labelEn: "Previous stay" },
+    { key: "nextStay", label: "後泊地", labelEn: "Next stay" },
+    { key: "emergencyName", label: "緊急連絡先 氏名", labelEn: "Emergency contact name" },
+    { key: "emergencyPhone", label: "緊急連絡先 電話番号", labelEn: "Emergency contact phone" },
   ];
 
   const changes = [];
@@ -45,7 +46,8 @@ function buildDiffText(previous, current) {
     const oldVal = String(previous[f.key] || "");
     const newVal = String(current[f.key] || "");
     if (oldVal !== newVal) {
-      changes.push(`・${f.label}: 「${oldVal}」→「${newVal}」`);
+      const lbl = en ? f.labelEn : f.label;
+      changes.push(en ? `- ${lbl}: "${oldVal}" -> "${newVal}"` : `・${lbl}: 「${oldVal}」→「${newVal}」`);
     }
   }
 
@@ -53,17 +55,17 @@ function buildDiffText(previous, current) {
   const oldGuests = JSON.stringify(previous.guests || []);
   const newGuests = JSON.stringify(current.guests || []);
   if (oldGuests !== newGuests) {
-    changes.push("・同行者情報に変更あり");
+    changes.push(en ? "- Companion information changed" : "・同行者情報に変更あり");
   }
 
   // 車種の変更
   const oldVT = JSON.stringify(previous.vehicleTypes || []);
   const newVT = JSON.stringify(current.vehicleTypes || []);
   if (oldVT !== newVT) {
-    changes.push("・車種に変更あり");
+    changes.push(en ? "- Vehicle type changed" : "・車種に変更あり");
   }
 
-  if (changes.length === 0) return "（変更なし）";
+  if (changes.length === 0) return en ? "(no changes)" : "（変更なし）";
   return changes.join("\n");
 }
 

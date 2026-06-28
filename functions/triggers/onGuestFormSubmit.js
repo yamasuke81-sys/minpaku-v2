@@ -78,13 +78,14 @@ module.exports = async function onGuestFormSubmit(event) {
 
   // ガイド URL に guest トークンを付加 (ガイドページ側で parkingAllocation 等を動的表示する用)
   // ガイド未設定なら空のまま (テンプレート側で空チェック想定)
-  let guideUrl = "";
+  let guideUrlWithToken = "";
   if (guideUrlBase) {
     const sep = guideUrlBase.includes("?") ? "&" : "?";
-    guideUrl = `${guideUrlBase}${sep}guest=${encodeURIComponent(editToken)}`;
+    guideUrlWithToken = `${guideUrlBase}${sep}guest=${encodeURIComponent(editToken)}`;
   }
-  // 現行URLの下に退避用(リレーアプリ)URLのフォールバックを併記
-  guideUrl = buildGuideUrlBlock(guideUrl);
+  // 現行URLの下に退避用(リレーアプリ)URLのフォールバックを併記。日本語/英語でラベルを出し分ける。
+  const guideUrl   = buildGuideUrlBlock(guideUrlWithToken);
+  const guideUrlEn = buildGuideUrlBlock(guideUrlWithToken, "en");
 
   // 送信者アドレス: 物件担当者 (物件オーナー最優先、なければ settings/notifications.ownerEmail)
   // onGuestFormSubmit は先に notifyEmails/subOwners を解決してから使うため、ここでは後続で決定する
@@ -107,6 +108,17 @@ module.exports = async function onGuestFormSubmit(event) {
     return timeStr ? `${base} ${timeStr}` : base;
   }
 
+  // 英訳用フォーマット (例: Mon, Jun 29, 2026 15:00)
+  function formatDateWithDayEn(dateStr, timeStr) {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    const base = `${DOW[d.getUTCDay()]}, ${MON[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+    return timeStr ? `${base} ${timeStr}` : base;
+  }
+
   // キーボックス確認URL (vars生成前に先行計算)
   const API_BASE_EARLY = "https://api-5qrfx7ujcq-an.a.run.app";
   const keyboxConfirmUrlEarly = `${API_BASE_EARLY}/keybox-confirm/${guestId}?token=${keyboxConfirmToken}`;
@@ -124,6 +136,14 @@ module.exports = async function onGuestFormSubmit(event) {
     summary, editUrl, confirmUrl, guideUrl,
     keyboxConfirmToken,
     keyboxConfirmUrl: keyboxConfirmUrlEarly,
+  };
+
+  // 英語本文(subjectEn/bodyEn)描画用。日本語が混ざる値(和式日付・ガイドURLの日本語ラベル)を英語版に差し替える。
+  const varsEn = {
+    ...vars,
+    checkInFormatted:  formatDateWithDayEn(checkIn, data.checkInTime || ""),
+    checkOutFormatted: formatDateWithDayEn(checkOut, data.checkOutTime || ""),
+    guideUrl:          guideUrlEn,
   };
 
   // 2a. 送信者 (sender) 解決 — 宿泊者宛メールの from に使う
@@ -241,6 +261,8 @@ module.exports = async function onGuestFormSubmit(event) {
 
         const renderSingle = (tmpl) => String(tmpl || "").replace(/\{(\w+)\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ""));
         const renderDouble = (tmpl) => String(tmpl || "").replace(/\{\{(\w+)\}\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ""));
+        // 英語本文は varsEn(英語日付・英語ガイドURL)で描画する
+        const renderDoubleEn = (tmpl) => String(tmpl || "").replace(/\{\{(\w+)\}\}/g, (_, k) => (varsEn[k] != null ? String(varsEn[k]) : ""));
         const subjectTmpl = (propFormCompleteMail && propFormCompleteMail.subject) ? propFormCompleteMail.subject : "";
         const bodyTmpl    = (propFormCompleteMail && propFormCompleteMail.body)    ? propFormCompleteMail.body    : "";
         const guestSubject = subjectTmpl ? renderDouble(subjectTmpl) : renderSingle(DEFAULT_SUBJECT);
@@ -248,8 +270,8 @@ module.exports = async function onGuestFormSubmit(event) {
         // 英訳併記 (formCompleteMail.subjectEn / bodyEn)
         const subjectEnTmpl = (propFormCompleteMail && propFormCompleteMail.subjectEn) ? propFormCompleteMail.subjectEn : "";
         const bodyEnTmpl    = (propFormCompleteMail && propFormCompleteMail.bodyEn)    ? propFormCompleteMail.bodyEn    : "";
-        const guestSubjectEn = subjectEnTmpl ? renderDouble(subjectEnTmpl) : "";
-        const guestBodyEn    = bodyEnTmpl    ? renderDouble(bodyEnTmpl)    : "";
+        const guestSubjectEn = subjectEnTmpl ? renderDoubleEn(subjectEnTmpl) : "";
+        const guestBodyEn    = bodyEnTmpl    ? renderDoubleEn(bodyEnTmpl)    : "";
         const finalSubject = guestSubjectEn ? `${guestSubject} / ${guestSubjectEn}` : guestSubject;
         const finalBody    = guestBodyEn
           ? `${guestBody}\n\n--------------------------------\n--- English follows ---\n--------------------------------\n\n${guestBodyEn}`

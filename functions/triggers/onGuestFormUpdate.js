@@ -54,16 +54,47 @@ const FIELD_LABELS = {
   emergencyPhone:  "緊急連絡先電話",
 };
 
-// スカラーフィールドの差分を計算してテキストで返す
-function calcChanges(before, after) {
+// 全フィールドの英語ラベルマッピング (英語メールの差分表示用)
+const FIELD_LABELS_EN = {
+  guestName:       "Representative name",
+  nationality:     "Nationality",
+  address:         "Address",
+  age:             "Representative age",
+  phone:           "Phone",
+  email:           "Email",
+  passportNumber:  "Passport number",
+  purpose:         "Purpose of trip",
+  checkIn:         "Check-in date",
+  checkOut:        "Check-out date",
+  guestCount:      "Number of guests",
+  guestCountInfants: "Infants",
+  bookingSite:     "Booking site",
+  transport:       "Transportation",
+  carCount:        "Number of cars",
+  bbq:             "BBQ",
+  bedChoice:       "Bed choice",
+  previousStay:    "Previous stay",
+  nextStay:        "Next stay",
+  emergencyName:   "Emergency contact name",
+  emergencyPhone:  "Emergency contact phone",
+};
+
+// スカラーフィールドの差分を計算してテキストで返す。
+// opts で言語別ラベル/空表記/見出しを差し替えられる(既定=日本語)。
+function calcChanges(before, after, opts = {}) {
+  const labels      = opts.labels      || FIELD_LABELS;
+  const guestLabels = opts.guestLabels || { name: "氏名", nationality: "国籍", address: "住所", age: "年齢", passportNumber: "旅券番号" };
+  const emptyVal    = opts.emptyVal    || "(空)";
+  const noChange    = opts.noChange    || "(変更なし)";
+  const guestHead   = opts.guestHead   || ((n, gl) => `宿泊者${n}の${gl}`);
   const lines = [];
 
   // スカラーフィールド比較
-  for (const [field, label] of Object.entries(FIELD_LABELS)) {
+  for (const [field, label] of Object.entries(labels)) {
     const bv = String(before[field] ?? "").trim();
     const av = String(after[field] ?? "").trim();
     if (bv !== av) {
-      lines.push(`${label}: ${bv || "(空)"} → ${av || "(空)"}`);
+      lines.push(`${label}: ${bv || emptyVal} → ${av || emptyVal}`);
     }
   }
 
@@ -75,17 +106,27 @@ function calcChanges(before, after) {
     const bGuest = bg[i] || {};
     const aGuest = ag[i] || {};
     const n = i + 2; // 宿泊者2〜
-    const guestLabels = { name: "氏名", nationality: "国籍", address: "住所", age: "年齢", passportNumber: "旅券番号" };
     for (const [gf, gl] of Object.entries(guestLabels)) {
       const bv = String(bGuest[gf] ?? "").trim();
       const av = String(aGuest[gf] ?? "").trim();
       if (bv !== av) {
-        lines.push(`宿泊者${n}の${gl}: ${bv || "(空)"} → ${av || "(空)"}`);
+        lines.push(`${guestHead(n, gl)}: ${bv || emptyVal} → ${av || emptyVal}`);
       }
     }
   }
 
-  return lines.length ? lines.join("\n") : "(変更なし)";
+  return lines.length ? lines.join("\n") : noChange;
+}
+
+// 英語差分テキスト
+function calcChangesEn(before, after) {
+  return calcChanges(before, after, {
+    labels: FIELD_LABELS_EN,
+    guestLabels: { name: "Name", nationality: "Nationality", address: "Address", age: "Age", passportNumber: "Passport number" },
+    emptyVal: "(empty)",
+    noChange: "(no changes)",
+    guestHead: (n, gl) => `Guest ${n} - ${gl}`,
+  });
 }
 
 module.exports = async function onGuestFormUpdate(event) {
@@ -165,13 +206,14 @@ module.exports = async function onGuestFormUpdate(event) {
   }
 
   // ガイドURLにeditTokenを付加
-  let guideUrl = "";
+  let guideUrlWithToken = "";
   if (guideUrlBase) {
     const sep = guideUrlBase.includes("?") ? "&" : "?";
-    guideUrl = `${guideUrlBase}${sep}guest=${encodeURIComponent(after.editToken || "")}`;
+    guideUrlWithToken = `${guideUrlBase}${sep}guest=${encodeURIComponent(after.editToken || "")}`;
   }
-  // 現行URLの下に退避用(リレーアプリ)URLのフォールバックを併記
-  guideUrl = buildGuideUrlBlock(guideUrl);
+  // 現行URLの下に退避用(リレーアプリ)URLのフォールバックを併記。日本語/英語でラベルを出し分ける。
+  const guideUrl   = buildGuideUrlBlock(guideUrlWithToken);
+  const guideUrlEn = buildGuideUrlBlock(guideUrlWithToken, "en");
 
   const addressMapUrl = propertyAddress
     ? "https://maps.google.com/?q=" + encodeURIComponent(propertyAddress)
@@ -225,6 +267,17 @@ module.exports = async function onGuestFormUpdate(event) {
     return timeStr ? `${base} ${timeStr}` : base;
   }
 
+  // 英訳用フォーマット (例: Mon, Jun 29, 2026 15:00)
+  function formatDateWithDayEn(dateStr, timeStr) {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    const base = `${DOW[d.getUTCDay()]}, ${MON[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+    return timeStr ? `${base} ${timeStr}` : base;
+  }
+
   const vars = {
     guestName, checkIn, checkOut, guestCount,
     checkInFormatted: formatDateWithDay(checkIn, after.checkInTime || ""),
@@ -233,8 +286,20 @@ module.exports = async function onGuestFormUpdate(event) {
     changes, confirmUrl, editUrl,
   };
 
+  // 英語本文(subjectEn/bodyEn)描画用。和式日付・日本語ガイドラベル・日本語差分を英語版に差し替える。
+  const varsEn = {
+    ...vars,
+    checkInFormatted:  formatDateWithDayEn(checkIn, after.checkInTime || ""),
+    checkOutFormatted: formatDateWithDayEn(checkOut, after.checkOutTime || ""),
+    guideUrl:          guideUrlEn,
+    changes:           calcChangesEn(before, after),
+  };
+
   const renderDouble = (tmpl) =>
     String(tmpl || "").replace(/\{\{(\w+)\}\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ""));
+  // 英語本文は varsEn で描画する
+  const renderDoubleEn = (tmpl) =>
+    String(tmpl || "").replace(/\{\{(\w+)\}\}/g, (_, k) => (varsEn[k] != null ? String(varsEn[k]) : ""));
 
   // editHistory 追記済みフラグ (メール送信の成否・スキップ問わず必ず1回だけ追記する)
   let editHistoryWritten = false;
@@ -305,8 +370,8 @@ module.exports = async function onGuestFormUpdate(event) {
         // 英訳併記 (formUpdateMail.subjectEn / bodyEn)
         const subjectEnTmpl = (propUpdateMail && propUpdateMail.subjectEn) ? propUpdateMail.subjectEn : "";
         const bodyEnTmpl    = (propUpdateMail && propUpdateMail.bodyEn)    ? propUpdateMail.bodyEn    : "";
-        const subjectEn = subjectEnTmpl ? renderDouble(subjectEnTmpl) : "";
-        const bodyEn    = bodyEnTmpl    ? renderDouble(bodyEnTmpl)    : "";
+        const subjectEn = subjectEnTmpl ? renderDoubleEn(subjectEnTmpl) : "";
+        const bodyEn    = bodyEnTmpl    ? renderDoubleEn(bodyEnTmpl)    : "";
         const finalSubject = subjectEn ? `${subject} / ${subjectEn}` : subject;
         const finalBody    = bodyEn
           ? `${body}\n\n--------------------------------\n--- English follows ---\n--------------------------------\n\n${bodyEn}`
