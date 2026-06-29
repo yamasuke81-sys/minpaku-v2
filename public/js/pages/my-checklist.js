@@ -1750,12 +1750,13 @@ const MyChecklistPage = {
   renderTabPhotos() {
     const el = document.getElementById("mclTopTabContent");
     if (!el || !this.checklist) return;
+    // 表示順: 掃除前/掃除後の写真アップロードを先に、見本写真は一番下に置く
     el.innerHTML = `
-      <div id="mclSamplePhotoSection" class="pt-2"></div>
       <div id="mclPhotoSection" class="pt-2"></div>
+      <div id="mclSamplePhotoSection" class="pt-2"></div>
     `;
-    this.renderSamplePhotoSection();
     this.renderPhotoSection();
+    this.renderSamplePhotoSection();
   },
 
   // ===== 見本写真セクション (スタッフ用・読み取り専用) =====
