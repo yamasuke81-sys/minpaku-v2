@@ -42,6 +42,9 @@ const TMP_DIR = path.join(os.tmpdir(), "yadozei-listener");
 const HEARTBEAT_INTERVAL_MS = 60_000;
 const MAX_RETRIES = 2;
 const APP_PARENT_FOLDER_NAME = "民泊宿泊税CSV";
+const YADOZEI_BASE = "https://app.yadozei.com";
+// minpaku-v2 の ota キー → やどぜいインポートウィザードの OTA ラベル
+const OTA_YADOZEI_LABEL = { airbnb: "Airbnb", booking: "Booking.com" };
 
 const PLAYWRIGHT_HEADLESS = process.env.PLAYWRIGHT_HEADLESS === "1";
 
@@ -178,18 +181,20 @@ async function ensureFolder(drive, name, parentId) {
   return created.data.id;
 }
 
-async function uploadCsvToDrive(propertyId, propertyName, ota, yearMonth, localPath) {
-  // 物件ドキュメントから senderGmail を取得
+// 物件の senderGmail から Drive クライアントを解決して返す
+async function getDriveForProperty(propertyId) {
   let senderGmail = null;
   const propSnap = await db.collection("properties").doc(propertyId).get();
   const propData = propSnap.exists ? propSnap.data() : {};
-  if (propSnap.exists) {
-    senderGmail = propData.senderGmail || null;
-  }
+  if (propSnap.exists) senderGmail = propData.senderGmail || null;
 
   const oauth2Client = await resolveOAuthClient(senderGmail);
   const drive = google.drive({ version: "v3", auth: oauth2Client });
+  return { drive, propData };
+}
 
+// 親(民泊宿泊税CSV) → 物件 → 年月 のフォルダ階層を確保して 年月フォルダ ID を返す
+async function ensureMonthFolder(drive, propertyId, propertyName, yearMonth, propData) {
   // 1. 親フォルダ (民泊宿泊税CSV) を確保。settings/driveYadozei に永続化
   let parentFolderId = null;
   try {
@@ -198,7 +203,6 @@ async function uploadCsvToDrive(propertyId, propertyName, ota, yearMonth, localP
   } catch (_) {
     /* ignore */
   }
-  // 既存IDがアクセス不能なら作り直し
   if (parentFolderId) {
     try {
       const meta = await drive.files.get({ fileId: parentFolderId, fields: "id, trashed" });
@@ -211,10 +215,7 @@ async function uploadCsvToDrive(propertyId, propertyName, ota, yearMonth, localP
     parentFolderId = await ensureFolder(drive, APP_PARENT_FOLDER_NAME, null);
     try {
       await db.collection("settings").doc("driveYadozei").set(
-        {
-          parentFolderId,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
+        { parentFolderId, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
         { merge: true }
       );
     } catch (_) {
@@ -245,13 +246,16 @@ async function uploadCsvToDrive(propertyId, propertyName, ota, yearMonth, localP
   }
 
   // 3. 年月サブフォルダ
-  const monthFolderId = await ensureFolder(drive, yearMonth, propertyFolderId);
+  return ensureFolder(drive, yearMonth, propertyFolderId);
+}
 
-  // 4. ファイルアップロード
-  const fileName = `${ota}_reservations_${yearMonth}_${Date.now()}.csv`;
+// 任意ファイルを物件/年月フォルダにアップロード (CSV/PDF 共通)
+async function uploadFileToDrive(propertyId, propertyName, yearMonth, fileName, mimeType, localPath) {
+  const { drive, propData } = await getDriveForProperty(propertyId);
+  const monthFolderId = await ensureMonthFolder(drive, propertyId, propertyName, yearMonth, propData);
   const created = await drive.files.create({
     requestBody: { name: fileName, parents: [monthFolderId] },
-    media: { mimeType: "text/csv", body: fs.createReadStream(localPath) },
+    media: { mimeType, body: fs.createReadStream(localPath) },
     fields: "id, webViewLink",
   });
   return {
@@ -259,6 +263,23 @@ async function uploadCsvToDrive(propertyId, propertyName, ota, yearMonth, localP
     fileName,
     webViewLink: created.data.webViewLink || `https://drive.google.com/file/d/${created.data.id}/view`,
   };
+}
+
+// CSV アップロード (ファイル名規則つきの uploadFileToDrive ラッパ)
+async function uploadCsvToDrive(propertyId, propertyName, ota, yearMonth, localPath) {
+  const fileName = `${ota}_reservations_${yearMonth}_${Date.now()}.csv`;
+  return uploadFileToDrive(propertyId, propertyName, yearMonth, fileName, "text/csv", localPath);
+}
+
+// Drive のファイル (fileId) を temp にダウンロードする (やどぜいアップロード用に CSV を取り戻す)
+async function downloadDriveFileToTemp(propertyId, fileId, destPath) {
+  const { drive } = await getDriveForProperty(propertyId);
+  const res = await drive.files.get({ fileId, alt: "media" }, { responseType: "stream" });
+  await new Promise((resolve, reject) => {
+    const dest = fs.createWriteStream(destPath);
+    res.data.on("end", resolve).on("error", reject).pipe(dest);
+  });
+  return destPath;
 }
 
 // ================== Airbnb ハンドラ ==================
@@ -643,6 +664,295 @@ async function handleBookingCsv(job, ctx, jobId) {
   }
 }
 
+// ================== やどぜい操作ヘルパー (F3) ==================
+// やどぜいへ遷移しログイン状態を確認
+async function gotoYadozei(page, route, jobId, tag) {
+  await page.goto(`${YADOZEI_BASE}${route}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+  await page.waitForTimeout(2500);
+  if (/\/login/i.test(page.url())) {
+    await saveScreenshot(page, jobId, `${tag}_not_logged_in`);
+    throw new Error("やどぜい 未ログイン (初回手動ログインが必要)");
+  }
+}
+
+// 複数テキスト候補のいずれかのボタン/タブをクリック
+async function clickByText(page, texts, timeout = 4000) {
+  for (const t of texts) {
+    const loc = page
+      .locator(`button:has-text("${t}"), a:has-text("${t}"), [role="tab"]:has-text("${t}")`)
+      .first();
+    try {
+      if (await loc.count()) {
+        await loc.click({ timeout });
+        return true;
+      }
+    } catch (_) {
+      /* try next */
+    }
+  }
+  return false;
+}
+
+// やどぜいの施設(物件)セレクタを目的の物件に切り替える
+// やどぜい登録物件は 物件名 が minpaku-v2 と一致する前提 (override = yadozei.yadozeiPropertyLabel)
+async function selectYadozeiProperty(page, targetLabel, jobId) {
+  if (!targetLabel) return;
+  // ヘッダの施設切替ボタン (現在の施設名を表示) を探す
+  const selectorBtn = page
+    .locator("header button, nav button, [class*=header] button")
+    .filter({ hasText: /長浜|Hiroshima|Pocket|KOMACHI|Terrace|House|施設/ })
+    .first();
+  try {
+    if (await selectorBtn.count()) {
+      const cur = (await selectorBtn.innerText().catch(() => "")).trim();
+      if (cur && (cur.includes(targetLabel) || targetLabel.includes(cur))) return; // 既に正しい施設
+      await selectorBtn.click({ timeout: 4000 });
+      await page.waitForTimeout(800);
+      const opt = page
+        .locator(
+          `[role="menuitem"]:has-text("${targetLabel}"), [role="option"]:has-text("${targetLabel}"), button:has-text("${targetLabel}"), li:has-text("${targetLabel}")`
+        )
+        .first();
+      if (await opt.count()) {
+        await opt.click({ timeout: 4000 });
+        await page.waitForTimeout(1500);
+      }
+    }
+  } catch (_) {
+    /* best effort */
+  }
+  // 確認: 施設名がページに表示されているか
+  const confirm = page.locator(`text=${targetLabel}`).first();
+  if (!(await confirm.count())) {
+    await saveScreenshot(page, jobId, "yadozei_property_select_failed");
+    throw new Error(`やどぜい施設の選択に失敗 (期待: ${targetLabel}) — やどぜい未登録の物件の可能性`);
+  }
+}
+
+// option[value=yearMonth] を持つ select を選択
+async function selectMonth(page, yearMonth) {
+  const monthSelect = page
+    .locator("select")
+    .filter({ has: page.locator(`option[value="${yearMonth}"]`) })
+    .first();
+  if (await monthSelect.count()) {
+    await monthSelect.selectOption(yearMonth).catch(() => {});
+    await page.waitForTimeout(1500);
+    return true;
+  }
+  return false;
+}
+
+// PDF出力ボタンを押してダウンロードを受け取る
+async function downloadPdf(page, selectors, jobId, tag) {
+  for (const sel of selectors) {
+    const btn = page.locator(sel).first();
+    if (await btn.count()) {
+      if (await btn.isDisabled().catch(() => false)) return { disabled: true };
+      const [download] = await Promise.all([
+        page.waitForEvent("download", { timeout: 60_000 }).catch(() => null),
+        btn.click({ timeout: 5000 }).catch(() => {}),
+      ]);
+      if (download) {
+        const tmp = path.join(TMP_DIR, `${tag}_${jobId}_${Date.now()}.pdf`);
+        await download.saveAs(tmp);
+        return { tmp };
+      }
+      return {};
+    }
+  }
+  return {};
+}
+
+// やどぜいへ後続ジョブを投入
+async function enqueueFollowupJob(kind, job, params) {
+  await db.collection("yadozeiQueue").add({
+    kind,
+    propertyId: job.propertyId,
+    propertyName: job.propertyName || job.propertyId,
+    yearMonth: job.yearMonth,
+    params: params || {},
+    status: "pending",
+    result: null,
+    createdBy: "listener-chain",
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    startedAt: null,
+    completedAt: null,
+    error: null,
+    retries: 0,
+  });
+  console.log(`${LOG_PREFIX} 後続ジョブ投入: kind=${kind} property=${job.propertyName} ym=${job.yearMonth}`);
+}
+
+// 同一 物件+年月 の PDF取得ジョブが pending で既に居れば true (重複投入防止)
+async function pdfJobPending(propertyId, yearMonth) {
+  const snap = await db
+    .collection("yadozeiQueue")
+    .where("propertyId", "==", propertyId)
+    .where("kind", "==", "yadozei_pdf_fetch")
+    .where("yearMonth", "==", yearMonth)
+    .where("status", "==", "pending")
+    .limit(1)
+    .get();
+  return !snap.empty;
+}
+
+// ================== F3: やどぜい CSV アップロード ==================
+async function handleYadozeiCsvUpload(job, ctx, jobId) {
+  const { propertyId, propertyName, yearMonth, params } = job;
+  const ota = params?.ota;
+  const sourceFileId = params?.sourceFileId;
+  const otaLabel = OTA_YADOZEI_LABEL[ota];
+  if (!otaLabel) throw new Error(`未対応の ota: ${ota}`);
+  if (!sourceFileId) throw new Error("params.sourceFileId が未指定");
+  if (!yearMonth) throw new Error("yearMonth 未指定");
+
+  const propSnap = await db.collection("properties").doc(propertyId).get();
+  const propData = propSnap.exists ? propSnap.data() : {};
+  const yadozeiLabel = propData?.yadozei?.yadozeiPropertyLabel || propertyName;
+
+  // Drive から CSV を temp に取り戻す
+  const tmpCsv = path.join(TMP_DIR, `upload_${jobId}_${Date.now()}.csv`);
+  await downloadDriveFileToTemp(propertyId, sourceFileId, tmpCsv);
+
+  const page = await ctx.newPage();
+  try {
+    await gotoYadozei(page, "/stays", jobId, "yadozei_upload");
+    await selectYadozeiProperty(page, yadozeiLabel, jobId);
+
+    // インポートボタン → ウィザード起動
+    const importBtn = page.locator('button:has-text("インポート")').first();
+    if (!(await importBtn.count())) throw new Error("やどぜい「インポート」ボタンが見つからない (UI 変更の可能性)");
+    await importBtn.click({ timeout: 5000 });
+    await page.waitForTimeout(1500);
+
+    // ステップ1: OTA + 対象月 を選択 → 次へ
+    const otaSelect = page
+      .locator("select")
+      .filter({ has: page.locator(`option:has-text("${otaLabel}")`) })
+      .first();
+    if (await otaSelect.count()) {
+      await otaSelect.selectOption({ label: otaLabel }).catch(() => {});
+    }
+    await selectMonth(page, yearMonth);
+    await clickByText(page, ["次へ"], 4000);
+    await page.waitForTimeout(1500);
+
+    // ステップ2: CSV ファイルアップロード
+    const fileInput = page.locator('input[type="file"]').first();
+    await fileInput.waitFor({ state: "attached", timeout: 8000 });
+    await fileInput.setInputFiles(tmpCsv);
+    await page.waitForTimeout(2500);
+
+    // ステップ3〜5: プレビュー → 次へ を辿り、最後に インポート実行
+    let executed = false;
+    for (let i = 0; i < 5; i++) {
+      const exec = page
+        .locator('button:has-text("インポート実行"), button:has-text("取り込む"), button:has-text("実行")')
+        .first();
+      if (await exec.count()) {
+        if (!(await exec.isDisabled().catch(() => false))) {
+          await exec.click({ timeout: 5000 });
+          await page.waitForTimeout(3000);
+          executed = true;
+          break;
+        }
+      }
+      const moved = await clickByText(page, ["次へ"], 4000);
+      if (!moved) break;
+      await page.waitForTimeout(2000);
+    }
+    if (!executed) {
+      await saveScreenshot(page, jobId, "yadozei_upload_no_exec");
+      throw new Error("やどぜい「インポート実行」まで到達できなかった (ウィザード UI 変更の可能性)");
+    }
+
+    // 完了確認
+    const done = page
+      .locator(':text("完了"), :text("インポートしました"), :text("取り込みました"), :text("成功")')
+      .first();
+    if (!(await done.count())) {
+      await saveScreenshot(page, jobId, "yadozei_upload_no_confirm");
+      throw new Error("やどぜいインポート完了を確認できなかった (要手動確認)");
+    }
+    console.log(`${LOG_PREFIX} やどぜいアップロード完了: ${otaLabel} ${yearMonth} (${propertyName})`);
+    return { uploaded: true, ota, yearMonth };
+  } finally {
+    safeUnlink(tmpCsv);
+    try {
+      await page.close();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+}
+
+// ================== F3: やどぜい 月計表/申告書 PDF 取得 ==================
+async function handleYadozeiPdfFetch(job, ctx, jobId) {
+  const { propertyId, propertyName, yearMonth } = job;
+  if (!yearMonth) throw new Error("yearMonth 未指定");
+  const propSnap = await db.collection("properties").doc(propertyId).get();
+  const propData = propSnap.exists ? propSnap.data() : {};
+  const yadozeiLabel = propData?.yadozei?.yadozeiPropertyLabel || propertyName;
+
+  const page = await ctx.newPage();
+  const tmpFiles = [];
+  try {
+    await gotoYadozei(page, "/reports", jobId, "yadozei_pdf");
+    await selectYadozeiProperty(page, yadozeiLabel, jobId);
+    await selectMonth(page, yearMonth);
+
+    const results = [];
+
+    // 月計表プレビュータブ → 月計表をPDF出力
+    await clickByText(page, ["月計表プレビュー"], 3000).catch(() => {});
+    await page.waitForTimeout(800);
+    const geppyo = await downloadPdf(page, ['button:has-text("月計表をPDF出力")', 'button:has-text("月計表")'], jobId, "geppyo");
+    if (geppyo.disabled) {
+      throw new Error("PDF出力ボタンが無効 — やどぜいスタンダードプラン以上が必要");
+    }
+    if (geppyo.tmp) {
+      tmpFiles.push(geppyo.tmp);
+      const r = await uploadFileToDrive(
+        propertyId, propertyName, yearMonth,
+        `yadozei_月計表_${yearMonth}_${Date.now()}.pdf`, "application/pdf", geppyo.tmp
+      );
+      results.push({ type: "月計表", ...r });
+    }
+
+    // 申告書プレビュータブ → 申告書をPDF出力
+    await clickByText(page, ["申告書プレビュー"], 3000).catch(() => {});
+    await page.waitForTimeout(800);
+    const shinkoku = await downloadPdf(page, ['button:has-text("申告書をPDF出力")', 'button:has-text("申告書")'], jobId, "shinkoku");
+    if (shinkoku.disabled) {
+      throw new Error("PDF出力ボタンが無効 — やどぜいスタンダードプラン以上が必要");
+    }
+    if (shinkoku.tmp) {
+      tmpFiles.push(shinkoku.tmp);
+      const r = await uploadFileToDrive(
+        propertyId, propertyName, yearMonth,
+        `yadozei_申告書_${yearMonth}_${Date.now()}.pdf`, "application/pdf", shinkoku.tmp
+      );
+      results.push({ type: "申告書", ...r });
+    }
+
+    if (!results.length) {
+      await saveScreenshot(page, jobId, "yadozei_pdf_none");
+      throw new Error("PDF を1つも取得できなかった (UI 変更またはプラン制限の可能性)");
+    }
+    const primary = results.find((r) => r.type === "申告書") || results[0];
+    console.log(`${LOG_PREFIX} やどぜいPDF取得完了: ${results.map((r) => r.type).join("+")} ${yearMonth}`);
+    return { fileId: primary.fileId, fileName: primary.fileName, webViewLink: primary.webViewLink, pdfs: results };
+  } finally {
+    for (const f of tmpFiles) safeUnlink(f);
+    try {
+      await page.close();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+}
+
 // ================== ジョブディスパッチ ==================
 async function handleJob(docId, job) {
   const ref = db.collection("yadozeiQueue").doc(docId);
@@ -685,59 +995,79 @@ async function handleJob(docId, job) {
     } else if (job.kind === "booking_csv_fetch") {
       result = await handleBookingCsv(job, ctx, docId);
     } else if (job.kind === "yadozei_csv_upload") {
-      throw new Error("F3 未実装: yadozei_csv_upload");
+      result = await handleYadozeiCsvUpload(job, ctx, docId);
     } else if (job.kind === "yadozei_pdf_fetch") {
-      throw new Error("F3 未実装: yadozei_pdf_fetch");
+      result = await handleYadozeiPdfFetch(job, ctx, docId);
     } else {
       throw new Error(`未知の kind: ${job.kind}`);
     }
 
+    const isFetch = job.kind === "airbnb_csv_fetch" || job.kind === "booking_csv_fetch";
+    const isUpload = job.kind === "yadozei_csv_upload";
+    const isPdf = job.kind === "yadozei_pdf_fetch";
+
+    // queue ドキュメントの result を kind 別に整形
+    const queueResult =
+      isFetch || isPdf
+        ? { fileName: result.fileName, driveFileId: result.fileId, driveLink: result.webViewLink }
+        : { uploaded: true };
     await ref.update({
       status: "done",
       completedAt: admin.firestore.FieldValue.serverTimestamp(),
       error: null,
-      result: {
-        fileName: result.fileName,
-        driveFileId: result.fileId,
-        driveLink: result.webViewLink,
-      },
+      result: queueResult,
     });
 
-    // 物件側 lastRun の更新 (airbnb / booking)
+    // 物件側 lastRun の更新 (kind 別)
     try {
-      const otaKey =
-        job.kind === "airbnb_csv_fetch"
-          ? "airbnb"
-          : job.kind === "booking_csv_fetch"
-          ? "booking"
-          : null;
-      if (otaKey && job.propertyId) {
-        await db
-          .collection("properties")
-          .doc(job.propertyId)
-          .set(
-            {
-              yadozei: {
-                lastRun: {
-                  [otaKey]: {
-                    runAt: admin.firestore.FieldValue.serverTimestamp(),
-                    status: "done",
-                    fileName: result.fileName,
-                    driveFileId: result.fileId,
-                    driveLink: result.webViewLink,
-                    error: null,
-                  },
-                },
-              },
-            },
-            { merge: true }
-          );
+      const now = admin.firestore.FieldValue.serverTimestamp();
+      let lastRunPatch = null;
+      if (isFetch && job.propertyId) {
+        const otaKey = job.kind === "airbnb_csv_fetch" ? "airbnb" : "booking";
+        lastRunPatch = {
+          [otaKey]: {
+            runAt: now, status: "done",
+            fileName: result.fileName, driveFileId: result.fileId, driveLink: result.webViewLink, error: null,
+          },
+        };
+      } else if (isUpload && job.propertyId) {
+        lastRunPatch = { yadozeiUpload: { runAt: now, status: "done", ota: job.params?.ota || null, yearMonth: job.yearMonth, error: null } };
+      } else if (isPdf && job.propertyId) {
+        lastRunPatch = {
+          yadozeiPdf: {
+            runAt: now, status: "done",
+            fileName: result.fileName, driveFileId: result.fileId, driveLink: result.webViewLink,
+            pdfTypes: (result.pdfs || []).map((p) => p.type), error: null,
+          },
+        };
+      }
+      if (lastRunPatch) {
+        await db.collection("properties").doc(job.propertyId).set({ yadozei: { lastRun: lastRunPatch } }, { merge: true });
       }
     } catch (e) {
       console.warn(`${LOG_PREFIX} lastRun 更新失敗 ${docId}: ${e.message}`);
     }
 
-    console.log(`${LOG_PREFIX} 完了 ${docId} → ${result.fileName}`);
+    // 後続ジョブの連鎖投入 (F3 パイプライン: fetch → upload → pdf)
+    try {
+      if (isFetch && job.propertyId) {
+        const pSnap = await db.collection("properties").doc(job.propertyId).get();
+        const uploadEnabled = pSnap.exists && pSnap.data()?.yadozei?.yadozeiUpload?.enabled === true;
+        if (uploadEnabled && result.fileId) {
+          const ota = job.kind === "airbnb_csv_fetch" ? "airbnb" : "booking";
+          await enqueueFollowupJob("yadozei_csv_upload", job, { ota, sourceFileId: result.fileId });
+        }
+      } else if (isUpload && job.propertyId) {
+        // 全アップロード後に申告書PDFを取得 (pending 重複は防止し、後発のアップロードで再生成)
+        if (!(await pdfJobPending(job.propertyId, job.yearMonth))) {
+          await enqueueFollowupJob("yadozei_pdf_fetch", job, {});
+        }
+      }
+    } catch (e) {
+      console.warn(`${LOG_PREFIX} 後続ジョブ連鎖投入失敗 ${docId}: ${e.message}`);
+    }
+
+    console.log(`${LOG_PREFIX} 完了 ${docId} (${job.kind})${result.fileName ? " → " + result.fileName : ""}`);
   } catch (e) {
     const errMsg = String(e.message || e).slice(0, 500);
     console.error(`${LOG_PREFIX} 失敗 ${docId}: ${errMsg}`);
