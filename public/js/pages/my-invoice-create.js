@@ -468,13 +468,14 @@ const MyInvoiceCreatePage = {
           if (Object.keys(rates).length === 0) continue; // 自分には単価設定がない
 
           // workItemOptions (請求書作成プルダウン用) — 人数別の場合は 3 行に分けて追加
+          // 物件名は select の上にある物件プルダウンで選択済みなのでラベルから省く
           for (const c of Object.keys(rates).map(Number).sort((a,b) => a-b)) {
             const suffix = isCleaningByCount ? `${c}人作業` : "";
             const itemLabel = suffix ? `${it.name}${suffix}` : it.name;
             this.workItemOptions.push({
               key: `${propertyId}:${it.id || it.name}:${c}`,
               propertyId,
-              label: `${propertyName} / ${itemLabel}`,
+              label: itemLabel,
               amount: rates[c],
             });
           }
