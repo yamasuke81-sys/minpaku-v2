@@ -370,6 +370,22 @@ const PropertiesPage = {
 
     document.getElementById("propertyName").value = property?.name || "";
     document.getElementById("propertyType").value = property?.type || "minpaku";
+    // 事業形態 (民泊新法/旅館業) — 未設定の既存物件はデフォルトで民泊新法
+    const _bl = property?.businessLicense === "hotel_business" ? "hotel_business" : "minpaku_act";
+    const _blRadio = document.querySelector(`input[name="propertyBusinessLicense"][value="${_bl}"]`);
+    if (_blRadio) _blRadio.checked = true;
+    // 事業形態 ラジオは 種別=民泊 のときだけ表示
+    const _toggleBusinessLicense = () => {
+      const t = document.getElementById("propertyType").value;
+      const wrap = document.getElementById("propertyBusinessLicenseWrap");
+      if (wrap) wrap.classList.toggle("d-none", t !== "minpaku");
+    };
+    _toggleBusinessLicense();
+    const _typeEl = document.getElementById("propertyType");
+    if (!_typeEl._businessLicenseBound) {
+      _typeEl.addEventListener("change", _toggleBusinessLicense);
+      _typeEl._businessLicenseBound = true;
+    }
     document.getElementById("propertyCapacity").value = property?.capacity || 0;
     document.getElementById("propertyBeds24Id").value = property?.beds24PropertyId || "";
     document.getElementById("propertyArea").value = property?.area || "";
@@ -605,9 +621,17 @@ const PropertiesPage = {
     const requiredSkills = document.getElementById("propertySkills").value
       .split(",").map((s) => s.trim()).filter(Boolean);
 
+    const _typeVal = document.getElementById("propertyType").value;
+    const _blEl = document.querySelector('input[name="propertyBusinessLicense"]:checked');
+    // 事業形態: 種別=民泊 のときだけ保存。それ以外は null
+    const _businessLicense = _typeVal === "minpaku"
+      ? (_blEl?.value === "hotel_business" ? "hotel_business" : "minpaku_act")
+      : null;
+
     const data = {
       name,
-      type: document.getElementById("propertyType").value,
+      type: _typeVal,
+      businessLicense: _businessLicense,
       capacity: Number(document.getElementById("propertyCapacity").value) || 0,
       beds24PropertyId: document.getElementById("propertyBeds24Id").value.trim(),
       area: document.getElementById("propertyArea").value.trim(),
@@ -768,9 +792,16 @@ const PropertiesPage = {
     const requiredSkills = document.getElementById("propertySkills").value
       .split(",").map((s) => s.trim()).filter(Boolean);
 
+    const _typeValA = document.getElementById("propertyType").value;
+    const _blElA = document.querySelector('input[name="propertyBusinessLicense"]:checked');
+    const _businessLicenseA = _typeValA === "minpaku"
+      ? (_blElA?.value === "hotel_business" ? "hotel_business" : "minpaku_act")
+      : null;
+
     const data = {
       name,
-      type: document.getElementById("propertyType").value,
+      type: _typeValA,
+      businessLicense: _businessLicenseA,
       capacity: Number(document.getElementById("propertyCapacity").value) || 0,
       beds24PropertyId: document.getElementById("propertyBeds24Id").value.trim(),
       area: document.getElementById("propertyArea").value.trim(),

@@ -96,6 +96,9 @@ const ReportsPage = {
     } catch (_) {
       this.properties = [];
     }
+    // 事業形態フィルタ: 旅館業の物件は定期報告 (住宅宿泊事業法14条) の対象外なので除外。
+    // 未設定の既存物件はデフォルトで民泊新法扱い (過去挙動と等価)
+    this.properties = this.properties.filter((p) => p.businessLicense !== "hotel_business");
     // 物件オーナー視点: 担当物件(ownedPropertyIds)のみに絞る
     let owned = null;
     if (typeof App !== "undefined" && App.impersonating && App.impersonatingData) {
