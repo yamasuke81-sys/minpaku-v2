@@ -250,6 +250,10 @@ const InvoicesPage = {
       });
     });
 
+    container.querySelectorAll(".btn-invoice-pdf").forEach(btn => {
+      btn.addEventListener("click", () => this.openInvoicePdf(btn.dataset.id, btn));
+    });
+
     container.querySelectorAll(".btn-invoice-recalculate").forEach(btn => {
       btn.addEventListener("click", () => this.recalculateInvoice(btn.dataset.id));
     });
@@ -326,6 +330,9 @@ const InvoicesPage = {
           <div class="btn-group btn-group-sm">
             <button class="btn btn-outline-primary btn-invoice-detail" data-id="${inv.id}" title="詳細">
               <i class="bi bi-eye"></i>
+            </button>
+            <button class="btn btn-outline-danger btn-invoice-pdf" data-id="${inv.id}" title="PDFを開く">
+              <i class="bi bi-file-earmark-pdf"></i>
             </button>
             ${["draft", "submitted"].includes(inv.status) ? `
               <button class="btn btn-outline-warning btn-invoice-recalculate" data-id="${inv.id}" title="再計算">
@@ -749,6 +756,43 @@ const InvoicesPage = {
       await this.loadInvoices();
     } catch (e) {
       showToast("エラー", e.message, "error");
+    }
+  },
+
+  // 請求書PDFを新しいタブで開く。signed URL は7日間有効なので、開く前に必ず再生成して fresh URL を使う
+  async openInvoicePdf(id, btnEl) {
+    // ポップアップブロッカ回避: クリック直後に空タブを開いておき、URL が取れてから差し替える
+    const win = window.open("", "_blank");
+    const inv = this.invoices.find(i => i.id === id);
+    const orig = btnEl?.innerHTML;
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    }
+    try {
+      const CF_BASE = "https://api-5qrfx7ujcq-an.a.run.app";
+      const token = await firebase.auth().currentUser.getIdToken();
+      const res = await fetch(`${CF_BASE}/invoices/${id}/pdf`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.pdfUrl) throw new Error(data.error || "PDF生成に失敗しました");
+      if (win) {
+        win.location.href = data.pdfUrl;
+      } else {
+        window.location.href = data.pdfUrl; // ブロッカで開けなかった時の代替
+      }
+      // 一覧側にも反映 (pdfUrl 更新)
+      if (inv) inv.pdfUrl = data.pdfUrl;
+    } catch (e) {
+      if (win) win.close();
+      showToast("エラー", e.message || "PDFを開けませんでした", "error");
+    } finally {
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.innerHTML = orig || '<i class="bi bi-file-earmark-pdf"></i>';
+      }
     }
   },
 
