@@ -1332,7 +1332,9 @@ async function notifyByKey(db, notifyKey, options = {}) {
 
   // 2.5 バッチ + 即時通知の併存サポート
   // 無限ループ防止: バッチ処理関数からの呼び出し時は options._fromBatchQueue = true を渡す
-  if (!options._fromBatchQueue) {
+  // date モード (runDateScheduledNotifications) からの呼び出し時は options._fromDateScheduled = true を渡し、
+  // hasImmediate ゲートをバイパス (既に scheduler 側で発火条件が判定済みのため、ここで即時送信する)
+  if (!options._fromBatchQueue && !options._fromDateScheduled) {
     const channelOv = (propertyOverrides && propertyOverrides[notifyKey]) || {};
     const timings = Array.isArray(channelOv.timings) ? channelOv.timings : [];
     const batchSlots = timings
@@ -1356,13 +1358,13 @@ async function notifyByKey(db, notifyKey, options = {}) {
     }
     // 即時送信判定:
     //  - timings 未設定 → 後方互換で即時送信 (既存挙動)
-    //  - timings に batch_* "以外" のものがあれば即時送信
-    //  - timings に batch_* のみ → 即時送信スキップ
+    //  - timings に batch_* / date "以外" のものがあれば即時送信
+    //  - timings に batch_* / date のみ → 即時送信スキップ (date は scheduler から別経路で発火)
     const hasImmediate = timings.length === 0 || timings.some(t =>
       t && t.timing !== "batch_morning_8" && t.timing !== "batch_evening_20" && t.mode !== "date"
     );
     if (!hasImmediate) {
-      // バッチのみ設定: 即時送信スキップ、enqueue 完了で return
+      // バッチ/date のみ設定: 即時送信スキップ、enqueue 完了で return
       return { sent: {}, errors: [], queued: true, batchSlots };
     }
     // immediate あり: そのまま既存の即時送信フローへ進む

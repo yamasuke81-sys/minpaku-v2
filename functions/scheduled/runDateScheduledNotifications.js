@@ -82,6 +82,7 @@ module.exports = async function runDateScheduledNotifications() {
             body: ch.customMessage || `${prop.name || ""} の ${notifyKey} 定期通知`,
             vars: { property: prop.name || "", date: t.date },
             propertyId: pDoc.id,
+            _fromDateScheduled: true,
           });
           firedCount++;
           // 重複防止キー記録
