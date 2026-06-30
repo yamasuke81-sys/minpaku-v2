@@ -572,6 +572,10 @@ const PropertiesPage = {
       });
     }
 
+    // --- 宿泊税CSV (やどぜい) セクションの初期化 ---
+    this._populateYadozeiForm(property?.yadozei || null);
+    this._bindYadozeiEvents(property?.id || null, property?.name || "");
+
     // --- 自動保存: 編集時のみ（新規作成は不可） ---
     if (isEdit) {
       const modalEl = document.getElementById("propertyModal");
@@ -707,6 +711,8 @@ const PropertiesPage = {
         const el = document.querySelector('input[name="propLineDeliveryMode"]:checked');
         return el ? el.value : "fallback";
       })(),
+      // 宿泊税CSV (やどぜい) 設定
+      yadozei: this._collectYadozeiData(),
     };
     // 後方互換: lineChannels[0] があれば旧単一フィールドにも反映
     const firstCh = data.lineChannels[0];
@@ -881,6 +887,8 @@ const PropertiesPage = {
         const el = document.querySelector('input[name="propLineDeliveryMode"]:checked');
         return el ? el.value : "fallback";
       })(),
+      // 宿泊税CSV (やどぜい) 設定
+      yadozei: this._collectYadozeiData(),
     };
     // 後方互換: lineChannels[0] があれば旧単一フィールドにも反映
     const firstChA = data.lineChannels[0];
@@ -2149,6 +2157,295 @@ const PropertiesPage = {
       if (isNaN(d.getTime())) return "";
       return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
     } catch (_) { return ""; }
+  },
+
+  // ---- 宿泊税CSV (やどぜい) 関連 ----
+
+  /**
+   * 物件データから yadozei フィールドを取り出してフォームに反映する
+   * yadozeiData が null/undefined の場合はデフォルト値を使う
+   */
+  _populateYadozeiForm(yadozeiData) {
+    const y = yadozeiData || {};
+    const airbnb = y.airbnb || {};
+    const booking = y.booking || {};
+    const schedule = y.schedule || {};
+    const upload = y.yadozeiUpload || {};
+
+    // Airbnb
+    const aEn = document.getElementById("yadozeiAirbnbEnabled");
+    const aId = document.getElementById("yadozeiAirbnbListingId");
+    const aNm = document.getElementById("yadozeiAirbnbListingName");
+    if (aEn) aEn.checked = !!airbnb.enabled;
+    if (aId) aId.value = airbnb.listingId || "";
+    if (aNm) aNm.value = airbnb.listingName || "";
+
+    // Booking
+    const bEn = document.getElementById("yadozeiBookingEnabled");
+    const bId = document.getElementById("yadozeiBookingPropertyId");
+    const bNm = document.getElementById("yadozeiBookingPropertyName");
+    if (bEn) bEn.checked = !!booking.enabled;
+    if (bId) bId.value = booking.propertyId || "";
+    if (bNm) bNm.value = booking.propertyName || "";
+
+    // Schedule (default: enabled=true, day=2, hour=4, targetMonths=1)
+    const sEn = document.getElementById("yadozeiScheduleEnabled");
+    const sDay = document.getElementById("yadozeiDayOfMonth");
+    const sHour = document.getElementById("yadozeiHour");
+    const sTm = document.getElementById("yadozeiTargetMonths");
+    if (sEn) sEn.checked = schedule.enabled !== false;
+    if (sDay) sDay.value = Number(schedule.dayOfMonth) || 2;
+    if (sHour) sHour.value = Number(schedule.hour) || 4;
+    if (sTm) sTm.value = Number(schedule.targetMonths) || 1;
+
+    // やどぜいアップ (F2 placeholder, 常に disabled)
+    const uEn = document.getElementById("yadozeiUploadEnabled");
+    if (uEn) {
+      uEn.checked = !!upload.enabled;
+      uEn.disabled = true; // F2 で実装するまで常に無効
+    }
+
+    // 最終実行サマリ表示
+    this._renderYadozeiLastRun(y.lastRun || null);
+
+    // 「今すぐ実行」の結果領域をクリア
+    const result = document.getElementById("yadozeiRunNowResult");
+    if (result) result.innerHTML = "";
+  },
+
+  /**
+   * フォームから yadozei オブジェクトを組み立てる (保存用)
+   * lastRun, driveFolderId は触らない (バックエンド管理)
+   */
+  _collectYadozeiData() {
+    const v = (id) => (document.getElementById(id)?.value || "").trim();
+    const checked = (id) => !!document.getElementById(id)?.checked;
+    const num = (id, fallback) => {
+      const n = Number(document.getElementById(id)?.value);
+      return Number.isFinite(n) && n > 0 ? n : fallback;
+    };
+    return {
+      airbnb: {
+        enabled: checked("yadozeiAirbnbEnabled"),
+        listingId: v("yadozeiAirbnbListingId"),
+        listingName: v("yadozeiAirbnbListingName"),
+      },
+      booking: {
+        enabled: checked("yadozeiBookingEnabled"),
+        propertyId: v("yadozeiBookingPropertyId"),
+        propertyName: v("yadozeiBookingPropertyName"),
+      },
+      schedule: {
+        enabled: checked("yadozeiScheduleEnabled"),
+        dayOfMonth: num("yadozeiDayOfMonth", 2),
+        hour: num("yadozeiHour", 4),
+        targetMonths: num("yadozeiTargetMonths", 1),
+      },
+      yadozeiUpload: {
+        enabled: checked("yadozeiUploadEnabled"),
+      },
+    };
+  },
+
+  /**
+   * 「今すぐ実行」「実行履歴」ボタンのイベント紐付け
+   * 編集モーダルを開くたびに呼ばれるので、古いリスナをクローン差し替えで一掃
+   */
+  _bindYadozeiEvents(propertyId, propertyName) {
+    const btnRun = document.getElementById("btnYadozeiRunNow");
+    if (btnRun) {
+      const fresh = btnRun.cloneNode(true);
+      btnRun.parentNode.replaceChild(fresh, btnRun);
+      fresh.addEventListener("click", () => {
+        if (!propertyId) {
+          if (window.showAlert) window.showAlert("先に物件を保存してください", "宿泊税CSV");
+          return;
+        }
+        this._yadozeiRunNow(propertyId);
+      });
+      // 新規物件登録時は無効化
+      fresh.disabled = !propertyId;
+    }
+
+    const btnHist = document.getElementById("btnYadozeiHistory");
+    if (btnHist) {
+      const fresh = btnHist.cloneNode(true);
+      btnHist.parentNode.replaceChild(fresh, btnHist);
+      fresh.addEventListener("click", () => {
+        if (!propertyId) {
+          if (window.showAlert) window.showAlert("先に物件を保存してください", "宿泊税CSV");
+          return;
+        }
+        this._yadozeiShowHistory(propertyId, propertyName);
+      });
+      fresh.disabled = !propertyId;
+    }
+  },
+
+  /** POST /api/yadozei/run-now でキュー投入 */
+  async _yadozeiRunNow(propertyId) {
+    const resultEl = document.getElementById("yadozeiRunNowResult");
+    if (resultEl) {
+      resultEl.innerHTML = `<span class="text-muted"><span class="spinner-border spinner-border-sm"></span> キュー投入中...</span>`;
+    }
+    try {
+      let token = "test-token";
+      if (typeof Auth !== "undefined" && !Auth.testMode && Auth.currentUser?.getIdToken) {
+        token = await Auth.currentUser.getIdToken();
+      }
+      const cfBase = "https://api-5qrfx7ujcq-an.a.run.app";
+      const res = await fetch(`${cfBase}/api/yadozei/run-now`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ propertyId, ota: "both" }),
+      });
+      const text = await res.text();
+      let json = null;
+      try { json = JSON.parse(text); } catch (_) {}
+      if (!res.ok) {
+        const msg = json?.error || text.substring(0, 200) || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+      const jobIds = Array.isArray(json?.jobIds) ? json.jobIds : [];
+      if (resultEl) {
+        if (jobIds.length === 0) {
+          resultEl.innerHTML = `<span class="text-warning">⚠️ キュー投入されたジョブが 0 件でした。Airbnb / Booking の「自動取得を有効」とリスティングID/物件IDを確認してください。</span>`;
+        } else {
+          resultEl.innerHTML = `<span class="text-success">✓ キューイングしました: ${jobIds.length} 件</span><div class="text-muted small mt-1">PC 常駐 listener が稼働中であれば数分以内に Drive に保存されます。</div>`;
+        }
+      }
+    } catch (e) {
+      if (resultEl) {
+        resultEl.innerHTML = `<span class="text-danger">✖ 失敗: ${this.escapeHtml(e.message)}</span>`;
+      }
+      if (window.showAlert) {
+        await window.showAlert(`今すぐ実行に失敗しました: ${e.message}`, "エラー");
+      }
+    }
+  },
+
+  /** GET /api/yadozei/history/:propertyId で過去 20 件を取得して別モーダルで表示 */
+  async _yadozeiShowHistory(propertyId, propertyName) {
+    // 物件名表示
+    const nameEl = document.getElementById("yadozeiHistoryPropertyName");
+    if (nameEl) nameEl.textContent = propertyName || "";
+    // モーダルを開く
+    const modalEl = document.getElementById("yadozeiHistoryModal");
+    if (!modalEl) return;
+    const bodyEl = document.getElementById("yadozeiHistoryBody");
+    if (bodyEl) {
+      bodyEl.innerHTML = `<div class="text-center text-muted py-4"><div class="spinner-border"></div><div class="mt-2 small">読み込み中...</div></div>`;
+    }
+    const modal = new bootstrap.Modal(modalEl);
+    modal.show();
+
+    try {
+      let token = "test-token";
+      if (typeof Auth !== "undefined" && !Auth.testMode && Auth.currentUser?.getIdToken) {
+        token = await Auth.currentUser.getIdToken();
+      }
+      const cfBase = "https://api-5qrfx7ujcq-an.a.run.app";
+      const res = await fetch(`${cfBase}/api/yadozei/history/${encodeURIComponent(propertyId)}?limit=20`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const text = await res.text();
+      let json = null;
+      try { json = JSON.parse(text); } catch (_) {}
+      if (!res.ok) {
+        const msg = json?.error || text.substring(0, 200) || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+      const items = Array.isArray(json?.items) ? json.items : (Array.isArray(json) ? json : []);
+      if (bodyEl) {
+        if (items.length === 0) {
+          bodyEl.innerHTML = `<div class="text-center text-muted py-4">実行履歴はまだありません。</div>`;
+        } else {
+          const kindLabel = {
+            airbnb_csv_fetch: "Airbnb CSV取得",
+            booking_csv_fetch: "Booking CSV取得",
+            yadozei_csv_upload: "やどぜいアップ",
+            yadozei_pdf_fetch: "申告書PDF取得",
+          };
+          const statusBadge = (s) => {
+            const map = {
+              pending: '<span class="badge bg-secondary">待機中</span>',
+              processing: '<span class="badge bg-primary">処理中</span>',
+              done: '<span class="badge bg-success">完了</span>',
+              failed: '<span class="badge bg-danger">失敗</span>',
+            };
+            return map[s] || `<span class="badge bg-light text-dark">${this.escapeHtml(s || "")}</span>`;
+          };
+          const rows = items.map(it => {
+            const created = this._formatTs(it.createdAt);
+            const result = it.result || {};
+            const fileName = result.fileName || "";
+            const link = result.driveLink
+              ? `<a href="${this.escapeHtml(result.driveLink)}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Drive</a>`
+              : "";
+            const err = it.error
+              ? `<div class="text-danger small">${this.escapeHtml(it.error)}</div>`
+              : "";
+            return `
+              <tr>
+                <td class="small">${this.escapeHtml(created)}</td>
+                <td class="small">${this.escapeHtml(kindLabel[it.kind] || it.kind || "")}</td>
+                <td class="small">${this.escapeHtml(it.yearMonth || "")}</td>
+                <td class="small">${statusBadge(it.status)}</td>
+                <td class="small">${this.escapeHtml(fileName)}${err}</td>
+                <td class="small">${link}</td>
+              </tr>
+            `;
+          }).join("");
+          bodyEl.innerHTML = `
+            <table class="table table-sm table-hover">
+              <thead class="table-light">
+                <tr>
+                  <th style="white-space:nowrap;">作成日時</th>
+                  <th>種類</th>
+                  <th>対象月</th>
+                  <th>状態</th>
+                  <th>ファイル / エラー</th>
+                  <th>リンク</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          `;
+        }
+      }
+    } catch (e) {
+      if (bodyEl) {
+        bodyEl.innerHTML = `<div class="alert alert-danger small">履歴の取得に失敗しました: ${this.escapeHtml(e.message)}</div>`;
+      }
+    }
+  },
+
+  /** lastRun サマリを Airbnb / Booking 1 行ずつ表示 */
+  _renderYadozeiLastRun(lastRun) {
+    const fmt = (entry, label) => {
+      if (!entry || !entry.runAt) return `${label}: 未実行`;
+      const ts = this._formatTs(entry.runAt);
+      const status = entry.status === "done" ? "成功"
+        : entry.status === "failed" ? "失敗"
+        : entry.status === "processing" ? "処理中"
+        : entry.status || "";
+      const cls = entry.status === "done" ? "text-success"
+        : entry.status === "failed" ? "text-danger"
+        : "text-muted";
+      const errSuffix = (entry.status === "failed" && entry.error)
+        ? ` <span class="text-danger small">(${this.escapeHtml(entry.error).slice(0, 80)})</span>`
+        : "";
+      return `${label}: <span class="${cls}">${this.escapeHtml(ts)} ${this.escapeHtml(status)}</span>${errSuffix}`;
+    };
+    const a = (lastRun && lastRun.airbnb) || null;
+    const b = (lastRun && lastRun.booking) || null;
+    const aEl = document.getElementById("yadozeiLastRunAirbnb");
+    const bEl = document.getElementById("yadozeiLastRunBooking");
+    if (aEl) aEl.innerHTML = fmt(a, "Airbnb");
+    if (bEl) bEl.innerHTML = fmt(b, "Booking");
   },
 
   // ---- 共通ユーティリティ ----

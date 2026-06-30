@@ -1061,6 +1061,111 @@
             </div>
           </div>
 
+          <!-- ⑩ 宿泊税CSV (やどぜい) 自動化 -->
+          <div class="col-12"><hr></div>
+          <div class="col-12">
+            <details class="border rounded p-3" id="yadozeiSection">
+              <summary class="fw-semibold">
+                <i class="bi bi-file-earmark-spreadsheet text-success"></i>
+                宿泊税CSV (やどぜい) 自動化
+              </summary>
+              <div class="mt-3">
+                <p class="text-muted small mb-3">
+                  Airbnb / Booking.com から月次の予約 CSV を自動取得し、Google Drive (民泊宿泊税CSV フォルダ) に保存します。<br>
+                  申告書 SaaS <a href="https://app.yadozei.com" target="_blank" rel="noopener">やどぜい</a> へのアップロードはフェーズ2で実装予定です。
+                </p>
+
+                <!-- Airbnb -->
+                <h6 class="mt-2"><i class="bi bi-airbnb text-danger"></i> Airbnb</h6>
+                <div class="form-check form-switch mb-2">
+                  <input class="form-check-input" type="checkbox" id="yadozeiAirbnbEnabled">
+                  <label class="form-check-label" for="yadozeiAirbnbEnabled">この物件で Airbnb の CSV 自動取得を有効にする</label>
+                </div>
+                <div class="row g-2 mb-3">
+                  <div class="col-md-5">
+                    <label class="form-label small">リスティングID</label>
+                    <input type="text" class="form-control form-control-sm" id="yadozeiAirbnbListingId" placeholder="例: 1234567890 (URL末尾の数字)">
+                  </div>
+                  <div class="col-md-7">
+                    <label class="form-label small">リスティング名 (表示用)</label>
+                    <input type="text" class="form-control form-control-sm" id="yadozeiAirbnbListingName" placeholder="例: 瀬戸内海ビュー大テラス">
+                  </div>
+                </div>
+
+                <!-- Booking.com -->
+                <h6 class="mt-2"><i class="bi bi-calendar2-check text-primary"></i> Booking.com</h6>
+                <div class="form-check form-switch mb-2">
+                  <input class="form-check-input" type="checkbox" id="yadozeiBookingEnabled">
+                  <label class="form-check-label" for="yadozeiBookingEnabled">この物件で Booking.com の CSV 自動取得を有効にする</label>
+                </div>
+                <div class="row g-2 mb-3">
+                  <div class="col-md-5">
+                    <label class="form-label small">extranet 物件ID</label>
+                    <input type="text" class="form-control form-control-sm" id="yadozeiBookingPropertyId" placeholder="例: 14868587">
+                  </div>
+                  <div class="col-md-7">
+                    <label class="form-label small">物件名 (表示用)</label>
+                    <input type="text" class="form-control form-control-sm" id="yadozeiBookingPropertyName" placeholder="例: the Terrace 長浜">
+                  </div>
+                </div>
+
+                <!-- スケジュール -->
+                <h6 class="mt-2"><i class="bi bi-clock-history text-secondary"></i> スケジュール</h6>
+                <div class="form-check form-switch mb-2">
+                  <input class="form-check-input" type="checkbox" id="yadozeiScheduleEnabled" checked>
+                  <label class="form-check-label" for="yadozeiScheduleEnabled">月次自動実行</label>
+                </div>
+                <div class="row g-2 mb-3 align-items-end">
+                  <div class="col-auto">
+                    <label class="form-label small mb-1">毎月</label>
+                    <input type="number" class="form-control form-control-sm" id="yadozeiDayOfMonth" min="1" max="7" value="2" style="width:5rem;">
+                  </div>
+                  <div class="col-auto"><span class="small">日</span></div>
+                  <div class="col-auto">
+                    <label class="form-label small mb-1">時刻</label>
+                    <input type="number" class="form-control form-control-sm" id="yadozeiHour" min="0" max="23" value="4" style="width:5rem;">
+                  </div>
+                  <div class="col-auto"><span class="small">時</span></div>
+                  <div class="col-auto">
+                    <label class="form-label small mb-1">対象</label>
+                    <input type="number" class="form-control form-control-sm" id="yadozeiTargetMonths" min="1" max="3" value="1" style="width:5rem;">
+                  </div>
+                  <div class="col-auto"><span class="small">ヶ月分</span></div>
+                </div>
+                <div class="form-text mb-3">
+                  毎日 04:00 JST に dispatcher が動作し、指定日 (毎月 1〜7 日) に該当する物件をスキャンしてキュー投入します。
+                </div>
+
+                <!-- やどぜいアップ (F2) -->
+                <h6 class="mt-2"><i class="bi bi-cloud-upload text-info"></i> やどぜい自動アップ <span class="badge bg-secondary">フェーズ2</span></h6>
+                <div class="form-check form-switch mb-3">
+                  <input class="form-check-input" type="checkbox" id="yadozeiUploadEnabled" disabled>
+                  <label class="form-check-label text-muted" for="yadozeiUploadEnabled">
+                    取得した CSV をやどぜいへ自動アップロード (フェーズ2で対応予定。現在は手動運用)
+                  </label>
+                </div>
+
+                <!-- アクションボタン -->
+                <div class="d-flex gap-2 mb-2 flex-wrap">
+                  <button type="button" class="btn btn-sm btn-outline-primary" id="btnYadozeiRunNow">
+                    <i class="bi bi-play-fill"></i> 今すぐ実行 (前月分)
+                  </button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" id="btnYadozeiHistory">
+                    <i class="bi bi-clock-history"></i> 実行履歴
+                  </button>
+                </div>
+                <div id="yadozeiRunNowResult" class="small mt-2"></div>
+
+                <!-- 最終実行サマリ -->
+                <div class="border-top pt-2 mt-3">
+                  <div class="text-muted small fw-semibold mb-1">最終実行</div>
+                  <div id="yadozeiLastRunAirbnb" class="small text-muted">Airbnb: 未実行</div>
+                  <div id="yadozeiLastRunBooking" class="small text-muted">Booking: 未実行</div>
+                </div>
+              </div>
+            </details>
+          </div>
+
           </div>
         </div>
         <div class="modal-footer">
@@ -1089,6 +1194,32 @@
           </div>
           <div id="lineRecentUsersBody">
             <div class="text-center text-muted py-4"><div class="spinner-border"></div><div class="mt-2 small">読み込み中...</div></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- やどぜい実行履歴モーダル -->
+  <div class="modal fade" id="yadozeiHistoryModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">
+            <i class="bi bi-clock-history"></i> 宿泊税CSV 実行履歴
+            <span class="small text-muted ms-2" id="yadozeiHistoryPropertyName"></span>
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div id="yadozeiHistoryBody">
+            <div class="text-center text-muted py-4">
+              <div class="spinner-border"></div>
+              <div class="mt-2 small">読み込み中...</div>
+            </div>
           </div>
         </div>
         <div class="modal-footer">

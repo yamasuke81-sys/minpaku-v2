@@ -22,6 +22,66 @@ function _sanitizeLineChannels(raw) {
 }
 
 /**
+ * yadozei (宿泊税CSV自動化) 設定のサニタイズ
+ * 設計仕様書 (scratchpad/yadozei-design-spec.md) のスキーマに準拠
+ * undefined は呼び元で除外済みなので、ここでは null / オブジェクト両対応
+ */
+function _sanitizeYadozei(raw) {
+  if (raw === null) return null;
+  if (!raw || typeof raw !== "object") return null;
+
+  const out = {};
+
+  // Drive フォルダ ID (listener が作成・更新する想定だが API 経由でも保持できるように)
+  if (raw.driveFolderId !== undefined) {
+    out.driveFolderId = raw.driveFolderId ? String(raw.driveFolderId).trim() : null;
+  }
+
+  // Airbnb 設定
+  if (raw.airbnb && typeof raw.airbnb === "object") {
+    out.airbnb = {
+      enabled: raw.airbnb.enabled === true,
+      listingId: raw.airbnb.listingId ? String(raw.airbnb.listingId).trim() : "",
+      listingName: raw.airbnb.listingName ? String(raw.airbnb.listingName).trim() : "",
+    };
+  }
+
+  // Booking.com 設定
+  if (raw.booking && typeof raw.booking === "object") {
+    out.booking = {
+      enabled: raw.booking.enabled === true,
+      propertyId: raw.booking.propertyId ? String(raw.booking.propertyId).trim() : "",
+      propertyName: raw.booking.propertyName ? String(raw.booking.propertyName).trim() : "",
+    };
+  }
+
+  // スケジュール設定
+  if (raw.schedule && typeof raw.schedule === "object") {
+    const dayOfMonth = Math.max(1, Math.min(7, Number(raw.schedule.dayOfMonth) || 2));
+    const hour = Math.max(0, Math.min(23, Number(raw.schedule.hour) || 4));
+    const targetMonths = Math.max(1, Math.min(3, Number(raw.schedule.targetMonths) || 1));
+    out.schedule = {
+      enabled: raw.schedule.enabled !== false, // default true
+      dayOfMonth,
+      hour,
+      targetMonths,
+    };
+  }
+
+  // やどぜいアップロード設定 (F3 で使用)
+  if (raw.yadozeiUpload && typeof raw.yadozeiUpload === "object") {
+    out.yadozeiUpload = {
+      enabled: raw.yadozeiUpload.enabled === true,
+    };
+  }
+
+  // lastRun は listener (PC側) が書き換える領域なので API 経由では受け付けない
+  // (clientから誤って空でPUTされても既存値を消さないように)
+
+  return out;
+}
+
+/**
  * timeeAutofill オブジェクトのサニタイズ
  * タイミー求人複製 URL + フォーム自動入力用パラメータ一式
  * userscripts/timee-autofill.user.js が読む
@@ -202,6 +262,14 @@ module.exports = function propertiesApi(db) {
         updatedAt: FieldValue.serverTimestamp(),
       };
 
+      // 宿泊税CSV (やどぜい) 設定 — 指定時のみフィールド追加
+      if (body.yadozei !== undefined) {
+        const yadozei = _sanitizeYadozei(body.yadozei);
+        if (yadozei !== null) {
+          data.yadozei = yadozei;
+        }
+      }
+
       const docRef = await collection.add(data);
       res.status(201).json({ id: docRef.id, ...data });
     } catch (e) {
@@ -275,6 +343,37 @@ module.exports = function propertiesApi(db) {
       }
       // 物件ごとの騒音ルール黄色カードの表示ON/OFF
       if (body.showNoiseAgreement !== undefined) data.showNoiseAgreement = Boolean(body.showNoiseAgreement);
+
+      // 宿泊税CSV (やどぜい) 設定 — ネスト構造で部分更新
+      // body.yadozei が { airbnb: {...} } のように一部キーしか含まなくても
+      // 既存 yadozei.booking などを温存するため、ドット記法で個別フィールドを書く
+      if (body.yadozei !== undefined) {
+        if (body.yadozei === null) {
+          // 明示的に null → フィールドごと削除
+          data.yadozei = null;
+        } else {
+          const sanitized = _sanitizeYadozei(body.yadozei);
+          if (sanitized !== null) {
+            // ネスト構造を温存しながら部分更新するため、ドットパスで個別書き込み
+            // Firestore の update() は "a.b.c" 形式の key を渡すと該当ネストのみ更新する
+            if (sanitized.driveFolderId !== undefined) {
+              data["yadozei.driveFolderId"] = sanitized.driveFolderId;
+            }
+            if (sanitized.airbnb !== undefined) {
+              data["yadozei.airbnb"] = sanitized.airbnb;
+            }
+            if (sanitized.booking !== undefined) {
+              data["yadozei.booking"] = sanitized.booking;
+            }
+            if (sanitized.schedule !== undefined) {
+              data["yadozei.schedule"] = sanitized.schedule;
+            }
+            if (sanitized.yadozeiUpload !== undefined) {
+              data["yadozei.yadozeiUpload"] = sanitized.yadozeiUpload;
+            }
+          }
+        }
+      }
       data.updatedAt = FieldValue.serverTimestamp();
 
       await docRef.update(data);

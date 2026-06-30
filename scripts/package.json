@@ -5,6 +5,8 @@
   "description": "PC 常駐型ツール (Firestore キュー監視等)",
   "dependencies": {
     "firebase-admin": "^13.0.0",
-    "playwright": "^1.60.0"
+    "googleapis": "^144.0.0",
+    "playwright": "^1.60.0",
+    "xlsx": "^0.18.5"
   }
 }

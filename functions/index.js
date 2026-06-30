@@ -183,6 +183,10 @@ app.use("/keybox", keyboxApi(db));
 const dispatchApi = require("./api/dispatch");
 app.use("/dispatch", dispatchApi(db));
 
+// ========== 宿泊税CSV (やどぜい) API ==========
+const yadozeiApi = require("./api/yadozei");
+app.use("/yadozei", yadozeiApi(db));
+
 // ========== LINE プロフィール取得 API ==========
 const lineProfileApi = require("./api/line-profile");
 app.use("/line-profile", lineProfileApi(db));
@@ -310,6 +314,15 @@ exports.logCleanup = onSchedule({
   region: "asia-northeast1",
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/logCleanup"));
+
+// 宿泊税CSV (やどぜい) 自動取得のキュー投入 (毎日 04:00 JST)
+// properties.yadozei.schedule に従って yadozeiQueue へジョブを投入する。
+// PC 常駐の scripts/yadozei-listener.mjs が onSnapshot で監視 → Playwright で実行する
+exports.yadozeiCsvDispatcher = onSchedule({
+  schedule: "0 4 * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/yadozeiCsvDispatcher"));
 
 // Gmail受信監視（5分おき）— Gmail API有効化後にコメント解除
 // 前提: settings/gmail { enabled: true, userEmail: "..." }
