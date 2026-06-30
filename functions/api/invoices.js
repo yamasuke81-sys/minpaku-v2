@@ -688,78 +688,39 @@ async function uploadInvoiceToDrive_(db, filePath, invoice, staff, fromEmail) {
   oauth2Client.setCredentials({ refresh_token: tokenData.refreshToken });
   const drive = google.drive({ version: "v3", auth: oauth2Client });
 
-  // 親フォルダ解決: アプリ専用フォルダを自動作成して使う
-  // drive.file scope はアプリが作成したファイル/フォルダのみアクセス可。
-  // 旧 GAS 共有フォルダ (1ucWQQ...) は drive.file では触れず "File not found" になるため、
-  // アプリ自身が作った「民泊請求書(v2)」フォルダを My Drive 直下に作成し、その ID を永続化する。
-  const APP_FOLDER_NAME = "民泊請求書(v2)";
-  let parentFolderId = null;
+  // 保存先解決: 新フォルダ体系 (DRIVE_DESIGN.md §12) に従い、
+  // 物件マスタの driveSourceFolderId (= 520_物件/{物件}/008_民泊運用/収支取込) にフラット保存する。
+  // ※年月サブフォルダは作らない (設計書「月で区切らない」)。
+  // 旧「民泊請求書(v2)」+ 年月サブ方式は廃止 (settings/driveInvoice は参照しない)。
+  const propertyId = invoice.propertyId;
+  if (!propertyId) {
+    throw new Error("invoice.propertyId 未設定 (新フォルダ体系では物件単位の保存先が必要)");
+  }
+  const propDoc = await dbRef.collection("properties").doc(propertyId).get();
+  const driveSourceFolderId = propDoc.exists ? (propDoc.data().driveSourceFolderId || "") : "";
+  if (!driveSourceFolderId) {
+    throw new Error("収支取込フォルダID (driveSourceFolderId) 未設定 — 物件編集モーダルで Google Drive の収支取込フォルダIDを登録してください");
+  }
+
+  // 物件Gmail OAuth で対象フォルダにアクセスできるか検証 (権限なし or trashed なら明示エラー)
   try {
-    const s = await dbRef.collection("settings").doc("driveInvoice").get();
-    if (s.exists && s.data().parentFolderId) parentFolderId = s.data().parentFolderId;
-  } catch (_) {}
-
-  // 保存済み ID があればアクセス可能か検証 (drive.file で触れないものは無効扱い)
-  if (parentFolderId) {
-    try {
-      const meta = await drive.files.get({ fileId: parentFolderId, fields: "id, trashed" });
-      if (meta.data.trashed) parentFolderId = null;
-    } catch (_) {
-      parentFolderId = null; // File not found 等 → 作り直し
+    const meta = await drive.files.get({ fileId: driveSourceFolderId, fields: "id, trashed, name" });
+    if (meta.data.trashed) {
+      throw new Error(`収支取込フォルダがゴミ箱に入っています (folderId=${driveSourceFolderId})`);
     }
+  } catch (e) {
+    if (e.message?.startsWith("収支取込フォルダ")) throw e;
+    throw new Error(`収支取込フォルダにアクセスできません — 物件Gmail (${fromEmail || "senderGmail未設定"}) を「編集者」として共有してください (folderId=${driveSourceFolderId}, 原因=${e.message})`);
   }
 
-  // 無効/未設定ならアプリ作成フォルダを名前検索 → 無ければ新規作成し永続化
-  if (!parentFolderId) {
-    const fSearch = await drive.files.list({
-      q: `name='${APP_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-      fields: "files(id, name)",
-      pageSize: 1,
-    });
-    if (fSearch.data.files && fSearch.data.files.length) {
-      parentFolderId = fSearch.data.files[0].id;
-    } else {
-      const createdParent = await drive.files.create({
-        requestBody: { name: APP_FOLDER_NAME, mimeType: "application/vnd.google-apps.folder" },
-        fields: "id",
-      });
-      parentFolderId = createdParent.data.id;
-    }
-    try {
-      await dbRef.collection("settings").doc("driveInvoice").set({ parentFolderId }, { merge: true });
-    } catch (_) {}
-  }
-
-  // 年月フォルダを検索or作成
   const yearMonth = invoice.yearMonth || "";
-  const folderName = yearMonth;  // "YYYY-MM"
-  let folderId = null;
-  const search = await drive.files.list({
-    q: `'${parentFolderId}' in parents and name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-    fields: "files(id, name)",
-    pageSize: 1,
-  });
-  if (search.data.files && search.data.files.length) {
-    folderId = search.data.files[0].id;
-  } else {
-    const created = await drive.files.create({
-      requestBody: {
-        name: folderName,
-        mimeType: "application/vnd.google-apps.folder",
-        parents: [parentFolderId],
-      },
-      fields: "id",
-    });
-    folderId = created.data.id;
-  }
-
   const fileName = `${invoice.id}_${invoice.staffName || "unknown"}_${yearMonth}.pdf`;
   await drive.files.create({
-    requestBody: { name: fileName, parents: [folderId] },
+    requestBody: { name: fileName, parents: [driveSourceFolderId] },
     media: { mimeType: "application/pdf", body: fs.createReadStream(filePath) },
     fields: "id",
   });
-  console.log(`Drive アップロード成功: ${fileName}`);
+  console.log(`Drive アップロード成功: ${fileName} → folderId=${driveSourceFolderId}`);
 }
 
 /**
