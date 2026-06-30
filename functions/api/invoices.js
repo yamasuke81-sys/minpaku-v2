@@ -2061,7 +2061,11 @@ module.exports = function invoicesApi(db) {
           staff: staffDoc.name || "",
           total: `¥${Number(computed.total).toLocaleString("ja-JP")}`,
           url: confirmUrl,
+          pdfUrl: pdfSignedUrl || "",
         };
+
+        // メール本文には PDF リンクを必ず付ける (customMessage に {pdfUrl} が無くても保険として末尾追記)
+        const pdfFooter = pdfSignedUrl ? `\n\nPDFダウンロード (7日間有効):\n${pdfSignedUrl}` : "";
 
         // ownerLine/groupLine/propertyEmail/ownerEmail/subOwner/discord 系を一括送信
         // propertyId を渡すことで物件別 channelOverrides["invoice_submitted"] が解決される
@@ -2072,6 +2076,7 @@ module.exports = function invoicesApi(db) {
           vars: notifyVars,
           propertyId,
           staffIds: [], // staffLine/staffEmail を notifyByKey から除外（提出者本人へは別途個別送信）
+          extraEmailFooter: pdfFooter, // ownerEmail / propertyEmail / subOwnerEmail に PDF リンク追記
         });
 
         // スタッフ個別LINE: 提出者本人のみに送信（全スタッフ同報は絶対禁止）
