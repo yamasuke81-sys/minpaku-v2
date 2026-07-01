@@ -411,23 +411,26 @@ async function handleAirbnbCsv(job, ctx, jobId) {
           .catch(() => {});
         await page.waitForTimeout(500);
       }
-      // 対象月の日セル (月見出しの直下にある td[role=button]) を位置で特定してクリック
+      // 対象月の日セルを「文書順」で特定してクリック
+      // (カレンダーは3ヶ月分を同時描画するので、対象月見出し〜次の月見出しの間にある td[role=button] を選ぶ)
       const clickDay = (day) =>
         page.evaluate(
           ({ lbl, day }) => {
             const dlg = document.querySelector('[role="dialog"]');
             if (!dlg) return "no-dialog";
-            const heads = [...dlg.querySelectorAll("*")].filter((e) => e.children.length === 0 && e.textContent.trim() === lbl);
-            if (!heads.length) return "no-head";
-            const headTop = heads[0].getBoundingClientRect().top;
-            const cells = [...dlg.querySelectorAll('td[role="button"]')].filter((td) => td.textContent.trim() === String(day));
-            let best = null, bd = Infinity;
-            for (const c of cells) {
-              const d = c.getBoundingClientRect().top - headTop;
-              if (d >= 0 && d < bd) { bd = d; best = c; }
-            }
-            if (!best) return "no-cell";
-            best.click();
+            const all = [...dlg.querySelectorAll("*")];
+            const isHead = (e) => e.children.length === 0 && /^\d{4}年\d{1,2}月$/.test(e.textContent.trim());
+            const headEls = all.filter(isHead);
+            const targetHead = headEls.find((h) => h.textContent.trim() === lbl);
+            if (!targetHead) return "no-head";
+            const targetIdx = all.indexOf(targetHead);
+            const nextHead = headEls.find((h) => all.indexOf(h) > targetIdx);
+            const nextIdx = nextHead ? all.indexOf(nextHead) : all.length;
+            const cell = all
+              .slice(targetIdx, nextIdx)
+              .find((e) => e.tagName === "TD" && e.getAttribute("role") === "button" && e.textContent.trim() === String(day));
+            if (!cell) return "no-cell";
+            cell.click();
             return "ok";
           },
           { lbl: targetLabel, day }
@@ -437,6 +440,14 @@ async function handleAirbnbCsv(job, ctx, jobId) {
       const r2 = await clickDay(lastDay);
       await page.waitForTimeout(700);
       await debugShot(page, jobId, "airbnb_dates_selected");
+      // 選択された From/To の実値をログに残す (検証用)
+      try {
+        const vals = await page.evaluate(() => {
+          const ins = [...document.querySelectorAll('[role="dialog"] input')].map((i) => i.value || "");
+          return ins;
+        });
+        console.log(`${LOG_PREFIX} 日付選択 r1=${r1} r2=${r2} inputs=${JSON.stringify(vals)}`);
+      } catch (_) {}
       if (r1 !== "ok" || r2 !== "ok") {
         console.warn(`${LOG_PREFIX} 日付選択が不完全: 1日=${r1} ${lastDay}日=${r2}`);
       }
