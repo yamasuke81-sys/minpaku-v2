@@ -433,6 +433,13 @@ async function handleAirbnbCsv(job, ctx, jobId) {
       console.warn(`${LOG_PREFIX} listingName 未設定 — 全リスティングが対象になる`);
     }
 
+    // リスティングのサジェストが残っていると From/日付欄を覆うので、Tab で候補を閉じる
+    // (Enter と違いフィルターパネル自体は閉じない)。ダイアログ見出し付近をクリックして overlay を消す手も併用。
+    if (listingName) {
+      await page.keyboard.press("Tab").catch(() => {});
+      await page.waitForTimeout(600);
+    }
+
     // 期間: From カレンダーを開き、対象月の1日〜末日を範囲選択
     // From 欄の「From」は placeholder ではなくアクセシブル名なので getByRole で拾う
     let fromInput = page.getByRole("textbox", { name: "From", exact: true }).first();
@@ -441,7 +448,15 @@ async function handleAirbnbCsv(job, ctx, jobId) {
       fromInput = page.locator('[role="dialog"] input[type="text"]').nth(1);
     }
     if (await fromInput.count()) {
-      await fromInput.click();
+      await fromInput.scrollIntoViewIfNeeded().catch(() => {});
+      try {
+        await fromInput.click({ timeout: 8000 });
+      } catch (_) {
+        // overlay 等でクリック不可なら force、それでもダメなら JS click
+        await fromInput.click({ force: true, timeout: 4000 }).catch(async () => {
+          await fromInput.evaluate((el) => el.click()).catch(() => {});
+        });
+      }
       await page.waitForTimeout(1000);
       await debugShot(page, jobId, "airbnb_calendar_open");
       await dumpCalendar(page, "airbnb_calendar_open");
