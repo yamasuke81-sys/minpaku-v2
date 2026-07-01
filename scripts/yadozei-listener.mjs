@@ -636,76 +636,74 @@ async function handleBookingCsv(job, ctx, jobId) {
       throw new Error("Booking.com extranet 未ログイン (初回手動ログインが必要)");
     }
 
-    // 「予約」メニュー
+    // 予約ページ検出: admin.booking.com は予約ページへ直接ランディングすることが多い。
+    // 既に予約UI (日付カテゴリ / ダウンロード) があればナビクリック不要。無ければ「予約」ナビをクリック。
     const reservationsCandidates = [
       'a:has-text("予約")',
       'button:has-text("予約")',
       'a:has-text("Reservations")',
       '[data-testid*="reservation"]',
     ];
-    let opened = false;
-    for (const sel of reservationsCandidates) {
-      try {
+    const isOnReservations = async () =>
+      (await page.locator(':text("日付カテゴリ")').first().count().catch(() => 0)) > 0 ||
+      (await page.locator(':text("予約一覧を印刷")').first().count().catch(() => 0)) > 0;
+
+    let opened = await isOnReservations();
+    if (opened) {
+      console.log(`${LOG_PREFIX} 既に予約ページに到達済み (ナビクリック省略)`);
+    } else {
+      for (const sel of reservationsCandidates) {
         const loc = page.locator(sel).first();
-        if (await loc.count()) {
-          await loc.click({ timeout: 3000 });
-          await page.waitForTimeout(2000);
+        if (!(await loc.count().catch(() => 0))) continue;
+        // ナビリンクのクリックは遷移で例外化することがあるので無視し、遷移結果で判定する
+        await loc.click({ timeout: 4000 }).catch(() => {});
+        try {
+          await page.locator(':text("日付カテゴリ")').first().waitFor({ timeout: 12000 });
+        } catch (_) {
+          /* まだ描画されていないかもしれない */
+        }
+        if (await isOnReservations()) {
           opened = true;
+          console.log(`${LOG_PREFIX} 「予約」ナビ経由で予約ページに遷移`);
           break;
         }
-      } catch (_) {
-        /* try next */
       }
     }
     if (!opened) {
       await saveScreenshot(page, jobId, "booking_reservations_not_found");
-      throw new Error("Booking.com 「予約」メニューが見つからない (UI 変更の可能性)");
+      throw new Error("Booking.com 予約ページに到達できない (UI 変更の可能性)");
     }
 
-    // 日付カテゴリ「チェックイン日」設定 (Booking.com extranet UI 揺れに try-fallback)
+    // 予約ページ描画待ち
+    await page.waitForTimeout(2500);
     try {
-      const dateCategory = page
-        .locator('select')
-        .filter({ hasText: /チェックイン|Check-?in/i })
-        .first();
-      if (await dateCategory.count()) {
-        await dateCategory.selectOption({ label: "チェックイン日" }).catch(async () => {
-          await dateCategory.selectOption({ label: "Check-in date" });
-        });
-      }
+      await page
+        .locator(':text("日付カテゴリ"), :text("予約一覧を印刷")')
+        .first()
+        .waitFor({ timeout: 15000 });
     } catch (_) {
-      /* try next */
+      /* 描画途中でも続行 */
     }
 
-    // 期間入力 (date input が2つ並ぶ想定)
+    // 対象月に絞り込む: 予約ページの URL は date_from/date_to/date_type を受け付けるため、
+    // 日付ピッカー (input type="Datepicker") を操作せず URL パラメータで確実に絞り込む。
+    // date_type=arrival = チェックイン日基準 (Airbnb 取得と同じ月の考え方)。
     try {
-      const dateInputs = await page.locator('input[type="date"]').all();
-      if (dateInputs.length >= 2) {
-        await dateInputs[0].fill(first);
-        await dateInputs[1].fill(last);
+      const curUrl = page.url();
+      if (/search_reservations\.html/i.test(curUrl)) {
+        const u = new URL(curUrl);
+        u.searchParams.set("date_type", "arrival");
+        u.searchParams.set("date_from", first); // YYYY-MM-DD (月初)
+        u.searchParams.set("date_to", last); // YYYY-MM-DD (月末)
+        u.searchParams.delete("upcoming_reservations");
+        await page.goto(u.toString(), { waitUntil: "domcontentloaded", timeout: 60_000 });
+        await page.waitForTimeout(3500);
+        console.log(`${LOG_PREFIX} 予約期間を ${first}〜${last} (チェックイン日基準) に設定`);
+      } else {
+        console.warn(`${LOG_PREFIX} search_reservations URL でないため URL 絞り込みをスキップ: ${curUrl}`);
       }
-    } catch (_) {
-      /* ignore */
-    }
-
-    // 「表示」「検索」ボタン
-    const searchCandidates = [
-      'button:has-text("表示")',
-      'button:has-text("検索")',
-      'button:has-text("Search")',
-      'button:has-text("Show")',
-    ];
-    for (const sel of searchCandidates) {
-      try {
-        const loc = page.locator(sel).first();
-        if (await loc.count()) {
-          await loc.click({ timeout: 3000 });
-          await page.waitForTimeout(2500);
-          break;
-        }
-      } catch (_) {
-        /* try next */
-      }
+    } catch (e) {
+      console.warn(`${LOG_PREFIX} 日付絞り込み(URL)失敗: ${e.message}`);
     }
 
     // 「ダウンロード」 → 「予約一覧をダウンロード」
@@ -757,49 +755,56 @@ async function handleBookingCsv(job, ctx, jobId) {
       throw new Error("Booking.com 「予約一覧をダウンロード」が見つからない (UI 変更の可能性)");
     }
 
-    // 「ダウンロード可能」になるまで最大5分ポーリング
-    const readyCandidates = [
-      'button:has-text("ダウンロードする")',
-      'a:has-text("ダウンロードする")',
-      'button:has-text("Ready")',
-      ':text("ダウンロード可能")',
-    ];
+    // ダウンロードパネルの生成待ち
+    await page.waitForTimeout(3000);
+
+    // 対象月のエクスポートが「ダウンロード可能」になるまでポーリングし、その行のDLをクリック。
+    // パネルには過去の別レンジ(例:7/2-7/3の空)も並ぶため、必ず対象月レンジ(月初+月末を含む行)を選ぶ。
+    // ※ 区切り文字(～)は環境差があるので month初日+末日の両方を hasText で照合する。
     const deadline = Date.now() + 5 * 60 * 1000;
     let downloadTrigger = null;
+    let reopenAt = Date.now() + 20_000;
     while (Date.now() < deadline) {
-      for (const sel of readyCandidates) {
-        try {
-          const loc = page.locator(sel).first();
-          if (await loc.count()) {
-            downloadTrigger = loc;
-            break;
-          }
-        } catch (_) {
-          /* try next */
-        }
+      const readyRow = page
+        .locator(":is(li,tr,div)")
+        .filter({ hasText: first }) // 2026-05-01
+        .filter({ hasText: last }) // 2026-05-31
+        .filter({ hasText: "ダウンロード可能" });
+      if ((await readyRow.count().catch(() => 0)) > 0) {
+        // 同一レンジが複数(過去要求分)ある場合は最後=最新を選ぶ
+        downloadTrigger = readyRow.last().getByText("ダウンロード可能").last();
+        console.log(`${LOG_PREFIX} 対象月(${first}〜${last})のエクスポートがダウンロード可能`);
+        break;
       }
-      if (downloadTrigger) break;
-      await page.waitForTimeout(5000);
-      // ページに自動再読込が無い場合のため軽くリロードを挟む (10秒毎)
-      if (Math.floor((Date.now() - (deadline - 5 * 60 * 1000)) / 10000) % 2 === 0) {
-        try {
-          await page.reload({ waitUntil: "domcontentloaded", timeout: 15_000 });
-        } catch (_) {
-          /* ignore */
+      await page.waitForTimeout(4000);
+      // パネルが閉じる/更新されない場合に備えて時々「ダウンロード」を開き直す
+      if (Date.now() > reopenAt) {
+        reopenAt = Date.now() + 20_000;
+        for (const sel of dlMenuCandidates) {
+          try {
+            const loc = page.locator(sel).first();
+            if (await loc.count()) {
+              await loc.click({ timeout: 3000 });
+              await page.waitForTimeout(1200);
+              break;
+            }
+          } catch (_) {
+            /* ignore */
+          }
         }
       }
     }
     if (!downloadTrigger) {
       await saveScreenshot(page, jobId, "booking_dl_ready_timeout");
-      throw new Error("Booking.com ダウンロード準備のポーリングタイムアウト (5分)");
+      throw new Error(`Booking.com 対象月(${first}〜${last})のダウンロードがタイムアウト (5分)`);
     }
 
-    // 「ダウンロードする」クリック → xlsx を受信
+    // 対象行の「ダウンロード可能」クリック → xlsx を受信
     const [download] = await Promise.all([
       page.waitForEvent("download", { timeout: 60_000 }).catch((e) => {
         throw new Error(`Booking.com ダウンロード待機タイムアウト: ${e.message}`);
       }),
-      downloadTrigger.click({ timeout: 5000 }),
+      downloadTrigger.click({ timeout: 8000 }),
     ]);
 
     tmpXlsx = path.join(TMP_DIR, `booking_${jobId}_${Date.now()}.xlsx`);
