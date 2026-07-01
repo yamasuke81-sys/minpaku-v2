@@ -341,6 +341,47 @@ async function downloadDriveFileToTemp(propertyId, fileId, destPath) {
   return destPath;
 }
 
+// CSV の1行をフィールド配列にパース (ダブルクォート対応)。判定用途。出力は元の行をそのまま使う。
+function parseCsvLine(line) {
+  const out = [];
+  let cur = "";
+  let q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (q) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; } else q = false;
+      } else cur += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ",") { out.push(cur); cur = ""; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+// Airbnb 純正CSVを「リスティング」列が listingName を含む行だけに絞る (形式は無加工=行を減らすだけ)。
+// 1宿が複数Airbnbリスティングでも、共通する名前部分でまとめて対象にできる。
+function filterAirbnbCsvByListing(csvText, listingName) {
+  if (!listingName) return { csv: csvText, total: 0, kept: 0, note: "listingName未設定=全行" };
+  const lines = csvText.split(/\r?\n/);
+  if (lines.length < 2) return { csv: csvText, total: 0, kept: 0 };
+  const header = lines[0];
+  const cols = parseCsvLine(header);
+  const idx = cols.findIndex((c) => c.replace(/"/g, "").includes("リスティング"));
+  if (idx < 0) return { csv: csvText, total: lines.length - 1, kept: lines.length - 1, note: "リスティング列不明=全行" };
+  const key = listingName.trim();
+  const out = [header];
+  let total = 0, kept = 0;
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    total++;
+    const listing = (parseCsvLine(lines[i])[idx] || "").trim();
+    if (listing.includes(key) || key.includes(listing)) { out.push(lines[i]); kept++; }
+  }
+  return { csv: out.join("\r\n") + "\r\n", total, kept };
+}
+
 // ================== Airbnb ハンドラ ==================
 async function handleAirbnbCsv(job, ctx, jobId) {
   const { propertyId, propertyName, yearMonth, params } = job;
@@ -380,65 +421,9 @@ async function handleAirbnbCsv(job, ctx, jobId) {
     await page.waitForTimeout(1500);
     await debugShot(page, jobId, "airbnb_filter_open");
 
-    // リスティングを選択 (名前で絞り込み → 候補ボタンをクリック)
-    if (listingName) {
-      // 検索キー: 【】等の特殊文字を除いた先頭語で絞り込む (「【YADO KO」だと Airbnb 検索が効かない)
-      const key = listingName.replace(/[【】\[\]]/g, "").trim().slice(0, 8);
-      // 言語/実装差に強いよう複数の placeholder 候補
-      const li = page
-        .locator(
-          'input[placeholder="リスティングを選択"], input[placeholder*="リスティング"], input[placeholder*="listing" i], [role="dialog"] input[type="text"]'
-        )
-        .first();
-      try {
-        await li.waitFor({ state: "visible", timeout: 8000 });
-        await li.click();
-        await page.waitForTimeout(400);
-        // fill は編集不可扱いで固まることがあるのでキー入力
-        await page.keyboard.type(key, { delay: 60 });
-        await page.waitForTimeout(1300);
-        await debugShot(page, jobId, "airbnb_listing_typed");
-        // 候補ボタンをクリックして選択する (Enter はフィルターパネルごと閉じてしまい、
-        // その後の From/日付欄が消えるので使わない)。候補はリスティング名の一部でマッチ。
-        const matchTexts = [listingName.slice(0, 10), listingName.slice(0, 6), key];
-        let clicked = false;
-        for (const mt of matchTexts) {
-          const opt = page.locator(`[role="dialog"] button`).filter({ hasText: mt }).first();
-          if (await opt.count()) {
-            await opt.scrollIntoViewIfNeeded().catch(() => {});
-            try {
-              await opt.click({ timeout: 5000 });
-              clicked = true;
-              break;
-            } catch (_) {
-              try {
-                await opt.click({ force: true, timeout: 3000 });
-                clicked = true;
-                break;
-              } catch (_) {
-                /* 次の候補テキストで再試行 */
-              }
-            }
-          }
-        }
-        if (!clicked) console.warn(`${LOG_PREFIX} リスティング候補をクリックできず: ${key}`);
-        await page.waitForTimeout(800);
-        await debugShot(page, jobId, "airbnb_listing_selected");
-      } catch (e) {
-        await saveScreenshot(page, jobId, "airbnb_listing_input_fail");
-        await dumpDialogInputs(page, "airbnb_listing_input_fail");
-        console.warn(`${LOG_PREFIX} リスティング入力に失敗: ${e.message}`);
-      }
-    } else {
-      console.warn(`${LOG_PREFIX} listingName 未設定 — 全リスティングが対象になる`);
-    }
-
-    // リスティングのサジェストが残っていると From/日付欄を覆うので、Tab で候補を閉じる
-    // (Enter と違いフィルターパネル自体は閉じない)。ダイアログ見出し付近をクリックして overlay を消す手も併用。
-    if (listingName) {
-      await page.keyboard.press("Tab").catch(() => {});
-      await page.waitForTimeout(600);
-    }
+    // ★ リスティング絞り込みは Airbnb UI では行わない (特殊文字/複数リスティングで不安定なため)。
+    // 期間(日付)だけ Airbnb でフィルタして全リスティングを出力し、ダウンロード後に
+    // listener 側で CSV の「リスティング」列を listingName で行フィルタする (形式は無加工)。
 
     // 期間: From カレンダーを開き、対象月の1日〜末日を範囲選択
     // From 欄の「From」は placeholder ではなくアクセシブル名なので getByRole で拾う
@@ -602,6 +587,19 @@ async function handleAirbnbCsv(job, ctx, jobId) {
     }
     await download.saveAs(tmpFile);
     console.log(`${LOG_PREFIX} Airbnb CSV 保存: ${tmpFile}`);
+
+    // リスティング列で行フィルタ (形式は無加工=元の行をそのまま残す)。全リスティング出力から対象宿のみ抽出。
+    if (listingName) {
+      try {
+        const raw = fs.readFileSync(tmpFile, "utf8");
+        const f = filterAirbnbCsvByListing(raw, listingName);
+        fs.writeFileSync(tmpFile, f.csv, "utf8");
+        console.log(`${LOG_PREFIX} リスティング「${listingName.slice(0, 14)}…」で ${f.total}→${f.kept}行に絞込`);
+        if (f.kept === 0) console.warn(`${LOG_PREFIX} 該当行0件 — listingName が Airbnb の実リスティング名と一致しているか確認`);
+      } catch (e) {
+        console.warn(`${LOG_PREFIX} CSV行フィルタ失敗 (元CSVのまま続行): ${e.message}`);
+      }
+    }
 
     const result = await uploadCsvToDrive(propertyId, propertyName, "airbnb", yearMonth, tmpFile);
     return result;
