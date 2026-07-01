@@ -66,13 +66,37 @@ for (const dir of [USER_DATA_DIR, FAILURE_DIR, TMP_DIR]) {
 let _persistentCtx = null;
 async function getContext() {
   if (_persistentCtx) return _persistentCtx;
-  console.log(`${LOG_PREFIX} Chromium を起動します (headless=${PLAYWRIGHT_HEADLESS})`);
-  _persistentCtx = await chromium.launchPersistentContext(USER_DATA_DIR, {
+  console.log(`${LOG_PREFIX} ブラウザを起動します (headless=${PLAYWRIGHT_HEADLESS})`);
+  // 自動化検出の回避:
+  //  - Google/Airbnb 等は Playwright の bundled Chromium を「安全でないブラウザ」として
+  //    ログインブロックすることがある。実 Chrome (channel: "chrome") + AutomationControlled 無効化
+  //    + navigator.webdriver 消去 で通常ブラウザに近づける。
+  const baseOpts = {
     headless: PLAYWRIGHT_HEADLESS,
     viewport: null,
-    args: ["--start-maximized"],
+    args: [
+      "--start-maximized",
+      "--disable-blink-features=AutomationControlled",
+    ],
+    ignoreDefaultArgs: ["--enable-automation"],
     acceptDownloads: true,
-  });
+  };
+  try {
+    // 実 Chrome を優先 (bundled Chromium より検出されにくい)
+    _persistentCtx = await chromium.launchPersistentContext(USER_DATA_DIR, { ...baseOpts, channel: "chrome" });
+    console.log(`${LOG_PREFIX} 実 Chrome (channel=chrome) で起動しました`);
+  } catch (e) {
+    console.warn(`${LOG_PREFIX} 実 Chrome 起動失敗 (${e.message}) → bundled Chromium にフォールバック`);
+    _persistentCtx = await chromium.launchPersistentContext(USER_DATA_DIR, baseOpts);
+  }
+  // navigator.webdriver を消して自動化痕跡を隠す
+  try {
+    await _persistentCtx.addInitScript(() => {
+      Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+    });
+  } catch (_) {
+    /* ignore */
+  }
   return _persistentCtx;
 }
 
