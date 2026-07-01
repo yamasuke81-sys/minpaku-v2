@@ -149,9 +149,29 @@ const DEBUG_SHOTS = process.env.YADOZEI_DEBUG !== "0";
 async function debugShot(page, jobId, tag) {
   if (!DEBUG_SHOTS) return;
   try {
+    // ビューポートのみ (fullPage=false) — フィルター等のUIが読めるサイズで残す
     const p = path.join(FAILURE_DIR, `debug_${jobId}_${tag}_${Date.now()}.png`);
-    await page.screenshot({ path: p, fullPage: true });
+    await page.screenshot({ path: p, fullPage: false });
     console.log(`${LOG_PREFIX} debugShot: ${p}`);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+// ダイアログ内の input の placeholder 一覧を crash ログに残す (診断用)
+async function dumpDialogInputs(page, tag) {
+  try {
+    const info = await page.evaluate(() => {
+      const dlg = document.querySelector('[role="dialog"]') || document;
+      const inputs = [...dlg.querySelectorAll("input, textarea, [role=combobox]")].map((e) => ({
+        tag: e.tagName,
+        placeholder: e.getAttribute("placeholder") || "",
+        type: e.getAttribute("type") || "",
+        visible: !!(e.offsetWidth || e.offsetHeight),
+      }));
+      return inputs;
+    });
+    fs.appendFileSync(CRASH_LOG, `[${new Date().toISOString()}] ${tag} dialog inputs: ${JSON.stringify(info)}\n`);
   } catch (_) {
     /* ignore */
   }
@@ -303,20 +323,34 @@ async function handleAirbnbCsv(job, ctx, jobId) {
 
     // リスティングを選択 (名前で絞り込み → 候補ボタンをクリック)
     if (listingName) {
-      const li = page.locator('input[placeholder="リスティングを選択"]').first();
-      if (await li.count()) {
-        const key = listingName.slice(0, 8); // 部分一致キーで絞り込み
+      const key = listingName.slice(0, 8); // 部分一致キーで絞り込み
+      // 言語/実装差に強いよう複数の placeholder 候補
+      const li = page
+        .locator(
+          'input[placeholder="リスティングを選択"], input[placeholder*="リスティング"], input[placeholder*="listing" i], [role="dialog"] input[type="text"]'
+        )
+        .first();
+      try {
+        await li.waitFor({ state: "visible", timeout: 8000 });
         await li.click();
-        await li.fill(key);
-        await page.waitForTimeout(1200);
+        await page.waitForTimeout(400);
+        // fill は編集不可扱いで固まることがあるのでキー入力
+        await page.keyboard.type(key, { delay: 60 });
+        await page.waitForTimeout(1300);
+        await debugShot(page, jobId, "airbnb_listing_typed");
         const opt = page.locator(`[role="dialog"] button:has-text("${key}")`).first();
         if (await opt.count()) {
           await opt.click();
           await page.waitForTimeout(800);
         } else {
           console.warn(`${LOG_PREFIX} リスティング候補が見つからない: ${key}`);
+          await dumpDialogInputs(page, "airbnb_no_listing_option");
         }
         await debugShot(page, jobId, "airbnb_listing_selected");
+      } catch (e) {
+        await saveScreenshot(page, jobId, "airbnb_listing_input_fail");
+        await dumpDialogInputs(page, "airbnb_listing_input_fail");
+        console.warn(`${LOG_PREFIX} リスティング入力に失敗: ${e.message}`);
       }
     } else {
       console.warn(`${LOG_PREFIX} listingName 未設定 — 全リスティングが対象になる`);
