@@ -23,12 +23,24 @@ Cloud Functions (Cloud Scheduler) ─── yadozeiQueue.add ───┐
 ## 1. 依存インストール
 
 ```powershell
-cd C:\Users\yamas\AI_Workspace\minpaku-v2\scripts
+cd C:\Users\yamas\AI_Workspace\minpaku-v2-yadozei\scripts
 npm install
+npx playwright install chromium
 ```
 
 `firebase-admin`, `playwright`, `googleapis`, `xlsx` が入る。
-Playwright のブラウザバイナリも初回は自動取得される（必要なら `npx playwright install chromium`）。
+**`npm install` だけでは Chromium 本体は入らない**ので `npx playwright install chromium` を必ず実行する
+（省略すると `Executable doesn't exist at ...chrome-win64\chrome.exe` で起動失敗する）。
+
+## 1.5. 初回ログイン（Cookie 保存）
+
+```powershell
+node yadozei-listener.mjs --login
+```
+
+Chromium が開き、Airbnb / Booking.com extranet / やどぜい の3タブが自動で開く。
+各サイトにログインすると Cookie が `~/.yadozei-playwright-chrome` に保存され、以降の通常起動で自動継続する。
+ログイン後は `Ctrl + C` で止め、`node yadozei-listener.mjs`（通常モード）で常駐開始。
 
 ## 2. サービスアカウント JSON のパスを環境変数に
 
