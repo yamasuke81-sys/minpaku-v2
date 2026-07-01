@@ -274,16 +274,23 @@ async function syncIcal() {
           const dupSnap = await db.collection("bookings")
             .where("checkIn", "==", checkIn)
             .where("status", "==", "confirmed")
-            .limit(1)
             .get();
-          if (!dupSnap.empty) {
-            const dupData = dupSnap.docs[0].data();
-            // 別プラットフォームの実予約（ゲスト名あり）が存在する → この曖昧な予約はスキップ
-            if (dupData.source !== platform && dupData.guestName && !/^(reserved|airbnb|booking|予約)/i.test(dupData.guestName)) {
-              console.log(`[syncIcal] スキップ(クロス重複): ${platform} ${checkIn}〜${checkOut} (${dupData.source}の実予約あり)`);
-              skipped++;
-              continue;
-            }
+          // 別プラットフォームの実予約（ゲスト名あり）が「同一物件内」に存在する → この曖昧な予約はスキップ
+          // ※ propertyId を JS 側で照合する。1物理物件=1物件ではなく複数物件が iCal を持つため、
+          //   propertyId で絞らないと「別物件で同じ日に予約がある」だけで実予約を誤スキップしてしまう
+          //   (例: the Terrace の Booking 実予約が、別物件の同日 Airbnb 予約により取り込まれない)。
+          const realDup = dupSnap.docs.find(d => {
+            const dd = d.data();
+            return dd.propertyId === setting.propertyId
+              && dd.source !== platform
+              && dd.guestName
+              && !/^(reserved|airbnb|booking|予約)/i.test(dd.guestName);
+          });
+          if (realDup) {
+            const dupData = realDup.data();
+            console.log(`[syncIcal] スキップ(クロス重複): ${platform} ${checkIn}〜${checkOut} (同物件に${dupData.source}の実予約あり)`);
+            skipped++;
+            continue;
           }
         }
 
