@@ -158,6 +158,29 @@ async function debugShot(page, jobId, tag) {
   }
 }
 
+// カレンダーの構造 (月見出し・日セルの aria-label 等) を crash ログに残す (診断用)
+async function dumpCalendar(page, tag) {
+  try {
+    const info = await page.evaluate(() => {
+      const dlg = document.querySelector('[role="dialog"]');
+      if (!dlg) return { err: "no-dialog" };
+      const heads = [...dlg.querySelectorAll("*")]
+        .filter((e) => e.children.length === 0 && /^\d{4}年\d{1,2}月$/.test(e.textContent.trim()))
+        .map((h) => h.textContent.trim());
+      const cells = [...dlg.querySelectorAll('td[role="button"]')];
+      const sample = cells.slice(0, 4).concat(cells.slice(-2)).map((td) => ({
+        text: td.textContent.trim(),
+        aria: (td.getAttribute("aria-label") || "").slice(0, 45),
+        tid: td.getAttribute("data-testid") || td.getAttribute("data-state") || "",
+      }));
+      return { heads, cellCount: cells.length, sample };
+    });
+    fs.appendFileSync(CRASH_LOG, `[${new Date().toISOString()}] ${tag} calendar: ${JSON.stringify(info)}\n`);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
 // ダイアログ内の input の placeholder 一覧を crash ログに残す (診断用)
 async function dumpDialogInputs(page, tag) {
   try {
@@ -367,6 +390,7 @@ async function handleAirbnbCsv(job, ctx, jobId) {
       await fromInput.click();
       await page.waitForTimeout(1000);
       await debugShot(page, jobId, "airbnb_calendar_open");
+      await dumpCalendar(page, "airbnb_calendar_open");
       // 対象月見出しが DOM に現れるまで prev/next で移動
       for (let i = 0; i < 30; i++) {
         const has = await page.evaluate(
