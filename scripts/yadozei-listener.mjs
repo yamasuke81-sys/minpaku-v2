@@ -357,10 +357,16 @@ async function handleAirbnbCsv(job, ctx, jobId) {
     }
 
     // 期間: From カレンダーを開き、対象月の1日〜末日を範囲選択
-    const fromInput = page.locator('input[placeholder="From"]').first();
+    // From 欄の「From」は placeholder ではなくアクセシブル名なので getByRole で拾う
+    let fromInput = page.getByRole("textbox", { name: "From", exact: true }).first();
+    if (!(await fromInput.count())) {
+      // フォールバック: ダイアログ内の2番目のテキスト入力 (1番目=リスティング)
+      fromInput = page.locator('[role="dialog"] input[type="text"]').nth(1);
+    }
     if (await fromInput.count()) {
       await fromInput.click();
       await page.waitForTimeout(1000);
+      await debugShot(page, jobId, "airbnb_calendar_open");
       // 対象月見出しが DOM に現れるまで prev/next で移動
       for (let i = 0; i < 30; i++) {
         const has = await page.evaluate(
