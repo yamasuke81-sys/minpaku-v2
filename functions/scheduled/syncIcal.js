@@ -320,12 +320,21 @@ async function syncIcal() {
           if (hasOverlap) {
             console.log(`[syncIcal] スキップ(ゴースト重複疑い): Booking.com匿名CLOSED ${checkIn}〜${checkOut} (同物件に重複予約あり propertyId=${setting.propertyId})`);
             // 既に過去取り込みでゴーストが残っていれば削除 (cleanup)
+            // ただしメール照合済み・手動確定・実名が付いた予約は「ゴースト」ではないので削除しない
+            // (実予約を誤削除しないための安全ガード)
             if (existing.exists) {
-              try {
-                await docRef.delete();
-                console.log(`[syncIcal] 既存ゴースト削除: ${docId}`);
-              } catch (e) {
-                console.warn(`[syncIcal] ゴースト削除失敗: ${e.message}`);
+              const ex = existing.data() || {};
+              const isRealBooking = ex.emailVerifiedAt || ex.manualOverride
+                || (ex.guestName && ex.guestName !== "Booking.com予約");
+              if (isRealBooking) {
+                console.log(`[syncIcal] ゴースト削除スキップ(実予約): ${docId} (${ex.guestName || ""})`);
+              } else {
+                try {
+                  await docRef.delete();
+                  console.log(`[syncIcal] 既存ゴースト削除: ${docId}`);
+                } catch (e) {
+                  console.warn(`[syncIcal] ゴースト削除失敗: ${e.message}`);
+                }
               }
             }
             // 後段のキャンセル検知 phase で「未同期 = キャンセル」扱いされて
@@ -363,6 +372,9 @@ async function syncIcal() {
           icalUid: uid,
           status: "confirmed",
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          // フィードで再確認できたので「消失猶予」フラグをクリア
+          // (Booking.com iCal は一時的にイベントを落とすため、消失=即キャンセルにしない)
+          firstMissedAt: admin.firestore.FieldValue.delete(),
         };
 
         // Airbnb で guestName が "Reserved" のまま (=保留中の可能性) は pendingApproval=true で取り込む
@@ -483,14 +495,36 @@ async function syncIcal() {
         continue;
       }
 
-      // iCalに存在しない → キャンセル扱い
+      // iCalに存在しない → ただし Booking.com iCal は一時的にイベントを落とすため、
+      // 単発の消失で即キャンセルにしない。初回消失時刻(firstMissedAt)を記録し、
+      // GRACE_MS を超えて連続で消え続けている場合のみキャンセルする。
+      // (メール照合済みは上でスキップ済み。ここに来るのは主に匿名 Booking.com 予約)
+      const MISS_GRACE_MS = 24 * 60 * 60 * 1000; // 24時間
+      const firstMissed = data.firstMissedAt
+        ? (data.firstMissedAt.toDate ? data.firstMissedAt.toDate() : new Date(data.firstMissedAt))
+        : null;
+      if (!firstMissed) {
+        // 初回消失 → 猶予開始（まだキャンセルしない）
+        await doc.ref.update({
+          firstMissedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        console.log(`[syncIcal] フィード消失(猶予開始): ${data.guestName || "不明"} ${data.checkIn}〜${data.checkOut} — 24hフィード復帰しなければキャンセル`);
+        continue;
+      }
+      if (Date.now() - firstMissed.getTime() < MISS_GRACE_MS) {
+        // 猶予期間中 → キャンセルしない
+        console.log(`[syncIcal] フィード消失(猶予中): ${data.guestName || "不明"} ${data.checkIn}〜${data.checkOut}`);
+        continue;
+      }
+
+      // 猶予を超えて消え続けている → キャンセル扱い
       await doc.ref.update({
         status: "cancelled",
         cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
-        cancelReason: "iCal同期: フィードから削除されたため自動キャンセル",
+        cancelReason: "iCal同期: フィードから24h以上削除されたため自動キャンセル",
       });
       cancelled++;
-      console.log(`[syncIcal] キャンセル: ${data.guestName || "不明"} ${data.checkIn}〜${data.checkOut}`);
+      console.log(`[syncIcal] キャンセル(24h猶予超過): ${data.guestName || "不明"} ${data.checkIn}〜${data.checkOut}`);
     }
     if (cancelled > 0) {
       console.log(`[syncIcal] ${cancelled}件の予約を自動キャンセル（iCalから削除済み）`);
