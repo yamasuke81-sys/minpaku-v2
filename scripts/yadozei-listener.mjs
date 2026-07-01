@@ -90,13 +90,16 @@ async function launchCtx() {
     ignoreDefaultArgs: ["--enable-automation"],
     acceptDownloads: true,
   };
+  // bundled Chromium を使用 (安定・最後のタブで終了しない・ユーザーのChromeと競合しない)。
+  // ログイン Cookie は同じ user-data-dir に保存済みなので、そのままログイン状態で使える。
+  // 環境変数 YADOZEI_CHANNEL_CHROME=1 のときだけ実Chromeを使う (ログインやり直し用)。
   let ctx;
-  try {
+  if (process.env.YADOZEI_CHANNEL_CHROME === "1") {
     ctx = await chromium.launchPersistentContext(USER_DATA_DIR, { ...baseOpts, channel: "chrome" });
     console.log(`${LOG_PREFIX} 実 Chrome (channel=chrome) で起動しました`);
-  } catch (e) {
-    console.warn(`${LOG_PREFIX} 実 Chrome 起動失敗 (${e.message}) → bundled Chromium にフォールバック`);
+  } else {
     ctx = await chromium.launchPersistentContext(USER_DATA_DIR, baseOpts);
+    console.log(`${LOG_PREFIX} bundled Chromium で起動しました`);
   }
   try {
     await ctx.addInitScript(() => {
