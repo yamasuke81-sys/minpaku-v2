@@ -62,6 +62,20 @@ for (const dir of [USER_DATA_DIR, FAILURE_DIR, TMP_DIR]) {
   }
 }
 
+// クラッシュ痕跡を残す (プロセスは落とさず継続 — 常駐ワーカーとして生存優先)
+const CRASH_LOG = path.join(USER_DATA_DIR, "listener-crash.log");
+function logCrash(kind, err) {
+  const msg = `[${new Date().toISOString()}] ${kind}: ${err?.stack || err}\n`;
+  console.error(`${LOG_PREFIX} ${kind}:`, err);
+  try {
+    fs.appendFileSync(CRASH_LOG, msg);
+  } catch (_) {
+    /* ignore */
+  }
+}
+process.on("uncaughtException", (e) => logCrash("uncaughtException", e));
+process.on("unhandledRejection", (e) => logCrash("unhandledRejection", e));
+
 // 永続コンテキスト (Chromium) は1度だけ起動し、複数ジョブで共有
 let _persistentCtx = null;
 async function getContext() {
