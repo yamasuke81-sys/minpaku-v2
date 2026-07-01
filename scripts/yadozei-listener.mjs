@@ -931,6 +931,30 @@ async function clickWizardButton(page, texts) {
   }, texts);
 }
 
+// モーダル内に指定テキストのボタンが存在するか (クリックしない・dryRun判定用)
+async function findWizardButton(page, texts) {
+  return await page.evaluate((texts) => {
+    const all = [...document.querySelectorAll("*")];
+    const heading = all.find((e) => e.children.length === 0 && e.textContent.trim() === "CSVインポート");
+    if (!heading) return false;
+    let container = heading;
+    for (let i = 0; i < 10 && container; i++) {
+      for (const t of texts) {
+        if ([...container.querySelectorAll("button")].some((b) => b.textContent.trim() === t && !b.disabled)) return true;
+      }
+      container = container.parentElement;
+    }
+    return false;
+  }, texts);
+}
+
+// CSVインポート モーダルが開いているか
+async function isWizardOpen(page) {
+  return await page.evaluate(() =>
+    [...document.querySelectorAll("*")].some((e) => e.children.length === 0 && e.textContent.trim() === "CSVインポート")
+  );
+}
+
 async function handleYadozeiCsvUpload(job, ctx, jobId) {
   const { propertyId, propertyName, yearMonth, params } = job;
   const ota = params?.ota;
@@ -1003,27 +1027,28 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
     await page.waitForTimeout(2500);
     await debugShot(page, jobId, "yadozei_file_uploaded");
 
-    // ステップ3〜: プレビュー → 次へ を辿る。dryRun は「インポート実行」直前で停止
+    // ステップ3〜5: 「インポート実行」があれば押す。無ければ「次へ」で進む。
+    // 完了検知 = モーダル(CSVインポート)が閉じたら成功。dryRun は「インポート実行」到達で停止。
+    const execTexts = ["インポート実行", "取り込む", "実行"];
     let reachedExec = false;
     let executed = false;
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 8; i++) {
       await debugShot(page, jobId, `yadozei_step_p${i}`);
-      const exec = page
-        .locator('button:has-text("インポート実行"), button:has-text("取り込む"), button:has-text("実行")')
-        .first();
-      if ((await exec.count()) && !(await exec.isDisabled().catch(() => false))) {
+      if (!(await isWizardOpen(page))) {
+        executed = true; // モーダルが閉じた = インポート完了
+        break;
+      }
+      if (await findWizardButton(page, execTexts)) {
         reachedExec = true;
         if (dryRun) {
           console.log(`${LOG_PREFIX} [dryRun] インポート実行ボタンに到達 — 実行せず停止`);
           break;
         }
-        await exec.click({ timeout: 5000 });
-        await page.waitForTimeout(3000);
-        executed = true;
-        break;
+        await clickWizardButton(page, execTexts);
+        await page.waitForTimeout(3500);
+        continue; // 次ループでモーダル閉を検知
       }
-      const moved = await clickWizardButton(page, ["次へ"]);
-      if (!moved) break;
+      if (!(await clickWizardButton(page, ["次へ"]))) break;
       await page.waitForTimeout(2000);
     }
 
@@ -1037,20 +1062,11 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
       return { uploaded: false, dryRun: true, reachedExec: true, ota, yearMonth };
     }
 
-    if (!executed) {
+    await page.waitForTimeout(1000);
+    await debugShot(page, jobId, "yadozei_upload_end");
+    if (!executed && (await isWizardOpen(page))) {
       await saveScreenshot(page, jobId, "yadozei_upload_no_exec");
-      throw new Error("やどぜい「インポート実行」まで到達できなかった (ウィザード UI 変更の可能性)");
-    }
-
-    // 完了確認
-    await page.waitForTimeout(1500);
-    await debugShot(page, jobId, "yadozei_upload_done");
-    const done = page
-      .locator(':text("完了"), :text("インポートしました"), :text("取り込みました"), :text("成功")')
-      .first();
-    if (!(await done.count())) {
-      await saveScreenshot(page, jobId, "yadozei_upload_no_confirm");
-      throw new Error("やどぜいインポート完了を確認できなかった (要手動確認)");
+      throw new Error("やどぜいインポートが完了しなかった (モーダルが閉じない)");
     }
     console.log(`${LOG_PREFIX} やどぜいアップロード完了: ${otaLabel} ${yearMonth} (${propertyName})`);
     return { uploaded: true, ota, yearMonth };
