@@ -8,9 +8,6 @@ module.exports = {
       script: "yadozei-listener.mjs",
       cwd: __dirname,
       interpreter: "node",
-      // pm2 常駐(非対話セッション)では headful Chrome が起動直後に閉じることがあるため headless で動かす。
-      // ログイン Cookie は保存済みなので自動化は headless で問題ない。
-      env: { PLAYWRIGHT_HEADLESS: "1" },
       // 特定ファイルのみ監視 (node_modules 等の巻き添え再起動を防ぐ)
       watch: ["yadozei-listener.mjs"],
       autorestart: true,

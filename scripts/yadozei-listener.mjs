@@ -90,21 +90,16 @@ async function launchCtx() {
     ignoreDefaultArgs: ["--enable-automation"],
     acceptDownloads: true,
   };
-  // 実 Chrome (channel=chrome) を既定にする。pm2 常駐セッションでも安定動作の実績あり。
-  // ログイン Cookie も channel=chrome で保存済み。失敗時のみ bundled Chromium にフォールバック。
-  // 環境変数 YADOZEI_BUNDLED=1 で bundled を強制。
+  // bundled Chromium を既定にする (単独検証で安定動作を確認済み。ユーザーのChromeと競合しない)。
+  // ログイン Cookie は同じ user-data-dir に保存済みなのでログイン状態で使える。
+  // 環境変数 YADOZEI_CHANNEL_CHROME=1 のときだけ実Chromeを使う (ログインやり直し用)。
   let ctx;
-  if (process.env.YADOZEI_BUNDLED === "1") {
+  if (process.env.YADOZEI_CHANNEL_CHROME === "1") {
+    ctx = await chromium.launchPersistentContext(USER_DATA_DIR, { ...baseOpts, channel: "chrome" });
+    console.log(`${LOG_PREFIX} 実 Chrome (channel=chrome) で起動しました`);
+  } else {
     ctx = await chromium.launchPersistentContext(USER_DATA_DIR, baseOpts);
     console.log(`${LOG_PREFIX} bundled Chromium で起動しました`);
-  } else {
-    try {
-      ctx = await chromium.launchPersistentContext(USER_DATA_DIR, { ...baseOpts, channel: "chrome" });
-      console.log(`${LOG_PREFIX} 実 Chrome (channel=chrome) で起動しました`);
-    } catch (e) {
-      console.warn(`${LOG_PREFIX} 実 Chrome 起動失敗 (${e.message}) → bundled Chromium`);
-      ctx = await chromium.launchPersistentContext(USER_DATA_DIR, baseOpts);
-    }
   }
   try {
     await ctx.addInitScript(() => {
