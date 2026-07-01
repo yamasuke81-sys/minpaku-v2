@@ -1045,12 +1045,16 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
           break;
         }
         await clickWizardButton(page, execTexts);
-        console.log(`${LOG_PREFIX} インポート実行クリック — 完了(モーダル閉じ)待ち`);
-        // 「インポート中...」の完了 = モーダルが閉じる まで最大40秒待つ
+        console.log(`${LOG_PREFIX} インポート実行クリック — 「インポート完了」待ち`);
+        // 「インポート中...」→ step5「インポート完了」表示 まで最大40秒待つ (モーダルは自動で閉じない)
         for (let w = 0; w < 40; w++) {
           await page.waitForTimeout(1000);
-          if (!(await isWizardOpen(page))) { executed = true; break; }
+          const done = await page.evaluate(() => document.body.innerText.includes("インポート完了")).catch(() => false);
+          if (done || !(await isWizardOpen(page))) { executed = true; break; }
         }
+        // 完了画面の「閉じる」でモーダルを閉じる
+        await clickWizardButton(page, ["閉じる"]).catch(() => {});
+        await page.waitForTimeout(800);
         break;
       }
       if (!(await clickWizardButton(page, ["次へ"]))) break;
