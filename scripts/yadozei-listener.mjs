@@ -940,18 +940,21 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
     await page.waitForTimeout(1500);
     await debugShot(page, jobId, "yadozei_wizard_open");
 
-    // ステップ1: OTA + 対象月 を選択 (ウィザードダイアログ内の select に限定 — ページ上部のフィルタと混同しない)
-    const wiz = page.locator('[role="dialog"]').first();
-    const otaSelect = wiz
+    // ステップ1: OTA + 対象月 を選択
+    // やどぜいのモーダルは role=dialog ではないので、ページ上部フィルタ(「すべて」= option[value="all"] を持つ)と
+    // ウィザードの select(「すべて」無し)を hasNot で区別する。
+    const otaSelect = page
       .locator("select")
       .filter({ has: page.locator(`option:has-text("${otaLabel}")`) })
+      .filter({ hasNot: page.locator('option[value="all"]') })
       .first();
     if (await otaSelect.count()) {
       await otaSelect.selectOption({ label: otaLabel }).catch(() => {});
     }
-    const monthSelect = wiz
+    const monthSelect = page
       .locator("select")
       .filter({ has: page.locator(`option[value="${yearMonth}"]`) })
+      .filter({ hasNot: page.locator('option[value="all"]') })
       .first();
     if (await monthSelect.count()) {
       await monthSelect.selectOption(yearMonth).catch(() => {});
