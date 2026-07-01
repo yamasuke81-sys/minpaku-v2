@@ -941,24 +941,36 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
     await debugShot(page, jobId, "yadozei_wizard_open");
 
     // ステップ1: OTA + 対象月 を選択
-    // ページ上部フィルタと確実に区別するため、ウィザード固有ラベルの直後の select を xpath で特定する。
-    const [ty2, tm2] = yearMonth.split("-").map(Number);
-    const otaSelect = page.getByText("OTA/予約システムを選択", { exact: false }).locator("xpath=following::select[1]");
-    if (await otaSelect.count()) {
-      await otaSelect.selectOption({ label: otaLabel }).catch((e) => console.warn(`${LOG_PREFIX} OTA select失敗: ${e.message}`));
-    }
-    const monthSelect = page.getByText("対象月を選択", { exact: false }).locator("xpath=following::select[1]");
-    if (await monthSelect.count()) {
-      await monthSelect.selectOption(yearMonth).catch(async (e) => {
-        console.warn(`${LOG_PREFIX} 月select(value=${yearMonth})失敗: ${e.message} → labelで再試行`);
-        await monthSelect.selectOption({ label: `${ty2}年${tm2}月` }).catch((e2) => console.warn(`${LOG_PREFIX} 月select(label)失敗: ${e2.message}`));
-      });
-      const v = await monthSelect.inputValue().catch(() => "?");
-      console.log(`${LOG_PREFIX} ウィザード対象月select値=${v}`);
-    } else {
-      console.warn(`${LOG_PREFIX} ウィザードの「対象月を選択」ラベルが見つからない`);
-    }
-    await page.waitForTimeout(500);
+    // ウィザードの select は「all オプションを持たない」のが特徴 (ページ上部フィルタは value="all" を持つ)。
+    // OTA select = Airbnb オプションを持ち all 無し / 対象月 select = YYYY-MM オプションを持ち all 無し。
+    // React 制御下の select なので native setter + input/change イベントで確実に反映させる。
+    const setResult = await page.evaluate(
+      ({ ym, otaLabel }) => {
+        const sels = [...document.querySelectorAll("select")];
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set;
+        const fire = (el) => {
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        };
+        const hasAll = (s) => [...s.options].some((o) => o.value === "all");
+        let otaOk = false;
+        const otaSel = sels.find((s) => !hasAll(s) && [...s.options].some((o) => o.textContent.trim() === otaLabel || o.value === otaLabel));
+        if (otaSel) {
+          const opt = [...otaSel.options].find((o) => o.textContent.trim() === otaLabel || o.value === otaLabel);
+          if (opt) { setter.call(otaSel, opt.value); fire(otaSel); otaOk = true; }
+        }
+        let monthOk = false, monthVal = "";
+        const monthSel = sels.find((s) => !hasAll(s) && [...s.options].some((o) => /^\d{4}-\d{2}$/.test(o.value)));
+        if (monthSel) {
+          const opt = [...monthSel.options].find((o) => o.value === ym);
+          if (opt) { setter.call(monthSel, ym); fire(monthSel); monthOk = true; monthVal = monthSel.value; }
+        }
+        return { otaOk, monthOk, monthVal };
+      },
+      { ym: yearMonth, otaLabel }
+    );
+    console.log(`${LOG_PREFIX} ステップ1選択: ${JSON.stringify(setResult)}`);
+    await page.waitForTimeout(600);
     await debugShot(page, jobId, "yadozei_step1_filled");
     await clickByText(page, ["次へ"], 4000);
     await page.waitForTimeout(1500);
