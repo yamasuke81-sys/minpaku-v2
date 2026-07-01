@@ -941,35 +941,24 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
     await debugShot(page, jobId, "yadozei_wizard_open");
 
     // ステップ1: OTA + 対象月 を選択
-    // ウィザードの select は「all オプションを持たない」のが特徴 (ページ上部フィルタは value="all" を持つ)。
-    // OTA select = Airbnb オプションを持ち all 無し / 対象月 select = YYYY-MM オプションを持ち all 無し。
-    // React 制御下の select なので native setter + input/change イベントで確実に反映させる。
-    const setResult = await page.evaluate(
-      ({ ym, otaLabel }) => {
-        const sels = [...document.querySelectorAll("select")];
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set;
-        const fire = (el) => {
-          el.dispatchEvent(new Event("input", { bubbles: true }));
-          el.dispatchEvent(new Event("change", { bubbles: true }));
-        };
-        const hasAll = (s) => [...s.options].some((o) => o.value === "all");
-        let otaOk = false;
-        const otaSel = sels.find((s) => !hasAll(s) && [...s.options].some((o) => o.textContent.trim() === otaLabel || o.value === otaLabel));
-        if (otaSel) {
-          const opt = [...otaSel.options].find((o) => o.textContent.trim() === otaLabel || o.value === otaLabel);
-          if (opt) { setter.call(otaSel, opt.value); fire(otaSel); otaOk = true; }
-        }
-        let monthOk = false, monthVal = "";
-        const monthSel = sels.find((s) => !hasAll(s) && [...s.options].some((o) => /^\d{4}-\d{2}$/.test(o.value)));
-        if (monthSel) {
-          const opt = [...monthSel.options].find((o) => o.value === ym);
-          if (opt) { setter.call(monthSel, ym); fire(monthSel); monthOk = true; monthVal = monthSel.value; }
-        }
-        return { otaOk, monthOk, monthVal };
-      },
-      { ym: yearMonth, otaLabel }
-    );
-    console.log(`${LOG_PREFIX} ステップ1選択: ${JSON.stringify(setResult)}`);
+    // ウィザードの select は「all オプションを持たない」のが特徴 (ページ上部フィルタは option[value=all] を持つ)。
+    // 実 select ハンドルを1つずつ調べ、該当 select に Playwright の selectOption(ネイティブ操作=React確実反映) を使う。
+    const allSelects = await page.locator("select").all();
+    let otaVal = "", monthVal = "";
+    for (const s of allSelects) {
+      const hasAll = (await s.locator('option[value="all"]').count()) > 0;
+      if (hasAll) continue;
+      const hasOta = (await s.locator(`option:has-text("${otaLabel}")`).count()) > 0;
+      const hasMonth = (await s.locator(`option[value="${yearMonth}"]`).count()) > 0;
+      if (hasOta && !otaVal) {
+        await s.selectOption({ label: otaLabel }).catch((e) => console.warn(`${LOG_PREFIX} OTA select失敗: ${e.message}`));
+        otaVal = await s.inputValue().catch(() => "?");
+      } else if (hasMonth && !monthVal) {
+        await s.selectOption(yearMonth).catch((e) => console.warn(`${LOG_PREFIX} 月select失敗: ${e.message}`));
+        monthVal = await s.inputValue().catch(() => "?");
+      }
+    }
+    console.log(`${LOG_PREFIX} ステップ1選択: OTA=${otaVal} 対象月=${monthVal}`);
     await page.waitForTimeout(600);
     await debugShot(page, jobId, "yadozei_step1_filled");
     await clickByText(page, ["次へ"], 4000);
