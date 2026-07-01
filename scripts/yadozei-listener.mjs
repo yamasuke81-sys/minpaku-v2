@@ -908,6 +908,29 @@ async function pdfJobPending(propertyId, yearMonth) {
 }
 
 // ================== F3: やどぜい CSV アップロード ==================
+// CSVインポート モーダル内のボタン(次へ/インポート実行等)だけをクリックする。
+// ページ下部のテーブルページネーション「次へ」を誤クリックしないため、
+// モーダル見出し「CSVインポート」の祖先コンテナ内に限定する。
+async function clickWizardButton(page, texts) {
+  return await page.evaluate((texts) => {
+    const all = [...document.querySelectorAll("*")];
+    const heading = all.find((e) => e.children.length === 0 && e.textContent.trim() === "CSVインポート");
+    if (!heading) return false;
+    let container = heading;
+    for (let i = 0; i < 10 && container; i++) {
+      for (const t of texts) {
+        const btns = [...container.querySelectorAll("button")].filter((b) => b.textContent.trim() === t && !b.disabled);
+        if (btns.length) {
+          btns[btns.length - 1].click();
+          return true;
+        }
+      }
+      container = container.parentElement;
+    }
+    return false;
+  }, texts);
+}
+
 async function handleYadozeiCsvUpload(job, ctx, jobId) {
   const { propertyId, propertyName, yearMonth, params } = job;
   const ota = params?.ota;
@@ -961,7 +984,7 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
     console.log(`${LOG_PREFIX} ステップ1選択: OTA=${otaVal} 対象月=${monthVal}`);
     await page.waitForTimeout(600);
     await debugShot(page, jobId, "yadozei_step1_filled");
-    await clickByText(page, ["次へ"], 4000);
+    await clickWizardButton(page, ["次へ"]);
     await page.waitForTimeout(2000);
     await debugShot(page, jobId, "yadozei_after_next1");
 
@@ -972,7 +995,7 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
       await fileInput.waitFor({ state: "attached", timeout: 12000 });
     } catch (e) {
       console.warn(`${LOG_PREFIX} file input 未出現 → 次へ再試行`);
-      await clickByText(page, ["次へ"], 3000);
+      await clickWizardButton(page, ["次へ"]);
       await page.waitForTimeout(2000);
       await fileInput.waitFor({ state: "attached", timeout: 12000 });
     }
@@ -999,7 +1022,7 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
         executed = true;
         break;
       }
-      const moved = await clickByText(page, ["次へ"], 4000);
+      const moved = await clickWizardButton(page, ["次へ"]);
       if (!moved) break;
       await page.waitForTimeout(2000);
     }
