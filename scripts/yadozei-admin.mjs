@@ -119,6 +119,24 @@ async function main() {
     return;
   }
 
+  if (cmd === "lsfolder") {
+    // lsfolder <folderId> [senderGmail]  — フォルダ内ファイルを名前+リンクで一覧
+    const [folderId, sender] = args;
+    const drive = await driveClient(sender || "yamasuke81@gmail.com");
+    const res = await drive.files.list({
+      q: `'${folderId}' in parents and trashed=false`,
+      fields: "files(id, name, mimeType, webViewLink, createdTime)",
+      orderBy: "createdTime desc",
+      pageSize: 50,
+    });
+    const files = res.data.files || [];
+    console.log(`フォルダ ${folderId}: ${files.length} 件`);
+    for (const f of files) {
+      console.log(`  ${f.name}\n    ${f.webViewLink}`);
+    }
+    return;
+  }
+
   if (cmd === "catfile") {
     // catfile <driveFileId> [senderGmail] [maxLines]  — Drive の CSV を先頭 N 行表示
     const [fileId, sender, maxLines] = args;
