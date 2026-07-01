@@ -181,131 +181,60 @@ async function updateHeartbeat() {
   }
 }
 
-// ================== Drive アップロード (OAuth は invoices.js と同パターン) ==================
-async function resolveOAuthClient(senderGmail) {
+// ================== Drive アップロード (invoices.js と同方式: yamasuke81 トークン + 物件フォルダ直書き) ==================
+// フォルダ体系の所有者 yamasuke81 のトークンを優先解決。
+// drive.file スコープの制約で、フォルダを作成/オープンした本人のトークンでないと
+// 新フォルダ体系 (008_民泊運用 配下) に書き込めないため。
+async function resolveWriteDrive() {
   const oauthDoc = await db.collection("settings").doc("gmailOAuth").get();
   if (!oauthDoc.exists) throw new Error("Gmail/Drive OAuth 未設定 (settings/gmailOAuth)");
   const { clientId, clientSecret } = oauthDoc.data();
   if (!clientId || !clientSecret) throw new Error("OAuth clientId/clientSecret 未設定");
-
   const cols = [
     db.collection("settings").doc("gmailOAuth").collection("tokens"),
     db.collection("settings").doc("gmailOAuthEmailVerification").collection("tokens"),
   ];
-
-  let tokenData = null;
-  if (senderGmail) {
+  async function findByEmail(email) {
     for (const col of cols) {
-      const snap = await col.where("email", "==", senderGmail).limit(1).get();
-      if (!snap.empty) {
-        tokenData = snap.docs[0].data();
-        break;
-      }
+      const snap = await col.where("email", "==", email).limit(1).get();
+      if (!snap.empty) return snap.docs[0].data();
     }
+    return null;
   }
-  if (!tokenData) {
+  let tok = await findByEmail("yamasuke81@gmail.com");
+  if (!tok) {
     for (const col of cols) {
       const snap = await col.limit(1).get();
-      if (!snap.empty) {
-        tokenData = snap.docs[0].data();
-        break;
-      }
+      if (!snap.empty) { tok = snap.docs[0].data(); break; }
     }
   }
-  if (!tokenData) throw new Error("OAuth tokens 未登録");
-  if (!tokenData.refreshToken) throw new Error("refreshToken なし (再認可が必要)");
-
+  if (!tok) throw new Error("OAuth tokens 未登録");
+  if (!tok.refreshToken) throw new Error("refreshToken なし (yamasuke81 の Drive 再認可が必要)");
   const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-  oauth2Client.setCredentials({ refresh_token: tokenData.refreshToken });
-  return oauth2Client;
+  oauth2Client.setCredentials({ refresh_token: tok.refreshToken });
+  return google.drive({ version: "v3", auth: oauth2Client });
 }
 
-async function ensureFolder(drive, name, parentId) {
-  const q = parentId
-    ? `'${parentId}' in parents and name='${name.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`
-    : `name='${name.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-  const search = await drive.files.list({ q, fields: "files(id, name)", pageSize: 1 });
-  if (search.data.files && search.data.files.length) return search.data.files[0].id;
-  const requestBody = { name, mimeType: "application/vnd.google-apps.folder" };
-  if (parentId) requestBody.parents = [parentId];
-  const created = await drive.files.create({ requestBody, fields: "id" });
-  return created.data.id;
-}
-
-// 物件の senderGmail から Drive クライアントを解決して返す
-async function getDriveForProperty(propertyId) {
-  let senderGmail = null;
+// 物件の driveOtaCsvFolderId (新フォルダ体系 008_民泊運用/OTAcsv) を取得
+async function getOtaCsvFolderId(propertyId) {
   const propSnap = await db.collection("properties").doc(propertyId).get();
-  const propData = propSnap.exists ? propSnap.data() : {};
-  if (propSnap.exists) senderGmail = propData.senderGmail || null;
-
-  const oauth2Client = await resolveOAuthClient(senderGmail);
-  const drive = google.drive({ version: "v3", auth: oauth2Client });
-  return { drive, propData };
+  const folderId = propSnap.exists ? (propSnap.data().driveOtaCsvFolderId || "") : "";
+  if (!folderId) {
+    throw new Error(
+      "OTA CSV保存フォルダID (driveOtaCsvFolderId) 未設定 — 物件編集モーダルで各宿の 008_民泊運用/OTAcsv フォルダIDを登録してください"
+    );
+  }
+  return folderId;
 }
 
-// 親(民泊宿泊税CSV) → 物件 → 年月 のフォルダ階層を確保して 年月フォルダ ID を返す
-async function ensureMonthFolder(drive, propertyId, propertyName, yearMonth, propData) {
-  // 1. 親フォルダ (民泊宿泊税CSV) を確保。settings/driveYadozei に永続化
-  let parentFolderId = null;
-  try {
-    const s = await db.collection("settings").doc("driveYadozei").get();
-    if (s.exists && s.data().parentFolderId) parentFolderId = s.data().parentFolderId;
-  } catch (_) {
-    /* ignore */
-  }
-  if (parentFolderId) {
-    try {
-      const meta = await drive.files.get({ fileId: parentFolderId, fields: "id, trashed" });
-      if (meta.data.trashed) parentFolderId = null;
-    } catch (_) {
-      parentFolderId = null;
-    }
-  }
-  if (!parentFolderId) {
-    parentFolderId = await ensureFolder(drive, APP_PARENT_FOLDER_NAME, null);
-    try {
-      await db.collection("settings").doc("driveYadozei").set(
-        { parentFolderId, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
-        { merge: true }
-      );
-    } catch (_) {
-      /* ignore */
-    }
-  }
-
-  // 2. 物件サブフォルダを確保 (properties.{pid}.yadozei.driveFolderId 優先)
-  let propertyFolderId = propData?.yadozei?.driveFolderId || null;
-  if (propertyFolderId) {
-    try {
-      const meta = await drive.files.get({ fileId: propertyFolderId, fields: "id, trashed" });
-      if (meta.data.trashed) propertyFolderId = null;
-    } catch (_) {
-      propertyFolderId = null;
-    }
-  }
-  if (!propertyFolderId) {
-    propertyFolderId = await ensureFolder(drive, propertyName || propertyId, parentFolderId);
-    try {
-      await db
-        .collection("properties")
-        .doc(propertyId)
-        .set({ yadozei: { driveFolderId: propertyFolderId } }, { merge: true });
-    } catch (_) {
-      /* ignore */
-    }
-  }
-
-  // 3. 年月サブフォルダ
-  return ensureFolder(drive, yearMonth, propertyFolderId);
-}
-
-// 任意ファイルを物件/年月フォルダにアップロード (CSV/PDF 共通)
+// 任意ファイルを物件の OTAcsv フォルダへ直接アップロード (CSV/PDF 共通)
+// 事前 files.get 検証はしない (drive.file の非対称仕様: 未オープンのフォルダは
+// files.get で not found だが files.create の parents 指定は通る — invoices.js と同じ)
 async function uploadFileToDrive(propertyId, propertyName, yearMonth, fileName, mimeType, localPath) {
-  const { drive, propData } = await getDriveForProperty(propertyId);
-  const monthFolderId = await ensureMonthFolder(drive, propertyId, propertyName, yearMonth, propData);
+  const folderId = await getOtaCsvFolderId(propertyId);
+  const drive = await resolveWriteDrive();
   const created = await drive.files.create({
-    requestBody: { name: fileName, parents: [monthFolderId] },
+    requestBody: { name: fileName, parents: [folderId] },
     media: { mimeType, body: fs.createReadStream(localPath) },
     fields: "id, webViewLink",
   });
@@ -322,9 +251,9 @@ async function uploadCsvToDrive(propertyId, propertyName, ota, yearMonth, localP
   return uploadFileToDrive(propertyId, propertyName, yearMonth, fileName, "text/csv", localPath);
 }
 
-// Drive のファイル (fileId) を temp にダウンロードする (やどぜいアップロード用に CSV を取り戻す)
+// Drive のファイル (fileId) を temp にダウンロード (やどぜいアップロード用に CSV を取り戻す)
 async function downloadDriveFileToTemp(propertyId, fileId, destPath) {
-  const { drive } = await getDriveForProperty(propertyId);
+  const drive = await resolveWriteDrive();
   const res = await drive.files.get({ fileId, alt: "media" }, { responseType: "stream" });
   await new Promise((resolve, reject) => {
     const dest = fs.createWriteStream(destPath);
@@ -336,101 +265,127 @@ async function downloadDriveFileToTemp(propertyId, fileId, destPath) {
 // ================== Airbnb ハンドラ ==================
 async function handleAirbnbCsv(job, ctx, jobId) {
   const { propertyId, propertyName, yearMonth, params } = job;
-  const listingId = params?.listingId;
-  if (!listingId) throw new Error("params.listingId が未指定");
   if (!yearMonth) throw new Error("yearMonth が未指定");
-  const { first, last } = monthRange(yearMonth);
+  const [ty, tm] = yearMonth.split("-").map(Number);
+  const targetLabel = `${ty}年${tm}月`;
+  const lastDay = new Date(Date.UTC(ty, tm, 0)).getUTCDate();
+
+  // フィルタに使うリスティング名 (yadozei.airbnb.listingName 優先、params でも可)
+  const propSnap = await db.collection("properties").doc(propertyId).get();
+  const listingName =
+    (propSnap.exists && propSnap.data()?.yadozei?.airbnb?.listingName) || params?.listingName || "";
 
   const page = await ctx.newPage();
   let tmpFile = null;
   try {
-    await page.goto("https://www.airbnb.com/hosting/reservations/upcoming", {
+    // 全予約ビュー (過去含む)
+    await page.goto("https://www.airbnb.com/hosting/reservations/all", {
       waitUntil: "domcontentloaded",
       timeout: 60_000,
     });
-    await page.waitForTimeout(2000);
-
+    await page.waitForTimeout(2500);
     if (/login|signin|sign_in/i.test(page.url())) {
       await saveScreenshot(page, jobId, "airbnb_not_logged_in");
       throw new Error("Airbnb 未ログイン (初回手動ログインが必要)");
     }
 
-    // 「すべて」タブに切替 (見つからなくても致命的でないので try)
-    const allTabCandidates = [
-      'button:has-text("すべて")',
-      'a:has-text("すべて")',
-      'button:has-text("All")',
-      '[role="tab"]:has-text("すべて")',
-    ];
-    for (const sel of allTabCandidates) {
-      try {
-        const loc = page.locator(sel).first();
-        if (await loc.count()) {
-          await loc.click({ timeout: 3000 });
-          await page.waitForTimeout(1000);
-          break;
-        }
-      } catch (_) {
-        /* try next */
-      }
-    }
+    // 「すべて」タブ (URL /all で既に全予約だが念のため)
+    await clickByText(page, ["すべて"], 3000).catch(() => {});
+    await page.waitForTimeout(1000);
 
     // 「フィルター」を開く
-    const filterBtnCandidates = [
-      'button:has-text("フィルター")',
-      'button:has-text("絞り込み")',
-      'button:has-text("Filters")',
-      'button[aria-label*="フィルター"]',
-    ];
-    let filterOpened = false;
-    for (const sel of filterBtnCandidates) {
-      try {
-        const loc = page.locator(sel).first();
-        if (await loc.count()) {
-          await loc.click({ timeout: 3000 });
-          await page.waitForTimeout(1500);
-          filterOpened = true;
-          break;
-        }
-      } catch (_) {
-        /* try next */
-      }
-    }
-    if (!filterOpened) {
+    if (!(await clickByText(page, ["フィルター", "絞り込み", "Filters"], 4000))) {
       await saveScreenshot(page, jobId, "airbnb_filter_not_found");
       throw new Error("Airbnb 「フィルター」ボタンが見つからない (UI 変更の可能性)");
     }
+    await page.waitForTimeout(1500);
+    await debugShot(page, jobId, "airbnb_filter_open");
 
-    // 日付範囲入力 (フィルターモーダル内の input[type=date] や text input が UI 改定で揺れる)
-    try {
-      const dateInputs = await page.locator('input[type="date"]').all();
-      if (dateInputs.length >= 2) {
-        await dateInputs[0].fill(first);
-        await dateInputs[1].fill(last);
-      }
-    } catch (_) {
-      /* セレクタが無い UI もあるので致命的にしない */
-    }
-
-    // 適用ボタン
-    const applyCandidates = [
-      'button:has-text("適用")',
-      'button:has-text("検索")',
-      'button:has-text("Apply")',
-      'button:has-text("結果を表示")',
-    ];
-    for (const sel of applyCandidates) {
-      try {
-        const loc = page.locator(sel).first();
-        if (await loc.count()) {
-          await loc.click({ timeout: 3000 });
-          await page.waitForTimeout(2000);
-          break;
+    // リスティングを選択 (名前で絞り込み → 候補ボタンをクリック)
+    if (listingName) {
+      const li = page.locator('input[placeholder="リスティングを選択"]').first();
+      if (await li.count()) {
+        const key = listingName.slice(0, 8); // 部分一致キーで絞り込み
+        await li.click();
+        await li.fill(key);
+        await page.waitForTimeout(1200);
+        const opt = page.locator(`[role="dialog"] button:has-text("${key}")`).first();
+        if (await opt.count()) {
+          await opt.click();
+          await page.waitForTimeout(800);
+        } else {
+          console.warn(`${LOG_PREFIX} リスティング候補が見つからない: ${key}`);
         }
-      } catch (_) {
-        /* try next */
+        await debugShot(page, jobId, "airbnb_listing_selected");
       }
+    } else {
+      console.warn(`${LOG_PREFIX} listingName 未設定 — 全リスティングが対象になる`);
     }
+
+    // 期間: From カレンダーを開き、対象月の1日〜末日を範囲選択
+    const fromInput = page.locator('input[placeholder="From"]').first();
+    if (await fromInput.count()) {
+      await fromInput.click();
+      await page.waitForTimeout(1000);
+      // 対象月見出しが DOM に現れるまで prev/next で移動
+      for (let i = 0; i < 30; i++) {
+        const has = await page.evaluate(
+          (lbl) => [...document.querySelectorAll('[role="dialog"] *')].some((e) => e.children.length === 0 && e.textContent.trim() === lbl),
+          targetLabel
+        );
+        if (has) break;
+        const cur = await page.evaluate(() => {
+          const h = [...document.querySelectorAll('[role="dialog"] *')].find((e) => e.children.length === 0 && /^\d{4}年\d{1,2}月$/.test(e.textContent.trim()));
+          return h ? h.textContent.trim() : "";
+        });
+        const mm = cur.match(/(\d+)年(\d+)月/);
+        const goPrev = mm ? parseInt(mm[1]) * 12 + parseInt(mm[2]) > ty * 12 + tm : true;
+        await page
+          .locator(goPrev ? 'button[aria-label="表示する月を前月に戻します。"]' : 'button[aria-label="表示する月を翌月に進めます。"]')
+          .first()
+          .click()
+          .catch(() => {});
+        await page.waitForTimeout(500);
+      }
+      // 対象月の日セル (月見出しの直下にある td[role=button]) を位置で特定してクリック
+      const clickDay = (day) =>
+        page.evaluate(
+          ({ lbl, day }) => {
+            const dlg = document.querySelector('[role="dialog"]');
+            if (!dlg) return "no-dialog";
+            const heads = [...dlg.querySelectorAll("*")].filter((e) => e.children.length === 0 && e.textContent.trim() === lbl);
+            if (!heads.length) return "no-head";
+            const headTop = heads[0].getBoundingClientRect().top;
+            const cells = [...dlg.querySelectorAll('td[role="button"]')].filter((td) => td.textContent.trim() === String(day));
+            let best = null, bd = Infinity;
+            for (const c of cells) {
+              const d = c.getBoundingClientRect().top - headTop;
+              if (d >= 0 && d < bd) { bd = d; best = c; }
+            }
+            if (!best) return "no-cell";
+            best.click();
+            return "ok";
+          },
+          { lbl: targetLabel, day }
+        );
+      const r1 = await clickDay(1);
+      await page.waitForTimeout(700);
+      const r2 = await clickDay(lastDay);
+      await page.waitForTimeout(700);
+      await debugShot(page, jobId, "airbnb_dates_selected");
+      if (r1 !== "ok" || r2 !== "ok") {
+        console.warn(`${LOG_PREFIX} 日付選択が不完全: 1日=${r1} ${lastDay}日=${r2}`);
+      }
+    } else {
+      console.warn(`${LOG_PREFIX} From 日付欄が見つからない — 期間フィルタなしで続行`);
+    }
+
+    // 適用
+    if (!(await clickByText(page, ["適用", "結果を表示", "Apply"], 4000))) {
+      console.warn(`${LOG_PREFIX} 「適用」ボタンが見つからない`);
+    }
+    await page.waitForTimeout(2500);
+    await debugShot(page, jobId, "airbnb_applied");
 
     // 「エクスポート」 → 「CSV ファイルをダウンロード」
     const exportCandidates = [

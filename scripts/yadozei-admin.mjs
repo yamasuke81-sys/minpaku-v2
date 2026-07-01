@@ -13,9 +13,26 @@
  *   node yadozei-admin.mjs clean-pending               pending/processing の滞留ジョブを failed 化
  */
 import admin from "firebase-admin";
+import { google } from "googleapis";
 
 if (!admin.apps.length) admin.initializeApp({ projectId: "minpaku-v2" });
 const db = admin.firestore();
+
+// listener と同じ OAuth 解決で Drive クライアントを得る
+async function driveClient(senderGmail) {
+  const oauthDoc = await db.collection("settings").doc("gmailOAuth").get();
+  const { clientId, clientSecret } = oauthDoc.data();
+  const cols = [
+    db.collection("settings").doc("gmailOAuth").collection("tokens"),
+    db.collection("settings").doc("gmailOAuthEmailVerification").collection("tokens"),
+  ];
+  let tok = null;
+  if (senderGmail) for (const c of cols) { const s = await c.where("email", "==", senderGmail).limit(1).get(); if (!s.empty) { tok = s.docs[0].data(); break; } }
+  if (!tok) for (const c of cols) { const s = await c.limit(1).get(); if (!s.empty) { tok = s.docs[0].data(); break; } }
+  const oa = new google.auth.OAuth2(clientId, clientSecret);
+  oa.setCredentials({ refresh_token: tok.refreshToken });
+  return google.drive({ version: "v3", auth: oa });
+}
 
 const [, , cmd, ...args] = process.argv;
 const ts = (t) => (t && t.toDate ? t.toDate().toISOString().replace("T", " ").slice(0, 19) : "-");
@@ -96,7 +113,20 @@ async function main() {
     return;
   }
 
-  console.log("unknown cmd. state|jobs|job|prop|enqueue|clean-pending");
+  if (cmd === "catfile") {
+    // catfile <driveFileId> [senderGmail] [maxLines]  — Drive の CSV を先頭 N 行表示
+    const [fileId, sender, maxLines] = args;
+    const drive = await driveClient(sender || "the.terrace.nagahama01@gmail.com");
+    const res = await drive.files.get({ fileId, alt: "media" }, { responseType: "arraybuffer" });
+    const text = Buffer.from(res.data).toString("utf8");
+    const lines = text.split(/\r?\n/);
+    const n = parseInt(maxLines || "12", 10);
+    console.log(`総行数: ${lines.length}`);
+    console.log(lines.slice(0, n).join("\n"));
+    return;
+  }
+
+  console.log("unknown cmd. state|jobs|job|prop|enqueue|clean-pending|catfile");
 }
 
 main().then(() => process.exit(0)).catch((e) => { console.error("ERROR:", e.message); process.exit(1); });
