@@ -899,11 +899,13 @@ async function selectYadozeiProperty(page, targetLabel, jobId) {
     }
   }
 
-  // 最終確認
-  if (!(await page.getByText(targetLabel, { exact: false }).count())) {
-    await saveScreenshot(page, jobId, "yadozei_property_select_failed");
-    throw new Error(`やどぜい施設の選択に失敗 (期待: ${targetLabel}) — やどぜい未登録の物件の可能性`);
+  // 最終確認 (施設切替後は再ロードで「読み込み中...」の間があるので、対象施設名が出るまで最大16秒待つ)
+  for (let i = 0; i < 20; i++) {
+    if (await page.getByText(targetLabel, { exact: false }).count()) return;
+    await page.waitForTimeout(800);
   }
+  await saveScreenshot(page, jobId, "yadozei_property_select_failed");
+  throw new Error(`やどぜい施設の選択に失敗 (期待: ${targetLabel}) — やどぜい未登録の物件の可能性`);
 }
 
 // option[value=yearMonth] を持つ select を選択
