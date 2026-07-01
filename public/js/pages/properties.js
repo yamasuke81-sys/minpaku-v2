@@ -474,6 +474,9 @@ const PropertiesPage = {
     document.getElementById("propertyDriveSourceFolderId").value = property?.driveSourceFolderId || "";
     // 請求書PDF保存フォルダID (Drive) — 清掃スタッフ請求書PDFの保存先 (収支取込とは別フォルダ)
     document.getElementById("propertyDriveInvoiceFolderId").value = property?.driveInvoiceFolderId || "";
+    // OTA CSV保存フォルダID (Drive) — 宿泊税CSV自動化の保存先
+    const otaCsvEl = document.getElementById("propertyDriveOtaCsvFolderId");
+    if (otaCsvEl) otaCsvEl.value = property?.driveOtaCsvFolderId || "";
 
     // 物件オーナー (請求書宛名) プルダウンを構築 + 名義 / 編集リンク
     // 絞り込みのため現在編集中の物件 ID を保持
@@ -700,6 +703,7 @@ const PropertiesPage = {
       driveSourceFolderId: document.getElementById("propertyDriveSourceFolderId")?.value.trim() || null,
       // 請求書PDF保存フォルダ (Drive) — 清掃スタッフ請求書PDFの保存先
       driveInvoiceFolderId: document.getElementById("propertyDriveInvoiceFolderId")?.value.trim() || null,
+      driveOtaCsvFolderId: document.getElementById("propertyDriveOtaCsvFolderId")?.value.trim() || null,
       // Webアプリ管理者 (請求書宛名用 staff ID) + 名義 (billingProfile ID)
       ownerStaffId: document.getElementById("propertyOwnerStaffId")?.value || null,
       ownerBillingProfileId: document.getElementById("propertyOwnerBillingProfileId")?.value || null,
@@ -874,6 +878,7 @@ const PropertiesPage = {
       driveSourceFolderId: document.getElementById("propertyDriveSourceFolderId")?.value.trim() || null,
       // 請求書PDF保存フォルダ (Drive) — 清掃スタッフ請求書PDFの保存先
       driveInvoiceFolderId: document.getElementById("propertyDriveInvoiceFolderId")?.value.trim() || null,
+      driveOtaCsvFolderId: document.getElementById("propertyDriveOtaCsvFolderId")?.value.trim() || null,
       // Webアプリ管理者 (請求書宛名用 staff ID) + 名義 (billingProfile ID)
       ownerStaffId: document.getElementById("propertyOwnerStaffId")?.value || null,
       ownerBillingProfileId: document.getElementById("propertyOwnerBillingProfileId")?.value || null,

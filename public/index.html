@@ -779,6 +779,15 @@
                 書き込みは v2 アプリ (yamasuke81 OAuth) が担当します。
               </div>
             </div>
+            <!-- OTA CSV保存フォルダ (driveOtaCsvFolderId) — 宿泊税CSV自動化の保存先 -->
+            <div class="col-12">
+              <label class="form-label">OTA CSV保存フォルダID <span class="text-muted small">(Google Drive)</span></label>
+              <input type="text" class="form-control" id="propertyDriveOtaCsvFolderId" placeholder="例: 1yN4K39TgBHZ5lxlSz-r7mjI7jHq0LK1W">
+              <div class="form-text">
+                宿泊税CSV自動化（下の「宿泊税CSV」セクション）が Airbnb/Booking の予約CSVと申告書PDFを保存する先。
+                <code>520_物件/{物件}/008_民泊運用/OTAcsv</code>。書き込みは yamasuke81 OAuth。
+              </div>
+            </div>
 
             <!-- ⑦ iCal同期（物件単位） -->
             <div class="col-12"><hr></div>
