@@ -124,14 +124,15 @@ async function launchCtx() {
 }
 
 async function getContext() {
-  // 既存コンテキストが生きていれば再利用
+  // 共有せず毎回新規起動する。前回のコンテキストが残っていれば必ず閉じてから起動
+  // (死んだ context の再利用や、複数コンテキストによるプロファイルロック競合を防ぐ)。
   if (_persistentCtx) {
     try {
-      _persistentCtx.pages(); // 死んでいれば例外
-      return _persistentCtx;
+      await _persistentCtx.close();
     } catch (_) {
-      _persistentCtx = null;
+      /* ignore */
     }
+    _persistentCtx = null;
   }
   console.log(`${LOG_PREFIX} ブラウザを起動します (headless=${PLAYWRIGHT_HEADLESS})`);
   // プロファイルロック競合等でたまに失敗するのでリトライ (待ってからやり直す)
@@ -1211,6 +1212,8 @@ async function handleJob(docId, job) {
     return;
   }
 
+  // ジョブごとに新規コンテキストを起動する (共有すると死んだ context を再利用して
+  // "context has been closed" になるため)。直列処理なので同時起動の競合は起きない。
   let ctx;
   try {
     ctx = await getContext();
