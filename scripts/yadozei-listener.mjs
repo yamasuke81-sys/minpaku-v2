@@ -1113,44 +1113,76 @@ async function handleJob(docId, job) {
   }
 }
 
-// ================== onSnapshot 監視 ==================
-console.log(`${LOG_PREFIX} 起動 v${VERSION} host=${os.hostname()} cwd=${process.cwd()}`);
+// ================== 起動 ==================
+const LOGIN_MODE = process.argv.includes("--login");
+console.log(`${LOG_PREFIX} 起動 v${VERSION} host=${os.hostname()} cwd=${process.cwd()}${LOGIN_MODE ? " [ログインモード]" : ""}`);
 console.log(`${LOG_PREFIX} USER_DATA_DIR=${USER_DATA_DIR}`);
 
-// heartbeat: 起動時 + 60秒毎
-updateHeartbeat();
-const heartbeatTimer = setInterval(updateHeartbeat, HEARTBEAT_INTERVAL_MS);
+let heartbeatTimer = null;
+let unsubscribe = null;
 
-// yadozeiQueue 監視 (pending を added で拾う)
-const unsubscribe = db
-  .collection("yadozeiQueue")
-  .where("status", "==", "pending")
-  .onSnapshot(
-    async (snap) => {
-      for (const change of snap.docChanges()) {
-        if (change.type !== "added") continue;
-        try {
-          await handleJob(change.doc.id, change.doc.data());
-        } catch (e) {
-          console.error(`${LOG_PREFIX} ジョブ処理で未捕捉例外: ${e.message}`);
-        }
-      }
-    },
-    (err) => {
-      console.error(`${LOG_PREFIX} onSnapshot エラー: ${err.message}`);
+if (LOGIN_MODE) {
+  // ログインモード: Chromium を即起動し、Airbnb / Booking / やどぜい のログインページを開いて待つ。
+  // ここでログインすると Cookie が USER_DATA_DIR に保存され、以降の通常起動で自動継続する。
+  (async () => {
+    const ctx = await getContext();
+    const sites = [
+      { name: "Airbnb", url: "https://www.airbnb.com/hosting/reservations" },
+      { name: "Booking.com extranet", url: "https://admin.booking.com/" },
+      { name: "やどぜい", url: "https://app.yadozei.com/" },
+    ];
+    for (const s of sites) {
+      const p = await ctx.newPage();
+      await p.goto(s.url, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch((e) => {
+        console.warn(`${LOG_PREFIX} ${s.name} を開けませんでした: ${e.message}`);
+      });
     }
-  );
+    console.log(`${LOG_PREFIX} ================================================`);
+    console.log(`${LOG_PREFIX} 3サイトのタブを開きました。各タブでログインしてください:`);
+    console.log(`${LOG_PREFIX}   1) Airbnb  2) Booking.com extranet  3) やどぜい`);
+    console.log(`${LOG_PREFIX} ログイン完了後、この窓で Ctrl+C → 通常起動 'node yadozei-listener.mjs' で常駐開始`);
+    console.log(`${LOG_PREFIX} ================================================`);
+    // プロセスを生かし続ける (Chromium を開いたまま)
+    setInterval(() => {}, 1 << 30);
+  })().catch((e) => {
+    console.error(`${LOG_PREFIX} ログインモード起動失敗: ${e.message}`);
+    process.exit(1);
+  });
+} else {
+  // 通常モード: heartbeat (起動時 + 60秒毎) + yadozeiQueue 監視
+  updateHeartbeat();
+  heartbeatTimer = setInterval(updateHeartbeat, HEARTBEAT_INTERVAL_MS);
+
+  unsubscribe = db
+    .collection("yadozeiQueue")
+    .where("status", "==", "pending")
+    .onSnapshot(
+      async (snap) => {
+        for (const change of snap.docChanges()) {
+          if (change.type !== "added") continue;
+          try {
+            await handleJob(change.doc.id, change.doc.data());
+          } catch (e) {
+            console.error(`${LOG_PREFIX} ジョブ処理で未捕捉例外: ${e.message}`);
+          }
+        }
+      },
+      (err) => {
+        console.error(`${LOG_PREFIX} onSnapshot エラー: ${err.message}`);
+      }
+    );
+}
 
 // ================== graceful shutdown ==================
 async function shutdown(signal) {
   console.log(`${LOG_PREFIX} ${signal} 受信 — シャットダウン開始`);
   try {
-    clearInterval(heartbeatTimer);
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
   } catch (_) {
     /* ignore */
   }
   try {
-    unsubscribe();
+    if (unsubscribe) unsubscribe();
   } catch (_) {
     /* ignore */
   }
