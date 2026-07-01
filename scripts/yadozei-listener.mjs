@@ -941,25 +941,22 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
     await debugShot(page, jobId, "yadozei_wizard_open");
 
     // ステップ1: OTA + 対象月 を選択
-    // やどぜいのモーダルは role=dialog ではないので、ページ上部フィルタ(「すべて」= option[value="all"] を持つ)と
-    // ウィザードの select(「すべて」無し)を hasNot で区別する。
-    const otaSelect = page
-      .locator("select")
-      .filter({ has: page.locator(`option:has-text("${otaLabel}")`) })
-      .filter({ hasNot: page.locator('option[value="all"]') })
-      .first();
+    // ページ上部フィルタと確実に区別するため、ウィザード固有ラベルの直後の select を xpath で特定する。
+    const [ty2, tm2] = yearMonth.split("-").map(Number);
+    const otaSelect = page.getByText("OTA/予約システムを選択", { exact: false }).locator("xpath=following::select[1]");
     if (await otaSelect.count()) {
-      await otaSelect.selectOption({ label: otaLabel }).catch(() => {});
+      await otaSelect.selectOption({ label: otaLabel }).catch((e) => console.warn(`${LOG_PREFIX} OTA select失敗: ${e.message}`));
     }
-    const monthSelect = page
-      .locator("select")
-      .filter({ has: page.locator(`option[value="${yearMonth}"]`) })
-      .filter({ hasNot: page.locator('option[value="all"]') })
-      .first();
+    const monthSelect = page.getByText("対象月を選択", { exact: false }).locator("xpath=following::select[1]");
     if (await monthSelect.count()) {
-      await monthSelect.selectOption(yearMonth).catch(() => {});
+      await monthSelect.selectOption(yearMonth).catch(async (e) => {
+        console.warn(`${LOG_PREFIX} 月select(value=${yearMonth})失敗: ${e.message} → labelで再試行`);
+        await monthSelect.selectOption({ label: `${ty2}年${tm2}月` }).catch((e2) => console.warn(`${LOG_PREFIX} 月select(label)失敗: ${e2.message}`));
+      });
+      const v = await monthSelect.inputValue().catch(() => "?");
+      console.log(`${LOG_PREFIX} ウィザード対象月select値=${v}`);
     } else {
-      console.warn(`${LOG_PREFIX} ウィザードの対象月 select が見つからない: ${yearMonth}`);
+      console.warn(`${LOG_PREFIX} ウィザードの「対象月を選択」ラベルが見つからない`);
     }
     await page.waitForTimeout(500);
     await debugShot(page, jobId, "yadozei_step1_filled");
