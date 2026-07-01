@@ -1391,19 +1391,40 @@ if (LOGIN_MODE) {
   updateHeartbeat();
   heartbeatTimer = setInterval(updateHeartbeat, HEARTBEAT_INTERVAL_MS);
 
+  // ジョブは必ず直列処理する。並行して同じ Chrome プロファイルを起動すると
+  // ロック競合で "context has been closed" になるため。docId 単位で重複投入も防ぐ。
+  const _queue = [];
+  const _seen = new Set();
+  let _draining = false;
+  async function drainQueue() {
+    if (_draining) return;
+    _draining = true;
+    while (_queue.length) {
+      const { id, data } = _queue.shift();
+      try {
+        await handleJob(id, data);
+      } catch (e) {
+        console.error(`${LOG_PREFIX} ジョブ処理で未捕捉例外: ${e.message}`);
+      } finally {
+        _seen.delete(id);
+      }
+    }
+    _draining = false;
+  }
+
   unsubscribe = db
     .collection("yadozeiQueue")
     .where("status", "==", "pending")
     .onSnapshot(
-      async (snap) => {
+      (snap) => {
         for (const change of snap.docChanges()) {
           if (change.type !== "added") continue;
-          try {
-            await handleJob(change.doc.id, change.doc.data());
-          } catch (e) {
-            console.error(`${LOG_PREFIX} ジョブ処理で未捕捉例外: ${e.message}`);
-          }
+          const id = change.doc.id;
+          if (_seen.has(id)) continue; // 同じジョブの二重投入を防ぐ
+          _seen.add(id);
+          _queue.push({ id, data: change.doc.data() });
         }
+        drainQueue();
       },
       (err) => {
         console.error(`${LOG_PREFIX} onSnapshot エラー: ${err.message}`);
