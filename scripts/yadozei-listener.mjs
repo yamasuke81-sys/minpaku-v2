@@ -962,11 +962,20 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
     await page.waitForTimeout(600);
     await debugShot(page, jobId, "yadozei_step1_filled");
     await clickByText(page, ["次へ"], 4000);
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(2000);
+    await debugShot(page, jobId, "yadozei_after_next1");
 
-    // ステップ2: CSV ファイルアップロード
+    // ステップ2: CSV ファイルアップロード (file input が現れるまでリトライ。
+    // 次への反映が遅れると step2 に進めていないことがあるので、その場合はもう一度 次へ を押す)
     const fileInput = page.locator('input[type="file"]').first();
-    await fileInput.waitFor({ state: "attached", timeout: 8000 });
+    try {
+      await fileInput.waitFor({ state: "attached", timeout: 12000 });
+    } catch (e) {
+      console.warn(`${LOG_PREFIX} file input 未出現 → 次へ再試行`);
+      await clickByText(page, ["次へ"], 3000);
+      await page.waitForTimeout(2000);
+      await fileInput.waitFor({ state: "attached", timeout: 12000 });
+    }
     await fileInput.setInputFiles(tmpCsv);
     await page.waitForTimeout(2500);
     await debugShot(page, jobId, "yadozei_file_uploaded");
