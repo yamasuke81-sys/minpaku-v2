@@ -382,7 +382,8 @@ async function handleAirbnbCsv(job, ctx, jobId) {
 
     // リスティングを選択 (名前で絞り込み → 候補ボタンをクリック)
     if (listingName) {
-      const key = listingName.slice(0, 8); // 部分一致キーで絞り込み
+      // 検索キー: 【】等の特殊文字を除いた先頭語で絞り込む (「【YADO KO」だと Airbnb 検索が効かない)
+      const key = listingName.replace(/[【】\[\]]/g, "").trim().slice(0, 8);
       // 言語/実装差に強いよう複数の placeholder 候補
       const li = page
         .locator(
@@ -397,7 +398,11 @@ async function handleAirbnbCsv(job, ctx, jobId) {
         await page.keyboard.type(key, { delay: 60 });
         await page.waitForTimeout(1300);
         await debugShot(page, jobId, "airbnb_listing_typed");
-        const opt = page.locator(`[role="dialog"] button:has-text("${key}")`).first();
+        // 候補ボタン: 検索キー or 元のリスティング名の一部を含むもの
+        let opt = page.locator(`[role="dialog"] button:has-text("${key}")`).first();
+        if (!(await opt.count())) {
+          opt = page.locator(`[role="dialog"] button:has-text("${listingName.slice(0, 6)}")`).first();
+        }
         if (await opt.count()) {
           await opt.click();
           await page.waitForTimeout(800);
