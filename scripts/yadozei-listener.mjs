@@ -398,18 +398,12 @@ async function handleAirbnbCsv(job, ctx, jobId) {
         await page.keyboard.type(key, { delay: 60 });
         await page.waitForTimeout(1300);
         await debugShot(page, jobId, "airbnb_listing_typed");
-        // 候補ボタン: 検索キー or 元のリスティング名の一部を含むもの
-        let opt = page.locator(`[role="dialog"] button:has-text("${key}")`).first();
-        if (!(await opt.count())) {
-          opt = page.locator(`[role="dialog"] button:has-text("${listingName.slice(0, 6)}")`).first();
-        }
-        if (await opt.count()) {
-          await opt.click();
-          await page.waitForTimeout(800);
-        } else {
-          console.warn(`${LOG_PREFIX} リスティング候補が見つからない: ${key}`);
-          await dumpDialogInputs(page, "airbnb_no_listing_option");
-        }
+        // 候補の確定はキーボード(↓+Enter)一本で行う。オートコンプリートの候補を先頭から選び、
+        // ドロップダウンを確実に閉じる (開いたままだと下の From 欄をクリックできずタイムアウトする)。
+        await page.keyboard.press("ArrowDown").catch(() => {});
+        await page.waitForTimeout(400);
+        await page.keyboard.press("Enter").catch(() => {});
+        await page.waitForTimeout(800);
         await debugShot(page, jobId, "airbnb_listing_selected");
       } catch (e) {
         await saveScreenshot(page, jobId, "airbnb_listing_input_fail");
