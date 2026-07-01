@@ -144,6 +144,19 @@ async function saveScreenshot(page, jobId, tag) {
   }
 }
 
+// デバッグ用: 成功/失敗に関わらず要所でスクショを残す (YADOZEI_DEBUG=0 で無効化)
+const DEBUG_SHOTS = process.env.YADOZEI_DEBUG !== "0";
+async function debugShot(page, jobId, tag) {
+  if (!DEBUG_SHOTS) return;
+  try {
+    const p = path.join(FAILURE_DIR, `debug_${jobId}_${tag}_${Date.now()}.png`);
+    await page.screenshot({ path: p, fullPage: true });
+    console.log(`${LOG_PREFIX} debugShot: ${p}`);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
 function safeUnlink(p) {
   try {
     if (p && fs.existsSync(p)) fs.unlinkSync(p);
@@ -444,35 +457,50 @@ async function handleAirbnbCsv(job, ctx, jobId) {
       throw new Error("Airbnb 「エクスポート」ボタンが見つからない (UI 変更の可能性)");
     }
 
-    // CSV ダウンロードリンク + download 待機
-    const csvCandidates = [
-      'a:has-text("CSV")',
-      'button:has-text("CSV")',
-      'a:has-text("CSVファイル")',
-      'button:has-text("CSVファイル")',
-    ];
+    // エクスポートメニューの状態を確認 (デバッグ)
+    await page.waitForTimeout(1000);
+    await debugShot(page, jobId, "airbnb_export_menu");
 
-    const [download] = await Promise.all([
-      page.waitForEvent("download", { timeout: 60_000 }).catch((e) => {
-        throw new Error(`Airbnb CSV ダウンロード待機タイムアウト: ${e.message}`);
-      }),
-      (async () => {
-        for (const sel of csvCandidates) {
-          try {
-            const loc = page.locator(sel).first();
-            if (await loc.count()) {
-              await loc.click({ timeout: 3000 });
-              return;
-            }
-          } catch (_) {
-            /* try next */
-          }
-        }
-        throw new Error("Airbnb 「CSV ファイルをダウンロード」が見つからない (UI 変更の可能性)");
-      })(),
-    ]);
-
+    // download イベントを先に arm してから CSV 項目 → 確認ダイアログを辿る
     tmpFile = path.join(TMP_DIR, `airbnb_${jobId}_${Date.now()}.csv`);
+    const downloadPromise = page.waitForEvent("download", { timeout: 60_000 });
+
+    // 1) 「CSVファイルをダウンロード」メニュー項目をクリック
+    const csvClicked = await clickByText(
+      page,
+      ["CSVファイルをダウンロード", "CSVファイル", "CSVをダウンロード", "CSV"],
+      4000
+    );
+    if (!csvClicked) {
+      await saveScreenshot(page, jobId, "airbnb_csv_option_not_found");
+      throw new Error("Airbnb 「CSV ファイルをダウンロード」が見つからない (UI 変更の可能性)");
+    }
+    await page.waitForTimeout(1500);
+    await debugShot(page, jobId, "airbnb_after_csv_click");
+
+    // 2) 確認ダイアログの「ダウンロード」ボタン (出れば押す。直接DLが始まる UI もあるので任意)
+    try {
+      const confirmDl = page
+        .locator(
+          '[role="dialog"] button:has-text("ダウンロード"), [role="dialog"] a:has-text("ダウンロード"), button:has-text("ダウンロードする"), button:has-text("ダウンロード")'
+        )
+        .last();
+      if (await confirmDl.count()) {
+        await confirmDl.click({ timeout: 4000 });
+        console.log(`${LOG_PREFIX} Airbnb 確認ダイアログの「ダウンロード」をクリック`);
+      }
+    } catch (_) {
+      /* 確認ダイアログ無しでも継続 */
+    }
+
+    // 3) download 受信
+    let download;
+    try {
+      download = await downloadPromise;
+    } catch (e) {
+      await saveScreenshot(page, jobId, "airbnb_download_timeout");
+      throw new Error(`Airbnb CSV ダウンロード待機タイムアウト: ${e.message}`);
+    }
     await download.saveAs(tmpFile);
     console.log(`${LOG_PREFIX} Airbnb CSV 保存: ${tmpFile}`);
 
