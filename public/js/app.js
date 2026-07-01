@@ -47,8 +47,6 @@ const App = {
     "schedule-anonymous-vertical": MyRecruitmentPageAnonymousVertical,
     // キャンセル予約一覧
     "cancelled-bookings": CancelledBookingsPage,
-    // 新旧cal比較（オーナーのみ）
-    "cal-compare": CalComparePage,
   },
 
   // スタッフ用ページ

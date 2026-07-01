@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OAuth 認可コード</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", sans-serif; background: #0d1117; color: #e6edf3; margin: 0; padding: 24px; line-height: 1.6; min-height: 100vh; box-sizing: border-box; }
+  .wrap { max-width: 540px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 16px; }
+  .ok { color: #3fb950; }
+  .err { color: #f85149; }
+  .svc { color: #58a6ff; font-weight: 600; }
+  .code-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 18px; margin: 16px 0; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 16px; user-select: all; -webkit-user-select: all; }
+  button { background: #238636; color: #fff; border: 0; border-radius: 8px; padding: 14px 22px; font-size: 17px; cursor: pointer; width: 100%; font-weight: 600; }
+  button:active { background: #1f6f2f; }
+  button.copied { background: #1f6feb; }
+  .step { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px 16px; margin: 14px 0; }
+  .step b { color: #58a6ff; }
+  .small { color: #8b949e; font-size: 13px; margin-top: 18px; }
+</style>
+</head>
+<body>
+<div class="wrap" id="root">
+  <h1>📋 認可コードを取得しました</h1>
+  <div id="status"></div>
+  <div id="code-area" style="display:none">
+    <div class="step">
+      <b>1.</b> 下のコードをコピー
+      <div class="code-box" id="code"></div>
+      <button id="copy">📋 コードをコピー</button>
+    </div>
+    <div class="step">
+      <b>2.</b> Discord 秘書チャンネル(<span class="svc" id="back-channel">#個人</span>)に貼り付けて送信
+      <div style="margin-top:6px">そのまま <span class="svc">code:</span> や <span class="svc">認可コード:</span> 等のプレフィックスは不要、コードだけでOKです。秘書が自動で識別して認可を完了します。</div>
+    </div>
+  </div>
+  <div id="err-area" class="err" style="display:none"></div>
+  <div class="small">サービス: <span id="service-name">-</span> / state: <span id="state">-</span></div>
+</div>
+<script>
+(function () {
+  const params = new URLSearchParams(location.search);
+  const code = params.get("code");
+  const state = params.get("state") || "";
+  const error = params.get("error");
+  document.getElementById("state").textContent = state;
+  // state 形式: "<service>:<random>" を想定。service が分かれば人間向けラベルを出す。
+  const svcMap = { gtasks: "Google Tasks", claude: "Claude Code", v2gmail: "v2 物件Gmail", gcloud: "gcloud ADC" };
+  const svc = (state.split(":")[0] || "").toLowerCase();
+  document.getElementById("service-name").textContent = svcMap[svc] || svc || "(不明)";
+  if (error) {
+    document.getElementById("err-area").style.display = "block";
+    document.getElementById("err-area").textContent = "❌ 認可エラー: " + error;
+    return;
+  }
+  if (!code) {
+    document.getElementById("err-area").style.display = "block";
+    document.getElementById("err-area").textContent = "❌ code パラメータが無い URL です。最初の認可URLからやり直してください。";
+    return;
+  }
+  // 秘書にそのまま貼って解釈してもらいやすいよう state も含めた1行にする
+  const payload = code + (state ? "#" + state : "");
+  document.getElementById("code-area").style.display = "block";
+  document.getElementById("code").textContent = payload;
+  // 自動コピー試行(スマホでは多くの場合許可ダイアログ無しで成功)
+  const btn = document.getElementById("copy");
+  function copy() {
+    const txt = payload;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(function () {
+        btn.textContent = "✅ コピーしました";
+        btn.classList.add("copied");
+        setTimeout(function () { btn.textContent = "📋 コードをコピー"; btn.classList.remove("copied"); }, 2500);
+      }).catch(function () {
+        fallback();
+      });
+    } else { fallback(); }
+  }
+  function fallback() {
+    const r = document.createRange();
+    r.selectNode(document.getElementById("code"));
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(r);
+    try { document.execCommand("copy"); btn.textContent = "✅ コピーしました(手動選択済)"; } catch (e) { btn.textContent = "⚠️ 自動コピー失敗、上を長押し選択してください"; }
+  }
+  btn.addEventListener("click", copy);
+  // ページ表示時に1度だけ自動コピー試行
+  setTimeout(copy, 200);
+})();
+</script>
+</body>
+</html>
