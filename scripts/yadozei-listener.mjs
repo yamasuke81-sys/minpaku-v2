@@ -109,6 +109,14 @@ async function launchCtx() {
   ctx.on("close", () => {
     if (_persistentCtx === ctx) _persistentCtx = null;
   });
+  // 実 Chrome (channel=chrome) は「最後のタブが閉じる」とブラウザごと終了してしまう。
+  // 各ジョブはページを作って finally で閉じるため、常時開いておくキープアライブページを1枚作り、
+  // ジョブ間でも Chrome が生き続けるようにする。
+  try {
+    await ctx.newPage(); // about:blank を1枚残す (閉じない)
+  } catch (_) {
+    /* ignore */
+  }
   return ctx;
 }
 
