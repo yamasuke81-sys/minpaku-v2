@@ -470,8 +470,10 @@ const PropertiesPage = {
       Array.isArray(property?.airbnbListingAliases)
         ? property.airbnbListingAliases.join(", ")
         : (property?.airbnbListingAliases || "");
-    // 収支取込フォルダID (Drive) — 清掃スタッフ請求書PDF保存先 + 収支取込元
+    // 収支取込フォルダID (Drive) — OTA月次レポート等の取込元
     document.getElementById("propertyDriveSourceFolderId").value = property?.driveSourceFolderId || "";
+    // 請求書PDF保存フォルダID (Drive) — 清掃スタッフ請求書PDFの保存先 (収支取込とは別フォルダ)
+    document.getElementById("propertyDriveInvoiceFolderId").value = property?.driveInvoiceFolderId || "";
 
     // 物件オーナー (請求書宛名) プルダウンを構築 + 名義 / 編集リンク
     // 絞り込みのため現在編集中の物件 ID を保持
@@ -690,8 +692,10 @@ const PropertiesPage = {
       airbnbListingName: document.getElementById("propertyAirbnbListingName")?.value.trim() || null,
       airbnbListingAliases: (document.getElementById("propertyAirbnbListingAliases")?.value || "")
         .split(",").map(s => s.trim()).filter(Boolean),
-      // 収支取込フォルダ (Drive) — 清掃スタッフ請求書PDF保存先 + 収支取込元
+      // 収支取込フォルダ (Drive) — OTA月次レポート等の取込元
       driveSourceFolderId: document.getElementById("propertyDriveSourceFolderId")?.value.trim() || null,
+      // 請求書PDF保存フォルダ (Drive) — 清掃スタッフ請求書PDFの保存先
+      driveInvoiceFolderId: document.getElementById("propertyDriveInvoiceFolderId")?.value.trim() || null,
       // Webアプリ管理者 (請求書宛名用 staff ID) + 名義 (billingProfile ID)
       ownerStaffId: document.getElementById("propertyOwnerStaffId")?.value || null,
       ownerBillingProfileId: document.getElementById("propertyOwnerBillingProfileId")?.value || null,
@@ -860,8 +864,10 @@ const PropertiesPage = {
       airbnbListingName: document.getElementById("propertyAirbnbListingName")?.value.trim() || null,
       airbnbListingAliases: (document.getElementById("propertyAirbnbListingAliases")?.value || "")
         .split(",").map(s => s.trim()).filter(Boolean),
-      // 収支取込フォルダ (Drive) — 清掃スタッフ請求書PDF保存先 + 収支取込元
+      // 収支取込フォルダ (Drive) — OTA月次レポート等の取込元
       driveSourceFolderId: document.getElementById("propertyDriveSourceFolderId")?.value.trim() || null,
+      // 請求書PDF保存フォルダ (Drive) — 清掃スタッフ請求書PDFの保存先
+      driveInvoiceFolderId: document.getElementById("propertyDriveInvoiceFolderId")?.value.trim() || null,
       // Webアプリ管理者 (請求書宛名用 staff ID) + 名義 (billingProfile ID)
       ownerStaffId: document.getElementById("propertyOwnerStaffId")?.value || null,
       ownerBillingProfileId: document.getElementById("propertyOwnerBillingProfileId")?.value || null,

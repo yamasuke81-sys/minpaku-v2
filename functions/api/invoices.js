@@ -663,22 +663,44 @@ async function uploadInvoiceToDrive_(db, filePath, invoice, staff, fromEmail) {
   if (!oauthDoc.exists) throw new Error("Gmail/Drive OAuth 未設定");
   const { clientId, clientSecret } = oauthDoc.data();
 
-  // トークン解決: sendNotificationEmail_ と同じく fromEmail 優先 → 両ストアから先頭フォールバック
+  // 保存先解決: 新フォルダ体系 (DRIVE_DESIGN.md §12) では 520_物件/{物件}/008_民泊運用/請求書
+  // にフラット保存 (別フォルダ運用に確定 — 収支取込フォルダとは分離)。
+  // Firestore の properties/{pid}.driveInvoiceFolderId を使用する。
+  // 旧 driveSourceFolderId は「収支取込元」用途で残るが、請求書保存には使わない。
+  const propertyId = invoice.propertyId;
+  if (!propertyId) {
+    throw new Error("invoice.propertyId 未設定 (物件単位の保存先が必要)");
+  }
+  const propDoc = await dbRef.collection("properties").doc(propertyId).get();
+  const driveInvoiceFolderId = propDoc.exists ? (propDoc.data().driveInvoiceFolderId || "") : "";
+  if (!driveInvoiceFolderId) {
+    throw new Error("請求書PDF保存フォルダID (driveInvoiceFolderId) 未設定 — 物件編集モーダルで Drive のフォルダIDを登録してください");
+  }
+
+  // トークン解決: yamasuke81 (フォルダ体系の実所有者) を優先。
+  // drive.file スコープの制約で「アプリが作成/開いた」ファイルにしかアクセスできないため、
+  // フォルダ作成時と同じ yamasuke81 のトークンで書き込む必要がある。
+  // fromEmail (senderGmail) では共有権限があっても drive.file 範囲外で書けない。
   const cols = [
     dbRef.collection("settings").doc("gmailOAuth").collection("tokens"),
     dbRef.collection("settings").doc("gmailOAuthEmailVerification").collection("tokens"),
   ];
-  let tokenData = null;
-  if (fromEmail) {
+  async function findTokenByEmail(email) {
     for (const col of cols) {
-      const byEmail = await col.where("email", "==", fromEmail).limit(1).get();
-      if (!byEmail.empty) { tokenData = byEmail.docs[0].data(); break; }
+      const snap = await col.where("email", "==", email).limit(1).get();
+      if (!snap.empty) return snap.docs[0].data();
     }
+    return null;
   }
+  let tokenData = await findTokenByEmail("yamasuke81@gmail.com");
   if (!tokenData) {
-    for (const col of cols) {
-      const snap = await col.limit(1).get();
-      if (!snap.empty) { tokenData = snap.docs[0].data(); break; }
+    // フォールバック: 物件senderGmail → 先頭
+    if (fromEmail) tokenData = await findTokenByEmail(fromEmail);
+    if (!tokenData) {
+      for (const col of cols) {
+        const snap = await col.limit(1).get();
+        if (!snap.empty) { tokenData = snap.docs[0].data(); break; }
+      }
     }
   }
   if (!tokenData) throw new Error("OAuth tokens 未登録");
@@ -688,39 +710,24 @@ async function uploadInvoiceToDrive_(db, filePath, invoice, staff, fromEmail) {
   oauth2Client.setCredentials({ refresh_token: tokenData.refreshToken });
   const drive = google.drive({ version: "v3", auth: oauth2Client });
 
-  // 保存先解決: 新フォルダ体系 (DRIVE_DESIGN.md §12) に従い、
-  // 物件マスタの driveSourceFolderId (= 520_物件/{物件}/008_民泊運用/収支取込) にフラット保存する。
-  // ※年月サブフォルダは作らない (設計書「月で区切らない」)。
-  // 旧「民泊請求書(v2)」+ 年月サブ方式は廃止 (settings/driveInvoice は参照しない)。
-  const propertyId = invoice.propertyId;
-  if (!propertyId) {
-    throw new Error("invoice.propertyId 未設定 (新フォルダ体系では物件単位の保存先が必要)");
-  }
-  const propDoc = await dbRef.collection("properties").doc(propertyId).get();
-  const driveSourceFolderId = propDoc.exists ? (propDoc.data().driveSourceFolderId || "") : "";
-  if (!driveSourceFolderId) {
-    throw new Error("収支取込フォルダID (driveSourceFolderId) 未設定 — 物件編集モーダルで Google Drive の収支取込フォルダIDを登録してください");
-  }
-
-  // 物件Gmail OAuth で対象フォルダにアクセスできるか検証 (権限なし or trashed なら明示エラー)
-  try {
-    const meta = await drive.files.get({ fileId: driveSourceFolderId, fields: "id, trashed, name" });
-    if (meta.data.trashed) {
-      throw new Error(`収支取込フォルダがゴミ箱に入っています (folderId=${driveSourceFolderId})`);
-    }
-  } catch (e) {
-    if (e.message?.startsWith("収支取込フォルダ")) throw e;
-    throw new Error(`収支取込フォルダにアクセスできません — 物件Gmail (${fromEmail || "senderGmail未設定"}) を「編集者」として共有してください (folderId=${driveSourceFolderId}, 原因=${e.message})`);
-  }
+  // 事前 files.get 検証は行わない。理由: drive.file スコープの非対称仕様で、
+  // 「アプリが作成/オープンしたことのないフォルダ」は files.get で「File not found」を
+  // 返すが、files.create の parents 指定は通ることがある (親への書き込みは別扱い)。
+  // よって書き込み (files.create) を直接試みて、その結果で成否判断する。
 
   const yearMonth = invoice.yearMonth || "";
   const fileName = `${invoice.id}_${invoice.staffName || "unknown"}_${yearMonth}.pdf`;
-  await drive.files.create({
-    requestBody: { name: fileName, parents: [driveSourceFolderId] },
-    media: { mimeType: "application/pdf", body: fs.createReadStream(filePath) },
-    fields: "id",
-  });
-  console.log(`Drive アップロード成功: ${fileName} → folderId=${driveSourceFolderId}`);
+  try {
+    await drive.files.create({
+      requestBody: { name: fileName, parents: [driveInvoiceFolderId] },
+      media: { mimeType: "application/pdf", body: fs.createReadStream(filePath) },
+      fields: "id",
+      supportsAllDrives: true,
+    });
+    console.log(`Drive アップロード成功: ${fileName} → folderId=${driveInvoiceFolderId}`);
+  } catch (e) {
+    throw new Error(`請求書PDFの Drive 保存に失敗 (folderId=${driveInvoiceFolderId}, 原因=${e.message})`);
+  }
 }
 
 /**
