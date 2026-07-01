@@ -793,33 +793,47 @@ async function clickByText(page, texts, timeout = 4000) {
 // やどぜい登録物件は 物件名 が minpaku-v2 と一致する前提 (override = yadozei.yadozeiPropertyLabel)
 async function selectYadozeiProperty(page, targetLabel, jobId) {
   if (!targetLabel) return;
-  // ヘッダの施設切替ボタン (現在の施設名を表示) を探す
-  const selectorBtn = page
-    .locator("header button, nav button, [class*=header] button")
-    .filter({ hasText: /長浜|Hiroshima|Pocket|KOMACHI|Terrace|House|施設/ })
-    .first();
-  try {
-    if (await selectorBtn.count()) {
-      const cur = (await selectorBtn.innerText().catch(() => "")).trim();
-      if (cur && (cur.includes(targetLabel) || targetLabel.includes(cur))) return; // 既に正しい施設
-      await selectorBtn.click({ timeout: 4000 });
-      await page.waitForTimeout(800);
-      const opt = page
-        .locator(
-          `[role="menuitem"]:has-text("${targetLabel}"), [role="option"]:has-text("${targetLabel}"), button:has-text("${targetLabel}"), li:has-text("${targetLabel}")`
-        )
-        .first();
-      if (await opt.count()) {
-        await opt.click({ timeout: 4000 });
-        await page.waitForTimeout(1500);
-      }
+  const headBtn = () =>
+    page
+      .locator("header button, nav button, [class*=header] button")
+      .filter({ hasText: /長浜|Hiroshima|Pocket|KOMACHI|Terrace|House|ホテル|ムラタク|Zen|宇品/ })
+      .first();
+
+  // 施設セレクタのロード完了を待つ (ヘッダが「読み込み中...」の間は待機)
+  for (let i = 0; i < 25; i++) {
+    if (await page.getByText(targetLabel, { exact: false }).count()) return; // 既に対象施設
+    const btn = headBtn();
+    if (await btn.count()) {
+      const t = (await btn.innerText().catch(() => "")).trim();
+      if (t && !/読み込み中|loading/i.test(t)) break; // ロード完了 (別施設)
     }
-  } catch (_) {
-    /* best effort */
+    await page.waitForTimeout(800);
   }
-  // 確認: 施設名がページに表示されているか
-  const confirm = page.locator(`text=${targetLabel}`).first();
-  if (!(await confirm.count())) {
+
+  // 対象施設でなければ切替
+  if (!(await page.getByText(targetLabel, { exact: false }).count())) {
+    try {
+      const btn = headBtn();
+      if (await btn.count()) {
+        await btn.click({ timeout: 4000 });
+        await page.waitForTimeout(900);
+        const opt = page
+          .locator(
+            `[role="menuitem"]:has-text("${targetLabel}"), [role="option"]:has-text("${targetLabel}"), li:has-text("${targetLabel}"), button:has-text("${targetLabel}")`
+          )
+          .first();
+        if (await opt.count()) {
+          await opt.click({ timeout: 4000 });
+          await page.waitForTimeout(1800);
+        }
+      }
+    } catch (_) {
+      /* best effort */
+    }
+  }
+
+  // 最終確認
+  if (!(await page.getByText(targetLabel, { exact: false }).count())) {
     await saveScreenshot(page, jobId, "yadozei_property_select_failed");
     throw new Error(`やどぜい施設の選択に失敗 (期待: ${targetLabel}) — やどぜい未登録の物件の可能性`);
   }
@@ -911,7 +925,7 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
   const tmpCsv = path.join(TMP_DIR, `upload_${jobId}_${Date.now()}.csv`);
   await downloadDriveFileToTemp(propertyId, sourceFileId, tmpCsv);
 
-  const dryRun = params?.dryRun === true; // true: インポート実行の直前で停止 (書き込まない)
+  const dryRun = params?.dryRun === true || params?.dryRun === "true"; // インポート実行の直前で停止 (書き込まない)
 
   const page = await ctx.newPage();
   try {

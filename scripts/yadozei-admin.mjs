@@ -90,7 +90,13 @@ async function main() {
     const params = {};
     for (const kv of kvs) {
       const i = kv.indexOf("=");
-      if (i > 0) params[kv.slice(0, i)] = kv.slice(i + 1);
+      if (i > 0) {
+        const k = kv.slice(0, i);
+        let v = kv.slice(i + 1);
+        if (v === "true") v = true;
+        else if (v === "false") v = false;
+        params[k] = v;
+      }
     }
     const propDoc = await db.collection("properties").doc(pid).get();
     const propName = propDoc.exists ? propDoc.data().name || pid : pid;
