@@ -78,9 +78,7 @@ process.on("unhandledRejection", (e) => logCrash("unhandledRejection", e));
 
 // 永続コンテキスト (Chromium) は1度だけ起動し、複数ジョブで共有
 let _persistentCtx = null;
-async function getContext() {
-  if (_persistentCtx) return _persistentCtx;
-  console.log(`${LOG_PREFIX} ブラウザを起動します (headless=${PLAYWRIGHT_HEADLESS})`);
+async function launchCtx() {
   // 自動化検出の回避:
   //  - Google/Airbnb 等は Playwright の bundled Chromium を「安全でないブラウザ」として
   //    ログインブロックすることがある。実 Chrome (channel: "chrome") + AutomationControlled 無効化
@@ -88,30 +86,56 @@ async function getContext() {
   const baseOpts = {
     headless: PLAYWRIGHT_HEADLESS,
     viewport: null,
-    args: [
-      "--start-maximized",
-      "--disable-blink-features=AutomationControlled",
-    ],
+    args: ["--start-maximized", "--disable-blink-features=AutomationControlled"],
     ignoreDefaultArgs: ["--enable-automation"],
     acceptDownloads: true,
   };
+  let ctx;
   try {
-    // 実 Chrome を優先 (bundled Chromium より検出されにくい)
-    _persistentCtx = await chromium.launchPersistentContext(USER_DATA_DIR, { ...baseOpts, channel: "chrome" });
+    ctx = await chromium.launchPersistentContext(USER_DATA_DIR, { ...baseOpts, channel: "chrome" });
     console.log(`${LOG_PREFIX} 実 Chrome (channel=chrome) で起動しました`);
   } catch (e) {
     console.warn(`${LOG_PREFIX} 実 Chrome 起動失敗 (${e.message}) → bundled Chromium にフォールバック`);
-    _persistentCtx = await chromium.launchPersistentContext(USER_DATA_DIR, baseOpts);
+    ctx = await chromium.launchPersistentContext(USER_DATA_DIR, baseOpts);
   }
-  // navigator.webdriver を消して自動化痕跡を隠す
   try {
-    await _persistentCtx.addInitScript(() => {
+    await ctx.addInitScript(() => {
       Object.defineProperty(navigator, "webdriver", { get: () => undefined });
     });
   } catch (_) {
     /* ignore */
   }
-  return _persistentCtx;
+  // コンテキストが閉じたら参照をクリア (次ジョブで作り直す)
+  ctx.on("close", () => {
+    if (_persistentCtx === ctx) _persistentCtx = null;
+  });
+  return ctx;
+}
+
+async function getContext() {
+  // 既存コンテキストが生きていれば再利用
+  if (_persistentCtx) {
+    try {
+      _persistentCtx.pages(); // 死んでいれば例外
+      return _persistentCtx;
+    } catch (_) {
+      _persistentCtx = null;
+    }
+  }
+  console.log(`${LOG_PREFIX} ブラウザを起動します (headless=${PLAYWRIGHT_HEADLESS})`);
+  // プロファイルロック競合等でたまに失敗するのでリトライ (待ってからやり直す)
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      _persistentCtx = await launchCtx();
+      return _persistentCtx;
+    } catch (e) {
+      lastErr = e;
+      console.warn(`${LOG_PREFIX} コンテキスト起動失敗 (試行${attempt + 1}/3): ${e.message}`);
+      await new Promise((r) => setTimeout(r, 4000)); // プロファイルロック解放待ち
+    }
+  }
+  throw lastErr;
 }
 
 // ================== ユーティリティ ==================
