@@ -398,11 +398,30 @@ async function handleAirbnbCsv(job, ctx, jobId) {
         await page.keyboard.type(key, { delay: 60 });
         await page.waitForTimeout(1300);
         await debugShot(page, jobId, "airbnb_listing_typed");
-        // 候補の確定はキーボード(↓+Enter)一本で行う。オートコンプリートの候補を先頭から選び、
-        // ドロップダウンを確実に閉じる (開いたままだと下の From 欄をクリックできずタイムアウトする)。
-        await page.keyboard.press("ArrowDown").catch(() => {});
-        await page.waitForTimeout(400);
-        await page.keyboard.press("Enter").catch(() => {});
+        // 候補ボタンをクリックして選択する (Enter はフィルターパネルごと閉じてしまい、
+        // その後の From/日付欄が消えるので使わない)。候補はリスティング名の一部でマッチ。
+        const matchTexts = [listingName.slice(0, 10), listingName.slice(0, 6), key];
+        let clicked = false;
+        for (const mt of matchTexts) {
+          const opt = page.locator(`[role="dialog"] button`).filter({ hasText: mt }).first();
+          if (await opt.count()) {
+            await opt.scrollIntoViewIfNeeded().catch(() => {});
+            try {
+              await opt.click({ timeout: 5000 });
+              clicked = true;
+              break;
+            } catch (_) {
+              try {
+                await opt.click({ force: true, timeout: 3000 });
+                clicked = true;
+                break;
+              } catch (_) {
+                /* 次の候補テキストで再試行 */
+              }
+            }
+          }
+        }
+        if (!clicked) console.warn(`${LOG_PREFIX} リスティング候補をクリックできず: ${key}`);
         await page.waitForTimeout(800);
         await debugShot(page, jobId, "airbnb_listing_selected");
       } catch (e) {
