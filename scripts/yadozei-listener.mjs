@@ -911,16 +911,20 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
   const tmpCsv = path.join(TMP_DIR, `upload_${jobId}_${Date.now()}.csv`);
   await downloadDriveFileToTemp(propertyId, sourceFileId, tmpCsv);
 
+  const dryRun = params?.dryRun === true; // true: インポート実行の直前で停止 (書き込まない)
+
   const page = await ctx.newPage();
   try {
     await gotoYadozei(page, "/stays", jobId, "yadozei_upload");
     await selectYadozeiProperty(page, yadozeiLabel, jobId);
+    await debugShot(page, jobId, "yadozei_stays");
 
     // インポートボタン → ウィザード起動
     const importBtn = page.locator('button:has-text("インポート")').first();
     if (!(await importBtn.count())) throw new Error("やどぜい「インポート」ボタンが見つからない (UI 変更の可能性)");
     await importBtn.click({ timeout: 5000 });
     await page.waitForTimeout(1500);
+    await debugShot(page, jobId, "yadozei_wizard_open");
 
     // ステップ1: OTA + 対象月 を選択 → 次へ
     const otaSelect = page
@@ -931,6 +935,7 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
       await otaSelect.selectOption({ label: otaLabel }).catch(() => {});
     }
     await selectMonth(page, yearMonth);
+    await debugShot(page, jobId, "yadozei_step1_filled");
     await clickByText(page, ["次へ"], 4000);
     await page.waitForTimeout(1500);
 
@@ -939,31 +944,50 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
     await fileInput.waitFor({ state: "attached", timeout: 8000 });
     await fileInput.setInputFiles(tmpCsv);
     await page.waitForTimeout(2500);
+    await debugShot(page, jobId, "yadozei_file_uploaded");
 
-    // ステップ3〜5: プレビュー → 次へ を辿り、最後に インポート実行
+    // ステップ3〜: プレビュー → 次へ を辿る。dryRun は「インポート実行」直前で停止
+    let reachedExec = false;
     let executed = false;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
+      await debugShot(page, jobId, `yadozei_step_p${i}`);
       const exec = page
         .locator('button:has-text("インポート実行"), button:has-text("取り込む"), button:has-text("実行")')
         .first();
-      if (await exec.count()) {
-        if (!(await exec.isDisabled().catch(() => false))) {
-          await exec.click({ timeout: 5000 });
-          await page.waitForTimeout(3000);
-          executed = true;
+      if ((await exec.count()) && !(await exec.isDisabled().catch(() => false))) {
+        reachedExec = true;
+        if (dryRun) {
+          console.log(`${LOG_PREFIX} [dryRun] インポート実行ボタンに到達 — 実行せず停止`);
           break;
         }
+        await exec.click({ timeout: 5000 });
+        await page.waitForTimeout(3000);
+        executed = true;
+        break;
       }
       const moved = await clickByText(page, ["次へ"], 4000);
       if (!moved) break;
       await page.waitForTimeout(2000);
     }
+
+    if (dryRun) {
+      await debugShot(page, jobId, "yadozei_dryrun_end");
+      if (!reachedExec) {
+        await saveScreenshot(page, jobId, "yadozei_dryrun_no_exec");
+        throw new Error("[dryRun] インポート実行ボタンに到達できなかった (ウィザード UI 要確認)");
+      }
+      console.log(`${LOG_PREFIX} [dryRun] やどぜいインポート ウィザードOK (実行せず): ${otaLabel} ${yearMonth}`);
+      return { uploaded: false, dryRun: true, reachedExec: true, ota, yearMonth };
+    }
+
     if (!executed) {
       await saveScreenshot(page, jobId, "yadozei_upload_no_exec");
       throw new Error("やどぜい「インポート実行」まで到達できなかった (ウィザード UI 変更の可能性)");
     }
 
     // 完了確認
+    await page.waitForTimeout(1500);
+    await debugShot(page, jobId, "yadozei_upload_done");
     const done = page
       .locator(':text("完了"), :text("インポートしました"), :text("取り込みました"), :text("成功")')
       .first();
