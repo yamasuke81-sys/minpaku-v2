@@ -1202,8 +1202,9 @@ async function handleJob(docId, job) {
           const ota = job.kind === "airbnb_csv_fetch" ? "airbnb" : "booking";
           await enqueueFollowupJob("yadozei_csv_upload", job, { ota, sourceFileId: result.fileId });
         }
-      } else if (isUpload && job.propertyId) {
+      } else if (isUpload && job.propertyId && !job.params?.dryRun) {
         // 全アップロード後に申告書PDFを取得 (pending 重複は防止し、後発のアップロードで再生成)
+        // dryRun (実インポートしていない) の場合は PDF 連鎖しない
         if (!(await pdfJobPending(job.propertyId, job.yearMonth))) {
           await enqueueFollowupJob("yadozei_pdf_fetch", job, {});
         }
