@@ -230,6 +230,26 @@ module.exports = async function morningBriefing(event) {
   for (const r of pendingConfirm) {
     alertsText.push(`🟡 ${r.checkoutDate} 選定済み・未確定 (${r.selectedStaff || "?"})`);
   }
+
+  // iCal 書き出しフィードの同期死活監視:
+  // OTA が一度でも取得したことのあるフィードが 48時間以上取得されていなければ警告
+  // (OTA は同期停止を通知しないため、無言で止まる事故をここで検知する)
+  try {
+    const feedSnap = await db.collection("icalFeeds").get();
+    const staleMs = 48 * 3600 * 1000;
+    for (const fd of feedSnap.docs) {
+      const f = fd.data();
+      if (f.active === false || !f.lastFetchedAt || !(f.fetchCount > 0)) continue;
+      const last = f.lastFetchedAt.toDate ? f.lastFetchedAt.toDate() : new Date(f.lastFetchedAt);
+      if (Date.now() - last.getTime() > staleMs) {
+        const hrs = Math.round((Date.now() - last.getTime()) / 3600000);
+        alertsText.push(`🔴 iCal配信 ${f.platform || "?"} が${hrs}時間未取得 (${f.propertyName || f.propertyId})`);
+      }
+    }
+  } catch (e) {
+    console.warn("[morningBriefing] iCalフィード鮮度チェック失敗:", e.message);
+  }
+
   if (alertsText.length === 0) alertsText.push("(なし)");
 
   const briefResult = await notifyByKey(db, "morning_briefing", {

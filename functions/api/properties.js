@@ -607,5 +607,85 @@ module.exports = function propertiesApi(db) {
     }
   });
 
+  // ========================================
+  // iCal 書き出しフィード管理 (外部カレンダー連携)
+  // icalFeeds/{token}: { propertyId, propertyName, platform, includeSources, active, createdAt }
+  // フィードURL = <Cloud Run 直URL>/public/ical/<token>.ics を OTA 側に登録する
+  // ========================================
+
+  // GET /properties/:id/ical-feeds — 物件のフィード一覧 (プラットフォーム別)
+  router.get("/:id/ical-feeds", async (req, res) => {
+    try {
+      if (req.user.role !== "owner" && req.user.role !== "sub_owner") {
+        return res.status(403).json({ error: "権限がありません" });
+      }
+      const snap = await db.collection("icalFeeds")
+        .where("propertyId", "==", req.params.id)
+        .get();
+      const feeds = snap.docs
+        .filter(d => d.data().active !== false)
+        .map(d => {
+          const f = d.data();
+          return {
+            token: d.id,
+            platform: f.platform || "",
+            includeSources: f.includeSources || ["direct"],
+            createdAt: f.createdAt || null,
+            lastFetchedAt: f.lastFetchedAt || null,
+            fetchCount: f.fetchCount || 0,
+          };
+        });
+      res.json({ feeds });
+    } catch (e) {
+      console.error("[ical-feeds] 一覧エラー:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /properties/:id/ical-feeds/rotate — フィードトークン発行/再生成
+  // body: { platform: "airbnb" | "booking" }
+  // 同物件×同プラットフォームの既存フィードは無効化して新トークンを発行する
+  // (URL 漏洩時のローテーション用。OTA 側には新URLの再登録が必要)
+  router.post("/:id/ical-feeds/rotate", async (req, res) => {
+    try {
+      if (req.user.role !== "owner") {
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
+      }
+      const platform = String(req.body?.platform || "");
+      if (!["airbnb", "booking"].includes(platform)) {
+        return res.status(400).json({ error: "platform は airbnb / booking を指定してください" });
+      }
+      const propDoc = await collection.doc(req.params.id).get();
+      if (!propDoc.exists) return res.status(404).json({ error: "物件が見つかりません" });
+
+      // 既存の同 platform フィードを無効化
+      const oldSnap = await db.collection("icalFeeds")
+        .where("propertyId", "==", req.params.id)
+        .get();
+      const batch = db.batch();
+      oldSnap.docs
+        .filter(d => (d.data().platform || "") === platform && d.data().active !== false)
+        .forEach(d => batch.update(d.ref, { active: false, deactivatedAt: FieldValue.serverTimestamp() }));
+
+      const crypto = require("crypto");
+      const token = crypto.randomBytes(32).toString("base64url");
+      batch.set(db.collection("icalFeeds").doc(token), {
+        propertyId: req.params.id,
+        propertyName: propDoc.data().name || "",
+        platform,
+        includeSources: ["direct"], // 初期は直販予約のみ配信 (OTA間クロスインポートは現状維持)
+        active: true,
+        createdAt: FieldValue.serverTimestamp(),
+        createdBy: req.user.uid || "",
+        fetchCount: 0,
+      });
+      await batch.commit();
+      res.json({ token, platform });
+    } catch (e) {
+      console.error("[ical-feeds] rotate エラー:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   return router;
 };

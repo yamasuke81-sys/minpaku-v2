@@ -527,12 +527,15 @@ const PropertiesPage = {
     if (isEdit) {
       this._loadPropertyIcal(property.id);
       this._bindPropertyIcalEvents(property.id);
+      this._loadPropertyIcalExport(property.id);
     } else {
       // 新規登録時は iCal セクションを非表示
       const icalRow = document.getElementById("propertyIcalAddRow");
       const icalList = document.getElementById("propertyIcalList");
       if (icalList) icalList.innerHTML = '<p class="text-muted small">物件を保存してから iCal URLを登録してください。</p>';
       if (icalRow) icalRow.classList.add("d-none");
+      const exportList = document.getElementById("propertyIcalExportList");
+      if (exportList) exportList.innerHTML = '<p class="text-muted small">物件を保存してから配信URLを発行してください。</p>';
     }
 
     // --- Gmail 連携セクション（編集時のみ読み込み）---
@@ -1593,6 +1596,105 @@ const PropertiesPage = {
    */
   _bindPropertyIcalEvents(_propertyId) {
     // no-op: _loadPropertyIcal で bindLegacy 済み
+  },
+
+  // ---- iCal 書き出しフィード（直販予約 → OTA 自動ブロック） ----
+
+  /**
+   * 物件の書き出しフィード一覧を読み込んで表示する
+   * フィードURLは relay からの cross-project rewrite が効かないため Cloud Run 直URLで表示
+   */
+  async _loadPropertyIcalExport(propertyId) {
+    const el = document.getElementById("propertyIcalExportList");
+    if (!el) return;
+    const CF_BASE = "https://api-5qrfx7ujcq-an.a.run.app";
+    const PLATFORMS = [
+      { key: "airbnb", label: "Airbnb" },
+      { key: "booking", label: "Booking.com" },
+    ];
+    try {
+      const idToken = await firebase.auth().currentUser.getIdToken();
+      const res = await fetch(`${CF_BASE}/properties/${encodeURIComponent(propertyId)}/ical-feeds`, {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { feeds } = await res.json();
+
+      el.innerHTML = PLATFORMS.map(p => {
+        const f = (feeds || []).find(x => x.platform === p.key);
+        if (!f) {
+          return `
+            <div class="d-flex align-items-center gap-2 mb-1">
+              <span class="badge bg-secondary" style="min-width:90px">${p.label}</span>
+              <span class="text-muted small flex-grow-1">未発行</span>
+              <button type="button" class="btn btn-sm btn-outline-success ical-export-rotate" data-platform="${p.key}">
+                <i class="bi bi-plus-lg"></i> 発行
+              </button>
+            </div>`;
+        }
+        const url = `${CF_BASE}/public/ical/${f.token}.ics`;
+        const sec = f.lastFetchedAt && f.lastFetchedAt._seconds;
+        const fetched = sec ? window.formatTimeShort(new Date(sec * 1000)) : "未取得";
+        return `
+          <div class="d-flex align-items-center gap-2 mb-1">
+            <span class="badge bg-success" style="min-width:90px">${p.label}</span>
+            <input type="text" class="form-control form-control-sm" value="${this.escapeHtml(url)}" readonly style="font-size:0.75rem">
+            <button type="button" class="btn btn-sm btn-outline-primary ical-export-copy" data-url="${this.escapeHtml(url)}" title="URLをコピー">
+              <i class="bi bi-clipboard"></i>
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-danger ical-export-rotate" data-platform="${p.key}" title="URLを再生成 (旧URLは無効化)">
+              <i class="bi bi-arrow-repeat"></i>
+            </button>
+            <span class="text-muted" style="font-size:0.7rem;white-space:nowrap" title="OTA側の最終取得">${fetched}</span>
+          </div>`;
+      }).join("");
+
+      // コピー
+      el.querySelectorAll(".ical-export-copy").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(btn.dataset.url);
+            btn.innerHTML = '<i class="bi bi-check-lg"></i>';
+            setTimeout(() => { btn.innerHTML = '<i class="bi bi-clipboard"></i>'; }, 1500);
+          } catch (_) {
+            await showAlert("コピーに失敗しました。URLを手動で選択してください。");
+          }
+        });
+      });
+      // 発行 / 再生成
+      el.querySelectorAll(".ical-export-rotate").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const platform = btn.dataset.platform;
+          const isRotate = btn.classList.contains("btn-outline-danger");
+          if (isRotate) {
+            const ok = await showConfirm(
+              "配信URLを再生成しますか？\n\n旧URLは即時無効になるため、OTA側（Airbnb / Booking.com）に新URLの再登録が必要です。",
+              { okLabel: "再生成する", okClass: "btn-danger" },
+            );
+            if (!ok) return;
+          }
+          btn.disabled = true;
+          try {
+            const idToken2 = await firebase.auth().currentUser.getIdToken();
+            const r = await fetch(`${CF_BASE}/properties/${encodeURIComponent(propertyId)}/ical-feeds/rotate`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${idToken2}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ platform }),
+            });
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({}));
+              throw new Error(err.error || `HTTP ${r.status}`);
+            }
+            await this._loadPropertyIcalExport(propertyId);
+          } catch (e) {
+            await showAlert(`発行に失敗しました: ${e.message}`);
+            btn.disabled = false;
+          }
+        });
+      });
+    } catch (e) {
+      el.innerHTML = `<div class="alert alert-warning py-1 small mb-0">配信フィードの読み込みに失敗しました: ${this.escapeHtml(e.message)}</div>`;
+    }
   },
 
   // ---- 物件番号 / 色の重複防止 ----

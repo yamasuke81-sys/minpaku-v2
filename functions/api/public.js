@@ -346,6 +346,106 @@ router.get("/staff-ical/:token", async (req, res) => {
   }
 });
 
+// GET /public/ical/:file
+// 外部カレンダー (Airbnb / Booking.com) 向け 予約ブロック iCal フィード
+// :file = "<token>.ics"。トークンは icalFeeds/{token} で解決 (物件×プラットフォーム毎に発行)
+// - includeSources で含める予約種別を制御 (既定 ["direct"]=直販予約のみ → 取込ループ構造的に不可能)
+// - SUMMARY にゲスト名等の個人情報は載せない
+// - DTEND はチェックアウト日 (RFC5545 非包含 = CO日はブロックされない)
+router.get("/ical/:file", async (req, res) => {
+  try {
+    const file = String(req.params.file || "");
+    if (!/\.ics$/i.test(file)) return res.status(404).send("not found");
+    const token = file.replace(/\.ics$/i, "");
+    if (token.length < 32) return res.status(404).send("not found");
+    const db = admin.firestore();
+    const feedRef = db.collection("icalFeeds").doc(token);
+    const feedDoc = await feedRef.get();
+    if (!feedDoc.exists) return res.status(404).send("not found");
+    const feed = feedDoc.data();
+    if (feed.active === false) return res.status(403).send("feed disabled");
+    const includeSources = (Array.isArray(feed.includeSources) && feed.includeSources.length > 0)
+      ? feed.includeSources : ["direct"];
+
+    // 予約の source を includeSources のキーに正規化
+    function srcKey(b) {
+      if (b.syncSource === "direct" || b.source === "direct") return "direct";
+      const s = String(b.source || "");
+      if (/airbnb/i.test(s)) return "airbnb";
+      if (/booking/i.test(s)) return "booking";
+      return "other";
+    }
+    // checkIn/checkOut の型混在 (文字列/Timestamp) を YYYY-MM-DD に正規化
+    function ymd(v) {
+      if (!v) return "";
+      if (typeof v.toDate === "function") return v.toDate().toISOString().slice(0, 10);
+      return String(v).slice(0, 10);
+    }
+
+    // where 1本 (propertyId) + JS フィルタで複合 index 不要
+    const snap = await db.collection("bookings")
+      .where("propertyId", "==", feed.propertyId)
+      .get();
+    const pastCut = new Date(Date.now() - 7 * 86400 * 1000).toISOString().slice(0, 10);
+    const events = [];
+    for (const d of snap.docs) {
+      const b = d.data();
+      if (b.status !== "confirmed") continue;
+      if (!includeSources.includes(srcKey(b))) continue;
+      const ci = ymd(b.checkIn);
+      let co = ymd(b.checkOut);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ci)) continue;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(co) || co <= ci) {
+        // checkOut 欠落/同日 (syncIcal は checkOut||checkIn を入れる) → 1泊としてブロック
+        const dt = new Date(ci + "T00:00:00.000Z");
+        dt.setUTCDate(dt.getUTCDate() + 1);
+        co = dt.toISOString().slice(0, 10);
+      }
+      if (co < pastCut) continue; // 過去分は直近7日まで
+      events.push({ id: d.id, ci, co });
+    }
+    events.sort((a, b) => a.ci.localeCompare(b.ci));
+
+    const dtstamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const c = (s) => s.replace(/-/g, "");
+    const lines = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//minpaku-v2//Booking Blocks//JA",
+      "CALSCALE:GREGORIAN",
+      "METHOD:PUBLISH",
+      `X-WR-CALNAME:${feed.propertyName || "予約ブロック"} (minpaku-v2)`,
+      "X-WR-TIMEZONE:Asia/Tokyo",
+    ];
+    for (const ev of events) {
+      lines.push(
+        "BEGIN:VEVENT",
+        `UID:booking-${ev.id}@minpaku-v2`,
+        `DTSTAMP:${dtstamp}`,
+        `DTSTART;VALUE=DATE:${c(ev.ci)}`,
+        `DTEND;VALUE=DATE:${c(ev.co)}`,
+        "SUMMARY:Reserved",
+        "END:VEVENT",
+      );
+    }
+    lines.push("END:VCALENDAR");
+
+    // 鮮度記録 (同期死活監視用)。失敗しても配信は継続
+    feedRef.set({
+      lastFetchedAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastFetchUa: String(req.get("user-agent") || "").slice(0, 200),
+      fetchCount: admin.firestore.FieldValue.increment(1),
+    }, { merge: true }).catch((e) => console.warn("[public/ical] 鮮度記録失敗:", e.message));
+
+    res.set("Content-Type", "text/calendar; charset=utf-8");
+    res.set("Cache-Control", "public, max-age=300"); // 5分キャッシュ
+    res.send(lines.join("\r\n") + "\r\n");
+  } catch (e) {
+    console.error("[public/ical]", e);
+    res.status(500).send("server error");
+  }
+});
+
 // POST /public/guest-register
 // ゲストフォーム新規登録 (重複チェック付き)
 // body: { ...guestData, force?: boolean }
