@@ -19,11 +19,13 @@
 - オーナー（やますけ）: UID `rwHczfRz8DfnWCrQ7yeAYnsd8in2` / staffId `ziTig6tefnj5NvkgN4fG` / LINE `Udbab64896647a69a7ad87a1baf1253dc`
 - LINE Login チャネル: `2009790221` / Bot#1 Group `Cf18500a95f7b71b786fc0c45684ac1bb` / Bot#2 `@485vxmym`（長浜清掃G通知#2）
 - 宿泊者名簿スプシ: `1Kk8VZrMQoJwmNk4OZKVQ9riufiCEcVPi_xmYHHnHgCs`
-- 物件 ID（物理物件ごとに別レコード。全 active）:
-  - #1 YADO KOMACHI Hiroshima: `ncUKeD4yQo0kfAoznITu`
-  - #2 Pocket House WAKA-KUSA: `RZV9IwtQgMAsvrdM3j8J`
-  - #3 UJINA Pocket House: `ZXW6wdpnBFk1azQ87KXQ`
-  - #4 the Terrace 長浜: `tsZybhDMcPrxqgcRy7wp`
+- 物件 ID（物理物件ごとに別レコード。全 active。**2026-07-03 本番 Firestore 実測で訂正**）:
+  - YADO KOMACHI Hiroshima: `RZV9IwtQgMAsvrdM3j8J`
+  - Pocket House WAKA-KUSA: `ZXW6wdpnBFk1azQ87KXQ`
+  - UJINA Pocket House: `ncUKeD4yQo0kfAoznITu`
+  - the Terrace 長浜: `tsZybhDMcPrxqgcRy7wp`
+  - おのみちホテル: `GK31ElxSjhRdxSMWc4AZ`
+  - Hotel Zen Hiroshima: `RDH4s0nThw04xJb8JQnp`
 - Gmail 2系統: `81hassac@gmail.com`＝民泊事業用・OTA 通知（メール照合の巡回対象）/ `yamasuke81@gmail.com`＝個人・税理士資料用（対象外）
 
 ## 絶対ルール（事故防止）
