@@ -317,6 +317,23 @@ async function uploadFileToDrive(propertyId, propertyName, yearMonth, fileName, 
     media: { mimeType, body: fs.createReadStream(localPath) },
     fields: "id, webViewLink",
   });
+  // 同種別×同月の旧版をゴミ箱へ (フォルダに世代が溜まらないように)。
+  // fileName = {kind}_{YYYY-MM}_{timestamp}.{ext} なので末尾を除いた prefix で同一系列を特定。
+  try {
+    const prefix = fileName.replace(/_\d+\.[a-z0-9]+$/i, "_");
+    const list = await drive.files.list({
+      q: `'${folderId}' in parents and trashed=false and name contains '${prefix.replace(/'/g, "")}'`,
+      fields: "files(id,name)",
+      pageSize: 200,
+    });
+    for (const f of list.data.files || []) {
+      if (f.id !== created.data.id && f.name.startsWith(prefix)) {
+        await drive.files.update({ fileId: f.id, requestBody: { trashed: true } }).catch(() => {});
+      }
+    }
+  } catch (e) {
+    console.warn(`${LOG_PREFIX} 旧版プルーニング失敗(無視): ${e.message}`);
+  }
   return {
     fileId: created.data.id,
     fileName,
