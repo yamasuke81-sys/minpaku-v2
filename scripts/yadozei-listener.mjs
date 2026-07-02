@@ -631,9 +631,14 @@ async function handleBookingCsv(job, ctx, jobId) {
     });
     await page.waitForTimeout(2500);
 
-    if (/login|signin/i.test(page.url())) {
+    // 未ログインだと account.booking.com/sign-in へ飛ぶ (ハイフン有り"sign-in"・別ホスト)。
+    // 予約ページUIの有無も併せて判定し、ログアウト時は明確にエラーにする。
+    const loggedOut =
+      /account\.booking\.com|\/(login|signin|sign-in|sign_in)/i.test(page.url()) ||
+      (await page.locator(':text("Sign in to manage"), :text("パートナーアカウント"), input[name="username"], input[name="loginname"]').first().count().catch(() => 0)) > 0;
+    if (loggedOut) {
       await saveScreenshot(page, jobId, "booking_not_logged_in");
-      throw new Error("Booking.com extranet 未ログイン (初回手動ログインが必要)");
+      throw new Error("Booking.com extranet 未ログイン (再ログインが必要: node yadozei-listener.mjs --login でログイン)");
     }
 
     // 予約ページ検出: admin.booking.com は予約ページへ直接ランディングすることが多い。
