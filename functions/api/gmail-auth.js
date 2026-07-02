@@ -150,8 +150,9 @@ module.exports = function gmailAuthApi(db) {
       const scopes = [
         "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/gmail.send",
-        // 請求書PDFを物件Gmailアカウントの Drive に保存するため (アプリが作成したファイルのみ操作)
-        "https://www.googleapis.com/auth/drive.file",
+        // 請求書PDF保存・宿泊税CSV税理士フォルダコピー等で物件Gmailアカウントの Drive 全体を操作するため。
+        // drive.file (アプリが作成したファイルのみ) では他所有のフォルダへの files.copy が404になるため full drive に統一。
+        "https://www.googleapis.com/auth/drive",
       ];
 
       const authUrl = oauth2Client.generateAuthUrl({
