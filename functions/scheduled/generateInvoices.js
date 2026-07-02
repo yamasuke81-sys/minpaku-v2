@@ -3,6 +3,7 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { FieldValue } = require("firebase-admin/firestore");
 const { computeInvoiceDetails } = require("../api/invoices");
 const { notifyByKey } = require("../utils/lineNotify");
+const { getAppUrl } = require("../utils/appUrl");
 
 /**
  * 月次請求書自動生成
@@ -90,7 +91,7 @@ exports.generateInvoices = onSchedule({
     try {
       const totalAmount = generated.reduce((s, g) => s + g.total, 0);
       const title = `${yearMonth} 請求書 ${generated.length}件 自動生成`;
-      const body = `月次集計が完了しました。\n\n件数: ${generated.length}件\n合計: ¥${totalAmount.toLocaleString()}\n\n確認: https://v2-5-relay.web.app/#/invoices`;
+      const body = `月次集計が完了しました。\n\n件数: ${generated.length}件\n合計: ¥${totalAmount.toLocaleString()}\n\n確認: ${await getAppUrl(db)}/#/invoices`;
       await notifyByKey(db, "invoice_request", {
         title,
         body,

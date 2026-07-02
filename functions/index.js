@@ -15,15 +15,20 @@ const db = admin.firestore();
 // Express アプリ
 const app = express();
 // CORS はホスティングドメインのみ許可 (GAS等のサーバー間通信は Origin ヘッダが無いため影響なし)
-app.use(cors({
-  origin: [
-    "https://v2-5-relay.web.app",
-    "https://v2-5-relay.firebaseapp.com",
-    "https://minpaku-v2.web.app",
-    "https://minpaku-v2.firebaseapp.com",
-    /^http:\/\/localhost(:\d+)?$/, // firebase serve / ローカル検証用
-  ],
-}));
+const { CUSTOM_DOMAIN } = require("./utils/appUrl");
+const corsOrigins = [
+  "https://v2-5-relay.web.app",
+  "https://v2-5-relay.firebaseapp.com",
+  "https://minpaku-v2.web.app",
+  "https://minpaku-v2.firebaseapp.com",
+  /^http:\/\/localhost(:\d+)?$/, // firebase serve / ローカル検証用
+];
+if (CUSTOM_DOMAIN) {
+  const esc = CUSTOM_DOMAIN.replace(/\./g, "\\.");
+  // apex + www + 全サブドメイン (app.* 管理アプリ / 宿サイト各サブドメイン)
+  corsOrigins.push(new RegExp(`^https://(?:[a-z0-9-]+\\.)?${esc}$`));
+}
+app.use(cors({ origin: corsOrigins }));
 app.use(express.json());
 
 // Firebase Hosting rewrite 経由で来る URL は /api/** が保持されるので、

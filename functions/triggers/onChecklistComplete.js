@@ -7,6 +7,7 @@
  */
 const { notifyOwner, notifyStaff, notifyByKey, getNotificationSettings_ } = require("../utils/lineNotify");
 const { workLabel } = require("../utils/workType");
+const { DEFAULT_APP_URL } = require("../utils/appUrl");
 
 function fmtDate(s) {
   if (!s) return "";
@@ -111,7 +112,7 @@ module.exports = async function onChecklistComplete(event) {
   } catch (_) { /* 失敗しても継続 */ }
 
   // 通知用の共通変数を組み立て (日付整形・URL生成)
-  let appUrl = "https://v2-5-relay.web.app";
+  let appUrl = DEFAULT_APP_URL;
   try {
     const { settings } = await getNotificationSettings_(db);
     appUrl = settings?.appUrl || appUrl;

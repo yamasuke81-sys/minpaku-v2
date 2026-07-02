@@ -17,6 +17,7 @@
  */
 const { notifyByKey } = require("../utils/lineNotify");
 const { computeScheduledSendAt, sendKeyboxEmail } = require("../utils/keyboxSender");
+const { getAppUrl } = require("../utils/appUrl");
 
 module.exports = async function sendKeyboxScheduled() {
   const admin = require("firebase-admin");
@@ -112,7 +113,7 @@ module.exports = async function sendKeyboxScheduled() {
           vars: {
             guest: data.guestName || "?",
             checkin: data.checkIn || "?",
-            url: `https://v2-5-relay.web.app/#/guests?id=${encodeURIComponent(guestId)}`,
+            url: `${await getAppUrl(db)}/#/guests?id=${encodeURIComponent(guestId)}`,
           },
           propertyId,
         });

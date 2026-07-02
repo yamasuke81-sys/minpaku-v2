@@ -1,15 +1,20 @@
 /**
- * 緊急回避: v2-5-relay.web.app から minpaku-v2 backend の Cloud Run API を直接叩く
+ * /api/** を minpaku-v2 backend の Cloud Run へ直接リレーする fetch パッチ
  *
- * 通常時 (minpaku-v2.web.app) では Firebase Hosting の rewrite で /api/** → Cloud Run "api"
- * に転送されているが、v2-5-relay からは cross-project rewrite ができないため、
- * fetch を monkey-patch して /api/X を https://api-5qrfx7ujcq-an.a.run.app/X に書き換える。
+ * Firebase Hosting の rewrite (/api/** → Cloud Run "api") が機能するのは
+ * minpaku-v2 プロジェクト内のホスティングと localhost (emulator) のみ。
+ * v2-5-relay や独自ドメインなど他プロジェクトのサイトからは cross-project rewrite が
+ * できないため、rewrite が効くホスト以外では常に fetch を monkey-patch して
+ * /api/X を https://api-5qrfx7ujcq-an.a.run.app/X に書き換える。
  *
- * 元プロジェクトのサイト復活後はこのファイルと <script> 参照を削除すれば元に戻る。
+ * 判定を「rewriteが効くホストの除外リスト」にしてあるので、
+ * 新しい配信ドメインを足してもこのファイルの変更は不要。
  */
 (function () {
-  // ホスト名が v2-5-relay のときだけ有効化 (本番では何もしない)
-  if (!/^v2-5-relay(?:--|\.)/i.test(location.hostname) && location.hostname !== "v2-5-relay.web.app") {
+  // rewrite が機能するホストでは何もしない (minpaku-v2 プロジェクト内 + ローカル)
+  var h = location.hostname;
+  if (/^minpaku-v2(?:--[\w-]+)?\.(?:web\.app|firebaseapp\.com)$/i.test(h) ||
+      h === "localhost" || h === "127.0.0.1") {
     return;
   }
   var API_BASE = "https://api-5qrfx7ujcq-an.a.run.app";

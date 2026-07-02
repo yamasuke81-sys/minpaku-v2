@@ -27,7 +27,7 @@ function hasGuestChanges(before, after) {
   return GUEST_INPUT_FIELDS.some(f => JSON.stringify(before[f]) !== JSON.stringify(after[f]));
 }
 
-const APP_URL = "https://v2-5-relay.web.app";
+const { getAppUrl } = require("../utils/appUrl");
 
 // 全フィールドの日本語ラベルマッピング
 const FIELD_LABELS = {
@@ -183,9 +183,10 @@ module.exports = async function onGuestFormUpdate(event) {
   // editHistory[] 追記用の変更行を先に計算 (gmailId は後工程で付加)
   const changeLines = String(changes || "").split("\n").map((s) => s.trim()).filter(Boolean);
 
-  const confirmUrl = `${APP_URL}/#/guests?id=${encodeURIComponent(guestId)}`;
+  const appUrl = await getAppUrl(db);
+  const confirmUrl = `${appUrl}/#/guests?id=${encodeURIComponent(guestId)}`;
   const editUrl = after.editToken
-    ? `${APP_URL}/guest-form.html?edit=${after.editToken}${after.propertyId ? `&propertyId=${encodeURIComponent(after.propertyId)}` : ""}`
+    ? `${appUrl}/guest-form.html?edit=${after.editToken}${after.propertyId ? `&propertyId=${encodeURIComponent(after.propertyId)}` : ""}`
     : "";
 
   // 物件情報取得

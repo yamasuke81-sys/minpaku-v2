@@ -10,12 +10,19 @@
     "RZV9IwtQgMAsvrdM3j8J": { slug: "yado-komachi-hiroshima" },
   };
 
-  const GUIDE_BASE_URL = "https://v2-5-relay.web.app/guides";
+  // 独自ドメイン (window.V2_CUSTOM_DOMAIN、firebase-config.js で定義) 設定後は
+  // app.<domain> 配下、未設定時は relay 配下のガイドを指す。
+  // スクリプト読込順に依存しないよう呼び出し時に評価する
+  function guideBaseUrl() {
+    const d = global.V2_CUSTOM_DOMAIN;
+    return `${d ? `https://app.${d}` : "https://v2-5-relay.web.app"}/guides`;
+  }
+  const GUIDE_BASE_URL = guideBaseUrl(); // 後方互換 (既存参照向け・relay 既定)
 
   function getAutoGuideUrl(propertyId) {
     const m = GUIDE_MAP[propertyId];
     if (!m || !m.slug) return "";
-    return `${GUIDE_BASE_URL}/${m.slug}.html`;
+    return `${guideBaseUrl()}/${m.slug}.html`;
   }
 
   /**

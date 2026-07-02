@@ -7,7 +7,7 @@ const express = require("express");
 const { sendNotificationEmail_, resolveSenderGmail_ } = require("../utils/lineNotify");
 const { buildDiffText, buildGuestSummaryText } = require("../utils/emailTemplates");
 
-const APP_URL = "https://v2-5-relay.web.app";
+const { getAppUrl } = require("../utils/appUrl");
 
 module.exports = function guestEditApi(db) {
   const router = express.Router();
@@ -116,8 +116,9 @@ module.exports = function guestEditApi(db) {
       const checkIn = mergedData.checkIn || "?";
       const checkOut = mergedData.checkOut || "?";
       // propertyId を URL に含める → guest-form.html の <head> 早期テーマで青背景フラッシュ防止
-      const editUrl = `${APP_URL}/guest-form.html?edit=${currentData.editToken}${currentData.propertyId ? `&propertyId=${encodeURIComponent(currentData.propertyId)}` : ""}`;
-      const confirmUrl = `${APP_URL}/#/guests`;
+      const appUrl = await getAppUrl(db);
+      const editUrl = `${appUrl}/guest-form.html?edit=${currentData.editToken}${currentData.propertyId ? `&propertyId=${encodeURIComponent(currentData.propertyId)}` : ""}`;
+      const confirmUrl = `${appUrl}/#/guests`;
 
       const vars = {
         guestName, checkIn, checkOut,

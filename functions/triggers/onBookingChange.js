@@ -14,6 +14,7 @@ const {
 } = require("../utils/lineNotify");
 const { addRecruitmentToActiveStaff, removeRecruitmentFromAllStaff } = require("../utils/inactiveStaff");
 const { shouldDeferRecruitStart, shouldDeferByNotifyKey } = require("../utils/recruitDeferral");
+const { getAppUrl, DEFAULT_APP_URL } = require("../utils/appUrl");
 
 // YYYY-MM-DD 文字列から UTC midnight の Date を作成 (JST ズレなし)
 function toUtcMidnight(dateStr) {
@@ -192,7 +193,7 @@ async function detectDoubleBooking(db, bookingId, after) {
       // notifyByKey でチャネル別 (owner/group/staff/email/discord) に発射
       const resolvedPropName = after.propertyName || propertyDocName || after.propertyId;
       const title = `ダブルブッキング検出: ${after.checkIn}〜${after.checkOut}`;
-      const body = `【⚠️ ダブルブッキング警告】\n物件: ${resolvedPropName}\n日程: ${after.checkIn} 〜 ${after.checkOut}\n衝突件数: ${conflicts.length}件\n\n確認: https://v2-5-relay.web.app/#/schedule`;
+      const body = `【⚠️ ダブルブッキング警告】\n物件: ${resolvedPropName}\n日程: ${after.checkIn} 〜 ${after.checkOut}\n衝突件数: ${conflicts.length}件\n\n確認: ${await getAppUrl(db)}/#/schedule`;
       await notifyByKey(db, "double_booking", {
         title,
         body,
@@ -623,7 +624,7 @@ module.exports = async function onBookingChange(event) {
           if ((after.checkIn === todayJ || after.checkIn === tomorrowJ)
               && after.rosterStatus !== "submitted"
               && !after.urgentRemindSentAt) {
-            const formUrl = `https://v2-5-relay.web.app/form/?propertyId=${propertyId}`;
+            const formUrl = `${await getAppUrl(db)}/form/?propertyId=${propertyId}`;
             const isToday = after.checkIn === todayJ;
             const urgencyLabel = isToday ? "【本日チェックイン】" : "【明日チェックイン】";
             const guestNameUrgent = after.guestName || "名前未設定";
@@ -998,7 +999,7 @@ module.exports = async function onBookingChange(event) {
       });
       console.log(`予約 ${bookingId}: 清掃募集を 30日繰延 (作業日=${checkOut}) recruitmentId=${recruitmentId}`);
     } else {
-      const appUrl = settings?.appUrl || "https://v2-5-relay.web.app";
+      const appUrl = settings?.appUrl || DEFAULT_APP_URL;
       // 該当募集の回答ページを直接開く URL (recruitmentId を末尾に付与)
       const recruitUrl = `${appUrl}/#/my-recruitment/${recruitmentId}`;
       // 復元検知: before あり + before=cancelled + after=confirmed
@@ -1294,7 +1295,7 @@ module.exports = async function onBookingChange(event) {
         console.log(`予約 ${bookingId}: 直前点検募集を 30日繰延 (作業日=${checkIn}) recruitmentId=${insRecruitmentId}`);
         return;
       }
-      const appUrl2 = s2?.appUrl || "https://v2-5-relay.web.app";
+      const appUrl2 = s2?.appUrl || DEFAULT_APP_URL;
       // 該当直前点検募集の回答ページを直接開く URL (insRecruitmentId を末尾に付与)
       const recruitUrl2 = `${appUrl2}/#/my-recruitment/${insRecruitmentId}`;
       const memo2 = `直前点検: ゲスト ${guestName || "不明"} (${source || ""})`;

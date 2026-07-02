@@ -12,15 +12,27 @@ const IS_EMULATOR = process.env.FUNCTIONS_EMULATOR === "true";
  * v2 アプリの URL に openExternalBrowser=1 を付与し、LINE 内蔵ブラウザではなく
  * OS デフォルトブラウザで開かせる (LINE 公式仕様)。
  * - 対象:
- *   - minpaku-v2.web.app / minpaku-v2.firebaseapp.com (Hosting)
+ *   - minpaku-v2.web.app / minpaku-v2.firebaseapp.com / v2-5-relay.web.app 等 (Hosting)
  *   - *.a.run.app (Cloud Functions Gen2 / Cloud Run; OAuth 失効通知の gmail-auth エンドポイント等)
+ *   - CUSTOM_DOMAIN 設定後は独自ドメイン (apex/サブドメイン) も対象
  * - 既に openExternalBrowser=... が含まれていれば変更しない
  * - Query 有無は ? / & を自動判定
  * - フラグメント (#/...) より前に挿入
  */
+const { CUSTOM_DOMAIN, DEFAULT_APP_URL } = require("./appUrl");
+const V2_HOST_PATTERNS = [
+  "minpaku-v2\\.(?:web\\.app|firebaseapp\\.com)",
+  "v2-5-relay\\.(?:web\\.app|firebaseapp\\.com)",
+  "[\\w-]+\\.a\\.run\\.app",
+];
+if (CUSTOM_DOMAIN) {
+  V2_HOST_PATTERNS.push(`(?:[\\w-]+\\.)?${CUSTOM_DOMAIN.replace(/\./g, "\\.")}`);
+}
+const V2_URL_RE = new RegExp(`https://(?:${V2_HOST_PATTERNS.join("|")})[^\\s)<>"]*`, "g");
+
 function appendOpenExternalBrowser(text) {
   if (!text || typeof text !== "string") return text;
-  const re = /https:\/\/(?:minpaku-v2\.(?:web\.app|firebaseapp\.com)|[\w-]+\.a\.run\.app)[^\s)<>"]*/g;
+  const re = V2_URL_RE;
   return text.replace(re, (url) => {
     if (/[?&]openExternalBrowser=/.test(url)) return url;
     // fragment を分離
@@ -1315,7 +1327,7 @@ async function notifyByKey(db, notifyKey, options = {}) {
   // 各呼び出し側で渡し忘れても customMessage の {url} {property} がそのまま残らないようにする
   if (!vars || typeof vars !== "object") vars = {};
   if (vars.url == null || vars.url === "") {
-    vars.url = (settings && settings.appUrl) || "https://v2-5-relay.web.app";
+    vars.url = (settings && settings.appUrl) || DEFAULT_APP_URL;
   }
   if ((vars.property == null || vars.property === "") && propertyId) {
     try {

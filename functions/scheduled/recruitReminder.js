@@ -17,6 +17,7 @@ const admin = require("firebase-admin");
 const { nowJst, addDays } = require("../utils/dateUtils");
 const { notifyByKey } = require("../utils/lineNotify");
 const { workLabel } = require("../utils/workType");
+const { getAppUrl } = require("../utils/appUrl");
 
 const NOTIFY_TYPE = "recruit_remind";
 
@@ -107,7 +108,7 @@ module.exports = async function recruitReminder() {
           continue;
         }
 
-        const baseUrl = process.env.APP_BASE_URL || "https://v2-5-relay.web.app/";
+        const baseUrl = await getAppUrl(db);
         // 該当募集の詳細モーダルを直接開けるよう recruitmentId 付き
         const recruitUrl = `${baseUrl.replace(/\/$/, "")}/#/my-recruitment/${rd.id}`;
         const text = [

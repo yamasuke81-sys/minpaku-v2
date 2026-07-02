@@ -6,6 +6,7 @@ const express = require("express");
 const https = require("https");
 const crypto = require("crypto");
 const admin = require("firebase-admin");
+const { getAppUrl } = require("../utils/appUrl");
 
 /**
  * 対象 uid が「Webアプリ管理者」staff ドキュメントに紐付くか判定
@@ -571,7 +572,7 @@ module.exports = function authApi(db) {
       });
 
       // ホスト名を環境変数またはデフォルトから取得
-      const baseUrl = process.env.APP_BASE_URL || "https://v2-5-relay.web.app";
+      const baseUrl = await getAppUrl(db);
       const inviteUrl = `${baseUrl}/invite.html?token=${token}`;
 
       res.json({ success: true, inviteUrl, token, expiresAt: expiresAt.toISOString() });

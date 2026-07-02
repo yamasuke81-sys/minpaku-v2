@@ -9,7 +9,7 @@ const {
   getNotificationSettings_,
 } = require("../utils/lineNotify");
 
-const APP_URL = "https://v2-5-relay.web.app";
+const { getAppUrl } = require("../utils/appUrl");
 const NOTIFY_TYPE = "booking_confirm_mail";
 
 module.exports = async function onBookingConfirmMail(event) {
@@ -44,9 +44,10 @@ module.exports = async function onBookingConfirmMail(event) {
     const checkIn = b.checkIn || "";
     const checkOut = b.checkOut || "";
     const propertyName = b.propertyName || (propDoc?.exists ? propDoc.data().name : "") || b.propertyId || "";
+    const appUrl = await getAppUrl(db);
     const formUrl = b.propertyId
-      ? `${APP_URL}/form/?propertyId=${b.propertyId}`
-      : `${APP_URL}/form/`;
+      ? `${appUrl}/form/?propertyId=${b.propertyId}`
+      : `${appUrl}/form/`;
 
     // customMessage 取得 — 物件別のみ参照、グローバル参照は廃止（他トリガーと同一方針）
     const propOv = overrides[NOTIFY_TYPE] || {};

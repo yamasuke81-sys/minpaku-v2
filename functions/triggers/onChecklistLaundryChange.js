@@ -31,6 +31,7 @@ const {
   getNotificationSettings_,
 } = require("../utils/lineNotify");
 const { workLabel } = require("../utils/workType");
+const { DEFAULT_APP_URL } = require("../utils/appUrl");
 
 // laundry フィールド値が「設定済み」か判定
 // 新形式 {at, by} / 旧形式 Timestamp / null / undefined に対応
@@ -445,7 +446,7 @@ module.exports = async (event) => {
 
       // 通知設定から対象チャネルと appUrl を取得（物件別オーバーライド適用）
       const { settings } = await getNotificationSettings_(db);
-      const appUrl = settings?.appUrl || "https://v2-5-relay.web.app";
+      const appUrl = settings?.appUrl || DEFAULT_APP_URL;
       const shiftId = after.shiftId || "";
       const checklistUrl = shiftId ? `${appUrl}/#/my-checklist/${shiftId}` : `${appUrl}/#/my-checklist`;
 

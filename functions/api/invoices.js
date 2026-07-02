@@ -7,6 +7,7 @@ const { FieldValue } = require("firebase-admin/firestore");
 const { getStorage } = require("firebase-admin/storage");
 const { notifyOwner, notifyGroup, notifyByKey, notifyStaff, getNotificationSettings_, sendLineMessage, sendNotificationEmail_, resolveNotifyTargets, resolveSenderGmail_ } = require("../utils/lineNotify");
 const PDFDocument = require("pdfkit");
+const { DEFAULT_APP_URL } = require("../utils/appUrl");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
@@ -2018,7 +2019,7 @@ module.exports = function invoicesApi(db) {
       // staffLine は提出者本人のみに個別送信するため notifyByKey の対象外とする
       try {
         const { settings, channelToken } = await getNotificationSettings_(db);
-        const appUrl = (settings && settings.appUrl) || "https://v2-5-relay.web.app";
+        const appUrl = (settings && settings.appUrl) || DEFAULT_APP_URL;
         // 該当請求書の詳細モーダルを直接開けるよう invoiceId 付き
         const confirmUrl = `${appUrl.replace(/\/$/, "")}/#/invoices/${invoiceId}`;
         const linkLine = pdfSignedUrl ? `\nPDF: ${pdfSignedUrl}` : "";
@@ -2504,7 +2505,7 @@ module.exports = function invoicesApi(db) {
         const [, m] = String(data.yearMonth || "").split("-");
         const total = Number(data.total || 0);
         const { settings } = await getNotificationSettings_(db);
-        const appUrl = (settings && settings.appUrl) || "https://v2-5-relay.web.app";
+        const appUrl = (settings && settings.appUrl) || DEFAULT_APP_URL;
         // 該当請求書の詳細モーダルを直接開けるよう invoiceId 付き
         const invoiceUrl = `${appUrl.replace(/\/$/, "")}/#/invoices/${req.params.id}`;
         const body = `✅ 請求書が承認されました\n\n` +

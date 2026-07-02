@@ -8,6 +8,7 @@
  * - エラー: 直近24h以内の未処理エラー
  */
 const { notifyByKey } = require("../utils/lineNotify");
+const { getAppUrl } = require("../utils/appUrl");
 
 module.exports = async function morningBriefing(event) {
   const admin = require("firebase-admin");
@@ -240,7 +241,7 @@ module.exports = async function morningBriefing(event) {
       checkOutsToday: String(checkouts.length),
       cleaningsToday: String(coSnap.size), // CO日 = 清掃日
       alerts: alertsText.join("\n"),
-      url: "https://v2-5-relay.web.app/",
+      url: `${await getAppUrl(db)}/`,
     },
   });
 

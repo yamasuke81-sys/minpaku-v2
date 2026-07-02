@@ -22,12 +22,13 @@ const { nowJst, addDays } = require("../utils/dateUtils");
 const { notifyByKey } = require("../utils/lineNotify");
 const { workLabel } = require("../utils/workType");
 
-const APP_URL = "https://v2-5-relay.web.app";
+const { getAppUrl } = require("../utils/appUrl");
 const NOTIFY_TYPE = "staff_undecided";
 
 
 module.exports = async function staffUndecidedRemind() {
   const db = admin.firestore();
+  const appUrl = await getAppUrl(db);
   const { date: todayJst, hour: hourJst } = nowJst();
   console.log(`[staffUndecidedRemind] 起動 JST=${todayJst} ${String(hourJst).padStart(2, "0")}:00`);
 
@@ -81,7 +82,7 @@ module.exports = async function staffUndecidedRemind() {
         if (sentKeys.includes(key)) continue;
 
         const propertyName = r.propertyName || tgt.propertyName;
-        const recruitUrl = `${APP_URL}/#/recruitment`;
+        const recruitUrl = `${appUrl}/#/recruitment`;
         const body = [
           `⚠️ スタッフ未確定 警告 (${tgt.beforeDays}日前)`,
           ``,
@@ -133,7 +134,7 @@ module.exports = async function staffUndecidedRemind() {
         if (sentKeys.includes(key)) continue;
 
         const propertyName = r.propertyName || r.propertyId || "";
-        const recruitUrl = `${APP_URL}/#/recruitment`;
+        const recruitUrl = `${appUrl}/#/recruitment`;
         const body = [
           `⚠️ スタッフ未確定 警告`, ``,
           `物件: ${propertyName}`, `清掃日: ${r.checkoutDate}`, ``,

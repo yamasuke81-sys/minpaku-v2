@@ -11,6 +11,7 @@
  */
 const { Router } = require("express");
 const { google } = require("googleapis");
+const { getAppUrl, DEFAULT_APP_URL } = require("../utils/appUrl");
 
 module.exports = function gmailAuthApi(db) {
   const router = Router();
@@ -72,11 +73,12 @@ module.exports = function gmailAuthApi(db) {
   }
 
   // 完了ページ戻りリンクのラベル・URL
-  function returnLink_(context, propertyId) {
+  function returnLink_(context, propertyId, appUrl) {
+    const base = appUrl || DEFAULT_APP_URL;
     if (context === "emailVerification") {
       return {
         label: "メール照合に戻る",
-        href: "https://v2-5-relay.web.app/#/email-verification",
+        href: `${base}/#/email-verification`,
       };
     }
     if (context === "property") {
@@ -86,12 +88,12 @@ module.exports = function gmailAuthApi(db) {
         : "#/properties";
       return {
         label: "物件管理に戻る",
-        href: `https://v2-5-relay.web.app/${hash}`,
+        href: `${base}/${hash}`,
       };
     }
     return {
       label: "税理士資料に戻る",
-      href: "https://v2-5-relay.web.app/#/tax-docs",
+      href: `${base}/#/tax-docs`,
     };
   }
 
@@ -179,7 +181,7 @@ module.exports = function gmailAuthApi(db) {
     try {
       const { code, state, error } = req.query;
       const { context, email, propertyId, ownerId: stateOwnerId } = parseState_(state);
-      const back = returnLink_(context, propertyId);
+      const back = returnLink_(context, propertyId, await getAppUrl(db));
 
       // ownerId 解決: state 優先、無ければ propertyId からの逆引き、
       // 次に「emailVerification context で物件全部が同じ ownerId なら」その値、

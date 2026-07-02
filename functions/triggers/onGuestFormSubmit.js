@@ -13,7 +13,7 @@ const { notifyPaidParking } = require("../utils/paidParkingNotify");
 // 注: 管理者宛/物件オーナー宛のメール送信は notifyOwner (roster_received) 1本に集約 (2026-04-26)
 //   旧経路 (notifyEmails への直送、subOwners への直送) は重複送信(3通)の原因のため削除済み
 
-const APP_URL = "https://v2-5-relay.web.app";
+const { getAppUrl } = require("../utils/appUrl");
 
 module.exports = async function onGuestFormSubmit(event) {
   const admin = require("firebase-admin");
@@ -51,10 +51,11 @@ module.exports = async function onGuestFormSubmit(event) {
   const guestEmail = data.email || "";
 
   // === 2. メール送信 ===
+  const appUrl = await getAppUrl(db);
   const summary = buildGuestSummaryText(data);
   // 編集URLに propertyId を付与 (non-表示設定を適用させるため)
-  const editUrl = `${APP_URL}/guest-form.html?edit=${editToken}${data.propertyId ? `&propertyId=${encodeURIComponent(data.propertyId)}` : ""}`;
-  const confirmUrl = `${APP_URL}/#/guests?id=${encodeURIComponent(guestId)}`;
+  const editUrl = `${appUrl}/guest-form.html?edit=${editToken}${data.propertyId ? `&propertyId=${encodeURIComponent(data.propertyId)}` : ""}`;
+  const confirmUrl = `${appUrl}/#/guests?id=${encodeURIComponent(guestId)}`;
 
   const templates = await getTemplates(db);
 
@@ -341,7 +342,7 @@ module.exports = async function onGuestFormSubmit(event) {
   }
 
   // 名簿画面リンク (旧 OK ボタン URL は廃止。LINE/メール 共通で名簿画面に誘導)
-  const guestPageUrl = `${APP_URL}/#/guests?id=${encodeURIComponent(guestId)}`;
+  const guestPageUrl = `${appUrl}/#/guests?id=${encodeURIComponent(guestId)}`;
   const guestPageBlock = `\n\n---\n\n【名簿確認 → キーボックス送信予約】\n以下のリンクから名簿を確認し、画面内の「キーボックス送信を予約する」ボタンを押してください。\n${guestPageUrl}\n\n---`;
 
   // roster_received 通知 (通知設定タブで編集可能)

@@ -10,7 +10,9 @@ const GUIDE_MAP = {
   "RZV9IwtQgMAsvrdM3j8J": { slug: "yado-komachi-hiroshima" },
 };
 
-const GUIDE_BASE_URL = "https://v2-5-relay.web.app/guides";
+// 独自ドメイン設定後は app.<domain> 配下、未設定時は relay 配下のガイドを指す
+const { CUSTOM_DOMAIN, DEFAULT_APP_URL } = require("./appUrl");
+const GUIDE_BASE_URL = `${CUSTOM_DOMAIN ? `https://app.${CUSTOM_DOMAIN}` : DEFAULT_APP_URL}/guides`;
 
 function getAutoGuideUrl(propertyId) {
   const m = GUIDE_MAP[propertyId];

@@ -17,7 +17,7 @@ const admin = require("firebase-admin");
 const { nowJst, addDays } = require("../utils/dateUtils");
 const { notifyByKey } = require("../utils/lineNotify");
 
-const APP_URL = "https://v2-5-relay.web.app";
+const { getAppUrl } = require("../utils/appUrl");
 const NOTIFY_TYPE = "roster_remind";
 
 // JST の今 → { date: "YYYY-MM-DD", hour: 0..23 }
@@ -26,6 +26,7 @@ const NOTIFY_TYPE = "roster_remind";
 
 module.exports = async function rosterRemind() {
   const db = admin.firestore();
+  const appUrl = await getAppUrl(db);
   const { date: todayJst, hour: hourJst } = nowJst();
 
   console.log(`[rosterRemind] 起動 JST=${todayJst} ${String(hourJst).padStart(2, "0")}:00`);
@@ -106,7 +107,7 @@ module.exports = async function rosterRemind() {
         const propertyName = b.propertyName || tgt.propertyName;
         const guestName = b.guestName || "名前未設定";
         const checkin = b.checkIn || "";
-        const formUrl = `${APP_URL}/form/?propertyId=${tgt.propertyId}`;
+        const formUrl = `${appUrl}/form/?propertyId=${tgt.propertyId}`;
 
         const vars = {
           date: checkin,

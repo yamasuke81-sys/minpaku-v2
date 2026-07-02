@@ -13,6 +13,7 @@ const {
 const { buildIcsEvent } = require("../utils/icsBuilder");
 const { addRecruitmentToActiveStaff, removeRecruitmentFromStaff, removeRecruitmentFromAllStaff } = require("../utils/inactiveStaff");
 const { shouldDeferRecruitStart } = require("../utils/recruitDeferral");
+const { DEFAULT_APP_URL } = require("../utils/appUrl");
 
 module.exports = function recruitmentApi(db) {
   const router = Router();
@@ -96,7 +97,7 @@ module.exports = function recruitmentApi(db) {
             });
             console.log(`手動募集 ${docRef.id}: 30日繰延 (作業日=${data.checkoutDate})`);
           } else {
-          const appUrl = (settings && settings.appUrl) || process.env.APP_BASE_URL || "https://v2-5-relay.web.app";
+          const appUrl = (settings && settings.appUrl) || process.env.APP_BASE_URL || DEFAULT_APP_URL;
           // タップで該当募集の詳細モーダルを直接開けるよう recruitmentId 付き
           const recruitUrl = `${appUrl.replace(/\/$/, "")}/#/my-recruitment/${docRef.id}`;
           const work = data.workType === "pre_inspection" ? "直前点検" : "清掃";
@@ -325,7 +326,7 @@ module.exports = function recruitmentApi(db) {
 
         if (hasIdList || selectedNames.length > 0) {
           // 確定通知用の appUrl + dashboard URL
-          let appUrl = "https://v2-5-relay.web.app";
+          let appUrl = DEFAULT_APP_URL;
           try {
             const { settings } = await getNotificationSettings_(db);
             appUrl = settings?.appUrl || appUrl;
@@ -579,7 +580,7 @@ module.exports = function recruitmentApi(db) {
       const r = doc.data();
 
       const { settings } = await getNotificationSettings_(db);
-      const appUrl = settings?.appUrl || process.env.APP_BASE_URL || "https://v2-5-relay.web.app";
+      const appUrl = settings?.appUrl || process.env.APP_BASE_URL || DEFAULT_APP_URL;
       const recruitUrl = `${appUrl.replace(/\/$/, "")}/#/my-recruitment/${req.params.id}`;
       const work = r.workType === "pre_inspection" ? "直前点検" : "清掃";
       const propertyName = r.propertyName || "";
@@ -626,7 +627,7 @@ module.exports = function recruitmentApi(db) {
       const r = doc.data();
 
       const { settings } = await getNotificationSettings_(db);
-      const appUrl = settings?.appUrl || "https://v2-5-relay.web.app";
+      const appUrl = settings?.appUrl || DEFAULT_APP_URL;
       const recruitUrl = `${appUrl.replace(/\/$/, "")}/#/my-recruitment/${recruitmentId}`;
       const propertyName = r.propertyName || "";
       const responses = Array.isArray(r.responses) ? r.responses : [];

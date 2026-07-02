@@ -4,6 +4,7 @@
  */
 const express = require("express");
 const admin = require("firebase-admin");
+const { getAppUrl } = require("../utils/appUrl");
 
 const router = express.Router();
 
@@ -264,7 +265,7 @@ router.get("/staff-ical/:token", async (req, res) => {
       const propertyName = r.propertyName || "";
       const workLabel = r.workType === "pre_inspection" ? "直前点検" : "清掃";
       // 該当募集の詳細モーダルを直接開けるよう recruitmentId 付き
-      const url = `https://v2-5-relay.web.app/#/my-recruitment/${rd.id}`;
+      const url = `${await getAppUrl(db)}/#/my-recruitment/${rd.id}`;
       const times = resolveTimes(propCache[r.propertyId], r.workType);
       events.push({
         uid: `${workLabel === "清掃" ? "cleaning" : "inspection"}-${rd.id}-${sDoc.id}@minpaku-v2`,

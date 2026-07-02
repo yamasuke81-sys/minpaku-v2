@@ -20,6 +20,7 @@ const admin = require("firebase-admin");
 const { notifyByKey, getNotificationSettings_ } = require("../utils/lineNotify");
 const { daysUntilJst, DEFER_THRESHOLD_DAYS } = require("../utils/recruitDeferral");
 const { buildTimeeAutofillUrl_ } = require("../utils/timeeAutofill");
+const { DEFAULT_APP_URL } = require("../utils/appUrl");
 
 module.exports = async function dispatchDeferredRecruits() {
   const db = admin.firestore();
@@ -47,7 +48,7 @@ module.exports = async function dispatchDeferredRecruits() {
     }
 
     const { settings } = await getNotificationSettings_(db);
-    const appUrl = settings?.appUrl || "https://v2-5-relay.web.app";
+    const appUrl = settings?.appUrl || DEFAULT_APP_URL;
 
     let fired = 0;
     let stillDeferred = 0;

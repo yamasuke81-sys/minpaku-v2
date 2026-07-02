@@ -58,3 +58,32 @@ writeFileSync(verPath, JSON.stringify({ version: nextToken }) + "\n", "utf8");
 
 console.log(`版数更新: ${current} → ${nextToken}`);
 console.log(`  index.html: ${replaced}箇所を統一 / version.json: 同期完了`);
+
+// index.html 以外の HTML (guest-form / invite / guest-checklist 等 standalone ページ) の
+// ?v= も同じトークンに統一する。JS/CSS は immutable 1年キャッシュのため、
+// ここを更新しないと standalone ページから参照する JS の変更が永久に配信されない。
+// (GitHub Actions の deploy.yml は全 HTML を書き換えており、それとローカル bump を揃える)
+import { readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+const QV_RE = /(\?v=)[a-zA-Z0-9_.\-]+/g;
+function walkHtml(dir) {
+  const out = [];
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    const st = statSync(p);
+    if (st.isDirectory()) out.push(...walkHtml(p));
+    else if (name.endsWith(".html")) out.push(p);
+  }
+  return out;
+}
+let otherCount = 0;
+for (const p of walkHtml(resolve(root, "public"))) {
+  if (resolve(p) === idxPath) continue;
+  const before = readFileSync(p, "utf8");
+  const after = before.replace(QV_RE, `$1${nextToken}`);
+  if (after !== before) {
+    writeFileSync(p, after, "utf8");
+    otherCount++;
+  }
+}
+console.log(`  その他HTML: ${otherCount}ファイルの ?v= を統一`);
