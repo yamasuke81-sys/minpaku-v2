@@ -13,6 +13,28 @@ const { Router } = require("express");
 const { google } = require("googleapis");
 const { getAppUrl, DEFAULT_APP_URL } = require("../utils/appUrl");
 
+// OAuth復旧などの運用通知 (LINE + メール)。oauthReminder.js の sendRecovery_ と同じ配信経路。
+// 通知失敗は warn のみ (呼び出し元の処理を止めない)。
+async function sendOAuthNotice_(db, email, text, mailSubject) {
+  const nsDoc = await db.collection("settings").doc("notifications").get();
+  const ns = nsDoc.exists ? nsDoc.data() : {};
+  const channelToken = ns.lineChannelToken || ns.lineToken;
+  const ownerUserId = ns.lineOwnerUserId || ns.lineOwnerId || ns.ownerUserId;
+  const notifyEmails = Array.isArray(ns.notifyEmails) ? ns.notifyEmails : [];
+  if (channelToken && ownerUserId) {
+    try {
+      const { sendLineMessage } = require("../utils/lineNotify");
+      await sendLineMessage(channelToken, ownerUserId, text);
+    } catch (e) { console.warn("[gmail-auth] LINE通知失敗:", e.message); }
+  }
+  for (const to of notifyEmails) {
+    try {
+      const { sendNotificationEmail_ } = require("../utils/lineNotify");
+      await sendNotificationEmail_(to, mailSubject, text);
+    } catch (e) { console.warn(`[gmail-auth] メール通知失敗 (${to}):`, e.message); }
+  }
+}
+
 module.exports = function gmailAuthApi(db) {
   const router = Router();
 
@@ -280,6 +302,30 @@ module.exports = function gmailAuthApi(db) {
         } catch (propErr) {
           console.warn("properties.senderGmail 書き込み失敗:", propErr.message);
         }
+      }
+
+      // 再認可の瞬間に「復旧」を確定させる (2026-07-03)
+      // 従来は翌朝9:00の oauthReminder 巡回まで lastFailure フラグが残り、復旧通知が最大1日
+      // 遅れる／巡回の隙間に失敗〜再認可が完結すると復旧通知が出ない、という取りこぼしがあった。
+      // ここでイベント駆動でフラグ解除＋復旧通知(LINE/メール)まで行い、確実・即時にする。
+      // 通知処理の失敗で認証フロー自体を失敗させない (fail-open)。
+      try {
+        const flagRef = db.collection("settings").doc("oauthAlerts").collection("byAccount").doc(`${context}_${docId}`);
+        const flag = await flagRef.get();
+        if (flag.exists && flag.data().lastFailure === true) {
+          await flagRef.set({ lastFailure: false, lastSuccessAt: new Date(), recoveredVia: "reauth-callback" }, { merge: true });
+          await sendOAuthNotice_(db, email, `✅ Gmail OAuth 連携が復旧しました\n\nアカウント: ${email}\n再認可が完了し、リフレッシュトークンを保存しました。以降の自動処理が再開します。`, "Gmail OAuth 連携復旧");
+        }
+        const scopeRef = db.collection("settings").doc("oauthAlerts").collection("byAccount").doc(`scope_${context}_${docId}`);
+        const scopeFlag = await scopeRef.get();
+        const scopeStr = String(tokens.scope || "");
+        if (scopeFlag.exists && scopeFlag.data().scopeMissing === true &&
+            (scopeStr.includes("drive.file") || scopeStr.includes("auth/drive"))) {
+          await scopeRef.set({ scopeMissing: false, lastOkAt: new Date() }, { merge: true });
+          await sendOAuthNotice_(db, email, `✅ Gmail連携にドライブ権限が付与されました\n\nアカウント: ${email}\n請求書PDFのGoogleドライブ保存が有効になりました。`, "Gmailドライブ権限 付与完了");
+        }
+      } catch (recoverErr) {
+        console.warn("[gmail-auth] 復旧フラグ/通知処理でエラー (認証自体は成功):", recoverErr.message);
       }
 
       const featureLabel =
