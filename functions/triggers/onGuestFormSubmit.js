@@ -419,13 +419,46 @@ module.exports = async function onGuestFormSubmit(event) {
     }
     const bookingsSnap = await bookingsQuery.limit(1).get();
 
-    // 処理B-3: マッチなし
+    // 処理B-3: マッチなし → 同物件の近い日程の予約候補を添えて「何が違うか」を提示
     if (bookingsSnap.empty) {
-      const warnMsg = `⚠️ 名簿照合: 該当する予約が見つかりません\n\n物件: ${propertyName || "(未設定)"}\nCI: ${rosterCheckIn}\n代表者: ${guestName}\n\n名簿確認: ${confirmUrl}`;
+      // 同物件の confirmed 予約を取得し、名簿CIの近い順に候補提示
+      // (ゲストがCI日を打ち間違えると必ずここに落ちるため、正しい予約を推測できる手掛かりを出す)
+      // - 既にCO済み(過去)の予約は除外 = これから泊まる予約が対象
+      // - 名簿CI日との差(絶対値)が小さい順に並べ、上位8件
+      const jstTodayYmd = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const dayDiff = (a, b) => Math.round((new Date(`${a}T00:00:00Z`) - new Date(`${b}T00:00:00Z`)) / 86400000);
+      let candidates = [];
+      try {
+        let candQ = db.collection("bookings").where("status", "==", "confirmed");
+        if (data.propertyId) candQ = candQ.where("propertyId", "==", data.propertyId);
+        const candSnap = await candQ.get();
+        candidates = candSnap.docs
+          .map((d) => d.data())
+          .filter((b) => b.checkIn && (b.checkOut || b.checkIn) >= jstTodayYmd) // CO済みの過去予約を除外
+          .sort((a, b) => Math.abs(dayDiff(a.checkIn, rosterCheckIn)) - Math.abs(dayDiff(b.checkIn, rosterCheckIn)))
+          .slice(0, 8);
+      } catch (e) { console.warn("候補予約の取得に失敗:", e.message); }
+
+      const candLines = candidates.length
+        ? candidates.map((b) => `・${b.guestName || "(名前なし)"} / ${b.checkIn} → ${b.checkOut || "?"} / ${b.source || "?"}`).join("\n")
+        : "（近い日程の確定予約は見つかりませんでした）";
+
+      const warnMsg =
+        `⚠️ 名簿照合: 名簿のチェックイン日に一致する予約がありません\n` +
+        `ゲストがチェックイン日を打ち間違えている可能性があります。\n\n` +
+        `【名簿の入力内容】\n` +
+        `物件: ${propertyName || "(未設定)"}\n` +
+        `代表者: ${guestName}\n` +
+        `CI: ${rosterCheckIn} → CO: ${rosterCheckOut || "?"}\n` +
+        `人数: ${data.guestCount || "?"}名\n\n` +
+        `【同じ物件の近い日程の予約候補】\n${candLines}\n\n` +
+        `→ 上記のいずれかと日程がずれていないか、名簿を確認してください。\n` +
+        `名簿確認: ${confirmUrl}`;
+
       await db.collection("notifications").add({
         type: "roster_mismatch",
         title: `名簿照合エラー: ${guestName}`,
-        body: `該当する予約が見つかりません（checkIn: ${rosterCheckIn}）`,
+        body: `名簿のCI(${rosterCheckIn})に一致する予約がありません。近い日程の予約候補 ${candidates.length}件`,
         guestId,
         propertyId: data.propertyId || null,
         checkIn: rosterCheckIn,
@@ -438,7 +471,7 @@ module.exports = async function onGuestFormSubmit(event) {
         vars: { property: propertyName, propertyName, guest: guestName, guestName, checkin: rosterCheckIn, url: confirmUrl },
         propertyId: data.propertyId || null,
       });
-      console.warn("名簿照合: 一致するbookingなし", rosterCheckIn);
+      console.warn("名簿照合: 一致するbookingなし", rosterCheckIn, "候補", candidates.length);
       return;
     }
 
@@ -446,37 +479,32 @@ module.exports = async function onGuestFormSubmit(event) {
     const bookingId = bookingDoc.id;
     const booking = bookingDoc.data();
 
-    // 処理B-1: 人数不一致チェック
+    // 処理B-1/B-2: 予約にマッチしたが内容が異なる → 相違点をまとめて1通で通知
+    // (CI は照合キーなので常に一致。ここでは人数・CO日の差分を集約)
     const rosterGuestCount = Number(data.guestCount) || 0;
     const bookingGuestCount = Number(booking.guestCount) || 0;
+    const diffs = [];
     if (bookingGuestCount > 0 && rosterGuestCount !== bookingGuestCount) {
-      const warnMsg = `⚠️ 名簿照合: 人数が異なります（予約: ${bookingGuestCount}名、名簿: ${rosterGuestCount}名）\n\n物件: ${propertyName || "(未設定)"}\nCI: ${rosterCheckIn}\n代表者: ${guestName}\n\n名簿確認: ${confirmUrl}`;
-      await db.collection("notifications").add({
-        type: "roster_mismatch",
-        title: `名簿照合警告: 人数不一致`,
-        body: `人数が異なります（予約: ${bookingGuestCount}名、名簿: ${rosterGuestCount}名）`,
-        guestId,
-        bookingId,
-        propertyId: data.propertyId || null,
-        checkIn: rosterCheckIn,
-        severity: "warning",
-        createdAt: new Date(),
-      });
-      await notifyByKey(db, "roster_mismatch", {
-        title: "名簿照合警告: 人数不一致",
-        body: warnMsg,
-        vars: { property: propertyName, propertyName, guest: guestName, guestName, checkin: rosterCheckIn, url: confirmUrl },
-        propertyId: data.propertyId || null,
-      });
+      diffs.push({ label: "人数", booking: `${bookingGuestCount}名`, roster: `${rosterGuestCount}名` });
+    }
+    if (rosterCheckOut && booking.checkOut && booking.checkOut !== rosterCheckOut) {
+      diffs.push({ label: "チェックアウト日", booking: booking.checkOut, roster: rosterCheckOut });
     }
 
-    // 処理B-2: チェックアウト日不一致チェック
-    if (rosterCheckOut && booking.checkOut && booking.checkOut !== rosterCheckOut) {
-      const warnMsg = `⚠️ 名簿照合: チェックアウト日が異なります\n\n物件: ${propertyName || "(未設定)"}\n予約CO: ${booking.checkOut}\n名簿CO: ${rosterCheckOut}\n代表者: ${guestName}\n\n名簿確認: ${confirmUrl}`;
+    if (diffs.length > 0) {
+      const diffLines = diffs.map((d) => `・${d.label}: 予約=${d.booking} / 名簿=${d.roster}`).join("\n");
+      const diffSummary = diffs.map((d) => `${d.label}(予約${d.booking}/名簿${d.roster})`).join("、");
+      const warnMsg =
+        `⚠️ 名簿照合: 予約と名簿の内容が異なります\n\n` +
+        `物件: ${propertyName || "(未設定)"}\n` +
+        `代表者: ${guestName}\n` +
+        `CI: ${rosterCheckIn}（予約と一致）\n\n` +
+        `【相違点】\n${diffLines}\n\n` +
+        `名簿確認: ${confirmUrl}`;
       await db.collection("notifications").add({
         type: "roster_mismatch",
-        title: `名簿照合警告: CO日不一致`,
-        body: `チェックアウト日が異なります（予約: ${booking.checkOut}、名簿: ${rosterCheckOut}）`,
+        title: `名簿照合警告: 内容不一致`,
+        body: `相違点: ${diffSummary}`,
         guestId,
         bookingId,
         propertyId: data.propertyId || null,
@@ -485,7 +513,7 @@ module.exports = async function onGuestFormSubmit(event) {
         createdAt: new Date(),
       });
       await notifyByKey(db, "roster_mismatch", {
-        title: "名簿照合警告: CO日不一致",
+        title: "名簿照合警告: 予約と内容が異なります",
         body: warnMsg,
         vars: { property: propertyName, propertyName, guest: guestName, guestName, checkin: rosterCheckIn, url: confirmUrl },
         propertyId: data.propertyId || null,
