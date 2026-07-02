@@ -306,6 +306,77 @@ async function getOtaCsvFolderId(propertyId) {
   return folderId;
 }
 
+// 指定親フォルダ直下にフォルダを確保 (既存があれば再利用、無ければ作成)
+async function ensureFolder(drive, name, parentId) {
+  const q = `'${parentId}' in parents and name='${name.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  const search = await drive.files.list({ q, fields: "files(id, name)", pageSize: 1 });
+  if (search.data.files && search.data.files.length) return search.data.files[0].id;
+  const created = await drive.files.create({
+    requestBody: { name, mimeType: "application/vnd.google-apps.folder", parents: [parentId] },
+    fields: "id",
+  });
+  return created.data.id;
+}
+
+// ================== 税理士フォルダへのコピー保存 ==================
+// 物件の運営主体 (entities コレクション) を解決し、税理士フォルダの YYYY.MM サブフォルダへコピーする。
+// - 運営主体の解決: properties.{pid}.yadozei.taxEntityId (明示指定) > properties.{pid}.entityId (scan-sorter 物件マスタの既存フィールド)
+// - コピー先: entities/{entityId}.taxFolderId 直下の「YYYY.MM」フォルダ (scan-sorter の税理士フォルダ運用と同形式)
+// - 冪等: 同名ファイルが既に存在すればスキップ
+// - files.copy が権限等で失敗した場合はローカルファイルの再アップロードにフォールバック
+async function copyToTaxFolder(drive, propertyId, propData, yearMonth, fileName, sourceFileId, mimeType, localPath) {
+  const entityId = propData?.yadozei?.taxEntityId || propData?.entityId || null;
+  if (!entityId) {
+    console.warn(`${LOG_PREFIX} 税理士コピー skip: 物件 ${propertyId} に運営主体 (entityId / yadozei.taxEntityId) 未設定`);
+    return { copied: false, skipped: "no_entity" };
+  }
+
+  const entSnap = await db.collection("entities").doc(entityId).get();
+  const taxFolderId = entSnap.exists ? entSnap.data().taxFolderId || null : null;
+  if (!taxFolderId) {
+    console.warn(`${LOG_PREFIX} 税理士コピー skip: entities/${entityId} に taxFolderId 未設定`);
+    return { copied: false, skipped: "no_tax_folder", entityId };
+  }
+
+  // 対象月の「YYYY.MM」サブフォルダを確保 (既存があれば再利用)
+  const subFolderName = yearMonth.replace("-", ".");
+  const subFolderId = await ensureFolder(drive, subFolderName, taxFolderId);
+
+  // 冪等チェック: 同名ファイルが既にあればスキップ
+  const dup = await drive.files.list({
+    q: `'${subFolderId}' in parents and name='${fileName.replace(/'/g, "\\'")}' and trashed=false`,
+    fields: "files(id)",
+    pageSize: 1,
+  });
+  if (dup.data.files && dup.data.files.length) {
+    console.log(`${LOG_PREFIX} 税理士コピー skip (同名ファイル既存): ${subFolderName}/${fileName}`);
+    return { copied: false, skipped: "duplicate", entityId, fileId: dup.data.files[0].id };
+  }
+
+  try {
+    // Drive API の files.copy でサーバーサイドコピー
+    const copied = await drive.files.copy({
+      fileId: sourceFileId,
+      requestBody: { name: fileName, parents: [subFolderId] },
+      fields: "id",
+    });
+    console.log(`${LOG_PREFIX} 税理士コピー完了: ${subFolderName}/${fileName} (entity=${entityId})`);
+    return { copied: true, entityId, fileId: copied.data.id, folderId: subFolderId };
+  } catch (e) {
+    // copy が使えない場合 (権限等) は同バイト再アップロードにフォールバック
+    if (localPath && fs.existsSync(localPath)) {
+      const re = await drive.files.create({
+        requestBody: { name: fileName, parents: [subFolderId] },
+        media: { mimeType, body: fs.createReadStream(localPath) },
+        fields: "id",
+      });
+      console.log(`${LOG_PREFIX} 税理士コピー完了 (再アップロード): ${subFolderName}/${fileName} (entity=${entityId})`);
+      return { copied: true, entityId, fileId: re.data.id, folderId: subFolderId, via: "reupload" };
+    }
+    throw e;
+  }
+}
+
 // 任意ファイルを物件の OTAcsv フォルダへ直接アップロード (CSV/PDF 共通)
 // 事前 files.get 検証はしない (drive.file の非対称仕様: 未オープンのフォルダは
 // files.get で not found だが files.create の parents 指定は通る — invoices.js と同じ)
@@ -334,10 +405,23 @@ async function uploadFileToDrive(propertyId, propertyName, yearMonth, fileName, 
   } catch (e) {
     console.warn(`${LOG_PREFIX} 旧版プルーニング失敗(無視): ${e.message}`);
   }
+
+  // 物件フォルダへの保存成功後、税理士フォルダへもコピー (失敗しても本処理は成功扱いのベストエフォート)
+  let taxCopy = null;
+  try {
+    const propSnap = await db.collection("properties").doc(propertyId).get();
+    const propData = propSnap.exists ? propSnap.data() : {};
+    taxCopy = await copyToTaxFolder(drive, propertyId, propData, yearMonth, fileName, created.data.id, mimeType, localPath);
+  } catch (e) {
+    console.warn(`${LOG_PREFIX} 税理士コピー失敗 (${fileName}): ${e.message}`);
+    taxCopy = { copied: false, error: String(e.message || e).slice(0, 300) };
+  }
+
   return {
     fileId: created.data.id,
     fileName,
     webViewLink: created.data.webViewLink || `https://drive.google.com/file/d/${created.data.id}/view`,
+    taxCopy,
   };
 }
 
@@ -1242,7 +1326,7 @@ async function handleYadozeiPdfFetch(job, ctx, jobId) {
     }
     const primary = results.find((r) => r.type === "申告書") || results[0];
     console.log(`${LOG_PREFIX} やどぜいPDF取得完了: ${results.map((r) => r.type).join("+")} ${yearMonth}`);
-    return { fileId: primary.fileId, fileName: primary.fileName, webViewLink: primary.webViewLink, pdfs: results };
+    return { fileId: primary.fileId, fileName: primary.fileName, webViewLink: primary.webViewLink, taxCopy: primary.taxCopy || null, pdfs: results };
   } finally {
     for (const f of tmpFiles) safeUnlink(f);
     try {
@@ -1311,7 +1395,7 @@ async function handleJob(docId, job) {
     // queue ドキュメントの result を kind 別に整形
     const queueResult =
       isFetch || isPdf
-        ? { fileName: result.fileName, driveFileId: result.fileId, driveLink: result.webViewLink }
+        ? { fileName: result.fileName, driveFileId: result.fileId, driveLink: result.webViewLink, taxCopy: result.taxCopy || null }
         : { uploaded: true };
     await ref.update({
       status: "done",
