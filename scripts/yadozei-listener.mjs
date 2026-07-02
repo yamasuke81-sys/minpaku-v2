@@ -625,7 +625,8 @@ async function handleBookingCsv(job, ctx, jobId) {
   let tmpXlsx = null;
   let tmpCsv = null;
   try {
-    await page.goto("https://admin.booking.com/", {
+    // lang=ja を明示して日本語表示を強制 (アカウント言語が英語だとセレクタ("予約"等)が一致しないため)
+    await page.goto("https://admin.booking.com/?lang=ja", {
       waitUntil: "domcontentloaded",
       timeout: 60_000,
     });
@@ -697,6 +698,7 @@ async function handleBookingCsv(job, ctx, jobId) {
       const curUrl = page.url();
       if (/search_reservations\.html/i.test(curUrl)) {
         const u = new URL(curUrl);
+        u.searchParams.set("lang", "ja"); // 日本語表示を維持 (ダウンロードパネル等のセレクタ用)
         u.searchParams.set("date_type", "arrival");
         u.searchParams.set("date_from", first); // YYYY-MM-DD (月初)
         u.searchParams.set("date_to", last); // YYYY-MM-DD (月末)
