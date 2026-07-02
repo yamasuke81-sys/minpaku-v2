@@ -22,3 +22,6 @@ ui-debug.log
 tests/playwright-report/
 tests/test-results/
 .tmp/
+
+# worktree/クローン固有のローカル文脈（git 管理外）
+CLAUDE.local.md
