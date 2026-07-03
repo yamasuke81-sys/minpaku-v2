@@ -4,6 +4,7 @@ const { FieldValue } = require("firebase-admin/firestore");
 const { computeInvoiceDetails } = require("../api/invoices");
 const { notifyByKey } = require("../utils/lineNotify");
 const { getAppUrl } = require("../utils/appUrl");
+const { jstYm, prevYmOf } = require("../utils/workItemsMonth");
 
 /**
  * 月次請求書自動生成
@@ -17,10 +18,8 @@ exports.generateInvoices = onSchedule({
 }, async (event) => {
   const db = admin.firestore();
 
-  // 前月の yearMonth を算出
-  const now = new Date();
-  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const yearMonth = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`;
+  // 前月の yearMonth を算出 (JST基準。UTCのnew Date()だと1日02:00JST実行時=前月末17:00Zで前々月にずれる)
+  const yearMonth = prevYmOf(jstYm());
 
   console.log(`[generateInvoices] 開始: yearMonth=${yearMonth}`);
 
@@ -34,10 +33,16 @@ exports.generateInvoices = onSchedule({
 
     const invoiceId = `INV-${yearMonth.replace("-", "")}-${staffDoc.id.substring(0, 6)}`;
 
-    // 重複防止: 既存ドキュメントがあればスキップ
-    const existing = await db.collection("invoices").doc(invoiceId).get();
-    if (existing.exists) {
-      skipped.push({ staffId: staffDoc.id, reason: "既存" });
+    // 重複防止: 同 yearMonth+staffId の請求書が1件でもあればスキップ
+    // (手動提出は物件別ID INV-{ym}-{staffId6}-{propertyId6} のため、doc ID 一致だけでは検知できない)
+    const dupSnap = await db.collection("invoices")
+      .where("staffId", "==", staffDoc.id)
+      .where("yearMonth", "==", yearMonth)
+      .limit(1)
+      .get();
+    if (!dupSnap.empty) {
+      const dup = dupSnap.docs[0];
+      skipped.push({ staffId: staffDoc.id, reason: `既存 ${dup.id} (${dup.data().status})` });
       continue;
     }
 
