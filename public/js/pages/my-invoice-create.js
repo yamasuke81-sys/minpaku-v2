@@ -240,7 +240,12 @@ const MyInvoiceCreatePage = {
     }
     document.getElementById("btnAddRow").addEventListener("click", () => this.addManualRow());
     document.getElementById("btnRecalc").addEventListener("click", () => this.loadSummary());
-    document.getElementById("invMonth").addEventListener("change", () => this.loadSummary());
+    document.getElementById("invMonth").addEventListener("change", async () => {
+      // 過去月は当時の単価スナップショットを使うため、単価パネル/プルダウンも再構築
+      await this.loadWorkItemOptions();
+      this.renderMyRates();
+      this.loadSummary();
+    });
     document.getElementById("invPropertySel").addEventListener("change", (e) => {
       this.propertyId = e.target.value || null;
       this.renderMyRates();
@@ -430,20 +435,47 @@ const MyInvoiceCreatePage = {
   async loadWorkItemOptions() {
     this.workItemOptions = [];
     this._myRatesByProperty = []; // [{propertyName, items:[{name, type, rates:{1,2,3}, specialRates}]}]
-    // 指定 item / count に対する自分の単価を解決 (perStaff > common, scalar → object フォールバック)
+    // 指定 item / count に対する自分の単価を解決
+    // ★サーバー computeInvoiceDetails (functions/api/invoices.js) と同じ優先順位に揃えること:
+    //   rateMode==="perStaff" のときのみ staffRates、それ以外 (common/未設定) は commonRates。
+    //   staffRates を無条件優先すると、common 切替後も旧 staffRates 残存値が表示され実請求額とズレる
     const resolveRate = (it, count) => {
-      // staffRates 取得 (rateMode 関係なく perStaff データがあれば優先)
-      const sr = it.staffRates && it.staffRates[this.staffId];
-      if (sr != null) {
-        if (typeof sr === "number") return sr; // 旧 scalar 形式
-        if (sr[count] != null) return Number(sr[count]) || 0;
-        // 当該 count の値がない場合 perStaff としては未設定 → common にフォールバック
+      if (it.rateMode === "perStaff") {
+        const sr = (it.staffRates && it.staffRates[this.staffId]) || {};
+        if (typeof sr !== "object") return Number(sr) || 0; // 旧 scalar 形式
+        return Number(sr[count] || sr[3] || 0) || 0;
       }
-      // commonRates (人数別 object)
-      if (it.commonRates && it.commonRates[count] != null) return Number(it.commonRates[count]) || 0;
-      // 旧 commonRate (scalar)
-      if (typeof it.commonRate === "number") return it.commonRate;
-      return 0;
+      // common モード (デフォルト)
+      const cr = it.commonRates || {};
+      if (typeof cr !== "object") return Number(it.commonRate) || 0; // 旧 commonRate (scalar)
+      return Number(cr[count] || cr[3] || 0) || 0;
+    };
+    // 過去月はその月末時点の単価スナップショット propertyWorkItems/{pid}/history/{YYYY-MM} を参照
+    // (サーバー getWorkItemsForMonth と同じ規則: 対象月以降で最古の doc。無ければ現行マスタ)
+    const ym = document.getElementById("invMonth")?.value || "";
+    const nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    const currentYm = `${nowJst.getUTCFullYear()}-${String(nowJst.getUTCMonth() + 1).padStart(2, "0")}`;
+    const usePastSnapshot = !!ym && ym < currentYm;
+    if (!this._historyItemsCache) this._historyItemsCache = {}; // {"pid|ym": items | null}
+    const getItemsForMonth = async (propertyId, currentItems) => {
+      if (!usePastSnapshot) return currentItems;
+      const cacheKey = `${propertyId}|${ym}`;
+      if (this._historyItemsCache[cacheKey] === undefined) {
+        let hist = null;
+        try {
+          const snap = await db.collection("propertyWorkItems").doc(propertyId)
+            .collection("history")
+            .where(firebase.firestore.FieldPath.documentId(), ">=", ym)
+            .orderBy(firebase.firestore.FieldPath.documentId())
+            .limit(1)
+            .get();
+          if (!snap.empty) hist = snap.docs[0].data().items || [];
+        } catch (e) {
+          console.warn(`単価履歴読込失敗 (現行マスタで代替) property=${propertyId} ym=${ym}:`, e.message);
+        }
+        this._historyItemsCache[cacheKey] = hist; // null = スナップショット無し → 現行マスタ
+      }
+      return this._historyItemsCache[cacheKey] || currentItems;
     };
     try {
       const propSnap = await db.collection("properties").get();
@@ -454,7 +486,7 @@ const MyInvoiceCreatePage = {
       for (const doc of itemsSnap.docs) {
         const propertyId = doc.id;
         const propertyName = propMap[propertyId] || propertyId;
-        const items = (doc.data().items || []).filter(i => i && i.name);
+        const items = (await getItemsForMonth(propertyId, doc.data().items || [])).filter(i => i && i.name);
         const myItems = [];
         for (const it of items) {
           const isCleaningByCount = it.type === "cleaning_by_count";
@@ -1090,6 +1122,8 @@ const MyInvoiceCreatePage = {
     if (monthEl) monthEl.disabled = true;
     if (propSel) propSel.disabled = true;
     // 自動集計を再計算 (除外も最新で反映)
+    // 月をプログラム的に変更したので単価も対象月のスナップショットで再構築
+    await this.loadWorkItemOptions();
     this.renderMyRates();
     await this.loadSummary();
     // 追加明細を復元

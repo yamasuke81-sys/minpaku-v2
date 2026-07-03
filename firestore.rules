@@ -164,6 +164,12 @@ service cloud.firestore {
     match /propertyWorkItems/{propertyId} {
       allow read: if isAuthenticated();
       allow write: if isOwner();
+
+      // 月別単価スナップショット (onPropertyWorkItemsWrite が自動保存)
+      // 過去月の請求書画面がサーバーと同じ単価を表示するために読み取りのみ許可。書き込みは Admin SDK のみ
+      match /history/{yearMonth} {
+        allow read: if isAuthenticated();
+      }
     }
 
     // 募集管理 — オーナーは全操作、サブオーナーは所有物件のみ操作、スタッフは読み取り+自分の回答更新のみ
