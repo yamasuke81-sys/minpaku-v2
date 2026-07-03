@@ -490,6 +490,13 @@ exports.onNotificationsLineTokenChange = onDocumentWritten(
   require("./triggers/onLineTokenChange").onNotificationsSettingsChange
 );
 
+// 報酬単価マスタ変更 → 月またぎ最初の変更で前月末時点スナップショットを history に自動保存
+// (締め済み月の請求書金額を当時の単価で固定するため。参照側: utils/workItemsMonth.js)
+exports.onPropertyWorkItemsWrite = onDocumentWritten(
+  { document: "propertyWorkItems/{propertyId}", region: "asia-northeast1" },
+  require("./triggers/onPropertyWorkItemsWrite")
+);
+
 // ========== 通知スケジュール (未実装通知の発火) ==========
 
 // 名簿未入力リマインド（毎時実行 — 物件別タイミング設定に従って発火）

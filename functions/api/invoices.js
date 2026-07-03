@@ -8,6 +8,7 @@ const { getStorage } = require("firebase-admin/storage");
 const { notifyOwner, notifyGroup, notifyByKey, notifyStaff, getNotificationSettings_, sendLineMessage, sendNotificationEmail_, resolveNotifyTargets, resolveSenderGmail_ } = require("../utils/lineNotify");
 const PDFDocument = require("pdfkit");
 const { DEFAULT_APP_URL } = require("../utils/appUrl");
+const { getWorkItemsForMonth } = require("../utils/workItemsMonth");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
@@ -1031,13 +1032,14 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
   }
 
   // propertyWorkItems のキャッシュ (propertyId → workItems)
+  // 過去月の請求書は「その月末時点の単価スナップショット」で計算する (getWorkItemsForMonth)。
+  // 締め済み月の金額が翌月以降の単価変更で変わらないようにするため。
   const workItemsCache = {};
   const getWorkItems = async (propertyId) => {
     if (!propertyId) return null;
     if (workItemsCache[propertyId] !== undefined) return workItemsCache[propertyId];
     try {
-      const doc = await db.collection("propertyWorkItems").doc(propertyId).get();
-      workItemsCache[propertyId] = doc.exists ? (doc.data().items || []) : [];
+      workItemsCache[propertyId] = await getWorkItemsForMonth(db, propertyId, yearMonth);
     } catch (_) {
       workItemsCache[propertyId] = [];
     }
