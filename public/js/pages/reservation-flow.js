@@ -2998,14 +2998,14 @@ const ReservationFlowPage = {
                 </label>
               </div>
               <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="rfImportChkFlow">
+                <input class="form-check-input" type="checkbox" id="rfImportChkFlow" checked>
                 <label class="form-check-label small" for="rfImportChkFlow">
-                  <strong>${pageType === "reservation" ? "予約フローのメモ" : "清掃フローのメモ"}</strong>
-                  <div class="text-muted" style="font-size:11px;">各ステップに書いた手順メモをそのままコピー</div>
+                  <strong>${pageType === "reservation" ? "予約フロー構成" : "清掃フロー構成"}</strong>
+                  <div class="text-muted" style="font-size:11px;">各ステップの ON/OFF と手順メモをそのままコピー</div>
                 </label>
               </div>
               <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="rfImportChkFields">
+                <input class="form-check-input" type="checkbox" id="rfImportChkFields" checked>
                 <label class="form-check-label small" for="rfImportChkFields">
                   <strong>その他の物件設定</strong>
                   <div class="text-muted" style="font-size:11px;">騒音同意ON/OFF・ミニゲームON/OFF・カスタムフォームON/OFF</div>
@@ -3053,11 +3053,17 @@ const ReservationFlowPage = {
           if (srcData.customFormEnabled  !== undefined) updatePayload.customFormEnabled  = srcData.customFormEnabled;
         }
 
-        await db.collection("properties").doc(targetPid).set(updatePayload, { merge: true });
+        // update() でフィールド単位の完全置換 (set({merge:true}) はネストマップを
+        // 深いマージするため、コピー元に無いサブ項目が残骸として残る)。
+        await db.collection("properties").doc(targetPid).update(updatePayload);
 
-        // ローカルキャッシュ更新
+        // ローカルキャッシュ更新 (serverTimestamp センチネルは反映しない)
         const prop = this.properties.find(p => p.id === targetPid);
-        if (prop) Object.assign(prop, updatePayload);
+        if (prop) {
+          const local = { ...updatePayload };
+          delete local.updatedAt;
+          Object.assign(prop, local);
+        }
 
         modal.hide();
         // 画面再描画
