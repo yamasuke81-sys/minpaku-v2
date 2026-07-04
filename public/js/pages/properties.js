@@ -1032,10 +1032,16 @@ const PropertiesPage = {
     const pid = this._currentEditingPropertyId || "";
     // 対象スタッフ: isSubOwner=true かつ ownedPropertyIds に pid を含む
     // 新規作成時 (pid なし) は全物件オーナーを表示
+    // 管理者(本来のオーナー、代理閲覧中でない)が編集中は全オーナーから選択可。
+    // ownedPropertyIds での絞り込みはサブオーナー本人が編集する場合のみ適用する。
+    const isMainOwnerViewing =
+      (typeof Auth !== "undefined" && Auth.isOwner && Auth.isOwner()) &&
+      !(typeof App !== "undefined" && App.impersonating);
     const candidates = (this._ownerStaffOptions || []).filter(s => {
       if (s.id === selectedId) return true; // 現在の宛名は必ず表示 (無言で消さない)
       if (s.isOwner) return true;           // メインオーナーは全物件で選択可
       if (!s.isSubOwner) return false;
+      if (isMainOwnerViewing) return true;  // 管理者編集中は全物件オーナーを候補に
       if (!pid) return true; // 新規物件: まだ紐付いていないので全員候補
       const owned = Array.isArray(s.ownedPropertyIds) ? s.ownedPropertyIds : [];
       return owned.includes(pid);
