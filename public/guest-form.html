@@ -2,12 +2,12 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <script src="/js/api-relay.js?v=v0704l"></script>
+  <script src="/js/api-relay.js?v=v0704m"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>宿泊者名簿 / Guest Registration</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0704l" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0704m" rel="stylesheet">
   <style>
     /* テーマカラー デフォルト（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css）
        物件別上書きが必要な場合のみ下の早期テーマスクリプトで差し替える */
@@ -476,8 +476,8 @@
     </div>
   </div>
 
-  <script src="/js/shared/form-schema.js?v=v0704l"></script>
-  <script src="/js/guide-map.js?v=v0704l"></script>
+  <script src="/js/shared/form-schema.js?v=v0704m"></script>
+  <script src="/js/guide-map.js?v=v0704m"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-storage-compat.js"></script>
@@ -683,6 +683,7 @@
         successKeyboxInfo: "チェックイン前日〜当日に、キーボックス番号とチェックイン方法のメールが届きます。",
         successEditInfo: "修正が必要な場合は、メール内の修正リンクをご利用ください。",
         successGuideLink: "ゲストガイドを見る",
+        guestCountConfirmCancel: "キャンセル", guestCountConfirmOk: "削除して変更",
         submitting: "送信中...",
         validationError: "必須項目をすべて入力してください。",
         submitError: "送信に失敗しました。もう一度お試しください。",
@@ -806,6 +807,7 @@
         successKeyboxInfo: "You will receive an email with the keybox number and check-in instructions the day before or on the day of check-in.",
         successEditInfo: "If you need to make changes, please use the edit link in the email.",
         successGuideLink: "View Guest Guide",
+        guestCountConfirmCancel: "Cancel", guestCountConfirmOk: "Delete and change",
         submitting: "Submitting...",
         validationError: "Please fill in all required fields.",
         submitError: "Submission failed. Please try again.",
@@ -947,6 +949,7 @@
         successKeyboxInfo: "체크인 전날~당일에 키박스 번호와 체크인 방법 이메일이 도착합니다.",
         successEditInfo: "수정이 필요한 경우, 이메일 내 수정 링크를 이용해 주십시오.",
         successGuideLink: "게스트 가이드 보기",
+        guestCountConfirmCancel: "취소", guestCountConfirmOk: "삭제하고 변경",
         submitting: "전송 중...",
         validationError: "필수 항목을 모두 입력해 주십시오.",
         submitError: "전송에 실패했습니다. 다시 시도해 주십시오.",
@@ -1109,6 +1112,7 @@
         successKeyboxInfo: "入住前一天至当天，您将收到包含钥匙盒密码和入住方法的邮件。",
         successEditInfo: "如果需要修改，请使用邮件中的修改链接。",
         successGuideLink: "查看住客指南",
+        guestCountConfirmCancel: "取消", guestCountConfirmOk: "删除并更改",
         submitting: "正在提交...",
         validationError: "请填写所有必填项。",
         submitError: "提交失败。请再试一次。",
@@ -1271,6 +1275,7 @@
         successKeyboxInfo: "入住前一天至當天，您將收到包含密碼箱號碼和入住方式的郵件。",
         successEditInfo: "如果需要修改，請使用郵件中的修改連結。",
         successGuideLink: "查看旅客指南",
+        guestCountConfirmCancel: "取消", guestCountConfirmOk: "刪除並變更",
         submitting: "提交中...",
         validationError: "請填寫所有必填項目。",
         submitError: "提交失敗。請再試一次。",
@@ -1405,6 +1410,8 @@
       if (t.successKeyboxInfo)   setText("lbl_successKeyboxInfo",   t.successKeyboxInfo);
       if (t.successEditInfo)     setText("lbl_successEditInfo",     t.successEditInfo);
       if (t.successGuideLink)    setHtml("lbl_successGuideLink",    `<i class="bi bi-book"></i> ${t.successGuideLink}`);
+      if (t.guestCountConfirmCancel) setText("guestCountConfirmCancel", t.guestCountConfirmCancel);
+      if (t.guestCountConfirmOk)     setText("guestCountConfirmOk",     t.guestCountConfirmOk);
       const optIds = ["opt_checkInAfter20","opt_rakuten","opt_jalan","opt_official","opt_direct","opt_bookingOther",
         "opt_tr_car","opt_tr_public","opt_tr_taxi","opt_tr_walk","opt_tr_other","opt_carOver",
         "opt_car1","opt_car2","opt_car3","opt_car4","opt_car5","opt_car6",
