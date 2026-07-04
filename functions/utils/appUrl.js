@@ -7,7 +7,7 @@
  * CUSTOM_DOMAIN は独自ドメイン確定後にここ1箇所だけ設定する
  * （CORS ホワイトリスト・openExternalBrowser 判定が自動追従する）。
  */
-const CUSTOM_DOMAIN = ""; // 例: "stay-hiroshima.com"（ドメイン購入後に設定）
+const CUSTOM_DOMAIN = "setouchi-stay.com"; // 独自ドメイン (2026-07-04 取得・app.setouchi-stay.com 開通済み)
 const DEFAULT_APP_URL = "https://v2-5-relay.web.app";
 
 const CACHE_TTL_MS = 5 * 60 * 1000;

@@ -32,9 +32,9 @@ if (USE_EMULATOR) {
   console.log("[Emulator] Firebase Emulator に接続中 (auth:9099, firestore:8080)");
 }
 
-// 独自ドメイン (SSOT)。ドメイン購入後にここ1箇所だけ設定する (例: "stay-hiroshima.com")
-// utils.js の withExternalBrowser が apex/サブドメインを自動的に変換対象へ追加する
-window.V2_CUSTOM_DOMAIN = "";
+// 独自ドメイン (SSOT)。ここ1箇所で管理する
+// utils.js の withExternalBrowser / guide-map.js が apex/サブドメインを自動的に対象へ追加する
+window.V2_CUSTOM_DOMAIN = "setouchi-stay.com";
 
 // LINE Login チャネルID（LINE Developers Console → LINE Login → Channel ID）
 // スタッフのLINEログインに使用。未設定の場合はLINEログインボタンが無効になる
