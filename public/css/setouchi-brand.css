@@ -26,6 +26,11 @@
     radial-gradient(120% 140% at 50% 118%, rgba(230,168,96,.20), rgba(201,138,78,0) 55%),
     linear-gradient(135deg, #0e2830 0%, #14343d 55%, #1c4650 100%);
 
+  /* ページ地（カード外側の余白）＝深いグリーンの瀬戸内の海。
+     明るいカードがこの深緑の海に浮かぶ構図で全ページを統一する。 */
+  --ss-page-bg:
+    linear-gradient(180deg, #0b2028 0%, #12303a 58%, #0b2028 100%);
+
   /* 書体：見出しは明朝、本文はゴシック */
   --ss-serif: "Hiragino Mincho ProN","Yu Mincho","YuMincho","Noto Serif JP",serif;
   --ss-sans: "Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic","Noto Sans JP",Meiryo,sans-serif;

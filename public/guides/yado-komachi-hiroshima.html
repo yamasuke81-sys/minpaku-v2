@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&family=Roboto+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0704i" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0704j" rel="stylesheet">
   <style>
     /* === 瀬戸内ステイ 明るいブランド版へ統一（トークンは setouchi-brand.css）===
        このページ独自の金テーマ(--yellow/--yellow-deep/--accent 等)は廃止し、
@@ -33,11 +33,12 @@
       color: var(--ink);
       font-size: 17px;
       line-height: 1.85;
-      background: var(--ss-bg);
+      background: var(--ss-page-bg);
       background-attachment: fixed;
       min-height: 100vh;
     }
-    .page { max-width: 780px; margin: 0 auto; padding: 0 20px 80px; }
+    /* 深緑の海に浮かぶ明るいカラム（他ページの白カードと質感を統一） */
+    .page { max-width: 780px; margin: 24px auto; background: var(--ss-surface); border: 1px solid var(--ss-border); border-radius: 14px; box-shadow: 0 18px 50px -24px rgba(0,0,0,.55); padding: 0 20px 80px; }
 
     /* ===== ヘッダー ===== */
     .hero { text-align: center; padding: 56px 16px 40px; }
@@ -543,6 +544,7 @@
     body.lang-tw .tw-only { display: revert; }
 
     @media (max-width: 560px) {
+      .page { margin: 0; border-radius: 0; border-left: none; border-right: none; }
       section { padding: 20px 16px; }
       .hero { padding: 40px 10px 30px; }
       .step { grid-template-columns: 36px 1fr; gap: 10px; }
