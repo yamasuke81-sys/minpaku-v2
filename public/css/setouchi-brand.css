@@ -178,3 +178,32 @@ label, .form-label, .form-check-label { color: var(--ss-text); }
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
 }
+
+/* 言語切替（全ゲストページ共通：右上のガラスピル）。
+   各ページの inline .lang-switch は撤去し、ここに一本化する。 */
+.lang-switch {
+  position: fixed;
+  top: 14px; right: 14px;
+  z-index: 1000;
+  display: flex; flex-wrap: wrap; gap: 2px;
+  background: var(--ss-panel);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--ss-border);
+  border-radius: 14px;
+  padding: 4px;
+  max-width: calc(100vw - 28px);
+  box-shadow: 0 4px 16px rgba(0,0,0,.3);
+}
+.lang-switch button, .lang-switch .btn {
+  border: none; background: transparent;
+  padding: 5px 10px; border-radius: 999px;
+  font-family: var(--ss-sans);
+  font-size: 11px; font-weight: 600; line-height: 1;
+  letter-spacing: .02em;
+  color: var(--ss-sand-soft); cursor: pointer; white-space: nowrap;
+}
+.lang-switch button:hover, .lang-switch .btn:hover { color: var(--ss-sand); }
+.lang-switch button.active, .lang-switch .btn.active {
+  background: var(--ss-sea); color: var(--ss-sand);
+}

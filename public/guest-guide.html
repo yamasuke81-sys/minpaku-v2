@@ -2,12 +2,12 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <script src="/js/api-relay.js?v=v0705a"></script>
+  <script src="/js/api-relay.js?v=v0705b"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ご宿泊者様へ — the Terrace 長浜</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0705a" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0705b" rel="stylesheet">
   <style>
     /* === 共通トークン（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css） === */
     body { background: var(--ss-page-bg); background-attachment: fixed; min-height: 100vh; }
@@ -37,8 +37,7 @@
     .guide-header::after { content: ""; display: block; width: 34px; height: 1px; background: var(--ss-gold); opacity: .85; margin: 0.9rem auto 0; }
 
     /* 言語切替 */
-    .lang-switch { position: absolute; top: 0.5rem; right: 0.5rem; }
-    .lang-switch .btn { font-size: 0.8rem; padding: 2px 10px; }
+    /* 言語切替は共有CSS(setouchi-brand.css)の .lang-switch に一本化（右上ガラスピル） */
 
     /* クイックナビ（グリッド） */
     .quick-nav {
@@ -212,8 +211,8 @@
   <!-- ヘッダー -->
   <div class="guide-header position-relative">
     <div class="lang-switch">
-      <button class="btn btn-sm btn-outline-light active" data-lang="ja" onclick="setLang('ja')">日本語</button>
-      <button class="btn btn-sm btn-outline-light" data-lang="en" onclick="setLang('en')">English</button>
+      <button class="active" data-lang="ja" onclick="setLang('ja')">日本語</button>
+      <button data-lang="en" onclick="setLang('en')">EN</button>
     </div>
     <h1>ご宿泊者様へ</h1>
     <p>the Terrace 長浜</p>

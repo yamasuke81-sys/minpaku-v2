@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0705a" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0705b" rel="stylesheet">
   <style>
     /* === 共通トークン（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css） === */
     body { background: var(--ss-page-bg); background-attachment: fixed; min-height: 100vh; }
@@ -68,22 +68,7 @@
     }
     .guide-header p { margin: 0.6rem 0 0; opacity: 0.85; font-size: 0.9rem; color: var(--ss-muted); }
 
-    /* ===== 言語切替（右上ガラスピル） ===== */
-    .lang-switch {
-      position: fixed; top: 14px; right: 14px; z-index: 200;
-      background: var(--ss-panel); backdrop-filter: blur(8px);
-      border: 1px solid var(--ss-border); border-radius: 16px;
-      padding: 4px; display: flex; flex-wrap: wrap; gap: 2px;
-      max-width: calc(100vw - 28px);
-      box-shadow: 0 2px 12px rgba(0,0,0,0.2);
-    }
-    .lang-switch .btn {
-      border: none; background: transparent;
-      padding: 5px 10px; border-radius: 999px;
-      font-size: 11px; font-weight: 500; color: var(--ss-muted);
-      white-space: nowrap;
-    }
-    .lang-switch .btn.active { background: var(--ss-sea); color: var(--ss-sand); }
+    /* 言語切替は共有CSS(setouchi-brand.css)の .lang-switch に一本化（右上ガラスピル） */
 
     /* ===== 目次（toc） ===== */
     .quick-nav {
@@ -297,7 +282,7 @@
     @media (max-width: 640px) {
       .guide-card { margin: 0; border-radius: 0; border-left: none; border-right: none; padding: 0 14px 60px; }
       section { padding: 20px 16px; }
-      .guide-header { padding: 44px 10px 30px; }
+      .guide-header { padding: 64px 12px 30px; }
     }
   </style>
 </head>
@@ -307,11 +292,11 @@
 
   <!-- 言語切替（右上ガラスピル・fixed） -->
   <div class="lang-switch">
-    <button class="btn btn-sm active" data-lang="ja" onclick="setLang('ja')">日本語</button>
-    <button class="btn btn-sm" data-lang="en" onclick="setLang('en')">EN</button>
-    <button class="btn btn-sm" data-lang="ko" onclick="setLang('ko')">한국어</button>
-    <button class="btn btn-sm" data-lang="zh" onclick="setLang('zh')">中文</button>
-    <button class="btn btn-sm" data-lang="tw" onclick="setLang('tw')">繁體中文</button>
+    <button class="active" data-lang="ja" onclick="setLang('ja')">日本語</button>
+    <button data-lang="en" onclick="setLang('en')">EN</button>
+    <button data-lang="ko" onclick="setLang('ko')">한국어</button>
+    <button data-lang="zh" onclick="setLang('zh')">中文</button>
+    <button data-lang="tw" onclick="setLang('tw')">繁體中文</button>
   </div>
 
   <!-- ヘッダー（中央寄せ hero） -->
