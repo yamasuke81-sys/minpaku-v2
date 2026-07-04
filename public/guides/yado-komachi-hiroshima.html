@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&family=Roboto+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0704k" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0704l" rel="stylesheet">
   <style>
     /* === 瀬戸内ステイ 明るいブランド版へ統一（トークンは setouchi-brand.css）===
        このページ独自の金テーマ(--yellow/--yellow-deep/--accent 等)は廃止し、
@@ -50,15 +50,21 @@
       padding: 6px 14px;
       border: 1px solid var(--accent);
       border-radius: 999px;
-      margin-bottom: 80px;
+      margin-bottom: 18px;
+    }
+    .hero .hero-eyebrow {
+      font-size: 13px;
+      letter-spacing: 0.22em;
+      color: var(--ss-sand-soft);
+      margin-bottom: 10px;
     }
     .hero h1 {
       font-family: "Playfair Display", var(--ss-serif);
       color: var(--ss-heading);
-      font-size: clamp(28px, 6vw, 42px);
+      font-size: clamp(30px, 7vw, 46px);
       margin: 0;
       letter-spacing: 0.04em;
-      line-height: 1;
+      line-height: 1.08;
     }
     .hero::after { content: ""; display: block; width: 34px; height: 1px; background: var(--ss-gold); opacity: .85; margin: 0.9rem auto 0; }
     .hero .sub { margin-top: 10px; font-size: 28px; font-weight: 600; color: var(--ink-2); letter-spacing: 0.15em; font-family: "Playfair Display", serif; line-height: 1.1; }
@@ -573,12 +579,11 @@
 
   <!-- ヘッダー -->
   <header class="hero">
-    <span class="brand-mark">HIROSHIMA · KOMACHI</span>
+    <span class="brand-mark"><span class="jp">瀬戸内ステイ</span><span class="en-only">SETOUCHI STAY</span><span class="ko-only">세토우치 스테이</span><span class="zh-only">濑户内 Stay</span><span class="tw-only">瀨戶內 Stay</span></span>
+    <div class="hero-eyebrow"><span class="jp">ご宿泊者様へ</span><span class="en-only">Guest Information</span><span class="ko-only">숙박객 여러분께</span><span class="zh-only">致各位住客</span><span class="tw-only">致各位住客</span></div>
     <h1>YADO KOMACHI</h1>
     <div class="sub">Hiroshima</div>
     <div class="room-no">Room 704 / 704号室</div>
-    <h2 class="jp">ご宿泊者様へ ─ ご案内</h2><h2 class="ko-only">투숙객 여러분께 ─ 안내</h2><h2 class="zh-only">致住客 ─ 指南</h2><h2 class="tw-only">致住宿貴賓 ─ 住宿指南</h2>
-    <h2 class="en-only">Guest Information</h2>
   </header>
 
   <!-- 目次 -->

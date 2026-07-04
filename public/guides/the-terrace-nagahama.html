@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0704k" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0704l" rel="stylesheet">
   <style>
     /* === 共通トークン（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css） === */
     body { background: var(--ss-page-bg); background-attachment: fixed; min-height: 100vh; }
@@ -38,15 +38,21 @@
       padding: 6px 14px;
       border: 1px solid var(--ss-gold);
       border-radius: 999px;
-      margin-bottom: 26px;
+      margin-bottom: 20px;
+    }
+    .guide-header .hero-eyebrow {
+      font-size: 13px;
+      letter-spacing: 0.22em;
+      color: var(--ss-sand-soft);
+      margin-bottom: 10px;
     }
     .guide-header h1 {
       font-family: "Playfair Display", var(--ss-serif);
       color: var(--ss-heading);
-      font-size: clamp(28px, 6vw, 42px);
+      font-size: clamp(30px, 7vw, 46px);
       margin: 0;
       letter-spacing: 0.04em;
-      line-height: 1;
+      line-height: 1.08;
     }
     .guide-header::after { content: ""; display: block; width: 34px; height: 1px; background: var(--ss-gold); opacity: .85; margin: 0.9rem auto 0; }
     .guide-header .hero-sub {
@@ -308,10 +314,9 @@
 
   <!-- ヘッダー（中央寄せ hero） -->
   <header class="guide-header position-relative">
-    <span class="hero-brand-mark">THE TERRACE · 長浜</span>
-    <h1>ご宿泊者様へ</h1>
-    <div class="hero-sub">the Terrace</div>
-    <p>the Terrace 長浜</p>
+    <span class="hero-brand-mark" id="heroBrand">瀬戸内ステイ</span>
+    <div class="hero-eyebrow" id="heroEyebrow">ご宿泊者様へ</div>
+    <h1 id="heroTitle">the Terrace 長浜</h1>
   </header>
 
   <!-- 目次（toc） -->
@@ -382,10 +387,10 @@
       <!-- 住所 + 地図埋め込み -->
       <div class="p-3 rounded border" style="background:#f8f9fa;">
         <div class="mb-2"><i class="bi bi-geo-alt-fill text-danger"></i>
-          <strong>住所:</strong> 広島県呉市広長浜5-14-6
+          <strong id="addrLabel">住所:</strong> 広島県呉市広長浜5-14-6
         </div>
         <a href="https://www.google.com/maps/search/?api=1&amp;query=%E5%BA%83%E5%B3%B6%E7%9C%8C%E5%91%89%E5%B8%82%E5%BA%83%E9%95%B7%E6%B5%9C5-14-6"
-           target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm mb-2">
+           id="mapLink" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm mb-2">
           <i class="bi bi-map me-1"></i> Google MAP で開く
         </a>
         <div class="ratio ratio-16x9">
@@ -553,7 +558,7 @@
         <div id="allocationExtras"></div>
       </div>
 
-      <h3 class="h6 fw-bold mb-2">無料駐車場</h3>
+      <h3 class="h6 fw-bold mb-2" id="freeParkingHeading">無料駐車場</h3>
       <table class="parking-table table table-sm table-bordered mb-3">
         <tbody>
           <tr><td>No.未舗装</td><td>軽・小型車 2台 or それ以外 1台</td></tr>
@@ -950,13 +955,16 @@
 
   /* [セレクタ, ja, en] の配列。jaはHTMLのデフォルト値と一致させる */
   const translations = [
-    [".guide-header h1", "ご宿泊者様へ", "Guest Information", "숙박객 여러분께", "致各位住客", "致各位住客"],
-    ["#quickNav a:nth-child(1)", "🔑 入室", "🔑 Check-in", "🔑 입실", "🔑 入住", "🔑 入住"],
-    ["#quickNav a:nth-child(2)", "📶 Wi-Fi", "📶 Wi-Fi", "📶 Wi-Fi", "📶 Wi-Fi", "📶 Wi-Fi"],
-    ["#quickNav a:nth-child(3)", "▶ 動画", "▶ Videos", "▶ 동영상", "▶ 视频", "▶ 影片"],
-    ["#quickNav a:nth-child(4)", "🚗 駐車場", "🚗 Parking", "🚗 주차장", "🚗 停车场", "🚗 停車場"],
-    ["#quickNav a:nth-child(5)", "📌 ルール", "📌 Rules", "📌 규칙", "📌 规则", "📌 規則"],
-    ["#quickNav a:nth-child(6)", "🕐 時間", "🕐 Hours", "🕐 시간", "🕐 时间", "🕐 時間"],
+    ["#heroBrand", "瀬戸内ステイ", "Setouchi Stay", "세토우치 스테이", "濑户内 Stay", "瀨戶內 Stay"],
+    ["#heroEyebrow", "ご宿泊者様へ", "Guest Information", "숙박객 여러분께", "致各位住客", "致各位住客"],
+    ['#quickNav a[href="#checkin"]', "🔑 入室", "🔑 Check-in", "🔑 입실", "🔑 入住", "🔑 入住"],
+    ['#quickNav a[href="#rule-checkout"]', "👋 退室", "👋 Check-out", "👋 퇴실", "👋 退房", "👋 退房"],
+    ['#quickNav a[href="#wifi"]', "📶 Wi-Fi", "📶 Wi-Fi", "📶 Wi-Fi", "📶 Wi-Fi", "📶 Wi-Fi"],
+    ['#quickNav a[href="#videos"]', "▶ 動画", "▶ Videos", "▶ 동영상", "▶ 视频", "▶ 影片"],
+    ['#quickNav a[href="#parking"]', "🚗 駐車場", "🚗 Parking", "🚗 주차장", "🚗 停车场", "🚗 停車場"],
+    ['#quickNav a[href="#rule-bbq"]', "🍖 BBQ", "🍖 BBQ", "🍖 BBQ", "🍖 BBQ", "🍖 BBQ"],
+    ['#quickNav a[href="#rules"]', "📌 ルール", "📌 Rules", "📌 규칙", "📌 规则", "📌 規則"],
+    ['#quickNav a[href="#hours"]', "🕐 時間", "🕐 Hours", "🕐 시간", "🕐 时间", "🕐 時間"],
     ["#noiseInfo h6", "⚠ 宴会について — 非常に重要なお願い", "⚠ About Parties — Very Important Notice", "⚠ 연회에 관하여 — 매우 중요한 요청", "⚠ 关于宴会 — 非常重要的请求", "⚠ 關於宴會 — 非常重要的請求"],
     ["#noiseInfo p", "夜遅くまでにぎやかに過ごされたい場合は、トラブル防止のため他施設をご検討ください。<br>※一般的な音量の会話であれば、夜間でも問題なくご利用いただけます。", "If you plan to have a lively gathering late at night, please consider other facilities to avoid trouble.<br>* Normal-volume conversations are fine even at night.", "늦은 밤까지 시끄럽게 보내고 싶으신 경우, 문제 방지를 위해 다른 시설을 고려해 주십시오.<br>※일반적인 음량의 대화는 야간에도 문제없이 이용하실 수 있습니다.", "如果您想熬夜狂欢，请考虑其他住宿，以避免不必要的麻烦。<br>※如果是一般音量的对话，即使在夜间也可以正常使用。", "如果您希望玩樂到深夜，為避免糾紛，請考慮其他住宿設施。<br>※若為一般音量的交談，即使在夜間也能正常使用。"],
     ["#noiseInfo strong", "騒音禁止　21:00 〜 翌8:00", "Quiet Hours: 21:00 – 8:00", "소음 금지 21:00 ~ 익일 8:00", "禁止噪音 21:00 至次日8:00", "禁止喧嘩 21:00 〜 翌日8:00"],
@@ -982,14 +990,15 @@
     ["#wifi .wifi-label:nth-of-type(1)", "SSID", "SSID", "SSID", "SSID", "SSID"],
     ["#wifi .info-box", "<i class=\"bi bi-exclamation-triangle me-1 text-warning\"></i>現在ネット回線の速度が遅くなっております。ご迷惑おかけしますが何卒ご了承ください。", "<i class=\"bi bi-exclamation-triangle me-1 text-warning\"></i>Internet speed is currently slow. We apologize for the inconvenience.", "<i class=\"bi bi-exclamation-triangle me-1 text-warning\"></i>현재 인터넷 회선 속도가 느립니다. 불편을 드려 죄송하지만 양해 부탁드립니다.", "<i class=\"bi bi-exclamation-triangle me-1 text-warning\"></i>目前网络速度较慢。给您带来不便，敬请谅解。", "<i class=\"bi bi-exclamation-triangle me-1 text-warning\"></i>目前網路速度較慢。造成您的不便，敬請諒解。"],
     ["#videos h2", "▶ 案内動画", "▶ Guide Videos", "▶ 안내 동영상", "▶ 指导视频", "▶ 導覽影片"],
-    ["#videos > p", "各項目をタップすると動画が表示されます。", "Tap each item to view the video.", "각 항목을 탭하면 동영상이 표시됩니다.", "点击各项目即可显示视频。", "點擊各項目即可播放影片。"],
     ["[data-bs-target=\"#video1\"]", "① 駐車場までのルート", "① Route to Parking", "① 주차장까지의 경로", "① 到停车场的路线", "① 前往停車場的路線"],
     ["[data-bs-target=\"#video2\"]", "② 駐車場からホテルまで", "② From Parking to Hotel", "② 주차장에서 호텔까지", "② 从停车场到酒店", "② 從停車場到住宿地點"],
     ["[data-bs-target=\"#video3\"]", "③ キーボックスからカギを取り出す", "③ Retrieving the Key", "③ 키박스에서 열쇠 꺼내기", "③ 从钥匙盒取出钥匙", "③ 從鑰匙盒取出鑰匙"],
     ["[data-bs-target=\"#video4\"]", "④ 玄関のカギを開ける", "④ Unlocking the Door", "④ 현관문 열기", "④ 打开玄关门锁", "④ 打開玄關的門鎖"],
     ["[data-bs-target=\"#video5\"]", "⑤ 玄関のカギを閉める", "⑤ Locking the Door", "⑤ 현관문 닫기", "⑤ 锁上玄关门", "⑤ 關閉玄關的門鎖"],
     ["#parking h2", "🚗 駐車場", "🚗 Parking", "🚗 주차장", "🚗 停车场", "🚗 停車場"],
-    ["#parking h3:nth-of-type(1)", "無料駐車場", "Free Parking", "무료 주차장", "免费停车场", "免費停車場"],
+    ["#addrLabel", "住所:", "Address:", "주소:", "地址:", "地址:"],
+    ["#mapLink", '<i class="bi bi-map me-1"></i> Google MAP で開く', '<i class="bi bi-map me-1"></i> Open in Google Maps', '<i class="bi bi-map me-1"></i> Google 지도에서 열기', '<i class="bi bi-map me-1"></i> 用 Google 地图打开', '<i class="bi bi-map me-1"></i> 用 Google 地圖開啟'],
+    ["#freeParkingHeading", "無料駐車場", "Free Parking", "무료 주차장", "免费停车场", "免費停車場"],
     ["#parking .parking-table:nth-of-type(1) tr:nth-child(1) td:nth-child(1)", "No.未舗装", "Unpaved", "No. 비포장", "No.未铺设", "未鋪設路面"],
     ["#parking .parking-table:nth-of-type(1) tr:nth-child(1) td:nth-child(2)", "軽・小型車 2台 or それ以外 1台", "2 compact cars OR 1 larger vehicle", "경차/소형차 2대 또는 그 외 1대", "轻型车/小型车 2辆 或 其他 1辆", "輕型車/小型車 2輛 或 其他車輛 1輛"],
     ["#parking .parking-table:nth-of-type(1) tr:nth-child(2) td:nth-child(1)", "No.１", "No.1", "No.1", "No.１", "No.１"],
