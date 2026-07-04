@@ -144,6 +144,15 @@ const Auth = {
         });
       } else {
         this.currentUser = null;
+        // ログアウト/セッション切れ時: 直前に表示していたページ (横カレンダー等) が
+        // #pageContainer に残ったまま、リアルタイム購読 (onSnapshot) が認証を失って
+        // 空データで再描画され「担当者名が空の横カレンダー」がログイン画面の背面に
+        // 見えてしまう症状があった。ページ購読と内容を明示的にクリアしてからログイン
+        // 画面を出す (再ログイン時は route() が改めて描画する)。
+        try { App._flushPageUnsubs(); } catch (_) { /* App 未初期化時は無視 */ }
+        const pageContainer = document.getElementById("pageContainer");
+        if (pageContainer) pageContainer.innerHTML = "";
+        try { App.currentPage = null; } catch (_) { /* ignore */ }
         this.loginModal.show();
       }
     });
