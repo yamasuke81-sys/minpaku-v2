@@ -32,31 +32,18 @@ function resolveGuideUrl(prop) {
   return getAutoGuideUrl(prop.id);
 }
 
-const RELAY_HOST = "v2-5-relay.web.app";
-
 /**
- * guideUrl に退避用(リレーアプリ)URLのフォールバックを併記したテキストブロックを返す。
- * 現行URLはそのまま残し、その下に案内文 + リレー版URLを追記する。
- * 既にリレーURLの場合は重複を避けてそのまま返す。
- * @param {string} guideUrl ゲスト案内ページURL
- * @param {string} [lang]   "en" 指定時は英語のフォールバックラベルを使う(英語メール用)
+ * ゲスト案内ページURLのテキストブロックを返す。
+ * かつては旧本番(minpaku-v2)が凍結していたため、リレー(v2-5-relay)版URLを
+ * 「開けない場合はこちら」として併記していたが、独自ドメイン app.setouchi-stay.com が
+ * 信頼できる単一URLになり、かつリレー自体も危険サイト判定を受けたため、
+ * フォールバック併記は廃止する(ゲスト向け本文にリレーURLを出さない)。
+ * @param {string} guideUrl ゲスト案内ページURL(独自ドメイン)
+ * @param {string} [lang]   互換のため引数は残す(未使用)
  * @returns {string}
  */
 function buildGuideUrlBlock(guideUrl, lang) {
-  if (!guideUrl) return "";
-  let relayUrl = guideUrl;
-  try {
-    const u = new URL(guideUrl);
-    if (u.hostname === RELAY_HOST) return guideUrl; // 既にリレー → フォールバック不要
-    u.hostname = RELAY_HOST;
-    relayUrl = u.toString();
-  } catch (_) {
-    return guideUrl; // URL として解釈できなければそのまま
-  }
-  const label = lang === "en"
-    ? "If the link above does not open, please use the link below:"
-    : "開けない場合はこちらを開いてください:";
-  return `${guideUrl}\n${label}\n${relayUrl}`;
+  return guideUrl || "";
 }
 
 module.exports = { GUIDE_MAP, GUIDE_BASE_URL, getAutoGuideUrl, resolveGuideUrl, buildGuideUrlBlock };

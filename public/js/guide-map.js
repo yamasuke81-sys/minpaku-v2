@@ -15,7 +15,7 @@
   // スクリプト読込順に依存しないよう呼び出し時に評価する
   function guideBaseUrl() {
     const d = global.V2_CUSTOM_DOMAIN;
-    return `${d ? `https://app.${d}` : "https://v2-5-relay.web.app"}/guides`;
+    return `${d ? `https://app.${d}` : "https://app.setouchi-stay.com"}/guides`;
   }
   const GUIDE_BASE_URL = guideBaseUrl(); // 後方互換 (既存参照向け・relay 既定)
 

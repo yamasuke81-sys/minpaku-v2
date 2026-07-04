@@ -26,11 +26,11 @@ async function loadGasConfig_(db) {
  * 実際の実行結果を取得する（追従しないと常に「失敗」扱いになる）
  * @param {string} url
  * @param {object} payload
- * @returns {Promise<{ status: number, body: string }>}
+ * @returns {Promise<{ status: number, body: string, redirectedTo: string|null }>}
  */
 function postJson_(url, payload) {
   const jsonStr = JSON.stringify(payload);
-  const request = (targetUrl, method, redirectsLeft) => new Promise((resolve, reject) => {
+  const request = (targetUrl, method, redirectsLeft, redirectedTo) => new Promise((resolve, reject) => {
     const parsed = new URL(targetUrl);
     const options = {
       hostname: parsed.hostname,
@@ -47,9 +47,9 @@ function postJson_(url, payload) {
       res.on("end", () => {
         const loc = res.headers.location;
         if ([301, 302, 303].includes(res.statusCode) && loc && redirectsLeft > 0) {
-          resolve(request(loc, "GET", redirectsLeft - 1));
+          resolve(request(loc, "GET", redirectsLeft - 1, loc));
         } else {
-          resolve({ status: res.statusCode, body });
+          resolve({ status: res.statusCode, body, redirectedTo: redirectedTo || null });
         }
       });
     });
@@ -57,7 +57,34 @@ function postJson_(url, payload) {
     if (method === "POST") req.write(jsonStr);
     req.end();
   });
-  return request(url, "POST", 3);
+  return request(url, "POST", 3, null);
+}
+
+const sleep_ = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * リダイレクト先の一過性 404 のみ、少し待って GET を1回だけ再試行する。
+ * 302→GET の echo URL が Google 側の伝播遅延で「ページが見つかりません」を返すことがあり、
+ * その場合 doPost 自体は実行済み＝転記は成功していることが多い。
+ * @param {string} echoUrl 302で返ってきたリダイレクト先URL
+ * @returns {Promise<{ status: number, body: string }>}
+ */
+async function retryGetOnce_(echoUrl) {
+  await sleep_(3000);
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(echoUrl);
+    const req = https.request({
+      hostname: parsed.hostname,
+      path: parsed.pathname + parsed.search,
+      method: "GET",
+    }, (res) => {
+      let body = "";
+      res.on("data", (c) => { body += c; });
+      res.on("end", () => resolve({ status: res.statusCode, body }));
+    });
+    req.on("error", reject);
+    req.end();
+  });
 }
 
 module.exports = async function onGuestRegistrationToGas(event) {
@@ -121,27 +148,45 @@ module.exports = async function onGuestRegistrationToGas(event) {
   };
 
   try {
-    const result = await postJson_(config.gasUrl, payload);
+    let result = await postJson_(config.gasUrl, payload);
+
+    // 一過性 404: echo URL の伝播遅延で「ページが見つかりません」が返ることがある。
+    // 3秒待って GET を1回だけ再試行。成功すれば通知抑制、失敗なら通常のエラー扱い。
+    if (result.status === 404 && result.redirectedTo) {
+      console.warn(`[onGuestRegistrationToGas] 404を検知→3秒待って再試行: guestId=${guestId}`);
+      const retry = await retryGetOnce_(result.redirectedTo);
+      if (retry.status === 200) {
+        console.log(`[onGuestRegistrationToGas] GAS転記成功(retry): guestId=${guestId} name=${guest.guestName}`);
+        return;
+      }
+      // リトライも失敗した場合は元エラーで通知（body は元の 404 のままにする）
+    }
+
     if (result.status === 200) {
       console.log(`[onGuestRegistrationToGas] GAS転記成功: guestId=${guestId} name=${guest.guestName}`);
     } else {
       console.error(`[onGuestRegistrationToGas] GAS転記失敗: status=${result.status} body=${result.body}`);
-      // 失敗時は error_logs に記録（シンプル1回試行）
       await db.collection("error_logs").add({
-        type:    "gas_mirror_failed",
+        type:         "gas_mirror_failed",
+        functionName: "onGuestRegistrationToGas",
+        errorMessage: `GAS転記失敗 HTTP ${result.status}（guestId=${guestId} name=${guest.guestName || "?"}）— 先にスプシで該当行の有無を確認してください（一過性エラーで実は転記済みの可能性あり）`,
+        severity:     "warning",
         guestId,
-        status:  result.status,
-        body:    result.body.substring(0, 500),
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        status:       result.status,
+        body:         (result.body || "").substring(0, 500),
+        createdAt:    admin.firestore.FieldValue.serverTimestamp(),
       });
     }
   } catch (e) {
     console.error(`[onGuestRegistrationToGas] 通信エラー: ${e.message}`);
     await db.collection("error_logs").add({
-      type:     "gas_mirror_error",
+      type:         "gas_mirror_error",
+      functionName: "onGuestRegistrationToGas",
+      errorMessage: `GAS転記 通信エラー: ${e.message}（guestId=${guestId}）`,
+      severity:     "warning",
       guestId,
-      message:  e.message,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      message:      e.message,
+      createdAt:    admin.firestore.FieldValue.serverTimestamp(),
     });
   }
 };
