@@ -2,31 +2,34 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <script src="/js/api-relay.js?v=v0704j"></script>
+  <script src="/js/api-relay.js?v=v0704k"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ご宿泊者様へ — the Terrace 長浜</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0704j" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0704k" rel="stylesheet">
   <style>
     /* === 共通トークン（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css） === */
     body { background: var(--ss-page-bg); background-attachment: fixed; min-height: 100vh; }
 
+    /* 白カード・白い境界線は廃止。入口と地続きの "ほとんど透ける暗パネル" */
     .guide-card {
       max-width: 640px;
-      margin: 0 auto;
+      margin: 1.5rem auto;
       border: 1px solid var(--ss-border);
-      border-radius: 12px;
-      box-shadow: 0 10px 40px -18px rgba(14,40,48,0.35);
-      background: var(--ss-surface);
+      border-radius: 14px;
+      box-shadow: 0 30px 80px -30px rgba(0,0,0,0.6);
+      background: var(--ss-panel);
+      -webkit-backdrop-filter: blur(3px);
+      backdrop-filter: blur(3px);
     }
 
-    /* ヘッダー（夕暮れの海） */
+    /* ヘッダーは背景と地続き（透明） */
     .guide-header {
-      background: var(--ss-header-bg);
+      background: transparent;
       color: var(--ss-sand);
-      border-radius: 12px 12px 0 0;
-      padding: 1.75rem 1.5rem;
+      border-radius: 14px 14px 0 0;
+      padding: 2rem 1.5rem 1.25rem;
       text-align: center;
     }
     .guide-header h1 { font-family: var(--ss-serif); font-weight: 400; font-size: 1.4rem; letter-spacing: .02em; margin: 0; padding-top: 2rem; }
@@ -42,8 +45,11 @@
       position: sticky;
       top: 0;
       z-index: 100;
-      background: #fff;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      background: rgba(11,32,40,0.82);
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--ss-border);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
       padding: 0.5rem 0.75rem;
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
@@ -62,13 +68,13 @@
       font-family: var(--ss-serif);
       font-size: 1.08rem;
       font-weight: 600;
-      color: var(--ss-sea);
+      color: var(--ss-heading);
       border-left: 4px solid var(--ss-gold);
       padding-left: 0.75rem;
       padding-top: 0.5rem;
       padding-bottom: 0.5rem;
       margin: 2rem 0 1rem;
-      background: #f1ece1;
+      background: var(--ss-panel-soft);
       border-radius: 0 6px 6px 0;
     }
 
@@ -81,8 +87,8 @@
 
     /* 情報ボックス */
     .info-box {
-      background: #faf5e9;
-      border: 1px solid var(--ss-gold);
+      background: rgba(224,146,66,0.14);
+      border: 1px solid rgba(196,163,92,0.55);
       border-radius: 8px;
       padding: 0.75rem 1rem;
       font-size: 0.85rem;
@@ -154,7 +160,7 @@
     /* 駐車場テーブル */
     .parking-table { width: 100%; font-size: 0.9rem; }
     .parking-table td { padding: 0.35rem 0.5rem; vertical-align: top; }
-    .parking-table td:first-child { white-space: nowrap; font-weight: 600; color: var(--ss-sea); }
+    .parking-table td:first-child { white-space: nowrap; font-weight: 600; color: var(--ss-sand); }
     .disabled-slot { text-decoration: line-through; color: var(--ss-muted); }
 
     /* CTAボタン */

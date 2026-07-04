@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&family=Roboto+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0704j" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0704k" rel="stylesheet">
   <style>
     /* === 瀬戸内ステイ 明るいブランド版へ統一（トークンは setouchi-brand.css）===
        このページ独自の金テーマ(--yellow/--yellow-deep/--accent 等)は廃止し、
@@ -54,7 +54,7 @@
     }
     .hero h1 {
       font-family: "Playfair Display", var(--ss-serif);
-      color: var(--ss-sea);
+      color: var(--ss-heading);
       font-size: clamp(28px, 6vw, 42px);
       margin: 0;
       letter-spacing: 0.04em;
@@ -78,7 +78,7 @@
     /* ===== 言語切替 ===== */
     .lang-switch {
       position: fixed; top: 14px; right: 14px; z-index: 100;
-      background: rgba(255,255,255,0.85); backdrop-filter: blur(8px);
+      background: var(--ss-panel); backdrop-filter: blur(8px);
       border: 1px solid var(--line); border-radius: 16px;
       padding: 4px; display: flex; flex-wrap: wrap; gap: 2px;
       max-width: calc(100vw - 28px);
@@ -90,11 +90,11 @@
       font-size: 11px; font-weight: 500; cursor: pointer; color: var(--ink-2);
       white-space: nowrap;
     }
-    .lang-switch button.active { background: var(--ink); color: #fff; }
+    .lang-switch button.active { background: var(--ss-sea); color: var(--ss-sand); }
 
     /* ===== 目次 ===== */
     .toc {
-      background: rgba(255,255,255,0.7); backdrop-filter: blur(10px);
+      background: var(--ss-panel); backdrop-filter: blur(10px);
       border: 1px solid var(--line); border-radius: 14px;
       padding: 14px 18px; margin: 20px 0 40px; font-size: 13px;
     }
@@ -111,10 +111,10 @@
 
     /* ===== セクション ===== */
     section {
-      background: rgba(255,255,255,0.82); backdrop-filter: blur(8px);
+      background: var(--ss-panel); backdrop-filter: blur(8px);
       border: 1px solid var(--line); border-radius: 18px;
       padding: 28px 26px; margin-bottom: 24px;
-      box-shadow: 0 4px 24px rgba(180, 140, 60, 0.08);
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.28);
     }
     .section-head {
       display: flex; align-items: center; gap: 12px;
@@ -157,7 +157,7 @@
     .step-body p { margin: 0 0 6px; }
     .step-body .note {
       font-size: 12px; color: var(--ink-2);
-      background: #f1ece1;
+      background: var(--ss-panel-soft);
       border-left: 3px solid var(--ss-gold);
       padding: 6px 10px; border-radius: 4px; margin-top: 6px;
     }
@@ -169,7 +169,7 @@
     .img-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
     .photo {
       position: relative; border-radius: 10px; overflow: hidden;
-      border: 1px solid var(--line); background: #fff;
+      border: 1px solid var(--line); background: var(--ss-panel-soft);
       aspect-ratio: 4/3;
     }
     .photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -230,7 +230,7 @@
     /* アクセス */
     .address-box {
       display: block;
-      background: rgba(255,255,255,0.65);
+      background: var(--ss-panel-soft);
       border: 1px solid var(--line);
       border-radius: 12px;
       padding: 14px 18px;
@@ -239,7 +239,7 @@
       transition: all 0.2s;
     }
     .address-box:hover {
-      background: rgba(255,255,255,0.9);
+      background: rgba(255,255,255,0.09);
       border-color: var(--accent);
     }
     .address-label {
@@ -254,13 +254,13 @@
     .map-embed {
       border-radius: 12px; overflow: hidden;
       border: 1px solid var(--line);
-      background: #fff;
+      background: var(--ss-panel-soft);
       line-height: 0;
     }
 
     /* Wi-Fi */
     .wifi-box {
-      background: #f1ece1;
+      background: var(--ss-panel-soft);
       border: 1px solid var(--line);
       border-radius: 14px;
       padding: 10px 16px;
@@ -285,12 +285,12 @@
     }
     .btn-copy {
       border: 1px solid var(--line);
-      background: #fff; color: var(--ink);
+      background: var(--ss-panel-soft); color: var(--ss-sand);
       padding: 6px 10px; border-radius: 8px;
       font-size: 14px; cursor: pointer;
       transition: all 0.15s;
     }
-    .btn-copy:hover { background: var(--ss-sand); border-color: var(--ss-sea); }
+    .btn-copy:hover { background: var(--ss-sea); color: var(--ss-sand); border-color: var(--ss-sea); }
     .btn-copy.copied { background: var(--ss-sea); color: var(--ss-sand); border-color: var(--ss-sea); }
     .wifi-pending {
       text-align: center; padding: 26px 16px;
@@ -462,7 +462,7 @@
       margin-top: 14px;
       border-radius: 12px; overflow: hidden;
       border: 1px solid var(--line);
-      background: #fff;
+      background: var(--ss-panel-soft);
     }
     .map-wrap img { width: 100%; display: block; }
     .map-pin {
@@ -485,7 +485,7 @@
     }
     .map-legend .leg {
       display: flex; align-items: center; gap: 8px;
-      background: rgba(255,255,255,0.7);
+      background: var(--ss-panel-soft);
       border: 1px solid var(--line);
       padding: 8px 12px; border-radius: 10px;
     }
@@ -500,7 +500,7 @@
     /* ===== ルール一覧 ===== */
     .rule-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
     .rule {
-      background: rgba(255,255,255,0.6);
+      background: var(--ss-panel-soft);
       border: 1px solid var(--line);
       border-radius: 12px; padding: 14px 16px;
     }
@@ -514,7 +514,7 @@
       display: grid; place-items: center; font-size: 13px;
     }
     .rule p { margin: 0 0 6px; font-size: 15px; }
-    .rule.fine { border-color: var(--accent); background: #f1ece1; }
+    .rule.fine { border-color: var(--accent); background: var(--ss-panel-soft); }
 
     /* ===== お問合せ ===== */
     .contact {
@@ -711,7 +711,7 @@
         <div class="step-video">
           <p class="step-video-title jp">🎥 キーボックスの開け方</p><p class="step-video-title ko-only">🎥 키박스 여는 방법</p><p class="step-video-title zh-only">🎥 如何打开钥匙盒</p><p class="step-video-title tw-only">🎥 鑰匙盒開啟方式</p>
           <p class="step-video-title en-only">🎥 How to open the key box</p>
-          <div class="step-video-frame is-animated" style="aspect-ratio:1/1;max-width:460px;background:#fff;">
+          <div class="step-video-frame is-animated" style="aspect-ratio:1/1;max-width:460px;background:rgba(255,255,255,0.06);">
             <span class="gif-badge jp">▶ 動きます</span><span class="gif-badge ko-only">▶ 동영상 재생</span><span class="gif-badge zh-only">▶ 播放</span><span class="gif-badge tw-only">▶ 播放</span>
             <span class="gif-badge en-only">▶ Animated</span>
             <img src="img/keybox-open.gif" alt="キーボックスの開け方 / How to open the key box" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;">
@@ -832,7 +832,7 @@
       <div class="photo photo-num" style="aspect-ratio: 1/1;" data-num="4"><img src="img/image31.jpeg" alt="テレビリモコン全体"></div>
     </div>
 
-    <div style="margin-top: 14px; padding: 12px 14px; background: #fff7ed; border-left: 4px solid #f59e0b; border-radius: 6px;">
+    <div style="margin-top: 14px; padding: 12px 14px; background: rgba(245,158,11,0.14); border-left: 4px solid #f59e0b; border-radius: 6px;">
       <p class="jp"><strong>ご注意：</strong>本機は Android TV です。Netflix や Amazon Prime など、お好きなコンテンツにご自分のアカウントでログインしてご視聴いただけます。</p>
       <p class="jp">退室時には<strong>必ずログアウト</strong>していただきますようお願いいたします。</p>
       <p class="en-only"><strong>Note:</strong> This is an Android TV. You can log in to Netflix, Amazon Prime, or other services with your own account to enjoy your favorite content. Please be sure to <strong>log out</strong> of all accounts before checkout.</p>

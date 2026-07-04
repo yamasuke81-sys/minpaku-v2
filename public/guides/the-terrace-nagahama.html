@@ -6,86 +6,153 @@
   <title>ご宿泊者様へ — the Terrace 長浜</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0704j" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0704k" rel="stylesheet">
   <style>
     /* === 共通トークン（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css） === */
     body { background: var(--ss-page-bg); background-attachment: fixed; min-height: 100vh; }
 
+    /* 深緑の海に浮かぶ明るいカラム（YADO KOMACHI ガイドと質感を統一） */
     .guide-card {
-      max-width: 640px;
-      margin: 0 auto;
+      max-width: 780px;
+      margin: 24px auto;
       border: 1px solid var(--ss-border);
-      border-radius: 12px;
-      box-shadow: 0 10px 40px -18px rgba(14,40,48,0.35);
+      border-radius: 14px;
+      box-shadow: 0 18px 50px -24px rgba(0,0,0,.55);
       background: var(--ss-surface);
+      padding: 0 20px 80px;
     }
 
-    /* ヘッダー（夕暮れの海） */
+    /* ===== ヘッダー（中央寄せ hero） ===== */
     .guide-header {
-      background: var(--ss-header-bg);
-      color: var(--ss-sand);
-      border-radius: 12px 12px 0 0;
-      padding: 1.75rem 1.5rem;
       text-align: center;
+      padding: 56px 16px 40px;
     }
-    .guide-header h1 { font-family: var(--ss-serif); font-weight: 400; font-size: 1.4rem; letter-spacing: .02em; margin: 0; padding-top: 2rem; }
-    .guide-header p  { margin: 0.55rem 0 0; opacity: 0.85; font-size: 0.9rem; }
-    .guide-header::after { content: ""; display: block; width: 34px; height: 1px; background: var(--ss-gold); opacity: .85; margin: 0.9rem auto 0; }
-
-    /* 言語切替 */
-    .lang-switch { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; margin-bottom: 0.75rem; }
-    .lang-switch .btn { font-size: 0.75rem; padding: 2px 8px; }
-
-    /* クイックナビ（グリッド） */
-    .quick-nav {
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      background: #fff;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      padding: 0.5rem 0.75rem;
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 4px;
-    }
-    .quick-nav .btn {
-      font-size: 0.72rem;
-      padding: 6px 4px;
-      border-radius: 8px;
-      white-space: nowrap;
-      text-align: center;
-    }
-
-    /* セクション見出し */
-    .section-title {
-      font-family: var(--ss-serif);
-      font-size: 1.08rem;
-      font-weight: 600;
-      color: var(--ss-sea);
-      border-left: 4px solid var(--ss-gold);
-      padding-left: 0.75rem;
-      padding-top: 0.5rem;
-      padding-bottom: 0.5rem;
-      margin: 2rem 0 1rem;
-      background: #f1ece1;
-      border-radius: 0 6px 6px 0;
-    }
-
-    /* セクション区切り線 */
-    .section-divider {
-      border: none;
-      border-top: 1px solid var(--ss-border);
-      margin: 2rem 0;
-    }
-
-    /* 情報ボックス */
-    .info-box {
-      background: #faf5e9;
+    .hero-brand-mark {
+      display: inline-block;
+      font-size: 11px;
+      letter-spacing: 0.32em;
+      color: var(--ss-gold);
+      padding: 6px 14px;
       border: 1px solid var(--ss-gold);
+      border-radius: 999px;
+      margin-bottom: 26px;
+    }
+    .guide-header h1 {
+      font-family: "Playfair Display", var(--ss-serif);
+      color: var(--ss-heading);
+      font-size: clamp(28px, 6vw, 42px);
+      margin: 0;
+      letter-spacing: 0.04em;
+      line-height: 1;
+    }
+    .guide-header::after { content: ""; display: block; width: 34px; height: 1px; background: var(--ss-gold); opacity: .85; margin: 0.9rem auto 0; }
+    .guide-header .hero-sub {
+      margin-top: 12px;
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--ss-muted);
+      letter-spacing: 0.14em;
+      font-family: "Playfair Display", serif;
+      line-height: 1.2;
+    }
+    .guide-header p { margin: 0.6rem 0 0; opacity: 0.85; font-size: 0.9rem; color: var(--ss-muted); }
+
+    /* ===== 言語切替（右上ガラスピル） ===== */
+    .lang-switch {
+      position: fixed; top: 14px; right: 14px; z-index: 200;
+      background: var(--ss-panel); backdrop-filter: blur(8px);
+      border: 1px solid var(--ss-border); border-radius: 16px;
+      padding: 4px; display: flex; flex-wrap: wrap; gap: 2px;
+      max-width: calc(100vw - 28px);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+    }
+    .lang-switch .btn {
+      border: none; background: transparent;
+      padding: 5px 10px; border-radius: 999px;
+      font-size: 11px; font-weight: 500; color: var(--ss-muted);
+      white-space: nowrap;
+    }
+    .lang-switch .btn.active { background: var(--ss-sea); color: var(--ss-sand); }
+
+    /* ===== 目次（toc） ===== */
+    .quick-nav {
+      background: var(--ss-panel); backdrop-filter: blur(10px);
+      border: 1px solid var(--ss-border); border-radius: 14px;
+      padding: 14px 18px; margin: 8px 0 28px;
+    }
+    .toc-title { font-size: 11px; letter-spacing: 0.2em; color: var(--ss-gold); margin-bottom: 10px; }
+    .quick-nav .toc-list {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 4px 14px;
+    }
+    .quick-nav .toc-list a {
+      color: var(--ss-text); text-decoration: none;
+      display: flex; align-items: center; gap: 6px;
+      padding: 5px 4px; border-radius: 8px;
+      font-size: 13px; white-space: nowrap;
+    }
+    .quick-nav .toc-list a:hover { color: var(--ss-gold); background: rgba(255,255,255,0.05); }
+
+    /* ===== セクション（角丸ダークパネル） ===== */
+    section {
+      background: var(--ss-panel); backdrop-filter: blur(8px);
+      border: 1px solid var(--ss-border); border-radius: 18px;
+      padding: 28px 26px; margin-bottom: 24px;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.28);
+    }
+    .section-head {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 20px; padding-bottom: 14px;
+      border-bottom: 2px solid var(--ss-border);
+    }
+    .section-head .icon {
+      width: 40px; height: 40px; border-radius: 12px;
+      background: linear-gradient(135deg, var(--ss-sea) 0%, var(--ss-sea-deep) 100%);
+      display: grid; place-items: center; color: var(--ss-sand);
+      font-size: 20px; flex-shrink: 0;
+    }
+    .section-head h2 {
+      margin: 0; font-size: 20px; font-weight: 700;
+      color: var(--ss-heading); font-family: var(--ss-sans, inherit);
+    }
+    .section-head .en { font-size: 12px; color: var(--ss-muted); letter-spacing: 0.12em; margin-top: 2px; }
+
+    /* 旧セクション見出し（i18n 対象の h2）はヘッド内でリセット */
+    .section-title {
+      font: inherit; color: inherit;
+      border: none; padding: 0; margin: 0; background: none; border-radius: 0;
+    }
+
+    /* セクション区切り線（hero 直後の一本のみ表示、他は section 化により非表示） */
+    .section-divider { display: none; }
+
+    /* 情報ボックス（ダークガラス化） */
+    .info-box {
+      background: var(--ss-panel-soft);
+      border: 1px solid var(--ss-border);
+      border-left: 3px solid var(--ss-gold);
       border-radius: 8px;
       padding: 0.75rem 1rem;
       font-size: 0.85rem;
+      color: var(--ss-text);
     }
+
+    /* チェックイン住所ボックス等の明るいユーティリティ地をダーク化（共有CSSで拾えない inline/Bootstrap 起因） */
+    #checkin .p-3.rounded.border {
+      background: var(--ss-panel-soft) !important;
+      border-color: var(--ss-border) !important;
+      color: var(--ss-text);
+    }
+    /* Bootstrap の文脈テーブル行（明色）をダークトーンへ */
+    .table-warning,
+    .table-warning > td,
+    .table-warning > th { --bs-table-bg: transparent; background-color: rgba(196,163,92,0.14) !important; color: var(--ss-text) !important; }
+    .table-secondary,
+    .table-secondary > td,
+    .table-secondary > th { --bs-table-bg: transparent; background-color: rgba(255,255,255,0.05) !important; color: var(--ss-muted) !important; }
 
     /* Wi-Fi */
     .wifi-row {
@@ -197,21 +264,32 @@
       border-bottom: 1px solid var(--ss-border);
     }
 
-    /* フッター */
+    /* フッター（問い合わせカード＋小さな下部注記） */
     .guide-footer {
       background: var(--ss-sea-deep);
       color: rgba(244,239,230,0.85);
-      padding: 1rem;
+      padding: 30px 20px;
       text-align: center;
       font-size: 0.85rem;
-      border-radius: 0 0 12px 12px;
+      border-radius: 18px;
+      margin-top: 30px;
+    }
+    .guide-footer p:first-child {
+      font-family: "Playfair Display", serif;
+      font-size: 22px; color: var(--ss-sand);
+      letter-spacing: 0.05em; margin-bottom: 8px;
+    }
+    .guide-footer .footer-note {
+      display: block; margin-top: 14px;
+      font-size: 11px; letter-spacing: 0.12em;
+      color: rgba(244,239,230,0.6);
     }
 
     /* スマホ全幅 */
     @media (max-width: 640px) {
-      .guide-card { margin: 0; border-radius: 0; }
-      .guide-header { border-radius: 0; }
-      .guide-footer { border-radius: 0; }
+      .guide-card { margin: 0; border-radius: 0; border-left: none; border-right: none; padding: 0 14px 60px; }
+      section { padding: 20px 16px; }
+      .guide-header { padding: 44px 10px 30px; }
     }
   </style>
 </head>
@@ -219,33 +297,40 @@
 
 <div class="guide-card" id="guideCard">
 
-  <!-- ヘッダー -->
-  <div class="guide-header position-relative">
-    <div class="lang-switch">
-      <button class="btn btn-sm btn-outline-light active" data-lang="ja" onclick="setLang('ja')">日本語</button>
-      <button class="btn btn-sm btn-outline-light" data-lang="en" onclick="setLang('en')">English</button>
-      <button class="btn btn-sm btn-outline-light" data-lang="ko" onclick="setLang('ko')">한국어</button>
-      <button class="btn btn-sm btn-outline-light" data-lang="zh" onclick="setLang('zh')">中文</button>
-      <button class="btn btn-sm btn-outline-light" data-lang="tw" onclick="setLang('tw')">繁體中文</button>
-    </div>
-    <h1>ご宿泊者様へ</h1>
-    <p>the Terrace 長浜</p>
+  <!-- 言語切替（右上ガラスピル・fixed） -->
+  <div class="lang-switch">
+    <button class="btn btn-sm active" data-lang="ja" onclick="setLang('ja')">日本語</button>
+    <button class="btn btn-sm" data-lang="en" onclick="setLang('en')">EN</button>
+    <button class="btn btn-sm" data-lang="ko" onclick="setLang('ko')">한국어</button>
+    <button class="btn btn-sm" data-lang="zh" onclick="setLang('zh')">中文</button>
+    <button class="btn btn-sm" data-lang="tw" onclick="setLang('tw')">繁體中文</button>
   </div>
 
-  <!-- クイックナビ -->
+  <!-- ヘッダー（中央寄せ hero） -->
+  <header class="guide-header position-relative">
+    <span class="hero-brand-mark">THE TERRACE · 長浜</span>
+    <h1>ご宿泊者様へ</h1>
+    <div class="hero-sub">the Terrace</div>
+    <p>the Terrace 長浜</p>
+  </header>
+
+  <!-- 目次（toc） -->
   <nav class="quick-nav" id="quickNav">
-    <a href="#checkin" class="btn btn-outline-secondary btn-sm">🔑 入室</a>
-    <a href="#rule-checkout" class="btn btn-outline-secondary btn-sm">👋 退室</a>
-    <a href="#wifi" class="btn btn-outline-secondary btn-sm">📶 Wi-Fi</a>
-    <a href="#videos" class="btn btn-outline-secondary btn-sm">▶ 動画</a>
-    <a href="#parking" class="btn btn-outline-secondary btn-sm">🚗 駐車場</a>
-    <a href="#rule-bbq" class="btn btn-outline-secondary btn-sm">🍖 BBQ</a>
-    <a href="#rules" class="btn btn-outline-secondary btn-sm">📌 ルール</a>
-    <a href="#hours" class="btn btn-outline-secondary btn-sm">🕐 時間</a>
+    <div class="toc-title">CONTENTS</div>
+    <div class="toc-list">
+      <a href="#checkin">🔑 入室</a>
+      <a href="#rule-checkout">👋 退室</a>
+      <a href="#wifi">📶 Wi-Fi</a>
+      <a href="#videos">▶ 動画</a>
+      <a href="#parking">🚗 駐車場</a>
+      <a href="#rule-bbq">🍖 BBQ</a>
+      <a href="#rules">📌 ルール</a>
+      <a href="#hours">🕐 時間</a>
+    </div>
   </nav>
 
   <!-- 本文 -->
-  <div class="px-3 pb-4">
+  <div class="pb-4">
 
     <!-- ==================== -->
     <!-- 騒音ルール（表示専用） -->
@@ -274,8 +359,14 @@
     <!-- ==================== -->
     <!-- ❸ チェックイン方法    -->
     <!-- ==================== -->
-    <div id="checkin">
-      <h2 class="section-title">🔑 チェックイン方法</h2>
+    <section id="checkin">
+      <div class="section-head">
+        <div class="icon"><i class="bi bi-key-fill"></i></div>
+        <div>
+          <h2 class="section-title">🔑 チェックイン方法</h2>
+          <div class="en">CHECK-IN</div>
+        </div>
+      </div>
       <ul class="mb-3">
         <li>現地にはスタッフはおりません。</li>
         <li>カギは現地のキーボックスに入れております。ご自身で取り出してから入室してください。</li>
@@ -303,15 +394,19 @@
                   referrerpolicy="no-referrer-when-downgrade"></iframe>
         </div>
       </div>
-    </div>
-
-    <hr class="section-divider">
+    </section>
 
     <!-- ==================== -->
     <!-- ❹ 対応時間           -->
     <!-- ==================== -->
-    <div id="hours">
-      <h2 class="section-title">🕐 時間</h2>
+    <section id="hours">
+      <div class="section-head">
+        <div class="icon"><i class="bi bi-clock-fill"></i></div>
+        <div>
+          <h2 class="section-title">🕐 時間</h2>
+          <div class="en">HOURS</div>
+        </div>
+      </div>
       <table class="table table-bordered table-sm">
         <tbody>
           <tr>
@@ -332,15 +427,19 @@
           </tr>
         </tbody>
       </table>
-    </div>
-
-    <hr class="section-divider">
+    </section>
 
     <!-- ==================== -->
     <!-- ❺ Wi-Fi              -->
     <!-- ==================== -->
-    <div id="wifi">
-      <h2 class="section-title">📶 Wi-Fi</h2>
+    <section id="wifi">
+      <div class="section-head">
+        <div class="icon"><i class="bi bi-wifi"></i></div>
+        <div>
+          <h2 class="section-title">📶 Wi-Fi</h2>
+          <div class="en">WI-FI</div>
+        </div>
+      </div>
       <div class="wifi-row">
         <span class="wifi-label">SSID</span>
         <span class="wifi-value" id="wifiSsid">TP-Link_C118_5G</span>
@@ -361,15 +460,19 @@
         <i class="bi bi-exclamation-triangle me-1 text-warning"></i>
         現在ネット回線の速度が遅くなっております。ご迷惑おかけしますが何卒ご了承ください。
       </div>
-    </div>
-
-    <hr class="section-divider">
+    </section>
 
     <!-- ==================== -->
     <!-- ❻ 案内動画           -->
     <!-- ==================== -->
-    <div id="videos">
-      <h2 class="section-title">▶ 案内動画</h2>
+    <section id="videos">
+      <div class="section-head">
+        <div class="icon"><i class="bi bi-play-circle-fill"></i></div>
+        <div>
+          <h2 class="section-title">▶ 案内動画</h2>
+          <div class="en">GUIDE VIDEOS</div>
+        </div>
+      </div>
       <!-- 常時展開: アコーディオンを廃止して全動画を縦並びで表示 -->
       <div id="videoAccordion">
         <div class="mb-4">
@@ -428,15 +531,19 @@
           </div>
         </div>
       </div>
-    </div>
-
-    <hr class="section-divider">
+    </section>
 
     <!-- ==================== -->
     <!-- ❼ 駐車場             -->
     <!-- ==================== -->
-    <div id="parking">
-      <h2 class="section-title">🚗 駐車場</h2>
+    <section id="parking">
+      <div class="section-head">
+        <div class="icon"><i class="bi bi-p-square-fill"></i></div>
+        <div>
+          <h2 class="section-title">🚗 駐車場</h2>
+          <div class="en">PARKING</div>
+        </div>
+      </div>
 
       <!-- 予約者専用の駐車場割当カード（?guest=TOKEN が有効な場合のみ表示） -->
       <div id="allocationCard" aria-hidden="true">
@@ -508,15 +615,19 @@
           </ul>
         </div>
       </div>
-    </div>
-
-    <hr class="section-divider">
+    </section>
 
     <!-- ==================== -->
     <!-- ❽ ハウスルール        -->
     <!-- ==================== -->
-    <div id="rules">
-      <h2 class="section-title">📌 その他のルール</h2>
+    <section id="rules">
+      <div class="section-head">
+        <div class="icon"><i class="bi bi-card-checklist"></i></div>
+        <div>
+          <h2 class="section-title">📌 その他のルール</h2>
+          <div class="en">HOUSE RULES</div>
+        </div>
+      </div>
       <p class="small text-muted mb-3">
         いろいろ細かいルールをもうけてしまっておりますが、一般的な内容がほとんどです、、、
         ご協力いただけますと幸いです！
@@ -815,15 +926,15 @@
           </div>
         </div>
       </div>
-    </div>
+    </section>
 
   </div><!-- /本文 -->
 
-  <!-- フッター -->
+  <!-- フッター（問い合わせカード＋下部注記） -->
   <footer class="guide-footer">
     <p class="fw-bold mb-1">the Terrace 長浜</p>
     <p class="mb-1">緊急時は <strong>119番</strong> または <strong>110番</strong> へ</p>
-    <p class="mb-0 small opacity-75">&copy; 2026 the Terrace 長浜</p>
+    <p class="mb-0"><span class="footer-note">&copy; 2026 the Terrace 長浜 · Thank you for your stay</span></p>
   </footer>
 
 </div>
