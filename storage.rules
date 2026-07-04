@@ -43,7 +43,7 @@ service firebase.storage {
                             && resource.metadata.uploadedBy == request.auth.uid));
     }
 
-    // 見本写真 — オーナーのみ書き込み可、読み取りは認証済み全員
+    // 見本写真 — オーナー/サブオーナー(所有物件)/レギュラー清掃スタッフ(担当物件、タイミー除く)が書き込み可、読み取りは認証済み全員
     // パス: checklist-samples/{propertyId}/{nodeId}/{filename}
     match /checklist-samples/{propertyId}/{nodeId}/{filename} {
       allow read: if request.auth != null;
@@ -51,10 +51,30 @@ service firebase.storage {
                    && request.resource.size < 10 * 1024 * 1024
                    && request.resource.contentType.matches('image/.*')
                    && (request.auth.token.role == "owner"
-                       || request.auth.token.role == "sub_owner");
+                       || request.auth.token.role == "sub_owner"
+                       // スタッフ判定: doc は staffId をキーにしているため uid ではなく
+                       // カスタムクレーム staffId で参照する
+                       || (request.auth.token.staffId != null
+                           && firestore.exists(/databases/(default)/documents/staff/$(request.auth.token.staffId))
+                           && firestore.get(/databases/(default)/documents/staff/$(request.auth.token.staffId))
+                                .data.get('isTimee', false) != true
+                           && firestore.get(/databases/(default)/documents/staff/$(request.auth.token.staffId))
+                                .data.get('active', true) != false
+                           && propertyId in firestore.get(
+                                /databases/(default)/documents/staff/$(request.auth.token.staffId)
+                              ).data.get('assignedPropertyIds', [])));
       allow delete: if request.auth != null
                     && (request.auth.token.role == "owner"
-                        || request.auth.token.role == "sub_owner");
+                        || request.auth.token.role == "sub_owner"
+                        || (request.auth.token.staffId != null
+                            && firestore.exists(/databases/(default)/documents/staff/$(request.auth.token.staffId))
+                            && firestore.get(/databases/(default)/documents/staff/$(request.auth.token.staffId))
+                                 .data.get('isTimee', false) != true
+                            && firestore.get(/databases/(default)/documents/staff/$(request.auth.token.staffId))
+                                 .data.get('active', true) != false
+                            && propertyId in firestore.get(
+                                 /databases/(default)/documents/staff/$(request.auth.token.staffId)
+                               ).data.get('assignedPropertyIds', [])));
     }
 
     // お知らせ写真 — 認証済みは閲覧・アップロード可能 (5MB以下の画像)

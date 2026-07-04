@@ -135,6 +135,7 @@ const MyChecklistPage = {
           <button class="btn btn-sm btn-outline-primary" id="mclListToday">
             <i class="bi bi-calendar-day"></i> 今日
           </button>
+          <button class="btn btn-sm btn-outline-secondary" id="mclListEditTmpl" style="display:none;"><i class="bi bi-pencil-square"></i> テンプレ編集</button>
         </div>
       </div>
       <div class="d-flex gap-2 flex-wrap mb-3 align-items-center">
@@ -275,6 +276,19 @@ const MyChecklistPage = {
       document.getElementById("mclListShowPast").addEventListener("change", refresh);
       document.getElementById("mclListSort").addEventListener("change", refresh);
       document.getElementById("mclListToday").addEventListener("click", () => this._jumpToToday());
+
+      // テンプレ編集ボタン: オーナー/サブオーナー、またはレギュラースタッフ(担当物件あり)のみ表示
+      const editTmplBtn = document.getElementById("mclListEditTmpl");
+      if (editTmplBtn) {
+        const canEditTmpl = (Auth.isOwner?.() || Auth.isSubOwner?.())
+          || (Auth.isStaff?.() && this.staffDoc
+              && this.staffDoc.active !== false && this.staffDoc.isTimee !== true
+              && (this._listProps || []).length > 0);
+        if (canEditTmpl) {
+          editTmplBtn.style.display = "";
+          editTmplBtn.addEventListener("click", () => this._openTmplEditPicker());
+        }
+      }
 
       this._listInitialScrollDone = false;
       this._renderListBody();
@@ -639,13 +653,64 @@ const MyChecklistPage = {
     this._backTrapInstalled = true;
   },
 
+  // テンプレ編集画面へ遷移する物件を選ぶ (1件なら直接遷移、複数ならモーダル選択)
+  async _openTmplEditPicker() {
+    const props = this._listProps || [];
+    if (props.length === 1) {
+      location.hash = "#/property-checklist/" + props[0].id;
+      return;
+    }
+    if (!props.length) return;
+    const modalId = "tmplEditPicker_" + Date.now().toString(36);
+    const html = `
+      <div class="modal fade" id="${modalId}" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header py-2">
+              <h6 class="modal-title"><i class="bi bi-pencil-square"></i> テンプレ編集する物件を選択</h6>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="list-group">
+                ${props.map(p => {
+                  const num = p._num != null ? p._num : (p.propertyNumber != null ? p.propertyNumber : "");
+                  const color = p._color || p.color || "#6c757d";
+                  const badge = num !== ""
+                    ? `<span class="badge me-2" style="background:${this.escapeHtml(String(color))};color:#fff;min-width:24px;">${this.escapeHtml(String(num))}</span>`
+                    : "";
+                  return `
+                    <button type="button" class="list-group-item list-group-item-action pick-tmpl-prop d-flex align-items-center"
+                      data-prop-id="${this.escapeHtml(p.id)}">
+                      ${badge}${this.escapeHtml(p.name)}
+                    </button>
+                  `;
+                }).join("")}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML("beforeend", html);
+    const modalEl = document.getElementById(modalId);
+    const modal = new bootstrap.Modal(modalEl);
+    modalEl.addEventListener("hidden.bs.modal", () => modalEl.remove());
+    modalEl.querySelectorAll(".pick-tmpl-prop").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const pid = btn.dataset.propId;
+        modal.hide();
+        location.hash = "#/property-checklist/" + pid;
+      });
+    });
+    modal.show();
+  },
+
   // 戻る先ハッシュを判定: チェックリスト一覧/物件チェックリスト編集→管理者一覧、
   // スケジュール→スケジュール、募集→募集。直リンク等で不明な場合はロール別フォールバック。
   _resolveBackHash() {
     const prev = (typeof App !== "undefined" && App.previousPage) || null;
     const map = {
       "checklist": "#/checklist",
-      "property-checklist": "#/checklist",
+      "property-checklist": (typeof Auth !== "undefined" && Auth.isStaff?.()) ? "#/my-checklist" : "#/checklist",
       "schedule": "#/schedule",
       "my-recruitment": "#/my-recruitment",
       "my-checklist": "#/my-checklist"

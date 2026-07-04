@@ -1335,7 +1335,8 @@ const API = {
     },
 
     // workType 省略時は "cleaning"
-    async saveTemplateTree(propertyId, tree, workType) {
+    // opts: { reason?: string, restoredFrom?: string|null } — 履歴バックアップの帰属表示に使う
+    async saveTemplateTree(propertyId, tree, workType, opts = {}) {
       const docId = this._templateDocId(propertyId, workType);
       const data = {
         propertyId,
@@ -1344,6 +1345,15 @@ const API = {
         _meta: tree._meta || null,
         version: (tree.version || 1) + 1,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        // 保存者と保存理由 (履歴バックアップの帰属表示に使う)
+        updatedBy: {
+          uid: firebase.auth().currentUser?.uid || null,
+          staffId: (typeof Auth !== "undefined" && Auth.currentUser?.staffId) || null,
+          role: (typeof Auth !== "undefined" && Auth.currentUser?.role) || "owner",
+          name: firebase.auth().currentUser?.displayName || "",
+        },
+        saveReason: opts.reason || "save",
+        restoredFrom: opts.restoredFrom || null,
       };
       await db.collection("checklistTemplates").doc(docId).set(data, { merge: true });
       return data;
@@ -1439,6 +1449,14 @@ const API = {
         areas: src.areas || [],
         version: 1,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        // 保存者と保存理由 (履歴バックアップの帰属表示に使う)
+        updatedBy: {
+          uid: firebase.auth().currentUser?.uid || null,
+          staffId: (typeof Auth !== "undefined" && Auth.currentUser?.staffId) || null,
+          role: (typeof Auth !== "undefined" && Auth.currentUser?.role) || "owner",
+          name: firebase.auth().currentUser?.displayName || "",
+        },
+        saveReason: "copyFrom",
       };
       await db.collection("checklistTemplates").doc(destDocId).set(data);
       return { id: destDocId, ...data };

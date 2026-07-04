@@ -59,6 +59,8 @@ const App = {
     // 月表示 (FullCalendar) — 清掃スケジュールの表示形式スイッチャーから切替
     "my-recruitment-fullcal": MyRecruitmentPageFullCal,
     "my-checklist": MyChecklistPage,
+    // チェックリストテンプレ編集 (レギュラースタッフは担当物件のみ、ページ側でガード)
+    "property-checklist": PropertyChecklistPage,
     "my-invoice": MyInvoicePage,
     "my-invoice-create": MyInvoiceCreatePage,
     "prepaid-cards": PrepaidCardsPage,

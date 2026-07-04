@@ -16,6 +16,7 @@
  *       作業種別でフィルタしないと清掃原紙が直前点検 checklist を上書きする逆汚染が起きる。
  */
 const admin = require("firebase-admin");
+const { FieldValue } = require("firebase-admin/firestore");
 
 // checklist.workType には shift 由来の cleaning_by_count 等が入るため正規化して比較する
 function normWt(w) {
@@ -69,6 +70,37 @@ module.exports = async (event) => {
     }
   }
   const targetWt = normWt(workType);
+
+  // === 上書き前スナップショットを history サブコレへ保存 (誤削除からの復元用) ===
+  // バックアップ失敗時は console.error して同期処理は継続する
+  // (バックアップ失敗で未着手同期まで止めると「保存したのに反映されない」誤認の温床になるため)
+  // 注意: テンプレ doc 自体の削除 (オーナーのみ可) は update トリガー対象外のため履歴に残らない (既知の制限)
+  if (before && Array.isArray(before.areas) && before.areas.length > 0) {
+    try {
+      const beforeMs = before.updatedAt?.toMillis ? before.updatedAt.toMillis() : 0;
+      // 冪等ID: リトライや二重発火でも重複しない
+      const histId = `v${String(before.version || 0).padStart(5, "0")}_${beforeMs}`;
+      await db.collection("checklistTemplates").doc(docId)
+        .collection("history").doc(histId).set({
+          areas: before.areas,
+          version: before.version || 0,
+          _meta: before._meta || null,
+          propertyId,
+          workType: targetWt,
+          sourceUpdatedAt: before.updatedAt || null, // この版が保存された時刻
+          savedBy: before.updatedBy || null,          // この版を保存した人
+          overwrittenBy: after.updatedBy || null,     // 今回上書きした人
+          reason: after.saveReason || "save",         // save | copyFrom | restore
+          savedAt: FieldValue.serverTimestamp(),
+        });
+      // 直近20世代を残して古い履歴を削除 (select() で areas を読まずメモリ節約)
+      const stale = await db.collection("checklistTemplates").doc(docId)
+        .collection("history").orderBy("savedAt", "desc").offset(20).select().get();
+      for (const d of stale.docs) await d.ref.delete();
+    } catch (e) {
+      console.error("テンプレ履歴バックアップ失敗 (同期は継続):", docId, e.message);
+    }
+  }
 
   const newAreas = after.areas || [];
   const newVersion = after.version || 1;

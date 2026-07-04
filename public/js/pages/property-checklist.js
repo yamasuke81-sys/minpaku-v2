@@ -22,6 +22,21 @@ const PropertyChecklistPage = {
       return;
     }
 
+    // 権限ガード: スタッフはレギュラー(!isTimee)かつ担当物件のみ / サブオーナーは所有物件のみ
+    if (typeof Auth !== "undefined" && Auth.isStaff?.()) {
+      let ok = false;
+      try {
+        const sd = await firebase.firestore().collection("staff").doc(Auth.currentUser.staffId).get();
+        const s = sd.exists ? sd.data() : null;
+        ok = !!s && s.active !== false && s.isTimee !== true
+          && Array.isArray(s.assignedPropertyIds) && s.assignedPropertyIds.includes(this.propertyId);
+      } catch (_) { /* 読めない場合は不許可 */ }
+      if (!ok) { location.hash = "#/my-checklist"; return; }
+    } else if (typeof Auth !== "undefined" && Auth.isSubOwner?.()
+               && !(Auth.currentUser?.ownedPropertyIds || []).includes(this.propertyId)) {
+      location.hash = "#/schedule"; return;
+    }
+
     // ページ表示時に作業種別を清掃に初期化（物件切替時に持ち越さない）
     this.currentWorkType = "cleaning";
 
@@ -31,7 +46,7 @@ const PropertyChecklistPage = {
     container.innerHTML = `
       <div class="pcl-page-header" style="position:fixed;top:0;z-index:29;background:#fff;padding:6px 10px;box-shadow:0 1px 0 #eee;">
         <div class="d-flex align-items-center flex-wrap gap-1">
-          <a href="#/properties" class="btn btn-sm btn-outline-secondary me-2" title="物件一覧">
+          <a href="${Auth.isStaff?.() ? "#/my-checklist" : "#/properties"}" class="btn btn-sm btn-outline-secondary me-2" title="物件一覧">
             <i class="bi bi-arrow-left"></i>
           </a>
           <h6 class="mb-0 flex-grow-1" id="pclHeader" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">チェックリスト編集</h6>
@@ -42,6 +57,7 @@ const PropertyChecklistPage = {
           <button class="btn btn-outline-info btn-sm" id="btnCopyFrom">
             <i class="bi bi-clipboard"></i> コピー
           </button>
+          <button class="btn btn-outline-secondary btn-sm" id="btnHistory" title="保存履歴から復元"><i class="bi bi-clock-history"></i> 履歴</button>
           <button class="btn btn-success btn-sm" id="btnSave" disabled>
             <i class="bi bi-check2"></i> 保存
           </button>
@@ -71,6 +87,7 @@ const PropertyChecklistPage = {
     document.getElementById("btnSave").addEventListener("click", () => this.save());
     document.getElementById("btnCopyFrom").addEventListener("click", () => this.openCopyModal());
     document.getElementById("btnRegenerate").addEventListener("click", () => this.openRegenerateModal());
+    document.getElementById("btnHistory").addEventListener("click", () => this.openHistoryModal());
 
     // 作業種別タブのクリックイベント
     document.getElementById("pclWorkTypeTabs").addEventListener("click", async (ev) => {
@@ -1177,6 +1194,144 @@ const PropertyChecklistPage = {
       btn.classList.add("btn-warning");
       btn.innerHTML = `<i class="bi bi-save"></i> 保存（未保存）`;
     }
+  },
+
+  // === 保存履歴からの復元 ===
+  async openHistoryModal() {
+    const docId = API.checklist._templateDocId(this.propertyId, this.currentWorkType);
+
+    // 項目数カウント (api.js regenerate 内の walk と同型)
+    const countItems = (areas) => {
+      let n = 0;
+      const walk = (node) => {
+        n += (node.items || node.directItems || []).length;
+        (node.taskTypes || []).forEach(walk);
+        (node.subCategories || []).forEach(walk);
+        (node.subSubCategories || []).forEach(walk);
+      };
+      (areas || []).forEach(walk);
+      return n;
+    };
+
+    const reasonBadges = {
+      save: { label: "通常保存", cls: "bg-secondary" },
+      copyFrom: { label: "コピー上書き", cls: "bg-warning text-dark" },
+      restore: { label: "復元", cls: "bg-info text-dark" },
+    };
+
+    let histSnap;
+    try {
+      histSnap = await firebase.firestore()
+        .collection("checklistTemplates").doc(docId)
+        .collection("history").orderBy("savedAt", "desc").limit(20).get();
+    } catch (e) {
+      console.error(e);
+      await showAlert("履歴の取得に失敗しました: " + (e.message || ""));
+      return;
+    }
+
+    const rows = histSnap.docs.map(doc => {
+      const h = doc.data();
+      const dt = h.savedAt?.toDate ? h.savedAt.toDate() : null;
+      const dtLabel = dt ? dt.toLocaleString("ja-JP") : "-";
+      const byName = h.savedBy?.name || h.overwrittenBy?.name || "-";
+      const badge = reasonBadges[h.reason] || reasonBadges.save;
+      const itemCount = countItems(h.areas);
+      const areaCount = (h.areas || []).length;
+      return `
+        <div class="list-group-item d-flex align-items-center gap-2 flex-wrap">
+          <div class="flex-grow-1">
+            <div>
+              <strong>${this.escapeHtml(dtLabel)}</strong>
+              <span class="badge ${badge.cls} ms-1">${this.escapeHtml(badge.label)}</span>
+              <span class="badge bg-light text-dark ms-1">v${this.escapeHtml(String(h.version ?? "-"))}</span>
+            </div>
+            <div class="small text-muted">
+              保存者: ${this.escapeHtml(byName)} ／ エリア${areaCount}件・項目${itemCount}件
+            </div>
+          </div>
+          <button class="btn btn-sm btn-outline-primary" data-hist-id="${this.escapeHtml(doc.id)}">
+            <i class="bi bi-arrow-counterclockwise"></i> この版に戻す
+          </button>
+        </div>`;
+    }).join("");
+
+    const html = `
+      <div class="modal fade" id="historyModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">保存履歴</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            ${rows ? `<div class="list-group">${rows}</div>`
+                   : `<p class="text-muted small mb-0">保存履歴はまだありません（次回の保存から自動で記録されます）</p>`}
+          </div>
+        </div></div>
+      </div>`;
+    document.getElementById("historyModal")?.remove();
+    document.body.insertAdjacentHTML("beforeend", html);
+    const modalEl = document.getElementById("historyModal");
+    const modal = new bootstrap.Modal(modalEl);
+    modal.show();
+    modalEl.addEventListener("hidden.bs.modal", () => modalEl.remove());
+
+    modalEl.querySelectorAll("[data-hist-id]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const histDocId = btn.dataset.histId;
+        const hist = histSnap.docs.find(d => d.id === histDocId)?.data();
+        if (!hist) return;
+
+        if (this.dirty) {
+          const okDiscard = await this.showConfirmDialog({
+            title: "未保存の変更があります",
+            message: "未保存の編集があります。破棄して復元しますか？",
+            confirmLabel: "破棄して復元",
+            danger: true,
+          });
+          if (!okDiscard) return;
+        }
+
+        const dt = hist.savedAt?.toDate ? hist.savedAt.toDate() : null;
+        const dtLabel = dt ? dt.toLocaleString("ja-JP") : "この版";
+        const okRestore = await this.showConfirmDialog({
+          title: "この版に戻す",
+          message: `${dtLabel} の版に戻します。現在の状態も履歴に自動保存されるため、復元後に取り消すこともできます。`,
+          confirmLabel: "復元する",
+          danger: true,
+        });
+        if (!okRestore) return;
+
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> 復元中...`;
+        try {
+          this.template.areas = hist.areas || [];
+          if (hist._meta) this.template._meta = hist._meta;
+          const saved = await API.checklist.saveTemplateTree(
+            this.propertyId, this.template, this.currentWorkType,
+            { reason: "restore", restoredFrom: histDocId }
+          );
+          this.template.version = saved.version;
+          this.dirty = false;
+          this.activeAreaId = this.template.areas[0]?.id || null;
+          const saveBtn = document.getElementById("btnSave");
+          if (saveBtn) {
+            saveBtn.innerHTML = `<i class="bi bi-check2"></i> 保存`;
+            saveBtn.classList.remove("btn-warning");
+            saveBtn.classList.add("btn-success");
+            saveBtn.disabled = true;
+          }
+          this.renderTree();
+          modal.hide();
+          showToast("復元完了", "履歴から復元しました", "success");
+        } catch (e) {
+          console.error(e);
+          btn.disabled = false;
+          btn.innerHTML = `<i class="bi bi-arrow-counterclockwise"></i> この版に戻す`;
+          showToast("エラー", "復元失敗: " + (e.message || ""), "error");
+        }
+      });
+    });
   },
 
   // === コピー機能 ===

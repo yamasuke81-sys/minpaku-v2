@@ -34,6 +34,15 @@ service cloud.firestore {
       return isOwner() || (isSubOwner() && pid in request.auth.token.ownedPropertyIds);
     }
 
+    // レギュラー清掃スタッフ (active かつ タイミー以外) が pid を担当しているか
+    // 同一 staff doc への複数 get() はデデュープされ 1 read で済む
+    function isRegularStaffFor(pid) {
+      return isStaff()
+        && get(/databases/$(database)/documents/staff/$(myStaffId())).data.get('isTimee', false) != true
+        && get(/databases/$(database)/documents/staff/$(myStaffId())).data.get('active', true) != false
+        && pid in get(/databases/$(database)/documents/staff/$(myStaffId())).data.get('assignedPropertyIds', []);
+    }
+
     // スタッフマスタ — オーナーは全操作、サブオーナーは自所有物件担当スタッフのみ更新可
     // スタッフ/サブオーナーは自分のデータ + アクティブスタッフ全員の名前/IDを読み取り可能
     // (my-recruitment のカレンダーでスタッフ一覧を表示するために必要)
@@ -147,11 +156,25 @@ service cloud.firestore {
       allow read: if isOwner();
     }
 
-    // チェックリストテンプレート — オーナーのみ書き込み、誰でも読み取り (ゲスト用未認証 URL 対応)
+    // チェックリストテンプレート — 読み取りは誰でも (ゲスト用未認証 URL 対応)
     // ゲストが /guest-checklist.html?p={pid} で QR から閲覧可能にする
+    // 書き込み: オーナー / サブオーナー(所有物件) / レギュラー清掃スタッフ(担当物件)
+    // docId は {propertyId}_{workType}。propertyId フィールドはトリガーの同期対象を決めるため
+    // docId との一致を強制し、偽装による他物件 checklists の汚染を防ぐ
     match /checklistTemplates/{templateId} {
       allow read: if true;
-      allow write: if isOwner();
+      allow delete: if isOwner();
+      allow create, update: if isOwner()
+        || (
+             ((isSubOwner() && templateId.split('_')[0] in request.auth.token.ownedPropertyIds)
+              || isRegularStaffFor(templateId.split('_')[0]))
+             && request.resource.data.propertyId == templateId.split('_')[0]
+           );
+
+      // 保存履歴 — 読み取りのみ許可。write ルールなし = クライアント全拒否 (トリガー Admin SDK のみ書く)
+      match /history/{historyId} {
+        allow read: if isAuthenticated();
+      }
     }
 
     // チェックリストマスタ — オーナーのみ書き込み、全員読み取り

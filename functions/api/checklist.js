@@ -24,6 +24,28 @@ function resolveWorkType(req) {
   return q === "pre_inspection" ? "pre_inspection" : "cleaning";
 }
 
+/**
+ * テンプレ編集権限: オーナー / サブオーナー(所有物件) / レギュラー清掃スタッフ(担当物件)
+ * ※実際の保存はフロントの Firestore 直書き (firestore.rules が実効ゲート)。
+ *   本 API の認可は防御の一貫性のため rules と同条件に揃える
+ */
+async function canEditTemplate(db, user, propertyId) {
+  if (user.role === "owner") return { ok: true };
+  if (user.role === "sub_owner") {
+    if ((user.ownedPropertyIds || []).includes(propertyId)) return { ok: true };
+    return { ok: false, message: "所有物件のテンプレートのみ編集できます" };
+  }
+  if (user.role === "staff" && user.staffId) {
+    const sDoc = await db.collection("staff").doc(user.staffId).get();
+    const s = sDoc.exists ? sDoc.data() : null;
+    if (s && s.active !== false && s.isTimee !== true
+        && Array.isArray(s.assignedPropertyIds) && s.assignedPropertyIds.includes(propertyId)) {
+      return { ok: true };
+    }
+  }
+  return { ok: false, message: "テンプレート編集権限がありません（オーナー / サブオーナー / 担当のレギュラー清掃スタッフのみ）" };
+}
+
 module.exports = function checklistApi(db) {
   const router = Router();
 
@@ -59,10 +81,9 @@ module.exports = function checklistApi(db) {
   // 物件テンプレート(ツリー)保存 ※Webアプリ管理者のみ、areas全体を差し替える想定
   router.put("/templates/:propertyId/tree", async (req, res) => {
     try {
-      if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
-      }
       const { propertyId } = req.params;
+      const auth = await canEditTemplate(db, req.user, propertyId);
+      if (!auth.ok) return res.status(403).json({ error: auth.message });
       const workType = resolveWorkType(req);
       const docId = templateDocId(propertyId, workType);
       const { areas, _meta } = req.body;
@@ -75,6 +96,7 @@ module.exports = function checklistApi(db) {
         areas,
         _meta: _meta || null,
         updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: { role: req.user.role, staffId: req.user.staffId || null, name: req.user.name || "" },
         version: (req.body.version || 1)
       };
       await db.collection("checklistTemplates").doc(docId).set(data, { merge: true });
@@ -91,10 +113,9 @@ module.exports = function checklistApi(db) {
   // - body: { alsoInProgress?: boolean } — デフォルト false (進行中は触らない)
   router.post("/templates/:propertyId/regenerate", async (req, res) => {
     try {
-      if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
-      }
       const { propertyId } = req.params;
+      const auth = await canEditTemplate(db, req.user, propertyId);
+      if (!auth.ok) return res.status(403).json({ error: auth.message });
       const alsoInProgress = !!req.body.alsoInProgress;
 
       const workType = resolveWorkType(req);
@@ -165,10 +186,9 @@ module.exports = function checklistApi(db) {
   // body: { sourceType: "master" | "template", sourcePropertyId?: string, workType?: string }
   router.post("/templates/:propertyId/copyFrom", async (req, res) => {
     try {
-      if (req.user.role !== "owner") {
-        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
-      }
       const { propertyId } = req.params;
+      const auth = await canEditTemplate(db, req.user, propertyId);
+      if (!auth.ok) return res.status(403).json({ error: auth.message });
       const { sourceType, sourcePropertyId } = req.body;
       // コピー先・コピー元を同一 workType で揃える
       const workType = resolveWorkType(req);
@@ -198,6 +218,7 @@ module.exports = function checklistApi(db) {
         _meta: sourceData._meta || null,
         areas: sourceData.areas || [],
         updatedAt: FieldValue.serverTimestamp(),
+        updatedBy: { role: req.user.role, staffId: req.user.staffId || null, name: req.user.name || "" },
         version: 1
       };
       await db.collection("checklistTemplates").doc(destDocId).set(data);
