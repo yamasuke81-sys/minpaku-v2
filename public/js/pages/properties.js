@@ -1033,6 +1033,8 @@ const PropertiesPage = {
     // 対象スタッフ: isSubOwner=true かつ ownedPropertyIds に pid を含む
     // 新規作成時 (pid なし) は全物件オーナーを表示
     const candidates = (this._ownerStaffOptions || []).filter(s => {
+      if (s.id === selectedId) return true; // 現在の宛名は必ず表示 (無言で消さない)
+      if (s.isOwner) return true;           // メインオーナーは全物件で選択可
       if (!s.isSubOwner) return false;
       if (!pid) return true; // 新規物件: まだ紐付いていないので全員候補
       const owned = Array.isArray(s.ownedPropertyIds) ? s.ownedPropertyIds : [];
@@ -1040,7 +1042,7 @@ const PropertiesPage = {
     });
     const opts = [`<option value="">-- 選択してください --</option>`].concat(
       candidates.map(s =>
-        `<option value="${escape(s.id)}" ${s.id === selectedId ? "selected" : ""}>${escape(s.name)} (物件オーナー)</option>`
+        `<option value="${escape(s.id)}" ${s.id === selectedId ? "selected" : ""}>${escape(s.name)} (${s.isOwner ? "オーナー" : "物件オーナー"})</option>`
       )
     ).join("");
     sel.innerHTML = opts;
