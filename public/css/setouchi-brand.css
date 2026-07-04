@@ -1,0 +1,90 @@
+/* =========================================================================
+   瀬戸内ステイ 共通ブランド（明るいブランド版）
+   名簿フォーム / ゲスト案内など、ゲストが触れる全ページ共通のデザイントークン。
+   入口ページ(guest-checkin-link)の「夕暮れの海」世界観を踏襲しつつ、
+   本文は読みやすい明るい背景で統一する。
+   ここが色・フォントの唯一のソース。着せ替えはこのファイルだけで行う。
+   ========================================================================= */
+:root {
+  /* 面・文字 */
+  --ss-bg: #fbf9f4;          /* 生成りの背景（ページ地） */
+  --ss-surface: #ffffff;     /* カード面 */
+  --ss-text: #2b3a42;        /* 本文 */
+  --ss-muted: #6b7a83;       /* 補足テキスト */
+  --ss-border: #e2ddd2;      /* 罫線 */
+
+  /* ブランドカラー（入口ページ由来） */
+  --ss-sea: #23566b;         /* 瀬戸内の深い海色（主役・見出し/ボタン） */
+  --ss-sea-deep: #0e2830;    /* 夕暮れの海 深部（ヘッダー地の起点） */
+  --ss-hassaku: #e09242;     /* 八朔シトラス（アクセント・ホバー） */
+  --ss-gold: #c4a35c;        /* 細い金の罫 */
+  --ss-sand: #f4efe6;        /* ヘッダー上の砂色文字 */
+  --ss-sand-soft: #d8cfc0;
+
+  /* ヘッダー地（夕暮れの海：残照グロー＋縦グラデ） */
+  --ss-header-bg:
+    radial-gradient(120% 140% at 50% 118%, rgba(230,168,96,.20), rgba(201,138,78,0) 55%),
+    linear-gradient(135deg, #0e2830 0%, #14343d 55%, #1c4650 100%);
+
+  /* 書体：見出しは明朝、本文はゴシック */
+  --ss-serif: "Hiragino Mincho ProN","Yu Mincho","YuMincho","Noto Serif JP",serif;
+  --ss-sans: "Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic","Noto Sans JP",Meiryo,sans-serif;
+}
+
+/* 本文の基本書体・色 */
+body {
+  font-family: var(--ss-sans);
+  color: var(--ss-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 見出しは明朝で品よく */
+h1, h2, h3, h4, h5, h6, .ss-serif {
+  font-family: var(--ss-serif);
+}
+
+/* リンク */
+a { color: var(--ss-sea); }
+a:hover { color: var(--ss-hassaku); }
+
+/* Bootstrap 5.3 のボタン（CSS変数で上書き） */
+.btn-primary {
+  --bs-btn-bg: var(--ss-sea);
+  --bs-btn-border-color: var(--ss-sea);
+  --bs-btn-hover-bg: var(--ss-hassaku);
+  --bs-btn-hover-border-color: var(--ss-hassaku);
+  --bs-btn-active-bg: var(--ss-hassaku);
+  --bs-btn-active-border-color: var(--ss-hassaku);
+  --bs-btn-disabled-bg: var(--ss-sea);
+  --bs-btn-disabled-border-color: var(--ss-sea);
+}
+.btn-outline-primary {
+  --bs-btn-color: var(--ss-sea);
+  --bs-btn-border-color: var(--ss-sea);
+  --bs-btn-hover-bg: var(--ss-sea);
+  --bs-btn-hover-border-color: var(--ss-sea);
+  --bs-btn-active-bg: var(--ss-sea);
+  --bs-btn-active-border-color: var(--ss-sea);
+}
+
+/* 入力フォーカスをブランド色に */
+.form-control:focus,
+.form-select:focus,
+.form-check-input:focus {
+  border-color: var(--ss-sea);
+  box-shadow: 0 0 0 .2rem rgba(35,86,107,.18);
+}
+.form-check-input:checked {
+  background-color: var(--ss-sea);
+  border-color: var(--ss-sea);
+}
+
+/* ユーティリティ */
+.text-brand { color: var(--ss-sea) !important; }
+.bg-brand { background: var(--ss-sea) !important; color: #fff !important; }
+
+/* ブランド共通ヘッダー地（各ページのヘッダーに付与して使う） */
+.ss-header-bg {
+  background: var(--ss-header-bg);
+  color: var(--ss-sand);
+}

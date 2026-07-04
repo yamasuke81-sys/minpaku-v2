@@ -6,28 +6,31 @@
   <title>ご宿泊者様へ — the Terrace 長浜</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0704h" rel="stylesheet">
   <style>
-    /* === 共通トークン === */
-    body { background: #f0f4f8; min-height: 100vh; }
+    /* === 共通トークン（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css） === */
+    body { background: var(--ss-bg); min-height: 100vh; }
 
     .guide-card {
       max-width: 640px;
       margin: 0 auto;
+      border: 1px solid var(--ss-border);
       border-radius: 12px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-      background: #fff;
+      box-shadow: 0 10px 40px -18px rgba(14,40,48,0.35);
+      background: var(--ss-surface);
     }
 
-    /* ヘッダー */
+    /* ヘッダー（夕暮れの海） */
     .guide-header {
-      background: linear-gradient(135deg, #2c3e50, #3498db);
-      color: white;
+      background: var(--ss-header-bg);
+      color: var(--ss-sand);
       border-radius: 12px 12px 0 0;
-      padding: 1.5rem;
+      padding: 1.75rem 1.5rem;
       text-align: center;
     }
-    .guide-header h1 { font-size: 1.3rem; margin: 0; padding-top: 2rem; }
-    .guide-header p  { margin: 0.5rem 0 0; opacity: 0.85; font-size: 0.9rem; }
+    .guide-header h1 { font-family: var(--ss-serif); font-weight: 400; font-size: 1.4rem; letter-spacing: .02em; margin: 0; padding-top: 2rem; }
+    .guide-header p  { margin: 0.55rem 0 0; opacity: 0.85; font-size: 0.9rem; }
+    .guide-header::after { content: ""; display: block; width: 34px; height: 1px; background: var(--ss-gold); opacity: .85; margin: 0.9rem auto 0; }
 
     /* 言語切替 */
     .lang-switch { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; margin-bottom: 0.75rem; }
@@ -55,14 +58,16 @@
 
     /* セクション見出し */
     .section-title {
-      font-size: 1rem;
+      font-family: var(--ss-serif);
+      font-size: 1.08rem;
       font-weight: 600;
-      border-left: 4px solid #3498db;
+      color: var(--ss-sea);
+      border-left: 4px solid var(--ss-gold);
       padding-left: 0.75rem;
       padding-top: 0.5rem;
       padding-bottom: 0.5rem;
       margin: 2rem 0 1rem;
-      background: #eaf2fb;
+      background: #f1ece1;
       border-radius: 0 6px 6px 0;
     }
 
@@ -194,8 +199,8 @@
 
     /* フッター */
     .guide-footer {
-      background: #2c3e50;
-      color: rgba(255,255,255,0.85);
+      background: var(--ss-sea-deep);
+      color: rgba(244,239,230,0.85);
       padding: 1rem;
       text-align: center;
       font-size: 0.85rem;

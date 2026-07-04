@@ -2,29 +2,32 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <script src="/js/api-relay.js?v=v0704g"></script>
+  <script src="/js/api-relay.js?v=v0704h"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>宿泊者名簿 / Guest Registration</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0704h" rel="stylesheet">
   <style>
-    /* テーマカラー デフォルト (下の早期テーマスクリプトで物件別に上書き) */
+    /* テーマカラー デフォルト（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css）
+       物件別上書きが必要な場合のみ下の早期テーマスクリプトで差し替える */
     :root {
-      --theme-header-bg: linear-gradient(135deg, #2c3e50, #3498db);
-      --theme-header-text: #fff;
-      --theme-page-bg: #f0f4f8;
+      --theme-header-bg: var(--ss-header-bg);
+      --theme-header-text: var(--ss-sand);
+      --theme-page-bg: var(--ss-bg);
     }
     body { background: var(--theme-page-bg); min-height: 100vh; }
-    .form-card { max-width: 640px; margin: 1rem auto; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
-    .form-header { background: var(--theme-header-bg); color: var(--theme-header-text); border-radius: 12px 12px 0 0; padding: 1.5rem; text-align: center; }
-    .form-header h1 { font-size: 1.3rem; margin: 0; }
-    .form-header p { margin: 0.5rem 0 0; opacity: 0.85; font-size: 0.9rem; }
-    .form-property-name { font-size: 0.78rem; letter-spacing: 0.16em; opacity: 0.85; margin: 0 0 0.4rem; font-weight: 600; }
+    .form-card { max-width: 640px; margin: 1rem auto; border: 1px solid var(--ss-border); border-radius: 12px; box-shadow: 0 10px 40px -18px rgba(14,40,48,0.35); background: var(--ss-surface); }
+    .form-header { background: var(--theme-header-bg); color: var(--theme-header-text); border-radius: 12px 12px 0 0; padding: 1.75rem 1.5rem; text-align: center; }
+    .form-header h1 { font-family: var(--ss-serif); font-weight: 400; font-size: 1.4rem; letter-spacing: .02em; margin: 0; }
+    .form-header p { margin: 0.55rem 0 0; opacity: 0.85; font-size: 0.9rem; }
+    .form-header::after { content: ""; display: block; width: 34px; height: 1px; background: var(--ss-gold); opacity: .85; margin: 0.9rem auto 0; }
+    .form-property-name { font-size: 0.72rem; letter-spacing: 0.22em; text-transform: uppercase; opacity: 0.82; margin: 0 0 0.5rem; font-weight: 600; }
     .lang-switch { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; margin-bottom: 0.75rem; }
     .lang-switch .btn { font-size: 0.75rem; padding: 2px 8px; }
-    .section-title { font-size: 1rem; font-weight: 600; border-left: 4px solid #3498db; padding-left: 0.75rem; margin: 1.5rem 0 1rem; }
-    .guest-block { background: #f8f9fa; border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; }
-    .guest-block-title { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.75rem; color: #2c3e50; }
+    .section-title { font-family: var(--ss-serif); font-size: 1.08rem; font-weight: 600; color: var(--ss-sea); border-left: 4px solid var(--ss-gold); padding-left: 0.75rem; margin: 1.75rem 0 1rem; }
+    .guest-block { background: #f6f2ea; border: 1px solid var(--ss-border); border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; }
+    .guest-block-title { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.75rem; color: var(--ss-sea); }
     .success-view { text-align: center; padding: 3rem 1rem; }
     .success-view i { font-size: 4rem; color: #27ae60; }
     .success-check-circle { width: 64px; height: 64px; border-radius: 50%; background: #27ae60; color: white; display: inline-flex; align-items: center; justify-content: center; font-size: 2rem; margin-bottom: 0.5rem; box-shadow: 0 2px 8px rgba(39,174,96,0.3); }
@@ -33,16 +36,16 @@
     .other-input.show { display: block; }
     .info-box { background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 0.75rem; font-size: 0.85rem; }
     .warning-box { background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 0.75rem; font-size: 0.85rem; }
-    .parking-info { background: #e8f4fd; border: 1px solid #b8daff; border-radius: 8px; padding: 0.75rem; font-size: 0.85rem; }
+    .parking-info { background: #eef4f2; border: 1px solid var(--ss-border); border-radius: 8px; padding: 0.75rem; font-size: 0.85rem; }
     .error-box { background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 0.75rem; font-size: 0.9rem; color: #721c24; font-weight: 600; }
     .noise-cancel-msg { background: #fff5f5; border: 1px solid #e53e3e; border-radius: 8px; padding: 0.75rem 1rem; font-size: 0.85rem; margin-top: 0.5rem; color: #c53030; }
     .alloc-item { display: flex; align-items: baseline; gap: 0; padding: 0.35rem 0; }
     .alloc-spot { min-width: 8em; flex-shrink: 0; }
-    .alloc-arrow { color: #3498db; font-weight: 700; }
+    .alloc-arrow { color: var(--ss-hassaku); font-weight: 700; }
     .alloc-spot { font-weight: 600; }
     .alloc-paid { color: #856404; }
     .alloc-warn { color: #dc3545; font-size: 0.8rem; }
-    @media (max-width: 640px) { .form-card { margin: 0; border-radius: 0; } .form-header { border-radius: 0; } }
+    @media (max-width: 640px) { .form-card { margin: 0; border-radius: 0; border-left: none; border-right: none; } .form-header { border-radius: 0; } }
   </style>
   <!-- 早期テーマ適用 (FOUC 防止: 物件別カラーを Firestore 取得前に URL パラメータから判定して即適用)
        上の <style> より後に挿入 → cascade で確実に上書きされる -->
@@ -51,9 +54,9 @@
       try {
         var p = new URLSearchParams(location.search);
         var pid = p.get("propertyId") || "";
-        var THEMES = {
-          "RZV9IwtQgMAsvrdM3j8J": { bg: "linear-gradient(135deg, #e8b923, #f4cf3a)", text: "#3d3426", page: "#faf3e4" },
-        };
+        // 瀬戸内ステイ ブランド統一のため、物件別の色上書きは廃止（全宿とも共通ブランド）。
+        // 将来ある宿だけ色を変えたくなった場合のみ、ここに propertyId: {bg,text,page} を足す。
+        var THEMES = {};
         var t = THEMES[pid];
         if (t) {
           var s = document.createElement("style");
@@ -471,8 +474,8 @@
     </div>
   </div>
 
-  <script src="/js/shared/form-schema.js?v=v0704g"></script>
-  <script src="/js/guide-map.js?v=v0704g"></script>
+  <script src="/js/shared/form-schema.js?v=v0704h"></script>
+  <script src="/js/guide-map.js?v=v0704h"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-storage-compat.js"></script>
@@ -2033,7 +2036,7 @@
     // 候補配列を _bookingCandidates に保存して送信時に検証する。
     async function prefillFromPropertyId(pid) {
       try {
-        const res = await fetch(`/public/upcoming-bookings/${encodeURIComponent(pid)}`);
+        const res = await fetch(`/api/public/upcoming-bookings/${encodeURIComponent(pid)}`);
         if (!res.ok) return null;
         const data = await res.json();
         const items = data.items || [];

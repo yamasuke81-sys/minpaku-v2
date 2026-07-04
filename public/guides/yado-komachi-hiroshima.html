@@ -8,17 +8,22 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&family=Roboto+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0704h" rel="stylesheet">
   <style>
+    /* === 瀬戸内ステイ 明るいブランド版へ統一（トークンは setouchi-brand.css）===
+       このページ独自の金テーマ(--yellow/--yellow-deep/--accent 等)は廃止し、
+       各エイリアスをブランド主役色に再割当てして全宿で見た目を統一する。
+       駐車場オレンジ(--marker 系)だけは意味を持つ機能色なので残す。 */
     :root {
-      --beige: #faf3e4;
-      --beige-2: #f3e6c4;
-      --yellow: #f4cf3a;
-      --yellow-deep: #e8b923;
-      --ink: #3d3426;
-      --ink-2: #6b5e47;
-      --line: #e6d9b8;
-      --accent: #c9a227;
-      --marker: #d97706;
+      --beige: var(--ss-sand);            /* 明るい面 → 砂色 */
+      --beige-2: var(--ss-sand);
+      --yellow: var(--ss-sea);            /* 旧・金の主役 → 海色 */
+      --yellow-deep: var(--ss-sea-deep);  /* 旧・濃い金 → 海の深部 */
+      --ink: var(--ss-text);              /* 本文文字 */
+      --ink-2: var(--ss-muted);           /* 補足文字 */
+      --line: var(--ss-border);           /* 罫線 */
+      --accent: var(--ss-gold);           /* 見出し細罫・ラベル → 金の細罫 */
+      --marker: #d97706;                  /* 駐車場マーカー（機能色・据え置き） */
       --marker-glow: rgba(217,119,6,0.35);
     }
     * { box-sizing: border-box; }
@@ -28,9 +33,7 @@
       color: var(--ink);
       font-size: 17px;
       line-height: 1.85;
-      background:
-        radial-gradient(ellipse at 95% 5%, rgba(255,255,255,0.6), transparent 55%),
-        linear-gradient(225deg, #faf3e4 0%, #f6e9c2 45%, #f4cf3a 100%);
+      background: var(--ss-bg);
       background-attachment: fixed;
       min-height: 100vh;
     }
@@ -61,7 +64,7 @@
       margin-top: 80px;
       padding: 4px 18px;
       background: linear-gradient(135deg, var(--yellow), var(--yellow-deep));
-      color: var(--ink);
+      color: var(--ss-sand);
       font-weight: 700;
       border-radius: 999px;
       font-size: 14px;
@@ -118,7 +121,7 @@
     .section-head .icon {
       width: 40px; height: 40px; border-radius: 12px;
       background: linear-gradient(135deg, var(--yellow) 0%, var(--yellow-deep) 100%);
-      display: grid; place-items: center; color: var(--ink);
+      display: grid; place-items: center; color: var(--ss-sand);
       font-size: 20px; flex-shrink: 0;
     }
     .section-head h2 { margin: 0; font-size: 20px; font-weight: 700; }
@@ -127,7 +130,7 @@
       margin-left: auto;
       padding: 5px 12px;
       background: linear-gradient(135deg, var(--yellow), var(--yellow-deep));
-      color: var(--ink);
+      color: var(--ss-sand);
       border-radius: 999px;
       font-weight: 700;
       font-size: 13px;
@@ -143,16 +146,16 @@
     .step:last-child { border-bottom: none; }
     .step-num {
       width: 40px; height: 40px; border-radius: 50%;
-      background: linear-gradient(135deg, var(--beige-2), var(--yellow));
-      color: var(--ink); font-weight: 700;
+      background: var(--ss-sea);
+      color: var(--ss-sand); font-weight: 700;
       display: grid; place-items: center; font-size: 16px;
-      border: 2px solid #fff; box-shadow: 0 2px 6px rgba(200,150,30,0.25);
+      border: 2px solid #fff; box-shadow: 0 2px 6px rgba(14,40,48,0.25);
     }
     .step-body p { margin: 0 0 6px; }
     .step-body .note {
       font-size: 12px; color: var(--ink-2);
-      background: rgba(244,207,58,0.15);
-      border-left: 3px solid var(--yellow);
+      background: #f1ece1;
+      border-left: 3px solid var(--ss-gold);
       padding: 6px 10px; border-radius: 4px; margin-top: 6px;
     }
 
@@ -174,8 +177,8 @@
       position: absolute; top: 8px; left: 8px;
       width: 32px; height: 32px; border-radius: 50%;
       display: grid; place-items: center;
-      background: linear-gradient(135deg, var(--ink), #5a4c34);
-      color: var(--yellow);
+      background: linear-gradient(135deg, var(--ss-sea), var(--ss-sea-deep));
+      color: var(--ss-sand);
       font-family: "Playfair Display", serif;
       font-size: 18px; font-weight: 700;
       box-shadow: 0 2px 6px rgba(0,0,0,0.3);
@@ -188,14 +191,14 @@
 
     .room-placeholder {
       display: flex; align-items: center; justify-content: center;
-      background: linear-gradient(135deg, var(--beige-2), var(--yellow));
+      background: linear-gradient(135deg, var(--ss-sea), var(--ss-sea-deep));
       border: 1px solid var(--line);
       border-radius: 10px;
       aspect-ratio: 4/3;
       font-family: "Playfair Display", serif;
       font-size: clamp(48px, 10vw, 72px);
       font-weight: 700;
-      color: var(--ink);
+      color: var(--ss-sand);
       letter-spacing: 0.05em;
       line-height: 0.85;
       padding-bottom: 0.18em;
@@ -254,7 +257,7 @@
 
     /* Wi-Fi */
     .wifi-box {
-      background: linear-gradient(135deg, rgba(244,207,58,0.12), rgba(255,255,255,0.6));
+      background: #f1ece1;
       border: 1px solid var(--line);
       border-radius: 14px;
       padding: 10px 16px;
@@ -284,8 +287,8 @@
       font-size: 14px; cursor: pointer;
       transition: all 0.15s;
     }
-    .btn-copy:hover { background: var(--yellow); border-color: var(--yellow-deep); }
-    .btn-copy.copied { background: var(--ink); color: var(--yellow); border-color: var(--ink); }
+    .btn-copy:hover { background: var(--ss-sand); border-color: var(--ss-sea); }
+    .btn-copy.copied { background: var(--ss-sea); color: var(--ss-sand); border-color: var(--ss-sea); }
     .wifi-pending {
       text-align: center; padding: 26px 16px;
     }
@@ -311,8 +314,8 @@
     .photo-label .letter {
       display: inline-grid; place-items: center;
       width: 22px; height: 22px; border-radius: 50%;
-      background: linear-gradient(135deg, var(--ink), #5a4c34);
-      color: var(--yellow);
+      background: linear-gradient(135deg, var(--ss-sea), var(--ss-sea-deep));
+      color: var(--ss-sand);
       font-family: "Playfair Display", serif;
       font-size: 13px; margin-right: 6px;
       vertical-align: middle;
@@ -440,8 +443,8 @@
       position: absolute;
       top: 8px; left: 8px;
       width: 34px; height: 34px; border-radius: 50%;
-      background: linear-gradient(135deg, var(--ink), #5a4c34);
-      color: var(--yellow);
+      background: linear-gradient(135deg, var(--ss-sea), var(--ss-sea-deep));
+      color: var(--ss-sand);
       display: grid; place-items: center;
       font-family: "Playfair Display", serif;
       font-size: 18px; font-weight: 700;
