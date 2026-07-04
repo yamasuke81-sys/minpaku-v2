@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 
-const API_BASE = "https://minpaku-v2.web.app/api";
+const API_BASE = "https://api-5qrfx7ujcq-an.a.run.app";
 
 // polling ヘルパー: 条件が true になるまで最大 maxMs 待つ
 export async function waitFor<T>(
