@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&family=Roboto+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0704h" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0704i" rel="stylesheet">
   <style>
     /* === 瀬戸内ステイ 明るいブランド版へ統一（トークンは setouchi-brand.css）===
        このページ独自の金テーマ(--yellow/--yellow-deep/--accent 等)は廃止し、
@@ -52,12 +52,14 @@
       margin-bottom: 80px;
     }
     .hero h1 {
-      font-family: "Playfair Display", serif;
+      font-family: "Playfair Display", var(--ss-serif);
+      color: var(--ss-sea);
       font-size: clamp(28px, 6vw, 42px);
       margin: 0;
       letter-spacing: 0.04em;
       line-height: 1;
     }
+    .hero::after { content: ""; display: block; width: 34px; height: 1px; background: var(--ss-gold); opacity: .85; margin: 0.9rem auto 0; }
     .hero .sub { margin-top: 10px; font-size: 28px; font-weight: 600; color: var(--ink-2); letter-spacing: 0.15em; font-family: "Playfair Display", serif; line-height: 1.1; }
     .hero .room-no {
       display: inline-block;
@@ -507,25 +509,25 @@
     }
     .rule-title .badge-icon {
       width: 26px; height: 26px; border-radius: 8px;
-      background: var(--yellow); color: var(--ink);
+      background: var(--ss-sea); color: var(--ss-sand);
       display: grid; place-items: center; font-size: 13px;
     }
     .rule p { margin: 0 0 6px; font-size: 15px; }
-    .rule.fine { border-color: var(--accent); background: rgba(244,207,58,0.12); }
+    .rule.fine { border-color: var(--accent); background: #f1ece1; }
 
     /* ===== お問合せ ===== */
     .contact {
       text-align: center; padding: 30px 20px;
-      background: linear-gradient(135deg, var(--ink) 0%, #5a4c34 100%);
-      color: #fff; border-radius: 18px; margin-top: 30px;
+      background: var(--ss-sea-deep);
+      color: rgba(244,239,230,0.85); border-radius: 18px; margin-top: 30px;
     }
-    .contact .label { font-size: 11px; letter-spacing: 0.2em; color: var(--yellow); margin-bottom: 6px; }
+    .contact .label { font-size: 11px; letter-spacing: 0.2em; color: var(--ss-gold); margin-bottom: 6px; }
     .contact .tel {
       font-family: "Playfair Display", serif;
-      font-size: 26px; color: #fff;
+      font-size: 26px; color: var(--ss-sand);
       text-decoration: none; letter-spacing: 0.05em;
     }
-    .contact .tel:hover { color: var(--yellow); }
+    .contact .tel:hover { color: var(--ss-hassaku); }
 
     footer.bottom {
       text-align: center; margin-top: 30px;
