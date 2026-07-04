@@ -710,14 +710,26 @@ const RecruitmentPage = {
     const r = recruitment;
     const responses = r.responses || [];
 
+    // スタッフ(実ロール)は bookings/guestRegistrations を直読みできない (rules で遮断)。
+    // モーダルで使う「CO時刻」「タイミー状況」「次の予約」を staff-data API から1回だけ取得し配る。
+    const isRealStaff = (typeof Auth !== "undefined" && Auth.currentUser && Auth.currentUser.role === "staff");
+    const staffNextP = (isRealStaff && r.propertyId)
+      ? API.staffData.nextBooking({
+          propertyId: r.propertyId,
+          checkoutDate: r.checkoutDate || "",
+          excludeBookingId: r.bookingId || "",
+          bookingId: r.bookingId || "",
+        }).catch(e => { console.warn("staff next-booking 取得失敗:", e); return null; })
+      : null;
+
     document.getElementById("detailRecruitId").value = r.id;
     // A1: チェックアウト日を「YYYY年M月D日(曜)」形式に統一
     document.getElementById("detailCheckoutDate").textContent =
       (typeof formatDateFull === "function") ? formatDateFull(r.checkoutDate) : (r.checkoutDate || "-");
     // 物件名 (番号バッジ + 物件名)
     this._renderDetailPropertyName(r);
-    // CO 時間 (booking から非同期取得)
-    this._renderDetailCheckoutTime(r);
+    // CO 時間 (owner は booking 直読み、staff は API)
+    this._renderDetailCheckoutTime(r, staffNextP);
     // workType バッジを detailStatus の前に表示
     const workTypeBadgeEl = document.getElementById("detailWorkTypeBadge");
     if (workTypeBadgeEl) workTypeBadgeEl.innerHTML = this.getWorkTypeBadge(r.workType);
@@ -835,8 +847,8 @@ const RecruitmentPage = {
     this.renderMyResponseArea(r);
     // A5: 右カラムのチェックリスト (読み取り専用) を描画
     this.renderChecklistSidebar(r);
-    // 次の予約セクションを非同期描画
-    this._renderNextBookingArea(r);
+    // 次の予約セクションを非同期描画 (owner は Firestore、staff は API)
+    this._renderNextBookingArea(r, staffNextP);
 
     // タイミーメール照合履歴 (折りたたみ、非同期描画) — スタッフビューでは非表示
     const timeeMatchesEl = document.getElementById("detailTimeeMatches");
@@ -847,16 +859,25 @@ const RecruitmentPage = {
       this._renderTimeeMatches(r);
     }
 
-    // タイミー募集ステータスバッジ (bookings.timeeStatus + timeePostedUrl を非同期で取得)
+    // タイミー募集ステータスバッジ (bookings.timeeStatus + timeePostedUrl)
     this._renderTimeeStatusBadge(null);
     if (r.bookingId) {
-      db.collection("bookings").doc(r.bookingId).get()
-        .then(d => {
-          if (!d.exists) return;
-          const b = d.data();
-          this._renderTimeeStatusBadge(b.timeeStatus || null, b.timeePostedUrl || null);
-        })
-        .catch(() => {});
+      if (staffNextP) {
+        // スタッフは直読み不可 → API の current から取得
+        staffNextP.then(data => {
+          if (data && data.current) {
+            this._renderTimeeStatusBadge(data.current.timeeStatus || null, data.current.timeePostedUrl || null);
+          }
+        }).catch(() => {});
+      } else {
+        db.collection("bookings").doc(r.bookingId).get()
+          .then(d => {
+            if (!d.exists) return;
+            const b = d.data();
+            this._renderTimeeStatusBadge(b.timeeStatus || null, b.timeePostedUrl || null);
+          })
+          .catch(() => {});
+      }
     }
 
     this.detailModal.show();
@@ -1145,12 +1166,21 @@ const RecruitmentPage = {
     }
   },
 
-  // CO 時間 (bookings.checkOut の HH:MM)
-  async _renderDetailCheckoutTime(recruitment) {
+  // CO 時間 (bookings.checkOut の HH:MM)。staffNextP 指定時はスタッフ経路 (API)
+  async _renderDetailCheckoutTime(recruitment, staffNextP) {
     const el = document.getElementById("detailCheckoutTime");
     if (!el) return;
     el.textContent = "--:--";
     if (!recruitment.bookingId) return;
+    // スタッフは bookings 直読み不可 → staff-data API の current.checkOutHhmm を使う
+    if (staffNextP) {
+      try {
+        const data = await staffNextP;
+        const t = data && data.current && data.current.checkOutHhmm;
+        if (t) el.textContent = t;
+      } catch (_) { /* --:-- のまま */ }
+      return;
+    }
     try {
       const snap = await db.collection("bookings").doc(recruitment.bookingId).get();
       if (!snap.exists) return;
@@ -1224,7 +1254,7 @@ const RecruitmentPage = {
 
   // 募集詳細モーダルに「次の予約」セクションを描画
   // 同物件の CI が checkoutDate 以降で最も近い 1 件を表示
-  async _renderNextBookingArea(recruitment) {
+  async _renderNextBookingArea(recruitment, staffNextP) {
     const el = document.getElementById("detailNextBookingArea");
     if (!el) return;
     el.innerHTML = "";
@@ -1244,43 +1274,52 @@ const RecruitmentPage = {
     };
 
     try {
-      const [bkSnap, grSnap] = await Promise.all([
-        db.collection("bookings").where("propertyId", "==", r.propertyId).get(),
-        db.collection("guestRegistrations").where("propertyId", "==", r.propertyId).limit(60).get(),
-      ]);
-
-      // 同物件 × 異なる bookingId × キャンセル除外 × CI >= checkoutDate で昇順先頭
-      const allBookings = bkSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const nextBooking = allBookings
-        .filter(nb => {
-          if (nb.id === r.bookingId) return false;
-          const s = String(nb.status || "").toLowerCase();
-          if (s.includes("cancel") || nb.status === "キャンセル" || nb.status === "キャンセル済み") return false;
-          const nbCi = toDateStr(nb.checkIn);
-          return nbCi && coStr && nbCi >= coStr;
-        })
-        .sort((a, b) => {
-          const aCi = toDateStr(a.checkIn) || "";
-          const bCi = toDateStr(b.checkIn) || "";
-          return aCi < bCi ? -1 : aCi > bCi ? 1 : 0;
-        })[0] || null;
-
-      // guestMap 構築
-      const guestMap = {};
-      grSnap.docs.forEach(d => {
-        const g = d.data();
-        const ci = toDateStr(g.checkIn);
-        if (!ci) return;
-        const key = g.propertyId ? `${g.propertyId}_${ci}` : ci;
-        guestMap[key] = g;
-      });
-
+      let nextBooking = null;
       let nextGuest = {};
-      if (nextBooking) {
-        const nbCiStr = toDateStr(nextBooking.checkIn);
-        // 物件IDあれば複合キーのみで参照 (異物件混入防止のため CI単独キーフォールバックは廃止)
-        const gk = nextBooking.propertyId && nbCiStr ? `${nextBooking.propertyId}_${nbCiStr}` : null;
-        nextGuest = gk ? (guestMap[gk] || {}) : (nbCiStr ? (guestMap[nbCiStr] || {}) : {});
+      if (staffNextP) {
+        // スタッフ: staff-data API から取得 (bookings/guestRegistrations 直読み不可)。
+        // API が同物件・未キャンセル・CI>=checkoutDate の最早1件と対応名簿を算出済み。
+        const data = await staffNextP;
+        nextBooking = (data && data.nextBooking) ? data.nextBooking : null;
+        nextGuest = (data && data.nextGuest) ? data.nextGuest : {};
+      } else {
+        const [bkSnap, grSnap] = await Promise.all([
+          db.collection("bookings").where("propertyId", "==", r.propertyId).get(),
+          db.collection("guestRegistrations").where("propertyId", "==", r.propertyId).limit(60).get(),
+        ]);
+
+        // 同物件 × 異なる bookingId × キャンセル除外 × CI >= checkoutDate で昇順先頭
+        const allBookings = bkSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        nextBooking = allBookings
+          .filter(nb => {
+            if (nb.id === r.bookingId) return false;
+            const s = String(nb.status || "").toLowerCase();
+            if (s.includes("cancel") || nb.status === "キャンセル" || nb.status === "キャンセル済み") return false;
+            const nbCi = toDateStr(nb.checkIn);
+            return nbCi && coStr && nbCi >= coStr;
+          })
+          .sort((a, b) => {
+            const aCi = toDateStr(a.checkIn) || "";
+            const bCi = toDateStr(b.checkIn) || "";
+            return aCi < bCi ? -1 : aCi > bCi ? 1 : 0;
+          })[0] || null;
+
+        // guestMap 構築
+        const guestMap = {};
+        grSnap.docs.forEach(d => {
+          const g = d.data();
+          const ci = toDateStr(g.checkIn);
+          if (!ci) return;
+          const key = g.propertyId ? `${g.propertyId}_${ci}` : ci;
+          guestMap[key] = g;
+        });
+
+        if (nextBooking) {
+          const nbCiStr = toDateStr(nextBooking.checkIn);
+          // 物件IDあれば複合キーのみで参照 (異物件混入防止のため CI単独キーフォールバックは廃止)
+          const gk = nextBooking.propertyId && nbCiStr ? `${nextBooking.propertyId}_${nbCiStr}` : null;
+          nextGuest = gk ? (guestMap[gk] || {}) : (nbCiStr ? (guestMap[nbCiStr] || {}) : {});
+        }
       }
 
       // 値表示ヘルパ

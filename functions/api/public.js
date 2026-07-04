@@ -206,6 +206,36 @@ router.get("/upcoming-bookings/:propertyId", async (req, res) => {
   }
 });
 
+// GET /public/booking-prefill/:bookingId
+// ゲストフォーム (/form/{bookingId}) の prefill 用に単一予約の CI/CO/人数/氏名を返す。
+// bookingId は各ゲストに配られるランダムID (capability) 前提。物件全体は列挙しない。
+// (匿名認証ユーザーの bookings 直読みを rules で禁止したため、この公開APIに移行)
+router.get("/booking-prefill/:bookingId", async (req, res) => {
+  try {
+    const bid = String(req.params.bookingId || "");
+    if (!bid) return res.status(400).json({ error: "bookingId 必須" });
+    const doc = await admin.firestore().collection("bookings").doc(bid).get();
+    if (!doc.exists) return res.status(404).json({ error: "予約が見つかりません" });
+    const b = doc.data();
+    // Timestamp/Date/文字列を JST の YYYY-MM-DD に正規化
+    const toYmd = (v) => {
+      if (!v) return "";
+      const d = v.toDate ? v.toDate() : (v._seconds != null ? new Date(v._seconds * 1000) : new Date(v));
+      if (isNaN(d.getTime())) return "";
+      return new Date(d.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    };
+    res.json({
+      checkIn: toYmd(b.checkIn),
+      checkOut: toYmd(b.checkOut),
+      guestCount: b.guestCount || null,
+      guestName: b.guestName || "",
+    });
+  } catch (e) {
+    console.error("[public/booking-prefill]", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /public/staff-ical/:token
 // スタッフ専用 iCal フィード (Google カレンダーが定期取得して購読)
 // recruitments の selectedStaffIds に staff.id が含まれる = 確定済みシフトをイベント化

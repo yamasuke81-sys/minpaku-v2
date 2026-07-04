@@ -1499,45 +1499,59 @@ const MyChecklistPage = {
       let nextBooking = null;
       let nextGuest = {};
       let propDoc = {};
+      // 実ロール staff は bookings/guestRegistrations 直読み不可 → staff-data API (PII 除外)。
+      // properties は staff も読めるので常に直読み。owner/sub_owner は従来通り直読み。
+      const isRealStaff = (typeof Auth !== "undefined" && Auth.currentUser && Auth.currentUser.role === "staff");
       try {
-        const [bkSnap, grSnap, propSnap] = await Promise.all([
-          db.collection("bookings").where("propertyId", "==", c.propertyId).get(),
-          db.collection("guestRegistrations").where("propertyId", "==", c.propertyId).limit(60).get(),
-          db.collection("properties").doc(c.propertyId).get(),
-        ]);
+        const propSnap = await db.collection("properties").doc(c.propertyId).get();
         propDoc = propSnap.exists ? propSnap.data() : {};
 
-        // 次の予約: 同物件 × 異なる bookingId × キャンセル除外 × CI >= checkoutDate で昇順先頭
-        const allBookings = bkSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        nextBooking = allBookings
-          .filter(nb => {
-            if (nb.id === c.bookingId) return false;
-            const s = String(nb.status || "").toLowerCase();
-            if (s.includes("cancel") || nb.status === "キャンセル" || nb.status === "キャンセル済み") return false;
-            const nbCi = toDateStr(nb.checkIn);
-            return nbCi && coDateStr && nbCi >= coDateStr;
-          })
-          .sort((a, b) => {
-            const aci = toDateStr(a.checkIn) || "";
-            const bci = toDateStr(b.checkIn) || "";
-            return aci < bci ? -1 : aci > bci ? 1 : 0;
-          })[0] || null;
+        if (isRealStaff) {
+          const data = await API.staffData.nextBooking({
+            propertyId: c.propertyId,
+            checkoutDate: coDateStr,
+            excludeBookingId: c.bookingId || "",
+          });
+          nextBooking = (data && data.nextBooking) ? data.nextBooking : null;
+          nextGuest = (data && data.nextGuest) ? data.nextGuest : {};
+        } else {
+          const [bkSnap, grSnap] = await Promise.all([
+            db.collection("bookings").where("propertyId", "==", c.propertyId).get(),
+            db.collection("guestRegistrations").where("propertyId", "==", c.propertyId).limit(60).get(),
+          ]);
 
-        // guestMap 構築: {propertyId}_{CI日} → 名簿データ
-        const guestMap = {};
-        grSnap.docs.forEach(d => {
-          const g = d.data();
-          const ci = toDateStr(g.checkIn);
-          if (!ci) return;
-          const key = g.propertyId ? `${g.propertyId}_${ci}` : ci;
-          guestMap[key] = g;
-        });
+          // 次の予約: 同物件 × 異なる bookingId × キャンセル除外 × CI >= checkoutDate で昇順先頭
+          const allBookings = bkSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+          nextBooking = allBookings
+            .filter(nb => {
+              if (nb.id === c.bookingId) return false;
+              const s = String(nb.status || "").toLowerCase();
+              if (s.includes("cancel") || nb.status === "キャンセル" || nb.status === "キャンセル済み") return false;
+              const nbCi = toDateStr(nb.checkIn);
+              return nbCi && coDateStr && nbCi >= coDateStr;
+            })
+            .sort((a, b) => {
+              const aci = toDateStr(a.checkIn) || "";
+              const bci = toDateStr(b.checkIn) || "";
+              return aci < bci ? -1 : aci > bci ? 1 : 0;
+            })[0] || null;
 
-        if (nextBooking) {
-          const nbCiStr = toDateStr(nextBooking.checkIn);
-          // 物件IDあれば複合キーのみで参照 (異物件混入防止)
-          const gk = nextBooking.propertyId && nbCiStr ? `${nextBooking.propertyId}_${nbCiStr}` : null;
-          nextGuest = gk ? (guestMap[gk] || {}) : (nbCiStr ? (guestMap[nbCiStr] || {}) : {});
+          // guestMap 構築: {propertyId}_{CI日} → 名簿データ
+          const guestMap = {};
+          grSnap.docs.forEach(d => {
+            const g = d.data();
+            const ci = toDateStr(g.checkIn);
+            if (!ci) return;
+            const key = g.propertyId ? `${g.propertyId}_${ci}` : ci;
+            guestMap[key] = g;
+          });
+
+          if (nextBooking) {
+            const nbCiStr = toDateStr(nextBooking.checkIn);
+            // 物件IDあれば複合キーのみで参照 (異物件混入防止)
+            const gk = nextBooking.propertyId && nbCiStr ? `${nextBooking.propertyId}_${nbCiStr}` : null;
+            nextGuest = gk ? (guestMap[gk] || {}) : (nbCiStr ? (guestMap[nbCiStr] || {}) : {});
+          }
         }
       } catch (_) {}
 

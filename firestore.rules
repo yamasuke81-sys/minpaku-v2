@@ -4,8 +4,12 @@ service cloud.firestore {
 
     // オーナー: 全データ読み書き可能
     // カスタムクレーム未設定（role==null）の場合もオーナーとして扱う（既存アカウント互換）
+    // ただし匿名認証(guest-form の Storage 用 signInAnonymously)は role==null でも owner にしない。
+    // 匿名を owner 扱いすると誰でも bookings/guestRegistrations を全読みできてしまうため。
     function isOwner() {
-      return request.auth != null && (request.auth.token.role == 'owner' || request.auth.token.role == null);
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && (!('role' in request.auth.token) || request.auth.token.role == 'owner' || request.auth.token.role == null);
     }
 
     // サブオーナー: role == sub_owner
@@ -79,10 +83,18 @@ service cloud.firestore {
         || (isSubOwner() && propertyId in request.auth.token.ownedPropertyIds);
     }
 
-    // 予約 — オーナーは全操作、サブオーナーは所有物件のみ読み書き、スタッフは読み取りのみ
+    // 予約 — オーナーは全操作、サブオーナーは所有物件のみ読み書き。
+    // スタッフは直読み禁止 (PII を含むため) → /api/staff-data 経由で PII 除外サマリのみ取得する。
     match /bookings/{bookingId} {
-      allow read: if isOwner() || isSubOwner() || isStaff();
+      allow read: if isOwner() || isSubOwner();
       allow write: if isOwner() || (isSubOwner() && isMyProperty(resource.data.propertyId));
+    }
+
+    // スタッフ向けデータ更新通知カウンタ (PII なし)。書き込みは Cloud Functions (Admin SDK) のみ。
+    // スタッフ端末はこの1件だけを onSnapshot 監視し、変化時に /api/staff-data を再取得する。
+    match /meta/staffDataVersion {
+      allow read: if isAuthenticated();
+      allow write: if false;
     }
 
     // シフト — オーナーは全操作、サブオーナーは所有物件のみ読み取り、スタッフは自分のシフトのみ読み取り
@@ -222,8 +234,10 @@ service cloud.firestore {
     }
 
     // 宿泊者名簿 — ゲストフォームからの書き込み許可（認証不要）
+    // 読み取りは owner/sub_owner のみ (PII の塊)。スタッフ・匿名は直読み禁止
+    // → スタッフは /api/staff-data 経由で PII 除外サマリのみ取得する。
     match /guestRegistrations/{guestId} {
-      allow read: if isAuthenticated();
+      allow read: if isOwner() || isSubOwner();
       // ゲスト公開フォームからの新規登録を許可（source=guest_form のみ）
       allow create: if true
         && request.resource.data.guestName is string

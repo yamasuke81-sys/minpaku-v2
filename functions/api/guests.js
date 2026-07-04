@@ -9,8 +9,24 @@ module.exports = function guestsApi(db) {
   const router = Router();
   const collection = db.collection("guestRegistrations");
 
+  // 名簿は個人情報の塊なので owner / sub_owner のみ読める。
+  // staff や匿名認証(role未設定だが sign_in_provider=anonymous)を遮断する。
+  // role==null は既存オーナー互換で許可（匿名は provider で別途弾く）。
+  function requireOwnerOrSubOwner_(req, res, next) {
+    const u = req.user || {};
+    const provider = u.firebase && u.firebase.sign_in_provider;
+    if (provider === "anonymous") {
+      return res.status(403).json({ error: "権限がありません" });
+    }
+    const role = u.role;
+    if (role === "owner" || role === "sub_owner" || role == null) {
+      return next();
+    }
+    return res.status(403).json({ error: "権限がありません" });
+  }
+
   // 宿泊者名簿一覧（チェックイン日降順）
-  router.get("/", async (req, res) => {
+  router.get("/", requireOwnerOrSubOwner_, async (req, res) => {
     try {
       let query = collection.orderBy("checkIn", "desc");
       if (req.query.from) {
@@ -38,7 +54,7 @@ module.exports = function guestsApi(db) {
   });
 
   // 詳細取得
-  router.get("/:id", async (req, res) => {
+  router.get("/:id", requireOwnerOrSubOwner_, async (req, res) => {
     try {
       const doc = await collection.doc(req.params.id).get();
       if (!doc.exists) {

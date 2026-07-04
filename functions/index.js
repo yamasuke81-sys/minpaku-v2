@@ -137,6 +137,12 @@ app.use("/recruitment", recruitmentApi(db));
 const guestsApi = require("./api/guests");
 app.use("/guests", guestsApi(db));
 
+// ========== スタッフ向け PII 除外データ API ==========
+// staff は bookings/guestRegistrations を直読みできない (rules で遮断) ため、
+// 清掃スケジュールに必要な最小フィールドだけを PII 除外して返す
+const staffDataApi = require("./api/staff-data");
+app.use("/staff-data", staffDataApi(db));
+
 // ========== チェックリスト API ==========
 const checklistApi = require("./api/checklist");
 app.use("/checklist", checklistApi(db));
@@ -447,6 +453,18 @@ exports.onBookingChange = onDocumentWritten(
     timeoutSeconds: 540,
   },
   require("./triggers/onBookingChange")
+);
+
+// スタッフ向けデータ更新通知 — bookings/guestRegistrations の変更で
+// meta/staffDataVersion を bump (差分判定付き)。スタッフ端末の再取得トリガー。
+// onBookingChange (重関数) には相乗りせず独立 (デフォルト 256MiB で十分)。
+exports.bumpStaffDataVersionOnBooking = onDocumentWritten(
+  { document: "bookings/{bookingId}", region: "asia-northeast1" },
+  require("./triggers/bumpStaffDataVersion").onBookingWritten
+);
+exports.bumpStaffDataVersionOnGuestReg = onDocumentWritten(
+  { document: "guestRegistrations/{guestId}", region: "asia-northeast1" },
+  require("./triggers/bumpStaffDataVersion").onGuestRegistrationWritten
 );
 
 // onGuestRegistrationCreate は onGuestFormSubmit.js に統合済み (2026-04-26)、

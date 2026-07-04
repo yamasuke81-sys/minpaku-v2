@@ -468,6 +468,133 @@ const MyRecruitmentPage = {
     this.bookings = Array.from(bookingMap.values());
   },
 
+  // bookings の取り込み (onSnapshot / staff-data API 共用)。
+  // allDocs = [{ id, ...fields }]。impersonation 絞込・表示フィルタ後に再マージして再描画。
+  _ingestBookings(allDocs) {
+    this._allBookingsById = new Map(allDocs.map(b => [b.id, b]));
+    this._allBookingsRaw = allDocs;
+    const showCancelled = this._showCancelled !== false; // default true
+    const showPending = this._showPending !== false;     // default true
+    this._rawBookings = allDocs.filter(b => {
+      const s = String(b.status || "").toLowerCase();
+      const isCancel = s.includes("cancel") || b.status === "キャンセル" || b.status === "キャンセル済み";
+      const isPending = b.pendingApproval === true;
+      if (isCancel && !showCancelled) return false;
+      if (isPending && !showPending) return false;
+      return true;
+    });
+    if (this._impersonatedAllowedProps) {
+      this._rawBookings = this._rawBookings.filter(b => this._impersonatedAllowedProps.has(b.propertyId));
+    }
+    this._mergeBookingSources();
+    this._loadedFlags.bookings = true;
+    this._tryRenderCalendar();
+  },
+
+  // guestRegistrations の取り込み (onSnapshot / staff-data API 共用)。
+  // list = [{ id, ...fields }]。Webアプリ管理者(isOwnerView)時のみ PII を保持し、
+  // それ以外(スタッフ / スタッフ視点)は最小限フィールドのみ (多層防御)。
+  // staff-data API は既にサーバー側で PII を除外済みなので、ここでの除外は no-op になる。
+  _ingestGuests(list) {
+    const isOwnerView = this.isOwnerView;
+    this._rawGuestRegs = list.map(g => {
+      if (isOwnerView) {
+        return { ...g };
+      }
+      return {
+        id: g.id,
+        guestCount: g.guestCount || 0,
+        guestCountInfants: g.guestCountInfants || 0,
+        checkIn: g.checkIn, checkOut: g.checkOut,
+        propertyId: g.propertyId || "",
+        checkInTime: g.checkInTime || "", checkOutTime: g.checkOutTime || "",
+        bbq: g.bbq || "", carCount: g.carCount || 0,
+        paidParking: g.paidParking || "",
+        bedChoice: g.bedChoice || "", nationality: g.nationality || "",
+        parking: g.parking || "", transport: g.transport || "",
+        vehicleTypes: g.vehicleTypes || [],
+        bookingSite: g.bookingSite || "", source: g.source || "",
+      };
+    });
+    if (this._impersonatedAllowedProps) {
+      this._rawGuestRegs = this._rawGuestRegs.filter(g => this._impersonatedAllowedProps.has(g.propertyId));
+    }
+
+    // guestMap 構築 (画面表示用)
+    this.guestMap = {};
+    list.forEach(g => {
+      const ci = g.checkIn;
+      if (!ci) return;
+      const entry = {
+        id: g.id,
+        bookingId: g.bookingId || "",
+        keyboxSentAt: g.keyboxSentAt || null,
+        keyboxConfirmedAt: g.keyboxConfirmedAt || null,
+        keyboxSendError: g.keyboxSendError || "",
+        propertyId: g.propertyId || "",
+        guestCount: g.guestCount || 0,
+        guestCountInfants: g.guestCountInfants || 0,
+        checkIn: g.checkIn, checkOut: g.checkOut,
+        checkInTime: g.checkInTime || "", checkOutTime: g.checkOutTime || "",
+        bbq: g.bbq || "", carCount: g.carCount || 0,
+        paidParking: g.paidParking || "",
+        bedChoice: g.bedChoice || "", nationality: g.nationality || "",
+        parking: g.parking || "", transport: g.transport || "",
+        vehicleTypes: g.vehicleTypes || [],
+      };
+      if (isOwnerView) {
+        Object.assign(entry, {
+          guestName: g.guestName || "",
+          address: g.address || "",
+          phone: g.phone || "", phone2: g.phone2 || "",
+          email: g.email || "",
+          passportNumber: g.passportNumber || "",
+          purpose: g.purpose || "",
+          memo: g.memo || "",
+          emergencyName: g.emergencyName || "",
+          emergencyPhone: g.emergencyPhone || "",
+          previousStay: g.previousStay || "",
+          nextStay: g.nextStay || "",
+          noiseAgree: g.noiseAgree || false,
+          guests: g.guests || [],
+          allGuests: g.allGuests || [],
+          parkingAllocation: g.parkingAllocation || [],
+          passportPhotoUrl: g.passportPhotoUrl || "",
+        });
+      }
+      if (g.propertyId) this.guestMap[`${g.propertyId}_${ci}`] = entry;
+      else this.guestMap[ci] = entry; // 物件ID 不明な名簿のみ単独キーで保持
+    });
+
+    this._mergeBookingSources();
+    this._loadedFlags.guests = true;
+    this._tryRenderCalendar();
+  },
+
+  // スタッフ (実ロール) の bookings/guestRegistrations を staff-data API から取得して取り込む。
+  // 直読み権限が無いため onSnapshot の代わりにこれを呼ぶ。
+  async _staffFetch() {
+    this._lastStaffFetchAt = Date.now();
+    try {
+      const data = await API.staffData.schedule();
+      this._lastDataVer = data.v || null;
+      this._ingestBookings(Array.isArray(data.bookings) ? data.bookings : []);
+      this._ingestGuests(Array.isArray(data.guests) ? data.guests : []);
+    } catch (e) {
+      console.error("staff-data 取得エラー:", e);
+      // 取得失敗でもカレンダーは描画を進める (空表示)
+      this._loadedFlags.bookings = true;
+      this._loadedFlags.guests = true;
+      this._tryRenderCalendar();
+    }
+  },
+
+  // meta/staffDataVersion 変化時のデバウンス再取得 (3秒)
+  _scheduleStaffRefetch() {
+    clearTimeout(this._staffRefetchTimer);
+    this._staffRefetchTimer = setTimeout(() => this._staffFetch(), 3000);
+  },
+
   // YYYY-MM-DD 文字列化 (string / Date / Firestore Timestamp 対応、JST)
   _toDateStr(val) {
     if (!val) return "";
@@ -536,6 +663,12 @@ const MyRecruitmentPage = {
       staffX.forEach(s => (s.assignedPropertyIds || []).forEach(pid => unionB.add(pid)));
       impersonatedAllowedProps = unionB;
     }
+    // ingest メソッド (_ingestBookings/_ingestGuests) から参照するため this に退避
+    this._impersonatedAllowedProps = impersonatedAllowedProps;
+    // 実ロールが staff のときだけ staff-data API 経路にする。
+    // owner/sub_owner の viewAsStaff・impersonation は Firestore 直読み権限があるので
+    // 現行 onSnapshot 経路を維持する (これが impersonation を壊さないための要点)。
+    const isRealStaff = !!(Auth.currentUser && Auth.currentUser.role === "staff");
 
     // 物件リスト初期化
     this.minpakuProperties = impersonatedAllowedProps
@@ -633,7 +766,29 @@ const MyRecruitmentPage = {
     });
     this._unsubs.push(unsubRecruit);
 
-    // --- bookings onSnapshot ---
+    if (isRealStaff) {
+      // スタッフ(実ロール)は bookings/guestRegistrations を直読みできない (rules で遮断)。
+      // PII 除外済みサマリを staff-data API から取得し、meta/staffDataVersion の変化で再取得する。
+      await this._staffFetch();
+      let verFirst = true;
+      const unsubVer = db.collection("meta").doc("staffDataVersion").onSnapshot(snap => {
+        if (verFirst) { verFirst = false; return; } // 初回スナップショットは無視
+        this._scheduleStaffRefetch();
+      }, err => console.warn("staffDataVersion 監視エラー:", err));
+      this._unsubs.push(unsubVer);
+      // 安全網: 画面復帰時 (前回取得>60秒) + 10分ポーリング (バンプ漏れ対策)
+      const onVis = () => {
+        if (document.visibilityState === "visible" && (Date.now() - (this._lastStaffFetchAt || 0)) > 60000) {
+          this._staffFetch();
+        }
+      };
+      document.addEventListener("visibilitychange", onVis);
+      const staffPollIv = setInterval(() => this._staffFetch(), 10 * 60 * 1000);
+      this._unsubs.push(() => document.removeEventListener("visibilitychange", onVis));
+      this._unsubs.push(() => clearInterval(staffPollIv));
+      this._unsubs.push(() => clearTimeout(this._staffRefetchTimer));
+    } else {
+    // --- bookings onSnapshot --- (owner / sub_owner / owner の viewAsStaff・impersonation)
     let bookingQuery = db.collection("bookings");
     if (canFilter) {
       bookingQuery = bookingQuery.where("propertyId", "in", assignedIds);
@@ -641,33 +796,10 @@ const MyRecruitmentPage = {
       bookingQuery = bookingQuery.where("propertyId", "==", "__NONE__");
     }
     const unsubBooking = bookingQuery.onSnapshot(snap => {
-      // 全 booking ドキュメントを id でマップ化 (guestRegistrations の bookingId 紐付け判定用)
-      // これで「キャンセル済 booking に紐付く名簿が他予約に流用される」のを防ぐ
+      // 全 booking ドキュメントを id でマップ化して取り込み (キャンセル/保留フィルタ・
+      // impersonation 絞込・再マージは _ingestBookings に集約)
       const allDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      this._allBookingsById = new Map(allDocs.map(b => [b.id, b]));
-      // トグル切替で再フィルタするために生データを保持
-      this._allBookingsRaw = allDocs;
-      // 表示用: cancelled + 保留中(pendingApproval=true) を除外
-      // 保留中は Airbnb 予約承認待ちなど (確定後に再 ingest される)
-      // 表示フィルタ: キャンセル予約 / 保留中(pendingApproval) は設定に応じて表示
-      const showCancelled = this._showCancelled !== false; // default true
-      const showPending = this._showPending !== false;     // default true
-      this._rawBookings = allDocs.filter(b => {
-        const s = String(b.status || "").toLowerCase();
-        const isCancel = s.includes("cancel") || b.status === "キャンセル" || b.status === "キャンセル済み";
-        const isPending = b.pendingApproval === true;
-        if (isCancel && !showCancelled) return false;
-        if (isPending && !showPending) return false;
-        return true;
-      });
-      // impersonation: 表示物件セットに含まれるもののみ
-      if (impersonatedAllowedProps) {
-        this._rawBookings = this._rawBookings.filter(b => impersonatedAllowedProps.has(b.propertyId));
-      }
-      this._mergeBookingSources();
-
-      this._loadedFlags.bookings = true;
-      this._tryRenderCalendar();
+      this._ingestBookings(allDocs);
     }, err => {
       console.error("bookings onSnapshot エラー:", err);
       this._loadedFlags.bookings = true;
@@ -677,9 +809,9 @@ const MyRecruitmentPage = {
 
     // --- guestRegistrations onSnapshot ---
     // NOTE: Firestore web SDK はフィールド単位の select() が非対応のため全フィールド受信。
-    // PII（guestName/address/phone/passportNumber 等）はクライアント受信直後に除外して
-    // guestMap には最小限フィールドのみ保持することでメモリ内の漏洩範囲を最小化する。
-    // 将来的には /api/guest-summary?propertyIds=... を経由して Functions 側で絞り込む方式が理想。
+    // オーナー経路では PII を含む全フィールドが端末に届くが、スタッフ(実ロール)は上の
+    // staff-data API 経路に切り替わっており、この onSnapshot 自体を張らない。
+    // (owner の viewAsStaff 経路では isOwnerView=false になり _ingestGuests が PII を落とす=多層防御)
     let guestQuery = db.collection("guestRegistrations");
     if (canFilter) {
       guestQuery = guestQuery.where("propertyId", "in", assignedIds);
@@ -687,98 +819,15 @@ const MyRecruitmentPage = {
       guestQuery = guestQuery.where("propertyId", "==", "__NONE__");
     }
     const unsubGuest = guestQuery.onSnapshot(snap => {
-      const isOwnerView = this.isOwnerView;
-      // 生データ保持 (マージ用): Webアプリ管理者時のみ PII 含む、スタッフ時は最小限フィールド
-      this._rawGuestRegs = snap.docs.map(d => {
-        const g = d.data();
-        if (isOwnerView) {
-          return { id: d.id, ...g };
-        }
-        return {
-          id: d.id,
-          guestCount: g.guestCount || 0,
-          guestCountInfants: g.guestCountInfants || 0,
-          checkIn: g.checkIn, checkOut: g.checkOut,
-          propertyId: g.propertyId || "",
-          checkInTime: g.checkInTime || "", checkOutTime: g.checkOutTime || "",
-          bbq: g.bbq || "", carCount: g.carCount || 0,
-          paidParking: g.paidParking || "",
-          bedChoice: g.bedChoice || "", nationality: g.nationality || "",
-          parking: g.parking || "", transport: g.transport || "",
-          vehicleTypes: g.vehicleTypes || [],
-          bookingSite: g.bookingSite || "", source: g.source || "",
-        };
-      });
-      // impersonation: 表示物件セットに含まれるもののみ
-      if (impersonatedAllowedProps) {
-        this._rawGuestRegs = this._rawGuestRegs.filter(g => impersonatedAllowedProps.has(g.propertyId));
-      }
-
-      // guestMap 構築 (画面表示用)
-      this.guestMap = {};
-      snap.docs.forEach(d => {
-        const g = d.data();
-        const ci = g.checkIn;
-        if (!ci) return;
-        const entry = {
-          // 名簿ドキュメント ID (予約詳細モーダルの「名簿を開く」「キーボックス送信」で使用)
-          id: d.id,
-          // bookingId を保持: ドット判定で予約バー (booking.id) と一致確認するため
-          // (キャンセル予約の名簿が同日新規予約の名簿として誤認されるのを防ぐ)
-          bookingId: g.bookingId || "",
-          // キーボックス送信状態 (予約詳細モーダルでバッジ + ボタン制御に使う)
-          keyboxSentAt: g.keyboxSentAt || null,
-          keyboxConfirmedAt: g.keyboxConfirmedAt || null,
-          keyboxSendError: g.keyboxSendError || "",
-          propertyId: g.propertyId || "",
-          guestCount: g.guestCount || 0,
-          guestCountInfants: g.guestCountInfants || 0,
-          checkIn: g.checkIn, checkOut: g.checkOut,
-          checkInTime: g.checkInTime || "", checkOutTime: g.checkOutTime || "",
-          bbq: g.bbq || "", carCount: g.carCount || 0,
-          paidParking: g.paidParking || "",
-          bedChoice: g.bedChoice || "", nationality: g.nationality || "",
-          parking: g.parking || "", transport: g.transport || "",
-          vehicleTypes: g.vehicleTypes || [],
-        };
-        // Webアプリ管理者時は予約詳細モーダルで使う PII も含める
-        if (isOwnerView) {
-          Object.assign(entry, {
-            guestName: g.guestName || "",
-            address: g.address || "",
-            phone: g.phone || "", phone2: g.phone2 || "",
-            email: g.email || "",
-            passportNumber: g.passportNumber || "",
-            purpose: g.purpose || "",
-            memo: g.memo || "",
-            emergencyName: g.emergencyName || "",
-            emergencyPhone: g.emergencyPhone || "",
-            previousStay: g.previousStay || "",
-            nextStay: g.nextStay || "",
-            noiseAgree: g.noiseAgree || false,
-            guests: g.guests || [],
-            allGuests: g.allGuests || [],
-            parkingAllocation: g.parkingAllocation || [],
-            passportPhotoUrl: g.passportPhotoUrl || "",
-          });
-        }
-        // propertyId がある名簿は複合キーのみで保持。物件ID なしのキー (ci 単独) は使わない
-        // ─ 同じ CI 日に異なる物件の予約があると最後の物件で上書きされ、別物件の予約詳細に
-        //   他物件のゲスト情報が混入する事故を防ぐため
-        if (g.propertyId) this.guestMap[`${g.propertyId}_${ci}`] = entry;
-        else this.guestMap[ci] = entry; // 物件ID 不明な名簿のみ単独キーで保持
-      });
-
-      this._mergeBookingSources();
-
-      this._loadedFlags.guests = true;
-      this._tryRenderCalendar();
+      // 生データ整形・PII除外・guestMap構築・再マージは _ingestGuests に集約
+      this._ingestGuests(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     }, err => {
       console.error("guestRegistrations onSnapshot エラー:", err);
       this._loadedFlags.guests = true;
       this._tryRenderCalendar();
     });
     this._unsubs.push(unsubGuest);
+    } // end else (非スタッフは onSnapshot 直読み)
   },
 
   /**

@@ -1506,4 +1506,37 @@ const API = {
       return result;
     },
   },
+
+  // スタッフ向け PII 除外データ API
+  // staff は bookings/guestRegistrations を直読みできない (rules で遮断) ため、
+  // 清掃スケジュールに必要な最小フィールドだけをサーバー側で PII 除外して取得する。
+  staffData: {
+    CF_BASE: "https://api-5qrfx7ujcq-an.a.run.app",
+    async _get(path) {
+      const token = await firebase.auth().currentUser.getIdToken();
+      const res = await fetch(`${this.CF_BASE}${path}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `GET ${path} 失敗`);
+      return data;
+    },
+    // 担当物件の予約・名簿サマリ (PII 除外)。from/to は任意
+    async schedule(params = {}) {
+      const q = new URLSearchParams();
+      if (params.from) q.set("from", params.from);
+      if (params.to) q.set("to", params.to);
+      const qs = q.toString();
+      return this._get(`/staff-data/schedule${qs ? "?" + qs : ""}`);
+    },
+    // 募集詳細/チェックリストの「次の予約」(PII 除外)
+    async nextBooking(params = {}) {
+      const q = new URLSearchParams();
+      q.set("propertyId", params.propertyId || "");
+      if (params.checkoutDate) q.set("checkoutDate", params.checkoutDate);
+      if (params.excludeBookingId) q.set("excludeBookingId", params.excludeBookingId);
+      if (params.bookingId) q.set("bookingId", params.bookingId);
+      return this._get(`/staff-data/next-booking?${q.toString()}`);
+    },
+  },
 };
