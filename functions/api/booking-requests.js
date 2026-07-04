@@ -87,6 +87,9 @@ module.exports = function bookingRequestsApi(db) {
       }
 
       // bookings 作成 (source:"direct" → icalFeeds の includeSources:["direct"] で自動配信対象)
+      // 決定的 docId (direct-<requestId>) + トランザクションで冪等化する。
+      // 2端末/2タブで同一リクエストをほぼ同時に承認しても、トランザクション内の
+      // status 再確認と booking 存在チェックにより二重作成を防ぐ (add() は非冪等なため使わない)。
       const bookingData = {
         source: "direct",
         syncSource: "direct",
@@ -103,13 +106,27 @@ module.exports = function bookingRequestsApi(db) {
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       };
-      const bookingRef = await db.collection("bookings").add(bookingData);
-
-      await docRef.update({
-        status: "approved",
-        approvedAt: FieldValue.serverTimestamp(),
-        approvedBy: req.user.uid || "",
-        bookingId: bookingRef.id,
+      const bookingRef = db.collection("bookings").doc(`direct-${id}`);
+      await db.runTransaction(async (tx) => {
+        const freshReq = await tx.get(docRef);
+        if (!freshReq.exists || freshReq.data().status !== "pending") {
+          const err = new Error("already_processed");
+          err.alreadyProcessed = true;
+          throw err;
+        }
+        const existingBooking = await tx.get(bookingRef);
+        if (existingBooking.exists) {
+          const err = new Error("already_processed");
+          err.alreadyProcessed = true;
+          throw err;
+        }
+        tx.set(bookingRef, bookingData);
+        tx.update(docRef, {
+          status: "approved",
+          approvedAt: FieldValue.serverTimestamp(),
+          approvedBy: req.user.uid || "",
+          bookingId: bookingRef.id,
+        });
       });
 
       // ゲストへ承認メール (支払案内・キャンセルポリシー・名簿フォームURL)
@@ -151,6 +168,10 @@ module.exports = function bookingRequestsApi(db) {
 
       res.json({ ok: true, bookingId: bookingRef.id });
     } catch (e) {
+      // 同時承認による競合はエラーではなく「処理済み」として 409 を返す
+      if (e && e.alreadyProcessed) {
+        return res.status(409).json({ error: "既に処理済みです" });
+      }
       console.error("[booking-requests] 承認エラー:", e);
       res.status(500).json({ error: e.message || "承認処理に失敗しました" });
     }

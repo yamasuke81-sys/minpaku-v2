@@ -694,6 +694,17 @@ router.post("/booking-request", express.json(), async (req, res) => {
     const propertyId = String(body.propertyId || "");
     if (!propertyId) return res.status(400).json({ error: "propertyId 必須" });
 
+    // ===== 受付ゲート =====
+    // settings/directBooking.enabled が true のときだけ受け付ける (既定は無効)。
+    // 公開前・準備中は API 自体を閉じ、認証不要エンドポイントへの空リクエスト大量投入や
+    // 物件 Gmail を踏み台にしたメール送信の悪用を防ぐ。
+    // Turnstile 設定 (turnstileSecret) + enabled:true をセットにして受付を開始する運用。
+    const directCfgSnap = await db.collection("settings").doc("directBooking").get();
+    const directCfg = directCfgSnap.exists ? directCfgSnap.data() : {};
+    if (directCfg.enabled !== true) {
+      return res.status(403).json({ error: "現在、直接予約の受付を停止しています。" });
+    }
+
     // 物件存在チェック
     const propDoc = await db.collection("properties").doc(propertyId).get();
     if (!propDoc.exists || propDoc.data().active === false) {

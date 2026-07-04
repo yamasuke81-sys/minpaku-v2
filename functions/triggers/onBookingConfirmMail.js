@@ -26,6 +26,14 @@ module.exports = async function onBookingConfirmMail(event) {
       return;
     }
 
+    // 直接予約 (source:"direct") は承認API (booking-requests.js) が
+    // 支払案内・キャンセルポリシー込みの確定メールを別途送るため、ここでは送らない
+    // (このガードが無いとゲストに確認メールが2通届く)
+    if (b.source === "direct") {
+      console.log("予約確認メール: 直接予約は承認APIが送信するためスキップ");
+      return;
+    }
+
     // 通知設定確認
     const { settings } = await getNotificationSettings_(db);
 
