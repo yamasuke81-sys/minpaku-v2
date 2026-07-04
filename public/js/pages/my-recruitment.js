@@ -91,6 +91,20 @@ const MyRecruitmentPage = {
           <button class="btn btn-sm btn-outline-primary ms-2" id="btnMyCalToday">今日</button>
         </div>
       </div>
+      ${this._viewMode === "staff" ? `
+      <!-- カレンダー表示形式スイッチャー (スタッフビューのみ。#/schedule* には出力しない) -->
+      <div class="d-flex align-items-center gap-2 flex-wrap mb-2" id="calViewSwitcher">
+        <div class="btn-group btn-group-sm" role="group" aria-label="カレンダー表示形式">
+          <button type="button" class="btn cal-view-btn" data-view="horizontal"><i class="bi bi-calendar-check"></i> 横</button>
+          <button type="button" class="btn cal-view-btn" data-view="vertical"><i class="bi bi-layout-three-columns"></i> 縦</button>
+          <button type="button" class="btn cal-view-btn" data-view="anonymous"><i class="bi bi-incognito"></i> 匿名</button>
+          <button type="button" class="btn cal-view-btn" data-view="month"><i class="bi bi-calendar3"></i> 月</button>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnCalViewDefault"
+          title="現在の表示形式を自分のデフォルトにする">
+          <i class="bi bi-pin-angle"></i> デフォルトに設定
+        </button>
+      </div>` : ""}
       <!-- 要対応 / お知らせセクション -->
       <div id="myRecToActions" class="mb-3"></div>
 
@@ -196,7 +210,9 @@ const MyRecruitmentPage = {
         </div>
       </div>
 
-      <!-- フルカレンダー (月表示) 折りたたみ -->
+      <!-- フルカレンダー (月表示) 折りたたみ。
+           匿名スタッフビューでは確定/選定スタッフ名がイベントに表示されるため節ごと出力しない -->
+      ${this._isAnonymousStaffView() ? "" : `
       <div class="mt-4">
         <button class="btn btn-sm btn-outline-secondary" type="button"
           data-bs-toggle="collapse" data-bs-target="#myRecFullCalendar" aria-expanded="false">
@@ -238,7 +254,7 @@ const MyRecruitmentPage = {
             </div>
           </div>
         </div>
-      </div>
+      </div>`}
 
     `;
 
@@ -339,6 +355,9 @@ const MyRecruitmentPage = {
           this._initFullCalendar();
         }, { once: false });
       }
+
+      // カレンダー表示形式スイッチャー (スタッフビュー時のみ DOM に存在)
+      this._initCalViewSwitcher();
 
       // renderCalendar() は subscribeData() 内の onSnapshot コールバックが呼ぶ。
       // ここでの直接呼び出しは不要（データ未着状態で描画してしまうのを防ぐ）。
@@ -1716,7 +1735,7 @@ const MyRecruitmentPage = {
         try {
           await RecruitmentPage.ensureLoaded();
           if (candidates.length === 1) {
-            RecruitmentPage.openDetailModal(candidates[0], { viewMode: this.isOwnerView ? "owner" : "staff" });
+            RecruitmentPage.openDetailModal(candidates[0], this._detailOpts());
           } else {
             this._showDayBookingsListModal(dateStr, candidates);
           }
@@ -1851,6 +1870,7 @@ const MyRecruitmentPage = {
             guestMap: this.guestMap,
             properties: this.minpakuProperties || [],
             viewMode: isOwnerView ? "owner" : "staff",
+            anonymous: this._isAnonymousStaffView(),
             onGuestCountSaved: () => this.renderCalendar && this.renderCalendar(),
           });
         }
@@ -1890,7 +1910,7 @@ const MyRecruitmentPage = {
           if (typeof RecruitmentPage.ensureLoaded === "function") {
             await RecruitmentPage.ensureLoaded();
           }
-          RecruitmentPage.openDetailModal(recruit, { viewMode: isOwnerView ? "owner" : "staff" });
+          RecruitmentPage.openDetailModal(recruit, this._detailOpts());
         }
       });
     });
@@ -1923,7 +1943,7 @@ const MyRecruitmentPage = {
             if (typeof RecruitmentPage.ensureLoaded === "function") {
               await RecruitmentPage.ensureLoaded();
             }
-            RecruitmentPage.openDetailModal(recruit, { viewMode: isOwnerView ? "owner" : "staff" });
+            RecruitmentPage.openDetailModal(recruit, this._detailOpts());
           })();
         }
       }
@@ -2155,9 +2175,7 @@ const MyRecruitmentPage = {
         if (!r) return;
         if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
           if (RecruitmentPage.ensureLoaded) await RecruitmentPage.ensureLoaded();
-          RecruitmentPage.openDetailModal(r, { viewMode: this.isOwnerView ? "owner" : "staff" });
-        } else if (typeof DashboardPage !== "undefined" && DashboardPage.openRecruitmentModal) {
-          DashboardPage.openRecruitmentModal(r);
+          RecruitmentPage.openDetailModal(r, this._detailOpts());
         }
       });
     });
@@ -2267,6 +2285,87 @@ const MyRecruitmentPage = {
    * FullCalendar (月表示) 初期化 - 折りたたみ内に予約+募集を表示
    * DashboardPage の buildCalendarEvents を参考に、シンプル版を my-recruitment 側に持つ
    */
+  // === モーダル文脈ヘルパ ===
+  // 匿名カレンダー (my-recruitment-anonymous-vertical.js) がオーバーライドして
+  // スタッフ閲覧時に true を返す (オーナー閲覧時は個人別表示のため false)
+  _isAnonymousStaffView() { return false; },
+
+  // 募集詳細モーダル (RecruitmentPage.openDetailModal) へ渡す共通オプション。
+  // どのカレンダー・どの導線から開いても viewMode / anonymous の文脈を一元的に伝える
+  _detailOpts() {
+    return {
+      viewMode: this.isOwnerView ? "owner" : "staff",
+      anonymous: this._isAnonymousStaffView(),
+    };
+  },
+
+  // === カレンダー表示形式スイッチャー (スタッフビュー) ===
+  // 現在ルートから表示形式キー (horizontal/vertical/anonymous/month) を返す
+  _currentCalView() {
+    const routes = (typeof App !== "undefined" && App.CAL_VIEW_ROUTES) || {};
+    const path = (location.hash || "").split("?")[0].replace(/^#\//, "").split("/")[0];
+    for (const [view, page] of Object.entries(routes)) {
+      if (page === path) return view;
+    }
+    return "horizontal";
+  },
+
+  // スイッチャーの配線。切替 = location.hash 変更のみ (既存の hashchange → route() 経路)。
+  // デフォルト保存は「デフォルトに設定」ボタンを押した時だけ行う (localStorage + userPreferences/{uid})
+  _initCalViewSwitcher() {
+    const host = document.getElementById("calViewSwitcher");
+    if (!host) return;
+    const cur = this._currentCalView();
+    const uid = Auth.currentUser?.uid;
+    const lsKey = uid ? `calDefaultView_${uid}` : null;
+    let savedView = null;
+    try { savedView = lsKey ? localStorage.getItem(lsKey) : null; } catch (_) { /* ignore */ }
+
+    host.querySelectorAll(".cal-view-btn").forEach(btn => {
+      const v = btn.dataset.view;
+      btn.classList.toggle("btn-primary", v === cur);
+      btn.classList.toggle("btn-outline-primary", v !== cur);
+      if (btn.dataset.wired) return;
+      btn.dataset.wired = "1";
+      btn.addEventListener("click", () => {
+        if (v === this._currentCalView()) return;
+        const page = App.CAL_VIEW_ROUTES?.[v];
+        if (page) location.hash = "#/" + page;
+      });
+    });
+
+    const pinBtn = document.getElementById("btnCalViewDefault");
+    if (!pinBtn) return;
+    const applyPinState = (saved) => {
+      const isDefault = saved === cur || (!saved && cur === "horizontal");
+      pinBtn.classList.toggle("btn-secondary", isDefault);
+      pinBtn.classList.toggle("btn-outline-secondary", !isDefault);
+      pinBtn.innerHTML = isDefault
+        ? '<i class="bi bi-pin-angle-fill"></i> デフォルト設定済み'
+        : '<i class="bi bi-pin-angle"></i> デフォルトに設定';
+      pinBtn.disabled = isDefault;
+    };
+    applyPinState(savedView);
+    if (!pinBtn.dataset.wired) {
+      pinBtn.dataset.wired = "1";
+      pinBtn.addEventListener("click", async () => {
+        if (!uid) return;
+        try { if (lsKey) localStorage.setItem(lsKey, cur); } catch (_) { /* ignore */ }
+        applyPinState(cur);
+        showToast("設定完了", "次回からこの表示形式で開きます", "success");
+        // Firestore へも保存 (端末をまたいで有効化。失敗しても localStorage で当端末は機能する)
+        try {
+          await db.collection("userPreferences").doc(uid).set({
+            defaultCalView: cur,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          }, { merge: true });
+        } catch (e) {
+          console.warn("表示形式のクラウド保存に失敗:", e.message);
+        }
+      });
+    }
+  },
+
   _initFullCalendar() {
     const el = document.getElementById("myRecFullCalendarBody");
     if (!el || typeof FullCalendar === "undefined") return;
@@ -2301,17 +2400,15 @@ const MyRecruitmentPage = {
             recruitments: this.recruitments,
             guestMap: this.guestMap,
             viewMode: this.isOwnerView ? "owner" : "staff",
+            anonymous: this._isAnonymousStaffView(),
             onGuestCountSaved: () => this._refreshFullCalendar(),
           });
         } else if (type === "recruitment") {
           if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
-            const _vm = this.isOwnerView ? "owner" : "staff";
             (async () => {
               if (RecruitmentPage.ensureLoaded) await RecruitmentPage.ensureLoaded();
-              RecruitmentPage.openDetailModal(data, { viewMode: _vm });
+              RecruitmentPage.openDetailModal(data, this._detailOpts());
             })();
-          } else if (typeof DashboardPage !== "undefined" && DashboardPage.openRecruitmentModal) {
-            DashboardPage.openRecruitmentModal(data);
           }
         }
       },
@@ -2351,7 +2448,8 @@ const MyRecruitmentPage = {
       const guestCount = b.guestCount ? `(${b.guestCount}名)` : "";
       events.push({
         id: "b_" + b.id,
-        title: (b.guestName || "予約") + " " + guestCount,
+        // スタッフビューではゲスト氏名を表示しない (個人情報保護。人数のみ)
+        title: (this.isOwnerView ? (b.guestName || "予約") : "予約") + " " + guestCount,
         start: ci,
         end: co || ci,
         allDay: true,
@@ -2665,7 +2763,7 @@ const MyRecruitmentPage = {
         setTimeout(async () => {
           if (typeof RecruitmentPage !== "undefined" && RecruitmentPage.openDetailModal) {
             await RecruitmentPage.ensureLoaded();
-            RecruitmentPage.openDetailModal(r, { viewMode });
+            RecruitmentPage.openDetailModal(r, this._detailOpts());
           }
         }, 180);
       });

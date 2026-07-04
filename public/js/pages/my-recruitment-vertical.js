@@ -1023,7 +1023,7 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
         try {
           await RecruitmentPage.ensureLoaded();
           if (candidates.length === 1) {
-            RecruitmentPage.openDetailModal(candidates[0], { viewMode: this.isOwnerView ? "owner" : "staff" });
+            RecruitmentPage.openDetailModal(candidates[0], this._detailOpts());
           } else {
             this._showDayBookingsListModal(dateStr, candidates);
           }
@@ -1072,6 +1072,7 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
             guestMap: this.guestMap,
             properties: this.minpakuProperties || [],
             viewMode: isOwnerView ? "owner" : "staff",
+            anonymous: this._isAnonymousStaffView(),
             onGuestCountSaved: () => this.renderCalendar && this.renderCalendar(),
           });
         }
@@ -1089,7 +1090,7 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
           if (typeof RecruitmentPage.ensureLoaded === "function") {
             await RecruitmentPage.ensureLoaded();
           }
-          RecruitmentPage.openDetailModal(recruit, { viewMode: isOwnerView ? "owner" : "staff" });
+          RecruitmentPage.openDetailModal(recruit, this._detailOpts());
         }
       });
     });
@@ -1120,7 +1121,7 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
             if (typeof RecruitmentPage.ensureLoaded === "function") {
               await RecruitmentPage.ensureLoaded();
             }
-            RecruitmentPage.openDetailModal(recruit, { viewMode: isOwnerView ? "owner" : "staff" });
+            RecruitmentPage.openDetailModal(recruit, this._detailOpts());
           })();
         }
       }

@@ -384,6 +384,11 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
 
+    // ユーザー別個人設定 (カレンダー表示形式のデフォルト等): 本人 (uid 一致) のみ read/write 可能
+    match /userPreferences/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
     // 定期報告（住宅宿泊事業法14条）
     // reports/{docId}: 報告済みフラグ・手動補正(overrides)を保持
     //   - 旧形式: bare periodId (例 "2026-02") = the Terrace 長浜の全体集計

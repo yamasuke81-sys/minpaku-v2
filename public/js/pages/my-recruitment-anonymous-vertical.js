@@ -39,6 +39,11 @@ const MyRecruitmentPageAnonymousVertical = Object.assign(Object.create(MyRecruit
     if (en) en.style.removeProperty("display");
   },
 
+  // 匿名文脈: スタッフ閲覧時は true (オーナー閲覧時は個人別表示のため false)。
+  // 親 (MyRecruitmentPage) の _detailOpts() / showBookingModal ctx がこれを参照し、
+  // このページから開くモーダルすべてに匿名フラグが伝搬する。
+  _isAnonymousStaffView() { return !this.isOwnerView; },
+
   // 集計の母数となる「その物件の担当スタッフ」を返す。
   //  - オーナーは母数から除外
   //  - 担当物件(assignedPropertyIds)に当該物件を含むスタッフ
@@ -932,6 +937,7 @@ const MyRecruitmentPageAnonymousVertical = Object.assign(Object.create(MyRecruit
             guestMap: this.guestMap,
             properties: this.minpakuProperties || [],
             viewMode: isOwnerView ? "owner" : "staff",
+            anonymous: this._isAnonymousStaffView(),
             onGuestCountSaved: () => this.renderCalendar && this.renderCalendar(),
           });
         }

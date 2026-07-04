@@ -56,6 +56,8 @@ const App = {
     "my-recruitment-vertical": MyRecruitmentPageVertical,
     // 【テスト】匿名カレンダー (縦) — スタッフ個人列を撤廃し集計のみ表示
     "my-recruitment-anonymous-vertical": MyRecruitmentPageAnonymousVertical,
+    // 月表示 (FullCalendar) — 清掃スケジュールの表示形式スイッチャーから切替
+    "my-recruitment-fullcal": MyRecruitmentPageFullCal,
     "my-checklist": MyChecklistPage,
     "my-invoice": MyInvoicePage,
     "my-invoice-create": MyInvoiceCreatePage,
@@ -75,7 +77,38 @@ const App = {
   // (アプリを開きっぱなしで他データが更新された後、手動リロード不要にする)
   _hiddenAt: 0,
   // 既に onSnapshot でリアルタイム同期しているページは対象外
-  _realtimePages: new Set(["schedule", "schedule-vertical", "schedule-anonymous-vertical", "my-recruitment", "my-recruitment-vertical", "my-recruitment-anonymous-vertical", "my-checklist"]),
+  _realtimePages: new Set(["schedule", "schedule-vertical", "schedule-anonymous-vertical", "my-recruitment", "my-recruitment-vertical", "my-recruitment-anonymous-vertical", "my-recruitment-fullcal", "my-checklist"]),
+
+  // カレンダー表示形式 ⇔ ルートの対応 (スタッフの表示形式スイッチャー / デフォルト保存で使用)
+  CAL_VIEW_ROUTES: {
+    horizontal: "my-recruitment",
+    vertical: "my-recruitment-vertical",
+    anonymous: "my-recruitment-anonymous-vertical",
+    month: "my-recruitment-fullcal",
+  },
+
+  // スタッフの保存済みカレンダー表示形式 (userPreferences/{uid}) を先読みして localStorage へ反映する。
+  // ログイン着地時のデフォルト適用 (route) が同期的に参照できるようにするため route() 前に実行する。
+  async _loadCalViewPref() {
+    try {
+      const user = Auth.currentUser;
+      if (!user || user.role !== "staff") return;
+      const snap = await db.collection("userPreferences").doc(user.uid).get();
+      const v = snap.exists ? snap.data().defaultCalView : null;
+      const key = `calDefaultView_${user.uid}`;
+      if (v && this.CAL_VIEW_ROUTES[v]) localStorage.setItem(key, v);
+    } catch (_) { /* オフライン等は localStorage / 既定値へフォールバック */ }
+  },
+
+  // スタッフのログイン着地先ページを返す (保存済み表示形式があればそのビュー、未保存/不正値は横カレンダー)
+  _staffLandingPage() {
+    try {
+      const uid = Auth.currentUser?.uid;
+      const v = uid ? localStorage.getItem(`calDefaultView_${uid}`) : null;
+      if (v && this.CAL_VIEW_ROUTES[v]) return this.CAL_VIEW_ROUTES[v];
+    } catch (_) { /* localStorage 不可時は既定値 */ }
+    return "my-recruitment";
+  },
 
   initAutoRefresh() {
     document.addEventListener("visibilitychange", () => {
@@ -365,8 +398,8 @@ const App = {
     // 上部 (管理者用) メニューをタッチしたら代理閲覧を解除
     this._wireOwnerNavExitImpersonation();
 
-    // impersonation 初期化（Webアプリ管理者のみ）
-    this.initImpersonation().then(() => {
+    // impersonation 初期化（Webアプリ管理者のみ）+ カレンダー表示形式の先読み (スタッフのみ)
+    Promise.all([this.initImpersonation(), this._loadCalViewPref()]).then(() => {
       // viewAsStaff プルダウン (impersonation と排他)
       this.initViewAsStaffSelect();
       // サブオーナー impersonation プルダウン
@@ -586,7 +619,8 @@ const App = {
     // Webアプリ管理者/物件オーナー → #/schedule (フル機能)、スタッフ → #/my-recruitment (スタッフビュー)
     if (location.hash === "#/dashboard" || location.hash === "#/" || location.hash === "") {
       const currentRole = Auth?.currentUser?.role || "owner";
-      location.hash = currentRole === "staff" ? "#/my-recruitment" : "#/schedule";
+      // スタッフは「デフォルトに設定」した表示形式のカレンダーへ着地 (未設定なら横カレンダー)
+      location.hash = currentRole === "staff" ? ("#/" + this._staffLandingPage()) : "#/schedule";
       return;
     }
 
@@ -610,6 +644,8 @@ const App = {
         "my-checklist", "property-checklist",
         // スタッフ向け画面 (物件オーナーがスタッフ視点で見る場合に必要)
         "my-recruitment", "my-dashboard", "my-invoice-create",
+        // カレンダー表示形式スイッチャーの切替先 (スタッフ視点プレビュー用)
+        "my-recruitment-vertical", "my-recruitment-anonymous-vertical", "my-recruitment-fullcal",
       ]);
       if (!subOwnerAllowed.has(pageName)) {
         location.hash = "#/schedule";
@@ -623,9 +659,11 @@ const App = {
       : { ...this.pages, ...this.staffPages };
 
     // サイドバーのアクティブ状態更新（物件オーナーはWebアプリ管理者ナビを使用）
+    // 月表示 (fullcal) はナビ項目を持たないため「清掃スケジュール」をハイライトする
+    const navPageName = pageName === "my-recruitment-fullcal" ? "my-recruitment" : pageName;
     const navId = role === "staff" ? "#staffNav" : "#ownerNav";
     document.querySelectorAll(`${navId} .nav-link`).forEach((el) => {
-      el.classList.toggle("active", el.getAttribute("data-page") === pageName);
+      el.classList.toggle("active", el.getAttribute("data-page") === navPageName);
     });
 
     const page = availablePages[pageName];

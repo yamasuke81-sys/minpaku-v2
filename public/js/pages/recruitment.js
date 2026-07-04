@@ -699,8 +699,8 @@ const RecruitmentPage = {
   // === 募集詳細モーダル ===
   openDetailModal(recruitment, options = {}) {
     this._currentRecruitment = recruitment;
-    // viewMode: "owner" | "staff"。省略時は Auth.isOwner() から判定
-    const viewMode = options.viewMode || ((typeof Auth !== "undefined" && Auth.isOwner && Auth.isOwner()) ? "owner" : "staff");
+    // viewMode: "owner" | "staff"。省略時は Auth.isOwner()/isSubOwner() から判定
+    const viewMode = options.viewMode || ((typeof Auth !== "undefined" && ((Auth.isOwner && Auth.isOwner()) || (Auth.isSubOwner && Auth.isSubOwner()))) ? "owner" : "staff");
     this._viewMode = viewMode;
     // 匿名モード(スタッフ用匿名カレンダーから開いたとき): 他スタッフの個人名・回答を伏せる。
     // 募集情報・集計・自分の回答は表示する。owner/通常の呼び出しでは false。
@@ -1053,8 +1053,8 @@ const RecruitmentPage = {
       const updated = await API.recruitments.get(recruitment.id);
       const idx = this.recruitments.findIndex(r => r.id === recruitment.id);
       if (idx >= 0) this.recruitments[idx] = updated;
-      // モーダル再描画
-      this.openDetailModal(updated, { viewMode: this._viewMode });
+      // モーダル再描画 (匿名カレンダー経由の場合は匿名文脈を維持する)
+      this.openDetailModal(updated, { viewMode: this._viewMode, anonymous: this._anonymous, anonymousTally: this._anonymousTally });
       this.renderList();
     } catch (e) {
       showToast("エラー", e.message, "error");
@@ -1122,7 +1122,8 @@ const RecruitmentPage = {
         const updated = await API.recruitments.get(recruitment.id);
         const idx = this.recruitments.findIndex(r => r.id === recruitment.id);
         if (idx >= 0) this.recruitments[idx] = updated;
-        this.openDetailModal(updated, { viewMode: this._viewMode });
+        // 匿名カレンダー経由の場合は匿名文脈を維持する
+        this.openDetailModal(updated, { viewMode: this._viewMode, anonymous: this._anonymous, anonymousTally: this._anonymousTally });
       } catch (e) {
         showToast("エラー", e.message, "error");
       }
@@ -1805,7 +1806,7 @@ const RecruitmentPage = {
         const updated = await API.recruitments.get(recruitmentId);
         const idx = this.recruitments.findIndex(r => r.id === recruitmentId);
         if (idx >= 0) this.recruitments[idx] = updated;
-        this.openDetailModal(updated);
+        this.openDetailModal(updated, { viewMode: this._viewMode });
         this.renderList();
         // 確定ボタンをハイライト
         const confirmBtn = document.getElementById("btnConfirmRecruitment");

@@ -738,225 +738,13 @@ const DashboardPage = {
     }
   },
 
-  // === 募集詳細モーダル（回答・選定・確定まで完結） ===
-  openRecruitmentModal(r) {
-    const responses = r.responses || [];
-    const maru = responses.filter(v => v.response === "◎");
-    const sankaku = responses.filter(v => v.response === "△");
-    const batsu = responses.filter(v => v.response === "×");
-
-    const statusBadge = {
-      "募集中": '<span class="badge bg-primary">募集中</span>',
-      "選定済": '<span class="badge bg-warning text-dark">選定済</span>',
-      "スタッフ確定済み": '<span class="badge bg-success">確定済み</span>',
-    }[r.status] || `<span class="badge bg-secondary">${this.esc(r.status)}</span>`;
-
-    // 回答マップ — staffId, staffEmail, staffName の全てで引けるようにする
-    const responseByKey = {};
-    responses.forEach(v => {
-      if (v.staffId) responseByKey["id:" + v.staffId] = v;
-      if (v.staffEmail) responseByKey["email:" + v.staffEmail.toLowerCase().trim()] = v;
-      if (v.staffName) responseByKey["name:" + v.staffName.trim()] = v;
-      // 旧GASデータ互換: 名前だけで入っている場合
-      const nameKey = (v.staffName || v["スタッフ名"] || "").trim();
-      if (nameKey) responseByKey["name:" + nameKey] = v;
-    });
-
-    // 全スタッフの回答状況
-    const allEntries = this.staffList.map(s => {
-      // 複数キーで検索（staffId優先 → email → 名前）
-      const v = responseByKey["id:" + s.id]
-        || (s.email ? responseByKey["email:" + s.email.toLowerCase().trim()] : null)
-        || responseByKey["name:" + s.name.trim()]
-        || null;
-      return { name: s.name, email: s.email, id: s.id, response: v?.response || "未回答", memo: v?.memo || "" };
-    });
-
-    // staffListにないがresponsesにあるエントリも追加（旧データの名前不一致対応）
-    responses.forEach(v => {
-      const nameOrEmail = v.staffName || v.staffEmail || "";
-      const alreadyMatched = allEntries.some(e =>
-        e.response !== "未回答" && (
-          (v.staffId && e.id === v.staffId) ||
-          (v.staffEmail && e.email?.toLowerCase() === v.staffEmail.toLowerCase()) ||
-          (v.staffName && e.name === v.staffName)
-        )
-      );
-      if (!alreadyMatched && nameOrEmail) {
-        allEntries.push({ name: v.staffName || v.staffEmail, email: v.staffEmail || "", id: v.staffId || "", response: v.response, memo: v.memo || "" });
-      }
-    });
-
-    // 回答状況はバッジで表示のみ（代理回答は不可。各スタッフが清掃スケジュールページから回答する）
-    const respondBadge = (s) => {
-      if (s.response === "◎") return '<span class="badge bg-success">◎</span>';
-      if (s.response === "△") return '<span class="badge bg-warning text-dark">△</span>';
-      if (s.response === "×") return '<span class="badge bg-danger">×</span>';
-      return '<span class="badge bg-secondary">未回答</span>';
-    };
-
-    const candidates = allEntries.filter(s => s.response === "◎" || s.response === "△");
-    const currentSelected = (r.selectedStaff || "").split(",").map(s => s.trim()).filter(Boolean);
-    const selectorHtml = candidates.length > 0 ? `
-      <div class="mt-3 border-top pt-3">
-        <strong>スタッフ選定</strong>
-        <div class="mt-2">
-          ${candidates.map(c => `
-            <div class="form-check form-check-inline">
-              <input class="form-check-input staff-sel-cb" type="checkbox" value="${this.esc(c.name)}"
-                ${currentSelected.includes(c.name) ? "checked" : ""}>
-              <label class="form-check-label">${this.esc(c.name)} <span class="badge ${c.response === "◎" ? "bg-success" : "bg-warning text-dark"}">${c.response}</span></label>
-            </div>
-          `).join("")}
-        </div>
-        <button class="btn btn-primary btn-sm mt-2" id="calBtnSelect">
-          <i class="bi bi-person-check"></i> 選定
-        </button>
-        ${r.selectedStaff ? `
-          <button class="btn btn-success btn-sm mt-2 ms-1" id="calBtnConfirm">
-            <i class="bi bi-check-circle"></i> 確定
-          </button>
-        ` : ""}
-      </div>
-    ` : '<p class="text-muted small mt-3">◎/△の回答がないため選定できません</p>';
-
-    const reopenBtn = r.status === "スタッフ確定済み" ? `
-      <button class="btn btn-outline-primary btn-sm mt-2" id="calBtnReopen">
-        <i class="bi bi-arrow-counterclockwise"></i> 募集再開
-      </button>
-    ` : "";
-
-    // モーダルがなければ作成、あれば再利用
-    let modalEl = document.getElementById("calendarEventModal");
-    if (!modalEl) {
-      const div = document.createElement("div");
-      div.innerHTML = `
-        <div class="modal fade" id="calendarEventModal" tabindex="-1">
-          <div class="modal-dialog"><div class="modal-content">
-            <div class="modal-header">
-              <h5 class="modal-title" id="calEventTitle"></h5>
-              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body" id="calEventBody"></div>
-          </div></div>
-        </div>`;
-      document.body.appendChild(div.firstElementChild);
-      modalEl = document.getElementById("calendarEventModal");
-    }
-
-    document.getElementById("calEventTitle").innerHTML =
-      `清掃 ${this.toDateStr(r.checkoutDate)} ${statusBadge}`;
-    document.getElementById("calEventBody").innerHTML = `
-      ${r.selectedStaff ? `<div class="mb-2"><i class="bi bi-person-check text-success"></i> <strong>${this.esc(r.selectedStaff)}</strong></div>` : ""}
-      <div class="d-flex gap-1 mb-2">
-        ${maru.length ? `<span class="badge bg-success">◎${maru.length}</span>` : ""}
-        ${sankaku.length ? `<span class="badge bg-warning text-dark">△${sankaku.length}</span>` : ""}
-        ${batsu.length ? `<span class="badge bg-danger">×${batsu.length}</span>` : ""}
-      </div>
-      <table class="table table-sm mb-0">
-        <thead><tr><th>スタッフ</th><th>回答</th></tr></thead>
-        <tbody>
-          ${allEntries.map(s => `
-            <tr>
-              <td>${this.esc(s.name)}</td>
-              <td>${respondBadge(s)}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-      ${selectorHtml}
-      ${reopenBtn}
-      <hr class="mt-3">
-      <button class="btn btn-outline-danger btn-sm" id="calBtnDelete">
-        <i class="bi bi-trash"></i> この募集を削除
-      </button>
-    `;
-
-    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
-    modal.show();
-
-    // 選定ボタン
-    const selBtn = modalEl.querySelector("#calBtnSelect");
-    if (selBtn) {
-      selBtn.addEventListener("click", async () => {
-        const selected = [];
-        modalEl.querySelectorAll(".staff-sel-cb:checked").forEach(cb => selected.push(cb.value));
-        if (!selected.length) {
-          const ok = await showConfirm("スタッフを全員外して募集中に戻しますか？");
-          if (!ok) return;
-        }
-        try {
-          await API.recruitments.selectStaff(r.id, selected.join(","));
-          const msg = selected.length ? `${selected.join(",")} を選定` : "スタッフを解除し、募集中に戻しました";
-          showToast("完了", msg, "success");
-          modal.hide();
-          this.recruitments = await API.recruitments.list();
-          this.refreshCalendar();
-          this.renderStats();
-          this.renderTodayActions();
-          const updated = this.recruitments.find(x => x.id === r.id);
-          if (updated) this.openRecruitmentModal(updated);
-        } catch (e) { showToast("エラー", e.message, "error"); }
-      });
-    }
-
-    // 確定ボタン
-    const confBtn = modalEl.querySelector("#calBtnConfirm");
-    if (confBtn) {
-      confBtn.addEventListener("click", async () => {
-        if (!await showConfirm(`${r.selectedStaff} を確定しますか？`, { title: "確定", okLabel: "確定する" })) return;
-        try {
-          await API.recruitments.confirm(r.id);
-          showToast("完了", "スタッフ確定しました", "success");
-          modal.hide();
-          this.recruitments = await API.recruitments.list();
-          this.refreshCalendar();
-          this.renderStats();
-          this.renderTodayActions();
-        } catch (e) { showToast("エラー", e.message, "error"); }
-      });
-    }
-
-    // 再開ボタン
-    const reopenBtnEl = modalEl.querySelector("#calBtnReopen");
-    if (reopenBtnEl) {
-      reopenBtnEl.addEventListener("click", async () => {
-        if (!await showConfirm("募集を再開しますか？", { title: "募集再開", okLabel: "再開" })) return;
-        try {
-          await API.recruitments.reopen(r.id);
-          showToast("完了", "募集を再開しました", "success");
-          modal.hide();
-          this.recruitments = await API.recruitments.list();
-          this.refreshCalendar();
-          this.renderStats();
-          this.renderTodayActions();
-        } catch (e) { showToast("エラー", e.message, "error"); }
-      });
-    }
-
-    // 削除ボタン
-    const deleteBtn = modalEl.querySelector("#calBtnDelete");
-    if (deleteBtn) {
-      deleteBtn.addEventListener("click", async () => {
-        const coDate = this.toDateStr(r.checkoutDate);
-        if (!await showConfirm(`${coDate} の募集を削除しますか？この操作は取り消せません。`, { title: "削除確認", okLabel: "削除" })) return;
-        try {
-          await db.collection("recruitments").doc(r.id).delete();
-          showToast("完了", `${coDate} の募集を削除しました`, "success");
-          modal.hide();
-          // データを再読み込み
-          const snap = await db.collection("recruitments").get();
-          this.recruitments = snap.docs.map(doc => {
-            const d = doc.data();
-            const coRaw = d.checkoutDate || d.checkOutDate || "";
-            return { id: doc.id, ...d, checkoutDate: this.toDateStr(coRaw), responses: d.responses || [] };
-          });
-          this.refreshCalendar();
-          this.renderStats();
-          this.renderTodayActions();
-        } catch (e) { showToast("エラー", e.message, "error"); }
-      });
-    }
+  // === 募集詳細モーダル ===
+  // 実装は RecruitmentPage.openDetailModal に1本化 (viewMode/anonymous のロール制御付き)。
+  // 旧実装 (ロール制御なしの独自モーダル) は撤去し、互換のための委譲のみ残す。
+  async openRecruitmentModal(r, opts = {}) {
+    if (typeof RecruitmentPage === "undefined" || !RecruitmentPage.openDetailModal) return;
+    if (RecruitmentPage.ensureLoaded) await RecruitmentPage.ensureLoaded();
+    RecruitmentPage.openDetailModal(r, opts);
   },
 
   showBookingModal(b, ctx = {}) {
@@ -1128,7 +916,7 @@ const DashboardPage = {
           </tr></thead>
           <tbody>
             ${guestRows.map(g => `<tr>
-              <td>${g.isRep ? '<span class="badge bg-primary me-1">代表</span>' : ''}${this.esc(g.name || "-")}</td>
+              <td>${isStaffView ? (g.isRep ? '<span class="badge bg-primary me-1">代表</span>代表者' : '同行者') : `${g.isRep ? '<span class="badge bg-primary me-1">代表</span>' : ''}${this.esc(g.name || "-")}`}</td>
               <td>${this.esc(g.age || "-")}</td>
               ${isStaffView ? "" : `<td>${this.esc(g.address || "-")}</td>`}
               <td>${this.esc(g.nationality || (g.isRep ? "-" : "日本"))}</td>
@@ -2069,7 +1857,8 @@ ${ppCo}9:30
           if (modalInst) modalInst.hide();
           (async () => {
             if (RecruitmentPage.ensureLoaded) await RecruitmentPage.ensureLoaded();
-            RecruitmentPage.openDetailModal(r, { viewMode });
+            // 匿名カレンダー経由 (ctx.anonymous) の場合は募集詳細も匿名表示を維持する
+            RecruitmentPage.openDetailModal(r, { viewMode, anonymous: ctx.anonymous === true });
           })();
         } else if (this.openRecruitmentModal) {
           this.openRecruitmentModal(r);
