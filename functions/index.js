@@ -196,6 +196,10 @@ app.use("/yadozei", yadozeiApi(db));
 const lineProfileApi = require("./api/line-profile");
 app.use("/line-profile", lineProfileApi(db));
 
+// ========== 直接予約リクエスト 管理 API (オーナー/サブオーナー専用) ==========
+const bookingRequestsApi = require("./api/booking-requests");
+app.use("/booking-requests", bookingRequestsApi(db));
+
 // gmail-auth は authenticate の前に登録済み（認証不要）
 
 // ========== グローバルエラーハンドラ (HTMLレスポンス漏れ防止) ==========

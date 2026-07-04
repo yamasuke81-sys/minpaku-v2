@@ -5,6 +5,16 @@
 const express = require("express");
 const admin = require("firebase-admin");
 const { getAppUrl } = require("../utils/appUrl");
+const {
+  ymd: normalizeYmd,
+  isValidYmd,
+  enumerateBlockedDates,
+  periodsOverlap,
+  validateBookingRequest,
+  isSpamSubmission,
+  todayJst,
+} = require("./booking-request-logic");
+const { verifyTurnstileToken, getTurnstileSecret } = require("../utils/turnstile");
 
 const router = express.Router();
 
@@ -636,6 +646,205 @@ router.get("/terrace-calendar", async (req, res) => {
     res.json({ propertyId: pid, propertyName, from, to, bookings });
   } catch (e) {
     console.error("[public/terrace-calendar]", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /public/availability/:propertyId
+// 宿公式サイト (setouchi-stay.com 群) のカレンダーウィジェットが埋まっている日付を取得する
+// 認証不要。個人情報は一切含めない (ブロック日付の配列のみ)
+router.get("/availability/:propertyId", async (req, res) => {
+  try {
+    const pid = req.params.propertyId;
+    if (!pid) return res.status(400).json({ error: "propertyId 必須" });
+
+    // where 1本 (propertyId) + JS フィルタで複合 index 不要 (既存 /ical/:file と同方針)
+    const snap = await admin.firestore().collection("bookings")
+      .where("propertyId", "==", pid)
+      .get();
+
+    const blockedSet = new Set();
+    snap.docs.forEach((d) => {
+      const b = d.data();
+      if (b.status !== "confirmed") return;
+      const ci = normalizeYmd(b.checkIn);
+      const co = normalizeYmd(b.checkOut);
+      if (!isValidYmd(ci) || !isValidYmd(co)) return;
+      enumerateBlockedDates(ci, co).forEach((day) => blockedSet.add(day));
+    });
+
+    const blocked = Array.from(blockedSet).sort();
+    res.set("Cache-Control", "public, max-age=300"); // 5分キャッシュ
+    res.json({ blocked });
+  } catch (e) {
+    console.error("[public/availability]", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /public/booking-request
+// 宿公式サイトからの直接予約リクエストを受け付ける (承認制)
+// bookingRequests コレクションに保存するのみで bookings には一切書き込まない
+// (detectDoubleBooking の誤警報 / syncIcal のゴーストガード誤スキップを防ぐため)
+// body: { propertyId, checkIn, checkOut, guests, name, email, plan, notes, website, elapsedMs, turnstileToken }
+router.post("/booking-request", express.json(), async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const body = req.body || {};
+    const propertyId = String(body.propertyId || "");
+    if (!propertyId) return res.status(400).json({ error: "propertyId 必須" });
+
+    // 物件存在チェック
+    const propDoc = await db.collection("properties").doc(propertyId).get();
+    if (!propDoc.exists || propDoc.data().active === false) {
+      return res.status(404).json({ error: "物件が見つかりません" });
+    }
+    const property = propDoc.data();
+
+    // ===== スパム対策 =====
+    // ハニーポット入力あり or 表示から1.5秒未満での送信 → 200 を返すが実際は保存しない (bot に成功と見せる)
+    if (isSpamSubmission(body)) {
+      console.warn(`[public/booking-request] スパム疑いのため保存スキップ (propertyId=${propertyId})`);
+      return res.status(200).json({ ok: true });
+    }
+
+    // ===== 入力検証 =====
+    const validation = validateBookingRequest(body, property);
+    if (!validation.ok) {
+      return res.status(400).json({ error: validation.error });
+    }
+    const checkIn = String(body.checkIn).slice(0, 10);
+    const checkOut = String(body.checkOut).slice(0, 10);
+    const guests = parseInt(body.guests, 10);
+    const name = String(body.name).trim();
+    const email = String(body.email).trim();
+    const plan = String(body.plan || "standard");
+    const notes = String(body.notes || "").slice(0, 1000);
+
+    // ===== Cloudflare Turnstile 検証 =====
+    // settings/directBooking.turnstileSecret が未設定の場合は検証をスキップする (段階導入対応)
+    const turnstileSecret = await getTurnstileSecret(db);
+    if (turnstileSecret) {
+      const remoteIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.ip;
+      const verify = await verifyTurnstileToken(turnstileSecret, body.turnstileToken, remoteIp);
+      if (!verify.success) {
+        console.warn(`[public/booking-request] Turnstile 検証失敗:`, verify.errorCodes);
+        return res.status(400).json({ error: "ロボット確認に失敗しました。もう一度お試しください。" });
+      }
+    }
+
+    // where 1本 (propertyId) + JS フィルタで複合 index 不要 (既存 /ical/:file 等と同方針)
+    // 日次上限チェックと email 重複チェックの両方をこの1回の取得で賄う
+    const propRequestsSnap = await db.collection("bookingRequests")
+      .where("propertyId", "==", propertyId)
+      .get();
+
+    // ===== 物件ごと日次上限 (10件/日) =====
+    const today = todayJst();
+    const todayCount = propRequestsSnap.docs.filter((d) => {
+      const x = d.data();
+      const createdAtDate = x.createdAt && x.createdAt.toDate ? x.createdAt.toDate() : null;
+      const createdStr = createdAtDate ? createdAtDate.toISOString().slice(0, 10) : "";
+      return createdStr === today;
+    }).length;
+    if (todayCount >= 10) {
+      return res.status(429).json({ error: "本日のリクエスト受付上限に達しました。しばらくしてから再度お試しください。" });
+    }
+
+    // ===== 同一 email の pending が同物件に既にあれば 409 =====
+    const normEmail = email.toLowerCase();
+    const dupPending = propRequestsSnap.docs.some((d) => {
+      const x = d.data();
+      return x.status === "pending" && String(x.email || "").toLowerCase() === normEmail;
+    });
+    if (dupPending) {
+      return res.status(409).json({ error: "同じメールアドレスで受付中のリクエストが既にあります" });
+    }
+
+    // ===== 重複チェック: 確定済み予約との日程重複 =====
+    const bookingsSnap = await db.collection("bookings")
+      .where("propertyId", "==", propertyId)
+      .get();
+    const overlap = bookingsSnap.docs.some((d) => {
+      const b = d.data();
+      if (b.status !== "confirmed") return false;
+      const bCi = normalizeYmd(b.checkIn);
+      const bCo = normalizeYmd(b.checkOut);
+      return periodsOverlap(checkIn, checkOut, bCi, bCo);
+    });
+    if (overlap) {
+      return res.status(409).json({ error: "selected_dates_unavailable" });
+    }
+
+    // ===== 保存 =====
+    const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.ip || "";
+    const ua = String(req.get("user-agent") || "").slice(0, 300);
+    const docRef = await db.collection("bookingRequests").add({
+      propertyId,
+      propertyName: property.name || "",
+      checkIn,
+      checkOut,
+      guestCount: guests,
+      guestName: name,
+      email,
+      plan,
+      notes,
+      status: "pending",
+      ip,
+      ua,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // ===== オーナー通知 (手動即時送信の既存流儀: _fromBatchQueue で即時送信) =====
+    try {
+      const { notifyByKey } = require("../utils/lineNotify");
+      const appUrl = await getAppUrl(db);
+      await notifyByKey(db, "direct_request", {
+        title: "直接予約リクエスト受信",
+        body: `📩 直接予約のリクエストが届きました\n\n宿: ${property.name || propertyId}\n日程: ${checkIn} 〜 ${checkOut}\n人数: ${guests}名\nプラン: ${plan === "nonrefundable" ? "返金不可割引" : "スタンダード"}\nお名前: ${name}\n\n確認・承認: ${appUrl}/#/booking-requests`,
+        vars: {
+          // booking varGroup 準拠: date=チェックアウト日, checkin=チェックイン日, guest=ゲスト名
+          property: property.name || "",
+          checkin: checkIn,
+          date: checkOut,
+          guest: `${name} (${guests}名)`,
+          url: `${appUrl}/#/booking-requests`,
+        },
+        propertyId,
+        _fromBatchQueue: true,
+      });
+    } catch (notifyErr) {
+      console.warn("[public/booking-request] オーナー通知失敗:", notifyErr.message);
+    }
+
+    // ===== ゲスト受付メール (失敗しても 200 は返す) =====
+    try {
+      const { sendNotificationEmail_, resolveSenderGmail_ } = require("../utils/lineNotify");
+      const senderGmail = await resolveSenderGmail_(db, propertyId);
+      const subject = `【${property.name || "ご予約"}】予約リクエストを受け付けました`;
+      const bodyText = [
+        `${name} 様`,
+        ``,
+        `この度は${property.name || "当施設"}へのご予約リクエストをありがとうございます。`,
+        `以下の内容で承りました。`,
+        ``,
+        `■リクエスト内容`,
+        `チェックイン: ${checkIn}`,
+        `チェックアウト: ${checkOut}`,
+        `人数: ${guests}名`,
+        `プラン: ${plan === "nonrefundable" ? "返金不可割引" : "スタンダード"}`,
+        ``,
+        `オーナーが内容を確認のうえ、24時間以内に承認可否をご連絡いたします。`,
+        `今しばらくお待ちください。`,
+      ].join("\n");
+      await sendNotificationEmail_(email, subject, bodyText, senderGmail || null);
+    } catch (mailErr) {
+      console.warn("[public/booking-request] ゲスト受付メール送信失敗:", mailErr.message);
+    }
+
+    res.status(201).json({ ok: true, id: docRef.id });
+  } catch (e) {
+    console.error("[public/booking-request]", e);
     res.status(500).json({ error: e.message });
   }
 });

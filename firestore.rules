@@ -350,6 +350,13 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // 直接予約リクエスト (承認制) — 読み取りはオーナー/サブオーナーのみ (管理画面は API 経由で取得するが念のため)。
+    // 書き込みは Cloud Functions (Admin SDK) 専用 (公開エンドポイントからの新規作成・オーナー承認/却下ともにバイパス)
+    match /bookingRequests/{requestId} {
+      allow read: if isOwner() || isSubOwner();
+      allow write: if false;
+    }
+
     // ========== 税理士資料収集 ==========
 
     // 名義・法人マスタ — オーナーのみ

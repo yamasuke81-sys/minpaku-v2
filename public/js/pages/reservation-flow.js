@@ -86,6 +86,7 @@ const ReservationFlowPage = {
 
   // ========== 通知デフォルト値 (notifications.js の notifications 配列から参照) ==========
   _notifDefaults: {
+    direct_request:     { defaultMsg: "📩 直接予約リクエスト受信\n\n宿: {property}\n日程: {checkin} 〜 {date}\nゲスト: {guest}\n\n確認・承認: {url}", defaultTiming: "immediate", varGroup: "booking" },
     recruit_start:      { defaultMsg: "🧹 {work}スタッフ募集\n\n{date} {property}\n{work}スタッフを募集しています。\n回答をお願いします（◎OK / △微妙 / ×NG）\n\n回答: {url}", defaultTiming: "immediate", varGroup: "recruit" },
     double_booking:     { defaultMsg: "【⚠️ ダブルブッキング警告】\n物件: {property}\n日程: {checkin} 〜 {date}\n\n衝突予約が検出されました。至急確認してください。\n確認: {url}", defaultTiming: "immediate", varGroup: "booking" },
     roster_received:    { defaultMsg: "📨 宿泊者名簿が届きました\n\n{checkin} {property}\nゲスト: {guest}\n詳細: {url}", defaultTiming: "immediate", varGroup: "booking" },
@@ -125,6 +126,19 @@ const ReservationFlowPage = {
   // ========== STEPS 定義 (30項目) ==========
   STEPS: [
     // ---- Phase 1: 予約受付 ----
+    {
+      key: "direct_request",
+      label: "直接予約リクエスト受信 (承認制)",
+      icon: "bi-inbox",
+      lane: "owner",
+      phase: 1,
+      globalChannel: "direct_request",
+      varGroup: "booking",
+      arrowTo: "owner",
+      linkHash: "#/booking-requests",
+      linkLabel: "直接予約リクエストを開く",
+      hint: "宿公式サイトからのリクエストを bookingRequests に保存 (bookings には未反映)。管理画面で承認すると bookings が作成され、以降は通常の予約フローに合流する。",
+    },
     {
       key: "ical_sync",
       label: "予約受付 (iCal同期)",
