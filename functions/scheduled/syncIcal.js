@@ -308,9 +308,12 @@ async function syncIcal() {
             && /not available|closed|blocked|reserved/i.test(summaryLower)
             && setting.propertyId) {
           // 同物件で CI <= checkOut かつ CO >= checkIn の非キャンセル予約があるか
+          // コスト対策: 「checkIn <= イベントcheckOut」を「checkOut >= イベントcheckIn」に変更。
+          // 下の JS 判定 oCo > checkIn を満たす予約(=実際に重複しうる)は必ず checkOut >= checkIn なので
+          // 取りこぼしゼロで、期日の過ぎた古い予約を読まなくなる(挙動不変・読み取り激減)。
           const overlapSnap = await db.collection("bookings")
             .where("propertyId", "==", setting.propertyId)
-            .where("checkIn", "<=", checkOut)
+            .where("checkOut", ">=", checkIn)
             .get();
           const hasOverlap = overlapSnap.docs.some(od => {
             const ob = od.data();
@@ -472,6 +475,8 @@ async function syncIcal() {
     const futureBookingsSnap = await db.collection("bookings")
       .where("syncSource", "==", "ical")
       .where("status", "==", "confirmed")
+      // コスト対策: 過去予約を読まない (下のループで checkOut < today は元々スキップしていたのをクエリ側に移した=挙動不変・読み取り激減)
+      .where("checkOut", ">=", today)
       .get();
 
     let cancelled = 0;
@@ -543,6 +548,8 @@ async function syncIcal() {
     const cancelledSnap = await db.collection("bookings")
       .where("syncSource", "==", "ical")
       .where("status", "==", "cancelled")
+      // コスト対策: 過去のキャンセル済みは重複クリーンアップ対象外(現在〜未来のゴーストのみ)。読み取り激減
+      .where("checkOut", ">=", today)
       .get();
 
     for (const cDoc of cancelledSnap.docs) {
@@ -571,6 +578,8 @@ async function syncIcal() {
       .where("syncSource", "==", "ical")
       .where("status", "==", "confirmed")
       .where("guestName", "==", "Reserved")
+      // コスト対策: 未来分のみ(過去のReservedブロックは修正不要)。読み取り激減
+      .where("checkOut", ">=", today)
       .get();
     for (const doc of reservedSnap.docs) {
       const data = doc.data();

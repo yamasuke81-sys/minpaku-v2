@@ -373,12 +373,12 @@ exports.syncTimeeEmails = onSchedule({
   await syncCore(admin.firestore(), { log: console });
 });
 
-// iCal同期（5分おき）— Beds24導入後はこちらを無効化
+// iCal同期（10分おき）— Beds24導入後はこちらを無効化
 exports.syncIcal = onSchedule({
-  schedule: "every 5 minutes",
+  schedule: "every 10 minutes", // コスト対策(2026-07-05): 5→10分。全件読みを期間絞りにした上で起動回数も半減(OTA同期の鮮度には十分)
   region: "asia-northeast1",
   timeZone: "Asia/Tokyo",
-  memory: "512MiB", // bookings 全件 × 3 種類クエリ + iCal バッファで OOM リスク高 (2026-05-28)
+  memory: "512MiB", // bookings は checkOut>=today で期間絞り済(2026-07-05)。OOMリスク低減
 }, require("./scheduled/syncIcal"));
 
 // OAuth トークン期限リマインダー（毎日 9:00 JST、6日経過で LINE+メール通知）

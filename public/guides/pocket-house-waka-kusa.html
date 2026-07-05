@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>Pocket House WAKA-KUSA — ご宿泊者様へ / Guest Information</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0706a" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: "Noto Sans JP", -apple-system, system-ui, sans-serif;
+      color: var(--ss-text); font-size: 17px; line-height: 1.85;
+      background: var(--ss-page-bg); background-attachment: fixed; min-height: 100vh;
+    }
+    .page { max-width: 780px; margin: 24px auto; background: var(--ss-surface); border: 1px solid var(--ss-border); border-radius: 14px; box-shadow: 0 18px 50px -24px rgba(0,0,0,.55); padding: 0 20px 72px; }
+
+    /* 言語切替：日本語/EN の2枚だけ表示（.jp / .en を出し分け） */
+    .jp, .en { display: none; }
+    body.lang-jp .jp { display: revert; }
+    body.lang-en .en { display: revert; }
+
+    /* ===== ヘッダー ===== */
+    .hero { text-align: center; padding: 56px 16px 38px; line-height: 1.5; }
+    .hero .brand-mark { display: block; width: fit-content; font-size: 11px; line-height: 1; letter-spacing: 0.32em; color: var(--ss-gold); padding: 7px 15px; border: 1px solid var(--ss-gold); border-radius: 999px; margin: 0 auto 18px; }
+    .hero h1 { font-family: "Playfair Display", var(--ss-serif); color: var(--ss-heading); font-size: clamp(28px, 6.5vw, 44px); margin: 0; letter-spacing: 0.04em; line-height: 1.1; }
+    .hero .sub { margin-top: 8px; font-size: 15px; color: var(--ss-muted); letter-spacing: 0.04em; }
+    .hero .hero-eyebrow { font-size: 16px; line-height: 1.4; letter-spacing: 0.22em; color: var(--ss-sand-soft); margin-top: 14px; }
+    .hero::after { content: ""; display: block; width: 34px; height: 1px; background: var(--ss-gold); opacity: .85; margin: 0.9rem auto 0; }
+    .hero .catch { margin-top: 16px; font-family: "Playfair Display", var(--ss-serif); color: var(--ss-sand-soft); font-size: 15px; letter-spacing: .04em; }
+
+    /* ===== 目次 ===== */
+    .toc { border: 1px solid var(--ss-border); border-radius: 12px; padding: 16px 18px; margin: 4px 0 8px; background: var(--ss-panel-soft); }
+    .toc .toc-title { font-size: 12px; letter-spacing: .28em; color: var(--ss-muted); margin-bottom: 10px; }
+    .toc ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+    .toc a { display: flex; align-items: center; gap: 8px; color: var(--ss-sand); text-decoration: none; font-size: 15px; padding: 4px 0; }
+    .toc a:hover { color: var(--ss-hassaku); }
+    .toc a i { color: var(--ss-gold); }
+
+    /* ===== セクション ===== */
+    section.sec { padding: 28px 2px 6px; border-top: 1px solid var(--ss-border); }
+    section.sec:first-of-type { border-top: none; }
+    .sec h2 { font-family: "Playfair Display", var(--ss-serif); color: var(--ss-heading); font-size: 22px; letter-spacing: .03em; margin: 0 0 14px; display: flex; align-items: center; gap: 10px; }
+    .sec h2 i { color: var(--ss-gold); font-size: 20px; }
+    .sec p { margin: 0 0 12px; }
+    .sec .lead { color: var(--ss-text); }
+
+    /* 情報カード（Wi-Fi / チェックイン等） */
+    .kv { border: 1px solid var(--ss-border-strong); border-radius: 12px; padding: 14px 16px; margin: 6px 0 14px; background: var(--ss-panel-soft); }
+    .kv .row { display: flex; justify-content: space-between; gap: 14px; padding: 6px 0; border-bottom: 1px dashed var(--ss-border); }
+    .kv .row:last-child { border-bottom: none; }
+    .kv .k { color: var(--ss-muted); font-size: 14px; letter-spacing: .04em; white-space: nowrap; }
+    .kv .v { color: var(--ss-sand); font-weight: 600; text-align: right; }
+
+    /* 案内予定（未確定の運用情報をゲスト向けに自然表現） */
+    .soon { display: inline-block; color: var(--ss-glow); font-weight: 500; }
+
+    .note { border-left: 3px solid var(--ss-gold); background: rgba(196,163,92,.10); border-radius: 4px; padding: 10px 14px; margin: 8px 0 14px; font-size: 15px; color: var(--ss-sand-soft); }
+
+    /* ハウスルール */
+    ul.rules { list-style: none; margin: 0; padding: 0; }
+    ul.rules li { position: relative; padding: 8px 0 8px 26px; border-bottom: 1px solid var(--ss-border); }
+    ul.rules li:last-child { border-bottom: none; }
+    ul.rules li::before { content: "\2713"; position: absolute; left: 2px; top: 8px; color: var(--ss-gold); font-weight: 700; }
+
+    .steps { counter-reset: step; margin: 0; padding: 0; list-style: none; }
+    .steps > li { position: relative; padding: 6px 0 14px 44px; }
+    .steps > li::before { counter-increment: step; content: counter(step); position: absolute; left: 0; top: 2px; width: 30px; height: 30px; border-radius: 50%; background: var(--ss-sea); color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 15px; }
+
+    .contact a { color: var(--ss-glow); }
+    .foot { text-align: center; color: var(--ss-muted); font-size: 12px; letter-spacing: .1em; margin-top: 34px; }
+  </style>
+</head>
+<body class="lang-jp">
+
+  <!-- 言語切替（共有CSS .lang-switch = 右上ガラスピル） -->
+  <div class="lang-switch">
+    <button data-lang="jp" class="active" onclick="setLang('jp')">日本語</button>
+    <button data-lang="en" onclick="setLang('en')">EN</button>
+  </div>
+
+  <div class="page">
+
+    <!-- ヘッダー -->
+    <header class="hero">
+      <span class="brand-mark">Setouchi Stay</span>
+      <h1>Pocket House</h1>
+      <div class="sub">WAKA-KUSA</div>
+      <div class="hero-eyebrow"><span class="jp">ご宿泊者様へ</span><span class="en">Guest Information</span></div>
+      <div class="catch"><span class="jp">広島駅から歩いて、わが家に帰るように。</span><span class="en">Just a walk from Hiroshima Station — come home to a place of your own.</span></div>
+    </header>
+
+    <!-- 目次 -->
+    <nav class="toc">
+      <div class="toc-title">CONTENTS</div>
+      <ul>
+        <li><a href="#access"><i class="bi bi-geo-alt"></i><span class="jp">アクセス</span><span class="en">Access</span></a></li>
+        <li><a href="#checkin"><i class="bi bi-key"></i><span class="jp">チェックイン</span><span class="en">Check-in</span></a></li>
+        <li><a href="#wifi"><i class="bi bi-wifi"></i>Wi-Fi</a></li>
+        <li><a href="#parking"><i class="bi bi-p-square"></i><span class="jp">駐車場</span><span class="en">Parking</span></a></li>
+        <li><a href="#checkout"><i class="bi bi-box-arrow-right"></i><span class="jp">チェックアウト</span><span class="en">Check-out</span></a></li>
+        <li><a href="#trash"><i class="bi bi-trash3"></i><span class="jp">ゴミ</span><span class="en">Trash</span></a></li>
+        <li><a href="#rules"><i class="bi bi-list-check"></i><span class="jp">ハウスルール</span><span class="en">House Rules</span></a></li>
+        <li><a href="#contact"><i class="bi bi-telephone"></i><span class="jp">お問い合わせ</span><span class="en">Contact</span></a></li>
+      </ul>
+    </nav>
+
+    <!-- アクセス -->
+    <section class="sec" id="access">
+      <h2><i class="bi bi-geo-alt"></i><span class="jp">アクセス</span><span class="en">Access</span></h2>
+      <div class="kv">
+        <div class="row"><span class="k"><span class="jp">住所</span><span class="en">Address</span></span><span class="v">広島県広島市東区若草町3-7-4</span></div>
+        <div class="row"><span class="k"><span class="jp">最寄り</span><span class="en">Nearest</span></span><span class="v"><span class="jp">JR広島駅 徒歩約10分</span><span class="en">10 min from JR Hiroshima Sta.</span></span></div>
+      </div>
+      <p class="lead"><span class="jp">JR「広島駅」新幹線口から徒歩約10分。市内中心部へも電車・バスでスムーズです。</span><span class="en">About a 10-minute walk from the Shinkansen (north) exit of JR Hiroshima Station. Easy access to the city center by train or bus.</span></p>
+      <p><a href="https://www.google.com/maps/search/?api=1&query=%E5%BA%83%E5%B3%B6%E7%9C%8C%E5%BA%83%E5%B3%B6%E5%B8%82%E6%9D%B1%E5%8C%BA%E8%8B%A5%E8%8D%89%E7%94%BA3-7-4" target="_blank" rel="noopener"><i class="bi bi-map"></i> <span class="jp">Googleマップで開く</span><span class="en">Open in Google Maps</span></a></p>
+      <!-- TODO(wakakusa): 駅からの詳しい道順・目印・写真を追加 -->
+    </section>
+
+    <!-- チェックイン -->
+    <section class="sec" id="checkin">
+      <h2><i class="bi bi-key"></i><span class="jp">チェックイン</span><span class="en">Check-in</span></h2>
+      <div class="kv">
+        <div class="row"><span class="k"><span class="jp">チェックイン</span><span class="en">Check-in</span></span><span class="v">16:00 –</span></div>
+        <div class="row"><span class="k"><span class="jp">解錠番号</span><span class="en">Key box code</span></span><span class="v"><span class="jp">当日朝にご連絡</span><span class="en">Sent on the morning of arrival</span></span></div>
+      </div>
+      <ol class="steps">
+        <li><span class="jp">玄関のキーボックスで解錠します。<span class="soon">キーボックスの場所はチェックイン前にご案内します。</span></span><span class="en">Unlock the key box at the entrance. <span class="soon">The key box location will be shared before check-in.</span></span></li>
+        <li><span class="jp">当日朝にお送りする<b>解錠番号</b>を入力し、鍵を取り出してください。</span><span class="en">Enter the <b>code</b> we send on the morning of your arrival and take out the key.</span></li>
+        <li><span class="jp">玄関を解錠してご入室ください。ごゆっくりどうぞ。</span><span class="en">Unlock the front door and come on in. Make yourself at home.</span></li>
+      </ol>
+      <!-- TODO(wakakusa): キーボックスの正確な場所・写真・解錠GIFを追加 -->
+    </section>
+
+    <!-- Wi-Fi -->
+    <section class="sec" id="wifi">
+      <h2><i class="bi bi-wifi"></i>Wi-Fi</h2>
+      <div class="kv">
+        <div class="row"><span class="k">SSID</span><span class="v"><span class="soon"><span class="jp">チェックイン前にご案内します</span><span class="en">Provided before check-in</span></span></span></div>
+        <div class="row"><span class="k"><span class="jp">パスワード</span><span class="en">Password</span></span><span class="v"><span class="soon"><span class="jp">チェックイン前にご案内します</span><span class="en">Provided before check-in</span></span></span></div>
+      </div>
+      <p><span class="jp">Wi-Fi は室内に掲示、またはチェックイン前のご連絡でお知らせします。</span><span class="en">Wi-Fi details are posted inside the house and shared before check-in.</span></p>
+      <!-- TODO(wakakusa): Wi-Fi の SSID / パスワードを記入 -->
+    </section>
+
+    <!-- 駐車場 -->
+    <section class="sec" id="parking">
+      <h2><i class="bi bi-p-square"></i><span class="jp">駐車場</span><span class="en">Parking</span></h2>
+      <p><span class="jp">お車でお越しの方は、駐車場の有無・場所をチェックイン前にご案内します。<span class="soon">詳細は準備中です。</span></span><span class="en">If you are arriving by car, we will share parking details before check-in. <span class="soon">Details coming soon.</span></span></p>
+      <!-- TODO(wakakusa): 専用駐車場の有無・場所、または近隣コインパーキング案内を追加 -->
+    </section>
+
+    <!-- チェックアウト -->
+    <section class="sec" id="checkout">
+      <h2><i class="bi bi-box-arrow-right"></i><span class="jp">チェックアウト</span><span class="en">Check-out</span></h2>
+      <div class="kv">
+        <div class="row"><span class="k"><span class="jp">チェックアウト</span><span class="en">Check-out</span></span><span class="v">– 10:00</span></div>
+      </div>
+      <ol class="steps">
+        <li><span class="jp">窓の施錠・電気・エアコンをお切りください。</span><span class="en">Please close and lock the windows and turn off lights and the air conditioner.</span></li>
+        <li><span class="jp">ゴミは下記「ゴミについて」に従ってお願いします。</span><span class="en">Please handle trash as described in "Trash" below.</span></li>
+        <li><span class="jp">鍵はキーボックスに戻し、施錠をご確認ください。</span><span class="en">Return the key to the key box and make sure the door is locked.</span></li>
+      </ol>
+    </section>
+
+    <!-- ゴミ -->
+    <section class="sec" id="trash">
+      <h2><i class="bi bi-trash3"></i><span class="jp">ゴミについて</span><span class="en">Trash</span></h2>
+      <p><span class="jp">ゴミは分別のうえ、指定の場所へお願いします。<span class="soon">分別・出し方の詳細はチェックイン案内でお知らせします。</span></span><span class="en">Please sort your trash and place it in the designated spot. <span class="soon">Sorting and disposal details are provided in the check-in information.</span></span></p>
+      <!-- TODO(wakakusa): ゴミの分別・置き場所・回収曜日 or スタッフ回収を記入 -->
+    </section>
+
+    <!-- ハウスルール -->
+    <section class="sec" id="rules">
+      <h2><i class="bi bi-list-check"></i><span class="jp">ハウスルール</span><span class="en">House Rules</span></h2>
+      <ul class="rules">
+        <li><span class="jp">室内は禁煙です。</span><span class="en">Smoking is not permitted indoors.</span></li>
+        <li><span class="jp">住宅街のため、夜間（22時以降）の屋外での会話・騒音にご配慮ください。</span><span class="en">As this is a residential area, please keep noise down outdoors at night (after 10 PM).</span></li>
+        <li><span class="jp">定員（6名）を超えるご宿泊・宿泊者名簿にない方のご宿泊はできません。</span><span class="en">Occupancy may not exceed the maximum of 6 guests; only registered guests may stay.</span></li>
+        <li><span class="jp">パーティー・イベント目的でのご利用はご遠慮ください。</span><span class="en">Parties and events are not permitted.</span></li>
+        <li><span class="jp">ゴミは分別のうえ、チェックイン案内に記載の方法でお出しください。</span><span class="en">Please sort and dispose of trash as described in the check-in information.</span></li>
+      </ul>
+    </section>
+
+    <!-- お問い合わせ -->
+    <section class="sec contact" id="contact">
+      <h2><i class="bi bi-telephone"></i><span class="jp">お問い合わせ</span><span class="en">Contact</span></h2>
+      <p><span class="jp">ご滞在中のお困りごとは、ご予約サイトのメッセージ、または下記までお気軽にご連絡ください。</span><span class="en">For anything you need during your stay, please message us via your booking site or contact us below.</span></p>
+      <div class="kv">
+        <div class="row"><span class="k">Email</span><span class="v"><a href="mailto:81hassac@gmail.com">81hassac@gmail.com</a></span></div>
+        <div class="row"><span class="k"><span class="jp">緊急連絡先</span><span class="en">Emergency</span></span><span class="v"><span class="soon"><span class="jp">チェックイン前にご案内します</span><span class="en">Provided before check-in</span></span></span></div>
+      </div>
+      <!-- TODO(wakakusa): 緊急連絡先の電話番号を記入 -->
+    </section>
+
+    <div class="foot">SETOUCHI STAY</div>
+  </div>
+
+<script>
+  function setLang(l){
+    document.body.className = "lang-" + l;
+    document.querySelectorAll(".lang-switch button").forEach(function(b){
+      b.classList.toggle("active", b.dataset.lang === l);
+    });
+    try { localStorage.setItem("ssGuideLang", l); } catch(e) {}
+  }
+  (function(){
+    var saved = "jp";
+    try { saved = localStorage.getItem("ssGuideLang") || "jp"; } catch(e) {}
+    setLang(saved === "en" ? "en" : "jp");
+  })();
+</script>
+</body>
+</html>
