@@ -2,13 +2,13 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <script src="/js/api-relay.js?v=v0705k"></script>
+  <script src="/js/api-relay.js?v=v0705l"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>宿泊者名簿 / Guest Registration</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0705k" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0705l" rel="stylesheet">
   <style>
     /* テーマカラー デフォルト（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css）
        物件別上書きが必要な場合のみ下の早期テーマスクリプトで差し替える */
@@ -31,7 +31,7 @@
     .form-header h1 { font-family: "Playfair Display", var(--ss-serif); font-weight: 400; font-size: clamp(30px, 7vw, 46px); letter-spacing: .04em; line-height: 1.08; margin: 0; color: var(--ss-heading); }
     .form-header p { margin: 0.7rem 0 0; opacity: 0.82; font-size: 0.9rem; color: var(--ss-muted); }
     .form-header::after { content: ""; display: block; width: 34px; height: 1px; background: var(--ss-gold); opacity: .85; margin: 0.9rem auto 0; }
-    .form-property-name { font-size: 13px; line-height: 1.4; letter-spacing: 0.22em; color: var(--ss-sand-soft); margin: 0 0 10px; font-weight: 600; }
+    .form-property-name { font-size: 16px; line-height: 1.4; letter-spacing: 0.22em; color: var(--ss-sand-soft); margin: 12px 0 0; font-weight: 600; }
     /* ブランドフッター（ガイドと同じ海の深部色） */
     .form-footer { background: var(--ss-sea-deep); text-align: center; padding: 1.75rem 1rem; border-radius: 18px; margin-top: 16px; }
     .form-footer .ff-brand { font-family: "Playfair Display", var(--ss-serif); font-size: 1.1rem; letter-spacing: .06em; color: var(--ss-sand); }
@@ -95,8 +95,8 @@
         <button data-lang="tw">繁體中文</button>
       </div>
       <span class="hero-brand-mark" id="formBrand">Setouchi Stay</span>
-      <div class="form-property-name" id="formTitle">宿泊者名簿</div>
       <h1 class="form-hero-name" id="formPropertyName" style="display:none;"></h1>
+      <div class="form-property-name" id="formTitle">宿泊者名簿</div>
       <p id="formSubtitle">ご宿泊に必要な情報をご記入ください</p>
     </div>
     <div class="card-body form-main-panel">
@@ -526,8 +526,8 @@
     </div>
   </div>
 
-  <script src="/js/shared/form-schema.js?v=v0705k"></script>
-  <script src="/js/guide-map.js?v=v0705k"></script>
+  <script src="/js/shared/form-schema.js?v=v0705l"></script>
+  <script src="/js/guide-map.js?v=v0705l"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-storage-compat.js"></script>
