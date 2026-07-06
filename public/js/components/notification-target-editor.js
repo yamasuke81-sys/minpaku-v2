@@ -245,13 +245,32 @@
   }
 
   /**
+   * スタッフ個別通知 (staffLine/staffEmail) の対象スタッフ判定。
+   * 物件コンテキストがある場合は「その宿の担当スタッフ + オーナー + 物件オーナー」に絞る
+   * (全スタッフのLINEアカウントが並ぶのを防ぐ)。
+   * 物件なし (グローバル通知設定タブ) では従来どおり active 全員。
+   * ※ サーバー側 (functions/utils/lineNotify.js の既定対象解決) と同じ基準を保つこと。
+   */
+  function staffTargetMatches(s, propertyId) {
+    if (s.active === false) return false;
+    if (!propertyId) return true;
+    if (s.isOwner === true) return true;
+    const assigned = Array.isArray(s.assignedPropertyIds) ? s.assignedPropertyIds : [];
+    if (assigned.includes(propertyId)) return true;
+    const owned = Array.isArray(s.ownedPropertyIds) ? s.ownedPropertyIds : [];
+    if (s.isSubOwner === true && owned.includes(propertyId)) return true;
+    return false;
+  }
+
+  /**
    * スタッフ個別（staffLine/staffEmail）の名前列挙テキストを生成
    * @param {string} field - "staffLine" | "staffEmail"
    * @param {Array} staffList
+   * @param {string|null} [propertyId] - 指定時はその宿の担当スタッフ+オーナーのみに絞る
    * @returns {string}
    */
-  function resolveStaffSummary(field, staffList) {
-    const sl = (staffList || []).filter(s => s.active !== false);
+  function resolveStaffSummary(field, staffList, propertyId) {
+    const sl = (staffList || []).filter(s => staffTargetMatches(s, propertyId));
     let matched = [];
     if (field === "staffLine") {
       matched = sl.filter(s => s.lineUserId).map(s => s.name || s.id);
@@ -737,7 +756,7 @@
         return buildGroupLineBadge();
       }
       if (field === "staffLine" || field === "staffEmail") {
-        const summary = resolveStaffSummary(field, sl);
+        const summary = resolveStaffSummary(field, sl, propertyId);
         return summary
           ? `<span class="badge bg-info-subtle text-info border" style="font-size:0.72em;max-width:100%;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(summary)}">${escapeHtml(summary)}に送信</span>`
           : `<span class="text-muted" style="font-size:0.72em;font-style:italic;">（登録済みスタッフなし）</span>`;
@@ -794,17 +813,17 @@
         const text = ids.join(", ") || "";
         return { text, lineIds: ids, isLine: true, isGroup: true };
       }
-      // staffLine: アクティブスタッフの lineUserId 複数 → 表示名列挙
+      // staffLine: この宿の担当スタッフ+オーナーの lineUserId → 表示名列挙 (物件なしは active 全員)
       if (field === "staffLine") {
-        const active = sl2.filter(s => s.active !== false && s.lineUserId);
+        const active = sl2.filter(s => staffTargetMatches(s, propertyId) && s.lineUserId);
         const ids = active.map(s => s.lineUserId);
         // スタッフ名が既知なのでここでは名前を直接使う
         const names = active.map(s => s.name || s.lineUserId);
         return { text: names.join("、") || "", lineIds: ids, isLine: true, isGroup: false, names };
       }
-      // staffEmail: アクティブスタッフのメールアドレス複数
+      // staffEmail: この宿の担当スタッフ+オーナーのメールアドレス (物件なしは active 全員)
       if (field === "staffEmail") {
-        const active = sl2.filter(s => s.active !== false && s.email);
+        const active = sl2.filter(s => staffTargetMatches(s, propertyId) && s.email);
         const text = active.map(s => s.email).join(", ") || "";
         return { text, lineIds: [], isLine: false, isGroup: false };
       }

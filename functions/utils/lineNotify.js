@@ -1487,6 +1487,24 @@ async function notifyByKey(db, notifyKey, options = {}) {
     })());
   }
 
+  // スタッフ個別通知 (staffLine/staffEmail) の既定対象を解決する。
+  // staffIds 未指定のとき、propertyId があれば「その宿の担当スタッフ + オーナー + 物件オーナー」に絞る
+  // (全アクティブスタッフへの一斉送信をやめる。通知設定UIの受信先表示と同じ基準)。
+  // propertyId が無い通知 (システム全体系) は従来どおり active 全員。
+  const resolveDefaultStaffDocs = async () => {
+    const snap = await db.collection("staff").where("active", "==", true).get();
+    if (!propertyId) return snap.docs;
+    return snap.docs.filter((d) => {
+      const s = d.data() || {};
+      if (s.isOwner === true) return true;
+      const assigned = Array.isArray(s.assignedPropertyIds) ? s.assignedPropertyIds : [];
+      if (assigned.includes(propertyId)) return true;
+      const owned = Array.isArray(s.ownedPropertyIds) ? s.ownedPropertyIds : [];
+      if (s.isSubOwner === true && owned.includes(propertyId)) return true;
+      return false;
+    });
+  };
+
   // (c) スタッフ個別 LINE
   // Bot#1 (lineChannels[0]) → Bot#2 (lineChannels[1]) → グローバル Bot の順でフォールバック。
   // notifyStaff に propChannels 配列を渡すことで内部でフォールバックを制御する。
@@ -1509,8 +1527,9 @@ async function notifyByKey(db, notifyKey, options = {}) {
 
         let ids = staffIds;
         if (!ids) {
-          const snap = await db.collection("staff").where("active", "==", true).get();
-          ids = snap.docs.map(d => d.id);
+          // 既定対象: 物件通知はその宿の担当スタッフ+オーナーのみ
+          const docs = await resolveDefaultStaffDocs();
+          ids = docs.map(d => d.id);
         }
         let okCount = 0;
         for (const sid of ids) {
@@ -1599,8 +1618,8 @@ async function notifyByKey(db, notifyKey, options = {}) {
           const docs = await Promise.all(staffIds.map(id => db.collection("staff").doc(id).get()));
           snap = { docs: docs.filter(d => d.exists) };
         } else {
-          // 未指定 (null/undefined) のときのみ active 全員
-          snap = await db.collection("staff").where("active", "==", true).get();
+          // 未指定 (null/undefined) のとき: 物件通知はその宿の担当スタッフ+オーナーのみ
+          snap = { docs: await resolveDefaultStaffDocs() };
         }
         let okCount = 0;
         for (const d of snap.docs) {
