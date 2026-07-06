@@ -287,6 +287,12 @@ function validateGuestData(body, isUpdate = false) {
   if (body.passportPhotoUrl !== undefined) data.passportPhotoUrl = String(body.passportPhotoUrl).trim();
   if (body.noiseAgree !== undefined) data.noiseAgree = !!body.noiseAgree;
   if (body.houseRuleAgree !== undefined) data.houseRuleAgree = !!body.houseRuleAgree;
+  // お知らせ配信への同意 (任意・不正型は false に丸める / 特定電子メール法のオプトイン同意)
+  if (body.marketingConsent !== undefined) {
+    data.marketingConsent = body.marketingConsent === true;
+    // true のときのみ同意日時サーバタイムスタンプを付与
+    if (data.marketingConsent) data.marketingConsentAt = FieldValue.serverTimestamp();
+  }
   // 全ゲスト（代表者+同行者、パスポート写真URL含む）
   if (body.allGuests !== undefined) {
     data.allGuests = Array.isArray(body.allGuests)

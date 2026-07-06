@@ -1236,8 +1236,13 @@ ${ppCo}9:30
 
       ${isStaffView ? "" : (() => {
         // 同意状況セクション (agreement)
+        // 配信同意はフォーム項目設定に無い独立項目なので fRow ゲートを通さず常時表示する
+        const marketingBadge = guestData.marketingConsent
+          ? '<span class="badge bg-success">あり</span>'
+          : '<span class="badge bg-secondary">なし</span>';
         const rows = [
           fRow("noiseAgree", "agreement", `<tr><th width="110" class="text-muted">騒音ルール</th><td>${noiseBadge}</td></tr>`),
+          `<tr><th width="110" class="text-muted">配信同意</th><td>${marketingBadge}</td></tr>`,
         ].filter(Boolean).join("");
         return rows ? `<h6 class="mb-2 text-primary">同意状況</h6><table class="table table-sm table-borderless mb-2">${rows}</table>` : "";
       })()}

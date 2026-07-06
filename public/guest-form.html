@@ -462,6 +462,12 @@
         <!-- === 6. 同意 (削除済み - 騒音ルール同意で代替) === -->
         <input type="hidden" id="f_houseRuleAgree" value="true">
 
+        <!-- お知らせ配信への同意 (任意・特定電子メール法のオプトイン同意の土台) -->
+        <div class="form-check mb-2 mt-3" data-field-id="marketingConsent">
+          <input class="form-check-input" type="checkbox" id="f_marketingConsent">
+          <label class="form-check-label small" for="f_marketingConsent" id="lbl_marketingConsent"></label>
+        </div>
+
         <div class="d-grid mt-4 mb-2">
           <button type="submit" class="btn btn-primary btn-lg" id="btnSubmit"><i class="bi bi-send"></i> <span id="lbl_submit">送信する</span></button>
         </div>
@@ -734,6 +740,7 @@
         emergencyPhone: "緊急連絡先 電話番号 <span class='required-mark'>*</span>",
         emergencyPhoneError: "緊急連絡先の電話番号は、代表者の電話番号と異なる番号を入力してください。",
         houseRuleAgree: "利用規約・ハウスルールに同意します <span class='required-mark'>*</span>",
+        marketingConsent: "【任意】宿からのお知らせ・特典・空室情報をメールで受け取ることに同意します（配信はいつでも解除できます）",
         submit: "送信する",
         privacy: "ご記入いただいた情報は旅館業法に基づく宿泊者名簿として保管いたします。",
         successTitle: "送信完了",
@@ -860,6 +867,7 @@
         emergencyPhone: "Emergency Contact Phone <span class='required-mark'>*</span>",
         emergencyPhoneError: "Emergency contact phone must differ from the primary guest's phone.",
         houseRuleAgree: "I agree to the Terms of Use and House Rules <span class='required-mark'>*</span>",
+        marketingConsent: "(Optional) I agree to receive news, special offers, and availability updates from the property by email. You can unsubscribe at any time.",
         submit: "Submit",
         privacy: "Your information will be stored as required by the Japanese Hotel Business Act.",
         successTitle: "Submitted!", successMsg: "Thank you! We look forward to welcoming you.",
@@ -1002,6 +1010,7 @@
         emergencyPhone: "비상 연락처 전화번호 <span class='required-mark'>*</span>",
         emergencyPhoneError: "비상 연락처 전화번호는 대표자의 전화번호와 다른 번호를 입력해 주십시오.",
         houseRuleAgree: "이용 약관·하우스 규칙에 동의합니다 <span class='required-mark'>*</span>",
+        marketingConsent: "(선택) 숙소로부터 소식·특전·빈방 정보를 이메일로 받는 것에 동의합니다 (언제든지 수신 거부할 수 있습니다).",
         submit: "전송하기",
         privacy: "기입하신 정보는 여관업법에 따른 숙박객 명부로 보관됩니다.",
         successTitle: "전송 완료",
@@ -1166,6 +1175,7 @@
         emergencyPhone: "紧急联系人电话号码 <span class='required-mark'>*</span>",
         emergencyPhoneError: "紧急联系人的电话号码请填写与代表者电话号码不同的号码。",
         houseRuleAgree: "我同意使用条款和房屋守则 <span class='required-mark'>*</span>",
+        marketingConsent: "（选填）我同意通过电子邮件接收住宿的最新消息、优惠和空房信息（可随时取消订阅）。",
         submit: "提交",
         privacy: "您填写的信息将作为根据旅馆业法保管的住客登记表。",
         successTitle: "提交完成",
@@ -1330,6 +1340,7 @@
         emergencyPhone: "緊急聯絡人電話號碼 <span class='required-mark'>*</span>",
         emergencyPhoneError: "緊急聯絡人的電話號碼請輸入與代表人不同的號碼。",
         houseRuleAgree: "我同意使用條款和房屋守則 <span class='required-mark'>*</span>",
+        marketingConsent: "（選填）我同意透過電子郵件接收住宿的最新消息、優惠和空房資訊（可隨時取消訂閱）。",
         submit: "提交",
         privacy: "您填寫的資訊將作為根據旅館業法規定的旅客名冊進行保存。",
         successTitle: "提交完成",
@@ -1432,7 +1443,7 @@
       setText("btnGoToGame", t.noiseNextBtn);
       setText("noiseCancelMsg", t.noiseCancelMsg);
       ["sec_stay","sec_guests","sec_facility","sec_survey","sec_emergency","sec_agreement"].forEach(id => setText(id, t[id]));
-      ["checkIn","checkOut","checkInTime","checkOutTime","guestCount","guestCountHint","guestCountInfants","bookingSite","transport","carCount","bbq","bedChoice","purpose","previousStay","nextStay","emergencyName","emergencyPhone","houseRuleAgree"].forEach(k => setHtml("lbl_" + k, t[k]));
+      ["checkIn","checkOut","checkInTime","checkOutTime","guestCount","guestCountHint","guestCountInfants","bookingSite","transport","carCount","bbq","bedChoice","purpose","previousStay","nextStay","emergencyName","emergencyPhone","houseRuleAgree","marketingConsent"].forEach(k => setHtml("lbl_" + k, t[k]));
       setText("lbl_lateCheckOutSummary", t.lateCheckOutSummary);
       setText("lbl_lateCheckOutNote1", t.lateCheckOutNote1);
       setText("lbl_lateCheckOutNote2", t.lateCheckOutNote2);
@@ -2034,6 +2045,8 @@
         if (d.nextStay)     { const el = document.getElementById("f_nextStay");     if (el) el.value = d.nextStay; }
         if (d.emergencyName)  { const el = document.getElementById("f_emergencyName");  if (el) el.value = d.emergencyName; }
         if (d.emergencyPhone) { const el = document.getElementById("f_emergencyPhone"); if (el) el.value = d.emergencyPhone; }
+        // お知らせ配信への同意 (修正モードで現在の同意状態を反映)
+        { const el = document.getElementById("f_marketingConsent"); if (el) el.checked = d.marketingConsent === true; }
 
         // 全宿泊者情報のプリフィル（代表者 + 同行者）
         // 保存形式:
@@ -3041,6 +3054,8 @@
             ? null
             : (document.getElementById("f_noiseAgree").value === "true"),
           houseRuleAgree: true,
+          // お知らせ配信への同意 (任意・未チェックなら false)
+          marketingConsent: !!document.getElementById("f_marketingConsent")?.checked,
           allGuests: guests, source: "guest_form",
           submittedAt: firebase.firestore.FieldValue.serverTimestamp(),
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),

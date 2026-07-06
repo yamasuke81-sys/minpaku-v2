@@ -1070,6 +1070,7 @@ const GuestsPage = {
       <h6 class="mb-2 text-primary">同意状況</h6>
       <table class="table table-sm table-borderless mb-2">
         <tr><th width="110" class="text-muted">騒音ルール</th><td>${g.noiseAgree ? '<span class="badge bg-success">同意済</span>' : '<span class="badge bg-danger">未同意</span>'}</td></tr>
+        <tr><th class="text-muted">配信同意</th><td>${g.marketingConsent ? '<span class="badge bg-success">あり</span>' : '<span class="badge bg-secondary">なし</span>'}</td></tr>
       </table>
 
       <!-- 同行者 (dashboard と同レイアウト) -->

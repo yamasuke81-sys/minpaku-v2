@@ -100,6 +100,16 @@ module.exports = function guestEditApi(db) {
 
       // 更新実行
       const admin = require("firebase-admin");
+
+      // お知らせ配信への同意 (任意・不正型は false に丸める)
+      // 未同意→同意に切り替わったときのみ同意日時を記録し、既存の同意日時は上書きしない
+      if (newData.marketingConsent !== undefined) {
+        newData.marketingConsent = newData.marketingConsent === true;
+        if (newData.marketingConsent && currentData.marketingConsent !== true) {
+          newData.marketingConsentAt = admin.firestore.FieldValue.serverTimestamp();
+        }
+      }
+
       await result.ref.update({
         ...newData,
         previousData: previousSnapshot,

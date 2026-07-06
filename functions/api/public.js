@@ -552,6 +552,13 @@ router.post("/guest-register", express.json({ limit: "5mb" }), async (req, res) 
     data.createdAt    = admin.firestore.FieldValue.serverTimestamp();
     data.updatedAt    = admin.firestore.FieldValue.serverTimestamp();
 
+    // お知らせ配信への同意 (任意・不正型は false に丸める / 特定電子メール法のオプトイン同意)
+    // true のときのみ同意日時サーバタイムスタンプを付与
+    data.marketingConsent = body.marketingConsent === true;
+    if (data.marketingConsent) {
+      data.marketingConsentAt = admin.firestore.FieldValue.serverTimestamp();
+    }
+
     const docRef = await db.collection("guestRegistrations").add(data);
     return res.status(201).json({ ok: true, id: docRef.id });
   } catch (e) {
