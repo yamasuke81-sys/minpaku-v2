@@ -89,6 +89,17 @@ const Auth = {
     let _signalSent = false;
     firebase.auth().onAuthStateChanged((user) => {
       if (user) {
+        // 匿名認証は管理アプリでは「未ログイン」扱いにする。
+        // ゲスト名簿フォーム (同一オリジンの /form/) が写真アップロード用に
+        // signInAnonymously するとオーナーのセッションが匿名で上書きされ、
+        // role フォールバックで owner 扱い → サイドバーだけ描画され Firestore が
+        // 全拒否 (Missing or insufficient permissions) の壊れた画面になるため、
+        // 匿名セッションを破棄して else 分岐 (ログイン画面表示) に落とす。
+        if (user.isAnonymous) {
+          console.warn("[Auth] 匿名セッションを検出 — 管理アプリでは未ログイン扱いにしてログイン画面を表示します");
+          firebase.auth().signOut();
+          return;
+        }
         const wasLoggedIn = this.currentUser !== null;
         this.currentUser = user;
         this.loginModal.hide();
