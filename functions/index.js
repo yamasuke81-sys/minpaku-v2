@@ -519,6 +519,13 @@ exports.onPropertyWorkItemsWrite = onDocumentWritten(
   require("./triggers/onPropertyWorkItemsWrite")
 );
 
+// ゲスト宿泊料金マスタ変更 → 月またぎ最初の変更で前月末時点スナップショットを history に自動保存
+// (propertyWorkItems=スタッフ報酬単価 とは別物。予約サイト直販料金の変更履歴用)
+exports.onPropertyRatesWrite = onDocumentWritten(
+  { document: "propertyRates/{propertyId}", region: "asia-northeast1" },
+  require("./triggers/onPropertyRatesWrite")
+);
+
 // ========== 通知スケジュール (未実装通知の発火) ==========
 
 // 名簿未入力リマインド（毎時実行 — 物件別タイミング設定に従って発火）

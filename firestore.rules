@@ -371,6 +371,24 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // 物件別 宿泊料金マスタ (ゲスト向け1泊料金。propertyWorkItems=スタッフ報酬単価 とは別物)
+    // 予約サイトは公開API (/public/quote・/public/availability) 経由で読むため直読み不要。
+    // read は認証済み (将来の料金管理UI用)、write はオーナー。日別 overrides / 締め後 history も同様。
+    match /propertyRates/{propertyId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner();
+
+      // 特定日の料金上書き・売り止め
+      match /overrides/{date} {
+        allow read: if isAuthenticated();
+        allow write: if isOwner();
+      }
+      // 締め後固定スナップショット (トリガー Admin SDK が書く想定。読み取りのみ)
+      match /history/{yearMonth} {
+        allow read: if isAuthenticated();
+      }
+    }
+
     // ========== 税理士資料収集 ==========
 
     // 名義・法人マスタ — オーナーのみ

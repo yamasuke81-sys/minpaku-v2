@@ -15,6 +15,7 @@ const {
   todayJst,
 } = require("./booking-request-logic");
 const { verifyTurnstileToken, getTurnstileSecret } = require("../utils/turnstile");
+const { computeQuote } = require("./pricing-logic");
 
 const router = express.Router();
 
@@ -704,10 +705,86 @@ router.get("/availability/:propertyId", async (req, res) => {
     });
 
     const blocked = Array.from(blockedSet).sort();
+
+    // 料金ルール(あれば)も同梱 → 宿サイトのカレンダーが基準料金/曜日料金を表示できる。
+    // 存在しない物件は pricing:null (サイト側は料金非表示でフォールバック)。
+    let pricing = null;
+    try {
+      const ratesDoc = await admin.firestore().collection("propertyRates").doc(pid).get();
+      if (ratesDoc.exists) {
+        const r = ratesDoc.data();
+        pricing = {
+          currency: r.currency || "JPY",
+          basePrice: Number.isFinite(Number(r.basePrice)) ? Number(r.basePrice) : null,
+          weekendPrice: Number.isFinite(Number(r.weekendPrice)) ? Number(r.weekendPrice) : null,
+          weekendDays: Array.isArray(r.weekendDays) ? r.weekendDays : [5, 6],
+          seasons: Array.isArray(r.seasons)
+            ? r.seasons.map((s) => ({
+                start: s.start,
+                end: s.end,
+                price: Number.isFinite(Number(s.price)) ? Number(s.price) : null,
+                weekendPrice: Number.isFinite(Number(s.weekendPrice)) ? Number(s.weekendPrice) : null,
+              }))
+            : [],
+          lengthOfStayDiscounts: Array.isArray(r.lengthOfStayDiscounts) ? r.lengthOfStayDiscounts : [],
+          guestSurcharge: (r.guestSurcharge && typeof r.guestSurcharge === "object") ? r.guestSurcharge : null,
+          minNights: Number.isFinite(Number(r.minNights)) ? Number(r.minNights) : 1,
+        };
+      }
+    } catch (rErr) {
+      console.warn("[public/availability] pricing 取得失敗:", rErr.message);
+    }
+
     res.set("Cache-Control", "public, max-age=300"); // 5分キャッシュ
-    res.json({ blocked });
+    res.json({ blocked, pricing });
   } catch (e) {
     console.error("[public/availability]", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /public/quote/:propertyId?checkIn&checkOut&guests&plan
+// 宿公式サイトの予約フォーム見積用。propertyRates マスタ + 日別 overrides から料金を計算して返す。
+// 認証不要・個人情報なし。料金未設定の物件は hasRates:false を返す(サイト側でフォールバック)。
+router.get("/quote/:propertyId", async (req, res) => {
+  try {
+    const pid = req.params.propertyId;
+    if (!pid) return res.status(400).json({ error: "propertyId 必須" });
+    const checkIn = String(req.query.checkIn || "").slice(0, 10);
+    const checkOut = String(req.query.checkOut || "").slice(0, 10);
+    const guests = parseInt(req.query.guests, 10) || 1;
+    const plan = String(req.query.plan || "standard");
+    if (!isValidYmd(checkIn) || !isValidYmd(checkOut)) {
+      return res.status(400).json({ error: "checkIn/checkOut の形式が不正です" });
+    }
+
+    const db = admin.firestore();
+    const ratesDoc = await db.collection("propertyRates").doc(pid).get();
+    if (!ratesDoc.exists) {
+      res.set("Cache-Control", "public, max-age=300");
+      return res.json({ propertyId: pid, hasRates: false });
+    }
+    const rates = ratesDoc.data();
+
+    // 期間内の日別上書き(overrides)を取得。documentId(YYYY-MM-DD)の範囲取得で複合index不要。
+    const overrides = {};
+    try {
+      const ovSnap = await db.collection("propertyRates").doc(pid).collection("overrides")
+        .where(admin.firestore.FieldPath.documentId(), ">=", checkIn)
+        .where(admin.firestore.FieldPath.documentId(), "<", checkOut)
+        .get();
+      ovSnap.forEach((d) => { overrides[d.id] = d.data(); });
+    } catch (ovErr) {
+      console.warn("[public/quote] overrides 取得失敗:", ovErr.message);
+    }
+
+    const result = computeQuote({ rates, checkIn, checkOut, guests, plan, overrides });
+    if (!result.ok) return res.status(400).json({ error: result.error });
+
+    res.set("Cache-Control", "public, max-age=300"); // 5分キャッシュ
+    res.json({ propertyId: pid, hasRates: true, ...result.quote });
+  } catch (e) {
+    console.error("[public/quote]", e);
     res.status(500).json({ error: e.message });
   }
 });

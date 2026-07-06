@@ -49,6 +49,8 @@ const App = {
     "cancelled-bookings": CancelledBookingsPage,
     // 直接予約リクエスト (承認制)
     "booking-requests": BookingRequestsPage,
+    // 宿泊料金 (直販サイトのゲスト向け料金。報酬単価 #/rates とは別物)
+    "property-rates": PropertyRatesPage,
   },
 
   // スタッフ用ページ

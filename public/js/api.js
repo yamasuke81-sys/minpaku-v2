@@ -197,6 +197,47 @@ const API = {
     },
 
     /**
+     * ゲスト宿泊料金マスタ (propertyRates) — 予約サイトの表示・見積の元データ。
+     * propertyWorkItems (スタッフ報酬単価) とは別物。混同しないこと。
+     */
+    async getPropertyRates(propertyId) {
+      const d = await db.collection("propertyRates").doc(propertyId).get();
+      return d.exists ? { propertyId, ...d.data() } : null;
+    },
+
+    async savePropertyRates(propertyId, data) {
+      await db.collection("propertyRates").doc(propertyId).set({
+        ...data,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: false });
+    },
+
+    // 日別上書き (docId=YYYY-MM-DD)。範囲は documentId で絞る (複合index不要)
+    async getRateOverrides(propertyId, fromDate, toDate) {
+      const snap = await db.collection("propertyRates").doc(propertyId)
+        .collection("overrides")
+        .where(firebase.firestore.FieldPath.documentId(), ">=", fromDate)
+        .where(firebase.firestore.FieldPath.documentId(), "<=", toDate)
+        .get();
+      const out = {};
+      snap.forEach((d) => { out[d.id] = d.data(); });
+      return out;
+    },
+
+    async setRateOverride(propertyId, date, data) {
+      await db.collection("propertyRates").doc(propertyId)
+        .collection("overrides").doc(date).set({
+          ...data,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+    },
+
+    async deleteRateOverride(propertyId, date) {
+      await db.collection("propertyRates").doc(propertyId)
+        .collection("overrides").doc(date).delete();
+    },
+
+    /**
      * 物件に永続的な番号と色を割り当てる。
      * 未設定の物件すべてに番号・色を埋める(既存は保持)
      */
