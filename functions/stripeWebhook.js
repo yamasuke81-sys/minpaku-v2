@@ -32,14 +32,27 @@ async function handleCheckoutCompleted(db, session) {
     console.warn("[stripeWebhook] checkout.session.completed に bookingId metadata なし:", session.id);
     return;
   }
+  // 非同期決済 (コンビニ・銀行振込) では completed が payment_status=unpaid で先に届く。
+  // 実際に入金確定 (paid) したときのみ paid 化し、unpaid は async_payment_succeeded を待つ。
+  // (これをしないと未入金が paid 表示になり、失敗リトライメールも「既に paid」ガードで死ぬ)
+  if (session.payment_status && session.payment_status !== "paid") {
+    console.info(`[stripeWebhook] completed だが payment_status=${session.payment_status} → paid化せず待機: booking=${bookingId}`);
+    return;
+  }
   const admin = require("firebase-admin");
   const bookingRef = db.collection("bookings").doc(bookingId);
+  // paymentSession は「ネストオブジェクト」で set(merge:true) する。
+  // set(merge) にドット記法 "paymentSession.paidAt" を渡すと、ドット込みのリテラル名フィールドが
+  // 作られてネストされず、返金API/charge.refunded 照合クエリ(where "paymentSession.paymentIntentId")
+  // と永遠に不一致になる。ネストオブジェクトなら深いマージで既存の url/expiresAt も保持される。
   await bookingRef.set({
     paymentStatus: "paid",
     paymentPaidAt: admin.firestore.FieldValue.serverTimestamp(),
-    "paymentSession.paidAt": admin.firestore.FieldValue.serverTimestamp(),
-    "paymentSession.paymentIntentId": session.payment_intent || null,
-    "paymentSession.amountPaid": Number(session.amount_total) || null,
+    paymentSession: {
+      paidAt: admin.firestore.FieldValue.serverTimestamp(),
+      paymentIntentId: session.payment_intent || null,
+      amountPaid: Number(session.amount_total) || null,
+    },
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   }, { merge: true });
   console.info(`[stripeWebhook] paid: booking=${bookingId} session=${session.id} amount=${session.amount_total}`);
@@ -295,6 +308,11 @@ exports.stripeWebhook = onRequest({
   try {
     switch (event.type) {
       case "checkout.session.completed":
+        await handleCheckoutCompleted(db, event.data.object);
+        break;
+      case "checkout.session.async_payment_succeeded":
+        // 銀行振込/コンビニ等の非同期決済が後から入金確定したとき。
+        // completed(unpaid)では paid 化を保留しているので、ここで確定させる。
         await handleCheckoutCompleted(db, event.data.object);
         break;
       case "checkout.session.expired":
