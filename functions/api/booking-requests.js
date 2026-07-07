@@ -50,6 +50,28 @@ module.exports = function bookingRequestsApi(db) {
         const bt = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
         return bt - at;
       });
+
+      // 決済状態の付与: paymentStatus / paymentSession は booking ドキュメント (direct-<id>) が SSOT。
+      // approve 済みリクエストのみ bookingId を持つので、その booking を読んで決済フィールドを合流させる。
+      // (webhook で更新される paid/refunded 等は bookingRequest 側には書かれないため、ここで join する)
+      const withBooking = items.filter((x) => x.bookingId);
+      if (withBooking.length > 0) {
+        const bookingRefs = withBooking.map((x) => db.collection("bookings").doc(x.bookingId));
+        const bookingSnaps = await db.getAll(...bookingRefs);
+        const bookingById = new Map();
+        bookingSnaps.forEach((s) => { if (s.exists) bookingById.set(s.id, s.data()); });
+        items = items.map((x) => {
+          const bk = x.bookingId ? bookingById.get(x.bookingId) : null;
+          if (!bk) return x;
+          return {
+            ...x,
+            paymentStatus: bk.paymentStatus || x.paymentStatus || "unconfigured",
+            paymentSession: bk.paymentSession || x.paymentSession || null,
+            paymentPaidAt: bk.paymentPaidAt || null,
+          };
+        });
+      }
+
       res.json(items);
     } catch (e) {
       console.error("[booking-requests] 一覧取得エラー:", e);

@@ -481,6 +481,55 @@ const DashboardPage = {
     return "fc-event-other";
   },
 
+  // 決済ステータスのラベル / Bootstrap カラークラス (直接予約 source==="direct" のみで意味を持つ)
+  // 全6状態: unconfigured / pending / paid / expired / refunded / partially_refunded
+  _PAYMENT_META: {
+    unconfigured: { label: "未設定", cls: "bg-secondary" },
+    pending: { label: "支払い待ち", cls: "bg-warning text-dark" },
+    paid: { label: "支払い済み", cls: "bg-success" },
+    expired: { label: "期限切れ", cls: "bg-danger" },
+    refunded: { label: "返金済み", cls: "bg-secondary" },
+    partially_refunded: { label: "一部返金", cls: "bg-warning text-dark" },
+  },
+
+  // 予約詳細モーダルの「決済」行 HTML。
+  // - source==="direct" の予約のみ表示。OTA (Airbnb/Booking) 予約には一切出さない。
+  // - スタッフビュー (isStaffView) には決済情報を見せない (オーナー/subOwner のみ)。
+  // - amountPaid / amountRefunded / paidAt があれば併記。
+  _paymentRow(b, isStaffView) {
+    if (isStaffView) return "";
+    const src = String(b.source || "").toLowerCase();
+    if (src !== "direct") return ""; // 直接予約以外は決済行を出さない
+    const st = b.paymentStatus || "unconfigured";
+    const meta = this._PAYMENT_META[st] || this._PAYMENT_META.unconfigured;
+    const sess = b.paymentSession || {};
+    const extras = [];
+    if (sess.amountPaid) extras.push(`入金 ¥${Number(sess.amountPaid).toLocaleString("ja-JP")}`);
+    if (sess.amountRefunded) extras.push(`返金 ¥${Number(sess.amountRefunded).toLocaleString("ja-JP")}`);
+    // paidAt: paymentPaidAt (トップレベル) or paymentSession.paidAt のいずれか
+    const paidAtMs = this._toMs(b.paymentPaidAt) || this._toMs(sess.paidAt);
+    if (paidAtMs) {
+      const d = new Date(paidAtMs);
+      extras.push(`入金日時 ${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
+    }
+    const extrasHtml = extras.length ? `<div class="small text-muted mt-1">${extras.map((e) => this.esc(e)).join(" / ")}</div>` : "";
+    return `<tr><th class="text-muted">決済</th><td>
+      <span class="badge ${meta.cls}"><i class="bi bi-credit-card"></i> ${meta.label}</span>
+      ${extrasHtml}
+    </td></tr>`;
+  },
+
+  // Firestore Timestamp / {_seconds} / Date / ms を ms に正規化 (0=不明)
+  _toMs(v) {
+    if (!v) return 0;
+    if (typeof v.toMillis === "function") return v.toMillis();
+    if (v._seconds) return v._seconds * 1000;
+    if (typeof v.seconds === "number") return v.seconds * 1000;
+    if (v instanceof Date) return v.getTime();
+    if (typeof v === "number") return v;
+    return 0;
+  },
+
   // プレースホルダーゲスト名判定（iCal ブロック・予約サイト自動入力）
   _isPlaceholderName(name) {
     if (!name) return true;
@@ -1176,6 +1225,7 @@ ${ppCo}9:30
           }
           ${guestData.guestCountInfants ? `<small class="text-muted">乳幼児${this.esc(String(guestData.guestCountInfants))}名</small>` : ""}
         </td></tr>
+        ${this._paymentRow(b, isStaffView)}
       </table>
 
       ${(() => {

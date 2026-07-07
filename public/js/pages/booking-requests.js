@@ -115,6 +115,38 @@ const BookingRequestsPage = {
         btn.addEventListener("click", () => this._onReject(btn.dataset.id));
       });
     }
+    if (tab === "approved") {
+      el.querySelectorAll(".br-refund").forEach((btn) => {
+        btn.addEventListener("click", () => this._onRefund(btn.dataset.id));
+      });
+    }
+  },
+
+  // 決済ステータスのラベル / Bootstrap カラークラス (直接予約のみで意味を持つ)
+  // 全6状態: unconfigured / pending / paid / expired / refunded / partially_refunded
+  _PAYMENT_META: {
+    unconfigured: { label: "未設定", cls: "bg-secondary" },
+    pending: { label: "支払い待ち", cls: "bg-warning text-dark" },
+    paid: { label: "支払い済み", cls: "bg-success" },
+    expired: { label: "期限切れ", cls: "bg-danger" },
+    refunded: { label: "返金済み", cls: "bg-secondary" },
+    partially_refunded: { label: "一部返金", cls: "bg-warning text-dark" },
+  },
+
+  // 決済バッジ HTML。amountPaid / amountRefunded を併記する。
+  _paymentBadge(x) {
+    const st = x.paymentStatus || "unconfigured";
+    const meta = this._PAYMENT_META[st] || this._PAYMENT_META.unconfigured;
+    const sess = x.paymentSession || {};
+    const parts = [`<span class="badge ${meta.cls}"><i class="bi bi-credit-card"></i> ${meta.label}</span>`];
+    if (sess.amountPaid) parts.push(`<span class="small text-muted">入金 ¥${Number(sess.amountPaid).toLocaleString("ja-JP")}</span>`);
+    if (sess.amountRefunded) parts.push(`<span class="small text-muted">返金 ¥${Number(sess.amountRefunded).toLocaleString("ja-JP")}</span>`);
+    return `<span class="d-inline-flex align-items-center gap-1 flex-wrap ms-1">${parts.join(" ")}</span>`;
+  },
+
+  // 返金可能な状態か (API 側の許可条件と一致させる: paid / partially_refunded のみ)
+  _canRefund(x) {
+    return x.paymentStatus === "paid" || x.paymentStatus === "partially_refunded";
   },
 
   _renderCard(x, tab) {
@@ -125,6 +157,16 @@ const BookingRequestsPage = {
       : tab === "rejected"
         ? '<span class="badge bg-secondary">却下済み</span>'
         : '<span class="badge bg-warning text-dark">未対応</span>';
+
+    // 決済バッジは直接予約 (bookingRequests は全て直接予約) の承認済み以降でのみ意味を持つ。
+    // pending タブは決済未生成なので出さない。
+    const paymentBadge = (tab !== "pending" && x.paymentStatus)
+      ? this._paymentBadge(x)
+      : "";
+
+    // 返金ボタン: paid / partially_refunded かつ承認済みタブ、オーナー本人のみ (API は role==="owner" 必須)
+    const canRefund = tab === "approved" && this._canRefund(x)
+      && (typeof Auth !== "undefined") && Auth?.isOwner?.() && !Auth?.isSubOwner?.();
 
     const actionsHtml = tab === "pending"
       ? `
@@ -138,7 +180,14 @@ const BookingRequestsPage = {
         </div>`
       : tab === "rejected" && x.rejectReason
         ? `<div class="mt-2 small text-muted"><i class="bi bi-chat-left-text"></i> 却下理由: ${this._esc(x.rejectReason)}</div>`
-        : "";
+        : canRefund
+          ? `
+        <div class="mt-2">
+          <button class="btn btn-sm btn-outline-danger br-refund" data-id="${this._esc(x.id)}">
+            <i class="bi bi-arrow-counterclockwise"></i> 返金する
+          </button>
+        </div>`
+          : "";
 
     return `
       <div class="card mb-2" data-request-id="${this._esc(x.id)}">
@@ -147,6 +196,7 @@ const BookingRequestsPage = {
             <div>
               <div class="fw-bold">${this._esc(x.propertyName || x.propertyId || "-")} ${statusBadge}</div>
               <div class="small text-muted">${this._esc(x.checkIn || "-")} 〜 ${this._esc(x.checkOut || "-")}（${this._esc(String(x.guestCount || "-"))}名 / ${planLabel}）</div>
+              ${paymentBadge ? `<div class="small mt-1">${paymentBadge}</div>` : ""}
             </div>
             <div class="text-muted small text-end">${elapsed}</div>
           </div>
@@ -223,6 +273,139 @@ const BookingRequestsPage = {
     } catch (e) {
       buttons.forEach((b) => (b.disabled = false));
       await showAlert(`却下処理に失敗しました: ${e.message || e}`);
+    }
+  },
+
+  // 返金額 (円) + 理由 を入力するモーダル。OK 時 { amount, reason } を返す (キャンセルは null)。
+  // amount は「全額」チェック時 null (= API 側が全額返金)、部分返金時は正の整数。
+  _showRefundModal(x) {
+    return new Promise((resolve) => {
+      const sess = x.paymentSession || {};
+      const paid = Number(sess.amountPaid) || 0;
+      const refunded = Number(sess.amountRefunded) || 0;
+      const remaining = Math.max(0, paid - refunded); // 返金可能な残額
+      const modalId = `refundModal_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const html = `
+        <div class="modal fade" id="${modalId}" tabindex="-1">
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-arrow-counterclockwise"></i> 返金</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+              </div>
+              <div class="modal-body">
+                <div class="small text-muted mb-2">
+                  ${this._esc(x.propertyName || x.propertyId || "")}<br>
+                  ${this._esc(x.checkIn || "-")} 〜 ${this._esc(x.checkOut || "-")}（${this._esc(x.guestName || "-")}）
+                </div>
+                <div class="small mb-3">
+                  入金額: <strong>¥${paid.toLocaleString("ja-JP")}</strong>
+                  ${refunded ? ` / 返金済: <strong>¥${refunded.toLocaleString("ja-JP")}</strong> / 残額: <strong>¥${remaining.toLocaleString("ja-JP")}</strong>` : ""}
+                </div>
+                <div class="form-check mb-2">
+                  <input class="form-check-input" type="checkbox" id="${modalId}_full" checked>
+                  <label class="form-check-label" for="${modalId}_full">全額返金${remaining ? `（¥${remaining.toLocaleString("ja-JP")}）` : ""}</label>
+                </div>
+                <div class="mb-2" id="${modalId}_amountWrap" style="display:none;">
+                  <label class="form-label small mb-1">返金額（円・部分返金）</label>
+                  <input type="number" class="form-control" id="${modalId}_amount" min="1" ${remaining ? `max="${remaining}"` : ""} placeholder="例: ${remaining || 1000}">
+                </div>
+                <div class="mb-1">
+                  <label class="form-label small mb-1">返金理由（任意）</label>
+                  <input type="text" class="form-control" id="${modalId}_reason" placeholder="例: ゲスト都合キャンセル（キャンセル料相殺後）">
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+                <button type="button" class="btn btn-danger" data-role="ok"><i class="bi bi-arrow-counterclockwise"></i> 返金内容を確認</button>
+              </div>
+            </div>
+          </div>
+        </div>`;
+      document.body.insertAdjacentHTML("beforeend", html);
+      const el = document.getElementById(modalId);
+      const modal = new bootstrap.Modal(el);
+      const fullChk = el.querySelector(`#${modalId}_full`);
+      const amountWrap = el.querySelector(`#${modalId}_amountWrap`);
+      const amountInput = el.querySelector(`#${modalId}_amount`);
+      const reasonInput = el.querySelector(`#${modalId}_reason`);
+      fullChk.addEventListener("change", () => {
+        amountWrap.style.display = fullChk.checked ? "none" : "block";
+        if (!fullChk.checked) amountInput.focus();
+      });
+      let result = null;
+      el.querySelector('[data-role="ok"]').addEventListener("click", () => {
+        const reason = reasonInput.value.trim();
+        if (fullChk.checked) {
+          result = { amount: null, reason };
+        } else {
+          const amt = Math.floor(Number(amountInput.value));
+          if (!Number.isFinite(amt) || amt <= 0) {
+            amountInput.classList.add("is-invalid");
+            return;
+          }
+          if (remaining && amt > remaining) {
+            amountInput.classList.add("is-invalid");
+            return;
+          }
+          result = { amount: amt, reason };
+        }
+        modal.hide();
+      });
+      el.addEventListener("hidden.bs.modal", () => { resolve(result); el.remove(); });
+      modal.show();
+    });
+  },
+
+  async _onRefund(id) {
+    const x = this.state.items.find((i) => i.id === id);
+    if (!x) return;
+    if (!this._canRefund(x)) {
+      await showAlert("この予約は返金できる状態ではありません");
+      return;
+    }
+
+    const input = await this._showRefundModal(x);
+    if (input === null) return; // キャンセル
+
+    const amountLabel = input.amount == null
+      ? "全額"
+      : `¥${Number(input.amount).toLocaleString("ja-JP")}`;
+    const ok = await showConfirm(
+      `以下の内容で返金を実行します。よろしいですか？\n\n${x.propertyName || x.propertyId}\n${x.checkIn} 〜 ${x.checkOut}（${x.guestName || "-"}）\n返金額: ${amountLabel}${input.reason ? `\n理由: ${input.reason}` : ""}`,
+      { title: "返金の確認", okLabel: "返金を実行", okClass: "btn-danger" }
+    );
+    if (!ok) return;
+
+    const card = document.querySelector(`[data-request-id="${CSS.escape(id)}"]`);
+    const buttons = card ? card.querySelectorAll("button") : [];
+    buttons.forEach((b) => (b.disabled = true));
+
+    try {
+      const idToken = await this._getIdToken();
+      const payload = {};
+      if (input.amount != null) payload.amount = input.amount;
+      if (input.reason) payload.reason = input.reason;
+      const res = await fetch(`${this.CF_BASE}/booking-requests/${encodeURIComponent(id)}/refund`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      // paymentStatus の即時書き換えはしない (実データ更新は charge.refunded webhook が担う)。
+      showToast(
+        "返金を受け付けました",
+        "反映は Stripe からの通知（webhook）で自動更新されます",
+        "success"
+      );
+      // 一覧再取得はせず (webhook 反映前は状態が変わらないため)、ボタンのみ再有効化。
+      buttons.forEach((b) => (b.disabled = false));
+    } catch (e) {
+      buttons.forEach((b) => (b.disabled = false));
+      await showAlert(`返金に失敗しました: ${e.message || e}`);
     }
   },
 

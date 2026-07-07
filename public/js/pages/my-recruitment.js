@@ -1242,12 +1242,17 @@ const MyRecruitmentPage = {
             // ラベルは「名簿ドットの右隣に左寄せ」で配置。
             // 名簿ドットは CI の右半分左端 = starting セル内 left:50% + 4px、width 9px + border
             // ラベル開始位置 = ドット直後 (約 17-20px 右)
+            // 決済バッジ (直接予約のみ・オーナー視点のみ・匿名では非表示)。人数ラベルの右隣に配置。
+            const payBadge = this._calPaymentBadge(labelTarget);
+            const txtWidthPx = txt ? txt.length * 11 + 6 : 0; // 人数ラベル幅の概算 (バッジの左オフセット用)
             if (n === 1) {
               // 1泊: CI セル内、50%+18px から右にラベル (CO セル側にはみ出す)
               segs += `<span style="position:absolute;left:calc(50% + 18px);top:50%;transform:translateY(-50%);color:#fff;font-size:13px;font-weight:600;text-align:left;white-space:nowrap;z-index:3;pointer-events:none;">${txt}</span>`;
+              if (payBadge) segs += `<span style="position:absolute;left:calc(50% + ${18 + txtWidthPx}px);top:50%;transform:translateY(-50%);z-index:3;pointer-events:none;">${payBadge}</span>`;
             } else {
               // 連泊: CI+1 セル内に配置、left:-colW/2 + 18px で名簿ドット直後からラベル開始
               segs += `<span style="position:absolute;left:calc(-${colWN / 2}px + 18px);top:50%;transform:translateY(-50%);color:#fff;font-size:13px;font-weight:600;text-align:left;white-space:nowrap;z-index:3;pointer-events:none;">${txt}</span>`;
+              if (payBadge) segs += `<span style="position:absolute;left:calc(-${colWN / 2}px + ${18 + txtWidthPx}px);top:50%;transform:translateY(-50%);z-index:3;pointer-events:none;">${payBadge}</span>`;
             }
           }
 
@@ -2334,6 +2339,27 @@ const MyRecruitmentPage = {
    * FullCalendar (月表示) 初期化 - 折りたたみ内に予約+募集を表示
    * DashboardPage の buildCalendarEvents を参考に、シンプル版を my-recruitment 側に持つ
    */
+  // 横カレンダー予約バー用の決済バッジ (最小表示)。
+  // - 直接予約 (source==="direct") のみ。OTA 予約には出さない。
+  // - オーナー/subOwner 視点 (isOwnerView) のみ。スタッフ・匿名表示モードでは出さない
+  //   (匿名モードは isOwnerView=false なので自動的に除外される)。
+  // - pending=「¥待」黄 / paid=「¥済」緑 / expired=「¥切」赤 / refunded=「¥返」灰 /
+  //   partially_refunded=「¥一部」橙。unconfigured は出さない (決済未設定は情報価値が低い)。
+  _CAL_PAYMENT_META: {
+    pending: { txt: "¥待", bg: "#ffc107", color: "#212529" },
+    paid: { txt: "¥済", bg: "#198754", color: "#fff" },
+    expired: { txt: "¥切", bg: "#dc3545", color: "#fff" },
+    refunded: { txt: "¥返", bg: "#6c757d", color: "#fff" },
+    partially_refunded: { txt: "¥一部", bg: "#fd7e14", color: "#fff" },
+  },
+  _calPaymentBadge(b) {
+    if (!this.isOwnerView) return ""; // スタッフ・匿名には決済情報を出さない
+    if (String(b.source || "").toLowerCase() !== "direct") return "";
+    const meta = this._CAL_PAYMENT_META[b.paymentStatus];
+    if (!meta) return ""; // unconfigured / 未設定 は非表示
+    return `<span style="display:inline-block;background:${meta.bg};color:${meta.color};font-size:10px;font-weight:700;line-height:1;padding:2px 4px;border-radius:4px;white-space:nowrap;" title="決済: ${meta.txt}">${meta.txt}</span>`;
+  },
+
   // === モーダル文脈ヘルパ ===
   // 匿名カレンダー (my-recruitment-anonymous-vertical.js) がオーバーライドして
   // スタッフ閲覧時に true を返す (オーナー閲覧時は個人別表示のため false)
