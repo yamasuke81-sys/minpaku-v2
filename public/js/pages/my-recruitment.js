@@ -2349,6 +2349,7 @@ const MyRecruitmentPage = {
     pending: { txt: "¥待", bg: "#ffc107", color: "#212529" },
     paid: { txt: "¥済", bg: "#198754", color: "#fff" },
     expired: { txt: "¥切", bg: "#dc3545", color: "#fff" },
+    payment_failed: { txt: "¥失敗", bg: "#dc3545", color: "#fff" },
     refunded: { txt: "¥返", bg: "#6c757d", color: "#fff" },
     partially_refunded: { txt: "¥一部", bg: "#fd7e14", color: "#fff" },
   },

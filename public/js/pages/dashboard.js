@@ -488,6 +488,7 @@ const DashboardPage = {
     pending: { label: "支払い待ち", cls: "bg-warning text-dark" },
     paid: { label: "支払い済み", cls: "bg-success" },
     expired: { label: "期限切れ", cls: "bg-danger" },
+    payment_failed: { label: "支払い失敗", cls: "bg-danger" },
     refunded: { label: "返金済み", cls: "bg-secondary" },
     partially_refunded: { label: "一部返金", cls: "bg-warning text-dark" },
   },

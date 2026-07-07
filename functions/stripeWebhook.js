@@ -107,6 +107,118 @@ async function handleCheckoutExpired(db, session) {
   console.info(`[stripeWebhook] expired → cancelled: booking=${bookingId}`);
 }
 
+async function handleAsyncPaymentFailed(db, session) {
+  const admin = require("firebase-admin");
+  const bookingId = (session.metadata && session.metadata.bookingId) || "";
+  if (!bookingId) {
+    console.warn("[stripeWebhook] async_payment_failed に bookingId metadata なし:", session.id);
+    return;
+  }
+  const bookingRef = db.collection("bookings").doc(bookingId);
+  const snap = await bookingRef.get();
+  if (!snap.exists) {
+    console.warn("[stripeWebhook] async_payment_failed 対象 booking なし:", bookingId);
+    return;
+  }
+  const b = snap.data();
+
+  // 既に支払い済み → 案内しない (race condition guard)
+  if (b.paymentStatus === "paid" || b.paymentStatus === "refunded" || b.paymentStatus === "partially_refunded") {
+    console.info(`[stripeWebhook] async_payment_failed skip (既に${b.paymentStatus}): booking=${bookingId}`);
+    return;
+  }
+
+  // paymentStatus を payment_failed に記録 (paid にはしない)
+  try {
+    await bookingRef.update({
+      paymentStatus: "payment_failed",
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (e) {
+    console.warn("[stripeWebhook] async_payment_failed ステータス更新失敗:", e.message);
+  }
+
+  // 同一予約への多重送信を防止 (既に案内メール済みなら送らない)
+  if (b.paymentFailedMailSentAt) {
+    console.info(`[stripeWebhook] async_payment_failed メール既送信スキップ: booking=${bookingId}`);
+    return;
+  }
+
+  const paySession = b.paymentSession || {};
+  const expiresAt = Number(paySession.expiresAt);
+  const payUrl = paySession.url;
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  // セッションが既に期限切れなら再試行リンクを案内しても無意味なので送らない
+  if (!payUrl || !Number.isFinite(expiresAt) || expiresAt <= nowSec) {
+    console.info(`[stripeWebhook] async_payment_failed リンク期限切れ/未設定のため案内メール送らず: booking=${bookingId}`);
+    return;
+  }
+
+  // ゲストへ再試行案内メール (日英併記) — 静かに失敗させる (webhook 200 応答を優先)
+  try {
+    const { sendNotificationEmail_, resolveSenderGmail_ } = require("./utils/lineNotify");
+    const to = b.email;
+    if (!to) {
+      console.warn(`[stripeWebhook] async_payment_failed ${bookingId} メールアドレスなし、案内送らず`);
+      return;
+    }
+    const propertyId = b.propertyId || "";
+    const propertyName = b.propertyName || "";
+    const guestName = b.guestName || "ゲスト";
+    // JST 表記 (booking-requests.js の確定メールと同じ簡易変換: UTC+9h)
+    const jst = new Date(new Date(expiresAt * 1000).getTime() + 9 * 3600 * 1000)
+      .toISOString().replace("T", " ").slice(0, 16);
+
+    const subject = `【${propertyName || "ご予約"}】お支払い処理が失敗しました / Payment failed`;
+    const bodyText = [
+      `${guestName} 様`,
+      ``,
+      `ご予約のお支払い処理が失敗しました。`,
+      `お支払い期限内であれば、同じお支払いページから再度お手続きいただけます。`,
+      ``,
+      `■ご予約内容`,
+      `宿泊施設: ${propertyName}`,
+      `チェックイン: ${b.checkIn || ""}`,
+      `チェックアウト: ${b.checkOut || ""}`,
+      `お支払い期限: ${jst} JST まで`,
+      ``,
+      `下記のお支払いページより再度お手続きください：`,
+      `${payUrl}`,
+      ``,
+      `※ お支払い期限までにご決済が確認できない場合、ご予約は自動的にキャンセルとなります。`,
+      ``,
+      `────────────────────`,
+      ``,
+      `Dear ${guestName},`,
+      ``,
+      `Your payment could not be processed.`,
+      `As long as it is within the payment deadline, you can retry from the same payment page.`,
+      ``,
+      `- Booking details`,
+      `Property: ${propertyName}`,
+      `Check-in: ${b.checkIn || ""}`,
+      `Check-out: ${b.checkOut || ""}`,
+      `Payment deadline: ${jst} (JST)`,
+      ``,
+      `Please retry your payment from the link below:`,
+      `${payUrl}`,
+      ``,
+      `* If we cannot confirm your payment by the deadline, your reservation will be cancelled automatically.`,
+    ].join("\n");
+
+    const senderGmail = await resolveSenderGmail_(db, propertyId);
+    await sendNotificationEmail_(to, subject, bodyText, senderGmail || null);
+    // 送信成功時のみフラグを立てる (同一予約への多重送信防止)
+    await bookingRef.update({
+      paymentFailedMailSentAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    console.info(`[stripeWebhook] async_payment_failed 案内メール送信: booking=${bookingId}`);
+  } catch (e) {
+    console.warn("[stripeWebhook] async_payment_failed 案内メール失敗:", e.message);
+  }
+}
+
 async function handleChargeRefunded(db, charge) {
   const admin = require("firebase-admin");
   const paymentIntentId = charge.payment_intent;
@@ -190,7 +302,8 @@ exports.stripeWebhook = onRequest({
         break;
       case "checkout.session.async_payment_failed":
         // 銀行振込/コンビニで失敗した場合。paid にはしない。
-        console.warn("[stripeWebhook] async_payment_failed:", event.data.object.id);
+        // paymentStatus=payment_failed を記録し、期限内ならゲストへ再試行案内メールを送る。
+        await handleAsyncPaymentFailed(db, event.data.object);
         break;
       case "charge.refunded":
         await handleChargeRefunded(db, event.data.object);

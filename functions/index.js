@@ -375,6 +375,15 @@ exports.sendKeyboxScheduled = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/sendKeyboxScheduled"));
 
+// 直販予約 支払い期限前リマインドメール（毎時実行）
+// source=direct かつ paymentStatus=pending で決済期限が6時間以内に迫った予約に、
+// ゲストへ再決済を促すメールを1回だけ送る（paymentReminderSentAt で重複防止）
+exports.paymentReminder = onSchedule({
+  schedule: "0 * * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/paymentReminder"));
+
 // Timee メール巡回（10 分おき）
 exports.syncTimeeEmails = onSchedule({
   schedule: "every 10 minutes",
