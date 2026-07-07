@@ -90,6 +90,12 @@ service cloud.firestore {
       allow write: if isOwner() || (isSubOwner() && isMyProperty(resource.data.propertyId));
     }
 
+    // Stripe Webhook 冪等性チェック用 (event.id をキーに重複処理を防ぐ)
+    // 書き込みは Cloud Functions (Admin SDK) のみ。クライアントは触らない。
+    match /stripeWebhookEvents/{eventId} {
+      allow read, write: if false;
+    }
+
     // スタッフ向けデータ更新通知カウンタ (PII なし)。書き込みは Cloud Functions (Admin SDK) のみ。
     // スタッフ端末はこの1件だけを onSnapshot 監視し、変化時に /api/staff-data を再取得する。
     match /meta/staffDataVersion {

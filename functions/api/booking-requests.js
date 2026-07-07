@@ -13,6 +13,8 @@ const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
 const { getAppUrl } = require("../utils/appUrl");
 const { periodsOverlap, ymd: normalizeYmd } = require("./booking-request-logic");
+const { getStripe } = require("../utils/stripe");
+const { computeQuoteFromDb } = require("../utils/pricing");
 
 module.exports = function bookingRequestsApi(db) {
   const router = Router();
@@ -103,6 +105,8 @@ module.exports = function bookingRequestsApi(db) {
         propertyId: reqData.propertyId,
         propertyName: reqData.propertyName || "",
         memo: reqData.notes || "",
+        // 決済ステータス初期値。Checkout Session 生成成功時に paymentSession 情報を追記する。
+        paymentStatus: "unconfigured", // unconfigured | pending | paid | expired | refunded
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       };
@@ -129,6 +133,110 @@ module.exports = function bookingRequestsApi(db) {
         });
       });
 
+      // ===== Stripe Checkout Session 生成 =====
+      // 承認成立後 (booking 確定後) にサーバー側で見積再計算 → Checkout Session を作成し、
+      // 決済 URL を確定メールに差し込む。Stripe 未設定 or 料金未設定なら決済無しモードで続行。
+      let payment = { status: "unconfigured", url: null, amount: null, expiresAt: null, sessionId: null };
+      try {
+        const stripe = getStripe();
+        if (!stripe.isEnabled) {
+          console.info("[booking-requests/approve] Stripe未設定のため決済リンク無しで承認完了");
+        } else {
+          const quoteResult = await computeQuoteFromDb(db, reqData.propertyId, {
+            checkIn: reqData.checkIn,
+            checkOut: reqData.checkOut,
+            guests: Number(reqData.guestCount) || 1,
+            plan: reqData.plan || "standard",
+          });
+          if (!quoteResult.ok || !quoteResult.hasRates) {
+            console.warn(`[booking-requests/approve] 見積算出不可のため決済リンク無しで承認完了 (${quoteResult.error || "no_rates"})`);
+          } else {
+            const total = Number(quoteResult.quote.total);
+            if (!Number.isFinite(total) || total <= 0) {
+              console.warn("[booking-requests/approve] 見積合計が不正のため決済リンク無しで承認完了");
+            } else {
+              // Stripe Checkout Session の expires_at は最大24時間 (Stripe仕様上限)。
+              // 24時間を過ぎたら自動キャンセルされ、その時点で checkout.session.expired が飛ぶ。
+              // (24時間で払われなかった場合の運用: オーナーが手動で新しいリクエストを促す)
+              const expiresAtSec = Math.floor(Date.now() / 1000) + 24 * 3600 - 60; // 24時間 - 1分の余裕
+              const appUrl = await getAppUrl(db);
+              const nights = Number(quoteResult.quote.nights) || 1;
+              const description = `${reqData.propertyName || "宿泊予約"} ${reqData.checkIn}〜${reqData.checkOut} (${nights}泊・${reqData.guestCount || 1}名)`;
+              // 戻り先は宿公式サイト側の静的ページ (setouchi-stay-sites の top サイト)。
+              // settings/directBooking.paymentReturnBase で上書き可 (テスト/本番切替用)。
+              let returnBase = "https://www.setouchi-stay.com";
+              try {
+                const directCfgSnap = await db.collection("settings").doc("directBooking").get();
+                const rb = directCfgSnap.exists ? directCfgSnap.data().paymentReturnBase : null;
+                if (rb) returnBase = String(rb).replace(/\/+$/, "");
+              } catch (_e) { /* fallback */ }
+              const successUrl = `${returnBase}/payment-success.html?bookingId=${encodeURIComponent(bookingRef.id)}&sid={CHECKOUT_SESSION_ID}`;
+              const cancelUrl = `${returnBase}/payment-cancel.html?bookingId=${encodeURIComponent(bookingRef.id)}`;
+              const session = await stripe.client.checkout.sessions.create({
+                mode: "payment",
+                currency: "jpy",
+                expires_at: expiresAtSec,
+                customer_email: reqData.email || undefined,
+                line_items: [{
+                  quantity: 1,
+                  price_data: {
+                    currency: "jpy",
+                    unit_amount: total,
+                    product_data: {
+                      name: `【${reqData.propertyName || "宿泊予約"}】宿泊料金`,
+                      description: description.slice(0, 200),
+                    },
+                  },
+                }],
+                metadata: {
+                  bookingId: bookingRef.id,
+                  bookingRequestId: id,
+                  propertyId: reqData.propertyId,
+                  propertyName: (reqData.propertyName || "").slice(0, 80),
+                  plan: reqData.plan || "standard",
+                  checkIn: reqData.checkIn,
+                  checkOut: reqData.checkOut,
+                  guests: String(reqData.guestCount || 1),
+                  quoteTotal: String(total),
+                },
+                payment_intent_data: {
+                  metadata: {
+                    bookingId: bookingRef.id,
+                    propertyId: reqData.propertyId,
+                  },
+                  description: description.slice(0, 200),
+                },
+                success_url: successUrl,
+                cancel_url: cancelUrl,
+              });
+              payment = {
+                status: "pending",
+                url: session.url,
+                amount: total,
+                expiresAt: expiresAtSec,
+                sessionId: session.id,
+              };
+              await bookingRef.update({
+                paymentStatus: "pending",
+                paymentSession: {
+                  provider: "stripe",
+                  sessionId: session.id,
+                  url: session.url,
+                  amount: total,
+                  currency: "jpy",
+                  expiresAt: expiresAtSec,
+                  createdAt: FieldValue.serverTimestamp(),
+                },
+                priceBreakdown: quoteResult.quote,
+              });
+            }
+          }
+        }
+      } catch (payErr) {
+        console.error("[booking-requests/approve] Checkout Session 生成失敗:", payErr.message);
+        // 決済生成失敗でも承認は成立させる (メール本文は決済無しモードにフォールバック)
+      }
+
       // ゲストへ承認メール (支払案内・キャンセルポリシー・名簿フォームURL)
       try {
         const { sendNotificationEmail_, resolveSenderGmail_ } = require("../utils/lineNotify");
@@ -139,7 +247,8 @@ module.exports = function bookingRequestsApi(db) {
           ? "返金不可プラン（ご予約確定後のキャンセル・返金はできません）"
           : "スタンダードプラン（キャンセルポリシーは物件ページの記載に準じます）";
         const subject = `【${reqData.propertyName || "ご予約"}】ご予約が確定しました`;
-        const bodyText = [
+
+        const bodyLines = [
           `${reqData.guestName || "ゲスト"} 様`,
           ``,
           `お待たせいたしました。ご予約リクエストを承認し、予約が確定いたしましたのでご連絡いたします。`,
@@ -151,22 +260,49 @@ module.exports = function bookingRequestsApi(db) {
           `人数: ${reqData.guestCount || "-"}名`,
           `キャンセルポリシー: ${planText}`,
           ``,
-          `■お支払いについて`,
-          `お支払い方法およびお支払い時期については、追ってご案内いたします。`,
-          ``,
+        ];
+
+        if (payment.status === "pending" && payment.url) {
+          const expDate = new Date(payment.expiresAt * 1000);
+          // JST表記 (Asia/Tokyo 固定): UTC からのオフセットで簡易に変換 (Node の toLocaleString でもよいが依存を減らす)
+          const jst = new Date(expDate.getTime() + 9 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 16);
+          bodyLines.push(
+            `■お支払いのご案内`,
+            `合計金額: ¥${Number(payment.amount).toLocaleString("ja-JP")}（税込・宿泊料金）`,
+            `お支払い方法: クレジットカード（Visa / Mastercard / JCB / American Express 等）`,
+            `お支払い期限: ${jst} JST まで（承認から約24時間）`,
+            ``,
+            `下記のお支払いページよりお手続きください：`,
+            `${payment.url}`,
+            ``,
+            `※ お支払い期限までにご決済が確認できない場合、ご予約は自動的にキャンセルとなります。`,
+            `※ お支払い後、Stripe より領収書が自動送信されます。`,
+            ``,
+          );
+        } else {
+          bodyLines.push(
+            `■お支払いについて`,
+            `お支払い方法およびお支払い時期については、追ってご案内いたします。`,
+            ``,
+          );
+        }
+
+        bodyLines.push(
           `■宿泊者名簿のご提出をお願いします`,
           `チェックインまでに下記フォームよりご記入ください。`,
           `${formUrl}`,
           ``,
           `ご不明な点がございましたらお気軽にお問い合わせください。`,
           `よろしくお願いいたします。`,
-        ].join("\n");
+        );
+
+        const bodyText = bodyLines.join("\n");
         await sendNotificationEmail_(reqData.email, subject, bodyText, senderGmail || null);
       } catch (mailErr) {
         console.warn("[booking-requests/approve] 承認メール送信失敗:", mailErr.message);
       }
 
-      res.json({ ok: true, bookingId: bookingRef.id });
+      res.json({ ok: true, bookingId: bookingRef.id, payment });
     } catch (e) {
       // 同時承認による競合はエラーではなく「処理済み」として 409 を返す
       if (e && e.alreadyProcessed) {
@@ -174,6 +310,59 @@ module.exports = function bookingRequestsApi(db) {
       }
       console.error("[booking-requests] 承認エラー:", e);
       res.status(500).json({ error: e.message || "承認処理に失敗しました" });
+    }
+  });
+
+  // POST /booking-requests/:id/refund
+  // オーナーが決済済みの予約に対して返金を実行する。
+  // body: { amount?: number, reason?: string }
+  //   amount 未指定 → 全額返金 (Stripe が支払金額を自動判定)
+  //   amount 指定 → 部分返金 (キャンセル料相殺後の返金額を渡す)
+  // 実データ更新は Stripe Webhook (charge.refunded) が担う (SSOT を分けない)。
+  router.post("/:id/refund", async (req, res) => {
+    try {
+      if (req.user.role !== "owner") {
+        return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
+      }
+      const { id } = req.params;
+      const body = req.body || {};
+      const amountRaw = body.amount;
+      const reason = String(body.reason || "").slice(0, 500);
+
+      const bookingRef = db.collection("bookings").doc(`direct-${id}`);
+      const bookingSnap = await bookingRef.get();
+      if (!bookingSnap.exists) {
+        return res.status(404).json({ error: "予約が見つかりません" });
+      }
+      const b = bookingSnap.data();
+      const session = b.paymentSession;
+      const paymentIntentId = session && session.paymentIntentId;
+      if (!paymentIntentId) {
+        return res.status(400).json({ error: "決済情報が見つかりません（未払い or Stripe未使用）" });
+      }
+      if (b.paymentStatus !== "paid" && b.paymentStatus !== "partially_refunded") {
+        return res.status(409).json({ error: `返金できない状態です (paymentStatus=${b.paymentStatus})` });
+      }
+
+      const stripe = getStripe();
+      if (!stripe.isEnabled) return res.status(503).json({ error: "Stripe未設定です" });
+
+      const refundParams = { payment_intent: paymentIntentId };
+      if (amountRaw != null) {
+        const amount = Number(amountRaw);
+        if (!Number.isFinite(amount) || amount <= 0) {
+          return res.status(400).json({ error: "amount が不正です" });
+        }
+        refundParams.amount = Math.floor(amount);
+      }
+      if (reason) refundParams.metadata = { reason };
+
+      const refund = await stripe.client.refunds.create(refundParams);
+      // paymentStatus 反映は charge.refunded webhook 側で確定 (SSOT)
+      res.json({ ok: true, refundId: refund.id, status: refund.status, amount: refund.amount });
+    } catch (e) {
+      console.error("[booking-requests] 返金エラー:", e);
+      res.status(500).json({ error: e.message || "返金処理に失敗しました" });
     }
   });
 

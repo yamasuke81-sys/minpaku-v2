@@ -24,7 +24,8 @@
     "firebase-functions": "^6.3.0",
     "googleapis": "^144.0.0",
     "node-ical": "^0.26.0",
-    "pdfkit": "^0.18.0"
+    "pdfkit": "^0.18.0",
+    "stripe": "^22.3.0"
   },
   "devDependencies": {
     "firebase-functions-test": "^3.4.0",

@@ -226,7 +226,21 @@ app.use((req, res) => {
 // /email-verification/run や /confirm の同時実行で 278 MiB 超過、staff_confirm 通知の
 // 非同期処理が完了せず通知不達になっていた事例を踏まえ十分な余裕を持たせる
 // (過去に別 fn で 512 MiB でも不足した経緯があり、1GiB に設定)
-exports.api = onRequest({ region: "asia-northeast1", invoker: "public", memory: "1GiB" }, app);
+// Stripe 秘密鍵は Cloud Functions Secrets で管理 (defineSecret)。
+// 未設定時は utils/stripe.js が isEnabled:false を返し、決済無しモードで動作継続する。
+const { STRIPE_SECRET_KEY } = require("./utils/stripe");
+exports.api = onRequest({
+  region: "asia-northeast1",
+  invoker: "public",
+  memory: "1GiB",
+  secrets: [STRIPE_SECRET_KEY],
+}, app);
+
+// ========== Stripe Webhook ==========
+// Cloud Run URL は Stripe ダッシュボードに登録する
+// (署名検証には rawBody が必要なので Express /api とは別関数)
+const { stripeWebhook } = require("./stripeWebhook");
+exports.stripeWebhook = stripeWebhook;
 
 // ========== LINE Bot Webhook ==========
 // LINE Developers ConsoleのWebhook URLにこのエンドポイントを設定
