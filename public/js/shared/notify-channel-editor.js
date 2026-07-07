@@ -116,6 +116,10 @@
       { name: "fee",      label: "料金合計",         sample: "4,000",      source: "台数 × 2,000円" },
       { name: "property", label: "物件名",           sample: "the Terrace 長浜", source: "物件" },
     ],
+    payment: [
+      { name: "property", label: "物件名",   sample: "the Terrace 長浜", source: "Stripe metadata.propertyName / booking.propertyName" },
+      { name: "amount",   label: "金額",     sample: "¥86,250",          source: "Stripe session.amount_total (税込・宿泊料金)" },
+    ],
   };
 
   // ========== 通知定義 ==========
@@ -189,6 +193,12 @@
     { key: "direct_request", label: "直接予約リクエスト", desc: "宿公式サイトから直接予約のリクエストが届いた時にWebアプリ管理者へ通知（承認/却下は管理画面の「直接予約リクエスト」から行う）", icon: "bi-inbox", group: "booking", varGroup: "booking", defaultTiming: "immediate",
       defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: true,
       defaultMsg: "📩 直接予約リクエスト受信\n\n宿: {property}\n日程: {checkin} 〜 {date}\nゲスト: {guest}\n\n確認・承認: {url}" },
+    { key: "payment_received", label: "宿泊料お支払い完了", desc: "直接予約のゲストが Stripe 決済を完了した時にWebアプリ管理者へ通知", icon: "bi-credit-card", group: "booking", varGroup: "payment", defaultTiming: "immediate",
+      defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: true,
+      defaultMsg: "💳 宿泊料のお支払いが完了しました\n\n宿: {property}\n金額: {amount}" },
+    { key: "payment_expired", label: "支払期限切れ 自動キャンセル", desc: "直接予約の支払期限（承認から24時間）を過ぎ、予約が自動キャンセルされた時にWebアプリ管理者へ通知", icon: "bi-hourglass-bottom", group: "booking", varGroup: "payment", defaultTiming: "immediate",
+      defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: true,
+      defaultMsg: "⏰ 支払期限切れ 自動キャンセル\n\n宿: {property}\n金額: {amount}\n\n支払期限を過ぎたため予約は自動キャンセルされました。" },
     { key: "double_booking", label: "ダブルブッキング検知", desc: "同物件・同日程に複数予約が重複した際にWebアプリ管理者へ緊急通知", icon: "bi-exclamation-triangle-fill", group: "booking", varGroup: "booking", defaultTiming: "immediate",
       defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: true, defaultStaffLine: false, defaultEmail: false,
       defaultMsg: "【⚠️ ダブルブッキング警告】\n物件: {property}\n日程: {checkin} 〜 {date}\n\n衝突予約が検出されました。至急確認してください。\n確認: {url}" },

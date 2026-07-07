@@ -22,6 +22,11 @@ const corsOrigins = [
   "https://minpaku-v2.web.app",
   "https://minpaku-v2.firebaseapp.com",
   /^http:\/\/localhost(:\d+)?$/, // firebase serve / ローカル検証用
+  // 宿サイト各サイトの Firebase Hosting 既定URL (DNS未設定の新宿はこの web.app が唯一の到達URL)。
+  // カスタムドメイン (*.setouchi-stay.com) は下の CUSTOM_DOMAIN 正規表現でカバーされるが、
+  // web.app / firebaseapp.com の既定ドメインは別途許可しないと availability/quote fetch が CORS で恒久ブロックされる。
+  /^https:\/\/setouchi-stay-[a-z0-9-]+\.web\.app$/,
+  /^https:\/\/setouchi-stay-[a-z0-9-]+\.firebaseapp\.com$/,
 ];
 if (CUSTOM_DOMAIN) {
   const esc = CUSTOM_DOMAIN.replace(/\./g, "\\.");

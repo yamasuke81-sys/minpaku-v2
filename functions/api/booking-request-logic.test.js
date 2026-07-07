@@ -168,6 +168,17 @@ describe("validateBookingRequest", () => {
     const r = validateBookingRequest({ ...base, guests: 20 }, { capacity: 0 }, { todayStr: "2026-07-01" });
     assert.strictEqual(r.ok, true);
   });
+  test("minNights 未指定/1 は 1泊でも通る (従来互換)", () => {
+    const oneNight = { ...base, checkIn: "2026-08-01", checkOut: "2026-08-02" };
+    assert.strictEqual(validateBookingRequest(oneNight, property, { todayStr: "2026-07-01" }).ok, true);
+    assert.strictEqual(validateBookingRequest(oneNight, property, { todayStr: "2026-07-01", minNights: 1 }).ok, true);
+  });
+  test("minNights:3 の宿は 2泊で拒否・3泊で通過", () => {
+    // base は 8/1〜8/3 = 2泊
+    assert.strictEqual(validateBookingRequest(base, property, { todayStr: "2026-07-01", minNights: 3 }).ok, false);
+    const threeNights = { ...base, checkIn: "2026-08-01", checkOut: "2026-08-04" };
+    assert.strictEqual(validateBookingRequest(threeNights, property, { todayStr: "2026-07-01", minNights: 3 }).ok, true);
+  });
 });
 
 describe("isSpamSubmission", () => {

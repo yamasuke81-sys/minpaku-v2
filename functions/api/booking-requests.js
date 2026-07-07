@@ -386,11 +386,31 @@ module.exports = function bookingRequestsApi(db) {
       const stripe = getStripe();
       if (!stripe.isEnabled) return res.status(503).json({ error: "Stripe未設定です" });
 
+      // Stripe 実額をサーバー側でも検証する (フロントの上限検証・Stripe の過大返金拒否に加えた三重防御)。
+      // PaymentIntent から実支払額と既返金額を取得し、返金可能残額を超える指定を 400 で弾く。
+      let refundableAmount = null; // 取得できたときのみ検証 (取得失敗時は Stripe 側の拒否に委ねる)
+      try {
+        const pi = await stripe.client.paymentIntents.retrieve(paymentIntentId, { expand: ["latest_charge"] });
+        const charged = Number(pi && pi.amount_received) || Number(pi && pi.amount) || 0;
+        const charge = pi && pi.latest_charge;
+        const alreadyRefunded = (charge && Number(charge.amount_refunded)) || 0;
+        if (charged > 0) refundableAmount = Math.max(0, charged - alreadyRefunded);
+      } catch (piErr) {
+        console.warn("[booking-requests/refund] PaymentIntent 取得失敗、上限検証はStripeに委ねる:", piErr.message);
+      }
+      if (refundableAmount != null && refundableAmount <= 0) {
+        return res.status(400).json({ error: "返金可能な残額がありません（既に全額返金済みの可能性）" });
+      }
+
       const refundParams = { payment_intent: paymentIntentId };
       if (amountRaw != null) {
         const amount = Number(amountRaw);
         if (!Number.isFinite(amount) || amount <= 0) {
           return res.status(400).json({ error: "amount が不正です" });
+        }
+        // 実支払額(残額)を超える部分返金はサーバー側で拒否 (フォールバック表示の誤り等で過大指定されても防ぐ)
+        if (refundableAmount != null && Math.floor(amount) > refundableAmount) {
+          return res.status(400).json({ error: `返金額が返金可能残額(¥${refundableAmount.toLocaleString("ja-JP")})を超えています` });
         }
         refundParams.amount = Math.floor(amount);
       }

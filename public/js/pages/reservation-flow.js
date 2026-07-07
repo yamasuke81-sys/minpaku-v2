@@ -82,11 +82,17 @@ const ReservationFlowPage = {
       { name: "fee",      label: "料金合計",         sample: "4,000" },
       { name: "property", label: "物件名",           sample: "the Terrace 長浜" },
     ],
+    payment: [
+      { name: "property", label: "物件名", sample: "the Terrace 長浜" },
+      { name: "amount",   label: "金額",   sample: "¥86,250" },
+    ],
   },
 
   // ========== 通知デフォルト値 (notifications.js の notifications 配列から参照) ==========
   _notifDefaults: {
     direct_request:     { defaultMsg: "📩 直接予約リクエスト受信\n\n宿: {property}\n日程: {checkin} 〜 {date}\nゲスト: {guest}\n\n確認・承認: {url}", defaultTiming: "immediate", varGroup: "booking" },
+    payment_received:   { defaultMsg: "💳 宿泊料のお支払いが完了しました\n\n宿: {property}\n金額: {amount}", defaultTiming: "immediate", varGroup: "payment" },
+    payment_expired:    { defaultMsg: "⏰ 支払期限切れ 自動キャンセル\n\n宿: {property}\n金額: {amount}\n\n支払期限を過ぎたため予約は自動キャンセルされました。", defaultTiming: "immediate", varGroup: "payment" },
     recruit_start:      { defaultMsg: "🧹 {work}スタッフ募集\n\n{date} {property}\n{work}スタッフを募集しています。\n回答をお願いします（◎OK / △微妙 / ×NG）\n\n回答: {url}", defaultTiming: "immediate", varGroup: "recruit" },
     double_booking:     { defaultMsg: "【⚠️ ダブルブッキング警告】\n物件: {property}\n日程: {checkin} 〜 {date}\n\n衝突予約が検出されました。至急確認してください。\n確認: {url}", defaultTiming: "immediate", varGroup: "booking" },
     roster_received:    { defaultMsg: "📨 宿泊者名簿が届きました\n\n{checkin} {property}\nゲスト: {guest}\n詳細: {url}", defaultTiming: "immediate", varGroup: "booking" },
@@ -138,6 +144,18 @@ const ReservationFlowPage = {
       linkHash: "#/booking-requests",
       linkLabel: "直接予約リクエストを開く",
       hint: "宿公式サイトからのリクエストを bookingRequests に保存 (bookings には未反映)。管理画面で承認すると bookings が作成され、以降は通常の予約フローに合流する。",
+    },
+    {
+      key: "payment_received",
+      label: "宿泊料お支払い完了 (Stripe)",
+      icon: "bi-credit-card",
+      lane: "owner",
+      phase: 1,
+      globalChannel: "payment_received",
+      varGroup: "payment",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+      hint: "承認後にゲストが Stripe 決済を完了すると webhook (checkout.session.completed) がこの通知を発火する。channelOverrides 未設定だと無音になるため、宿ごとに送信先を保存すること。",
     },
     {
       key: "ical_sync",
@@ -842,6 +860,18 @@ const ReservationFlowPage = {
       varGroup: "booking",
       linkHash: "#/notifications",
       linkLabel: "通知設定",
+    },
+    {
+      key: "payment_expired",
+      label: "支払期限切れ 自動キャンセル (Stripe)",
+      icon: "bi-hourglass-bottom",
+      lane: "owner",
+      branch: "cancel",
+      globalChannel: "payment_expired",
+      varGroup: "payment",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+      hint: "承認から24時間以内に決済されないと webhook (checkout.session.expired) が予約を自動キャンセルし、この通知を発火する (booking_cancel 通知も併せて発火)。",
     },
 
     // ---- 分岐B: スタッフ出勤キャンセル (バックエンド未実装) ----

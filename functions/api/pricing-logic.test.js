@@ -163,4 +163,13 @@ describe("computeQuote — 小町の実料金で検算", () => {
     const r = computeQuote({ rates: komachi, checkIn: "2026-07-06", checkOut: "2026-07-08", guests: 2, plan: "xxx" });
     assert.strictEqual(r.quote.plan, "standard");
   });
+
+  test("minNights 未満はエラー / 以上は通る (minNights:1 は無制約)", () => {
+    // minNights:1 (komachi) は 1泊でも通る (従来どおり)
+    assert.strictEqual(computeQuote({ rates: komachi, checkIn: "2026-07-06", checkOut: "2026-07-07", guests: 2 }).ok, true);
+    // minNights:3 の宿は 2泊で拒否、3泊で通過
+    const min3 = { ...komachi, minNights: 3 };
+    assert.strictEqual(computeQuote({ rates: min3, checkIn: "2026-07-06", checkOut: "2026-07-08", guests: 2 }).ok, false);
+    assert.strictEqual(computeQuote({ rates: min3, checkIn: "2026-07-06", checkOut: "2026-07-09", guests: 2 }).ok, true);
+  });
 });

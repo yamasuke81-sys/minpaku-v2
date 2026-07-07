@@ -39,12 +39,18 @@ function buildDiffText(previous, current, lang) {
     { key: "nextStay", label: "後泊地", labelEn: "Next stay" },
     { key: "emergencyName", label: "緊急連絡先 氏名", labelEn: "Emergency contact name" },
     { key: "emergencyPhone", label: "緊急連絡先 電話番号", labelEn: "Emergency contact phone" },
+    { key: "marketingConsent", label: "お知らせ配信同意", labelEn: "Marketing consent", type: "bool" },
   ];
 
   const changes = [];
   for (const f of fields) {
-    const oldVal = String(previous[f.key] || "");
-    const newVal = String(current[f.key] || "");
+    // boolean フィールドは true/false を「あり/なし」(en: Yes/No) に整形して比較する
+    const fmt = (v) => {
+      if (f.type === "bool") return v === true ? (en ? "Yes" : "あり") : (en ? "No" : "なし");
+      return String(v || "");
+    };
+    const oldVal = fmt(previous[f.key]);
+    const newVal = fmt(current[f.key]);
     if (oldVal !== newVal) {
       const lbl = en ? f.labelEn : f.label;
       changes.push(en ? `- ${lbl}: "${oldVal}" -> "${newVal}"` : `・${lbl}: 「${oldVal}」→「${newVal}」`);

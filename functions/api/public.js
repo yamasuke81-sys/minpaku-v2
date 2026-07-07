@@ -834,7 +834,17 @@ router.post("/booking-request", express.json(), async (req, res) => {
     }
 
     // ===== 入力検証 =====
-    const validation = validateBookingRequest(body, property);
+    // 最低泊数 (propertyRates.minNights) をここで強制する。propertyRates は単一ドキュメント読取り
+    // (複合クエリではない) なので index 追加は不要。未設定/1 の物件は従来どおり素通りする。
+    let minNights = 1;
+    try {
+      const ratesSnap = await db.collection("propertyRates").doc(propertyId).get();
+      if (ratesSnap.exists) {
+        const mn = Number(ratesSnap.data().minNights);
+        if (Number.isFinite(mn) && mn > 1) minNights = Math.floor(mn);
+      }
+    } catch (_e) { /* 料金未設定は minNights=1 扱い */ }
+    const validation = validateBookingRequest(body, property, { minNights });
     if (!validation.ok) {
       return res.status(400).json({ error: validation.error });
     }

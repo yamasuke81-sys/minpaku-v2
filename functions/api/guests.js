@@ -101,6 +101,8 @@ module.exports = function guestsApi(db) {
           });
 
           if (target) {
+            // 既存doc(target)が未同意→同意のときのみ marketingConsentAt を付与 (guest-edit と対称)
+            applyMarketingConsentAt_(data, target.data());
             data.updatedAt = FieldValue.serverTimestamp();
             await target.ref.update(data);
             return res.json({ id: target.id, updated: true, ...data });
@@ -108,7 +110,8 @@ module.exports = function guestsApi(db) {
         }
       }
 
-      // 新規作成
+      // 新規作成 (既存なし → 同意なら初回として marketingConsentAt を付与)
+      applyMarketingConsentAt_(data, null);
       data.createdAt = FieldValue.serverTimestamp();
       data.updatedAt = FieldValue.serverTimestamp();
       docRef = await collection.add(data);
@@ -134,6 +137,8 @@ module.exports = function guestsApi(db) {
       if (data.error) {
         return res.status(400).json({ error: data.error });
       }
+      // 既存doc が未同意→同意のときのみ marketingConsentAt を付与 (guest-edit と対称)
+      applyMarketingConsentAt_(data, doc.data());
       data.updatedAt = FieldValue.serverTimestamp();
       await docRef.update(data);
       res.json({ id: req.params.id, ...data });
@@ -172,6 +177,8 @@ module.exports = function guestsApi(db) {
       for (const record of records) {
         const data = validateGuestData(record);
         if (data.error) continue;
+        // 一括インポートは新規作成 (既存なし) → 同意なら初回として marketingConsentAt を付与
+        applyMarketingConsentAt_(data, null);
         data.source = data.source || "google_form";
         data.createdAt = FieldValue.serverTimestamp();
         data.updatedAt = FieldValue.serverTimestamp();
@@ -242,6 +249,19 @@ module.exports = function guestsApi(db) {
 };
 
 /**
+ * marketingConsentAt (初回同意日時) の付与を対称化するヘルパー。
+ * 既存doc(existing)が未同意で、今回 true に切り替わる場合のみサーバタイムスタンプを付与する。
+ * 既に同意済みの場合は上書きしない (初回同意日時 = 特定電子メール法の証跡を保持)。
+ * @param {object} data - validateGuestData の戻り (書き込み予定データ)
+ * @param {object|null} existing - 既存ドキュメントのデータ (新規時は null)
+ */
+function applyMarketingConsentAt_(data, existing) {
+  if (data.marketingConsent === true && !(existing && existing.marketingConsent === true)) {
+    data.marketingConsentAt = FieldValue.serverTimestamp();
+  }
+}
+
+/**
  * 宿泊者データのバリデーション
  */
 function validateGuestData(body, isUpdate = false) {
@@ -288,10 +308,12 @@ function validateGuestData(body, isUpdate = false) {
   if (body.noiseAgree !== undefined) data.noiseAgree = !!body.noiseAgree;
   if (body.houseRuleAgree !== undefined) data.houseRuleAgree = !!body.houseRuleAgree;
   // お知らせ配信への同意 (任意・不正型は false に丸める / 特定電子メール法のオプトイン同意)
+  // 同意日時 (marketingConsentAt) はここでは付与しない。
+  // 「未同意→同意に切り替わった初回のみ記録し、既存の同意日時は上書きしない」という
+  // guest-edit.js と対称の運用にするため、既存doc状態を参照できる各ハンドラ側で付与する
+  // (applyMarketingConsentAt_ を使用)。
   if (body.marketingConsent !== undefined) {
     data.marketingConsent = body.marketingConsent === true;
-    // true のときのみ同意日時サーバタイムスタンプを付与
-    if (data.marketingConsent) data.marketingConsentAt = FieldValue.serverTimestamp();
   }
   // 全ゲスト（代表者+同行者、パスポート写真URL含む）
   if (body.allGuests !== undefined) {

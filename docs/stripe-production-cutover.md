@@ -4,6 +4,21 @@ Plan B (承認後 Checkout Session 自動生成 + Webhook + 返金 API) を **�
 
 前提: テストモード検証がすべて成功していること (`project_setouchi_stripe_payment_plan` 参照)。
 
+## ★前提: テスト鍵での E2E 継続には allowTestCheckout フラグが必要
+
+テストモード (`sk_test_` キー) のまま承認→Checkout の通し検証を続ける場合、
+Firestore `settings/directBooking` に **`allowTestCheckout: true`** を投入しておく必要がある。
+
+- このフラグが無いと、承認 API はテスト鍵での誤決済リンク送付を防ぐガード
+  (`booking-requests.js` の `stripeUsable` 判定) により **決済リンクを生成せず**、
+  承認メールは「お支払い方法は追ってご案内」の暫定文面になる。
+- 実測 (2026-07-05 以降) では `settings/directBooking = {enabled:true}` のみで
+  `allowTestCheckout` 未設定 = テスト決済リンクは生成されない状態。
+- 投入方法: Firebase Console → Firestore → `settings/directBooking` に
+  `allowTestCheckout` (boolean) = `true` を追加。
+- **本番切替 (`sk_live_` 鍵) 後はこのフラグは無視される** (本番鍵は `isLive=true` で自動有効化)。
+  ただし将来テスト鍵を誤投入したときのガードを残すため、本番切替の後始末で削除する (下記「確認ポイント」参照)。
+
 ## ★やますけが実施する手順
 
 ### 1. Stripe 事業者情報の入力 (本番の入金に必要)
@@ -97,6 +112,9 @@ firebase deploy --only functions:api,functions:stripeWebhook --project minpaku-v
 - [ ] 特商法・宿泊約款の記載が最新
 - [ ] 少額実予約1件で通し検証完了
 - [ ] 個人名義宿と法人口座の受領可否について税理士確認済み
+- [ ] **本番切替後の後始末**: Firestore `settings/directBooking` の `allowTestCheckout` フィールドを削除
+      (本番鍵では無視されるが、将来テスト鍵を誤って投入したときにガードを効かせるため。
+      Firebase Console → Firestore → `settings/directBooking` → `allowTestCheckout` を削除)
 
 ## 参考 (Plan A に戻したいとき)
 

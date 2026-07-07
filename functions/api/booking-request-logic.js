@@ -114,11 +114,14 @@ function isValidEmail(email) {
  * @param {object} [opts]
  * @param {string} [opts.todayStr]
  * @param {number} [opts.maxNights=30]
+ * @param {number} [opts.minNights=1] - propertyRates.minNights (最低泊数)。未設定は 1 (実質無制限)。
  * @returns {{ok:true}|{ok:false, error:string}}
  */
 function validateBookingRequest(body, property, opts = {}) {
   const todayStr = opts.todayStr || todayJst();
   const maxNights = Number.isFinite(opts.maxNights) ? opts.maxNights : 30;
+  // 最低泊数 (propertyRates.minNights)。1 以下は制約なしとして扱う。
+  const minNights = (Number.isFinite(opts.minNights) && opts.minNights > 1) ? Math.floor(opts.minNights) : 1;
 
   const checkIn = String(body.checkIn || "").slice(0, 10);
   const checkOut = String(body.checkOut || "").slice(0, 10);
@@ -134,6 +137,9 @@ function validateBookingRequest(body, property, opts = {}) {
   const nights = nightsBetween(checkIn, checkOut);
   if (nights > maxNights) {
     return { ok: false, error: `宿泊日数は${maxNights}泊までです` };
+  }
+  if (minNights > 1 && nights < minNights) {
+    return { ok: false, error: `この宿は${minNights}泊以上のご予約が必要です` };
   }
 
   const guests = parseInt(body.guests, 10);

@@ -107,6 +107,12 @@ function computeQuote({ rates, checkIn, checkOut, guests, plan, overrides }) {
   if (nights <= 0) {
     return { ok: false, error: "チェックアウト日はチェックイン日より後にしてください" };
   }
+  // 最低泊数 (propertyRates.minNights)。1 以下は制約なし。見積段階で弾く。
+  const minNights = (Number.isFinite(Number(rates.minNights)) && Number(rates.minNights) > 1)
+    ? Math.floor(Number(rates.minNights)) : 1;
+  if (minNights > 1 && nights < minNights) {
+    return { ok: false, error: `この宿は${minNights}泊以上のご予約が必要です` };
+  }
   const g = Math.max(1, parseInt(guests, 10) || 1);
   const planKey = ["standard", "nonrefundable"].includes(String(plan)) ? String(plan) : "standard";
 

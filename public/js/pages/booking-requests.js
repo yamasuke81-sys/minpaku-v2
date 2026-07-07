@@ -140,7 +140,9 @@ const BookingRequestsPage = {
     const meta = this._PAYMENT_META[st] || this._PAYMENT_META.unconfigured;
     const sess = x.paymentSession || {};
     const parts = [`<span class="badge ${meta.cls}"><i class="bi bi-credit-card"></i> ${meta.label}</span>`];
-    if (sess.amountPaid) parts.push(`<span class="small text-muted">入金 ¥${Number(sess.amountPaid).toLocaleString("ja-JP")}</span>`);
+    // amountPaid 欠落時は承認時合計 (sess.amount) にフォールバック (支払い済みバッジ時のみ意味を持つ)
+    const paidDisp = Number(sess.amountPaid) || Number(sess.amount) || 0;
+    if (paidDisp) parts.push(`<span class="small text-muted">入金 ¥${paidDisp.toLocaleString("ja-JP")}</span>`);
     if (sess.amountRefunded) parts.push(`<span class="small text-muted">返金 ¥${Number(sess.amountRefunded).toLocaleString("ja-JP")}</span>`);
     return `<span class="d-inline-flex align-items-center gap-1 flex-wrap ms-1">${parts.join(" ")}</span>`;
   },
@@ -282,7 +284,10 @@ const BookingRequestsPage = {
   _showRefundModal(x) {
     return new Promise((resolve) => {
       const sess = x.paymentSession || {};
-      const paid = Number(sess.amountPaid) || 0;
+      // amountPaid は webhook (checkout.session.completed) が書く。未達/古いドット記法で欠落する場合は
+      // 承認時に確定した合計 (sess.amount = Checkout Session の請求額) にフォールバックして
+      // 入金額表示と上限検証を機能させる (最終的な過大返金拒否は Stripe 実額でもサーバー側でも二重に行う)。
+      const paid = Number(sess.amountPaid) || Number(sess.amount) || 0;
       const refunded = Number(sess.amountRefunded) || 0;
       const remaining = Math.max(0, paid - refunded); // 返金可能な残額
       const modalId = `refundModal_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;

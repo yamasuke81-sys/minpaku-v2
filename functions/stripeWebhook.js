@@ -118,6 +118,70 @@ async function handleCheckoutExpired(db, session) {
     } catch (e) { /* not critical */ }
   }
   console.info(`[stripeWebhook] expired → cancelled: booking=${bookingId}`);
+
+  const propertyId = b.propertyId || (session.metadata && session.metadata.propertyId) || "";
+  const propertyName = b.propertyName || (session.metadata && session.metadata.propertyName) || "";
+  const amountRaw = Number((b.paymentSession && b.paymentSession.amount)) || Number(session.amount_total) || 0;
+  const amountLabel = amountRaw ? `¥${amountRaw.toLocaleString("ja-JP")}` : "-";
+
+  // (a) ゲストへ日英併記のキャンセル確定メール (handleAsyncPaymentFailed と同型) — 静かに失敗させる
+  try {
+    const { sendNotificationEmail_, resolveSenderGmail_ } = require("./utils/lineNotify");
+    const to = b.email;
+    if (to) {
+      const guestName = b.guestName || "ゲスト";
+      const subject = `【${propertyName || "ご予約"}】ご予約は自動キャンセルされました / Reservation cancelled`;
+      const bodyText = [
+        `${guestName} 様`,
+        ``,
+        `お支払い期限を過ぎたため、ご予約は自動的にキャンセルされました。`,
+        `恐れ入りますが、改めてご予約いただけますようお願いいたします。`,
+        ``,
+        `■キャンセルされたご予約`,
+        `宿泊施設: ${propertyName}`,
+        `チェックイン: ${b.checkIn || ""}`,
+        `チェックアウト: ${b.checkOut || ""}`,
+        ``,
+        `────────────────────`,
+        ``,
+        `Dear ${guestName},`,
+        ``,
+        `Your reservation has been cancelled automatically because the payment deadline has passed.`,
+        `We apologize for the inconvenience — please feel free to make a new reservation.`,
+        ``,
+        `- Cancelled reservation`,
+        `Property: ${propertyName}`,
+        `Check-in: ${b.checkIn || ""}`,
+        `Check-out: ${b.checkOut || ""}`,
+      ].join("\n");
+      const senderGmail = await resolveSenderGmail_(db, propertyId);
+      await sendNotificationEmail_(to, subject, bodyText, senderGmail || null);
+      console.info(`[stripeWebhook] expired キャンセル確定メール送信: booking=${bookingId}`);
+    } else {
+      console.warn(`[stripeWebhook] expired ${bookingId} メールアドレスなし、キャンセル確定メール送らず`);
+    }
+  } catch (e) {
+    console.warn("[stripeWebhook] expired キャンセル確定メール失敗:", e.message);
+  }
+
+  // (b) オーナー通知 (payment_expired) — 支払期限切れが判別できるよう booking_cancel 連鎖とは別に発火。
+  //     onBookingChange の booking_cancel も発火するが、そちらは期限切れ起因かどうか本文から判別できないため
+  //     「支払期限切れ」を明記した専用通知を追加する。静かに失敗させる (webhook 200 応答を優先)。
+  try {
+    const { notifyByKey } = require("./utils/lineNotify");
+    await notifyByKey(db, "payment_expired", {
+      title: "支払期限切れ 自動キャンセル",
+      body: `⏰ 支払期限切れ 自動キャンセル\n\n宿: ${propertyName || propertyId || "-"}\n金額: ${amountLabel}\nチェックイン: ${b.checkIn || "-"}\nチェックアウト: ${b.checkOut || "-"}\n予約ID: ${bookingId}\n\n支払期限を過ぎたため予約は自動キャンセルされました。ゲストへ再予約のご案内メールを自動送信済みです。`,
+      vars: {
+        property: propertyName || "",
+        amount: amountLabel,
+      },
+      propertyId,
+      _fromBatchQueue: true,
+    });
+  } catch (e) {
+    console.warn("[stripeWebhook] 支払期限切れ通知失敗:", e.message);
+  }
 }
 
 async function handleAsyncPaymentFailed(db, session) {

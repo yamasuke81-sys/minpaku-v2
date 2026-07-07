@@ -83,6 +83,14 @@ module.exports = function guestEditApi(db) {
       delete newData.previousData;
       delete newData.keyboxEmailSentAt;
       delete newData.source;
+      // タイムスタンプ系は必ずサーバー側で上書きする。クライアント(guest-form.html)が
+      // FieldValue.serverTimestamp() を JSON 化して送ると {_delegate:{_methodName:...}} という
+      // map 型のゴミが書き込まれ、createdAt ソート/フィルタが静かに壊れるため除外する。
+      delete newData.createdAt;
+      delete newData.submittedAt;
+      delete newData.updatedAt;
+      delete newData.lastEditedAt;
+      delete newData.marketingConsentAt;
 
       // 前回データを保存（diff生成用）
       const previousSnapshot = {};
@@ -92,7 +100,7 @@ module.exports = function guestEditApi(db) {
         "guestCount", "guestCountInfants", "bookingSite",
         "transport", "carCount", "vehicleTypes", "paidParking",
         "bbq", "bedChoice", "purpose", "previousStay", "nextStay",
-        "emergencyName", "emergencyPhone", "guests",
+        "emergencyName", "emergencyPhone", "guests", "marketingConsent",
       ];
       for (const f of fieldsToSnapshot) {
         if (currentData[f] !== undefined) previousSnapshot[f] = currentData[f];
