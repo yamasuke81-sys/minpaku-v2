@@ -161,8 +161,25 @@ module.exports = function bookingRequestsApi(db) {
       let payment = { status: "unconfigured", url: null, amount: null, expiresAt: null, sessionId: null };
       try {
         const stripe = getStripe();
-        if (!stripe.isEnabled) {
-          console.info("[booking-requests/approve] Stripe未設定のため決済リンク無しで承認完了");
+        // テストモードキー(sk_test_)混入の事故防止ガード:
+        // 本番運用中に誤ってテストキーが設定されていた場合、そのままだとオーナー承認の瞬間に
+        // 実ゲストの確定メールへテストモードの決済リンクが載ってしまう(決済してもらっても実売上にならない事故)。
+        // → 本番鍵(isLive)のときのみ通常どおり生成。テスト鍵のときは settings/directBooking.allowTestCheckout
+        //   が明示的に true (E2E検証用フラグ) の場合のみ許可し、それ以外は決済リンク無しにフォールバックする。
+        let allowTestCheckout = false;
+        if (stripe.isEnabled && !stripe.isLive) {
+          try {
+            const directCfgSnap = await db.collection("settings").doc("directBooking").get();
+            allowTestCheckout = directCfgSnap.exists && directCfgSnap.data().allowTestCheckout === true;
+          } catch (_e) { /* 読めなければ従来どおり無効扱い */ }
+        }
+        const stripeUsable = stripe.isEnabled && (stripe.isLive || allowTestCheckout);
+        if (!stripeUsable) {
+          if (stripe.isEnabled && !stripe.isLive) {
+            console.warn("[booking-requests/approve] Stripeがテストモードキーのため決済リンク無しで承認完了 (settings/directBooking.allowTestCheckoutで明示許可されていません)");
+          } else {
+            console.info("[booking-requests/approve] Stripe未設定のため決済リンク無しで承認完了");
+          }
         } else {
           const quoteResult = await computeQuoteFromDb(db, reqData.propertyId, {
             checkIn: reqData.checkIn,
