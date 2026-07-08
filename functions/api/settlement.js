@@ -13,6 +13,7 @@
 const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
 const { getStorage } = require("firebase-admin/storage");
+const { google } = require("googleapis");
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
@@ -317,6 +318,97 @@ module.exports = function settlementApi(db) {
     try { fs.unlinkSync(tmpPath); } catch (_) {}
     return url;
   }
+
+  // ── 宿泊税B: やどぜい月計表PDFから自動取込 ──
+  // OTAcsvフォルダは yamasuke81 のマイドライブ体系なので OAuth トークンで開く(pnl.js と同方式)
+  async function resolveOtaDrive_() {
+    const oauthDoc = await db.collection("settings").doc("gmailOAuth").get();
+    if (!oauthDoc.exists) throw new Error("Gmail/Drive OAuth 未設定");
+    const { clientId, clientSecret } = oauthDoc.data();
+    const cols = [
+      db.collection("settings").doc("gmailOAuth").collection("tokens"),
+      db.collection("settings").doc("gmailOAuthEmailVerification").collection("tokens"),
+    ];
+    async function findByEmail(email) {
+      for (const col of cols) { const s = await col.where("email", "==", email).limit(1).get(); if (!s.empty) return s.docs[0].data(); }
+      return null;
+    }
+    let tok = await findByEmail("yamasuke81@gmail.com");
+    if (!tok) for (const col of cols) { const s = await col.limit(1).get(); if (!s.empty) { tok = s.docs[0].data(); break; } }
+    if (!tok || !tok.refreshToken) throw new Error("Drive OAuth トークン未登録 (yamasuke81 の Drive 再認可が必要)");
+    const oa = new google.auth.OAuth2(clientId, clientSecret);
+    oa.setCredentials({ refresh_token: tok.refreshToken });
+    return google.drive({ version: "v3", auth: oa });
+  }
+
+  async function getGeminiApiKey_() {
+    const doc = await db.collection("settings").doc("scanSorter").get();
+    return doc.exists ? (doc.data().geminiApiKey || "") : "";
+  }
+
+  // 月計表PDF(base64)から当月の宿泊税額を抽出
+  async function geminiExtractTax_(pdfBase64, apiKey, yearMonth) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const prompt = [
+      "これは「やどぜい」(宿泊税)の月次集計表(月計表)または申告書のPDFです。",
+      `対象年月は ${yearMonth} です。この月に宿泊者から預かった/納付すべき宿泊税の合計額(円)を抽出してください。`,
+      "金額はカンマなしの整数。確実に読めなければ0。JSONのみ出力(説明文なし):",
+      '{"taxAmount": 整数, "confidence": 0-100}',
+    ].join("\n");
+    const payload = {
+      contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "application/pdf", data: pdfBase64 } }] }],
+      generationConfig: { temperature: 0.1 },
+    };
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (!r.ok) throw new Error("Gemini API error: " + r.status + " " + (await r.text()).slice(0, 200));
+    const j = await r.json();
+    const text = j.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error("Gemini応答にJSONがありません");
+    return JSON.parse(m[0]);
+  }
+
+  // POST /:propertyId/:yearMonth/import-tax — 月計表PDFから宿泊税額Bを取込 → pnl.taxWithholding
+  router.post("/:propertyId/:yearMonth/import-tax", async (req, res) => {
+    try {
+      const { propertyId, yearMonth } = req.params;
+      const propSnap = await db.collection("properties").doc(propertyId).get();
+      if (!propSnap.exists) return res.status(404).json({ error: "物件が見つかりません" });
+      const folderId = req.body?.folderId || propSnap.data().driveOtaCsvFolderId;
+      if (!folderId) return res.status(400).json({ error: "OTAcsvフォルダ(driveOtaCsvFolderId)が未設定です" });
+
+      const apiKey = await getGeminiApiKey_();
+      if (!apiKey) return res.status(400).json({ error: "Gemini APIキー(settings/scanSorter)が未設定です" });
+
+      const drive = await resolveOtaDrive_();
+      // 申告書を優先(税額が明記される)。月計表は課税対象泊数のみで税額が無いことがある
+      let file = null;
+      for (const kw of ["yadozei_申告書", "申告書", "yadozei_月計表", "月計表"]) {
+        const r = await drive.files.list({
+          q: `'${folderId}' in parents and trashed=false and name contains '${kw}' and name contains '${yearMonth}'`,
+          fields: "files(id,name)", orderBy: "createdTime desc", pageSize: 5,
+          supportsAllDrives: true, includeItemsFromAllDrives: true,
+        });
+        const pdfs = (r.data.files || []).filter((f) => /\.pdf$/i.test(f.name));
+        if (pdfs.length) { file = pdfs[0]; break; }
+      }
+      if (!file) return res.status(404).json({ error: `${yearMonth} のやどぜい月計表/申告書PDFが見つかりません` });
+
+      const bin = await drive.files.get({ fileId: file.id, alt: "media", supportsAllDrives: true }, { responseType: "arraybuffer" });
+      const pdfBase64 = Buffer.from(bin.data).toString("base64");
+      const parsed = await geminiExtractTax_(pdfBase64, apiKey, yearMonth);
+      const taxAmount = Math.max(0, Math.round(Number(parsed.taxAmount) || 0));
+
+      await pnlCol.doc(`${propertyId}_${yearMonth}`).set(
+        { propertyId, yearMonth, taxWithholding: taxAmount, taxWithholdingSource: file.name, updatedAt: FieldValue.serverTimestamp() },
+        { merge: true });
+
+      res.json({ ok: true, taxWithholding: taxAmount, confidence: parsed.confidence, sourceFile: file.name });
+    } catch (e) {
+      console.error("宿泊税取込エラー:", e);
+      res.status(400).json({ error: "宿泊税の取込に失敗しました: " + e.message });
+    }
+  });
 
   // 計算コンテキストのプレビュー(数値確認用・PDF生成なし)
   router.get("/:propertyId/:yearMonth/context", async (req, res) => {

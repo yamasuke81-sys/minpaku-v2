@@ -31,6 +31,13 @@
   - **5月pnlデータを本番投入済**(宿小町=201,769 / the Terrace=airbnb335,785+booking net285,260、settlementMode=self設定済)。デプロイ後すぐ画面で確認可能。
   - PDF実物2種を宿小町5月データで生成・目視確認済(請求額税込110,974、1ページ収まり、日本語OK)。
 
+## 進行中（2026-07-09 バックフィル）— ★要フォロー
+- **CSV自動取得(scheduler)は未稼働**(yadozeiQueue全94件はadmin-tool/listener-chain由来、scheduler由来0。次に自動で回るのは8/2)。Driveの実在CSVは2026-05のみ(取込済)。
+- **過去分フェッチ実施中(ユーザー指示: フェッチのみ・やどぜい送信は止める)**: `scratchpad/backfill-fetch.cjs` で **`disable`(やどぜいUpload停止)済** → **Airbnb 9件投入**(the Terrace 2025-09〜2026-04,06 / 宿小町 2026-06、createdBy=backfill-tool)。Airbnb過去月フェッチは疎通OK(2026-04テストdone)。listenerがPM2で順次処理中。
+- **★Booking.com は未ログインで失敗**(2026-04テストで判明)。→ **ユーザーが `node scripts/yadozei-listener.mjs --login` でBooking extranet再ログイン後**、`backfill-fetch.cjs full-booking` を投入する。
+- **★★やどぜいUpload を全物件で false に停止中**。バックフィル完了後 **必ず `backfill-fetch.cjs enable` で復帰**(元は両物件true)。忘れると8/2のやどぜい自動申告が止まる。
+- フェッチ済CSVの pnl 取込: `POST /pnl/:pid/:ym/import-ota-csv`(アプリの「OTA CSV取込」ボタン)or `scratchpad/prepopulate-may.cjs` 相当を各月に。
+
 ## NEXT（順序・ここから再開）
 1. **宿泊税額Bの自動取込(#2)**: OTAcsvフォルダの `yadozei_月計表_YYYY-MM.pdf`(宿小町5月=`1-NJUCD_2FEHfqaWecgv8EK2Kgbx8iUnD`) / 申告書PDFを Gemini でパースし、pnl doc の `taxWithholding` に自動セット(現状は帳票モーダルで手入力)。精算書のBが実額になる。
 2. **修繕費の取込(#3)**: Drive領収書PDF(the Terrace `008_民泊運用`=1eD5DRCMO6spahGEE27zXmyCamTFOAQFo 直下にニトリ/ダイソー等レシート多数。宿小町側も領収書あり)を Gemini でパース→費目/清掃費に計上。

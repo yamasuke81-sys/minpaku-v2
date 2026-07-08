@@ -772,6 +772,42 @@ module.exports = function pnlApi(db) {
     }
   });
 
+  // 推奨費目を一括作成(運営代行契約の費用負担区分ベース)。既存同名はスキップ(冪等)
+  router.post("/expense-categories/seed-defaults", async (req, res) => {
+    try {
+      const DEFAULTS = [
+        { name: "家賃", type: "fixed" },
+        { name: "水道光熱費", type: "manual" },
+        { name: "消耗品費", type: "manual" },
+        { name: "リネン・クリーニング", type: "manual" },
+        { name: "Wi-Fi・通信費", type: "fixed" },
+        { name: "システム利用料", type: "fixed" },
+        { name: "広告宣伝費", type: "manual" },
+        { name: "小修繕費", type: "manual" },
+        { name: "ゴミ処理費", type: "manual" },
+        { name: "害虫駆除費", type: "manual" },
+        { name: "固定電話", type: "fixed" },
+      ];
+      const existing = await catCol.get();
+      const names = new Set(existing.docs.map((d) => (d.data().name || "").trim()));
+      const created = [];
+      let order = existing.size;
+      for (const c of DEFAULTS) {
+        if (names.has(c.name)) continue;
+        const ref = await catCol.add({
+          name: c.name, type: c.type, defaultAmount: 0,
+          appliesTo: "all", displayOrder: ++order, active: true,
+          createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+        });
+        created.push({ id: ref.id, name: c.name });
+      }
+      res.json({ ok: true, created, skipped: DEFAULTS.length - created.length });
+    } catch (e) {
+      console.error("推奨費目作成エラー:", e);
+      res.status(500).json({ error: "推奨費目の作成に失敗しました" });
+    }
+  });
+
   router.put("/expense-categories/:catId", async (req, res) => {
     try {
       const { catId } = req.params;

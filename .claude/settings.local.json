@@ -15,7 +15,8 @@
       "Bash(powershell.exe -NoProfile -Command ' *)",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "Bash(git commit -q -m ' *)"
+      "Bash(git commit -q -m ' *)",
+      "Bash(npx firebase *)"
     ]
   }
 }

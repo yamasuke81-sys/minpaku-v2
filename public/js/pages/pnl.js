@@ -154,6 +154,9 @@ const PnlPage = {
               <div class="text-center py-3"><div class="spinner-border text-primary"></div></div>
             </div>
             <div class="modal-footer">
+              <button type="button" class="btn btn-outline-success btn-sm me-auto" id="btnPnlSeedCats">
+                <i class="bi bi-stars"></i> 推奨費目を一括作成
+              </button>
               <button type="button" class="btn btn-outline-primary btn-sm" id="btnPnlAddCat">
                 <i class="bi bi-plus-lg"></i> 費目追加
               </button>
@@ -758,6 +761,23 @@ const PnlPage = {
       btnAdd._bound = true;
       btnAdd.addEventListener("click", () => this._showCatForm(null));
     }
+
+    const btnSeed = document.getElementById("btnPnlSeedCats");
+    if (btnSeed && !btnSeed._bound) {
+      btnSeed._bound = true;
+      btnSeed.addEventListener("click", async () => {
+        const ok = await showConfirm("推奨費目を作成", "運営代行の費用負担区分に沿った標準費目（家賃/水道光熱費/消耗品費/リネン・クリーニング/Wi-Fi/システム利用料 等）を一括作成します。既存の同名費目はスキップします。");
+        if (!ok) return;
+        try {
+          const r = await API.pnl.seedDefaultCategories();
+          showToast("完了", `費目を${r.created.length}件作成（${r.skipped}件は既存）`, "success");
+          await this._loadAndRenderCats();
+          await this.loadSummary();
+        } catch (e) {
+          showToast("エラー", `作成失敗: ${e.message}`, "error");
+        }
+      });
+    }
   },
 
   async _loadAndRenderCats() {
@@ -1030,7 +1050,8 @@ const PnlPage = {
           <table class="table table-sm table-bordered mb-2">
             <tr><td>月間入金額 (A)</td><td class="text-end">${this.fmtYen(s.depositAmount)}</td></tr>
             <tr><td>宿泊税預り (B)
-              <input type="number" id="pnlDocTax" class="form-control form-control-sm d-inline-block ms-1" style="width:110px" value="${s.taxWithholding || 0}" min="0">
+              <input type="number" id="pnlDocTax" class="form-control form-control-sm d-inline-block ms-1" style="width:100px" value="${s.taxWithholding || 0}" min="0">
+              <button class="btn btn-outline-secondary btn-sm ms-1" id="btnDocImportTax" title="やどぜい月計表PDFから自動取込"><i class="bi bi-magic"></i> 月計表</button>
             </td><td class="text-end" id="pnlDocBView">▲ ${this.fmtYen(s.taxWithholding)}</td></tr>
             <tr class="table-light"><td>月間売上高 (A − B)</td><td class="text-end fw-bold" id="pnlDocBase">${this.fmtYen(s.salesBase)}</td></tr>
             <tr><td>運営代行手数料 (×${s.feeRatePct}%)</td><td class="text-end" id="pnlDocFee">${this.fmtYen(s.feeExclTax)}</td></tr>
@@ -1057,6 +1078,23 @@ const PnlPage = {
     // 宿泊税Bの変更で精算プレビューを即再計算(クライアント側)
     const taxInput = document.getElementById("pnlDocTax");
     taxInput.addEventListener("input", () => this._recalcDocPreview());
+
+    // 月計表PDFから宿泊税Bを自動取込
+    document.getElementById("btnDocImportTax").addEventListener("click", async () => {
+      const btn = document.getElementById("btnDocImportTax");
+      const orig = btn.innerHTML;
+      btn.disabled = true; btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span>`;
+      try {
+        const r = await API.pnl.importTax(this.selectedPropertyId, this._docYM);
+        taxInput.value = r.taxWithholding;
+        this._recalcDocPreview();
+        showToast("宿泊税取込", `宿泊税 ${this.fmtYen(r.taxWithholding)} を取込（${r.sourceFile}）`, "success");
+      } catch (e) {
+        showToast("エラー", `取込失敗: ${e.message}`, "error");
+      } finally {
+        btn.disabled = false; btn.innerHTML = orig;
+      }
+    });
 
     document.getElementById("btnDocReport").addEventListener("click", () => this._generateDoc("report"));
     document.getElementById("btnDocSettlement").addEventListener("click", () => this._generateDoc("settlement"));
