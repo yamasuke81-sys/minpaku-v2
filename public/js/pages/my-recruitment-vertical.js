@@ -629,7 +629,8 @@ const MyRecruitmentPageVertical = Object.assign(Object.create(MyRecruitmentPage)
           let confirmed = false;
           const sel = (recruit.selectedStaff || "").trim();
           if (sel && (recruit.status === "選定済" || recruit.status === "スタッフ確定済み")) {
-            confirmed = sel.split(/[,、\s]+/).map(s => s.trim()).includes(staff.name);
+            // 区切りはカンマ/読点のみ(\s だと氏名内スペースで分割され選定色が付かない、2026-07-09修正)
+            confirmed = sel.split(/[,、]+/).map(s => s.trim()).includes(staff.name);
           }
           if (confirmed) anyConfirmed = true;
 

@@ -586,7 +586,7 @@ const StaffPage = {
         let isConfirmed = false;
         const selectedStaff = (recruit.selectedStaff || "").trim();
         if (selectedStaff && (recruit.status === "選定済" || recruit.status === "スタッフ確定済み")) {
-          const confirmedNames = selectedStaff.split(/[,、\s]+/).map(s => s.trim());
+          const confirmedNames = selectedStaff.split(/[,、]+/).map(s => s.trim());
           isConfirmed = confirmedNames.includes(staffName);
         }
 

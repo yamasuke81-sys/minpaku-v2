@@ -639,6 +639,16 @@ const API = {
     async generateDoc(propertyId, yearMonth, body) {
       return this._post(`/settlement/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}/generate`, body);
     },
+
+    // POST /settlement/:propertyId/:yearMonth/import-tax — 月計表PDFから宿泊税Bを自動取込
+    async importTax(propertyId, yearMonth, body = {}) {
+      return this._post(`/settlement/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}/import-tax`, body);
+    },
+
+    // POST /pnl/expense-categories/seed-defaults — 推奨費目を一括作成
+    async seedDefaultCategories() {
+      return this._post("/pnl/expense-categories/seed-defaults", {});
+    },
   },
 
   // 募集管理 API（回答はドキュメント内 responses[] に埋め込み — N+1クエリ解消）
@@ -734,7 +744,9 @@ const API = {
       // selectedStaffIds チェックや LINE 通知先解決で必要)
       let staffIds = [];
       if (staff) {
-        const names = staff.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean);
+        // 区切りはカンマ/読点のみ。\s を含めると氏名内の全角/半角スペース(例「武内　佐和子」)で
+        // 名前が分割され staffId 解決に失敗する(選定済にならない/水色にならない)ため除外(2026-07-09修正)
+        const names = staff.split(/[,、]+/).map(s => s.trim()).filter(Boolean);
         const staffSnap = await db.collection("staff").get();
         const nameToId = {};
         staffSnap.forEach(d => { nameToId[d.data().name] = d.id; });

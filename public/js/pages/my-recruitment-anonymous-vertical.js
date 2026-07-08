@@ -593,7 +593,7 @@ const MyRecruitmentPageAnonymousVertical = Object.assign(Object.create(MyRecruit
           let myConfirmed = false;
           const selRaw = (r.selectedStaff || "").trim();
           if (selRaw && (r.status === "選定済" || r.status === "スタッフ確定済み")) {
-            const selNames = selRaw.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean);
+            const selNames = selRaw.split(/[,、]+/).map(s => s.trim()).filter(Boolean);
             const selIds = Array.isArray(r.selectedStaffIds) ? r.selectedStaffIds : [];
             myConfirmed = (this.staffId && selIds.includes(this.staffId))
               || (this.staffDoc?.name && selNames.includes(this.staffDoc.name));

@@ -780,7 +780,7 @@ const RecruitmentPage = {
         myName = me ? me.name : null;
       }
       const ids = Array.isArray(r.selectedStaffIds) ? r.selectedStaffIds : [];
-      const names = hasSel ? r.selectedStaff.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean) : [];
+      const names = hasSel ? r.selectedStaff.split(/[,、]+/).map(s => s.trim()).filter(Boolean) : [];
       const meSel = (myId && ids.includes(myId)) || (myName && names.includes(myName));
       selDisplay = hasSel ? (meSel ? "あなたが選ばれています" : "選定済み（あなた以外）") : "未選定";
     }
@@ -1101,7 +1101,7 @@ const RecruitmentPage = {
     // 選定されているかどうかを確認 (selectedStaff は名前カンマ区切り)
     const sel = (recruitment.selectedStaff || "").trim();
     if (!sel) return;
-    const selectedNames = sel.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean);
+    const selectedNames = sel.split(/[,、]+/).map(s => s.trim()).filter(Boolean);
     if (!selectedNames.includes(myStaff.name)) return;
 
     // 既に自分の要望が登録済みかチェック
@@ -1874,7 +1874,7 @@ const RecruitmentPage = {
     // チェックが保存済と異なる場合、先に自動保存 (「選択状態を保存」を押さなくてもOKに)
     const savedCsv = (recruitment?.selectedStaff || "").trim();
     const checkedCsv = checkedNames.join(",");
-    const savedSorted = savedCsv.split(/[,、\s]+/).filter(Boolean).sort().join(",");
+    const savedSorted = savedCsv.split(/[,、]+/).filter(Boolean).sort().join(",");
     const checkedSorted = [...checkedNames].sort().join(",");
     if (checkedNames.length > 0 && savedSorted !== checkedSorted) {
       try {
