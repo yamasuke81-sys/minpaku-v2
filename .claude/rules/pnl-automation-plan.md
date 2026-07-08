@@ -45,10 +45,21 @@
 ## DONE（2026-07-09 第3弾・本番 v0709f / commit 6d67742）
 - **【#2 領収書/経費の費目自動計上 完成】** `POST /pnl/:pid/:ym/import-receipts`＋帳票モーダル「この月の領収書を取込」ボタン。物件 `driveReceiptsFolderId`(+直下サブフォルダ1階層)のレシートPDFを収集→ファイル名YYMMDDで対象月抽出→費目はファイル名(例「(広長浜_消耗品)」)から推定(guessCategoryFromName_のキーワード表)→金額はGeminiで抽出→月×費目でexpensesに加算(手動overridden保護、receiptsIndexで二重計上防止)。the Terrace 2026-05実データ検証OK(消耗品費7,395/小修繕費297、電球→小修繕費も正判定)。the Terrace `driveReceiptsFolderId=1eD5DRCMO6spahGEE27zXmyCamTFOAQFo` 設定済。
 
+## 領収書フォルダ体系（2026-07-09 確定・整備済）
+- Drive体系: `Yamasuke Family Office/500_不動産/520_物件/{物件フォルダ}/008_民泊運用/…`。物件フォルダ内は 001_取得・契約〜008_民泊運用。008内は番号付き(33旅館業/57ごみ/58清掃/59タイミー等)。
+- **各民泊物件の 008_民泊運用 配下に `60 消耗品・経費レシート` を新設**(月次の消耗品/備品/クリーニング/電球等のレシート置き場。pnlの領収書取込= `driveReceiptsFolderId` がここを読む)。ごみ処理(57)・清掃請求書(58)は別区分でそのまま。物件購入費・敷金等は対象外(001_取得・契約へ)。
+- **the Terrace の散乱レシート29件は 60 へ移動済**。008直下は整理済。
+- 6物件の Firestore `driveReceiptsFolderId` 設定済(物件フォルダ=Drive):
+  - 宿小町(RZV9…)=M001_エクセリア小町 → 60=`1omSG_PZEX8Z3vETLjYXxw__9rSFN9CkS`
+  - the Terrace(tsZy…)=014_広長浜 → 60=`1GaQFwg2bBUQfuYbrcnykkTq-XFeQP4ku`
+  - 若草(ZXW6…)=M002 → `1Y3_-7EtmbnQM4fXYSD7IMJE8_tVpHGLs` / 宇品(ncUK…)=M003 → `1s1wOUVp8pZLZ-PjNqAOFdK_dA41rnwss`
+  - 安芸津(nM5J…)=025 → `1eP_xSNXx2L2WaPim6CwOihgCYRwmfC3p` / 竹原(uzGp…)=026 → `17ywM1VvWRdkgFBs0Bf_hg6WmJJhfyRHY`
+- **宿小町は60が空**(消耗品レシートがDrive未整備だった)→今後はここに入れる運用。八朔の宿泊税領収証等は008直下/宿泊税フォルダに既存。
+
 ## NEXT（順序・ここから再開）
-1. **宿小町の領収書フォルダ特定＋設定**(`driveReceiptsFolderId`)。現状the Terraceのみ設定済。宿小町の領収書PDF置き場が判明したら物件docに設定→「領収書を取込」で計上可。
-2. **各月の実運用**: 帳票モーダルで月ごとに「領収書を取込」「月計表(申告書)から宿泊税取込」を押す→報告書/精算書PDF生成。宿小町は精算書、the Terraceは報告書のみ(self)。※費目の家賃/Wi-Fi/システム利用料等の固定費は金額未入力→物件別に手入力 or fixedのdefaultAmount設定が必要。
-3. **清掃費の取込**: 清掃スタッフ請求書PDF or shifts から cleaningCosts へ(既存Gemini import併用可)。
+1. **各月の実運用**: 帳票モーダルで月ごとに「領収書を取込」「月計表(申告書)から宿泊税取込」→報告書/精算書PDF生成。宿小町は精算書、the Terraceは報告書のみ(self)。
+2. **固定費の入力**: 費目の家賃/Wi-Fi/システム利用料等は金額未入力→物件別に手入力 or fixed費目のdefaultAmount設定。
+3. **清掃費の取込**: 清掃スタッフ請求書PDF(008の`58 清掃スタッフ請求書`)or shifts から cleaningCosts へ。ごみ処理(`57`)も費目化するなら別途。
 4. **完全自動バッチ**: 毎月 OTA CSV取込→宿泊税/領収書取込→帳票下書き生成 を自動化(最終ゴール)。
 
 ## 主要ID/設定
