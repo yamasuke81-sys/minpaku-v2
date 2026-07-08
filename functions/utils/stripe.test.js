@@ -30,6 +30,15 @@ describe("PROPERTY_TO_STRIPE_ACCOUNT マップ", () => {
   test("宇品(ncUKeD4yQo0kfAoznITu) は corporate", () => {
     assert.strictEqual(PROPERTY_TO_STRIPE_ACCOUNT["ncUKeD4yQo0kfAoznITu"], "corporate");
   });
+  test("安芸津(nM5JdfecBDdRvTovqVD7) は corporate (八朔)", () => {
+    assert.strictEqual(PROPERTY_TO_STRIPE_ACCOUNT["nM5JdfecBDdRvTovqVD7"], "corporate");
+  });
+  test("竹原(uzGpqAYqFWZxBygPhllv) は corporate (八朔)", () => {
+    assert.strictEqual(PROPERTY_TO_STRIPE_ACCOUNT["uzGpqAYqFWZxBygPhllv"], "corporate");
+  });
+  test("音戸(OXWgBcBWnmqFZSVpjAcn) は corporate (八朔)", () => {
+    assert.strictEqual(PROPERTY_TO_STRIPE_ACCOUNT["OXWgBcBWnmqFZSVpjAcn"], "corporate");
+  });
   test("DEFAULT_ACCOUNT_KIND は corporate", () => {
     assert.strictEqual(DEFAULT_ACCOUNT_KIND, "corporate");
   });
@@ -47,6 +56,20 @@ describe("resolveAccountKind", () => {
   });
   test("宇品 → corporate", () => {
     assert.strictEqual(resolveAccountKind("ncUKeD4yQo0kfAoznITu"), "corporate");
+  });
+  test("新3宿(安芸津/竹原/音戸) → corporate かつ warn 無し (明示登録・暗黙フォールバックでない)", () => {
+    const ids = ["nM5JdfecBDdRvTovqVD7", "uzGpqAYqFWZxBygPhllv", "OXWgBcBWnmqFZSVpjAcn"];
+    const origWarn = console.warn;
+    let warned = false;
+    console.warn = () => { warned = true; };
+    try {
+      for (const id of ids) {
+        assert.strictEqual(resolveAccountKind(id), "corporate");
+      }
+      assert.ok(!warned, "明示登録済みなので warn は呼ばれない");
+    } finally {
+      console.warn = origWarn;
+    }
   });
   test("未マップID → corporate デフォルト (warn)", () => {
     // 副作用の warn ログ抑制

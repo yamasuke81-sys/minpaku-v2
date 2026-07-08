@@ -2,7 +2,7 @@
  * Stripe クライアント共通ユーティリティ (2アカウント対応版)
  *
  * ★ 前提: 物件によって受入先の Stripe アカウントが異なる。
- *   - corporate = 合同会社八朔 (法人): the Terrace / UJINA
+ *   - corporate = 合同会社八朔 (法人): the Terrace / UJINA / 安芸津 / 竹原 / 音戸
  *   - individual = 西山恭介個人事業: 小町 / 若草
  *   運営者(=売上帰属)の違いに合わせて2つの Stripe アカウントへ振り分ける。
  *
@@ -46,6 +46,12 @@ const PROPERTY_TO_STRIPE_ACCOUNT = {
   "ZXW6wdpnBFk1azQ87KXQ": "individual", // Pocket House WAKA-KUSA (西山恭介個人事業)
   "tsZybhDMcPrxqgcRy7wp": "corporate",  // the Terrace 長浜 (合同会社八朔)
   "ncUKeD4yQo0kfAoznITu": "corporate",  // UJINA Pocket House (合同会社八朔)
+  // 新3宿 (2026-07-09 追記)。運営=合同会社八朔=corporate。
+  // 既定も corporate のため実挙動は変わらないが、未マップ時の暗黙フォールバック依存を排し、
+  // 将来 DEFAULT が変わっても誤って個人口座へ流れないよう明示登録する。決済open前に必須。
+  "nM5JdfecBDdRvTovqVD7": "corporate",  // 安芸津小松原 (合同会社八朔)
+  "uzGpqAYqFWZxBygPhllv": "corporate",  // 竹原市下野 (合同会社八朔)
+  "OXWgBcBWnmqFZSVpjAcn": "corporate",  // 音戸町鰯浜2-3-6 (合同会社八朔)
 };
 
 const DEFAULT_ACCOUNT_KIND = "corporate";

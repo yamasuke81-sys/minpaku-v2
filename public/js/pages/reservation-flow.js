@@ -94,6 +94,14 @@ const ReservationFlowPage = {
       { name: "guest",    label: "ゲスト名",         sample: "John Smith" },
       { name: "work",     label: "作業種別",         sample: "直前点検" },
     ],
+    recruit_date_change: [
+      { name: "date",     label: "新しい作業日",   sample: "2026/07/25" },
+      { name: "oldDate",  label: "旧作業日",       sample: "2026/07/20" },
+      { name: "property", label: "物件名",         sample: "the Terrace 長浜" },
+      { name: "work",     label: "作業内容",       sample: "清掃" },
+      { name: "staff",    label: "スタッフ名",     sample: "山田太郎" },
+      { name: "url",      label: "回答ページURL",  sample: "https://app.setouchi-stay.com/#/my-recruitment/xxx" },
+    ],
   },
 
   // ========== 通知デフォルト値 (notifications.js の notifications 配列から参照) ==========
@@ -136,6 +144,7 @@ const ReservationFlowPage = {
     keybox_send:        { defaultMsg: "", defaultTiming: "scheduled", varGroup: "booking" },
     keybox_remind:      { defaultMsg: "⚠️ キーボックス情報未送信\n\nゲスト: {guest}\nCI: {checkin}\n「キーボックス送信を予約する」がまだ押されていません。名簿画面から予約してください。\n{url}", defaultTiming: "immediate", varGroup: "booking" },
     inspection_reminder: { defaultMsg: "🔍 直前点検リマインド\n\n{checkin} チェックイン前の点検をお忘れなく\n物件: {property}\nゲスト: {guest}", defaultTiming: "beforeEvent", varGroup: "inspection" },
+    recruit_date_change: { defaultMsg: "{property}\n清掃日変更\n\n旧: {oldDate}\n新: {date}\n\n以前の回答はクリアされました。新しい日付で改めて回答をお願いします。\n\nWebアプリ\n{url}", defaultTiming: "immediate", varGroup: "recruit_date_change" },
   },
 
   // ========== STEPS 定義 (30項目) ==========
@@ -680,6 +689,21 @@ const ReservationFlowPage = {
       arrowTo: "staff",
       linkHash: "#/notifications",
       linkLabel: "通知設定",
+    },
+    // 清掃日変更通知 (オーナーが自動生成された募集の日付を変更したとき、既に回答済みのスタッフへ通知。recruitment.js の date-change エンドポイントが発火)
+    {
+      key: "recruit_date_change",
+      label: "清掃日変更通知 (既回答者へ)",
+      icon: "bi-calendar-event",
+      lane: "owner",
+      phase: 2,
+      track: "staff",
+      globalChannel: "recruit_date_change",
+      varGroup: "recruit_date_change",
+      arrowTo: "staff",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+      hint: "予約から自動生成された清掃募集の作業日をオーナーが変更すると、すでに◎/△/×で回答していたスタッフへ「旧→新」の日付変更を個別通知し、以前の回答をクリアして再回答を促します。既定はスタッフLINEのみON。送信先はこのカードの通知設定 (channelOverrides) で物件別に変更できます。",
     },
     {
       key: "staff_undecided",
