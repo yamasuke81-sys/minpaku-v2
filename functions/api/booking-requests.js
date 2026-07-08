@@ -13,7 +13,7 @@ const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
 const { getAppUrl } = require("../utils/appUrl");
 const { periodsOverlap, ymd: normalizeYmd } = require("./booking-request-logic");
-const { getStripe } = require("../utils/stripe");
+const { getStripe, getStripeForProperty } = require("../utils/stripe");
 const { computeQuoteFromDb } = require("../utils/pricing");
 
 module.exports = function bookingRequestsApi(db) {
@@ -160,12 +160,15 @@ module.exports = function bookingRequestsApi(db) {
       // 決済 URL を確定メールに差し込む。Stripe 未設定 or 料金未設定なら決済無しモードで続行。
       let payment = { status: "unconfigured", url: null, amount: null, expiresAt: null, sessionId: null };
       try {
-        const stripe = getStripe();
+        // 物件ごとに個人事業(=individual) / 法人(=corporate) の Stripe アカウントを切替。
+        // (未マップの物件は corporate へフォールバックし、utils/stripe.js が warn を出す)
+        const stripe = getStripeForProperty(reqData.propertyId);
         // テストモードキー(sk_test_)混入の事故防止ガード:
         // 本番運用中に誤ってテストキーが設定されていた場合、そのままだとオーナー承認の瞬間に
         // 実ゲストの確定メールへテストモードの決済リンクが載ってしまう(決済してもらっても実売上にならない事故)。
         // → 本番鍵(isLive)のときのみ通常どおり生成。テスト鍵のときは settings/directBooking.allowTestCheckout
         //   が明示的に true (E2E検証用フラグ) の場合のみ許可し、それ以外は決済リンク無しにフォールバックする。
+        // ★ ガードは accountKind ごとに独立に評価される(個人=test/法人=live が混在してもガードは片方だけ作用)。
         let allowTestCheckout = false;
         if (stripe.isEnabled && !stripe.isLive) {
           try {
@@ -176,9 +179,9 @@ module.exports = function bookingRequestsApi(db) {
         const stripeUsable = stripe.isEnabled && (stripe.isLive || allowTestCheckout);
         if (!stripeUsable) {
           if (stripe.isEnabled && !stripe.isLive) {
-            console.warn("[booking-requests/approve] Stripeがテストモードキーのため決済リンク無しで承認完了 (settings/directBooking.allowTestCheckoutで明示許可されていません)");
+            console.warn(`[booking-requests/approve] Stripe(${stripe.accountKind})がテストモードキーのため決済リンク無しで承認完了 (settings/directBooking.allowTestCheckoutで明示許可されていません)`);
           } else {
-            console.info("[booking-requests/approve] Stripe未設定のため決済リンク無しで承認完了");
+            console.info(`[booking-requests/approve] Stripe(${stripe.accountKind})未設定のため決済リンク無しで承認完了`);
           }
         } else {
           const quoteResult = await computeQuoteFromDb(db, reqData.propertyId, {
@@ -237,11 +240,14 @@ module.exports = function bookingRequestsApi(db) {
                   checkOut: reqData.checkOut,
                   guests: String(reqData.guestCount || 1),
                   quoteTotal: String(total),
+                  // どちらの Stripe アカウントで作られたセッションかを webhook 側で照合するため付与
+                  accountKind: stripe.accountKind,
                 },
                 payment_intent_data: {
                   metadata: {
                     bookingId: bookingRef.id,
                     propertyId: reqData.propertyId,
+                    accountKind: stripe.accountKind,
                   },
                   description: description.slice(0, 200),
                 },
@@ -265,6 +271,8 @@ module.exports = function bookingRequestsApi(db) {
                   currency: "jpy",
                   expiresAt: expiresAtSec,
                   createdAt: FieldValue.serverTimestamp(),
+                  // 返金 API / charge.refunded webhook が正しいアカウントの Stripe client を選ぶために保存
+                  accountKind: stripe.accountKind,
                 },
                 priceBreakdown: quoteResult.quote,
               });
@@ -383,8 +391,13 @@ module.exports = function bookingRequestsApi(db) {
         return res.status(409).json({ error: `返金できない状態です (paymentStatus=${b.paymentStatus})` });
       }
 
-      const stripe = getStripe();
-      if (!stripe.isEnabled) return res.status(503).json({ error: "Stripe未設定です" });
+      // 決済に使ったアカウントで返金する必要があるため、booking から accountKind を復元する。
+      // 優先順: paymentSession.accountKind (承認時に保存済み) > propertyId から再解決。
+      // 旧予約 (paymentSession.accountKind 未保存) は propertyId 経由でも同じ結果になる。
+      const stripe = session.accountKind
+        ? require("../utils/stripe").getStripeForKind(session.accountKind)
+        : getStripeForProperty(b.propertyId || "");
+      if (!stripe.isEnabled) return res.status(503).json({ error: `Stripe(${stripe.accountKind})未設定です` });
 
       // Stripe 実額をサーバー側でも検証する (フロントの上限検証・Stripe の過大返金拒否に加えた三重防御)。
       // PaymentIntent から実支払額と既返金額を取得し、返金可能残額を超える指定を 400 で弾く。

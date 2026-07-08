@@ -233,12 +233,14 @@ app.use((req, res) => {
 // (過去に別 fn で 512 MiB でも不足した経緯があり、1GiB に設定)
 // Stripe 秘密鍵は Cloud Functions Secrets で管理 (defineSecret)。
 // 未設定時は utils/stripe.js が isEnabled:false を返し、決済無しモードで動作継続する。
-const { STRIPE_SECRET_KEY } = require("./utils/stripe");
+// 2アカウント対応: corporate(=法人・八朔) と individual(=個人事業・恭介) の両方をバインドしておく
+// (承認 API が物件から accountKind を判定して片方を選ぶ・返金 API も同様)。
+const { STRIPE_SECRET_KEY, STRIPE_SECRET_KEY_INDIVIDUAL } = require("./utils/stripe");
 exports.api = onRequest({
   region: "asia-northeast1",
   invoker: "public",
   memory: "1GiB",
-  secrets: [STRIPE_SECRET_KEY],
+  secrets: [STRIPE_SECRET_KEY, STRIPE_SECRET_KEY_INDIVIDUAL],
 }, app);
 
 // ========== Stripe Webhook ==========
