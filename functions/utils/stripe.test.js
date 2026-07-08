@@ -27,8 +27,8 @@ describe("PROPERTY_TO_STRIPE_ACCOUNT マップ", () => {
   test("テラス(tsZybhDMcPrxqgcRy7wp) は corporate", () => {
     assert.strictEqual(PROPERTY_TO_STRIPE_ACCOUNT["tsZybhDMcPrxqgcRy7wp"], "corporate");
   });
-  test("宇品(ncUKeD4yQo0kfAoznITu) は corporate", () => {
-    assert.strictEqual(PROPERTY_TO_STRIPE_ACCOUNT["ncUKeD4yQo0kfAoznITu"], "corporate");
+  test("宇品(ncUKeD4yQo0kfAoznITu) は none (運営=tomi企画・Stripe未用意=決済無効)", () => {
+    assert.strictEqual(PROPERTY_TO_STRIPE_ACCOUNT["ncUKeD4yQo0kfAoznITu"], "none");
   });
   test("安芸津(nM5JdfecBDdRvTovqVD7) は corporate (八朔)", () => {
     assert.strictEqual(PROPERTY_TO_STRIPE_ACCOUNT["nM5JdfecBDdRvTovqVD7"], "corporate");
@@ -54,8 +54,8 @@ describe("resolveAccountKind", () => {
   test("テラス → corporate", () => {
     assert.strictEqual(resolveAccountKind("tsZybhDMcPrxqgcRy7wp"), "corporate");
   });
-  test("宇品 → corporate", () => {
-    assert.strictEqual(resolveAccountKind("ncUKeD4yQo0kfAoznITu"), "corporate");
+  test("宇品 → none (決済無効)", () => {
+    assert.strictEqual(resolveAccountKind("ncUKeD4yQo0kfAoznITu"), "none");
   });
   test("新3宿(安芸津/竹原/音戸) → corporate かつ warn 無し (明示登録・暗黙フォールバックでない)", () => {
     const ids = ["nM5JdfecBDdRvTovqVD7", "uzGpqAYqFWZxBygPhllv", "OXWgBcBWnmqFZSVpjAcn"];
@@ -104,6 +104,19 @@ describe("getStripeForKind / getStripeForProperty (未設定時)", () => {
   test("テラスID → accountKind:'corporate'", () => {
     const s = getStripeForProperty("tsZybhDMcPrxqgcRy7wp");
     assert.strictEqual(s.accountKind, "corporate");
+  });
+  test("宇品ID → 決済無効 (isEnabled:false / accountKind:'none' / client:null)", () => {
+    const s = getStripeForProperty("ncUKeD4yQo0kfAoznITu");
+    assert.strictEqual(s.accountKind, "none");
+    assert.strictEqual(s.isEnabled, false);
+    assert.strictEqual(s.isLive, false);
+    assert.strictEqual(s.client, null);
+  });
+  test("getStripeForKind('none') は決済無効 (isEnabled:false)", () => {
+    const s = getStripeForKind("none");
+    assert.strictEqual(s.accountKind, "none");
+    assert.strictEqual(s.isEnabled, false);
+    assert.strictEqual(s.client, null);
   });
   test("未マップID → accountKind:'corporate' フォールバック", () => {
     const s = getStripeForProperty("no-such-property");

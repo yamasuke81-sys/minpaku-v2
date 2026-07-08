@@ -2,9 +2,12 @@
  * Stripe クライアント共通ユーティリティ (2アカウント対応版)
  *
  * ★ 前提: 物件によって受入先の Stripe アカウントが異なる。
- *   - corporate = 合同会社八朔 (法人): the Terrace / UJINA / 安芸津 / 竹原 / 音戸
+ *   - corporate = 合同会社八朔 (法人): the Terrace / 安芸津 / 竹原 / 音戸
  *   - individual = 西山恭介個人事業: 小町 / 若草
- *   運営者(=売上帰属)の違いに合わせて2つの Stripe アカウントへ振り分ける。
+ *   - none = 決済無効 (Stripe 未用意): UJINA (宇品)。運営=tomi企画で八朔口座に入れてはいけないが、
+ *     tomi企画の Stripe を用意しない方針のため直販 Stripe 決済を一切行わない (当面 OTA のみ)。
+ *     isEnabled:false を返し、呼び出し側は決済リンク無し(確定メールのみ)にフォールバックする。
+ *   運営者(=売上帰属)の違いに合わせて Stripe アカウントへ振り分ける。
  *
  * ★ Secrets:
  *   - STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET
@@ -45,7 +48,7 @@ const PROPERTY_TO_STRIPE_ACCOUNT = {
   "RZV9IwtQgMAsvrdM3j8J": "individual", // YADO KOMACHI 小町 (西山恭介個人事業)
   "ZXW6wdpnBFk1azQ87KXQ": "individual", // Pocket House WAKA-KUSA (西山恭介個人事業)
   "tsZybhDMcPrxqgcRy7wp": "corporate",  // the Terrace 長浜 (合同会社八朔)
-  "ncUKeD4yQo0kfAoznITu": "corporate",  // UJINA Pocket House (合同会社八朔)
+  "ncUKeD4yQo0kfAoznITu": "none",       // UJINA Pocket House (運営=tomi企画。八朔口座に入れない・Stripe未用意=決済無効)
   // 新3宿 (2026-07-09 追記)。運営=合同会社八朔=corporate。
   // 既定も corporate のため実挙動は変わらないが、未マップ時の暗黙フォールバック依存を排し、
   // 将来 DEFAULT が変わっても誤って個人口座へ流れないよう明示登録する。決済open前に必須。
@@ -55,6 +58,7 @@ const PROPERTY_TO_STRIPE_ACCOUNT = {
 };
 
 const DEFAULT_ACCOUNT_KIND = "corporate";
+const DISABLED_KIND = "none"; // 決済を行わない物件(Stripe アカウントを持たない)。isEnabled:false を返す。
 const VALID_KINDS = new Set(["corporate", "individual"]);
 
 // アカウントごとの Stripe クライアントキャッシュ
@@ -76,6 +80,11 @@ function _webhookSecretForKind(kind) {
  * @returns {{ isEnabled: boolean, isLive: boolean, client: object|null, secret: object, accountKind: string }}
  */
 function getStripeForKind(kind) {
+  // 決済無効物件(none): Stripe クライアントを生成せず isEnabled:false を返す。
+  // 呼び出し側は !isEnabled で決済リンク無し(確定メールのみ)にフォールバックする。
+  if (kind === DISABLED_KIND) {
+    return { isEnabled: false, isLive: false, client: null, secret: null, accountKind: DISABLED_KIND };
+  }
   const accountKind = VALID_KINDS.has(kind) ? kind : DEFAULT_ACCOUNT_KIND;
   const secret = _secretForKind(accountKind);
   let key = "";
@@ -166,6 +175,7 @@ module.exports = {
   allStripeSecrets,
   PROPERTY_TO_STRIPE_ACCOUNT,
   DEFAULT_ACCOUNT_KIND,
+  DISABLED_KIND,
   // 後方互換 API
   getStripe,
   getWebhookSecret,
