@@ -866,10 +866,17 @@ module.exports = async function onBookingChange(event) {
         // --- グループLINEに1回だけ通知 (グループ全体宛のメッセージ) ---
         try {
           const displayDate = checkOut.replace(/-/g, "/");
+          // 新しく開始する清掃募集の回答ページへ誘導するリンク。
+          // 募集docは決定的ID auto_{bookingId}_cleaning_{checkOut} で後段(952行〜)生成される。
+          // (v2 URL なので openExternalBrowser=1 は lineNotify 側で自動付与される)
+          const cleaningRecUrl = `${await getAppUrl(db)}/#/my-recruitment/auto_${bookingId}_cleaning_${checkOut}`;
           const notifyMsg = [
             `【清掃募集開始のお知らせ】`,
             ``,
             `${propertyName} ${displayDate} の清掃募集を開始しました。`,
+            ``,
+            `▼ 回答はこちらから`,
+            cleaningRecUrl,
             ``,
             `なお、同日に直前点検の担当が確定していた方は、その作業はなくなります。`,
             `申し訳ありません。`,
