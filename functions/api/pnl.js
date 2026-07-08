@@ -467,6 +467,158 @@ module.exports = function pnlApi(db) {
     }
   });
 
+  // ========================================================
+  // 領収書PDF(修繕費/消耗品等)取込 → 月×費目に自動計上
+  // ========================================================
+
+  // ファイル名から費目名を推定(ユーザーの命名規則「(広長浜_消耗品)」等)。マッチしなければ null
+  function guessCategoryFromName_(name) {
+    const paren = String(name).match(/[(（]([^)）]+)[)）]/);
+    const tag = paren ? paren[1] : String(name);
+    const rules = [
+      [/クリーニング|リネン|洗濯/, "リネン・クリーニング"],
+      [/ごみ|ゴミ|廃棄/, "ゴミ処理費"],
+      [/害虫|駆除|防虫/, "害虫駆除費"],
+      [/修繕|電球|工具|金物|部品|DIY/, "小修繕費"],
+      [/光熱|電気|水道|ガス/, "水道光熱費"],
+      [/広告|宣伝|撮影/, "広告宣伝費"],
+      [/通信|wi-?fi|ネット/i, "Wi-Fi・通信費"],
+      [/消耗品|日用品|雑貨|備品|アメニティ|文具/, "消耗品費"],
+    ];
+    for (const [re, cat] of rules) if (re.test(tag)) return cat;
+    return null;
+  }
+
+  // ファイル名先頭の YYMMDD → "YYYY-MM"(20YY想定)。取れなければ null
+  function ymFromName_(name) {
+    const m = String(name).match(/(\d{2})(\d{2})(\d{2})/);
+    if (!m) return null;
+    return `20${m[1]}-${m[2]}`;
+  }
+
+  // 領収書PDFから税込合計額を抽出(金額のみ。日付/費目はファイル名を使う)
+  async function geminiExtractReceiptAmount_(pdfBase64, apiKey) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const prompt = [
+      "これは店舗のレシート/領収書です。支払った税込合計金額(円)を1つだけ抽出してください。",
+      "複数の合計候補があれば「合計」「お会計」「クレジット」等の最終支払額。カンマなし整数。読めなければ0。",
+      'JSONのみ出力: {"amount": 整数, "store": "店名(あれば)", "confidence": 0-100}',
+    ].join("\n");
+    const payload = { contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "application/pdf", data: pdfBase64 } }] }], generationConfig: { temperature: 0.1 } };
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (!r.ok) throw new Error("Gemini API error: " + r.status);
+    const j = await r.json();
+    const text = j.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error("Gemini応答にJSONがありません");
+    return JSON.parse(m[0]);
+  }
+
+  // 指定フォルダ(+直下サブフォルダ1階層)から領収書らしいPDFを集める
+  async function listReceiptPdfs_(drive, folderId) {
+    const out = [];
+    const rootRes = await drive.files.list({
+      q: `'${folderId}' in parents and trashed=false`,
+      fields: "files(id,name,mimeType)", pageSize: 500, supportsAllDrives: true, includeItemsFromAllDrives: true,
+    });
+    const rootFiles = rootRes.data.files || [];
+    const isReceipt = (n) => /レシート|ﾚｼｰﾄ|領収書|領収証/.test(n) && /\.pdf$/i.test(n);
+    for (const f of rootFiles) if (f.mimeType === "application/pdf" && isReceipt(f.name)) out.push(f);
+    // 直下サブフォルダも1階層だけ探索(「57 巣だち(ごみ処理)」等)
+    const subs = rootFiles.filter((f) => f.mimeType === "application/vnd.google-apps.folder");
+    for (const sub of subs) {
+      const r = await drive.files.list({
+        q: `'${sub.id}' in parents and trashed=false and mimeType='application/pdf'`,
+        fields: "files(id,name,mimeType)", pageSize: 500, supportsAllDrives: true, includeItemsFromAllDrives: true,
+      });
+      for (const f of (r.data.files || [])) if (isReceipt(f.name)) out.push(f);
+    }
+    return out;
+  }
+
+  // POST /:propertyId/:yearMonth/import-receipts { folderId?, dryRun? }
+  // 物件の領収書フォルダから対象月のレシートを集計し、費目(expenses)に自動計上する。
+  // 手動上書き(overridden)済の費目はスキップ。冪等: 取込済fileIdを receiptsIndex に記録。
+  router.post("/:propertyId/:yearMonth/import-receipts", async (req, res) => {
+    try {
+      const { propertyId, yearMonth } = req.params;
+      const { folderId, dryRun } = req.body || {};
+      if (!/^\d{4}-\d{2}$/.test(yearMonth)) return res.status(400).json({ error: "yearMonth は YYYY-MM 形式" });
+
+      const propSnap = await db.collection("properties").doc(propertyId).get();
+      if (!propSnap.exists) return res.status(404).json({ error: "物件が見つかりません" });
+      const srcFolder = folderId || propSnap.data().driveReceiptsFolderId;
+      if (!srcFolder) return res.status(400).json({ error: "領収書フォルダ(driveReceiptsFolderId)が未設定です" });
+
+      const apiKey = await getGeminiApiKey_();
+      if (!apiKey) return res.status(400).json({ error: "Gemini APIキー(settings/scanSorter)が未設定です" });
+
+      const categories = await loadCategories_();
+      const catByName = {};
+      categories.forEach((c) => { catByName[(c.name || "").trim()] = c.id; });
+
+      const ref = pnlCol.doc(docId_(propertyId, yearMonth));
+      const cur = await ref.get();
+      const curData = cur.exists ? cur.data() : {};
+      const overrides = curData.manualOverrides || {};
+      const already = new Set((curData.receiptsIndex || []).map((r) => r.fileId));
+
+      const drive = await resolveOtaDrive_();
+      const all = await listReceiptPdfs_(drive, srcFolder);
+      // 対象月のレシートに絞る(ファイル名の日付)
+      const target = all.filter((f) => ymFromName_(f.name) === yearMonth);
+
+      const items = [];
+      const sumByCat = {}; // catId -> amount
+      let processed = 0, skippedDup = 0, unmatchedCat = 0, errors = 0;
+
+      for (const f of target) {
+        if (already.has(f.id)) { skippedDup++; continue; }
+        try {
+          const bin = await drive.files.get({ fileId: f.id, alt: "media", supportsAllDrives: true }, { responseType: "arraybuffer" });
+          const parsed = await geminiExtractReceiptAmount_(Buffer.from(bin.data).toString("base64"), apiKey);
+          const amount = Math.max(0, Math.round(Number(parsed.amount) || 0));
+          const catName = guessCategoryFromName_(f.name) || "消耗品費";
+          const catId = catByName[catName] || null;
+          if (!catId) unmatchedCat++;
+          else sumByCat[catId] = (sumByCat[catId] || 0) + amount;
+          processed++;
+          items.push({ fileId: f.id, fileName: f.name, amount, category: catName, catId, store: parsed.store || "" });
+        } catch (e) {
+          errors++;
+          items.push({ fileId: f.id, fileName: f.name, error: e.message });
+        }
+      }
+
+      if (dryRun) {
+        return res.json({ dryRun: true, yearMonth, scanned: target.length, processed, skippedDup, unmatchedCat, errors, items, sumByCat });
+      }
+
+      // 費目へ加算反映(既存の当月値に足す。overridden 済はスキップ)。receiptsIndex に記録
+      const expensesPatch = {};
+      const applied = [];
+      for (const [catId, add] of Object.entries(sumByCat)) {
+        const existing = (curData.expenses && curData.expenses[catId]) || null;
+        if (existing && existing.overridden) { applied.push({ catId, skipped: "手動上書き保護" }); continue; }
+        // 既存額に「今回の新規レシート分のみ」を加算(処理済fileIdは receiptsIndex で除外済=二重計上しない)
+        const newAmount = toInt(existing?.amount) + add;
+        expensesPatch[catId] = { amount: newAmount, source: "receipts", overridden: false, note: "領収書自動計上", updatedAt: Date.now() };
+        applied.push({ catId, amount: newAmount });
+      }
+      const patch = { propertyId, yearMonth, updatedAt: FieldValue.serverTimestamp() };
+      if (Object.keys(expensesPatch).length) patch.expenses = expensesPatch;
+      const newIndex = items.filter((it) => !it.error).map((it) => ({ fileId: it.fileId, fileName: it.fileName, amount: it.amount, catId: it.catId, ym: yearMonth }));
+      if (newIndex.length) patch.receiptsIndex = FieldValue.arrayUnion(...newIndex);
+      await ref.set(patch, { merge: true });
+
+      const after = (await ref.get()).data();
+      res.json({ ok: true, yearMonth, scanned: target.length, processed, skippedDup, unmatchedCat, errors, applied, items, computed: computePnl(after, categories) });
+    } catch (e) {
+      console.error("領収書取込エラー:", e);
+      res.status(500).json({ error: "領収書の取込に失敗しました: " + e.message });
+    }
+  });
+
   // パース結果を月ドキュメントへ反映(手動編集を上書きしない)
   async function applyParsedToPnl_({ parsed, propertyId, yearMonth, fileId }) {
     const ref = pnlCol.doc(docId_(propertyId, yearMonth));

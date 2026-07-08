@@ -649,6 +649,11 @@ const API = {
     async seedDefaultCategories() {
       return this._post("/pnl/expense-categories/seed-defaults", {});
     },
+
+    // POST /pnl/:propertyId/:yearMonth/import-receipts — 領収書PDFを費目に自動計上
+    async importReceipts(propertyId, yearMonth, body = {}) {
+      return this._post(`/pnl/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}/import-receipts`, body);
+    },
   },
 
   // 募集管理 API（回答はドキュメント内 responses[] に埋め込み — N+1クエリ解消）
