@@ -86,6 +86,14 @@ const ReservationFlowPage = {
       { name: "property", label: "物件名", sample: "the Terrace 長浜" },
       { name: "amount",   label: "金額",   sample: "¥86,250" },
     ],
+    inspection: [
+      { name: "property", label: "物件名",           sample: "the Terrace 長浜" },
+      { name: "checkin",  label: "チェックイン日",   sample: "2026/07/15" },
+      { name: "checkout", label: "チェックアウト日", sample: "2026/07/17" },
+      { name: "date",     label: "点検対象日(CI日)", sample: "2026/07/15" },
+      { name: "guest",    label: "ゲスト名",         sample: "John Smith" },
+      { name: "work",     label: "作業種別",         sample: "直前点検" },
+    ],
   },
 
   // ========== 通知デフォルト値 (notifications.js の notifications 配列から参照) ==========
@@ -127,6 +135,7 @@ const ReservationFlowPage = {
     // scan_pending: タスク5で削除 (民泊v2に不要)
     keybox_send:        { defaultMsg: "", defaultTiming: "scheduled", varGroup: "booking" },
     keybox_remind:      { defaultMsg: "⚠️ キーボックス情報未送信\n\nゲスト: {guest}\nCI: {checkin}\n「キーボックス送信を予約する」がまだ押されていません。名簿画面から予約してください。\n{url}", defaultTiming: "immediate", varGroup: "booking" },
+    inspection_reminder: { defaultMsg: "🔍 直前点検リマインド\n\n{checkin} チェックイン前の点検をお忘れなく\n物件: {property}\nゲスト: {guest}", defaultTiming: "beforeEvent", varGroup: "inspection" },
   },
 
   // ========== STEPS 定義 (30項目) ==========
@@ -765,6 +774,21 @@ const ReservationFlowPage = {
       hint: "ON にした物件のみ、清掃完了画面に「ゴミ回収依頼が必要ですか？」の確認が表示されます。スタッフが「必要」を選ぶとこの通知が送信されます。",
       linkHash: "#/notifications",
       linkLabel: "通知設定",
+    },
+    // 直前点検リマインド (CI前日/N日前にオーナー・管理者へ点検を促す。sendInspectionReminder が毎時発火)
+    {
+      key: "inspection_reminder",
+      label: "直前点検リマインド (前日/N日前)",
+      icon: "bi-search",
+      lane: "owner",
+      phase: 3,
+      track: "staff",
+      globalChannel: "inspection_reminder",
+      varGroup: "inspection",
+      arrowTo: "owner",
+      linkHash: "#/notifications",
+      linkLabel: "通知設定",
+      hint: "物件管理で「直前点検」を有効 (inspection.enabled) にした宿で、チェックインの N 日前・指定時刻にオーナー/管理者へ点検リマインドを送ります。送信タイミング(何日前・何時)はこのカードの通知設定で「N日前のHH:MM」を選んで保存してください。channelOverrides 未設定だと発火しません。",
     },
     // 直前点検チェックリスト完了時の通知 (workType="pre_inspection" のシフトのみ発火)
     {
