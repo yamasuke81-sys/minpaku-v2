@@ -739,6 +739,68 @@ module.exports = function pnlApi(db) {
     }
   });
 
+  // ========================================================
+  // 清掃費取込 → アプリ生成の清掃スタッフ請求書(invoices)から cleaningCosts へ
+  // ========================================================
+
+  // POST /:propertyId/:yearMonth/import-cleaning
+  // invoices(propertyId,yearMonth) を集計して cleaningCosts に反映。
+  // 同一スタッフ×月は最上位ステータス(paid>confirmed>submitted)を採用(下書き重複防止)。draftは除外。
+  router.post("/:propertyId/:yearMonth/import-cleaning", async (req, res) => {
+    try {
+      const { propertyId, yearMonth } = req.params;
+      if (!/^\d{4}-\d{2}$/.test(yearMonth)) return res.status(400).json({ error: "yearMonth は YYYY-MM 形式" });
+
+      const invSnap = await db.collection("invoices").where("propertyId", "==", propertyId).get();
+      const rank = { paid: 4, confirmed: 3, submitted: 2, draft: 1 };
+      const pick = {}; // key(staffId|staffName) -> invoice
+      invSnap.forEach((d) => {
+        const inv = { id: d.id, ...d.data() };
+        if (inv.yearMonth !== yearMonth) return;
+        if ((inv.status || "") === "draft") return;
+        const key = inv.staffId || inv.staffName || d.id;
+        const cur = pick[key];
+        const r = rank[inv.status] || 0;
+        if (!cur || r > (rank[cur.status] || 0) || (r === (rank[cur.status] || 0) && toInt(inv.total) > toInt(cur.total))) pick[key] = inv;
+      });
+      const chosen = Object.values(pick);
+
+      const ref = pnlCol.doc(docId_(propertyId, yearMonth));
+      const cur = await ref.get();
+      const costs = (cur.exists && Array.isArray(cur.data().cleaningCosts)) ? cur.data().cleaningCosts.slice() : [];
+      let added = 0, updated = 0;
+      for (const inv of chosen) {
+        const idx = costs.findIndex((c) => c.source === "invoice" && c.sourceInvoiceId === inv.id);
+        const row = {
+          id: idx >= 0 ? costs[idx].id : crypto.randomUUID(),
+          source: "invoice",
+          staffName: inv.staffName || "",
+          staffNameRaw: inv.staffName || "",
+          amount: toInt(inv.total),
+          count: null,
+          excluded: idx >= 0 ? !!costs[idx].excluded : false, // 既存の除外状態は保持
+          sourceInvoiceId: inv.id,
+          sourceFileId: null,
+          billingYearMonth: yearMonth,
+          note: `請求書 ${inv.status || ""}`,
+          updatedAt: Date.now(),
+        };
+        if (idx >= 0) { costs[idx] = { ...costs[idx], ...row }; updated++; }
+        else { costs.push({ ...row, createdAt: Date.now() }); added++; }
+      }
+      await ref.set({ propertyId, yearMonth, cleaningCosts: costs, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+
+      const categories = await loadCategories_();
+      const after = (await ref.get()).data();
+      res.json({ ok: true, yearMonth, invoices: chosen.length, added, updated,
+        rows: chosen.map((i) => ({ staffName: i.staffName, amount: toInt(i.total), status: i.status })),
+        computed: computePnl(after, categories) });
+    } catch (e) {
+      console.error("清掃費取込エラー:", e);
+      res.status(500).json({ error: "清掃費の取込に失敗しました: " + e.message });
+    }
+  });
+
   // パース結果を月ドキュメントへ反映(手動編集を上書きしない)
   async function applyParsedToPnl_({ parsed, propertyId, yearMonth, fileId }) {
     const ref = pnlCol.doc(docId_(propertyId, yearMonth));

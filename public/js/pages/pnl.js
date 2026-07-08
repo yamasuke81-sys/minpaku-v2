@@ -1072,6 +1072,7 @@ const PnlPage = {
       <div class="d-flex gap-2 mt-3 flex-wrap">
         <button class="btn btn-outline-info btn-sm" id="btnDocImportReceipts"><i class="bi bi-receipt-cutoff"></i> 領収書を取込</button>
         <button class="btn btn-outline-info btn-sm" id="btnDocImportUtil"><i class="bi bi-lightning-charge"></i> 光熱費・通信費を取込</button>
+        <button class="btn btn-outline-info btn-sm" id="btnDocImportCleaning"><i class="bi bi-broom"></i> 清掃費を取込</button>
         <button class="btn btn-outline-secondary btn-sm ms-auto" id="btnDocReport"><i class="bi bi-file-earmark-text"></i> 月次業務報告書 PDF</button>
         <button class="btn btn-primary btn-sm" id="btnDocSettlement" ${isSelf ? "disabled" : ""}><i class="bi bi-receipt"></i> 精算書兼請求書 PDF</button>
       </div>
@@ -1133,6 +1134,26 @@ const PnlPage = {
         await this.loadSummary();
       } catch (e) {
         result.innerHTML = `<div class="alert alert-danger py-2 mb-0">光熱費取込失敗: ${this.escapeHtml(e.message)}</div>`;
+      } finally {
+        btn.disabled = false; btn.innerHTML = orig;
+      }
+    });
+
+    // 清掃費を取込(アプリの清掃スタッフ請求書から)
+    document.getElementById("btnDocImportCleaning").addEventListener("click", async () => {
+      const btn = document.getElementById("btnDocImportCleaning");
+      const orig = btn.innerHTML;
+      btn.disabled = true; btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> 取込中...`;
+      const result = document.getElementById("pnlDocResult");
+      try {
+        const r = await API.pnl.importCleaning(this.selectedPropertyId, this._docYM);
+        const total = (r.rows || []).reduce((s, i) => s + (i.amount || 0), 0);
+        result.innerHTML = `<div class="alert alert-info py-2 mb-0">清掃費 請求書${r.invoices}件を計上（計 ${this.fmtYen(total)} / 追加${r.added}・更新${r.updated}）。清掃費に反映しました。</div>`;
+        this._docCtx = await API.pnl.settlementContext(this.selectedPropertyId, this._docYM, document.getElementById("pnlDocTax").value);
+        this._renderDocBody();
+        await this.loadSummary();
+      } catch (e) {
+        result.innerHTML = `<div class="alert alert-danger py-2 mb-0">清掃費取込失敗: ${this.escapeHtml(e.message)}</div>`;
       } finally {
         btn.disabled = false; btn.innerHTML = orig;
       }

@@ -659,6 +659,11 @@ const API = {
     async importUtilities(propertyId, yearMonth, body = {}) {
       return this._post(`/pnl/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}/import-utilities`, body);
     },
+
+    // POST /pnl/:propertyId/:yearMonth/import-cleaning — 清掃スタッフ請求書(invoices)から清掃費を計上
+    async importCleaning(propertyId, yearMonth, body = {}) {
+      return this._post(`/pnl/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}/import-cleaning`, body);
+    },
   },
 
   // 募集管理 API（回答はドキュメント内 responses[] に埋め込み — N+1クエリ解消）
