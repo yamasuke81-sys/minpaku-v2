@@ -89,9 +89,11 @@ module.exports = async function yadozeiCsvDispatcher(event) {
           continue;
         }
 
-        const listingId = ota === "airbnb" ? (cfg.listingId || "").trim() : "";
+        // Airbnb は listingName で行フィルタする設計 (listener は prop.yadozei.airbnb.listingName / params.listingName を使用)。
+        // 旧実装は listingId 非空を要求していたが、全物件で listingId 未設定=空のためスケジューラ経由では1件も積めなかった。門番を listingName に修正。
+        const listingName = ota === "airbnb" ? (cfg.listingName || "").trim() : "";
         const bookingPropertyId = ota === "booking" ? (cfg.propertyId || "").trim() : "";
-        if (ota === "airbnb" && !listingId) {
+        if (ota === "airbnb" && !listingName) {
           skippedConfig++;
           continue;
         }
@@ -121,7 +123,7 @@ module.exports = async function yadozeiCsvDispatcher(event) {
             propertyName: prop.name || pid,
             yearMonth: ym,
             params: kind === "airbnb_csv_fetch"
-              ? { listingId }
+              ? { listingName }
               : { bookingPropertyId },
             status: "pending",
             result: null,
