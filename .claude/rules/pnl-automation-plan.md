@@ -54,7 +54,11 @@
   - the Terrace(tsZy…)=014_広長浜 → 60=`1GaQFwg2bBUQfuYbrcnykkTq-XFeQP4ku`
   - 若草(ZXW6…)=M002 → `1Y3_-7EtmbnQM4fXYSD7IMJE8_tVpHGLs` / 宇品(ncUK…)=M003 → `1s1wOUVp8pZLZ-PjNqAOFdK_dA41rnwss`
   - 安芸津(nM5J…)=025 → `1eP_xSNXx2L2WaPim6CwOihgCYRwmfC3p` / 竹原(uzGp…)=026 → `17ywM1VvWRdkgFBs0Bf_hg6WmJJhfyRHY`
-- **宿小町は60が空**(消耗品レシートがDrive未整備だった)→今後はここに入れる運用。八朔の宿泊税領収証等は008直下/宿泊税フォルダに既存。
+- **宿小町の経費書類は実は整理済だった**(当初「無し」は誤り): `007_光熱・インフラ`配下に **52 ガス/53 電気/54 水道/55 インターネット/56 固定電話**(番号は物件でバラバラ=名前判定必須。the Terraceは 52プロパンガス/54電気/55水道/56インターネット)。清掃=`008/58`, タイミー=`008/71`。消耗品レシート1件(DCM)は_未分類→60へ移動済。宿小町は開業新しく消耗品少・光熱費/通信費が経費主体。
+- **光熱・インフラフォルダ `driveUtilitiesFolderId` 設定済**: 宿小町=`18PJ4o8XwN5hiwJ4j3m82pjvcjKc-5AKa` / the Terrace=`1WTvS-DxutcTBBjKs7x_vL8rR42AMbDFi`。
+
+## DONE（2026-07-09 第4弾・本番 v0709g / commit 2362393）
+- **【光熱費・通信費の自動取込 完成】** `POST /pnl/:pid/:ym/import-utilities`＋帳票モーダル「光熱費・通信費を取込」ボタン。物件`driveUtilitiesFolderId`(007_光熱・インフラ)配下のサブフォルダを**名前で費目マッピング**(ガス/電気/水道→水道光熱費、インターネット→Wi-Fi・通信費、固定電話→固定電話)、請求書ファイル名の「N月分/N-M月分」で対象月判定(**範囲は月割**)、金額はGeminiで抽出→expensesに計上(overridden保護/utilitiesIndexで二重計上防止)。宿小町5月実証(ガス2,890+水道1,089[4-6月分÷3]=水道光熱費3,979)。
 
 ## NEXT（順序・ここから再開）
 1. **各月の実運用**: 帳票モーダルで月ごとに「領収書を取込」「月計表(申告書)から宿泊税取込」→報告書/精算書PDF生成。宿小町は精算書、the Terraceは報告書のみ(self)。
