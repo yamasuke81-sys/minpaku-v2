@@ -1,7 +1,20 @@
 {
   "permissions": {
     "allow": [
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(npm init *)",
+      "Bash(npm install *)",
+      "Bash(node gen-contract.js)",
+      "Bash(python \"C:\\\\Users\\\\yamas\\\\AppData\\\\Roaming\\\\Claude\\\\local-agent-mode-sessions\\\\skills-plugin\\\\a073e0e2-dad5-4b5f-bb7d-79fbf6aa4345\\\\3ea20aea-3169-4663-8da1-10a21c6a8936\\\\skills\\\\docx\\\\scripts\\\\office\\\\validate.py\" \"宿小町広島_運営代行契約書_20260501.docx\")",
+      "Bash(pip install *)",
+      "Bash(PYTHONUTF8=1 python \"C:\\\\Users\\\\yamas\\\\AppData\\\\Roaming\\\\Claude\\\\local-agent-mode-sessions\\\\skills-plugin\\\\a073e0e2-dad5-4b5f-bb7d-79fbf6aa4345\\\\3ea20aea-3169-4663-8da1-10a21c6a8936\\\\skills\\\\docx\\\\scripts\\\\office\\\\validate.py\" \"宿小町広島_運営代行契約書_20260501.docx\")",
+      "Bash(PYTHONUTF8=1 python \"C:\\\\Users\\\\yamas\\\\AppData\\\\Roaming\\\\Claude\\\\local-agent-mode-sessions\\\\skills-plugin\\\\a073e0e2-dad5-4b5f-bb7d-79fbf6aa4345\\\\3ea20aea-3169-4663-8da1-10a21c6a8936\\\\skills\\\\docx\\\\scripts\\\\office\\\\soffice.py\" --headless --convert-to pdf \"宿小町広島_運営代行契約書_20260501.docx\")",
+      "Read(//c/Program Files/LibreOffice/program/**)",
+      "Read(//c/Program Files \\(x86\\)/LibreOffice/program/**)",
+      "Bash(where soffice *)",
+      "Bash(powershell.exe -NoProfile -Command ' *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }

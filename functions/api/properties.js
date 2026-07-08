@@ -235,6 +235,7 @@ module.exports = function propertiesApi(db) {
         cleaningFee: Number(body.cleaningFee) || 0,
         requiredSkills: Array.isArray(body.requiredSkills) ? body.requiredSkills : [],
         checklistTemplateId: body.checklistTemplateId || "",
+        managementFeeRate: body.managementFeeRate !== undefined ? Number(body.managementFeeRate) : 50,
         monthlyFixedCost: Number(body.monthlyFixedCost) || 0,
         purchasePrice: Number(body.purchasePrice) || 0,
         purchaseDate: body.purchaseDate || null,
@@ -306,6 +307,7 @@ module.exports = function propertiesApi(db) {
       if (body.cleaningDuration !== undefined) data.cleaningDuration = Number(body.cleaningDuration) || 90;
       if (body.cleaningFee !== undefined) data.cleaningFee = Number(body.cleaningFee) || 0;
       if (body.requiredSkills !== undefined) data.requiredSkills = Array.isArray(body.requiredSkills) ? body.requiredSkills : [];
+      if (body.managementFeeRate !== undefined) data.managementFeeRate = Number(body.managementFeeRate) || 50;
       if (body.monthlyFixedCost !== undefined) data.monthlyFixedCost = Number(body.monthlyFixedCost) || 0;
       if (body.purchasePrice !== undefined) data.purchasePrice = Number(body.purchasePrice) || 0;
       if (body.purchaseDate !== undefined) data.purchaseDate = body.purchaseDate;

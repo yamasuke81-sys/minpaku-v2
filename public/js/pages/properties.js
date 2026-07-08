@@ -396,6 +396,7 @@ const PropertiesPage = {
     document.getElementById("propertyBaseWorkTimeStart").value = property?.baseWorkTime?.start || "10:30";
     document.getElementById("propertyBaseWorkTimeEnd").value = property?.baseWorkTime?.end || "14:30";
     document.getElementById("propertyCleaningFee").value = property?.cleaningFee || 0;
+    document.getElementById("propertyManagementFeeRate").value = property?.managementFeeRate ?? 50;
     document.getElementById("propertyMonthlyCost").value = property?.monthlyFixedCost || 0;
     document.getElementById("propertyPurchasePrice").value = property?.purchasePrice || 0;
     document.getElementById("propertyPurchaseDate").value = property?.purchaseDate
@@ -658,6 +659,7 @@ const PropertiesPage = {
         end: document.getElementById("propertyBaseWorkTimeEnd").value || "14:30",
       },
       cleaningFee: Number(document.getElementById("propertyCleaningFee").value) || 0,
+      managementFeeRate: Number(document.getElementById("propertyManagementFeeRate").value) || 50,
       monthlyFixedCost: Number(document.getElementById("propertyMonthlyCost").value) || 0,
       purchasePrice: Number(document.getElementById("propertyPurchasePrice").value) || 0,
       purchaseDate: document.getElementById("propertyPurchaseDate").value || null,
@@ -835,6 +837,7 @@ const PropertiesPage = {
         end: document.getElementById("propertyBaseWorkTimeEnd").value || "14:30",
       },
       cleaningFee: Number(document.getElementById("propertyCleaningFee").value) || 0,
+      managementFeeRate: Number(document.getElementById("propertyManagementFeeRate").value) || 50,
       monthlyFixedCost: Number(document.getElementById("propertyMonthlyCost").value) || 0,
       purchasePrice: Number(document.getElementById("propertyPurchasePrice").value) || 0,
       purchaseDate: document.getElementById("propertyPurchaseDate").value || null,
