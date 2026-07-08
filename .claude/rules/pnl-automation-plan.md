@@ -31,22 +31,25 @@
   - **5月pnlデータを本番投入済**(宿小町=201,769 / the Terrace=airbnb335,785+booking net285,260、settlementMode=self設定済)。デプロイ後すぐ画面で確認可能。
   - PDF実物2種を宿小町5月データで生成・目視確認済(請求額税込110,974、1ページ収まり、日本語OK)。
 
-## 進行中（2026-07-09 バックフィル）— ★Bookingだけ残
-- **CSV自動取得(scheduler)は未稼働**(yadozeiQueue由来のscheduler=0。次に自動で回るのは8/2)。→ 過去分は手動フェッチした。
-- **【完了】Airbnb過去分フェッチ＋pnl取込**: `scratchpad/backfill-fetch.cjs full-airbnb` で全11件done → `/tmp/importbf.cjs`相当でpnl投入済。
-  - 宿小町: 5月201,769 / 6月171,062。the Terrace(Airbnb売上): 25/09=288,963・10=397,797・11=194,000・12=235,710・26/01=157,140・**02=0(Airbnb予約0件・要確認)**・03=631,664・04=169,229・05=335,785・06=358,460。
-- **【要ユーザー操作】Booking.com が未ログインで全失敗**。→ ユーザーが **`cd C:\Users\yamas\AI_Workspace\minpaku-v2 & node scripts/yadozei-listener.mjs --login`** でBooking extranet再ログイン。その後こちらで **`backfill-fetch.cjs disable`→`full-booking`→(取込)→`enable`** を実行(the Terrace 2025-09〜2026-06のBooking、05以外)。宿小町はBooking無し。
-- **やどぜいUpload は enable で復帰済**(両物件true)。※Bookingバックフィル実行時だけ再度 disable→実行→enable すること(過去月のやどぜい実登録を避けるため)。
+## 過去分バックフィル（2026-07-09 完了）
+- **CSV自動取得(scheduler)は未稼働**(scheduler由来0、次8/2)。→ 過去分は手動フェッチ(`scratchpad/backfill-fetch.cjs`)で完了。やどぜいUpload連鎖はフェッチ中のみ停止し**復帰済**(両物件true)。
+- **Airbnb**: the Terrace 2025-09〜2026-06 + 宿小町 5-6月、全pnl取込済。売上: 宿小町5月201,769/6月171,062。the Terrace 25/09=288,963・10=397,797・11=194,000・12=235,710・26/01=157,140・**02=0**・03=631,664・04=169,229・05=335,785・06=358,460。
+- **Booking**(the Terraceのみ): 25/09=gross335,600・10=62,986・**11=0**・03=332,884・04=**0**・06=286,528 をpnl取込。**2025-12/2026-01/2026-02はBooking予約0**(DLボタン出ず=空月、データ損失なし)。
+- **the Terrace 2026-02 は Airbnb・Booking とも予約0**(閉鎖or低季)。宿小町Booking無し。
+- 残: 今後分は8/2以降scheduler自動 or アプリ「OTA CSV取込」ボタン。
 
 ## DONE（2026-07-09 第2弾・本番 v0709e / commit 1455c18）
 - **【#1 宿泊税B自動取込 完成】** `POST /settlement/:pid/:ym/import-tax`。やどぜい**申告書**PDF(税額明記)をGeminiで読み `taxWithholding` に自動セット。宿小町5月=**800円**(4泊×200円/広島県)実証。※月計表は課税泊数のみで税額なし→申告書優先。帳票モーダルに「月計表(申告書)から宿泊税取込」ボタン。
 - **【#3 費目マスタ初期投入 完成】** `POST /pnl/expense-categories/seed-defaults`＋費目設定に「推奨費目を一括作成」ボタン。本番に11費目投入済(家賃/水道光熱費/消耗品費/リネン・クリーニング/Wi-Fi・通信費/システム利用料/広告宣伝費/小修繕費/ゴミ処理費/害虫駆除費/固定電話。全て金額0=手入力or#2で充当)。
 
+## DONE（2026-07-09 第3弾・本番 v0709f / commit 6d67742）
+- **【#2 領収書/経費の費目自動計上 完成】** `POST /pnl/:pid/:ym/import-receipts`＋帳票モーダル「この月の領収書を取込」ボタン。物件 `driveReceiptsFolderId`(+直下サブフォルダ1階層)のレシートPDFを収集→ファイル名YYMMDDで対象月抽出→費目はファイル名(例「(広長浜_消耗品)」)から推定(guessCategoryFromName_のキーワード表)→金額はGeminiで抽出→月×費目でexpensesに加算(手動overridden保護、receiptsIndexで二重計上防止)。the Terrace 2026-05実データ検証OK(消耗品費7,395/小修繕費297、電球→小修繕費も正判定)。the Terrace `driveReceiptsFolderId=1eD5DRCMO6spahGEE27zXmyCamTFOAQFo` 設定済。
+
 ## NEXT（順序・ここから再開）
-1. **【#2 残】修繕費/経費レシートの取込**: Drive領収書PDF→費目に自動計上。the Terrace `008_民泊運用`(=`1eD5DRCMO6spahGEE27zXmyCamTFOAQFo`)直下＋サブフォルダ「57 巣だち(ごみ処理)」等に37件。**ファイル名が構造化**(例「260125 ﾚｼｰﾄ(広長浜_消耗品)ニトリ.pdf」= 日付YYMMDD+費目+店名)。→ファイル名で日付・費目を取り、Geminiで金額抽出、月×費目で集計してpnl expensesへ(source=receipts, overriddenは尊重)。物件ごとの領収書フォルダIDを物件docに持たせる想定(`driveReceiptsFolderId`)。宿小町側の領収書フォルダは要特定。
-2. **Bookingバックフィル**(上記・要ユーザー再ログイン)。
-3. **清掃費の取込**: 清掃スタッフ請求書 or shifts から cleaningCosts へ(既存Gemini import併用可)。
-4. **完全自動バッチ**: 毎月 OTA CSV取込→宿泊税/修繕費取込→帳票下書き生成 を自動化(最終ゴール)。
+1. **宿小町の領収書フォルダ特定＋設定**(`driveReceiptsFolderId`)。現状the Terraceのみ設定済。宿小町の領収書PDF置き場が判明したら物件docに設定→「領収書を取込」で計上可。
+2. **各月の実運用**: 帳票モーダルで月ごとに「領収書を取込」「月計表(申告書)から宿泊税取込」を押す→報告書/精算書PDF生成。宿小町は精算書、the Terraceは報告書のみ(self)。※費目の家賃/Wi-Fi/システム利用料等の固定費は金額未入力→物件別に手入力 or fixedのdefaultAmount設定が必要。
+3. **清掃費の取込**: 清掃スタッフ請求書PDF or shifts から cleaningCosts へ(既存Gemini import併用可)。
+4. **完全自動バッチ**: 毎月 OTA CSV取込→宿泊税/領収書取込→帳票下書き生成 を自動化(最終ゴール)。
 
 ## 主要ID/設定
 - 宿小町 `RZV9IwtQgMAsvrdM3j8J`: OTAcsv=`1qt5WG7nLqpnqSFILHUCA9otBUJrBmbSk` / listingName=「【YADO KOMACHI】広島中心部…」
