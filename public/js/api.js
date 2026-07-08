@@ -654,6 +654,11 @@ const API = {
     async importReceipts(propertyId, yearMonth, body = {}) {
       return this._post(`/pnl/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}/import-receipts`, body);
     },
+
+    // POST /pnl/:propertyId/:yearMonth/import-utilities — 光熱費・通信費の請求書を費目に自動計上
+    async importUtilities(propertyId, yearMonth, body = {}) {
+      return this._post(`/pnl/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}/import-utilities`, body);
+    },
   },
 
   // 募集管理 API（回答はドキュメント内 responses[] に埋め込み — N+1クエリ解消）

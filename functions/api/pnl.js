@@ -496,13 +496,14 @@ module.exports = function pnlApi(db) {
     return `20${m[1]}-${m[2]}`;
   }
 
-  // 領収書PDFから税込合計額を抽出(金額のみ。日付/費目はファイル名を使う)
+  // レシート/請求書PDFから税込金額を抽出(金額のみ。日付/費目はファイル名を使う)
   async function geminiExtractReceiptAmount_(pdfBase64, apiKey) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
     const prompt = [
-      "これは店舗のレシート/領収書です。支払った税込合計金額(円)を1つだけ抽出してください。",
-      "複数の合計候補があれば「合計」「お会計」「クレジット」等の最終支払額。カンマなし整数。読めなければ0。",
-      'JSONのみ出力: {"amount": 整数, "store": "店名(あれば)", "confidence": 0-100}',
+      "これは店舗のレシート/領収書、または公共料金・通信費の請求書/お知らせです。",
+      "支払う税込金額(レシートなら「合計/お会計」、請求書なら「ご請求金額/請求額/合計」)を1つだけ抽出してください。",
+      "カンマなし整数(円)。読めなければ0。",
+      'JSONのみ出力: {"amount": 整数, "store": "店名/事業者(あれば)", "confidence": 0-100}',
     ].join("\n");
     const payload = { contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "application/pdf", data: pdfBase64 } }] }], generationConfig: { temperature: 0.1 } };
     const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -616,6 +617,125 @@ module.exports = function pnlApi(db) {
     } catch (e) {
       console.error("領収書取込エラー:", e);
       res.status(500).json({ error: "領収書の取込に失敗しました: " + e.message });
+    }
+  });
+
+  // ========================================================
+  // 光熱費・通信費(007_光熱・インフラ の請求書)取込 → 月×費目
+  // ========================================================
+
+  // 光熱/通信フォルダ名 → 費目名(番号は物件でバラバラなので名前で判定)
+  function mapUtilityCategory_(folderName) {
+    const n = String(folderName || "");
+    if (/ガス|電気|水道/.test(n)) return "水道光熱費";
+    if (/固定電話/.test(n)) return "固定電話";
+    if (/インターネット|wi-?fi|ネット|通信|電話/i.test(n)) return "Wi-Fi・通信費";
+    return null;
+  }
+
+  // 請求書ファイル名から対象年月(複数可)を推定 → "YYYY-MM"配列
+  // 例: "260521 …5月分"→[2026-05] / "260611 …4-6月分"→[2026-04,05,06] / 月分表記無し→ファイル名日付の月
+  function parseBillMonths_(name) {
+    const m6 = String(name).match(/(\d{2})(\d{2})(\d{2})/);
+    const fy = m6 ? 2000 + Number(m6[1]) : null;
+    const fm = m6 ? Number(m6[2]) : null;
+    const ym = (y, mo) => `${y}-${String(mo).padStart(2, "0")}`;
+    const rg = String(name).match(/(\d{1,2})\s*[-~〜]\s*(\d{1,2})\s*月分/);
+    if (rg && fy) {
+      const s = Number(rg[1]), e = Number(rg[2]);
+      if (e >= s && e - s <= 6) { const out = []; for (let mo = s; mo <= e; mo++) out.push(ym(fy, mo)); return out; }
+    }
+    const sg = String(name).match(/(\d{1,2})\s*月分/);
+    if (sg && fy) { const mo = Number(sg[1]); return [ym(mo > fm ? fy - 1 : fy, mo)]; } // 記載月>ファイル月なら前年扱い
+    if (fy) return [ym(fy, fm)];
+    return [];
+  }
+
+  // POST /:propertyId/:yearMonth/import-utilities { folderId?, dryRun? }
+  // 物件の 007_光熱・インフラ 配下(ガス/電気/水道/ネット/固定電話)の請求書から、
+  // 対象月の光熱費・通信費を費目に自動計上する。範囲月(4-6月分等)は月割。
+  router.post("/:propertyId/:yearMonth/import-utilities", async (req, res) => {
+    try {
+      const { propertyId, yearMonth } = req.params;
+      const { folderId, dryRun } = req.body || {};
+      if (!/^\d{4}-\d{2}$/.test(yearMonth)) return res.status(400).json({ error: "yearMonth は YYYY-MM 形式" });
+
+      const propSnap = await db.collection("properties").doc(propertyId).get();
+      if (!propSnap.exists) return res.status(404).json({ error: "物件が見つかりません" });
+      const srcFolder = folderId || propSnap.data().driveUtilitiesFolderId;
+      if (!srcFolder) return res.status(400).json({ error: "光熱インフラフォルダ(driveUtilitiesFolderId)が未設定です" });
+
+      const apiKey = await getGeminiApiKey_();
+      if (!apiKey) return res.status(400).json({ error: "Gemini APIキー(settings/scanSorter)が未設定です" });
+
+      const categories = await loadCategories_();
+      const catByName = {}; categories.forEach((c) => { catByName[(c.name || "").trim()] = c.id; });
+
+      const ref = pnlCol.doc(docId_(propertyId, yearMonth));
+      const cur = await ref.get();
+      const curData = cur.exists ? cur.data() : {};
+      const already = new Set((curData.utilitiesIndex || []).map((r) => `${r.fileId}|${r.ym}`));
+
+      const drive = await resolveOtaDrive_();
+      // 007配下のサブフォルダ(ガス/電気/水道/ネット/電話)を費目にマップ
+      const subs = (await drive.files.list({
+        q: `'${srcFolder}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder'`,
+        fields: "files(id,name)", pageSize: 50, supportsAllDrives: true, includeItemsFromAllDrives: true,
+      })).data.files || [];
+
+      const items = [];
+      const sumByCat = {};
+      let processed = 0, skippedDup = 0, errors = 0, unmatchedCat = 0;
+
+      for (const sub of subs) {
+        const catName = mapUtilityCategory_(sub.name);
+        if (!catName) { unmatchedCat++; continue; }
+        const catId = catByName[catName] || null;
+        const pdfs = (await drive.files.list({
+          q: `'${sub.id}' in parents and trashed=false and mimeType='application/pdf'`,
+          fields: "files(id,name)", pageSize: 200, supportsAllDrives: true, includeItemsFromAllDrives: true,
+        })).data.files || [];
+        for (const f of pdfs) {
+          const months = parseBillMonths_(f.name);
+          if (!months.includes(yearMonth)) continue; // 対象月に該当しない
+          if (already.has(`${f.id}|${yearMonth}`)) { skippedDup++; continue; }
+          try {
+            const bin = await drive.files.get({ fileId: f.id, alt: "media", supportsAllDrives: true }, { responseType: "arraybuffer" });
+            const parsed = await geminiExtractReceiptAmount_(Buffer.from(bin.data).toString("base64"), apiKey);
+            const full = Math.max(0, Math.round(Number(parsed.amount) || 0));
+            const share = Math.round(full / months.length); // 範囲月は月割
+            if (catId) sumByCat[catId] = (sumByCat[catId] || 0) + share;
+            processed++;
+            items.push({ fileId: f.id, fileName: f.name, category: catName, catId, fullAmount: full, monthShare: share, months });
+          } catch (e) {
+            errors++;
+            items.push({ fileId: f.id, fileName: f.name, error: e.message });
+          }
+        }
+      }
+
+      if (dryRun) return res.json({ dryRun: true, yearMonth, processed, skippedDup, errors, items, sumByCat });
+
+      const applied = [];
+      const expensesPatch = {};
+      for (const [catId, add] of Object.entries(sumByCat)) {
+        const existing = (curData.expenses && curData.expenses[catId]) || null;
+        if (existing && existing.overridden) { applied.push({ catId, skipped: "手動上書き保護" }); continue; }
+        const newAmount = toInt(existing?.amount) + add;
+        expensesPatch[catId] = { amount: newAmount, source: "utilities", overridden: false, note: "光熱・通信 自動計上", updatedAt: Date.now() };
+        applied.push({ catId, amount: newAmount });
+      }
+      const patch = { propertyId, yearMonth, updatedAt: FieldValue.serverTimestamp() };
+      if (Object.keys(expensesPatch).length) patch.expenses = expensesPatch;
+      const newIndex = items.filter((it) => !it.error).map((it) => ({ fileId: it.fileId, ym: yearMonth, amount: it.monthShare, catId: it.catId }));
+      if (newIndex.length) patch.utilitiesIndex = FieldValue.arrayUnion(...newIndex);
+      await ref.set(patch, { merge: true });
+
+      const after = (await ref.get()).data();
+      res.json({ ok: true, yearMonth, processed, skippedDup, errors, unmatchedCat, applied, items, computed: computePnl(after, categories) });
+    } catch (e) {
+      console.error("光熱費取込エラー:", e);
+      res.status(500).json({ error: "光熱費・通信費の取込に失敗しました: " + e.message });
     }
   });
 
