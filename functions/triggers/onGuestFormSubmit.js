@@ -420,59 +420,160 @@ module.exports = async function onGuestFormSubmit(event) {
     }
     const bookingsSnap = await bookingsQuery.limit(1).get();
 
-    // 処理B-3: マッチなし → 同物件の近い日程の予約候補を添えて「何が違うか」を提示
+    // 処理B-3: checkIn 完全一致の confirmed 予約なし → 救済 → 「何が違うか」を提示
     if (bookingsSnap.empty) {
-      // 同物件の confirmed 予約を取得し、名簿CIの近い順に候補提示
-      // (ゲストがCI日を打ち間違えると必ずここに落ちるため、正しい予約を推測できる手掛かりを出す)
-      // - 既にCO済み(過去)の予約は除外 = これから泊まる予約が対象
-      // - 名簿CI日との差(絶対値)が小さい順に並べ、上位8件
+      const rosterGuestCountB3 = Number(data.guestCount) || 0;
+
+      // 同物件の confirmed 予約を1回だけ取得し、救済1(期間内一致)と候補提示で共用する
+      let confirmedBookings = [];
+      try {
+        let cq = db.collection("bookings").where("status", "==", "confirmed");
+        if (data.propertyId) cq = cq.where("propertyId", "==", data.propertyId);
+        const cqSnap = await cq.get();
+        confirmedBookings = cqSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      } catch (e) { console.warn("[roster] confirmed予約の取得に失敗:", e.message); }
+
+      // === 救済1: 名簿CIを「滞在期間内に含む」同物件の匿名予約が一意なら自動リンク ===
+      // Booking.com のマージ済みブロックが早い開始日で取り込まれ、checkIn 完全一致に落ちない
+      // ケースを拾う。実名の別ゲスト予約を乗っ取らないよう、対象は「期間内に含む予約がちょうど
+      // 1件」かつ「匿名プレースホルダ(Booking.com予約/Reserved 等)」かつ「未リンク」に限定する。
+      try {
+        const within = confirmedBookings
+          .filter((b) => b.checkIn && b.checkOut && b.checkIn <= rosterCheckIn && rosterCheckIn < b.checkOut);
+        if (within.length === 1) {
+          const sm = within[0];
+          const isPlaceholder = !sm.guestName
+            || /^(booking\.com予約|booking|予約|reserved|airbnb|closed)$/i.test(String(sm.guestName).trim());
+          const alreadyLinked = !!sm.guestFormId && sm.guestFormId !== guestId;
+          if (isPlaceholder && !alreadyLinked) {
+            const smUpdate = {
+              guestName,
+              guestCount: rosterGuestCountB3 || sm.guestCount,
+              guestFormId: guestId,
+              rosterStatus: "submitted",
+            };
+            if (data.nationality) smUpdate.nationality = data.nationality;
+            if (data.phone) smUpdate.phone = data.phone;
+            if (data.email) smUpdate.email = data.email;
+            await db.collection("bookings").doc(sm.id).update(smUpdate);
+            await docRef.update({ bookingId: sm.id });
+
+            const smDetail =
+              `名簿のCI(${rosterCheckIn})に完全一致する予約はありませんでしたが、` +
+              `同物件の予約「${sm.guestName || "(名前なし)"} / ${sm.checkIn} → ${sm.checkOut || "?"} / ${sm.source || "?"}」の滞在期間内でした。\n` +
+              `この予約に名簿を自動で紐付けました（Booking.com の連泊統合等でCI日がずれて取り込まれた予約と推定）。\n` +
+              `念のため予約内容と名簿が同一ゲストか確認してください。`;
+            await db.collection("notifications").add({
+              type: "roster_mismatch",
+              title: `名簿照合: 期間内予約に自動紐付け`,
+              body: smDetail,
+              guestId,
+              bookingId: sm.id,
+              propertyId: data.propertyId || null,
+              checkIn: rosterCheckIn,
+              severity: "info",
+              createdAt: new Date(),
+            });
+            await notifyByKey(db, "roster_mismatch", {
+              title: `名簿照合: 期間内予約に自動紐付け (${guestName})`,
+              body: `ℹ️ ${smDetail}\n\n名簿確認: ${confirmUrl}`,
+              vars: {
+                property: propertyName, propertyName, guest: guestName, guestName,
+                checkin: rosterCheckIn, checkout: rosterCheckOut || "", count: data.guestCount || "",
+                url: confirmUrl, error: smDetail, detail: smDetail,
+              },
+              propertyId: data.propertyId || null,
+            });
+            console.log(`[roster] 期間内予約に自動紐付け: ${sm.id} (${sm.checkIn}→${sm.checkOut})`);
+            return;
+          }
+        }
+      } catch (e) { console.warn("[roster] 救済1(期間内予約)失敗:", e.message); }
+
+      // 同物件の confirmed 予約を名簿CIの近い順に候補提示 (打ち間違い/取込漏れ特定の手掛かり)
+      // - 既にCO済み(過去)の予約は除外。名簿CI日との差(絶対値)が小さい順に上位8件
       const jstTodayYmd = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
       const dayDiff = (a, b) => Math.round((new Date(`${a}T00:00:00Z`) - new Date(`${b}T00:00:00Z`)) / 86400000);
-      let candidates = [];
-      try {
-        let candQ = db.collection("bookings").where("status", "==", "confirmed");
-        if (data.propertyId) candQ = candQ.where("propertyId", "==", data.propertyId);
-        const candSnap = await candQ.get();
-        candidates = candSnap.docs
-          .map((d) => d.data())
-          .filter((b) => b.checkIn && (b.checkOut || b.checkIn) >= jstTodayYmd) // CO済みの過去予約を除外
-          .sort((a, b) => Math.abs(dayDiff(a.checkIn, rosterCheckIn)) - Math.abs(dayDiff(b.checkIn, rosterCheckIn)))
-          .slice(0, 8);
-      } catch (e) { console.warn("候補予約の取得に失敗:", e.message); }
+      // CO済み(過去)を除外し、名簿CI日との差が小さい順に上位8件を候補提示
+      const candidates = confirmedBookings
+        .filter((b) => b.checkIn && (b.checkOut || b.checkIn) >= jstTodayYmd)
+        .sort((a, b) => Math.abs(dayDiff(a.checkIn, rosterCheckIn)) - Math.abs(dayDiff(b.checkIn, rosterCheckIn)))
+        .slice(0, 8);
 
       const candLines = candidates.length
         ? candidates.map((b) => `・${b.guestName || "(名前なし)"} / ${b.checkIn} → ${b.checkOut || "?"} / ${b.source || "?"}`).join("\n")
         : "（近い日程の確定予約は見つかりませんでした）";
 
+      // === 救済2: Booking.com のカレンダー上、名簿CI日が実際に予約済みかを裏取り ===
+      // 占有されていれば「打ち間違い」ではなく「iCalマージ等による取込漏れ」と正しく診断できる。
+      // 外部フェッチのため best-effort (失敗しても従来どおり候補提示にフォールバック)。
+      let icalOccupied = false;
+      let icalBlock = null;
+      if (/booking/i.test(String(data.bookingSite || "")) && data.propertyId) {
+        try {
+          const { isDateOccupiedInBookingIcal } = require("../utils/icalOccupancy");
+          const r = await isDateOccupiedInBookingIcal(db, data.propertyId, rosterCheckIn);
+          icalOccupied = !!r.occupied;
+          icalBlock = r.block;
+        } catch (e) { console.warn("[roster] 救済2(iCal占有裏取り)失敗:", e.message); }
+      }
+
+      // 「何がどう不一致か」の詳細本文。customMessage が body を破棄する物件でも
+      // vars({error}/{detail}/{candidates}) 経由で必ず届くよう、この1本を全経路で使い回す。
+      let mismatchDetail;
+      if (icalOccupied) {
+        mismatchDetail =
+          `Booking.com のカレンダー上は ${rosterCheckIn} が予約済みですが、システムに予約レコードがありません。\n` +
+          `Booking.com の iCal は連続する複数予約を1ブロックに匿名統合するため、\n` +
+          `この予約の取り込みが漏れた可能性が高いです（ゲストの打ち間違いではありません）。\n\n` +
+          (icalBlock ? `Booking.com カレンダーの該当ブロック: ${icalBlock.checkIn} → ${icalBlock.checkOut}\n\n` : "") +
+          `【名簿の入力内容】\n` +
+          `代表者: ${guestName}\n` +
+          `CI: ${rosterCheckIn} → CO: ${rosterCheckOut || "?"} / ${data.guestCount || "?"}名\n\n` +
+          `→ 名簿画面から予約を手動で追加・紐付けしてください。\n` +
+          `【同じ物件の近い予約】\n${candLines}`;
+      } else {
+        mismatchDetail =
+          `名簿のチェックイン日(${rosterCheckIn})に一致する確定予約が見つかりませんでした。\n` +
+          `ゲストがチェックイン日を打ち間違えている可能性があります。\n\n` +
+          `【名簿の入力内容】\n` +
+          `代表者: ${guestName}\n` +
+          `CI: ${rosterCheckIn} → CO: ${rosterCheckOut || "?"} / ${data.guestCount || "?"}名\n\n` +
+          `【同じ物件の近い日程の予約候補】\n${candLines}\n\n` +
+          `→ 上記のいずれかと日程がずれていないか、名簿を確認してください。`;
+      }
+
       const warnMsg =
-        `⚠️ 名簿照合: 名簿のチェックイン日に一致する予約がありません\n` +
-        `ゲストがチェックイン日を打ち間違えている可能性があります。\n\n` +
-        `【名簿の入力内容】\n` +
-        `物件: ${propertyName || "(未設定)"}\n` +
-        `代表者: ${guestName}\n` +
-        `CI: ${rosterCheckIn} → CO: ${rosterCheckOut || "?"}\n` +
-        `人数: ${data.guestCount || "?"}名\n\n` +
-        `【同じ物件の近い日程の予約候補】\n${candLines}\n\n` +
-        `→ 上記のいずれかと日程がずれていないか、名簿を確認してください。\n` +
+        `⚠️ 名簿照合エラー\n` +
+        `物件: ${propertyName || "(未設定)"}\n\n` +
+        `${mismatchDetail}\n\n` +
         `名簿確認: ${confirmUrl}`;
 
       await db.collection("notifications").add({
         type: "roster_mismatch",
         title: `名簿照合エラー: ${guestName}`,
-        body: `名簿のCI(${rosterCheckIn})に一致する予約がありません。近い日程の予約候補 ${candidates.length}件`,
+        body: mismatchDetail,
         guestId,
         propertyId: data.propertyId || null,
         checkIn: rosterCheckIn,
+        icalOccupied,
         severity: "warning",
         createdAt: new Date(),
       });
       await notifyByKey(db, "roster_mismatch", {
         title: `名簿照合エラー: ${guestName}`,
         body: warnMsg,
-        vars: { property: propertyName, propertyName, guest: guestName, guestName, checkin: rosterCheckIn, url: confirmUrl },
+        // customMessage が本文(body)を破棄する物件でも詳細が消えないよう、
+        // {error}/{detail}/{candidates} を vars で供給する (roster_mismatch だけ供給漏れだった修正)
+        vars: {
+          property: propertyName, propertyName, guest: guestName, guestName,
+          checkin: rosterCheckIn, checkout: rosterCheckOut || "", count: data.guestCount || "",
+          url: confirmUrl,
+          error: mismatchDetail, detail: mismatchDetail, candidates: candLines,
+        },
         propertyId: data.propertyId || null,
       });
-      console.warn("名簿照合: 一致するbookingなし", rosterCheckIn, "候補", candidates.length);
+      console.warn("名簿照合: 一致するbookingなし", rosterCheckIn, "icalOccupied=" + icalOccupied, "候補", candidates.length);
       return;
     }
 
@@ -495,12 +596,16 @@ module.exports = async function onGuestFormSubmit(event) {
     if (diffs.length > 0) {
       const diffLines = diffs.map((d) => `・${d.label}: 予約=${d.booking} / 名簿=${d.roster}`).join("\n");
       const diffSummary = diffs.map((d) => `${d.label}(予約${d.booking}/名簿${d.roster})`).join("、");
-      const warnMsg =
-        `⚠️ 名簿照合: 予約と名簿の内容が異なります\n\n` +
-        `物件: ${propertyName || "(未設定)"}\n` +
-        `代表者: ${guestName}\n` +
+      // 相違点の詳細。customMessage が body を破棄する物件でも {error}/{detail}/{diff} 経由で必ず届ける。
+      const mismatchDetail =
+        `予約は見つかりましたが、予約情報と名簿の内容に相違があります。\n` +
         `CI: ${rosterCheckIn}（予約と一致）\n\n` +
-        `【相違点】\n${diffLines}\n\n` +
+        `【相違点】\n${diffLines}`;
+      const warnMsg =
+        `⚠️ 名簿照合警告: 予約と名簿の内容が異なります\n\n` +
+        `物件: ${propertyName || "(未設定)"}\n` +
+        `代表者: ${guestName}\n\n` +
+        `${mismatchDetail}\n\n` +
         `名簿確認: ${confirmUrl}`;
       await db.collection("notifications").add({
         type: "roster_mismatch",
@@ -516,7 +621,13 @@ module.exports = async function onGuestFormSubmit(event) {
       await notifyByKey(db, "roster_mismatch", {
         title: "名簿照合警告: 予約と内容が異なります",
         body: warnMsg,
-        vars: { property: propertyName, propertyName, guest: guestName, guestName, checkin: rosterCheckIn, url: confirmUrl },
+        // roster_mismatch の vars 供給漏れ修正: 相違点を error/detail/diff で渡す
+        vars: {
+          property: propertyName, propertyName, guest: guestName, guestName,
+          checkin: rosterCheckIn, checkout: rosterCheckOut || "", count: data.guestCount || "",
+          url: confirmUrl,
+          error: mismatchDetail, detail: mismatchDetail, diff: diffLines,
+        },
         propertyId: data.propertyId || null,
       });
     }
