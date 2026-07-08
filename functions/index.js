@@ -160,6 +160,10 @@ app.use("/reports", reportsApi(db));
 const pnlApi = require("./api/pnl");
 app.use("/pnl", pnlApi(db));
 
+// ========== 月次帳票(報告書/精算書兼請求書) API ==========
+const settlementApi = require("./api/settlement");
+app.use("/settlement", settlementApi(db));
+
 // ========== スキャン自動仕分け API ==========
 const scanSorterApi = require("./api/scan-sorter");
 app.use("/scan-sorter", scanSorterApi(db));

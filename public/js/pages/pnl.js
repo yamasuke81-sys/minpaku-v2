@@ -58,6 +58,9 @@ const PnlPage = {
               <button class="btn btn-sm btn-outline-info" id="btnPnlCategories">
                 <i class="bi bi-tags"></i> 費目設定
               </button>
+              <button class="btn btn-sm btn-outline-success" id="btnPnlOtaImport">
+                <i class="bi bi-filetype-csv"></i> OTA CSV取込
+              </button>
               <button class="btn btn-sm btn-outline-success" id="btnPnlImport">
                 <i class="bi bi-cloud-download"></i> Drive取り込み
               </button>
@@ -154,6 +157,24 @@ const PnlPage = {
               <button type="button" class="btn btn-outline-primary btn-sm" id="btnPnlAddCat">
                 <i class="bi bi-plus-lg"></i> 費目追加
               </button>
+              <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">閉じる</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 帳票生成モーダル -->
+      <div class="modal fade" id="pnlDocModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="bi bi-file-earmark-text"></i> 月次帳票の生成 <span id="pnlDocTitle" class="text-muted small"></span></h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="pnlDocBody">
+              <div class="text-center py-3"><div class="spinner-border text-primary"></div></div>
+            </div>
+            <div class="modal-footer">
               <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">閉じる</button>
             </div>
           </div>
@@ -265,6 +286,20 @@ const PnlPage = {
     document.getElementById("btnPnlImport").addEventListener("click", () => {
       this.runDriveImport();
     });
+
+    document.getElementById("btnPnlOtaImport").addEventListener("click", () => {
+      this.runOtaCsvImport();
+    });
+  },
+
+  // 選択中の物件オブジェクト(managementFeeRate等の参照用)
+  selectedProperty() {
+    return this.properties.find(p => p.id === this.selectedPropertyId) || null;
+  },
+
+  feeRatePct() {
+    const r = this.selectedProperty()?.managementFeeRate;
+    return r != null ? Number(r) : 50;
   },
 
   // ===== サマリーロード & テーブル描画 =====
@@ -312,13 +347,17 @@ const PnlPage = {
           ${th("費目計", "text-end")}
           ${th("利益", "text-end")}
           ${th("利益率", "text-end")}
+          ${th(`代行手数料(売上×${this.feeRatePct()}%)`, "text-end")}
+          ${th("帳票", "text-center")}
         </tr>
       </thead>`;
 
+    const feeRate = this.feeRatePct();
     const rows = months.map(m => {
       const profitNeg = (m.profit || 0) < 0;
       const profitClass = profitNeg ? "text-danger fw-bold" : "";
       const rate = m.profitRate != null ? `${m.profitRate.toFixed(1)}%` : "-";
+      const mgmtFee = Math.round((m.revenueGross || 0) * feeRate / 100);
 
       const catCells = cats.map(c => {
         const exp = (m.expenses || []).find(e => e.catId === c.id);
@@ -345,6 +384,12 @@ const PnlPage = {
           <td class="text-end">${this.fmtYen(m.expensesTotal)}</td>
           <td class="text-end ${profitClass}">${this.fmtYen(m.profit)}</td>
           <td class="text-end ${profitNeg ? "text-danger" : ""}">${rate}</td>
+          <td class="text-end text-primary">${this.fmtYen(mgmtFee)}</td>
+          <td class="text-center text-nowrap">
+            <button class="btn btn-sm btn-outline-primary btn-pnl-doc" data-ym="${this.escapeHtml(m.yearMonth)}" title="帳票を生成">
+              <i class="bi bi-file-earmark-text"></i>
+            </button>
+          </td>
         </tr>`;
     }).join("");
 
@@ -370,6 +415,8 @@ const PnlPage = {
           <td class="text-end">${this.fmtYen(totals.expensesTotal)}</td>
           <td class="text-end ${totProfitNeg ? "text-danger" : ""}">${this.fmtYen(totals.profit)}</td>
           <td class="text-end ${totProfitNeg ? "text-danger" : ""}">${totRate}</td>
+          <td class="text-end text-primary">${this.fmtYen(Math.round(totals.revenueGross * this.feeRatePct() / 100))}</td>
+          <td></td>
         </tr>
       </tfoot>`;
 
@@ -395,6 +442,10 @@ const PnlPage = {
 
     wrap.querySelectorAll(".pnl-airbnb-cell").forEach(td => {
       td.addEventListener("click", () => this.openRevenueModal(td.dataset.ym, "airbnb"));
+    });
+
+    wrap.querySelectorAll(".btn-pnl-doc").forEach(btn => {
+      btn.addEventListener("click", () => this.openDocModal(btn.dataset.ym));
     });
   },
 
@@ -904,6 +955,154 @@ const PnlPage = {
       await this.loadSummary();
     } catch (e) {
       showToast("エラー", `Drive取り込み失敗: ${e.message}`, "error");
+    }
+  },
+
+  // ===== OTA CSV取込(yadozeiがDLした予約CSV → 売上) =====
+  async runOtaCsvImport() {
+    if (!this.selectedPropertyId) return;
+    const months = this._enumerateMonths(this.fromYM, this.toYM);
+    const ok = await showConfirm(
+      "OTA CSV取込",
+      `${this.fromYM}〜${this.toYM}（${months.length}ヶ月）の Airbnb / Booking 予約CSV（やどぜい保存分）を集計して売上に取り込みます。よろしいですか？`
+    );
+    if (!ok) return;
+
+    showToast("OTA CSV取込", `${months.length}ヶ月を処理中...`, "info");
+    let applied = 0, notFound = 0, errors = 0;
+    for (const ym of months) {
+      try {
+        await API.pnl.importOtaCsv(this.selectedPropertyId, ym);
+        applied++;
+      } catch (e) {
+        // 対象月のCSVが無い(404)は正常(未取得月)。それ以外はエラー計上
+        if (/見つかりません|見つからず|ありません/.test(e.message)) notFound++;
+        else errors++;
+      }
+    }
+    showToast(
+      "OTA CSV取込 完了",
+      `取込: ${applied}ヶ月 / CSV無: ${notFound}ヶ月${errors ? ` / エラー: ${errors}ヶ月` : ""}`,
+      errors ? "warning" : "success"
+    );
+    await this.loadSummary();
+  },
+
+  // ===== 月次帳票の生成(報告書 / 精算書兼請求書) =====
+  async openDocModal(yearMonth) {
+    this._docYM = yearMonth;
+    const modal = document.getElementById("pnlDocModal");
+    if (!this._docModal) this._docModal = new bootstrap.Modal(modal);
+    document.getElementById("pnlDocTitle").textContent = `— ${this.selectedPropertyName()}／${yearMonth}`;
+    const body = document.getElementById("pnlDocBody");
+    body.innerHTML = `<div class="text-center py-3"><div class="spinner-border text-primary"></div></div>`;
+    this._docModal.show();
+
+    try {
+      this._docCtx = await API.pnl.settlementContext(this.selectedPropertyId, yearMonth);
+      this._renderDocBody();
+    } catch (e) {
+      body.innerHTML = `<div class="alert alert-warning">${this.escapeHtml(e.message)}</div>
+        <p class="text-muted small">売上データが無い場合は、先に「OTA CSV取込」を実行してください。</p>`;
+    }
+  },
+
+  _renderDocBody() {
+    const ctx = this._docCtx;
+    const body = document.getElementById("pnlDocBody");
+    const s = ctx.settlement;
+    const isSelf = ctx.settlementMode === "self";
+
+    body.innerHTML = `
+      <div class="row g-3">
+        <div class="col-md-5">
+          <h6 class="text-muted"><i class="bi bi-activity"></i> 稼働概況</h6>
+          <table class="table table-sm table-bordered mb-3">
+            <tr><td>予約件数</td><td class="text-end">Airbnb ${ctx.revenue.airbnbReservations} / Booking ${ctx.revenue.bookingReservations}</td></tr>
+            <tr><td>宿泊日数</td><td class="text-end">${ctx.nights} 泊</td></tr>
+            <tr><td>稼働率</td><td class="text-end">${ctx.occupancyRate} %</td></tr>
+            <tr><td>売上合計</td><td class="text-end">${this.fmtYen(ctx.computed.revenueGross)}</td></tr>
+            <tr><td>運営利益</td><td class="text-end fw-bold">${this.fmtYen(ctx.computed.profit)}</td></tr>
+          </table>
+        </div>
+        <div class="col-md-7">
+          <h6 class="text-muted"><i class="bi bi-receipt"></i> 精算プレビュー</h6>
+          <table class="table table-sm table-bordered mb-2">
+            <tr><td>月間入金額 (A)</td><td class="text-end">${this.fmtYen(s.depositAmount)}</td></tr>
+            <tr><td>宿泊税預り (B)
+              <input type="number" id="pnlDocTax" class="form-control form-control-sm d-inline-block ms-1" style="width:110px" value="${s.taxWithholding || 0}" min="0">
+            </td><td class="text-end" id="pnlDocBView">▲ ${this.fmtYen(s.taxWithholding)}</td></tr>
+            <tr class="table-light"><td>月間売上高 (A − B)</td><td class="text-end fw-bold" id="pnlDocBase">${this.fmtYen(s.salesBase)}</td></tr>
+            <tr><td>運営代行手数料 (×${s.feeRatePct}%)</td><td class="text-end" id="pnlDocFee">${this.fmtYen(s.feeExclTax)}</td></tr>
+            <tr><td>消費税 (${s.consumptionTaxPct}%)</td><td class="text-end" id="pnlDocTaxAmt">${this.fmtYen(s.consumptionTax)}</td></tr>
+            <tr class="table-primary"><td>ご請求金額(税込)</td><td class="text-end fw-bold" id="pnlDocTotal">${this.fmtYen(s.feeInclTax)}</td></tr>
+          </table>
+          <div class="mb-2">
+            <label class="form-label small mb-0">お支払期限</label>
+            <input type="text" id="pnlDocDue" class="form-control form-control-sm" value="翌月末日">
+          </div>
+        </div>
+        <div class="col-12">
+          <label class="form-label small mb-0">備考 / 特記事項</label>
+          <textarea id="pnlDocNote" class="form-control form-control-sm" rows="2" placeholder="帳票に印字されます(任意)"></textarea>
+        </div>
+      </div>
+      ${isSelf ? `<div class="alert alert-info mt-3 mb-0 py-2 small"><i class="bi bi-info-circle"></i> この物件は自社名義運営のため、精算書兼請求書は発行しません（報告書のみ）。</div>` : ""}
+      <div class="d-flex gap-2 mt-3 flex-wrap">
+        <button class="btn btn-outline-secondary btn-sm" id="btnDocReport"><i class="bi bi-file-earmark-text"></i> 月次業務報告書 PDF</button>
+        <button class="btn btn-primary btn-sm" id="btnDocSettlement" ${isSelf ? "disabled" : ""}><i class="bi bi-receipt"></i> 精算書兼請求書 PDF</button>
+      </div>
+      <div id="pnlDocResult" class="mt-2"></div>`;
+
+    // 宿泊税Bの変更で精算プレビューを即再計算(クライアント側)
+    const taxInput = document.getElementById("pnlDocTax");
+    taxInput.addEventListener("input", () => this._recalcDocPreview());
+
+    document.getElementById("btnDocReport").addEventListener("click", () => this._generateDoc("report"));
+    document.getElementById("btnDocSettlement").addEventListener("click", () => this._generateDoc("settlement"));
+  },
+
+  _recalcDocPreview() {
+    const s = this._docCtx.settlement;
+    const B = Math.max(0, Math.round(Number(document.getElementById("pnlDocTax").value) || 0));
+    const base = Math.max(0, s.depositAmount - B);
+    const fee = Math.round(base * s.feeRatePct / 100);
+    const tax = Math.round(fee * s.consumptionTaxPct / 100);
+    document.getElementById("pnlDocBView").textContent = "▲ " + this.fmtYen(B);
+    document.getElementById("pnlDocBase").textContent = this.fmtYen(base);
+    document.getElementById("pnlDocFee").textContent = this.fmtYen(fee);
+    document.getElementById("pnlDocTaxAmt").textContent = this.fmtYen(tax);
+    document.getElementById("pnlDocTotal").textContent = this.fmtYen(fee + tax);
+  },
+
+  async _generateDoc(kind) {
+    const btnId = kind === "report" ? "btnDocReport" : "btnDocSettlement";
+    const btn = document.getElementById(btnId);
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> 生成中...`;
+    const result = document.getElementById("pnlDocResult");
+    try {
+      const body = {
+        kind,
+        taxWithholding: Math.max(0, Math.round(Number(document.getElementById("pnlDocTax").value) || 0)),
+        note: document.getElementById("pnlDocNote").value || "",
+        paymentDueText: document.getElementById("pnlDocDue").value || "翌月末日",
+      };
+      const res = await API.pnl.generateDoc(this.selectedPropertyId, this._docYM, body);
+      const label = kind === "report" ? "月次業務報告書" : "精算書兼請求書";
+      result.innerHTML = `<div class="alert alert-success py-2 mb-0">
+        <i class="bi bi-check-circle"></i> ${label}を生成しました。
+        <a href="${res.url}" target="_blank" rel="noopener" class="alert-link">PDFを開く</a>
+      </div>`;
+      window.open(res.url, "_blank", "noopener");
+      // 宿泊税Bを保存したので収支も更新
+      await this.loadSummary();
+    } catch (e) {
+      result.innerHTML = `<div class="alert alert-danger py-2 mb-0">生成失敗: ${this.escapeHtml(e.message)}</div>`;
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = orig;
     }
   },
 

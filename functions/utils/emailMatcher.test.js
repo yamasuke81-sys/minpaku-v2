@@ -74,13 +74,23 @@ describe("findBookingMatch: 日付 + platform フォールバック", () => {
     },
   ];
 
-  test("reservationCode なし、platform + checkIn で一致", () => {
+  test("reservationCode なし、platform + checkIn + propertyIdHint で一致", () => {
+    const r = findBookingMatch(
+      bookings,
+      { platform: "Airbnb", checkIn: { date: "2026-05-04" } },
+      "p1"
+    );
+    assert.strictEqual(r.id, "ical_only_date");
+    assert.strictEqual(r.matchReason, "dateAndPlatform");
+  });
+
+  test("物件ヒント無しは日付フォールバックしない(物件跨ぎ誤照合防止)", () => {
+    // propertyIdHint を渡さないと source+日付だけの弱いマッチは採用しない(2026-07-09)
     const r = findBookingMatch(bookings, {
       platform: "Airbnb",
       checkIn: { date: "2026-05-04" },
     });
-    assert.strictEqual(r.id, "ical_only_date");
-    assert.strictEqual(r.matchReason, "dateAndPlatform");
+    assert.strictEqual(r, null);
   });
 
   test("propertyIdHint でさらに絞り込み", () => {

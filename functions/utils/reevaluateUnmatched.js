@@ -252,7 +252,9 @@ async function reevaluateGlobalUnmatched_(db, log) {
       // ※ Airbnb 等の subject は物件 listing 名なので properties.name と完全一致しない可能性あり。
       //   従って完全一致 + 部分一致 (4文字以上連続一致) で広めに判定
       let propertyIdHint = null;
-      const haystack = `${ev.subject || ""} ${ev.bodyText || ""} ${ev.bodyHtml || ""}`;
+      // 実フィールド名は rawBodyText / rawBodyHtml。以前 bodyText/bodyHtml を参照しており
+      // 本文が常に空 → 物件名逆引きが空振りし propertyIdHint=null のまま横断誤照合の一因になっていた(2026-07-09修正)
+      const haystack = `${ev.subject || ""} ${ev.rawBodyText || ev.bodyText || ""} ${ev.rawBodyHtml || ev.bodyHtml || ""}`;
       for (const { name, propertyId } of propertyNameMap) {
         if (!name) continue;
         if (haystack.includes(name)) { propertyIdHint = propertyId; break; }

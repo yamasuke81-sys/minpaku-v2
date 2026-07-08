@@ -61,7 +61,11 @@ function findBookingMatch(bookings, parsedInfo, propertyIdHint) {
 
   // 3. source + propertyId + checkIn 日付 フォールバック
   //    ※候補が複数ある場合は null (曖昧マッチによる誤更新を防ぐ)
-  if (parsedInfo.platform && parsedInfo.checkIn && parsedInfo.checkIn.date) {
+  //    ※propertyIdHint が無い(物件を特定できない)場合は日付フォールバックを行わない(2026-07-09)。
+  //      共用メアド由来で propertyId=null のまま source+日付だけでマッチすると、別物件の
+  //      同日予約に吸い込まれる事故が起きたため(テラス長浜の確定メールがおのみちホテルへ誤照合)。
+  //      物件を特定できないメールは unmatched のまま残し、メール照合UIの手動リンクに委ねる。
+  if (propertyIdHint && parsedInfo.platform && parsedInfo.checkIn && parsedInfo.checkIn.date) {
     const ciDate = parsedInfo.checkIn.date; // "YYYY-MM-DD"
     const candidates = [];
     for (const b of bookings) {

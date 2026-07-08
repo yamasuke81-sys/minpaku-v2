@@ -1,0 +1,187 @@
+/**
+ * OTA予約CSV 集計 — 純粋関数モジュール (副作用なし)
+ *
+ * yadozei-listener が Drive に保存した Airbnb / Booking.com の予約CSVを
+ * パースして「月間入金額・OTA手数料・泊数」を集計する。
+ * pnl.js から import され、月次収支(propertyMonthlyPnL)の revenue を作る。
+ *
+ * このファイルの関数はすべて引数のみで決定論的に動くこと(ota-csv-logic.test.js でテスト)。
+ */
+
+/**
+ * RFC4180 準拠の簡易CSVパーサ。
+ * - ダブルクォート内のカンマ・改行を保持
+ * - "" は文字リテラルの " にデコード
+ * - 行区切りは \r\n / \n の両対応
+ * @returns {string[][]} 行の配列(各行はセル文字列の配列)。先頭行はヘッダ。
+ */
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+  const s = String(text || "");
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (s[i + 1] === '"') { field += '"'; i++; } // エスケープされた "
+        else inQuotes = false;
+      } else {
+        field += c;
+      }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ",") {
+      row.push(field); field = "";
+    } else if (c === "\r") {
+      // \r\n の \r は無視(次の \n で行確定)。単独 \r も行区切り扱い
+      if (s[i + 1] !== "\n") { row.push(field); field = ""; rows.push(row); row = []; }
+    } else if (c === "\n") {
+      row.push(field); field = ""; rows.push(row); row = [];
+    } else {
+      field += c;
+    }
+  }
+  // 末尾フィールド/行の取りこぼし防止(空の最終行は捨てる)
+  if (field !== "" || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+/**
+ * 金額文字列を整数(円)に変換する。
+ * "¥18,100" / "36125 JPY" / "28,500" / "" → 18100 / 36125 / 28500 / 0
+ */
+function parseYen(v) {
+  if (v == null) return 0;
+  const cleaned = String(v).replace(/[^0-9.\-]/g, "");
+  if (cleaned === "" || cleaned === "-") return 0;
+  const n = Math.round(Number(cleaned));
+  return isNaN(n) ? 0 : n;
+}
+
+/**
+ * 表記揺れ吸収(物件名/リスティング名の曖昧一致用)。
+ */
+function normLoose(s) {
+  return String(s || "")
+    .replace(/[\s　]+/g, "")
+    .replace(/[｜|・,，。.]/g, "")
+    .toLowerCase();
+}
+
+// ヘッダ名→列indexのマップを作る(前後空白/BOM除去)
+function headerIndex(header) {
+  const map = {};
+  header.forEach((h, i) => { map[String(h).replace(/^﻿/, "").trim()] = i; });
+  return map;
+}
+
+/**
+ * Airbnb 予約CSV(yadozei保存形式)を集計する。
+ * 列: 確認コード,ステータス,ゲスト名,...,開始日,終了日,宿泊日数,予約済み,リスティング,収入
+ * - ステータスに「キャンセル」を含む行は除外(収入も¥0)
+ * - listingName 指定時はリスティング列を曖昧一致で絞る(保存CSVは既に絞り込み済だが二重の安全弁)
+ * - 収入(入金額=ホスト受取)を合算 → grossRevenue
+ *
+ * @returns {{grossRevenue:number, nights:number, reservationCount:number, canceledCount:number}}
+ */
+function sumAirbnbCsv(text, opts = {}) {
+  const rows = parseCsv(text);
+  if (rows.length < 2) return { grossRevenue: 0, nights: 0, reservationCount: 0, canceledCount: 0 };
+  const h = headerIndex(rows[0]);
+  const iStatus = h["ステータス"];
+  const iIncome = h["収入"];
+  const iNights = h["宿泊日数"];
+  const iListing = h["リスティング"];
+  const wantListing = opts.listingName ? normLoose(opts.listingName) : "";
+
+  let grossRevenue = 0, nights = 0, reservationCount = 0, canceledCount = 0;
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.length < 2) continue;
+    const status = String(row[iStatus] || "");
+    if (status.includes("キャンセル")) { canceledCount++; continue; }
+    if (wantListing && iListing != null) {
+      const ln = normLoose(row[iListing]);
+      if (ln && !(ln === wantListing || ln.includes(wantListing) || wantListing.includes(ln))) continue;
+    }
+    const income = parseYen(row[iIncome]);
+    if (income <= 0) continue; // 収入0(未確定/キャンセル相当)は売上に含めない
+    grossRevenue += income;
+    nights += parseYen(row[iNights]);
+    reservationCount++;
+  }
+  return { grossRevenue, nights, reservationCount, canceledCount };
+}
+
+/**
+ * Booking.com 予約CSV(yadozei保存形式)を集計する。
+ * 列: 予約番号,...,ステータス,...,料金,コミッション率,コミッション額,...,滞在期間（泊数）,...
+ * - ステータス "ok" のみ有効(cancelled_by_* / no_show 等は除外)
+ * - 料金=gross(宿泊者支払), コミッション額=OTA手数料
+ * - netRevenue = 料金 − コミッション額 (Booking.com決済のホスト受取=入金額)
+ *
+ * @returns {{grossRevenue:number, commission:number, netRevenue:number, reservationCount:number, nights:number, canceledCount:number}}
+ */
+function sumBookingCsv(text) {
+  const rows = parseCsv(text);
+  if (rows.length < 2) return { grossRevenue: 0, commission: 0, netRevenue: 0, reservationCount: 0, nights: 0, canceledCount: 0 };
+  const h = headerIndex(rows[0]);
+  const iStatus = h["ステータス"];
+  const iAmount = h["料金"];
+  const iComm = h["コミッション額"];
+  // 泊数列は「滞在期間（泊数）」。全半角括弧の揺れに対応
+  let iNights = h["滞在期間（泊数）"];
+  if (iNights == null) iNights = h["滞在期間(泊数)"];
+
+  let grossRevenue = 0, commission = 0, reservationCount = 0, nights = 0, canceledCount = 0;
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.length < 2) continue;
+    const status = String(row[iStatus] || "").trim().toLowerCase();
+    if (status !== "ok") { canceledCount++; continue; }
+    grossRevenue += parseYen(row[iAmount]);
+    commission += parseYen(row[iComm]);
+    if (iNights != null) nights += parseYen(row[iNights]);
+    reservationCount++;
+  }
+  return { grossRevenue, commission, netRevenue: grossRevenue - commission, reservationCount, nights, canceledCount };
+}
+
+/**
+ * 精算(運営代行手数料)を計算する。
+ * 月間売上高 = 入金額A − 宿泊税預りB
+ * 手数料(税抜) = 月間売上高 × 料率%
+ * 消費税 = 手数料(税抜) × 消費税率%
+ * 手数料(税込) = 手数料(税抜) + 消費税  ← これが乙(八朔)への請求額
+ *
+ * 端数は各段で四捨五入(円未満)。※必要なら feeRounding で切替可能。
+ * @returns {{depositAmount, taxWithholding, salesBase, feeRatePct, feeExclTax, consumptionTaxPct, consumptionTax, feeInclTax}}
+ */
+function computeSettlement(input = {}) {
+  const depositAmount = Math.max(0, Math.round(Number(input.depositAmount) || 0));
+  const taxWithholding = Math.max(0, Math.round(Number(input.taxWithholding) || 0));
+  const feeRatePct = Number(input.feeRatePct != null ? input.feeRatePct : 50);
+  const consumptionTaxPct = Number(input.consumptionTaxPct != null ? input.consumptionTaxPct : 10);
+  const round = input.feeRounding === "floor" ? Math.floor
+    : input.feeRounding === "ceil" ? Math.ceil : Math.round;
+
+  const salesBase = Math.max(0, depositAmount - taxWithholding);
+  const feeExclTax = round(salesBase * feeRatePct / 100);
+  const consumptionTax = round(feeExclTax * consumptionTaxPct / 100);
+  const feeInclTax = feeExclTax + consumptionTax;
+  return {
+    depositAmount, taxWithholding, salesBase,
+    feeRatePct, feeExclTax, consumptionTaxPct, consumptionTax, feeInclTax,
+  };
+}
+
+module.exports = {
+  parseCsv,
+  parseYen,
+  normLoose,
+  sumAirbnbCsv,
+  sumBookingCsv,
+  computeSettlement,
+};

@@ -622,6 +622,23 @@ const API = {
     async recalc(propertyId, yearMonth) {
       return this._post(`/pnl/recalc/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}`, {});
     },
+
+    // POST /pnl/:propertyId/:yearMonth/import-ota-csv
+    // yadozeiがDLしたOTA予約CSV(Drive)を集計して売上に反映
+    async importOtaCsv(propertyId, yearMonth, body = {}) {
+      return this._post(`/pnl/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}/import-ota-csv`, body);
+    },
+
+    // GET /settlement/:propertyId/:yearMonth/context — 帳票の計算プレビュー(PDF生成なし)
+    async settlementContext(propertyId, yearMonth, taxWithholding) {
+      const q = taxWithholding != null ? `?taxWithholding=${encodeURIComponent(taxWithholding)}` : "";
+      return this._get(`/settlement/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}/context${q}`);
+    },
+
+    // POST /settlement/:propertyId/:yearMonth/generate { kind, taxWithholding, note, paymentDueText }
+    async generateDoc(propertyId, yearMonth, body) {
+      return this._post(`/settlement/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}/generate`, body);
+    },
   },
 
   // 募集管理 API（回答はドキュメント内 responses[] に埋め込み — N+1クエリ解消）

@@ -23,6 +23,8 @@ const {
   applyExpenses,
   computePnl,
 } = require("./pnl-logic");
+// OTA予約CSV(yadozei保存物)の集計(テスト済モジュール)
+const { sumAirbnbCsv, sumBookingCsv } = require("./ota-csv-logic");
 
 // OTA原本フォルダ(既定の取込元。settings/pnlImport.sourceFolderId で上書き可)
 const DEFAULT_SOURCE_FOLDER_ID = "10N_wTI-cftdJvVxYGXftXJoxNpsRDRux";
@@ -160,6 +162,59 @@ module.exports = function pnlApi(db) {
       scopes: ["https://www.googleapis.com/auth/drive"],
     });
     return google.drive({ version: "v3", auth });
+  }
+
+  /**
+   * OTA CSV読取用の Drive クライアント。
+   * OTAcsvフォルダ(008_民泊運用配下)は yamasuke81 のマイドライブ体系なので、
+   * yadozei-listener と同じく yamasuke81 の OAuth トークンで開く(ADCでは権限不足)。
+   */
+  async function resolveOtaDrive_() {
+    const oauthDoc = await db.collection("settings").doc("gmailOAuth").get();
+    if (!oauthDoc.exists) throw new Error("Gmail/Drive OAuth 未設定 (settings/gmailOAuth)");
+    const { clientId, clientSecret } = oauthDoc.data();
+    if (!clientId || !clientSecret) throw new Error("OAuth clientId/clientSecret 未設定");
+    const cols = [
+      db.collection("settings").doc("gmailOAuth").collection("tokens"),
+      db.collection("settings").doc("gmailOAuthEmailVerification").collection("tokens"),
+    ];
+    async function findByEmail(email) {
+      for (const col of cols) {
+        const snap = await col.where("email", "==", email).limit(1).get();
+        if (!snap.empty) return snap.docs[0].data();
+      }
+      return null;
+    }
+    let tok = await findByEmail("yamasuke81@gmail.com");
+    if (!tok) {
+      for (const col of cols) {
+        const snap = await col.limit(1).get();
+        if (!snap.empty) { tok = snap.docs[0].data(); break; }
+      }
+    }
+    if (!tok || !tok.refreshToken) throw new Error("Drive OAuth トークン未登録 (yamasuke81 の Drive 再認可が必要)");
+    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+    oauth2Client.setCredentials({ refresh_token: tok.refreshToken });
+    return google.drive({ version: "v3", auth: oauth2Client });
+  }
+
+  // フォルダ直下から「{ota}_reservations_{ym}_*.csv」の最新1件を探す
+  async function findLatestOtaCsv_(drive, folderId, ota, yearMonth) {
+    const res = await drive.files.list({
+      q: `'${folderId}' in parents and trashed=false and name contains '${ota}_reservations_${yearMonth}'`,
+      fields: "files(id,name,createdTime)",
+      orderBy: "createdTime desc",
+      pageSize: 20,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    });
+    const files = (res.data.files || []).filter((f) => /\.csv$/i.test(f.name));
+    return files[0] || null;
+  }
+
+  async function downloadDriveText_(drive, fileId) {
+    const bin = await drive.files.get({ fileId, alt: "media", supportsAllDrives: true }, { responseType: "arraybuffer" });
+    return Buffer.from(bin.data).toString("utf8");
   }
 
   // toInt / applyExpenses / computePnl は pnl-logic から require 済み
@@ -318,6 +373,100 @@ module.exports = function pnlApi(db) {
     }
   });
 
+  // ========================================================
+  // OTA予約CSV(yadozei)取り込み → 月次収支の売上
+  // ========================================================
+
+  // POST /:propertyId/:yearMonth/import-ota-csv { folderId?, airbnbFileId?, bookingFileId? }
+  // yadozei-listener が Drive に保存した Airbnb/Booking の予約CSVを集計して revenue に反映する。
+  // 手動修正(manualOverrides)された OTA は上書きしない。
+  router.post("/:propertyId/:yearMonth/import-ota-csv", async (req, res) => {
+    try {
+      const { propertyId, yearMonth } = req.params;
+      const { folderId, airbnbFileId, bookingFileId } = req.body || {};
+      if (!/^\d{4}-\d{2}$/.test(yearMonth)) return res.status(400).json({ error: "yearMonth は YYYY-MM 形式" });
+
+      const propSnap = await db.collection("properties").doc(propertyId).get();
+      if (!propSnap.exists) return res.status(404).json({ error: "物件が見つかりません" });
+      const prop = propSnap.data();
+      const yz = prop.yadozei || {};
+      const listingName = (yz.airbnb && yz.airbnb.listingName) || prop.airbnbListingName || "";
+      const srcFolder = folderId || prop.driveOtaCsvFolderId || "";
+
+      const ref = pnlCol.doc(docId_(propertyId, yearMonth));
+      const cur = await ref.get();
+      const overrides = (cur.exists && cur.data().manualOverrides) || {};
+
+      const drive = await resolveOtaDrive_();
+      // ※ set(merge) はドット記法キーをネストパスと解釈しない(リテラル field 化する)ため、
+      //   revenue は必ずネストオブジェクトで組む(merge は入れ子マップを深くマージする)。
+      const patch = { propertyId, yearMonth, revenue: {}, updatedAt: FieldValue.serverTimestamp(), lastOtaCsvSyncAt: FieldValue.serverTimestamp() };
+      const result = { propertyId, yearMonth, airbnb: null, booking: null, skipped: [] };
+      let nightsTotal = 0, gotAny = false;
+
+      // --- Airbnb ---
+      if (overrides["revenue.airbnb"]) {
+        result.skipped.push("airbnb(手動修正保護)");
+      } else {
+        let file = null;
+        if (airbnbFileId) file = { id: airbnbFileId, name: `airbnb(${airbnbFileId})` };
+        else if (srcFolder) file = await findLatestOtaCsv_(drive, srcFolder, "airbnb", yearMonth);
+        if (file) {
+          const text = await downloadDriveText_(drive, file.id);
+          const a = sumAirbnbCsv(text, { listingName });
+          patch.revenue.airbnb = {
+            grossRevenue: a.grossRevenue, serviceFee: 0, netRevenue: a.grossRevenue,
+            nights: a.nights, reservationCount: a.reservationCount,
+            source: "ota_csv", sourceFileId: file.id, sourceFileName: file.name,
+            parsedAt: FieldValue.serverTimestamp(),
+          };
+          nightsTotal += a.nights; gotAny = true;
+          result.airbnb = { ...a, fileName: file.name };
+        } else {
+          result.skipped.push("airbnb(CSV見つからず)");
+        }
+      }
+
+      // --- Booking ---
+      const bookingEnabled = (yz.booking && yz.booking.enabled) || prop.bookingPropertyId || bookingFileId;
+      if (overrides["revenue.booking"]) {
+        result.skipped.push("booking(手動修正保護)");
+      } else if (bookingEnabled) {
+        let file = null;
+        if (bookingFileId) file = { id: bookingFileId, name: `booking(${bookingFileId})` };
+        else if (srcFolder) file = await findLatestOtaCsv_(drive, srcFolder, "booking", yearMonth);
+        if (file) {
+          const text = await downloadDriveText_(drive, file.id);
+          const b = sumBookingCsv(text);
+          patch.revenue.booking = {
+            grossRevenue: b.grossRevenue, commission: b.commission, paymentFee: 0,
+            netRevenue: b.netRevenue, reservationCount: b.reservationCount, nights: b.nights,
+            source: "ota_csv", sourceFileId: file.id, sourceFileName: file.name,
+            parsedAt: FieldValue.serverTimestamp(),
+          };
+          nightsTotal += b.nights; gotAny = true;
+          result.booking = { ...b, fileName: file.name };
+        } else {
+          result.skipped.push("booking(CSV見つからず)");
+        }
+      }
+
+      if (!gotAny) {
+        return res.status(404).json({ error: "対象月のOTA CSVが見つかりませんでした", ...result });
+      }
+      // 泊数は手動上書きが無ければ CSV 合計で更新
+      if (!overrides["nights"]) patch.nights = nightsTotal;
+      await ref.set(patch, { merge: true });
+
+      const categories = await loadCategories_();
+      const after = (await ref.get()).data();
+      res.json({ ok: true, ...result, computed: computePnl(after, categories) });
+    } catch (e) {
+      console.error("OTA CSV取込エラー:", e);
+      res.status(500).json({ error: "OTA CSV取り込みに失敗しました: " + e.message });
+    }
+  });
+
   // パース結果を月ドキュメントへ反映(手動編集を上書きしない)
   async function applyParsedToPnl_({ parsed, propertyId, yearMonth, fileId }) {
     const ref = pnlCol.doc(docId_(propertyId, yearMonth));
@@ -336,15 +485,18 @@ module.exports = function pnlApi(db) {
       const existing = (data && data.revenue && data.revenue.airbnb) || {};
       const srcIds = new Set(existing.sourceFileIds || []);
       srcIds.add(fileId);
-      base["revenue.airbnb"] = {
-        grossRevenue: toInt(a.grossRevenue),
-        serviceFee: toInt(a.serviceFee),
-        withholdingTax: toInt(a.withholdingTax),
-        netRevenue: toInt(a.netRevenue),
-        nights: toInt(a.nights),
-        avgStayDays: Number(a.avgStayDays) || 0,
-        sourceFileIds: Array.from(srcIds),
-        parsedAt: FieldValue.serverTimestamp(),
+      // set(merge) はドット記法キーをネストパスにしない(リテラル field 化)ため必ずネストで書く
+      base.revenue = {
+        airbnb: {
+          grossRevenue: toInt(a.grossRevenue),
+          serviceFee: toInt(a.serviceFee),
+          withholdingTax: toInt(a.withholdingTax),
+          netRevenue: toInt(a.netRevenue),
+          nights: toInt(a.nights),
+          avgStayDays: Number(a.avgStayDays) || 0,
+          sourceFileIds: Array.from(srcIds),
+          parsedAt: FieldValue.serverTimestamp(),
+        },
       };
       await ref.set(base, { merge: true });
       return;
@@ -386,10 +538,12 @@ module.exports = function pnlApi(db) {
       const existing = (data && data.revenue && data.revenue.booking) || {};
       const srcIds = new Set(existing.sourceFileIds || []);
       srcIds.add(fileId);
-      base["revenue.booking"] = {
-        grossRevenue: gAll, commission: cAll, paymentFee: pAll, netRevenue: nAll,
-        reservationCount: cntAll, sourceFileIds: Array.from(srcIds),
-        parsedAt: FieldValue.serverTimestamp(),
+      base.revenue = {
+        booking: {
+          grossRevenue: gAll, commission: cAll, paymentFee: pAll, netRevenue: nAll,
+          reservationCount: cntAll, sourceFileIds: Array.from(srcIds),
+          parsedAt: FieldValue.serverTimestamp(),
+        },
       };
       batch.set(ref, base, { merge: true });
       await batch.commit();
@@ -431,18 +585,22 @@ module.exports = function pnlApi(db) {
       const { propertyId, yearMonth } = req.params;
       const { revenue, nights, cleaningCount, protect } = req.body || {};
       const ref = pnlCol.doc(docId_(propertyId, yearMonth));
+      // set(merge) はドット記法キーをネストパスにしないため、revenue/manualOverrides はネストで組む
+      // (manualOverrides のキーは "revenue.airbnb" のようなドット入り文字列を"リテラルなmapキー"として保持)
       const update = { propertyId, yearMonth, updatedAt: FieldValue.serverTimestamp(), updatedBy: req.user.email || "" };
+      const overrideKeys = {};
       if (revenue && revenue.airbnb) {
-        update["revenue.airbnb"] = { ...revenue.airbnb };
-        update["manualOverrides.revenue.airbnb"] = true; // 手修正→自動上書き禁止
+        update.revenue = { ...(update.revenue || {}), airbnb: { ...revenue.airbnb } };
+        overrideKeys["revenue.airbnb"] = true; // 手修正→自動上書き禁止
       }
       if (revenue && revenue.booking) {
-        update["revenue.booking"] = { ...revenue.booking };
-        update["manualOverrides.revenue.booking"] = true;
+        update.revenue = { ...(update.revenue || {}), booking: { ...revenue.booking } };
+        overrideKeys["revenue.booking"] = true;
       }
       if (protect && typeof protect === "object") {
-        for (const k of Object.keys(protect)) update[`manualOverrides.${k}`] = !!protect[k];
+        for (const k of Object.keys(protect)) overrideKeys[k] = !!protect[k];
       }
+      if (Object.keys(overrideKeys).length) update.manualOverrides = overrideKeys;
       if (typeof nights === "number") update.nights = nights;
       if (typeof cleaningCount === "number") update.cleaningCount = cleaningCount;
       await ref.set(update, { merge: true });

@@ -14,7 +14,8 @@
       "Bash(where soffice *)",
       "Bash(powershell.exe -NoProfile -Command ' *)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(git commit -q -m ' *)"
     ]
   }
 }
