@@ -244,6 +244,7 @@ exports.api = onRequest({
   region: "asia-northeast1",
   invoker: "public",
   memory: "1GiB",
+  timeoutSeconds: 300, // 月次一括取込(run-monthly-import)は複数物件×Gemini取込で時間がかかるため延長(最大値=通常応答に影響なし)
   secrets: [STRIPE_SECRET_KEY, STRIPE_SECRET_KEY_INDIVIDUAL],
 }, app);
 
@@ -282,6 +283,15 @@ exports.collectTaxDocs = onSchedule({
   region: "asia-northeast1",
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/collectTaxDocs"));
+
+// 月次収支 自動取込バッチ（毎月6日 5:00 JST・前月分）: 売上/宿泊税/光熱費/領収書/清掃費を取込→帳票下書き生成
+exports.pnlMonthlyImport = onSchedule({
+  schedule: "0 5 6 * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+  memory: "512MiB",
+  timeoutSeconds: 540,
+}, require("./scheduled/pnlMonthlyImport"));
 
 // MF受信BOX監視（毎週月曜 9:00 JST）
 exports.processMfInbox = onSchedule({

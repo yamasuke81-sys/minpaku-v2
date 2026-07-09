@@ -1,0 +1,91 @@
+/**
+ * 月次収支 自動取込バッチ
+ *
+ * 前月分について、対象物件(driveOtaCsvFolderId 設定済)ごとに
+ *   売上(OTA CSV) / 宿泊税 / 光熱費・通信費 / 領収書 / 清掃費 を自動取込し、
+ *   月次業務報告書・精算書兼請求書の「下書きPDF」を生成する。
+ *
+ * - 冪等: 各取込は receiptsIndex/utilitiesIndex/sourceFileId 等で二重計上を防ぐため再実行可能。
+ * - 取込は既存の API ハンドラ(router.cores)を fake req/res で呼び出す(ロジック二重化を避ける)。
+ * - 対外送信はしない(下書き生成のみ)。結果は pnlBatchRuns に記録。
+ */
+const admin = require("firebase-admin");
+
+// API ハンドラを req/res 無しで呼ぶ
+function invoke(handler, params, body) {
+  return new Promise((resolve) => {
+    let payload = null, code = 200;
+    const res = {
+      status(c) { code = c; return this; },
+      json(j) { payload = j; resolve({ code, payload }); },
+    };
+    Promise.resolve(handler({ params, body: body || {}, query: {}, user: { role: "owner" } }, res))
+      .catch((err) => resolve({ code: 500, payload: { error: err.message } }));
+  });
+}
+
+// JST基準の前月 "YYYY-MM"
+function prevYearMonthJst(now) {
+  const jst = new Date(now.getTime() + 9 * 3600 * 1000);
+  let py = jst.getUTCFullYear(), pm = jst.getUTCMonth() - 1; // getUTCMonth:0-11、-1で前月
+  if (pm < 0) { pm = 11; py -= 1; }
+  return `${py}-${String(pm + 1).padStart(2, "0")}`;
+}
+
+// 対象月の全取込＋帳票下書き生成を実行して結果を返す
+async function run(db, yearMonth) {
+  const pnl = require("../api/pnl")(db);
+  const settlement = require("../api/settlement")(db);
+
+  // 対象: pnlBatchEnabled=true の物件(開業済みの収支対象。宿小町/the Terrace 等)
+  const snap = await db.collection("properties").where("pnlBatchEnabled", "==", true).get();
+  const targets = snap.docs.map((d) => ({ id: d.id, name: d.data().name || d.id, mode: d.data().settlementMode || "daiko" }));
+
+  const results = [];
+  for (const p of targets) {
+    const params = { propertyId: p.id, yearMonth };
+    const r = { propertyId: p.id, property: p.name, steps: {} };
+    try {
+      const ota = await invoke(pnl.cores.importOtaCsv, params, {});
+      r.steps.ota = ota.payload?.ok ? { 売上: ota.payload.computed?.revenueGross ?? null } : { error: ota.payload?.error || `HTTP${ota.code}` };
+
+      const tax = await invoke(settlement.cores.importTax, params, {});
+      r.steps.tax = tax.payload?.ok ? { 宿泊税: tax.payload.taxWithholding } : { error: tax.payload?.error || `HTTP${tax.code}` };
+
+      const util = await invoke(pnl.cores.importUtilities, params, {});
+      r.steps.utilities = util.payload?.ok ? { 件数: util.payload.processed } : { error: util.payload?.error || `HTTP${util.code}` };
+
+      const rcpt = await invoke(pnl.cores.importReceipts, params, {});
+      r.steps.receipts = rcpt.payload?.ok ? { 件数: rcpt.payload.processed } : { error: rcpt.payload?.error || `HTTP${rcpt.code}` };
+
+      const clean = await invoke(pnl.cores.importCleaning, params, {});
+      r.steps.cleaning = clean.payload?.ok ? { 請求書: clean.payload.invoices } : { error: clean.payload?.error || `HTTP${clean.code}` };
+
+      // 帳票下書き(報告書は全物件、精算書は daiko のみ)
+      const rep = await invoke(settlement.cores.generate, params, { kind: "report" });
+      r.steps.report = rep.payload?.ok ? { url: rep.payload.url } : { error: rep.payload?.error || `HTTP${rep.code}` };
+      if (p.mode !== "self") {
+        const setl = await invoke(settlement.cores.generate, params, { kind: "settlement" });
+        r.steps.settlement = setl.payload?.ok ? { url: setl.payload.url, 請求額: setl.payload.settlement?.feeInclTax } : { error: setl.payload?.error || `HTTP${setl.code}` };
+      }
+    } catch (e) {
+      r.error = e.message;
+    }
+    results.push(r);
+  }
+
+  const runId = `${yearMonth}_${admin.firestore.Timestamp.now().seconds}`;
+  await db.collection("pnlBatchRuns").doc(runId).set({
+    yearMonth, ranAt: admin.firestore.FieldValue.serverTimestamp(), count: results.length, results,
+  });
+  console.log(`[pnlMonthlyImport] ${yearMonth} 完了 ${results.length}物件`, JSON.stringify(results).slice(0, 800));
+  return { yearMonth, runId, results };
+}
+
+// Cloud Scheduler 用ハンドラ(前月分)
+module.exports = async function pnlMonthlyImportScheduled() {
+  const db = admin.firestore();
+  return run(db, prevYearMonthJst(new Date()));
+};
+module.exports.run = run;
+module.exports.prevYearMonthJst = prevYearMonthJst;

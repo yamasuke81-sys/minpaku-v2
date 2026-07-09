@@ -31,6 +31,7 @@ const DEFAULT_SOURCE_FOLDER_ID = "10N_wTI-cftdJvVxYGXftXJoxNpsRDRux";
 
 module.exports = function pnlApi(db) {
   const router = Router();
+  router.cores = {}; // 各取込ハンドラを保持(月次バッチから fake req/res で呼ぶ)
   const pnlCol = db.collection("propertyMonthlyPnL");
   const catCol = db.collection("expenseCategories");
   const logsCol = db.collection("pnlImportLogs");
@@ -385,7 +386,7 @@ module.exports = function pnlApi(db) {
   // POST /:propertyId/:yearMonth/import-ota-csv { folderId?, airbnbFileId?, bookingFileId? }
   // yadozei-listener が Drive に保存した Airbnb/Booking の予約CSVを集計して revenue に反映する。
   // 手動修正(manualOverrides)された OTA は上書きしない。
-  router.post("/:propertyId/:yearMonth/import-ota-csv", async (req, res) => {
+  router.post("/:propertyId/:yearMonth/import-ota-csv", router.cores.importOtaCsv = async (req, res) => {
     try {
       const { propertyId, yearMonth } = req.params;
       const { folderId, airbnbFileId, bookingFileId } = req.body || {};
@@ -545,7 +546,7 @@ module.exports = function pnlApi(db) {
   // POST /:propertyId/:yearMonth/import-receipts { folderId?, dryRun? }
   // 物件の領収書フォルダから対象月のレシートを集計し、費目(expenses)に自動計上する。
   // 手動上書き(overridden)済の費目はスキップ。冪等: 取込済fileIdを receiptsIndex に記録。
-  router.post("/:propertyId/:yearMonth/import-receipts", async (req, res) => {
+  router.post("/:propertyId/:yearMonth/import-receipts", router.cores.importReceipts = async (req, res) => {
     try {
       const { propertyId, yearMonth } = req.params;
       const { folderId, dryRun } = req.body || {};
@@ -659,7 +660,7 @@ module.exports = function pnlApi(db) {
   // POST /:propertyId/:yearMonth/import-utilities { folderId?, dryRun? }
   // 物件の 007_光熱・インフラ 配下(ガス/電気/水道/ネット/固定電話)の請求書から、
   // 対象月の光熱費・通信費を費目に自動計上する。範囲月(4-6月分等)は月割。
-  router.post("/:propertyId/:yearMonth/import-utilities", async (req, res) => {
+  router.post("/:propertyId/:yearMonth/import-utilities", router.cores.importUtilities = async (req, res) => {
     try {
       const { propertyId, yearMonth } = req.params;
       const { folderId, dryRun } = req.body || {};
@@ -751,7 +752,7 @@ module.exports = function pnlApi(db) {
   // POST /:propertyId/:yearMonth/import-cleaning
   // invoices(propertyId,yearMonth) を集計して cleaningCosts に反映。
   // 同一スタッフ×月は最上位ステータス(paid>confirmed>submitted)を採用(下書き重複防止)。draftは除外。
-  router.post("/:propertyId/:yearMonth/import-cleaning", async (req, res) => {
+  router.post("/:propertyId/:yearMonth/import-cleaning", router.cores.importCleaning = async (req, res) => {
     try {
       const { propertyId, yearMonth } = req.params;
       if (!/^\d{4}-\d{2}$/.test(yearMonth)) return res.status(400).json({ error: "yearMonth は YYYY-MM 形式" });
@@ -860,6 +861,19 @@ module.exports = function pnlApi(db) {
     } catch (e) {
       console.error("出典取得エラー:", e);
       res.status(500).json({ error: "出典の取得に失敗しました: " + e.message });
+    }
+  });
+
+  // 月次自動取込バッチを手動実行(指定月 or 前月)。全取込＋帳票下書きを生成
+  router.post("/run-monthly-import", async (req, res) => {
+    try {
+      const mod = require("../scheduled/pnlMonthlyImport"); // 遅延require(循環回避)
+      const ym = req.body && /^\d{4}-\d{2}$/.test(req.body.yearMonth || "") ? req.body.yearMonth : mod.prevYearMonthJst(new Date());
+      const out = await mod.run(db, ym);
+      res.json({ ok: true, ...out });
+    } catch (e) {
+      console.error("月次取込バッチ手動実行エラー:", e);
+      res.status(500).json({ error: "バッチ実行に失敗しました: " + e.message });
     }
   });
 

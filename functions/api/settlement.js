@@ -221,6 +221,7 @@ function renderSettlementPdf(ctx, font) {
 
 module.exports = function settlementApi(db) {
   const router = Router();
+  router.cores = {}; // 各ハンドラを保持(月次バッチから fake req/res で呼ぶ)
   const pnlCol = db.collection("propertyMonthlyPnL");
 
   // 収支・帳票はオーナー/サブオーナーのみ
@@ -369,7 +370,7 @@ module.exports = function settlementApi(db) {
   }
 
   // POST /:propertyId/:yearMonth/import-tax — 月計表PDFから宿泊税額Bを取込 → pnl.taxWithholding
-  router.post("/:propertyId/:yearMonth/import-tax", async (req, res) => {
+  router.post("/:propertyId/:yearMonth/import-tax", router.cores.importTax = async (req, res) => {
     try {
       const { propertyId, yearMonth } = req.params;
       const propSnap = await db.collection("properties").doc(propertyId).get();
@@ -428,7 +429,7 @@ module.exports = function settlementApi(db) {
   });
 
   // 帳票生成 kind=report|settlement → Storage保存 → 署名URL
-  router.post("/:propertyId/:yearMonth/generate", async (req, res) => {
+  router.post("/:propertyId/:yearMonth/generate", router.cores.generate = async (req, res) => {
     try {
       const { propertyId, yearMonth } = req.params;
       const { kind, taxWithholding, note, paymentDueText } = req.body || {};

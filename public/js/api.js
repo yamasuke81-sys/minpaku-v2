@@ -669,6 +669,11 @@ const API = {
     async getSources(propertyId, yearMonth) {
       return this._get(`/pnl/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}/sources`);
     },
+
+    // POST /pnl/run-monthly-import — 月次一括取込バッチを手動実行(指定月/前月・全対象物件)
+    async runMonthlyImport(yearMonth) {
+      return this._post("/pnl/run-monthly-import", yearMonth ? { yearMonth } : {});
+    },
   },
 
   // 募集管理 API（回答はドキュメント内 responses[] に埋め込み — N+1クエリ解消）

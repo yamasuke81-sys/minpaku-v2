@@ -58,6 +58,9 @@ const PnlPage = {
               <button class="btn btn-sm btn-outline-info" id="btnPnlCategories">
                 <i class="bi bi-tags"></i> 費目設定
               </button>
+              <button class="btn btn-sm btn-success" id="btnPnlBatch">
+                <i class="bi bi-magic"></i> 月次一括取込
+              </button>
               <button class="btn btn-sm btn-outline-success" id="btnPnlOtaImport">
                 <i class="bi bi-filetype-csv"></i> OTA CSV取込
               </button>
@@ -293,6 +296,32 @@ const PnlPage = {
     document.getElementById("btnPnlOtaImport").addEventListener("click", () => {
       this.runOtaCsvImport();
     });
+
+    document.getElementById("btnPnlBatch").addEventListener("click", () => {
+      this.runMonthlyBatch();
+    });
+  },
+
+  // 月次一括取込バッチを手動実行(全対象物件×指定月)
+  async runMonthlyBatch() {
+    const ym = await showPrompt("一括取込する年月（YYYY-MM）", { title: "月次一括取込", defaultValue: this.toYM || "" });
+    if (ym == null) return;
+    if (!/^\d{4}-\d{2}$/.test(ym)) { showToast("エラー", "YYYY-MM 形式で入力してください", "error"); return; }
+    const ok = await showConfirm("月次一括取込", `${ym} の全対象物件について、売上・宿泊税・光熱費・領収書・清掃費を自動取込し、帳票の下書きを生成します。よろしいですか？（数分かかる場合があります）`);
+    if (!ok) return;
+    showToast("月次一括取込", `${ym} を処理中...`, "info");
+    try {
+      const r = await API.pnl.runMonthlyImport(ym);
+      const lines = (r.results || []).map(x => {
+        const s = x.steps || {};
+        const ok2 = k => s[k] && !s[k].error;
+        return `${x.property}: 売上${ok2("ota") ? "✓" : "—"} 宿泊税${ok2("tax") ? "✓" : "—"} 光熱${ok2("utilities") ? "✓" : "—"} 領収書${ok2("receipts") ? "✓" : "—"} 清掃${ok2("cleaning") ? "✓" : "—"} 報告書${ok2("report") ? "✓" : "—"}${s.settlement ? " 精算書" + (ok2("settlement") ? "✓" : "—") : ""}`;
+      }).join("\n");
+      await showAlert(`${ym} の一括取込が完了しました。\n\n${lines}\n\n各月の「帳票」→「出典・内訳を確認」で検算できます。`, { title: "完了" });
+      await this.loadSummary();
+    } catch (e) {
+      showToast("エラー", `一括取込失敗: ${e.message}`, "error");
+    }
   },
 
   // 選択中の物件オブジェクト(managementFeeRate等の参照用)
