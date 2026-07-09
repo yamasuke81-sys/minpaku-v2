@@ -1073,6 +1073,7 @@ const PnlPage = {
         <button class="btn btn-outline-info btn-sm" id="btnDocImportReceipts"><i class="bi bi-receipt-cutoff"></i> 領収書を取込</button>
         <button class="btn btn-outline-info btn-sm" id="btnDocImportUtil"><i class="bi bi-lightning-charge"></i> 光熱費・通信費を取込</button>
         <button class="btn btn-outline-info btn-sm" id="btnDocImportCleaning"><i class="bi bi-broom"></i> 清掃費を取込</button>
+        <button class="btn btn-outline-dark btn-sm" id="btnDocSources"><i class="bi bi-search"></i> 出典・内訳を確認</button>
         <button class="btn btn-outline-secondary btn-sm ms-auto" id="btnDocReport"><i class="bi bi-file-earmark-text"></i> 月次業務報告書 PDF</button>
         <button class="btn btn-primary btn-sm" id="btnDocSettlement" ${isSelf ? "disabled" : ""}><i class="bi bi-receipt"></i> 精算書兼請求書 PDF</button>
       </div>
@@ -1159,8 +1160,41 @@ const PnlPage = {
       }
     });
 
+    // 出典・内訳を確認(取込元ファイルのリンク+金額)
+    document.getElementById("btnDocSources").addEventListener("click", () => this._showSources());
+
     document.getElementById("btnDocReport").addEventListener("click", () => this._generateDoc("report"));
     document.getElementById("btnDocSettlement").addEventListener("click", () => this._generateDoc("settlement"));
+  },
+
+  async _showSources() {
+    const result = document.getElementById("pnlDocResult");
+    result.innerHTML = `<div class="text-center py-2"><div class="spinner-border spinner-border-sm text-primary"></div> 出典を取得中...</div>`;
+    try {
+      const s = await API.pnl.getSources(this.selectedPropertyId, this._docYM);
+      const yen = (n) => this.fmtYen(n);
+      const linkCell = (name, link) => link
+        ? `<a href="${link}" target="_blank" rel="noopener" title="${this.escapeHtml(name)}">${this.escapeHtml(name || "開く")} <i class="bi bi-box-arrow-up-right"></i></a>`
+        : `<span class="text-muted">${this.escapeHtml(name || "-")}</span>`;
+      const rows = [];
+      (s.revenue || []).forEach(r => rows.push(`<tr><td>売上</td><td>${this.escapeHtml(r.label)}${r.count ? `（${r.count}件）` : ""}</td><td class="text-end">${yen(r.amount)}</td><td class="small">${linkCell(r.fileName, r.link)}</td></tr>`));
+      if (s.tax) rows.push(`<tr><td>宿泊税</td><td>やどぜい申告書</td><td class="text-end">${yen(s.tax.amount)}</td><td class="small">${linkCell(s.tax.fileName, s.tax.link)}</td></tr>`);
+      (s.expenses || []).forEach(e => rows.push(`<tr><td>${this.escapeHtml(e.kind)}</td><td>${this.escapeHtml(e.category)}</td><td class="text-end">${yen(e.amount)}</td><td class="small">${linkCell(e.fileName, e.link)}</td></tr>`));
+      (s.cleaning || []).forEach(c => rows.push(`<tr class="${c.excluded ? "text-muted text-decoration-line-through" : ""}"><td>清掃費</td><td>${this.escapeHtml(c.staffName)}${c.excluded ? "（除外）" : ""}</td><td class="text-end">${yen(c.amount)}</td><td class="small">${c.link ? linkCell("請求書", c.link) : `<span class="text-muted">アプリ請求書</span>`}</td></tr>`));
+
+      result.innerHTML = rows.length ? `
+        <div class="border rounded p-2" style="max-height:340px;overflow:auto;">
+          <div class="fw-bold small mb-1"><i class="bi bi-search"></i> ${this.escapeHtml(this._docYM)} の取込元（金額・出典を確認）</div>
+          <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
+            <thead class="table-light"><tr><th>区分</th><th>内容</th><th class="text-end">金額</th><th>出典（クリックで開く）</th></tr></thead>
+            <tbody>${rows.join("")}</tbody>
+          </table>
+        </div>
+        <p class="text-muted small mt-1 mb-0">※ リンクをクリックしてPDF/CSVを開き、金額と出典が正しいか確認できます。誤りは各費目セルを手修正すれば上書き保護されます。</p>`
+        : `<div class="alert alert-secondary py-2 mb-0">この月の取込元はまだありません（各取込ボタンを実行すると出典が表示されます）。</div>`;
+    } catch (e) {
+      result.innerHTML = `<div class="alert alert-danger py-2 mb-0">出典取得失敗: ${this.escapeHtml(e.message)}</div>`;
+    }
   },
 
   _recalcDocPreview() {

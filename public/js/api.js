@@ -664,6 +664,11 @@ const API = {
     async importCleaning(propertyId, yearMonth, body = {}) {
       return this._post(`/pnl/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}/import-cleaning`, body);
     },
+
+    // GET /pnl/:propertyId/:yearMonth/sources — 取込元(CSV/PDF/請求書)を金額・リンク付きで取得(出典確認)
+    async getSources(propertyId, yearMonth) {
+      return this._get(`/pnl/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}/sources`);
+    },
   },
 
   // 募集管理 API（回答はドキュメント内 responses[] に埋め込み — N+1クエリ解消）

@@ -63,6 +63,11 @@ module.exports = function pnlApi(db) {
     return `${propertyId}_${yearMonth}`;
   }
 
+  // Drive fileId → 閲覧リンク(出典確認用)。fileIdから決定的に組める
+  function driveLink_(fileId) {
+    return fileId ? `https://drive.google.com/file/d/${fileId}/view` : null;
+  }
+
   // 物件マスタ取得(OTAマッピング用)
   async function loadProperties_() {
     const snap = await db.collection("properties").get();
@@ -584,7 +589,7 @@ module.exports = function pnlApi(db) {
           if (!catId) unmatchedCat++;
           else sumByCat[catId] = (sumByCat[catId] || 0) + amount;
           processed++;
-          items.push({ fileId: f.id, fileName: f.name, amount, category: catName, catId, store: parsed.store || "" });
+          items.push({ fileId: f.id, fileName: f.name, link: driveLink_(f.id), amount, category: catName, catId, store: parsed.store || "" });
         } catch (e) {
           errors++;
           items.push({ fileId: f.id, fileName: f.name, error: e.message });
@@ -706,7 +711,7 @@ module.exports = function pnlApi(db) {
             const share = Math.round(full / months.length); // 範囲月は月割
             if (catId) sumByCat[catId] = (sumByCat[catId] || 0) + share;
             processed++;
-            items.push({ fileId: f.id, fileName: f.name, category: catName, catId, fullAmount: full, monthShare: share, months });
+            items.push({ fileId: f.id, fileName: f.name, link: driveLink_(f.id), category: catName, catId, fullAmount: full, monthShare: share, months });
           } catch (e) {
             errors++;
             items.push({ fileId: f.id, fileName: f.name, error: e.message });
@@ -727,7 +732,7 @@ module.exports = function pnlApi(db) {
       }
       const patch = { propertyId, yearMonth, updatedAt: FieldValue.serverTimestamp() };
       if (Object.keys(expensesPatch).length) patch.expenses = expensesPatch;
-      const newIndex = items.filter((it) => !it.error).map((it) => ({ fileId: it.fileId, ym: yearMonth, amount: it.monthShare, catId: it.catId }));
+      const newIndex = items.filter((it) => !it.error).map((it) => ({ fileId: it.fileId, fileName: it.fileName, ym: yearMonth, amount: it.monthShare, catId: it.catId }));
       if (newIndex.length) patch.utilitiesIndex = FieldValue.arrayUnion(...newIndex);
       await ref.set(patch, { merge: true });
 
@@ -798,6 +803,63 @@ module.exports = function pnlApi(db) {
     } catch (e) {
       console.error("清掃費取込エラー:", e);
       res.status(500).json({ error: "清掃費の取込に失敗しました: " + e.message });
+    }
+  });
+
+  // ========================================================
+  // 出典一覧(取込元ファイルのリンク・金額を確認)
+  // ========================================================
+
+  // GET /:propertyId/:yearMonth/sources — 取込元(CSV/PDF/請求書)を金額・リンク付きで返す
+  router.get("/:propertyId/:yearMonth/sources", async (req, res) => {
+    try {
+      const { propertyId, yearMonth } = req.params;
+      const doc = await pnlCol.doc(docId_(propertyId, yearMonth)).get();
+      if (!doc.exists) return res.json({ propertyId, yearMonth, revenue: [], tax: null, expenses: [], cleaning: [] });
+      const d = doc.data();
+      const cats = await loadCategories_();
+      const catName = {}; cats.forEach((c) => { catName[c.id] = c.name; });
+
+      // 売上(OTA CSV)
+      const revenue = [];
+      const ab = d.revenue?.airbnb, bk = d.revenue?.booking;
+      if (ab && ab.sourceFileId) revenue.push({ label: "Airbnb 予約CSV", fileName: ab.sourceFileName || "", link: driveLink_(ab.sourceFileId), amount: ab.grossRevenue || 0, count: ab.reservationCount || 0 });
+      if (bk && bk.sourceFileId) revenue.push({ label: "Booking.com 予約CSV", fileName: bk.sourceFileName || "", link: driveLink_(bk.sourceFileId), amount: bk.grossRevenue || 0, count: bk.reservationCount || 0 });
+
+      // 宿泊税(やどぜい申告書)
+      const tax = (d.taxWithholding != null) ? {
+        amount: d.taxWithholding || 0,
+        fileName: d.taxWithholdingSource || "",
+        link: driveLink_(d.taxWithholdingFileId),
+      } : null;
+
+      // 経費(領収書 + 光熱費)= 費目別の取込元1件ずつ
+      const expenses = [];
+      for (const it of (d.receiptsIndex || [])) {
+        if (it.ym && it.ym !== yearMonth) continue;
+        expenses.push({ kind: "領収書", category: catName[it.catId] || "", fileName: it.fileName || "", link: driveLink_(it.fileId), amount: it.amount || 0 });
+      }
+      for (const it of (d.utilitiesIndex || [])) {
+        if (it.ym && it.ym !== yearMonth) continue;
+        expenses.push({ kind: "光熱・通信", category: catName[it.catId] || "", fileName: it.fileName || "", link: driveLink_(it.fileId), amount: it.amount || 0 });
+      }
+
+      // 清掃費(アプリ生成請求書)。invoice に Drive/保存リンクがあれば付与
+      const cleaning = [];
+      const invRows = (d.cleaningCosts || []).filter((c) => c.source === "invoice" && c.sourceInvoiceId);
+      for (const c of invRows) {
+        let link = null;
+        try {
+          const inv = await db.collection("invoices").doc(c.sourceInvoiceId).get();
+          if (inv.exists) { const iv = inv.data(); link = driveLink_(iv.driveFileId) || iv.driveLink || null; }
+        } catch (_) {}
+        cleaning.push({ staffName: c.staffName || "", amount: c.amount || 0, excluded: !!c.excluded, invoiceId: c.sourceInvoiceId, link });
+      }
+
+      res.json({ propertyId, yearMonth, revenue, tax, expenses, cleaning });
+    } catch (e) {
+      console.error("出典取得エラー:", e);
+      res.status(500).json({ error: "出典の取得に失敗しました: " + e.message });
     }
   });
 

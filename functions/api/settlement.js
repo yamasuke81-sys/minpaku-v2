@@ -400,10 +400,10 @@ module.exports = function settlementApi(db) {
       const taxAmount = Math.max(0, Math.round(Number(parsed.taxAmount) || 0));
 
       await pnlCol.doc(`${propertyId}_${yearMonth}`).set(
-        { propertyId, yearMonth, taxWithholding: taxAmount, taxWithholdingSource: file.name, updatedAt: FieldValue.serverTimestamp() },
+        { propertyId, yearMonth, taxWithholding: taxAmount, taxWithholdingSource: file.name, taxWithholdingFileId: file.id, updatedAt: FieldValue.serverTimestamp() },
         { merge: true });
 
-      res.json({ ok: true, taxWithholding: taxAmount, confidence: parsed.confidence, sourceFile: file.name });
+      res.json({ ok: true, taxWithholding: taxAmount, confidence: parsed.confidence, sourceFile: file.name, link: `https://drive.google.com/file/d/${file.id}/view` });
     } catch (e) {
       console.error("宿泊税取込エラー:", e);
       res.status(400).json({ error: "宿泊税の取込に失敗しました: " + e.message });
