@@ -76,9 +76,20 @@
 ## DONE（2026-07-10 出典/監査・本番 v0710b / commit c0ff6ab）
 - **【取込元の出典リンク・内訳確認 完成】** `GET /pnl/:pid/:ym/sources`＋帳票モーダル「出典・内訳を確認」ボタン。売上CSV/宿泊税PDF/光熱費/領収書/清掃費の各取込元を**ファイル名・金額・Drive閲覧リンク付き**で一覧表示。リンクは `https://drive.google.com/file/d/{fileId}/view` をfileIdから決定的生成(Drive API不要)。utilitiesIndexにfileName保存、import-taxにtaxWithholdingFileId保存、各取込itemにlink付与。→ **自動抽出した金額と出典が正しいかクリックで検算可能**(誤りは費目セル手修正で上書き保護)。宿小町5月で売上¥201,769→出典CSVリンク一致を実証。
 
-## NEXT（順序・ここから再開）
-1. **月次自動取込バッチ**（ユーザー選択・本命）: Cloud Function(毎月、前月分)で各物件の OTA CSV→売上 / 宿泊税 / 光熱費 / 領収書 / 清掃費 を自動取込→帳票下書き生成。取込時に出典リンクも保存。ボタン押し作業をゼロに。※取得(Driveへ)側: OTA/宿泊税/清掃は自動、光熱費/レシートはスキャン一手が残る(物理)。
-2. **各月の実運用**: 帳票モーダルで各取込→「出典・内訳を確認」で検算→報告書/精算書PDF生成。
+## DONE（2026-07-10 月次自動取込バッチ・本番 v0710c / commit b103603）
+- **【月次自動取込バッチ 完成・稼働中】** スケジュール関数 `pnlMonthlyImport`（Cloud Scheduler `firebase-schedule-pnlMonthlyImport` = **毎月6日5:00 JST・ENABLED**）。`pnlBatchEnabled=true` 物件の前月分を 売上/宿泊税/光熱費/領収書/清掃費 自動取込→報告書・精算書の**下書きPDF生成**→`pnlBatchRuns`に記録。冪等。
+  - 実装: `functions/scheduled/pnlMonthlyImport.js` の `run(db, ym)`。既存APIハンドラを `router.cores` に参照保持し **fake req/res で呼ぶ**(ロジック二重化なし)。手動実行=`POST /pnl/run-monthly-import {yearMonth?}`＋収支ツールバー「月次一括取込」ボタン。api の timeoutSeconds=300。
+  - `pnlBatchEnabled=true`: 宿小町 / the Terrace のみ(開業前物件は対象外)。増やすときは物件docに設定。
+  - 2026-05実データでバッチ検証: 宿小町 利益129,810(売上201,769/家賃68,000/水道光熱費3,959/宿泊税800) / the Terrace 利益498,611(売上671,385/清掃70,600/水道光熱費44,142/消耗品7,395)。
+
+## 現状の自動化度（帳票に必要な情報）
+- **取込(pnl化)は全自動**（月次バッチ）。**取得(Driveへ)**: 売上CSV/宿泊税/清掃は自動(listener/アプリ)、**光熱費・領収書はスキャン/撮影の一手だけ人手**(物理・原理的に無人化不可、scan-sorterが仕分けは自動)。
+- 稼働前提: ①OTA自動取得スケジューラ(8/2〜) ②Bookingの定期再ログイン(cookie失効時)。
+- **未実装(任意)**: バッチ完了のオーナー通知(下書きURL付き)。現状は pnlBatchRuns / 画面で確認。
+
+## NEXT（任意・運用しながら）
+1. バッチ完了通知（LINE/メールで下書きPDFリンク→承認→送信の導線）。
+2. 各月の実運用: バッチ or 各取込→「出典・内訳を確認」で検算→帳票PDF確定。
 
 ## 主要ID/設定
 - 宿小町 `RZV9IwtQgMAsvrdM3j8J`: OTAcsv=`1qt5WG7nLqpnqSFILHUCA9otBUJrBmbSk` / listingName=「【YADO KOMACHI】広島中心部…」
