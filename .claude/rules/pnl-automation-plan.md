@@ -99,6 +99,15 @@
   - **若草の契約条件メモ**: 家具家電購入は八朔負担。この費用は **pnl の費目・収支から除外**する(開業後にpnl化する際は費目計上しない/計上済みなら除外フラグ)。開業前のため現状データ計上なし。
   - 変更: functions(ota-csv-logic.js/pnl.js/settlement.js/properties.js/scheduled/pnlMonthlyImport.js)、front(index.html/js/pages/pnl.js/js/pages/properties.js/js/api.js)。
 
+## DONE（2026-07-10 the Terrace Booking収支の月ズレ・取りこぼし修正）
+- **ユーザー指摘「the Terrace 2月が0泊はおかしい」は正しかった**。2026-02 は Booking 6件・gross¥293,480（NAGAI/KUO/nishihan/SOTA/KISHIOKA/Nakai）なのに pnl は0だった。
+- **真因**: 過去分バックフィルの Booking CSV が (1)月ラベルと中身がズレて保存(別月予約の混入) (2)一部月(2月/12月)を丸ごと取りこぼし。加えて Booking.com セッション失効で再取得も不可の状態。ファイル名(=要求月)で取込むため**中身の別月データを誤計上**していた。Airbnb側(開始日で正しく分割)は無事。宿小町(Airbnbのみ)は無影響。
+- **リスナー修正(feature/yadozei-csv commit aeb5230)**: `handleBookingCsv` のDL行選択が `:is(li,tr,div)` のネストで親コンテナ誤爆し `.last()` で別月行を掴む不具合→各「ダウンロード可能」リンクの祖先行に月初+月末が含まれる行だけ選ぶ方式に。さらに `verifyBookingCsvMonth` で取得CSVのチェックイン日が要求月と一致するか検証し、不一致なら保存せずエラー(静かな月ズレを根絶)。
+- **再取得**: Booking セッション再ログイン(`--login`)後、全期間(2025-08〜2026-12)を arrival基準で1本エクスポート→実チェックイン月で振り分け。`sumBookingCsv` 同一ロジックで各月を再計算し pnl の `revenue.booking` と `nights` を修正(**8ヶ月**: 25-09/10/11/12・26-01/02/03/06)。**全10ヶ月が extranet 実績と一致**を確認(scratchpad/analyze-booking-all.cjs)。
+- **正しい各月Booking gross**: 09=0 / 10=99,666 / 11=332,884 / 12=88,200 / 26-01=0 / 02=293,480 / 03=286,528 / 04=0 / 05=335,600 / 06=62,986。
+- **運用注意(重要)**: Booking.com セッションは失効する。失効時は `pm2 stop yadozei-listener` → `node yadozei-listener.mjs --login`(Bookingにログイン) → Ctrl+C → `pm2 start yadozei-listener`。**失効中は自動取得が失敗する**(8/2の月次取得前に要確認)。過去分の掃引は scratchpad の analyze/rebuild-terrace-booking.cjs 参照。
+- 訂正: 旧記載「the Terrace 2026-02 は Airbnb・Booking とも予約0」「2025-12/2026-01/2026-02はBooking予約0」は**誤り**(バックフィルの取りこぼし/月ズレ)。
+
 ## NEXT（次セッションで着手）
 1. バッチ完了通知（LINE/メールで下書きPDFリンク→承認→送信の導線）。
 2. 各月の実運用: バッチ or 各取込→「出典・内訳を確認」で検算→帳票PDF確定。
