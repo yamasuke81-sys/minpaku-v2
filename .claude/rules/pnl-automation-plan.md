@@ -95,7 +95,7 @@
   - **代行手数料列＝精算書と同一式**: `/pnl/summary` が `computeSettlement`(入金額A=Airbnb総額+Booking手取り − 宿泊税B、×料率、+消費税)で各月の実請求額(税込)＋実効料率を返し、フロントは表示のみ。`computeDepositAmount`/`effectiveFeeRatePct` を settlement.js と共有し乖離ゼロ。
   - agency_other の精算書は会社情報(発行元)未設定でブロック(報告書は可)。月次バッチ(pnlMonthlyImport)は精算書を **agency_hassac のみ**生成。
   - テスト: ota-csv-logic.test.js に helper のユニット追加(**全109緑**)。実データ検算: 宿小町(代行)5月=税込110,534(宿泊税800控除) / the Terrace(自社)5月=料率50保存でも実効0%＝0。
-  - 本番 operationMode 設定済: 宿小町=agency_hassac / the Terrace=self / WAKA-KUSA=agency_hassac / UJINA=agency_other(tomi企画・**要ユーザー確認**)。他物件は未設定(UI既定=八朔代行)。
+  - 本番 operationMode 設定済(2026-07-10 ユーザー確認反映): 宿小町=agency_hassac / the Terrace=self / **WAKA-KUSA=agency_hassac(料率70%)** / **UJINA=agency_hassac**(旅館業申請者=tomi企画(富永洋)だが**運営は八朔**)。他物件は未設定(UI既定=八朔代行)。**若草は家具家電購入を八朔負担**(開業前・契約条件メモ)。
   - 変更: functions(ota-csv-logic.js/pnl.js/settlement.js/properties.js/scheduled/pnlMonthlyImport.js)、front(index.html/js/pages/pnl.js/js/pages/properties.js/js/api.js)。
 
 ## NEXT（次セッションで着手）
