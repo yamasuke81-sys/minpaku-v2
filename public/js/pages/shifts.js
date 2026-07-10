@@ -177,6 +177,7 @@ const ShiftsPage = {
         document.getElementById("shiftStartTime").value = s.startTime || "10:30";
         document.getElementById("shiftEndTime").value = s.endTime || "";
         document.getElementById("shiftMemo").value = s.memo || "";
+        document.getElementById("shiftWorkType").value = (s.workType === "pre_inspection") ? "pre_inspection" : "cleaning_by_count";
       }
     } else {
       document.getElementById("shiftDate").value = "";
@@ -185,6 +186,7 @@ const ShiftsPage = {
       document.getElementById("shiftStartTime").value = "10:30";
       document.getElementById("shiftEndTime").value = "";
       document.getElementById("shiftMemo").value = "";
+      document.getElementById("shiftWorkType").value = "cleaning_by_count";
     }
     modal.show();
   },
@@ -193,14 +195,18 @@ const ShiftsPage = {
     const editId = document.getElementById("shiftEditId").value;
     const staffId = document.getElementById("shiftStaffId").value;
     const staffName = staffId ? this.staffList.find(s => s.id === staffId)?.name || "" : "";
+    const _pid = document.getElementById("shiftPropertyId").value;
     const data = {
       date: document.getElementById("shiftDate").value,
-      propertyId: document.getElementById("shiftPropertyId").value,
+      propertyId: _pid,
+      propertyName: (this.properties.find(p => p.id === _pid) || {}).name || "",
       staffId: staffId || null,
       staffName: staffName || null,
       startTime: document.getElementById("shiftStartTime").value,
       endTime: document.getElementById("shiftEndTime").value,
       memo: document.getElementById("shiftMemo").value,
+      // 作業種別(清掃/直前点検)。保存時に onShiftCreated が該当テンプレからチェックリストを自動生成
+      workType: document.getElementById("shiftWorkType").value || "cleaning_by_count",
     };
 
     if (!data.date) { showToast("エラー", "日付を入力してください", "error"); return; }
@@ -211,8 +217,11 @@ const ShiftsPage = {
         await API.shifts.update(editId, data);
         showToast("成功", "シフトを更新しました", "success");
       } else {
+        // 手動追加(任意日付・予約非紐付け)。予約由来の日付削除で巻き添えにされないよう manualAdded を付与
+        data.assignMethod = "manual";
+        data.manualAdded = true;
         await API.shifts.create(data);
-        showToast("成功", "シフトを登録しました", "success");
+        showToast("成功", "シフト（チェックリスト）を追加しました", "success");
       }
       bootstrap.Modal.getInstance(document.getElementById("shiftModal")).hide();
       await this.loadData();

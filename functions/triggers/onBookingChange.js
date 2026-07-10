@@ -61,6 +61,8 @@ async function cancelCleaningForDate_(db, propertyId, dateStr, excludeBookingId)
   for (const s of shiftSnap.docs) {
     // 直前点検(pre_inspection)は別予約のCI日が checkoutDate/date に入るため、清掃の片付けで誤削除しない
     if ((s.data().workType || "cleaning_by_count") === "pre_inspection") continue;
+    // 手動追加(任意日付・予約非紐付け)は、予約由来の日付一致削除で巻き添えにしない
+    if (s.data().manualAdded === true) continue;
     const cls = await db.collection("checklists").where("shiftId", "==", s.id).get();
     for (const c of cls.docs) await c.ref.delete();
     await s.ref.delete();
@@ -357,6 +359,8 @@ module.exports = async function onBookingChange(event) {
             // 別予約のCI日由来の直前点検(checkoutDate=このCO日)を巻き添え削除しない。
             // 自分(bid)の直前点検は削除対象に残す。
             if ((s.data().workType || "cleaning_by_count") === "pre_inspection" && s.data().bookingId !== bid) continue;
+            // 手動追加(任意日付・予約非紐付け)は巻き添え削除しない
+            if (s.data().manualAdded === true) continue;
             const cls = await db.collection("checklists").where("shiftId", "==", s.id).get();
             for (const c of cls.docs) await c.ref.delete();
             await s.ref.delete();
