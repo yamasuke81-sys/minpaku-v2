@@ -87,12 +87,18 @@
 - 稼働前提: ①OTA自動取得スケジューラ(8/2〜) ②Bookingの定期再ログイン(cookie失効時)。
 - **未実装(任意)**: バッチ完了のオーナー通知(下書きURL付き)。現状は pnlBatchRuns / 画面で確認。
 
-## NEXT（次セッションで着手・やますけ要望 2026-07-10）
-0. **★代行手数料(managementFeeRate)のちぐはぐ解消＋体系整理**（次の新セッションで最優先）: 月別収支ページの「代行手数料 売上×50%」が**固定化**して見え、物件詳細で `managementFeeRate` を 0% にしても月別収支に反映されない。要望3点:
-   - (1) パーセントを変更でき、それが月別収支に即反映されるように
-   - (2) 現状の**一方向同期の不整合を解消**（物件詳細→月別収支は反映されるが、月別収支側の変更は物件詳細に戻らない、等のちぐはぐ）。SSOTを一本化し双方向 or 単一入口に
-   - (3) より分かりやすい体系に再構成
-   調査起点: 月別収支の料率参照が `properties.managementFeeRate` を都度読んでいるか／スナップショット固定(`propertyMonthlyPnL` の history や締め済み月固定 [[project_minpaku_v2_rate_month_snapshot]] の思想)か／pnl.js(front)とpnl.js(functions)のどちらで50%既定を当てているか。managementFeeRate の入力UIが物件詳細と収支ページで二重にあるなら統合。
+## DONE（2026-07-10 運営形態導入＋代行手数料の料率再構成・本番 v0710h / commit 25988b4）
+- **【★代行手数料のちぐはぐ解消＋体系整理 完成】** NEXT#0 を実装・デプロイ(relay+本番/functions api+pnlMonthlyImport)・実データ検証済。真因は**スナップショット固定でもキャッシュでもなく `|| 50`**（`Number(0)||50=50` で 0% が保存時に 50% へ化ける）だった。
+  - **運営形態(operationMode)を物件マスタに新設**: `agency_hassac`(八朔代行)/`agency_other`(その他代行)/`self`(自社運営=代行なし)。物件詳細に選択UI追加。旧 `settlementMode`(self/daiko)は後方互換で読み継ぎ＆保存時に同期。決定ロジックは `resolveOperationMode(prop)`(functions/api/ota-csv-logic.js)。
+  - **自社運営=手数料0%強制**: `effectiveFeeRatePct` が self なら誤って料率が入っていても常に0。月別収支の代行手数料列・料率UI・精算書を**全非表示**（月次業務報告書は内部用に発行可＝ユーザー決定）。物件詳細でも self 選択時に料率欄を隠す。
+  - **料率SSOT一本化＋0%保存可**: `managementFeeRate` の `|| 50` を front(properties.js 2箇所)/functions(properties.js update) 全撤廃。料率の優先順位は「月固定(`propertyMonthlyPnL.feeRatePct`) ＞ 物件既定(`managementFeeRate`) ＞ 50」。月別収支で行の料率チップをクリックしてその月だけ固定/解除(`PATCH /pnl/:pid/:ym/fee-rate`)、ツールバー「既定料率を変更」で未固定月へ即反映。
+  - **代行手数料列＝精算書と同一式**: `/pnl/summary` が `computeSettlement`(入金額A=Airbnb総額+Booking手取り − 宿泊税B、×料率、+消費税)で各月の実請求額(税込)＋実効料率を返し、フロントは表示のみ。`computeDepositAmount`/`effectiveFeeRatePct` を settlement.js と共有し乖離ゼロ。
+  - agency_other の精算書は会社情報(発行元)未設定でブロック(報告書は可)。月次バッチ(pnlMonthlyImport)は精算書を **agency_hassac のみ**生成。
+  - テスト: ota-csv-logic.test.js に helper のユニット追加(**全109緑**)。実データ検算: 宿小町(代行)5月=税込110,534(宿泊税800控除) / the Terrace(自社)5月=料率50保存でも実効0%＝0。
+  - 本番 operationMode 設定済: 宿小町=agency_hassac / the Terrace=self / WAKA-KUSA=agency_hassac / UJINA=agency_other(tomi企画・**要ユーザー確認**)。他物件は未設定(UI既定=八朔代行)。
+  - 変更: functions(ota-csv-logic.js/pnl.js/settlement.js/properties.js/scheduled/pnlMonthlyImport.js)、front(index.html/js/pages/pnl.js/js/pages/properties.js/js/api.js)。
+
+## NEXT（次セッションで着手）
 1. バッチ完了通知（LINE/メールで下書きPDFリンク→承認→送信の導線）。
 2. 各月の実運用: バッチ or 各取込→「出典・内訳を確認」で検算→帳票PDF確定。
 
