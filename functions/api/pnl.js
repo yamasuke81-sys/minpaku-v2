@@ -697,6 +697,8 @@ module.exports = function pnlApi(db) {
 
       const items = [];
       const sumByCat = {};
+      const keptByNorm = {}; // normName → 採用した明細(重複時の比較用)
+      const dups = [];       // 除外した重複(捨てず記録。出典で表示・金額差は要確認)
       let processed = 0, skippedDup = 0, errors = 0, unmatchedCat = 0;
 
       for (const sub of subs) {
@@ -712,16 +714,29 @@ module.exports = function pnlApi(db) {
           if (!months.includes(yearMonth)) continue; // 対象月に該当しない
           if (already.has(`${f.id}|${yearMonth}`)) { skippedDup++; continue; }
           const nn = normName(f.name);
-          if (seenNorm.has(nn)) { skippedDup++; items.push({ fileId: f.id, fileName: f.name, category: catName, skipped: "重複スキャン" }); continue; }
-          seenNorm.add(nn);
+          const isDup = seenNorm.has(nn);
           try {
             const bin = await drive.files.get({ fileId: f.id, alt: "media", supportsAllDrives: true }, { responseType: "arraybuffer" });
             const parsed = await geminiExtractReceiptAmount_(Buffer.from(bin.data).toString("base64"), apiKey);
             // 事前通知・見積・検針のみ(確定した支払書類でない)は計上しない
-            if (parsed.isEstimate === true) { seenNorm.delete(nn); items.push({ fileId: f.id, fileName: f.name, category: catName, skipped: "事前通知/見積" }); continue; }
+            if (parsed.isEstimate === true) { items.push({ fileId: f.id, fileName: f.name, category: catName, skipped: "事前通知/見積" }); continue; }
             const full = Math.max(0, Math.round(Number(parsed.amount) || 0));
+            if (isDup) {
+              // 同一請求の重複(日付違いの同名)。採用済との金額差が大きければ要確認(訂正版の可能性)
+              const kept = keptByNorm[nn] || {};
+              const diff = Math.abs(full - (kept.amount || 0));
+              const needsReview = diff > Math.max(100, (kept.amount || 0) * 0.02);
+              skippedDup++;
+              const dup = { fileId: f.id, fileName: f.name, link: driveLink_(f.id), category: catName, catId, amount: full,
+                keptFileName: kept.fileName || "", keptAmount: kept.amount || 0, needsReview };
+              dups.push(dup);
+              items.push({ ...dup, skipped: needsReview ? "重複除外(⚠️金額差あり・要確認)" : "重複除外" });
+              continue;
+            }
+            seenNorm.add(nn);
             const share = Math.round(full / months.length); // 範囲月は月割
             if (catId) sumByCat[catId] = (sumByCat[catId] || 0) + share;
+            keptByNorm[nn] = { fileName: f.name, amount: full, fileId: f.id, link: driveLink_(f.id) };
             processed++;
             items.push({ fileId: f.id, fileName: f.name, link: driveLink_(f.id), category: catName, catId, fullAmount: full, monthShare: share, months });
           } catch (e) {
@@ -746,6 +761,8 @@ module.exports = function pnlApi(db) {
       if (Object.keys(expensesPatch).length) patch.expenses = expensesPatch;
       const newIndex = items.filter((it) => !it.error && !it.skipped).map((it) => ({ fileId: it.fileId, fileName: it.fileName, ym: yearMonth, amount: it.monthShare, catId: it.catId }));
       if (newIndex.length) patch.utilitiesIndex = FieldValue.arrayUnion(...newIndex);
+      // 除外した重複を出典表示用に保存(捨てない。どちらを採用/除外したか確認可能)
+      if (dups.length) patch.utilitiesDuplicates = FieldValue.arrayUnion(...dups.map((d) => ({ ...d, ym: yearMonth })));
       await ref.set(patch, { merge: true });
 
       const after = (await ref.get()).data();
@@ -855,6 +872,11 @@ module.exports = function pnlApi(db) {
         if (it.ym && it.ym !== yearMonth) continue;
         expenses.push({ kind: "光熱・通信", category: catName[it.catId] || "", fileName: it.fileName || "", link: driveLink_(it.fileId), amount: it.amount || 0 });
       }
+      // 除外した重複(捨てず表示。金額差があれば要確認)
+      const duplicates = (d.utilitiesDuplicates || [])
+        .filter((x) => !x.ym || x.ym === yearMonth)
+        .map((x) => ({ category: catName[x.catId] || "", fileName: x.fileName || "", link: x.link || driveLink_(x.fileId), amount: x.amount || 0,
+          keptFileName: x.keptFileName || "", keptAmount: x.keptAmount || 0, needsReview: !!x.needsReview }));
 
       // 清掃費(アプリ生成請求書)。invoice に Drive/保存リンクがあれば付与
       const cleaning = [];
@@ -868,7 +890,7 @@ module.exports = function pnlApi(db) {
         cleaning.push({ staffName: c.staffName || "", amount: c.amount || 0, excluded: !!c.excluded, invoiceId: c.sourceInvoiceId, link });
       }
 
-      res.json({ propertyId, yearMonth, revenue, tax, expenses, cleaning });
+      res.json({ propertyId, yearMonth, revenue, tax, expenses, cleaning, duplicates });
     } catch (e) {
       console.error("出典取得エラー:", e);
       res.status(500).json({ error: "出典の取得に失敗しました: " + e.message });

@@ -16,7 +16,9 @@
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(git commit -q -m ' *)",
-      "Bash(npx firebase *)"
+      "Bash(npx firebase *)",
+      "Bash(git rm *)",
+      "Bash(rm -f functions/_*.cjs)"
     ]
   }
 }

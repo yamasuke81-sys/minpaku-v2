@@ -1210,6 +1210,8 @@ const PnlPage = {
       if (s.tax) rows.push(`<tr><td>宿泊税</td><td>やどぜい申告書</td><td class="text-end">${yen(s.tax.amount)}</td><td class="small">${linkCell(s.tax.fileName, s.tax.link)}</td></tr>`);
       (s.expenses || []).forEach(e => rows.push(`<tr><td>${this.escapeHtml(e.kind)}</td><td>${this.escapeHtml(e.category)}</td><td class="text-end">${yen(e.amount)}</td><td class="small">${linkCell(e.fileName, e.link)}</td></tr>`));
       (s.cleaning || []).forEach(c => rows.push(`<tr class="${c.excluded ? "text-muted text-decoration-line-through" : ""}"><td>清掃費</td><td>${this.escapeHtml(c.staffName)}${c.excluded ? "（除外）" : ""}</td><td class="text-end">${yen(c.amount)}</td><td class="small">${c.link ? linkCell("請求書", c.link) : `<span class="text-muted">アプリ請求書</span>`}</td></tr>`));
+      // 除外した重複(採用しなかった方。金額差があれば要確認)
+      (s.duplicates || []).forEach(dp => rows.push(`<tr class="table-warning"><td>重複除外</td><td class="small">${this.escapeHtml(dp.category)}${dp.needsReview ? ' <span class="badge bg-danger">⚠️要確認</span>' : ""}<br><span class="text-muted">採用: ${this.escapeHtml(dp.keptFileName)}（${yen(dp.keptAmount)}）</span></td><td class="text-end text-muted">${yen(dp.amount)}</td><td class="small">${linkCell("除外分を開く", dp.link)}</td></tr>`));
 
       result.innerHTML = rows.length ? `
         <div class="border rounded p-2" style="max-height:340px;overflow:auto;">
