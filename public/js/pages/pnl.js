@@ -329,9 +329,21 @@ const PnlPage = {
     return this.properties.find(p => p.id === this.selectedPropertyId) || null;
   },
 
-  feeRatePct() {
-    const r = this.selectedProperty()?.managementFeeRate;
-    return r != null ? Number(r) : 50;
+  // 運営形態(summaryロード後に確定)。self=自社運営(代行なし) / agency_*=運営代行あり
+  operationMode() {
+    return (this.summaryData && this.summaryData.operationMode) || "agency_hassac";
+  },
+  isSelfOperated() {
+    return this.operationMode() === "self";
+  },
+  isAgency() {
+    return !this.isSelfOperated();
+  },
+  operationModeLabel() {
+    const m = this.operationMode();
+    if (m === "self") return "自社運営（代行なし）";
+    if (m === "agency_other") return "運営代行あり（その他会社）";
+    return "運営代行あり（八朔）";
   },
 
   // ===== サマリーロード & テーブル描画 =====
@@ -361,6 +373,8 @@ const PnlPage = {
 
     // 動的費目列
     const cats = (categories || []).filter(c => c.active !== false);
+    // 代行手数料列は「運営代行あり」の物件のみ表示(自社運営=代行なしは列ごと非表示)
+    const agency = this.isAgency();
 
     const th = (label, cls = "") => `<th class="text-nowrap ${cls}">${this.escapeHtml(label)}</th>`;
 
@@ -379,17 +393,24 @@ const PnlPage = {
           ${th("費目計", "text-end")}
           ${th("利益", "text-end")}
           ${th("利益率", "text-end")}
-          ${th(`代行手数料(売上×${this.feeRatePct()}%)`, "text-end")}
+          ${agency ? th("代行手数料(税込)", "text-end") : ""}
           ${th("帳票", "text-center")}
         </tr>
       </thead>`;
 
-    const feeRate = this.feeRatePct();
     const rows = months.map(m => {
       const profitNeg = (m.profit || 0) < 0;
       const profitClass = profitNeg ? "text-danger fw-bold" : "";
       const rate = m.profitRate != null ? `${m.profitRate.toFixed(1)}%` : "-";
-      const mgmtFee = Math.round((m.revenueGross || 0) * feeRate / 100);
+      // 代行手数料は精算書と同一式(実請求額・税込)。料率は月固定 or 物件既定
+      const overridden = !!m.feeRateIsMonthOverride;
+      const feeCell = agency ? `
+          <td class="text-end text-primary text-nowrap">
+            ${this.fmtYen(m.mgmtFeeInclTax)}
+            <span class="pnl-feerate-chip badge ${overridden ? "bg-primary" : "bg-light text-secondary border"} ms-1"
+              data-ym="${this.escapeHtml(m.yearMonth)}" style="cursor:pointer;font-weight:normal;"
+              title="クリックしてこの月の料率を変更（空欄で既定に戻す）">${m.feeRatePct}%${overridden ? " 固定" : " 既定"}</span>
+          </td>` : "";
 
       const catCells = cats.map(c => {
         const exp = (m.expenses || []).find(e => e.catId === c.id);
@@ -416,7 +437,7 @@ const PnlPage = {
           <td class="text-end">${this.fmtYen(m.expensesTotal)}</td>
           <td class="text-end ${profitClass}">${this.fmtYen(m.profit)}</td>
           <td class="text-end ${profitNeg ? "text-danger" : ""}">${rate}</td>
-          <td class="text-end text-primary">${this.fmtYen(mgmtFee)}</td>
+          ${feeCell}
           <td class="text-center text-nowrap">
             <button class="btn btn-sm btn-outline-primary btn-pnl-doc" data-ym="${this.escapeHtml(m.yearMonth)}" title="帳票を生成">
               <i class="bi bi-file-earmark-text"></i>
@@ -447,17 +468,29 @@ const PnlPage = {
           <td class="text-end">${this.fmtYen(totals.expensesTotal)}</td>
           <td class="text-end ${totProfitNeg ? "text-danger" : ""}">${this.fmtYen(totals.profit)}</td>
           <td class="text-end ${totProfitNeg ? "text-danger" : ""}">${totRate}</td>
-          <td class="text-end text-primary">${this.fmtYen(Math.round(totals.revenueGross * this.feeRatePct() / 100))}</td>
+          ${agency ? `<td class="text-end text-primary">${this.fmtYen(totals.mgmtFeeInclTax)}</td>` : ""}
           <td></td>
         </tr>
       </tfoot>`;
 
+    // 運営形態バー(テーブル上部)。代行=既定料率の編集導線、自社=代行なしの注記
+    const control = this._renderFeeControlBar();
+
     wrap.innerHTML = `
+      ${control}
       <table class="table table-hover table-bordered table-sm align-middle mb-0" style="font-size:0.85rem;">
         ${header}
         <tbody>${rows}</tbody>
         ${footer}
       </table>`;
+
+    // 月の料率チップ: クリックでその月だけ固定/解除
+    wrap.querySelectorAll(".pnl-feerate-chip").forEach(el => {
+      el.addEventListener("click", () => this.editMonthFeeRate(el.dataset.ym));
+    });
+    // 物件の既定料率を変更
+    const dr = wrap.querySelector("#btnPnlDefaultRate");
+    if (dr) dr.addEventListener("click", () => this.editDefaultFeeRate());
 
     // セルクリックイベント
     wrap.querySelectorAll(".pnl-cleaning-cell").forEach(td => {
@@ -481,11 +514,76 @@ const PnlPage = {
     });
   },
 
+  // 運営形態バー(テーブル上部)
+  _renderFeeControlBar() {
+    if (this.isSelfOperated()) {
+      return `<div class="px-2 py-2 border-bottom bg-light small text-muted">
+        <i class="bi bi-house-check"></i> 運営形態: <b>自社運営（代行なし）</b> — 運営代行手数料は発生しません（精算書兼請求書なし・月次業務報告書は内部用に発行可）
+      </div>`;
+    }
+    const defRate = this.summaryData?.managementFeeRate ?? 50;
+    // 既定料率の変更はオーナーのみ(サブオーナーは月別の固定のみ可)
+    const isSubOwner = (typeof Auth !== "undefined" && Auth.isSubOwner && Auth.isSubOwner());
+    const editBtn = isSubOwner ? "" :
+      `<button class="btn btn-sm btn-outline-primary py-0" id="btnPnlDefaultRate"><i class="bi bi-pencil"></i> 既定料率を変更</button>`;
+    return `<div class="d-flex align-items-center flex-wrap gap-2 px-2 py-2 border-bottom bg-light small">
+      <span class="text-muted"><i class="bi bi-briefcase"></i> 運営形態: <b>${this.escapeHtml(this.operationModeLabel())}</b></span>
+      <span class="ms-2">既定料率: <b class="text-primary">${defRate}%</b></span>
+      ${editBtn}
+      <span class="text-muted ms-auto"><i class="bi bi-info-circle"></i> 各行の料率チップをクリックすると、その月だけ固定できます（税込＝実際の請求額）</span>
+    </div>`;
+  },
+
+  // 月の代行手数料率を上書き/解除(空欄で物件既定に戻す)
+  async editMonthFeeRate(yearMonth) {
+    const m = (this.summaryData?.months || []).find(x => x.yearMonth === yearMonth);
+    const isOverride = !!(m && m.feeRateIsMonthOverride);
+    const input = await showPrompt(
+      `${yearMonth} の運営代行料率（％）\n\n空欄にすると物件の既定料率（${this.summaryData?.managementFeeRate ?? 50}%）に戻します。`,
+      { title: "この月の料率", defaultValue: isOverride && m ? String(m.feeRatePct) : "" });
+    if (input === null) return; // キャンセル
+    const trimmed = String(input).trim();
+    let payload;
+    if (trimmed === "") {
+      payload = null; // 既定に戻す
+    } else {
+      const n = Number(trimmed);
+      if (!Number.isFinite(n) || n < 0 || n > 100) { showToast("エラー", "0〜100 の数値で入力してください", "error"); return; }
+      payload = n;
+    }
+    try {
+      await API.pnl.setFeeRate(this.selectedPropertyId, yearMonth, payload);
+      showToast("料率更新", payload == null ? `${yearMonth} を既定料率に戻しました` : `${yearMonth} を ${payload}% に固定しました`, "success");
+      await this.loadSummary();
+    } catch (e) {
+      showToast("エラー", `料率更新に失敗: ${e.message}`, "error");
+    }
+  },
+
+  // 物件の既定料率を変更(月ごとに固定していない全月へ即反映)
+  async editDefaultFeeRate() {
+    const cur = this.summaryData?.managementFeeRate ?? 50;
+    const input = await showPrompt(
+      `この物件の既定の運営代行料率（％）\n\n月ごとに固定していない月へ即反映されます。`,
+      { title: "既定料率を変更", defaultValue: String(cur) });
+    if (input === null) return;
+    const n = Number(String(input).trim());
+    if (!Number.isFinite(n) || n < 0 || n > 100) { showToast("エラー", "0〜100 の数値で入力してください", "error"); return; }
+    try {
+      await API.properties.update(this.selectedPropertyId, { managementFeeRate: n });
+      showToast("既定料率更新", `既定料率を ${n}% にしました`, "success");
+      await this.loadSummary();
+    } catch (e) {
+      showToast("エラー", `更新に失敗: ${e.message}（既定料率の変更はオーナーのみ）`, "error");
+    }
+  },
+
   _calcTotals(months, cats) {
     const t = {
       nights: 0, cleaningCount: 0,
       revenueAirbnb: 0, revenueBooking: 0, revenueGross: 0,
       otaFees: 0, cleaningTotal: 0, expensesTotal: 0, profit: 0,
+      mgmtFeeInclTax: 0,
       catMap: {},
     };
     for (const c of cats) t.catMap[c.id] = 0;
@@ -499,6 +597,7 @@ const PnlPage = {
       t.cleaningTotal += m.cleaningTotal || 0;
       t.expensesTotal += m.expensesTotal || 0;
       t.profit += m.profit || 0;
+      t.mgmtFeeInclTax += m.mgmtFeeInclTax || 0;
       for (const c of cats) {
         const exp = (m.expenses || []).find(e => e.catId === c.id);
         if (exp) t.catMap[c.id] = (t.catMap[c.id] || 0) + (exp.amount || 0);
@@ -1060,22 +1159,15 @@ const PnlPage = {
     const ctx = this._docCtx;
     const body = document.getElementById("pnlDocBody");
     const s = ctx.settlement;
-    const isSelf = ctx.settlementMode === "self";
+    // 運営形態で出し分け: self=精算書なし(報告書のみ)/ agency_other=精算書ブロック / agency_hassac=通常
+    const mode = ctx.operationMode || (ctx.settlementMode === "self" ? "self" : "agency_hassac");
+    const isSelf = mode === "self";
+    const isOther = mode === "agency_other";
+    const showSettlement = !isSelf; // 精算プレビュー/精算書は運営代行ありのみ
 
-    body.innerHTML = `
-      <div class="row g-3">
-        <div class="col-md-5">
-          <h6 class="text-muted"><i class="bi bi-activity"></i> 稼働概況</h6>
-          <table class="table table-sm table-bordered mb-3">
-            <tr><td>予約件数</td><td class="text-end">Airbnb ${ctx.revenue.airbnbReservations} / Booking ${ctx.revenue.bookingReservations}</td></tr>
-            <tr><td>宿泊日数</td><td class="text-end">${ctx.nights} 泊</td></tr>
-            <tr><td>稼働率</td><td class="text-end">${ctx.occupancyRate} %</td></tr>
-            <tr><td>売上合計</td><td class="text-end">${this.fmtYen(ctx.computed.revenueGross)}</td></tr>
-            <tr><td>運営利益</td><td class="text-end fw-bold">${this.fmtYen(ctx.computed.profit)}</td></tr>
-          </table>
-        </div>
+    const settlementCol = showSettlement ? `
         <div class="col-md-7">
-          <h6 class="text-muted"><i class="bi bi-receipt"></i> 精算プレビュー</h6>
+          <h6 class="text-muted"><i class="bi bi-receipt"></i> 精算プレビュー（運営代行手数料）</h6>
           <table class="table table-sm table-bordered mb-2">
             <tr><td>月間入金額 (A)</td><td class="text-end">${this.fmtYen(s.depositAmount)}</td></tr>
             <tr><td>宿泊税預り (B)
@@ -1091,43 +1183,67 @@ const PnlPage = {
             <label class="form-label small mb-0">お支払期限</label>
             <input type="text" id="pnlDocDue" class="form-control form-control-sm" value="翌月末日">
           </div>
+        </div>` : "";
+
+    const noteAlert = isSelf
+      ? `<div class="alert alert-info mt-3 mb-0 py-2 small"><i class="bi bi-info-circle"></i> この物件は<b>自社運営（代行なし）</b>のため、運営代行手数料・精算書兼請求書はありません。月次業務報告書は内部用に発行できます。</div>`
+      : (isOther
+        ? `<div class="alert alert-warning mt-3 mb-0 py-2 small"><i class="bi bi-exclamation-triangle"></i> <b>その他の運営代行会社</b>の会社情報（発行元）が未設定のため、精算書兼請求書はまだ発行できません（今後対応）。月次業務報告書は発行できます。</div>`
+        : "");
+
+    const settlementBtn = isSelf ? ""
+      : `<button class="btn btn-primary btn-sm" id="btnDocSettlement" ${isOther ? "disabled" : ""}><i class="bi bi-receipt"></i> 精算書兼請求書 PDF</button>`;
+
+    body.innerHTML = `
+      <div class="row g-3">
+        <div class="${showSettlement ? "col-md-5" : "col-12"}">
+          <h6 class="text-muted"><i class="bi bi-activity"></i> 稼働概況</h6>
+          <table class="table table-sm table-bordered mb-3">
+            <tr><td>予約件数</td><td class="text-end">Airbnb ${ctx.revenue.airbnbReservations} / Booking ${ctx.revenue.bookingReservations}</td></tr>
+            <tr><td>宿泊日数</td><td class="text-end">${ctx.nights} 泊</td></tr>
+            <tr><td>稼働率</td><td class="text-end">${ctx.occupancyRate} %</td></tr>
+            <tr><td>売上合計</td><td class="text-end">${this.fmtYen(ctx.computed.revenueGross)}</td></tr>
+            <tr><td>運営利益</td><td class="text-end fw-bold">${this.fmtYen(ctx.computed.profit)}</td></tr>
+          </table>
         </div>
+        ${settlementCol}
         <div class="col-12">
           <label class="form-label small mb-0">備考 / 特記事項</label>
           <textarea id="pnlDocNote" class="form-control form-control-sm" rows="2" placeholder="帳票に印字されます(任意)"></textarea>
         </div>
       </div>
-      ${isSelf ? `<div class="alert alert-info mt-3 mb-0 py-2 small"><i class="bi bi-info-circle"></i> この物件は自社名義運営のため、精算書兼請求書は発行しません（報告書のみ）。</div>` : ""}
+      ${noteAlert}
       <div class="d-flex gap-2 mt-3 flex-wrap">
         <button class="btn btn-outline-info btn-sm" id="btnDocImportReceipts"><i class="bi bi-receipt-cutoff"></i> 領収書を取込</button>
         <button class="btn btn-outline-info btn-sm" id="btnDocImportUtil"><i class="bi bi-lightning-charge"></i> 光熱費・通信費を取込</button>
         <button class="btn btn-outline-info btn-sm" id="btnDocImportCleaning"><i class="bi bi-broom"></i> 清掃費を取込</button>
         <button class="btn btn-outline-dark btn-sm" id="btnDocSources"><i class="bi bi-search"></i> 出典・内訳を確認</button>
         <button class="btn btn-outline-secondary btn-sm ms-auto" id="btnDocReport"><i class="bi bi-file-earmark-text"></i> 月次業務報告書 PDF</button>
-        <button class="btn btn-primary btn-sm" id="btnDocSettlement" ${isSelf ? "disabled" : ""}><i class="bi bi-receipt"></i> 精算書兼請求書 PDF</button>
+        ${settlementBtn}
       </div>
       <div id="pnlDocResult" class="mt-2"></div>`;
 
-    // 宿泊税Bの変更で精算プレビューを即再計算(クライアント側)
+    // 宿泊税Bの変更で精算プレビューを即再計算(クライアント側)。自社運営時は精算プレビュー非表示=要素なし
     const taxInput = document.getElementById("pnlDocTax");
-    taxInput.addEventListener("input", () => this._recalcDocPreview());
-
-    // 月計表PDFから宿泊税Bを自動取込
-    document.getElementById("btnDocImportTax").addEventListener("click", async () => {
-      const btn = document.getElementById("btnDocImportTax");
-      const orig = btn.innerHTML;
-      btn.disabled = true; btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span>`;
-      try {
-        const r = await API.pnl.importTax(this.selectedPropertyId, this._docYM);
-        taxInput.value = r.taxWithholding;
-        this._recalcDocPreview();
-        showToast("宿泊税取込", `宿泊税 ${this.fmtYen(r.taxWithholding)} を取込（${r.sourceFile}）`, "success");
-      } catch (e) {
-        showToast("エラー", `取込失敗: ${e.message}`, "error");
-      } finally {
-        btn.disabled = false; btn.innerHTML = orig;
-      }
-    });
+    if (taxInput) {
+      taxInput.addEventListener("input", () => this._recalcDocPreview());
+      // 月計表PDFから宿泊税Bを自動取込
+      document.getElementById("btnDocImportTax").addEventListener("click", async () => {
+        const btn = document.getElementById("btnDocImportTax");
+        const orig = btn.innerHTML;
+        btn.disabled = true; btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span>`;
+        try {
+          const r = await API.pnl.importTax(this.selectedPropertyId, this._docYM);
+          taxInput.value = r.taxWithholding;
+          this._recalcDocPreview();
+          showToast("宿泊税取込", `宿泊税 ${this.fmtYen(r.taxWithholding)} を取込（${r.sourceFile}）`, "success");
+        } catch (e) {
+          showToast("エラー", `取込失敗: ${e.message}`, "error");
+        } finally {
+          btn.disabled = false; btn.innerHTML = orig;
+        }
+      });
+    }
 
     // 領収書PDFを費目に自動計上
     document.getElementById("btnDocImportReceipts").addEventListener("click", async () => {
@@ -1139,7 +1255,7 @@ const PnlPage = {
         const r = await API.pnl.importReceipts(this.selectedPropertyId, this._docYM);
         const total = (r.items || []).filter(i => !i.error).reduce((s, i) => s + (i.amount || 0), 0);
         result.innerHTML = `<div class="alert alert-info py-2 mb-0">領収書 ${r.processed}件を計上（計 ${this.fmtYen(total)}）${r.skippedDup ? ` / 既取込${r.skippedDup}件` : ""}${r.errors ? ` / 失敗${r.errors}件` : ""}。費目に反映しました。</div>`;
-        this._docCtx = await API.pnl.settlementContext(this.selectedPropertyId, this._docYM, document.getElementById("pnlDocTax").value);
+        this._docCtx = await API.pnl.settlementContext(this.selectedPropertyId, this._docYM, document.getElementById("pnlDocTax")?.value);
         this._renderDocBody();
         await this.loadSummary();
       } catch (e) {
@@ -1159,7 +1275,7 @@ const PnlPage = {
         const r = await API.pnl.importUtilities(this.selectedPropertyId, this._docYM);
         const total = (r.items || []).filter(i => !i.error).reduce((s, i) => s + (i.monthShare || 0), 0);
         result.innerHTML = `<div class="alert alert-info py-2 mb-0">光熱費・通信費 ${r.processed}件を計上（当月分 計 ${this.fmtYen(total)}）${r.skippedDup ? ` / 既取込${r.skippedDup}件` : ""}${r.errors ? ` / 失敗${r.errors}件` : ""}。費目に反映しました。</div>`;
-        this._docCtx = await API.pnl.settlementContext(this.selectedPropertyId, this._docYM, document.getElementById("pnlDocTax").value);
+        this._docCtx = await API.pnl.settlementContext(this.selectedPropertyId, this._docYM, document.getElementById("pnlDocTax")?.value);
         this._renderDocBody();
         await this.loadSummary();
       } catch (e) {
@@ -1179,7 +1295,7 @@ const PnlPage = {
         const r = await API.pnl.importCleaning(this.selectedPropertyId, this._docYM);
         const total = (r.rows || []).reduce((s, i) => s + (i.amount || 0), 0);
         result.innerHTML = `<div class="alert alert-info py-2 mb-0">清掃費 請求書${r.invoices}件を計上（計 ${this.fmtYen(total)} / 追加${r.added}・更新${r.updated}）。清掃費に反映しました。</div>`;
-        this._docCtx = await API.pnl.settlementContext(this.selectedPropertyId, this._docYM, document.getElementById("pnlDocTax").value);
+        this._docCtx = await API.pnl.settlementContext(this.selectedPropertyId, this._docYM, document.getElementById("pnlDocTax")?.value);
         this._renderDocBody();
         await this.loadSummary();
       } catch (e) {
@@ -1193,7 +1309,8 @@ const PnlPage = {
     document.getElementById("btnDocSources").addEventListener("click", () => this._showSources());
 
     document.getElementById("btnDocReport").addEventListener("click", () => this._generateDoc("report"));
-    document.getElementById("btnDocSettlement").addEventListener("click", () => this._generateDoc("settlement"));
+    // 精算書ボタンは自社運営では非表示のため任意(?.で安全に結線)
+    document.getElementById("btnDocSettlement")?.addEventListener("click", () => this._generateDoc("settlement"));
   },
 
   async _showSources() {
@@ -1230,7 +1347,7 @@ const PnlPage = {
 
   _recalcDocPreview() {
     const s = this._docCtx.settlement;
-    const B = Math.max(0, Math.round(Number(document.getElementById("pnlDocTax").value) || 0));
+    const B = Math.max(0, Math.round(Number(document.getElementById("pnlDocTax")?.value) || 0));
     const base = Math.max(0, s.depositAmount - B);
     const fee = Math.round(base * s.feeRatePct / 100);
     const tax = Math.round(fee * s.consumptionTaxPct / 100);
@@ -1251,9 +1368,9 @@ const PnlPage = {
     try {
       const body = {
         kind,
-        taxWithholding: Math.max(0, Math.round(Number(document.getElementById("pnlDocTax").value) || 0)),
-        note: document.getElementById("pnlDocNote").value || "",
-        paymentDueText: document.getElementById("pnlDocDue").value || "翌月末日",
+        taxWithholding: Math.max(0, Math.round(Number(document.getElementById("pnlDocTax")?.value) || 0)),
+        note: document.getElementById("pnlDocNote")?.value || "",
+        paymentDueText: document.getElementById("pnlDocDue")?.value || "翌月末日",
       };
       const res = await API.pnl.generateDoc(this.selectedPropertyId, this._docYM, body);
       const label = kind === "report" ? "月次業務報告書" : "精算書兼請求書";

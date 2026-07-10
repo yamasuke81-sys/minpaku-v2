@@ -177,6 +177,65 @@ function computeSettlement(input = {}) {
   };
 }
 
+// ================= 運営形態(operationMode) / 実効料率 =================
+// operationMode: "agency_hassac"(八朔代行) | "agency_other"(その他代行) | "self"(自社運営/代行なし)
+// 後方互換: 旧 settlementMode "self"→self, "daiko"/未設定→agency_hassac
+const OPERATION_MODES = ["agency_hassac", "agency_other", "self"];
+
+/** 物件docから運営形態を決定的に解決する(後方互換込み) */
+function resolveOperationMode(prop) {
+  const m = prop && prop.operationMode;
+  if (OPERATION_MODES.includes(m)) return m;
+  // 旧 settlementMode からの推定
+  if (prop && prop.settlementMode === "self") return "self";
+  return "agency_hassac";
+}
+
+/** 代行(運営代行手数料が発生する)モードか */
+function isAgencyMode(mode) {
+  return mode === "agency_hassac" || mode === "agency_other";
+}
+
+/** 料率(%)を 0-100 にクランプ。null/空/数値でなければ null(=未設定扱い)。0 は有効値 */
+function clampRate(v) {
+  if (v == null || v === "") return null; // Number(null)===0 の誤判定を防ぐ
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.min(100, Math.max(0, n));
+}
+
+/**
+ * その月に適用する運営代行手数料率(%)を解決する(唯一の決定ロジック)。
+ * - 自社運営(代行なし) → 常に 0(誤って料率が入っていても無視)
+ * - 月の feeRatePct が数値(0含む) → その値(月固定・スナップショット)
+ * - なければ物件既定 managementFeeRate(0含む)
+ * - どちらも無ければ 50
+ */
+function effectiveFeeRatePct(monthData, prop) {
+  if (!isAgencyMode(resolveOperationMode(prop))) return 0;
+  const month = clampRate(monthData && monthData.feeRatePct);
+  if (month != null) return month;
+  const base = clampRate(prop && prop.managementFeeRate);
+  if (base != null) return base;
+  return 50;
+}
+
+/**
+ * 精算の月間入金額(A)を revenue から算出する。
+ * Airbnb=総額(grossRevenue)、Booking=手取り(netRevenue、無ければ gross - commission)。
+ * settlement.js の精算と summary の手数料列で同一定義を使うため共通化。端数は computeSettlement 側で丸める。
+ */
+function computeDepositAmount(revenue) {
+  const rev = revenue || {};
+  const ab = rev.airbnb || {};
+  const bk = rev.booking || {};
+  const depositAirbnb = Number(ab.grossRevenue || 0);
+  const depositBooking = Number(
+    bk.netRevenue != null ? bk.netRevenue : (Number(bk.grossRevenue || 0) - Number(bk.commission || 0)),
+  );
+  return { depositAirbnb, depositBooking, depositAmount: depositAirbnb + depositBooking };
+}
+
 module.exports = {
   parseCsv,
   parseYen,
@@ -184,4 +243,9 @@ module.exports = {
   sumAirbnbCsv,
   sumBookingCsv,
   computeSettlement,
+  OPERATION_MODES,
+  resolveOperationMode,
+  isAgencyMode,
+  effectiveFeeRatePct,
+  computeDepositAmount,
 };

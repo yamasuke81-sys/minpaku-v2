@@ -23,8 +23,11 @@ const {
   applyExpenses,
   computePnl,
 } = require("./pnl-logic");
-// OTA予約CSV(yadozei保存物)の集計(テスト済モジュール)
-const { sumAirbnbCsv, sumBookingCsv } = require("./ota-csv-logic");
+// OTA予約CSV(yadozei保存物)の集計 + 運営形態/実効料率(テスト済モジュール)
+const {
+  sumAirbnbCsv, sumBookingCsv,
+  computeSettlement, computeDepositAmount, effectiveFeeRatePct, resolveOperationMode,
+} = require("./ota-csv-logic");
 
 // OTA原本フォルダ(既定の取込元。settings/pnlImport.sourceFolderId で上書き可)
 const DEFAULT_SOURCE_FOLDER_ID = "10N_wTI-cftdJvVxYGXftXJoxNpsRDRux";
@@ -241,21 +244,82 @@ module.exports = function pnlApi(db) {
       const { propertyId, from, to } = req.query;
       if (!propertyId) return res.status(400).json({ error: "propertyId は必須です" });
       const categories = await loadCategories_();
+      // 物件マスタ(運営形態/既定料率)と精算設定(消費税/丸め)を1回だけ読む
+      const propSnap = await db.collection("properties").doc(propertyId).get();
+      const prop = propSnap.exists ? propSnap.data() : {};
+      const cfgSnap = await db.collection("settings").doc("settlementConfig").get();
+      const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+      const consumptionTaxPct = cfg.consumptionTaxPct != null ? Number(cfg.consumptionTaxPct) : 10;
+      const feeRounding = cfg.feeRounding || "round";
+      const operationMode = resolveOperationMode(prop);
+
       let q = pnlCol.where("propertyId", "==", propertyId);
       const snap = await q.get();
       let months = snap.docs.map((d) => d.data())
         .filter((d) => (!from || d.yearMonth >= from) && (!to || d.yearMonth <= to))
         .sort((a, b) => (a.yearMonth < b.yearMonth ? -1 : 1));
-      const result = months.map((d) => ({
-        yearMonth: d.yearMonth,
-        nights: d.nights || 0,
-        cleaningCount: d.cleaningCount || 0,
-        ...computePnl(d, categories),
-      }));
-      res.json({ propertyId, months: result, categories: categories.filter((c) => c.active !== false) });
+      const result = months.map((d) => {
+        const base = computePnl(d, categories);
+        // 代行手数料は精算書(computeSettlement)と同一式で算出 → テーブル=実請求額と一致
+        const { depositAmount } = computeDepositAmount(d.revenue);
+        const feeRatePct = effectiveFeeRatePct(d, prop);
+        const settlement = computeSettlement({
+          depositAmount,
+          taxWithholding: Number(d.taxWithholding || 0),
+          feeRatePct, consumptionTaxPct, feeRounding,
+        });
+        return {
+          yearMonth: d.yearMonth,
+          nights: d.nights || 0,
+          cleaningCount: d.cleaningCount || 0,
+          ...base,
+          // 実効料率(自社=0/月固定>物件既定)と手数料(税抜/税込・実請求準拠)
+          feeRatePct,
+          feeRateIsMonthOverride: d.feeRatePct != null,
+          mgmtFeeBase: settlement.salesBase,
+          mgmtFeeExclTax: settlement.feeExclTax,
+          mgmtFeeInclTax: settlement.feeInclTax,
+        };
+      });
+      res.json({
+        propertyId,
+        operationMode,
+        managementFeeRate: prop.managementFeeRate != null ? Number(prop.managementFeeRate) : 50,
+        consumptionTaxPct,
+        months: result,
+        categories: categories.filter((c) => c.active !== false),
+      });
     } catch (e) {
       console.error("収支サマリー取得エラー:", e);
       res.status(500).json({ error: "収支サマリーの取得に失敗しました" });
+    }
+  });
+
+  // 月の代行手数料率を上書き/解除(月固定スナップショット)。owner/sub_owner のみ(router.use で担保)
+  // body.feeRatePct: 0-100 の数値で固定、null / "" で解除(物件既定に戻す)
+  router.patch("/:propertyId/:yearMonth/fee-rate", async (req, res) => {
+    try {
+      const { propertyId, yearMonth } = req.params;
+      if (!/^\d{4}-\d{2}$/.test(yearMonth)) return res.status(400).json({ error: "yearMonth は YYYY-MM 形式" });
+      const raw = req.body ? req.body.feeRatePct : undefined;
+      const ref = pnlCol.doc(docId_(propertyId, yearMonth));
+      if (raw === null || raw === "") {
+        await ref.set(
+          { propertyId, yearMonth, feeRatePct: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() },
+          { merge: true });
+        return res.json({ ok: true, feeRatePct: null });
+      }
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0 || n > 100) {
+        return res.status(400).json({ error: "feeRatePct は 0〜100 の数値、または解除は null" });
+      }
+      await ref.set(
+        { propertyId, yearMonth, feeRatePct: n, updatedAt: FieldValue.serverTimestamp() },
+        { merge: true });
+      res.json({ ok: true, feeRatePct: n });
+    } catch (e) {
+      console.error("月料率更新エラー:", e);
+      res.status(400).json({ error: "月料率の更新に失敗しました: " + e.message });
     }
   });
 

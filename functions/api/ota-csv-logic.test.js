@@ -1,6 +1,9 @@
 const { test } = require("node:test");
 const assert = require("node:assert");
-const { parseCsv, parseYen, sumAirbnbCsv, sumBookingCsv, computeSettlement } = require("./ota-csv-logic");
+const {
+  parseCsv, parseYen, sumAirbnbCsv, sumBookingCsv, computeSettlement,
+  resolveOperationMode, isAgencyMode, effectiveFeeRatePct, computeDepositAmount,
+} = require("./ota-csv-logic");
 
 // 実データ(宿小町 2026-05 Airbnb CSV, yadozei保存物)。キャンセル1件(¥0)含む。
 const AIRBNB_KOMACHI_MAY = `"確認コード","ステータス","ゲスト名","連絡先","大人の人数","子どもの人数","乳幼児の人数","開始日","終了日","宿泊日数","予約済み","リスティング","収入"
@@ -82,4 +85,56 @@ test("computeSettlement: 宿泊税預りBを差し引く", () => {
   assert.strictEqual(s.feeExclTax, 100000);
   assert.strictEqual(s.consumptionTax, 10000);
   assert.strictEqual(s.feeInclTax, 110000);
+});
+
+test("resolveOperationMode: operationMode優先 / settlementMode後方互換 / 既定=八朔", () => {
+  assert.strictEqual(resolveOperationMode({ operationMode: "self" }), "self");
+  assert.strictEqual(resolveOperationMode({ operationMode: "agency_other" }), "agency_other");
+  // 不正値は無視して後方互換にフォールバック
+  assert.strictEqual(resolveOperationMode({ operationMode: "xxx", settlementMode: "self" }), "self");
+  assert.strictEqual(resolveOperationMode({ settlementMode: "self" }), "self");
+  assert.strictEqual(resolveOperationMode({ settlementMode: "daiko" }), "agency_hassac");
+  assert.strictEqual(resolveOperationMode({}), "agency_hassac");
+  assert.strictEqual(resolveOperationMode(null), "agency_hassac");
+});
+
+test("isAgencyMode: 代行あり2種のみ true", () => {
+  assert.strictEqual(isAgencyMode("agency_hassac"), true);
+  assert.strictEqual(isAgencyMode("agency_other"), true);
+  assert.strictEqual(isAgencyMode("self"), false);
+});
+
+test("effectiveFeeRatePct: 自社運営は誤入力を無視して常に0", () => {
+  // operationMode=self なら物件料率50でも月料率30でも0
+  assert.strictEqual(effectiveFeeRatePct({ feeRatePct: 30 }, { operationMode: "self", managementFeeRate: 50 }), 0);
+  assert.strictEqual(effectiveFeeRatePct({}, { settlementMode: "self", managementFeeRate: 50 }), 0);
+});
+
+test("effectiveFeeRatePct: 月固定 > 物件既定 > 50。0も有効値", () => {
+  const prop = { operationMode: "agency_hassac", managementFeeRate: 40 };
+  // 月固定が最優先(0含む)
+  assert.strictEqual(effectiveFeeRatePct({ feeRatePct: 30 }, prop), 30);
+  assert.strictEqual(effectiveFeeRatePct({ feeRatePct: 0 }, prop), 0);
+  // 月未設定 → 物件既定(0含む)
+  assert.strictEqual(effectiveFeeRatePct({}, prop), 40);
+  assert.strictEqual(effectiveFeeRatePct(null, { operationMode: "agency_hassac", managementFeeRate: 0 }), 0);
+  // どちらも無ければ 50
+  assert.strictEqual(effectiveFeeRatePct(null, { operationMode: "agency_hassac" }), 50);
+  // 範囲外はクランプ
+  assert.strictEqual(effectiveFeeRatePct({ feeRatePct: 150 }, prop), 100);
+  assert.strictEqual(effectiveFeeRatePct({ feeRatePct: -5 }, prop), 0);
+});
+
+test("computeDepositAmount: Airbnb総額 + Booking手取り(net無ければgross-comm)", () => {
+  const d1 = computeDepositAmount({ airbnb: { grossRevenue: 201769 }, booking: {} });
+  assert.strictEqual(d1.depositAmount, 201769);
+  const d2 = computeDepositAmount({
+    airbnb: { grossRevenue: 335785 },
+    booking: { grossRevenue: 335600, commission: 50340, netRevenue: 285260 },
+  });
+  assert.strictEqual(d2.depositBooking, 285260);
+  assert.strictEqual(d2.depositAmount, 335785 + 285260);
+  // netRevenue 無し → gross - commission
+  const d3 = computeDepositAmount({ airbnb: {}, booking: { grossRevenue: 100000, commission: 15000 } });
+  assert.strictEqual(d3.depositBooking, 85000);
 });

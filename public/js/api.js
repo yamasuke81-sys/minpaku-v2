@@ -561,6 +561,11 @@ const API = {
       return this._get(`/pnl/summary?propertyId=${encodeURIComponent(propertyId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
     },
 
+    // PATCH /pnl/:propertyId/:yearMonth/fee-rate — 月の代行手数料率を上書き/解除(null/"" で解除=物件既定に戻す)
+    async setFeeRate(propertyId, yearMonth, feeRatePct) {
+      return this._patch(`/pnl/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}/fee-rate`, { feeRatePct });
+    },
+
     // GET /pnl/:propertyId/:yearMonth
     async getMonth(propertyId, yearMonth) {
       return this._get(`/pnl/${encodeURIComponent(propertyId)}/${encodeURIComponent(yearMonth)}`);

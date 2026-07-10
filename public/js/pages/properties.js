@@ -397,6 +397,22 @@ const PropertiesPage = {
     document.getElementById("propertyBaseWorkTimeEnd").value = property?.baseWorkTime?.end || "14:30";
     document.getElementById("propertyCleaningFee").value = property?.cleaningFee || 0;
     document.getElementById("propertyManagementFeeRate").value = property?.managementFeeRate ?? 50;
+    // 運営形態: operationMode(無ければ旧settlementModeから推定)を反映。self時は料率欄を隠す
+    const _opMode = ["agency_hassac", "agency_other", "self"].includes(property?.operationMode)
+      ? property.operationMode
+      : (property?.settlementMode === "self" ? "self" : "agency_hassac");
+    document.getElementById("propertyOperationMode").value = _opMode;
+    const _toggleFeeRate = () => {
+      const mode = document.getElementById("propertyOperationMode").value;
+      const wrap = document.getElementById("propertyFeeRateWrap");
+      if (wrap) wrap.classList.toggle("d-none", mode === "self");
+    };
+    _toggleFeeRate();
+    const _opModeEl = document.getElementById("propertyOperationMode");
+    if (!_opModeEl._feeToggleBound) {
+      _opModeEl.addEventListener("change", _toggleFeeRate);
+      _opModeEl._feeToggleBound = true;
+    }
     document.getElementById("propertyMonthlyCost").value = property?.monthlyFixedCost || 0;
     document.getElementById("propertyPurchasePrice").value = property?.purchasePrice || 0;
     document.getElementById("propertyPurchaseDate").value = property?.purchaseDate
@@ -659,7 +675,12 @@ const PropertiesPage = {
         end: document.getElementById("propertyBaseWorkTimeEnd").value || "14:30",
       },
       cleaningFee: Number(document.getElementById("propertyCleaningFee").value) || 0,
-      managementFeeRate: Number(document.getElementById("propertyManagementFeeRate").value) || 50,
+      operationMode: document.getElementById("propertyOperationMode")?.value || "agency_hassac",
+      // 料率は 0 を許容(自社の0%等)。空/不正のみ既定50、0-100にクランプ
+      managementFeeRate: (() => {
+        const n = Number(document.getElementById("propertyManagementFeeRate").value);
+        return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 50;
+      })(),
       monthlyFixedCost: Number(document.getElementById("propertyMonthlyCost").value) || 0,
       purchasePrice: Number(document.getElementById("propertyPurchasePrice").value) || 0,
       purchaseDate: document.getElementById("propertyPurchaseDate").value || null,
@@ -837,7 +858,12 @@ const PropertiesPage = {
         end: document.getElementById("propertyBaseWorkTimeEnd").value || "14:30",
       },
       cleaningFee: Number(document.getElementById("propertyCleaningFee").value) || 0,
-      managementFeeRate: Number(document.getElementById("propertyManagementFeeRate").value) || 50,
+      operationMode: document.getElementById("propertyOperationMode")?.value || "agency_hassac",
+      // 料率は 0 を許容(自社の0%等)。空/不正のみ既定50、0-100にクランプ
+      managementFeeRate: (() => {
+        const n = Number(document.getElementById("propertyManagementFeeRate").value);
+        return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 50;
+      })(),
       monthlyFixedCost: Number(document.getElementById("propertyMonthlyCost").value) || 0,
       purchasePrice: Number(document.getElementById("propertyPurchasePrice").value) || 0,
       purchaseDate: document.getElementById("propertyPurchaseDate").value || null,

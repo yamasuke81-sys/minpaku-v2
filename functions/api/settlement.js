@@ -19,7 +19,9 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { computePnl } = require("./pnl-logic");
-const { computeSettlement } = require("./ota-csv-logic");
+const {
+  computeSettlement, computeDepositAmount, effectiveFeeRatePct, resolveOperationMode, isAgencyMode,
+} = require("./ota-csv-logic");
 
 // ---- フォント(invoices.js と同方針) ----
 const BUNDLED_CJK_FONT = path.join(__dirname, "../fonts/NotoSansJP-Regular.ttf");
@@ -267,15 +269,15 @@ module.exports = function settlementApi(db) {
     const rev = data.revenue || {};
     const ab = rev.airbnb || {};
     const bk = rev.booking || {};
-    const depositAirbnb = Number(ab.grossRevenue || 0);
-    const depositBooking = Number(bk.netRevenue != null ? bk.netRevenue : (Number(bk.grossRevenue || 0) - Number(bk.commission || 0)));
-    const depositAmount = depositAirbnb + depositBooking;
+    // 入金額(A)は summary と同一定義(computeDepositAmount)を使う → テーブルと帳票が一致
+    const { depositAirbnb, depositBooking, depositAmount } = computeDepositAmount(rev);
 
     const taxWithholding = opts.taxWithholding != null ? Number(opts.taxWithholding)
       : Number(data.taxWithholding || 0);
 
     const config = await loadConfig_();
-    const feeRatePct = prop.managementFeeRate != null ? Number(prop.managementFeeRate) : 50;
+    // 実効料率: 自社運営=0 / 月固定 > 物件既定 / 既定50(唯一の決定ロジック)
+    const feeRatePct = effectiveFeeRatePct(data, prop);
     const settlement = computeSettlement({
       depositAmount, taxWithholding, feeRatePct,
       consumptionTaxPct: config.consumptionTaxPct, feeRounding: config.feeRounding,
@@ -287,6 +289,7 @@ module.exports = function settlementApi(db) {
 
     return {
       propertyId, yearMonth, propertyName: prop.name || propertyId,
+      operationMode: resolveOperationMode(prop),
       settlementMode: prop.settlementMode || "daiko",
       data, computed, config, recipient,
       revenue: {
@@ -419,7 +422,8 @@ module.exports = function settlementApi(db) {
         taxWithholding: req.query.taxWithholding != null ? Number(req.query.taxWithholding) : undefined,
       });
       res.json({
-        propertyName: ctx.propertyName, yearMonth: ctx.yearMonth, settlementMode: ctx.settlementMode,
+        propertyName: ctx.propertyName, yearMonth: ctx.yearMonth,
+        operationMode: ctx.operationMode, settlementMode: ctx.settlementMode,
         revenue: ctx.revenue, nights: ctx.nights, occupancyRate: ctx.occupancyRate,
         computed: ctx.computed, settlement: ctx.settlement, recipient: ctx.recipient,
       });
@@ -440,8 +444,14 @@ module.exports = function settlementApi(db) {
       if (!font) return res.status(500).json({ error: "日本語フォントが見つかりません" });
 
       const ctx = await buildContext_(propertyId, yearMonth, { taxWithholding, note, paymentDueText });
-      if (kind === "settlement" && ctx.settlementMode === "self") {
-        return res.status(400).json({ error: "この物件は自社名義運営のため精算書兼請求書は発行しません" });
+      // 精算書兼請求書の発行可否を運営形態で分岐(報告書は全モード発行可=内部用も含む)
+      if (kind === "settlement") {
+        if (ctx.operationMode === "self") {
+          return res.status(400).json({ error: "この物件は自社運営(代行なし)のため精算書兼請求書は発行しません" });
+        }
+        if (ctx.operationMode === "agency_other") {
+          return res.status(400).json({ error: "その他の運営代行会社の会社情報(発行元)が未設定のため、精算書兼請求書はまだ発行できません" });
+        }
       }
 
       if (taxWithholding != null) {

@@ -10,6 +10,7 @@
  * - 対外送信はしない(下書き生成のみ)。結果は pnlBatchRuns に記録。
  */
 const admin = require("firebase-admin");
+const { resolveOperationMode } = require("../api/ota-csv-logic");
 
 // API ハンドラを req/res 無しで呼ぶ
 function invoke(handler, params, body) {
@@ -40,7 +41,7 @@ async function run(db, yearMonth, opts = {}) {
 
   // 対象: pnlBatchEnabled=true の物件(開業済みの収支対象。宿小町/the Terrace 等)
   const snap = await db.collection("properties").where("pnlBatchEnabled", "==", true).get();
-  const targets = snap.docs.map((d) => ({ id: d.id, name: d.data().name || d.id, mode: d.data().settlementMode || "daiko" }));
+  const targets = snap.docs.map((d) => ({ id: d.id, name: d.data().name || d.id, mode: resolveOperationMode(d.data()) }));
 
   const results = [];
   for (const p of targets) {
@@ -62,10 +63,10 @@ async function run(db, yearMonth, opts = {}) {
       const clean = await invoke(pnl.cores.importCleaning, params, {});
       r.steps.cleaning = clean.payload?.ok ? { 請求書: clean.payload.invoices } : { error: clean.payload?.error || `HTTP${clean.code}` };
 
-      // 帳票下書き(報告書は全物件、精算書は daiko のみ)
+      // 帳票下書き(報告書は全物件=内部用含む、精算書は八朔代行のみ。自社/その他会社は精算書を出さない)
       const rep = await invoke(settlement.cores.generate, params, { kind: "report" });
       r.steps.report = rep.payload?.ok ? { url: rep.payload.url } : { error: rep.payload?.error || `HTTP${rep.code}` };
-      if (p.mode !== "self") {
+      if (p.mode === "agency_hassac") {
         const setl = await invoke(settlement.cores.generate, params, { kind: "settlement" });
         r.steps.settlement = setl.payload?.ok ? { url: setl.payload.url, 請求額: setl.payload.settlement?.feeInclTax } : { error: setl.payload?.error || `HTTP${setl.code}` };
       }

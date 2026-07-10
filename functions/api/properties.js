@@ -4,6 +4,23 @@
  */
 const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
+const { OPERATION_MODES, resolveOperationMode } = require("./ota-csv-logic");
+
+/** 運営代行料率(%)を 0-100 に正規化。空/不正は既定50。0 は有効値(自社運営の0%等) */
+function _parseFeeRate(v) {
+  if (v == null || v === "") return 50;
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 50;
+}
+
+/**
+ * リクエストボディから運営形態を解決し、operationMode と後方互換の settlementMode を返す。
+ * operationMode 優先 → 旧 settlementMode → 既定 agency_hassac。
+ */
+function _resolveOperationFields(body) {
+  const operationMode = resolveOperationMode(body);
+  return { operationMode, settlementMode: operationMode === "self" ? "self" : "daiko" };
+}
 
 /**
  * lineChannels 配列のバリデーションとサニタイズ
@@ -235,7 +252,9 @@ module.exports = function propertiesApi(db) {
         cleaningFee: Number(body.cleaningFee) || 0,
         requiredSkills: Array.isArray(body.requiredSkills) ? body.requiredSkills : [],
         checklistTemplateId: body.checklistTemplateId || "",
-        managementFeeRate: body.managementFeeRate !== undefined ? Number(body.managementFeeRate) : 50,
+        // 運営形態(agency_hassac/agency_other/self)。settlementMode は後方互換で同期
+        ..._resolveOperationFields(body),
+        managementFeeRate: _parseFeeRate(body.managementFeeRate),
         monthlyFixedCost: Number(body.monthlyFixedCost) || 0,
         purchasePrice: Number(body.purchasePrice) || 0,
         purchaseDate: body.purchaseDate || null,
@@ -307,7 +326,11 @@ module.exports = function propertiesApi(db) {
       if (body.cleaningDuration !== undefined) data.cleaningDuration = Number(body.cleaningDuration) || 90;
       if (body.cleaningFee !== undefined) data.cleaningFee = Number(body.cleaningFee) || 0;
       if (body.requiredSkills !== undefined) data.requiredSkills = Array.isArray(body.requiredSkills) ? body.requiredSkills : [];
-      if (body.managementFeeRate !== undefined) data.managementFeeRate = Number(body.managementFeeRate) || 50;
+      // 運営形態: operationMode か settlementMode が来たら両方を同期更新
+      if (body.operationMode !== undefined || body.settlementMode !== undefined) {
+        Object.assign(data, _resolveOperationFields(body));
+      }
+      if (body.managementFeeRate !== undefined) data.managementFeeRate = _parseFeeRate(body.managementFeeRate);
       if (body.monthlyFixedCost !== undefined) data.monthlyFixedCost = Number(body.monthlyFixedCost) || 0;
       if (body.purchasePrice !== undefined) data.purchasePrice = Number(body.purchasePrice) || 0;
       if (body.purchaseDate !== undefined) data.purchaseDate = body.purchaseDate;
