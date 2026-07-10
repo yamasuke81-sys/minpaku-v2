@@ -31,6 +31,7 @@ import XLSX from "xlsx";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+import https from "node:https";
 
 // ================== 定数 ==================
 const VERSION = "0.1.0";
@@ -1400,6 +1401,85 @@ async function handleYadozeiPdfFetch(job, ctx, jobId) {
   }
 }
 
+// ================== セッション健全性チェック(キープアライブ兼) ==================
+// Discord Webhook へ単純POST (minpaku-v2 settings/notifications の discordOwnerWebhookUrl を流用)
+function postDiscord_(webhookUrl, content) {
+  return new Promise((resolve) => {
+    try {
+      const u = new URL(webhookUrl);
+      const body = JSON.stringify({ content: String(content || "").slice(0, 1900) });
+      const req = https.request(
+        {
+          hostname: u.hostname, path: u.pathname + u.search, method: "POST",
+          headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), "User-Agent": "yadozei-listener" },
+        },
+        (res) => { res.on("data", () => {}); res.on("end", () => resolve({ ok: res.statusCode < 300, status: res.statusCode })); },
+      );
+      req.on("error", (e) => resolve({ ok: false, error: e.message }));
+      req.write(body); req.end();
+    } catch (e) { resolve({ ok: false, error: e.message }); }
+  });
+}
+
+async function notifyDiscordSessionExpired_(loggedOut) {
+  try {
+    const doc = await db.collection("settings").doc("notifications").get();
+    const url = doc.exists && doc.data()?.settings?.discordOwnerWebhookUrl;
+    if (!url) { console.warn(`${LOG_PREFIX} [session_check] Discord webhook 未設定 (settings/notifications.settings.discordOwnerWebhookUrl)`); return; }
+    const msg =
+      `⚠️ **OTA/宿泊税 自動取得: セッション失効**\n` +
+      `未ログインのサイト: **${loggedOut.join(" / ")}**\n` +
+      `このままだと月次の自動取得・やどぜいアップロードが失敗します。PCで再ログインしてください:\n` +
+      "```\n" +
+      `pm2 stop yadozei-listener\n` +
+      `cd C:\\Users\\yamas\\AI_Workspace\\minpaku-v2-yadozei\\scripts\n` +
+      `node yadozei-listener.mjs --login\n` +
+      `（該当サイトにログイン → Ctrl+C）\n` +
+      `pm2 start yadozei-listener\n` +
+      "```";
+    const r = await postDiscord_(url, msg);
+    console.log(`${LOG_PREFIX} [session_check] Discord通知 ${r.ok ? "送信OK" : "失敗:" + (r.error || r.status)} (${loggedOut.join(",")})`);
+  } catch (e) { console.warn(`${LOG_PREFIX} [session_check] Discord通知失敗: ${e.message}`); }
+}
+
+// 3サイトのログイン状態を点検。切れていれば Discord 通知。アクセス自体がキープアライブ(セッション延命)。
+async function handleSessionCheck(ctx, jobId) {
+  const sites = [
+    { name: "Airbnb", url: "https://www.airbnb.com/hosting/reservations", re: /\/login|signin|sign_in|authwall/i },
+    { name: "Booking.com", url: "https://admin.booking.com/?lang=ja", re: /account\.booking\.com|\/(login|signin|sign-in|sign_in)/i },
+    { name: "やどぜい", url: "https://app.yadozei.com/", re: /\/login/i },
+  ];
+  const sessions = {};
+  const loggedOut = [];
+  for (const s of sites) {
+    const p = await ctx.newPage();
+    try {
+      await p.goto(s.url, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
+      await p.waitForTimeout(3500); // リダイレクト確定待ち
+      const url = p.url();
+      const out = s.re.test(url);
+      sessions[s.name] = out ? "logged_out" : "ok";
+      if (out) loggedOut.push(s.name);
+      console.log(`${LOG_PREFIX} [session_check] ${s.name}: ${out ? "✗ 未ログイン" : "✓ OK"} (${url.slice(0, 70)})`);
+    } catch (e) {
+      // アクセス失敗は判定不能扱い(誤通知を避け、未ログインには含めない)
+      sessions[s.name] = "error";
+      console.warn(`${LOG_PREFIX} [session_check] ${s.name} 点検失敗: ${e.message}`);
+    } finally {
+      await p.close().catch(() => {});
+    }
+  }
+  // 状態を必ず記録(webhook未設定でも失効を検知・可視化できる)。heartbeat と同じ doc。
+  try {
+    await db.collection("settings").doc("yadozeiListener").set(
+      { sessionCheck: { at: admin.firestore.FieldValue.serverTimestamp(), sessions, loggedOut } },
+      { merge: true });
+  } catch (_) { /* ignore */ }
+  if (loggedOut.length) await notifyDiscordSessionExpired_(loggedOut);
+  else console.log(`${LOG_PREFIX} [session_check] 全サイトOK (キープアライブ完了)`);
+  return { sessions, loggedOut };
+}
+
 // ================== ジョブディスパッチ ==================
 async function handleJob(docId, job) {
   const ref = db.collection("yadozeiQueue").doc(docId);
@@ -1447,6 +1527,8 @@ async function handleJob(docId, job) {
       result = await handleYadozeiCsvUpload(job, ctx, docId);
     } else if (job.kind === "yadozei_pdf_fetch") {
       result = await handleYadozeiPdfFetch(job, ctx, docId);
+    } else if (job.kind === "session_check") {
+      result = await handleSessionCheck(ctx, docId);
     } else {
       throw new Error(`未知の kind: ${job.kind}`);
     }
@@ -1454,12 +1536,15 @@ async function handleJob(docId, job) {
     const isFetch = job.kind === "airbnb_csv_fetch" || job.kind === "booking_csv_fetch";
     const isUpload = job.kind === "yadozei_csv_upload";
     const isPdf = job.kind === "yadozei_pdf_fetch";
+    const isSessionCheck = job.kind === "session_check";
 
     // queue ドキュメントの result を kind 別に整形
     const queueResult =
-      isFetch || isPdf
-        ? { fileName: result.fileName, driveFileId: result.fileId, driveLink: result.webViewLink, taxCopy: result.taxCopy || null }
-        : { uploaded: true };
+      isSessionCheck
+        ? { sessions: result.sessions, loggedOut: result.loggedOut }
+        : isFetch || isPdf
+          ? { fileName: result.fileName, driveFileId: result.fileId, driveLink: result.webViewLink, taxCopy: result.taxCopy || null }
+          : { uploaded: true };
     await ref.update({
       status: "done",
       completedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1602,6 +1687,26 @@ if (LOGIN_MODE) {
   // 通常モード: heartbeat (起動時 + 60秒毎) + yadozeiQueue 監視
   updateHeartbeat();
   heartbeatTimer = setInterval(updateHeartbeat, HEARTBEAT_INTERVAL_MS);
+
+  // セッション健全性チェック(キープアライブ兼)を定期 enqueue。docId を JST の 8時間バケット固定で冪等化
+  // (同一バケット内は create() が失敗しスキップ → 実質1日3回、日付/バケット跨ぎで新規)。実処理は handleSessionCheck。
+  async function enqueueSessionCheck() {
+    try {
+      const j = new Date(Date.now() + 9 * 3600 * 1000); // JST
+      const ymd = `${j.getUTCFullYear()}${String(j.getUTCMonth() + 1).padStart(2, "0")}${String(j.getUTCDate()).padStart(2, "0")}`;
+      const bucket = Math.floor(j.getUTCHours() / 8); // 0/1/2 (8時間毎)
+      const id = `session_check_${ymd}_${bucket}`;
+      await db.collection("yadozeiQueue").doc(id).create({
+        kind: "session_check", status: "pending",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(), source: "listener_periodic",
+      });
+      console.log(`${LOG_PREFIX} session_check enqueued: ${id}`);
+    } catch (e) {
+      if (!/already exists/i.test(e.message)) console.warn(`${LOG_PREFIX} session_check enqueue: ${e.message}`);
+    }
+  }
+  setTimeout(enqueueSessionCheck, 20_000); // 起動20秒後に初回
+  setInterval(enqueueSessionCheck, 60 * 60 * 1000); // 毎時トライ(8hバケットで冪等 → 実質1日3回)
 
   // ジョブは必ず直列処理する。並行して同じ Chrome プロファイルを起動すると
   // ロック競合で "context has been closed" になるため。docId 単位で重複投入も防ぐ。
