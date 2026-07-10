@@ -715,6 +715,53 @@ async function handleAirbnbCsv(job, ctx, jobId) {
 }
 
 // ================== Booking.com ハンドラ ==================
+// クォート対応の最小CSVパーサ(検証用)
+function parseCsvSimple(text) {
+  const rows = [];
+  let row = [], field = "", q = false;
+  const s = String(text || "");
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (q) { if (c === '"') { if (s[i + 1] === '"') { field += '"'; i++; } else q = false; } else field += c; }
+    else if (c === '"') q = true;
+    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === "\n") { row.push(field); field = ""; rows.push(row); row = []; }
+    else if (c === "\r") { /* skip */ }
+    else field += c;
+  }
+  if (field !== "" || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+// 取得した Booking CSV のチェックイン日が要求月と一致するか検証する。
+// arrival(チェックイン)基準で絞り込んでいるので、非キャンセル予約は全て対象月のはず。
+// 別月が混入していたら「ダウンロード行の取り違え(月ズレ)」なので保存せずエラーにする(静かな誤りを根絶)。
+function verifyBookingCsvMonth(csv, yearMonth) {
+  const rows = parseCsvSimple(csv);
+  if (rows.length <= 1) return { count: 0 }; // ヘッダのみ=空月(正当)
+  const h = rows[0];
+  const ci = h.findIndex((x) => /チェックイン/.test(x));
+  const st = h.findIndex((x) => /ステータス/.test(x));
+  if (ci < 0) throw new Error("Booking CSV に「チェックイン」列が見つからない (UI/書式変更の可能性)");
+  let checked = 0;
+  const outMonths = {};
+  for (const r of rows.slice(1)) {
+    if (!r[ci]) continue;
+    if (st >= 0 && /cancel/i.test(r[st] || "")) continue; // キャンセルは対象外
+    const m = String(r[ci]).trim().slice(0, 7);
+    checked++;
+    if (m !== yearMonth) outMonths[m] = (outMonths[m] || 0) + 1;
+  }
+  const outKeys = Object.keys(outMonths);
+  if (outKeys.length) {
+    throw new Error(
+      `Booking ダウンロード内容が要求月(${yearMonth})と不一致: ` +
+      outKeys.map((k) => `${k}×${outMonths[k]}`).join(", ") +
+      ` (対象月と別月の予約が混入=DL行の取り違え。月ズレ防止のため保存を中止)`);
+  }
+  return { count: checked };
+}
+
 async function handleBookingCsv(job, ctx, jobId) {
   const { propertyId, propertyName, yearMonth, params } = job;
   const bookingPropertyId = params?.bookingPropertyId;
@@ -872,18 +919,30 @@ async function handleBookingCsv(job, ctx, jobId) {
     const deadline = Date.now() + 5 * 60 * 1000;
     let downloadTrigger = null;
     let reopenAt = Date.now() + 20_000;
-    while (Date.now() < deadline) {
-      const readyRow = page
-        .locator(":is(li,tr,div)")
-        .filter({ hasText: first }) // 2026-05-01
-        .filter({ hasText: last }) // 2026-05-31
-        .filter({ hasText: "ダウンロード可能" });
-      if ((await readyRow.count().catch(() => 0)) > 0) {
-        // 同一レンジが複数(過去要求分)ある場合は最後=最新を選ぶ
-        downloadTrigger = readyRow.last().getByText("ダウンロード可能").last();
-        console.log(`${LOG_PREFIX} 対象月(${first}〜${last})のエクスポートがダウンロード可能`);
-        break;
+    // 「ダウンロード可能」リンクの祖先(=その行)のテキストを取得するヘルパ
+    const ancestorRowText = (el) => el.evaluate((node) => {
+      let n = node;
+      for (let k = 0; k < 6 && n && n.parentElement; k++) {
+        const cls = (n.getAttribute && n.getAttribute("class")) || "";
+        if (n.tagName === "TR" || n.tagName === "LI" || /row|list-item|export/i.test(cls)) break;
+        n = n.parentElement;
       }
+      return ((n || node).innerText || "").replace(/\s+/g, " ").trim();
+    });
+    while (Date.now() < deadline) {
+      // 旧実装は :is(li,tr,div) のネストで親コンテナに誤マッチし、.last() で別月の行を掴んでいた
+      // (月ズレ・取りこぼしの原因)。ここでは各「ダウンロード可能」リンクを個別に見て、その行テキストに
+      // 月初+月末(first,last)の両方が含まれる行だけを対象にする(誤爆防止)。
+      const dlEls = await page.getByText("ダウンロード可能").all().catch(() => []);
+      for (const el of dlEls) {
+        const t = await ancestorRowText(el).catch(() => "");
+        if (t.includes(first) && t.includes(last)) {
+          downloadTrigger = el;
+          console.log(`${LOG_PREFIX} 対象月(${first}〜${last})のダウンロード行を特定`);
+          break;
+        }
+      }
+      if (downloadTrigger) break;
       await page.waitForTimeout(4000);
       // パネルが閉じる/更新されない場合に備えて時々「ダウンロード」を開き直す
       if (Date.now() > reopenAt) {
@@ -926,6 +985,10 @@ async function handleBookingCsv(job, ctx, jobId) {
     const csv = XLSX.utils.sheet_to_csv(wb.Sheets[firstSheetName]);
     tmpCsv = path.join(TMP_DIR, `booking_${jobId}_${Date.now()}.csv`);
     fs.writeFileSync(tmpCsv, csv, "utf8");
+
+    // 取得内容が要求月と一致するか検証(別月の取り違え=月ズレを保存前に検出してエラー化)
+    const vr = verifyBookingCsvMonth(csv, yearMonth);
+    console.log(`${LOG_PREFIX} Booking CSV 検証OK: ${yearMonth} の予約 ${vr.count} 件(全て対象月チェックイン)`);
 
     const result = await uploadCsvToDrive(propertyId, propertyName, "booking", yearMonth, tmpCsv);
     return result;
