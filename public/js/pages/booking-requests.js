@@ -200,13 +200,16 @@ const BookingRequestsPage = {
         </div>`
           : "";
 
+    // 人数内訳 (大人/子ども/乳幼児)。adults 未設定の旧データは guestCount のみ表示にフォールバック。
+    const breakdownLabel = this._guestBreakdownLabel(x);
+
     return `
       <div class="card mb-2" data-request-id="${this._esc(x.id)}">
         <div class="card-body py-2">
           <div class="d-flex justify-content-between align-items-start">
             <div>
               <div class="fw-bold">${this._esc(x.propertyName || x.propertyId || "-")} ${statusBadge}</div>
-              <div class="small text-muted">${this._esc(x.checkIn || "-")} 〜 ${this._esc(x.checkOut || "-")}（${this._esc(String(x.guestCount || "-"))}名 / ${planLabel}）</div>
+              <div class="small text-muted">${this._esc(x.checkIn || "-")} 〜 ${this._esc(x.checkOut || "-")}（${this._esc(String(x.guestCount || "-"))}名${breakdownLabel ? ` / ${breakdownLabel}` : ""} / ${planLabel}）</div>
               ${paymentBadge ? `<div class="small mt-1">${paymentBadge}</div>` : ""}
             </div>
             <div class="text-muted small text-end">${elapsed}</div>
@@ -214,11 +217,22 @@ const BookingRequestsPage = {
           <div class="mt-2 small">
             <div><i class="bi bi-person"></i> ${this._esc(x.guestName || "-")}</div>
             <div><i class="bi bi-envelope"></i> ${this._esc(x.email || "-")}</div>
+            ${x.nationality ? `<div><i class="bi bi-flag"></i> 国籍: ${this._esc(x.nationality)}</div>` : ""}
+            ${x.memberComposition ? `<div><i class="bi bi-people"></i> メンバー構成: ${this._esc(x.memberComposition)}</div>` : ""}
             ${x.notes ? `<div class="mt-1"><i class="bi bi-chat-left-text"></i> ${this._esc(x.notes)}</div>` : ""}
           </div>
           ${actionsHtml}
         </div>
       </div>`;
+  },
+
+  // 人数内訳の表示文字列 (例: "大人2 子ども1 乳幼児1")。adults 未設定 (旧データ) は空文字を返す。
+  _guestBreakdownLabel(x) {
+    if (x.adults == null) return "";
+    const parts = [`大人${x.adults}`];
+    if (x.children) parts.push(`子ども${x.children}`);
+    if (x.infants) parts.push(`乳幼児${x.infants}`);
+    return parts.join(" ");
   },
 
   async _onApprove(id) {

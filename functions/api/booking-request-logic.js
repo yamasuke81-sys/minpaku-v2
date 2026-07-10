@@ -151,6 +151,47 @@ function validateBookingRequest(body, property, opts = {}) {
     return { ok: false, error: `宿泊人数は定員(${capacity}名)以内にしてください` };
   }
 
+  // ===== 人数内訳 (adults/children/infants, 2026-07 追加) =====
+  // 後方互換: adults/children が未送信の場合は guests から「大人=guests, 子ども=0」に
+  // フォールアックする (整合チェックは自動的に成立する)。infants 未送信は 0 扱い。
+  const adultsRaw = body.adults;
+  const childrenRaw = body.children;
+  const hasBreakdown = adultsRaw !== undefined || childrenRaw !== undefined;
+  const adults = adultsRaw !== undefined ? parseInt(adultsRaw, 10) : guests;
+  const children = childrenRaw !== undefined ? parseInt(childrenRaw, 10) : 0;
+  const infants = body.infants !== undefined ? parseInt(body.infants, 10) : 0;
+  if (!Number.isFinite(adults) || adults < 1) {
+    return { ok: false, error: "大人の人数を指定してください" };
+  }
+  if (!Number.isFinite(children) || children < 0) {
+    return { ok: false, error: "子どもの人数が不正です" };
+  }
+  if (!Number.isFinite(infants) || infants < 0) {
+    return { ok: false, error: "乳幼児の人数が不正です" };
+  }
+  if (hasBreakdown && adults + children !== guests) {
+    return { ok: false, error: "人数の内訳(大人+子ども)が合計人数と一致しません" };
+  }
+  if (capacity > 0 && (adults + children) > capacity) {
+    return { ok: false, error: `宿泊人数は定員(${capacity}名)以内にしてください` };
+  }
+
+  // ===== 国籍・メンバー構成 (2026-07 追加・必須) =====
+  const nationality = String(body.nationality || "").trim();
+  if (nationality.length < 1) {
+    return { ok: false, error: "国籍を入力してください" };
+  }
+  if (nationality.length > 60) {
+    return { ok: false, error: "国籍は60文字以内で入力してください" };
+  }
+  const memberComposition = String(body.memberComposition || "").trim();
+  if (memberComposition.length < 1) {
+    return { ok: false, error: "メンバー構成を入力してください" };
+  }
+  if (memberComposition.length > 100) {
+    return { ok: false, error: "メンバー構成は100文字以内で入力してください" };
+  }
+
   const name = String(body.name || "").trim();
   if (name.length < 1 || name.length > 100) {
     return { ok: false, error: "お名前を1〜100文字で入力してください" };

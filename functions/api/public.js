@@ -856,6 +856,15 @@ router.post("/booking-request", express.json(), async (req, res) => {
     const plan = String(body.plan || "standard");
     const notes = String(body.notes || "").slice(0, 1000);
 
+    // ===== 人数内訳・国籍・メンバー構成 (2026-07 追加) =====
+    // validateBookingRequest で整合性検証済み。フォールバックルールは同関数と同一にする
+    // (adults/children 未送信 → guests から大人扱い。infants 未送信 → 0)。
+    const adults = body.adults !== undefined ? parseInt(body.adults, 10) : guests;
+    const children = body.children !== undefined ? parseInt(body.children, 10) : 0;
+    const infants = body.infants !== undefined ? parseInt(body.infants, 10) : 0;
+    const nationality = String(body.nationality || "").trim().slice(0, 60);
+    const memberComposition = String(body.memberComposition || "").trim().slice(0, 100);
+
     // ===== Cloudflare Turnstile 検証 =====
     // settings/directBooking.turnstileSecret が未設定の場合は検証をスキップする (段階導入対応)
     const turnstileSecret = await getTurnstileSecret(db);
@@ -920,6 +929,11 @@ router.post("/booking-request", express.json(), async (req, res) => {
       checkIn,
       checkOut,
       guestCount: guests,
+      adults,
+      children,
+      infants,
+      nationality,
+      memberComposition,
       guestName: name,
       email,
       plan,
@@ -931,12 +945,17 @@ router.post("/booking-request", express.json(), async (req, res) => {
     });
 
     // ===== オーナー通知 (手動即時送信の既存流儀: _fromBatchQueue で即時送信) =====
+    // 人数内訳の表示文字列 (大人◯ 子ども◯ 乳幼児◯。0名の子ども/乳幼児は省略)
+    const breakdownParts = [`大人${adults}名`];
+    if (children > 0) breakdownParts.push(`子ども${children}名`);
+    if (infants > 0) breakdownParts.push(`乳幼児${infants}名`);
+    const breakdownJa = breakdownParts.join(" ");
     try {
       const { notifyByKey } = require("../utils/lineNotify");
       const appUrl = await getAppUrl(db);
       await notifyByKey(db, "direct_request", {
         title: "直接予約リクエスト受信",
-        body: `📩 直接予約のリクエストが届きました\n\n宿: ${property.name || propertyId}\n日程: ${checkIn} 〜 ${checkOut}\n人数: ${guests}名\nプラン: ${plan === "nonrefundable" ? "返金不可割引" : "スタンダード"}\nお名前: ${name}\n\n確認・承認: ${appUrl}/#/booking-requests`,
+        body: `📩 直接予約のリクエストが届きました\n\n宿: ${property.name || propertyId}\n日程: ${checkIn} 〜 ${checkOut}\n人数: ${guests}名 (${breakdownJa})\n国籍: ${nationality}\nメンバー構成: ${memberComposition}\nプラン: ${plan === "nonrefundable" ? "返金不可割引" : "スタンダード"}\nお名前: ${name}\n\n確認・承認: ${appUrl}/#/booking-requests`,
         vars: {
           // booking varGroup 準拠: date=チェックアウト日, checkin=チェックイン日, guest=ゲスト名
           property: property.name || "",
@@ -953,10 +972,15 @@ router.post("/booking-request", express.json(), async (req, res) => {
     }
 
     // ===== ゲスト受付メール (失敗しても 200 は返す) =====
+    // 日英併記: 日本語ブロック → 区切り線(---) → English ブロック
     try {
       const { sendNotificationEmail_, resolveSenderGmail_ } = require("../utils/lineNotify");
       const senderGmail = await resolveSenderGmail_(db, propertyId);
-      const subject = `【${property.name || "ご予約"}】予約リクエストを受け付けました`;
+      const subject = `【${property.name || "ご予約"}】予約リクエストを受け付けました / We've received your booking request`;
+      const breakdownEnParts = [`${adults} adult${adults === 1 ? "" : "s"}`];
+      if (children > 0) breakdownEnParts.push(`${children} child${children === 1 ? "" : "ren"}`);
+      if (infants > 0) breakdownEnParts.push(`${infants} infant${infants === 1 ? "" : "s"}`);
+      const breakdownEn = breakdownEnParts.join(", ");
       const bodyText = [
         `${name} 様`,
         ``,
@@ -966,11 +990,31 @@ router.post("/booking-request", express.json(), async (req, res) => {
         `■リクエスト内容`,
         `チェックイン: ${checkIn}`,
         `チェックアウト: ${checkOut}`,
-        `人数: ${guests}名`,
+        `人数: ${guests}名 (${breakdownJa})`,
+        `国籍: ${nationality}`,
+        `メンバー構成: ${memberComposition}`,
         `プラン: ${plan === "nonrefundable" ? "返金不可割引" : "スタンダード"}`,
         ``,
         `オーナーが内容を確認のうえ、24時間以内に承認可否をご連絡いたします。`,
         `今しばらくお待ちください。`,
+        ``,
+        `---`,
+        ``,
+        `Dear ${name},`,
+        ``,
+        `Thank you for your booking request at ${property.name || "our property"}.`,
+        `We have received your request with the following details.`,
+        ``,
+        `Request details`,
+        `Check-in: ${checkIn}`,
+        `Check-out: ${checkOut}`,
+        `Guests: ${guests} (${breakdownEn})`,
+        `Nationality: ${nationality}`,
+        `Group composition: ${memberComposition}`,
+        `Plan: ${plan === "nonrefundable" ? "Non-refundable discount plan" : "Standard plan"}`,
+        ``,
+        `The owner will review your request and let you know within 24 hours whether it can be confirmed.`,
+        `Thank you for your patience.`,
       ].join("\n");
       await sendNotificationEmail_(email, subject, bodyText, senderGmail || null);
     } catch (mailErr) {

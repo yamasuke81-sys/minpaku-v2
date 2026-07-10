@@ -119,6 +119,8 @@ describe("validateBookingRequest", () => {
     email: "test@example.com",
     plan: "standard",
     notes: "",
+    nationality: "日本",
+    memberComposition: "ファミリー利用",
   };
   test("正常系は ok:true", () => {
     const r = validateBookingRequest(base, property, { todayStr: "2026-07-01" });
@@ -178,6 +180,59 @@ describe("validateBookingRequest", () => {
     assert.strictEqual(validateBookingRequest(base, property, { todayStr: "2026-07-01", minNights: 3 }).ok, false);
     const threeNights = { ...base, checkIn: "2026-08-01", checkOut: "2026-08-04" };
     assert.strictEqual(validateBookingRequest(threeNights, property, { todayStr: "2026-07-01", minNights: 3 }).ok, true);
+  });
+
+  // ===== 人数内訳 (adults/children/infants) 2026-07 追加 =====
+  test("adults/children 未送信は guests から大人扱いにフォールバックし通過する (後方互換)", () => {
+    const { adults, children, ...noBreakdown } = base;
+    const r = validateBookingRequest(noBreakdown, property, { todayStr: "2026-07-01" });
+    assert.strictEqual(r.ok, true);
+  });
+  test("adults+children が guests と一致すれば通過", () => {
+    const r = validateBookingRequest({ ...base, guests: 3, adults: 2, children: 1 }, property, { todayStr: "2026-07-01" });
+    assert.strictEqual(r.ok, true);
+  });
+  test("adults+children が guests と不一致ならエラー", () => {
+    const r = validateBookingRequest({ ...base, guests: 2, adults: 2, children: 1 }, property, { todayStr: "2026-07-01" });
+    assert.strictEqual(r.ok, false);
+  });
+  test("adults が0以下はエラー", () => {
+    const r = validateBookingRequest({ ...base, guests: 1, adults: 0, children: 1 }, property, { todayStr: "2026-07-01" });
+    assert.strictEqual(r.ok, false);
+  });
+  test("children が負数はエラー", () => {
+    const r = validateBookingRequest({ ...base, guests: 1, adults: 2, children: -1 }, property, { todayStr: "2026-07-01" });
+    assert.strictEqual(r.ok, false);
+  });
+  test("infants が負数はエラー", () => {
+    const r = validateBookingRequest({ ...base, infants: -1 }, property, { todayStr: "2026-07-01" });
+    assert.strictEqual(r.ok, false);
+  });
+  test("infants は定員・整合チェックに含めない", () => {
+    const r = validateBookingRequest({ ...base, guests: 2, adults: 2, children: 0, infants: 2 }, property, { todayStr: "2026-07-01" });
+    assert.strictEqual(r.ok, true);
+  });
+  test("adults+children が定員超過ならエラー", () => {
+    const r = validateBookingRequest({ ...base, guests: 4, adults: 3, children: 1 }, { capacity: 3 }, { todayStr: "2026-07-01" });
+    assert.strictEqual(r.ok, false);
+  });
+
+  // ===== 国籍・メンバー構成 2026-07 追加 =====
+  test("nationality が空はエラー", () => {
+    const r = validateBookingRequest({ ...base, nationality: "" }, property, { todayStr: "2026-07-01" });
+    assert.strictEqual(r.ok, false);
+  });
+  test("nationality が61文字はエラー", () => {
+    const r = validateBookingRequest({ ...base, nationality: "あ".repeat(61) }, property, { todayStr: "2026-07-01" });
+    assert.strictEqual(r.ok, false);
+  });
+  test("memberComposition が空はエラー", () => {
+    const r = validateBookingRequest({ ...base, memberComposition: "" }, property, { todayStr: "2026-07-01" });
+    assert.strictEqual(r.ok, false);
+  });
+  test("memberComposition が101文字はエラー", () => {
+    const r = validateBookingRequest({ ...base, memberComposition: "あ".repeat(101) }, property, { todayStr: "2026-07-01" });
+    assert.strictEqual(r.ok, false);
   });
 });
 

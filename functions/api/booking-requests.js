@@ -123,6 +123,11 @@ module.exports = function bookingRequestsApi(db) {
         checkIn: reqData.checkIn,
         checkOut: reqData.checkOut,
         guestCount: reqData.guestCount || null,
+        adults: reqData.adults != null ? reqData.adults : (reqData.guestCount || null),
+        children: reqData.children != null ? reqData.children : 0,
+        infants: reqData.infants != null ? reqData.infants : 0,
+        nationality: reqData.nationality || "",
+        memberComposition: reqData.memberComposition || "",
         cancellationPlan: reqData.plan || "standard",
         propertyId: reqData.propertyId,
         propertyName: reqData.propertyName || "",
@@ -286,6 +291,7 @@ module.exports = function bookingRequestsApi(db) {
       }
 
       // ゲストへ承認メール (支払案内・キャンセルポリシー・名簿フォームURL)
+      // 日英併記: 日本語ブロック → 区切り線(---) → English ブロック
       try {
         const { sendNotificationEmail_, resolveSenderGmail_ } = require("../utils/lineNotify");
         const senderGmail = await resolveSenderGmail_(db, reqData.propertyId);
@@ -294,7 +300,28 @@ module.exports = function bookingRequestsApi(db) {
         const planText = reqData.plan === "nonrefundable"
           ? "返金不可プラン（ご予約確定後のキャンセル・返金はできません）"
           : "スタンダードプラン（キャンセルポリシーは物件ページの記載に準じます）";
-        const subject = `【${reqData.propertyName || "ご予約"}】ご予約が確定しました`;
+        const planTextEn = reqData.plan === "nonrefundable"
+          ? "Non-refundable plan (no cancellation or refund once confirmed)"
+          : "Standard plan (cancellation policy follows the property page)";
+        const subject = `【${reqData.propertyName || "ご予約"}】ご予約が確定しました / Your reservation is confirmed`;
+
+        // 人数内訳 (旧データで adults 等が無い場合は guestCount のみのフォールバック表示)
+        const adults = reqData.adults != null ? reqData.adults : reqData.guestCount;
+        const children = reqData.children || 0;
+        const infants = reqData.infants || 0;
+        const hasBreakdown = adults != null;
+        const breakdownJaParts = hasBreakdown ? [`大人${adults}名`] : [];
+        if (children > 0) breakdownJaParts.push(`子ども${children}名`);
+        if (infants > 0) breakdownJaParts.push(`乳幼児${infants}名`);
+        const guestLineJa = hasBreakdown
+          ? `${reqData.guestCount || "-"}名 (${breakdownJaParts.join(" ")})`
+          : `${reqData.guestCount || "-"}名`;
+        const breakdownEnParts = hasBreakdown ? [`${adults} adult${adults === 1 ? "" : "s"}`] : [];
+        if (children > 0) breakdownEnParts.push(`${children} child${children === 1 ? "" : "ren"}`);
+        if (infants > 0) breakdownEnParts.push(`${infants} infant${infants === 1 ? "" : "s"}`);
+        const guestLineEn = hasBreakdown
+          ? `${reqData.guestCount || "-"} (${breakdownEnParts.join(", ")})`
+          : `${reqData.guestCount || "-"}`;
 
         const bodyLines = [
           `${reqData.guestName || "ゲスト"} 様`,
@@ -305,10 +332,14 @@ module.exports = function bookingRequestsApi(db) {
           `宿泊施設: ${reqData.propertyName || ""}`,
           `チェックイン: ${reqData.checkIn}`,
           `チェックアウト: ${reqData.checkOut}`,
-          `人数: ${reqData.guestCount || "-"}名`,
+          `人数: ${guestLineJa}`,
+        ];
+        if (reqData.nationality) bodyLines.push(`国籍: ${reqData.nationality}`);
+        if (reqData.memberComposition) bodyLines.push(`メンバー構成: ${reqData.memberComposition}`);
+        bodyLines.push(
           `キャンセルポリシー: ${planText}`,
           ``,
-        ];
+        );
 
         if (payment.status === "pending" && payment.url) {
           const expDate = new Date(payment.expiresAt * 1000);
@@ -342,6 +373,54 @@ module.exports = function bookingRequestsApi(db) {
           ``,
           `ご不明な点がございましたらお気軽にお問い合わせください。`,
           `よろしくお願いいたします。`,
+          ``,
+          `---`,
+          ``,
+          `Dear ${reqData.guestName || "Guest"},`,
+          ``,
+          `Thank you for your patience. We are pleased to confirm your reservation.`,
+          ``,
+          `Reservation details`,
+          `Property: ${reqData.propertyName || ""}`,
+          `Check-in: ${reqData.checkIn}`,
+          `Check-out: ${reqData.checkOut}`,
+          `Guests: ${guestLineEn}`,
+        );
+        if (reqData.nationality) bodyLines.push(`Nationality: ${reqData.nationality}`);
+        if (reqData.memberComposition) bodyLines.push(`Group composition: ${reqData.memberComposition}`);
+        bodyLines.push(`Cancellation policy: ${planTextEn}`, ``);
+
+        if (payment.status === "pending" && payment.url) {
+          const expDate = new Date(payment.expiresAt * 1000);
+          const jst = new Date(expDate.getTime() + 9 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 16);
+          bodyLines.push(
+            `Payment information`,
+            `Total amount: JPY ${Number(payment.amount).toLocaleString("en-US")} (tax included, accommodation fee)`,
+            `Payment method: Credit card (Visa / Mastercard / JCB / American Express, etc.)`,
+            `Payment deadline: ${jst} JST (approx. 24 hours after confirmation)`,
+            ``,
+            `Please complete your payment via the link below:`,
+            `${payment.url}`,
+            ``,
+            `* If payment is not confirmed by the deadline, your reservation will be automatically cancelled.`,
+            `* A receipt will be sent automatically by Stripe after payment.`,
+            ``,
+          );
+        } else {
+          bodyLines.push(
+            `Payment information`,
+            `Payment method and timing will be advised separately.`,
+            ``,
+          );
+        }
+
+        bodyLines.push(
+          `Guest registration form`,
+          `Please complete the guest registration form below before check-in:`,
+          `${formUrl}`,
+          ``,
+          `Please feel free to contact us if you have any questions.`,
+          `We look forward to welcoming you.`,
         );
 
         const bodyText = bodyLines.join("\n");
@@ -463,10 +542,11 @@ module.exports = function bookingRequestsApi(db) {
       });
 
       // ゲストへお断りメール
+      // 日英併記: 日本語ブロック → 区切り線(---) → English ブロック
       try {
         const { sendNotificationEmail_, resolveSenderGmail_ } = require("../utils/lineNotify");
         const senderGmail = await resolveSenderGmail_(db, reqData.propertyId);
-        const subject = `【${reqData.propertyName || "ご予約"}】予約リクエストについて`;
+        const subject = `【${reqData.propertyName || "ご予約"}】予約リクエストについて / About your booking request`;
         const bodyText = [
           `${reqData.guestName || "ゲスト"} 様`,
           ``,
@@ -477,6 +557,18 @@ module.exports = function bookingRequestsApi(db) {
           reason ? `\n${reason}\n` : "",
           `またの機会がございましたら、ぜひご検討いただけますと幸いです。`,
           `ご期待に沿えず申し訳ございません。`,
+          ``,
+          `---`,
+          ``,
+          `Dear ${reqData.guestName || "Guest"},`,
+          ``,
+          `Thank you very much for your booking request at ${reqData.propertyName || "our property"}.`,
+          ``,
+          `We regret to inform you that we are unable to accommodate your requested dates`,
+          `(${reqData.checkIn} to ${reqData.checkOut}) as we are fully booked.`,
+          reason ? `\n${reason}\n` : "",
+          `We hope to have the opportunity to welcome you at another time.`,
+          `We apologize for not being able to meet your request.`,
         ].join("\n");
         await sendNotificationEmail_(reqData.email, subject, bodyText, senderGmail || null);
       } catch (mailErr) {
