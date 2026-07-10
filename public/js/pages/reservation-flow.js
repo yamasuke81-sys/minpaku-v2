@@ -83,8 +83,12 @@ const ReservationFlowPage = {
       { name: "property", label: "物件名",           sample: "the Terrace 長浜" },
     ],
     payment: [
-      { name: "property", label: "物件名", sample: "the Terrace 長浜" },
-      { name: "amount",   label: "金額",   sample: "¥86,250" },
+      { name: "property", label: "物件名",         sample: "the Terrace 長浜" },
+      { name: "guest",    label: "ゲスト名",       sample: "John Smith" },
+      { name: "checkin",  label: "チェックイン",   sample: "2026-09-29" },
+      { name: "checkout", label: "チェックアウト", sample: "2026-09-30" },
+      { name: "amount",   label: "金額",           sample: "¥86,250" },
+      { name: "url",      label: "予約詳細/名簿URL", sample: "https://v2-5-relay.web.app/#/schedule" },
     ],
     inspection: [
       { name: "property", label: "物件名",           sample: "the Terrace 長浜" },
@@ -107,7 +111,7 @@ const ReservationFlowPage = {
   // ========== 通知デフォルト値 (notifications.js の notifications 配列から参照) ==========
   _notifDefaults: {
     direct_request:     { defaultMsg: "📩 直接予約リクエスト受信\n\n宿: {property}\n日程: {checkin} 〜 {date}\nゲスト: {guest}\n\n確認・承認: {url}", defaultTiming: "immediate", varGroup: "booking" },
-    payment_received:   { defaultMsg: "💳 宿泊料のお支払いが完了しました\n\n宿: {property}\n金額: {amount}", defaultTiming: "immediate", varGroup: "payment" },
+    payment_received:   { defaultMsg: "💳 宿泊料のお支払いが完了しました\n\n宿: {property}\nゲスト: {guest}\n宿泊: {checkin} 〜 {checkout}\n金額: {amount}\n\n予約詳細・名簿: {url}", defaultTiming: "immediate", varGroup: "payment" },
     payment_expired:    { defaultMsg: "⏰ 支払期限切れ 自動キャンセル\n\n宿: {property}\n金額: {amount}\n\n支払期限を過ぎたため予約は自動キャンセルされました。", defaultTiming: "immediate", varGroup: "payment" },
     recruit_start:      { defaultMsg: "🧹 {work}スタッフ募集\n\n{date} {property}\n{work}スタッフを募集しています。\n回答をお願いします（◎OK / △微妙 / ×NG）\n\n回答: {url}", defaultTiming: "immediate", varGroup: "recruit" },
     double_booking:     { defaultMsg: "【⚠️ ダブルブッキング警告】\n物件: {property}\n日程: {checkin} 〜 {date}\n\n衝突予約が検出されました。至急確認してください。\n確認: {url}", defaultTiming: "immediate", varGroup: "booking" },

@@ -114,14 +114,41 @@ async function handleCheckoutCompleted(db, session, accountKind) {
   // オーナー通知 (LINE/メール) — 静かに失敗させる (webhook 200 応答を優先)
   try {
     const { notifyByKey } = require("./utils/lineNotify");
-    const propertyId = (session.metadata && session.metadata.propertyId) || null;
-    const propertyName = (session.metadata && session.metadata.propertyName) || "";
+    const md = session.metadata || {};
+    const propertyId = md.propertyId || null;
+    let propertyName = md.propertyName || "";
+    let guest = "";
+    let checkin = md.checkIn || "";
+    let checkout = md.checkOut || "";
+    // 予約ドキュメントを権威ソースに宿泊日・ゲスト名を取得 (metadata に無い guestName 等を補完)
+    try {
+      const bSnap = await bookingRef.get();
+      if (bSnap.exists) {
+        const b = bSnap.data();
+        guest = b.guestName || guest;
+        checkin = b.checkIn || checkin;
+        checkout = b.checkOut || checkout;
+        propertyName = propertyName || b.propertyName || "";
+      }
+    } catch (_e) { /* metadata フォールバック */ }
+    const amountLabel = `¥${Number(session.amount_total).toLocaleString("ja-JP")}`;
+    // 予約詳細/名簿はカレンダー(予約詳細モーダル)から辿れる。appUrl は relay 固定 (未取得時は既定)。
+    let appUrl = "https://v2-5-relay.web.app";
+    try {
+      const nsnap = await db.collection("settings").doc("notifications").get();
+      if (nsnap.exists && nsnap.data().appUrl) appUrl = String(nsnap.data().appUrl).replace(/\/+$/, "");
+    } catch (_e) { /* fallback */ }
+    const url = `${appUrl}/#/schedule`;
     await notifyByKey(db, "payment_received", {
       title: "宿泊料お支払い完了",
-      body: `💳 宿泊料のお支払いが完了しました\n\n宿: ${propertyName || propertyId || "-"}\n金額: ¥${Number(session.amount_total).toLocaleString("ja-JP")}\n予約ID: ${bookingId}`,
+      body: `💳 宿泊料のお支払いが完了しました\n\n宿: ${propertyName || propertyId || "-"}\nゲスト: ${guest || "-"}\n宿泊: ${checkin || "-"} 〜 ${checkout || "-"}\n金額: ${amountLabel}\n\n予約詳細・名簿: ${url}`,
       vars: {
         property: propertyName || "",
-        amount: `¥${Number(session.amount_total).toLocaleString("ja-JP")}`,
+        guest,
+        checkin,
+        checkout,
+        amount: amountLabel,
+        url,
       },
       propertyId,
       _fromBatchQueue: true,

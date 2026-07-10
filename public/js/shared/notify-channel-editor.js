@@ -117,8 +117,12 @@
       { name: "property", label: "物件名",           sample: "the Terrace 長浜", source: "物件" },
     ],
     payment: [
-      { name: "property", label: "物件名",   sample: "the Terrace 長浜", source: "Stripe metadata.propertyName / booking.propertyName" },
-      { name: "amount",   label: "金額",     sample: "¥86,250",          source: "Stripe session.amount_total (税込・宿泊料金)" },
+      { name: "property", label: "物件名",         sample: "the Terrace 長浜", source: "Stripe metadata.propertyName / booking.propertyName" },
+      { name: "guest",    label: "ゲスト名",       sample: "John Smith",       source: "Stripe metadata.guestName / booking.guestName" },
+      { name: "checkin",  label: "チェックイン",   sample: "2026-09-29",       source: "Stripe metadata.checkIn" },
+      { name: "checkout", label: "チェックアウト", sample: "2026-09-30",       source: "Stripe metadata.checkOut" },
+      { name: "amount",   label: "金額",           sample: "¥86,250",          source: "Stripe session.amount_total (税込・宿泊料金)" },
+      { name: "url",      label: "予約詳細/名簿URL", sample: "https://v2-5-relay.web.app/#/schedule", source: "自動生成 (カレンダー→予約詳細モーダル)" },
     ],
   };
 
@@ -195,7 +199,7 @@
       defaultMsg: "📩 直接予約リクエスト受信\n\n宿: {property}\n日程: {checkin} 〜 {date}\nゲスト: {guest}\n\n確認・承認: {url}" },
     { key: "payment_received", label: "宿泊料お支払い完了", desc: "直接予約のゲストが Stripe 決済を完了した時にWebアプリ管理者へ通知", icon: "bi-credit-card", group: "booking", varGroup: "payment", defaultTiming: "immediate",
       defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: true,
-      defaultMsg: "💳 宿泊料のお支払いが完了しました\n\n宿: {property}\n金額: {amount}" },
+      defaultMsg: "💳 宿泊料のお支払いが完了しました\n\n宿: {property}\nゲスト: {guest}\n宿泊: {checkin} 〜 {checkout}\n金額: {amount}\n\n予約詳細・名簿: {url}" },
     { key: "payment_expired", label: "支払期限切れ 自動キャンセル", desc: "直接予約の支払期限（承認から24時間）を過ぎ、予約が自動キャンセルされた時にWebアプリ管理者へ通知", icon: "bi-hourglass-bottom", group: "booking", varGroup: "payment", defaultTiming: "immediate",
       defaultEnabled: true, defaultOwnerLine: true, defaultGroupLine: false, defaultStaffLine: false, defaultEmail: true,
       defaultMsg: "⏰ 支払期限切れ 自動キャンセル\n\n宿: {property}\n金額: {amount}\n\n支払期限を過ぎたため予約は自動キャンセルされました。" },

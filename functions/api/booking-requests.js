@@ -212,7 +212,7 @@ module.exports = function bookingRequestsApi(db) {
                 const rb = directCfgSnap.exists ? directCfgSnap.data().paymentReturnBase : null;
                 if (rb) returnBase = String(rb).replace(/\/+$/, "");
               } catch (_e) { /* fallback */ }
-              const successUrl = `${returnBase}/payment-success.html?bookingId=${encodeURIComponent(bookingRef.id)}&sid={CHECKOUT_SESSION_ID}`;
+              const successUrl = `${returnBase}/payment-success.html?bookingId=${encodeURIComponent(bookingRef.id)}&pid=${encodeURIComponent(reqData.propertyId || "")}&sid={CHECKOUT_SESSION_ID}`;
               const cancelUrl = `${returnBase}/payment-cancel.html?bookingId=${encodeURIComponent(bookingRef.id)}`;
               const session = await stripe.client.checkout.sessions.create({
                 mode: "payment",
@@ -235,6 +235,7 @@ module.exports = function bookingRequestsApi(db) {
                   bookingRequestId: id,
                   propertyId: reqData.propertyId,
                   propertyName: (reqData.propertyName || "").slice(0, 80),
+                  guestName: (reqData.guestName || "").slice(0, 80),
                   plan: reqData.plan || "standard",
                   checkIn: reqData.checkIn,
                   checkOut: reqData.checkOut,
