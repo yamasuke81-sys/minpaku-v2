@@ -15,9 +15,17 @@ const BookingRequestsPage = {
 
   async render(container) {
     container.innerHTML = `
-      <div class="d-flex align-items-center mb-3">
+      <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
         <h4 class="mb-0"><i class="bi bi-inbox"></i> 直接予約リクエスト</h4>
-        <span class="ms-3 text-muted small" id="brSummary">読み込み中...</span>
+        <span class="text-muted small" id="brSummary">読み込み中...</span>
+        <div class="ms-sm-auto d-flex gap-2">
+          <a href="https://dashboard.stripe.com/acct_1Tqet7AoOutkYY4H/payments" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary" title="小町・若草の決済（個人事業アカウント）">
+            <i class="bi bi-credit-card"></i> Stripe（個人）
+          </a>
+          <a href="https://dashboard.stripe.com/acct_1TIZYiIpGeRzVeLg/payments" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary" title="テラス等の決済（合同会社八朔アカウント）">
+            <i class="bi bi-credit-card"></i> Stripe（八朔）
+          </a>
+        </div>
       </div>
       <ul class="nav nav-tabs mb-3" id="brTabs" role="tablist">
         <li class="nav-item">
