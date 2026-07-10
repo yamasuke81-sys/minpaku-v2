@@ -33,7 +33,8 @@ function prevYearMonthJst(now) {
 }
 
 // 対象月の全取込＋帳票下書き生成を実行して結果を返す
-async function run(db, yearMonth) {
+// opts.notify=true でオーナーに下書き完成を通知(スケジュール実行時)
+async function run(db, yearMonth, opts = {}) {
   const pnl = require("../api/pnl")(db);
   const settlement = require("../api/settlement")(db);
 
@@ -79,13 +80,33 @@ async function run(db, yearMonth) {
     yearMonth, ranAt: admin.firestore.FieldValue.serverTimestamp(), count: results.length, results,
   });
   console.log(`[pnlMonthlyImport] ${yearMonth} 完了 ${results.length}物件`, JSON.stringify(results).slice(0, 800));
+
+  // オーナーへ「下書き完成→承認」の通知(スケジュール実行時のみ)
+  if (opts.notify) {
+    try {
+      const { notifyOwner } = require("../utils/lineNotify");
+      const yen = (n) => (n != null ? "¥" + Number(n).toLocaleString("ja-JP") : "-");
+      const blocks = results.map((r) => {
+        const s = r.steps || {};
+        const links = [];
+        if (s.report && s.report.url) links.push(`　月次業務報告書: ${s.report.url}`);
+        if (s.settlement && s.settlement.url) links.push(`　精算書兼請求書(税込${yen(s.settlement.請求額)}): ${s.settlement.url}`);
+        const errs = Object.entries(s).filter(([, v]) => v && v.error).map(([k]) => k);
+        return `【${r.property}】売上${yen(s.ota && s.ota.売上)}\n${links.join("\n") || "　（下書きなし）"}${errs.length ? `\n　⚠️未取得: ${errs.join("/")}` : ""}`;
+      }).join("\n\n");
+      const body = `📊 ${yearMonth}分 月次収支の下書きが完成しました。\n\n${blocks}\n\n内容を確認し問題なければ送付してください。収支画面の「出典・内訳を確認」で金額と出典を検算できます。`;
+      await notifyOwner(db, "pnl_batch", "月次収支 下書き完成", body);
+    } catch (e) {
+      console.warn("[pnlMonthlyImport] 通知失敗:", e.message);
+    }
+  }
   return { yearMonth, runId, results };
 }
 
-// Cloud Scheduler 用ハンドラ(前月分)
+// Cloud Scheduler 用ハンドラ(前月分・オーナー通知あり)
 module.exports = async function pnlMonthlyImportScheduled() {
   const db = admin.firestore();
-  return run(db, prevYearMonthJst(new Date()));
+  return run(db, prevYearMonthJst(new Date()), { notify: true });
 };
 module.exports.run = run;
 module.exports.prevYearMonthJst = prevYearMonthJst;

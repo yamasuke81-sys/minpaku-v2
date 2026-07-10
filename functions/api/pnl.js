@@ -507,9 +507,10 @@ module.exports = function pnlApi(db) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
     const prompt = [
       "これは店舗のレシート/領収書、または公共料金・通信費の請求書/お知らせです。",
-      "支払う税込金額(レシートなら「合計/お会計」、請求書なら「ご請求金額/請求額/合計」)を1つだけ抽出してください。",
-      "カンマなし整数(円)。読めなければ0。",
-      'JSONのみ出力: {"amount": 整数, "store": "店名/事業者(あれば)", "confidence": 0-100}',
+      "支払う税込金額(レシートなら「合計/お会計」、請求書なら「ご請求金額/請求額/合計/口座振替額」)を1つだけ抽出してください。カンマなし整数(円)。読めなければ0。",
+      "isEstimate の判定は厳密に: 請求額・料金・口座振替額など『支払う金額』が明記されていれば、たとえ書類名が『お知らせ』でも確定した請求書とみなし isEstimate=false。",
+      "isEstimate=true にするのは『請求予定額の事前通知』『検針票(使用量のみで請求額なし)』『概算・見積』など、まだ確定した請求でない場合だけ。",
+      'JSONのみ出力: {"amount": 整数, "isEstimate": true/false, "store": "店名/事業者(あれば)", "confidence": 0-100}',
     ].join("\n");
     const payload = { contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "application/pdf", data: pdfBase64 } }] }], generationConfig: { temperature: 0.1 } };
     const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -681,6 +682,11 @@ module.exports = function pnlApi(db) {
       const cur = await ref.get();
       const curData = cur.exists ? cur.data() : {};
       const already = new Set((curData.utilitiesIndex || []).map((r) => `${r.fileId}|${r.ym}`));
+      // 重複スキャン排除: 先頭の日付(YYMMDD)を除いた名前で照合(例「260507 …5月分…」と「260605 …5月分…」は同一請求)
+      const normName = (n) => String(n || "").replace(/^[\s　]*\d{6}[\s　_-]*/, "").replace(/[\s　]+/g, "").toLowerCase();
+      const seenNorm = new Set((curData.utilitiesIndex || [])
+        .filter((r) => (r.ym || yearMonth) === yearMonth && r.fileName)
+        .map((r) => normName(r.fileName)));
 
       const drive = await resolveOtaDrive_();
       // 007配下のサブフォルダ(ガス/電気/水道/ネット/電話)を費目にマップ
@@ -697,17 +703,22 @@ module.exports = function pnlApi(db) {
         const catName = mapUtilityCategory_(sub.name);
         if (!catName) { unmatchedCat++; continue; }
         const catId = catByName[catName] || null;
-        const pdfs = (await drive.files.list({
+        const pdfs = ((await drive.files.list({
           q: `'${sub.id}' in parents and trashed=false and mimeType='application/pdf'`,
           fields: "files(id,name)", pageSize: 200, supportsAllDrives: true, includeItemsFromAllDrives: true,
-        })).data.files || [];
+        })).data.files || []).sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""))); // 日付(YYMMDD)昇順=重複時は早い方を残す
         for (const f of pdfs) {
           const months = parseBillMonths_(f.name);
           if (!months.includes(yearMonth)) continue; // 対象月に該当しない
           if (already.has(`${f.id}|${yearMonth}`)) { skippedDup++; continue; }
+          const nn = normName(f.name);
+          if (seenNorm.has(nn)) { skippedDup++; items.push({ fileId: f.id, fileName: f.name, category: catName, skipped: "重複スキャン" }); continue; }
+          seenNorm.add(nn);
           try {
             const bin = await drive.files.get({ fileId: f.id, alt: "media", supportsAllDrives: true }, { responseType: "arraybuffer" });
             const parsed = await geminiExtractReceiptAmount_(Buffer.from(bin.data).toString("base64"), apiKey);
+            // 事前通知・見積・検針のみ(確定した支払書類でない)は計上しない
+            if (parsed.isEstimate === true) { seenNorm.delete(nn); items.push({ fileId: f.id, fileName: f.name, category: catName, skipped: "事前通知/見積" }); continue; }
             const full = Math.max(0, Math.round(Number(parsed.amount) || 0));
             const share = Math.round(full / months.length); // 範囲月は月割
             if (catId) sumByCat[catId] = (sumByCat[catId] || 0) + share;
@@ -733,7 +744,7 @@ module.exports = function pnlApi(db) {
       }
       const patch = { propertyId, yearMonth, updatedAt: FieldValue.serverTimestamp() };
       if (Object.keys(expensesPatch).length) patch.expenses = expensesPatch;
-      const newIndex = items.filter((it) => !it.error).map((it) => ({ fileId: it.fileId, fileName: it.fileName, ym: yearMonth, amount: it.monthShare, catId: it.catId }));
+      const newIndex = items.filter((it) => !it.error && !it.skipped).map((it) => ({ fileId: it.fileId, fileName: it.fileName, ym: yearMonth, amount: it.monthShare, catId: it.catId }));
       if (newIndex.length) patch.utilitiesIndex = FieldValue.arrayUnion(...newIndex);
       await ref.set(patch, { merge: true });
 
