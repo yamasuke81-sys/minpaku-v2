@@ -107,10 +107,85 @@
 - **正しい各月Booking gross**: 09=0 / 10=99,666 / 11=332,884 / 12=88,200 / 26-01=0 / 02=293,480 / 03=286,528 / 04=0 / 05=335,600 / 06=62,986。
 - **運用注意(重要)**: Booking.com セッションは失効する。失効時は `pm2 stop yadozei-listener` → `node yadozei-listener.mjs --login`(Bookingにログイン) → Ctrl+C → `pm2 start yadozei-listener`。**失効中は自動取得が失敗する**(8/2の月次取得前に要確認)。過去分の掃引は scratchpad の analyze/rebuild-terrace-booking.cjs 参照。
 - 訂正: 旧記載「the Terrace 2026-02 は Airbnb・Booking とも予約0」「2025-12/2026-01/2026-02はBooking予約0」は**誤り**(バックフィルの取りこぼし/月ズレ)。
+- **【宿泊税(やどぜい)への波及検証 = 汚染なし】** `yadozeiQueue` の実アップロード履歴を全確認: やどぜいへ実インポートされたのは **2026-05 のみ**(Airbnb+Booking)。他月(2025-09〜2026-04/2026-06)は**一度も未アップロード**(バックフィル時にUpload連鎖を停止していたため、月ズレCSVはやどぜいへ送られていない)。アップロードした2026-05 Booking CSV 4本は全て中身が正しく5月(catfile確認)。**2026-05 申告書PDF=課税50泊(¥10,000)+非課税36泊=計86人泊**で5月実績と整合、複数回アップロードでも**二重計上なし**(やどぜいが予約単位で重複排除)。→ **Bookingバグは宿泊税申告を汚染していない**。
+- **宿泊税の運用残**: やどぜい経由で自動申告済みは 2026-05 のみ。過去分(2025-09〜2026-04/2026-06)は自動化経由では未申告(手動申告済みか要確認)。必要なら修正版リスナーで正しく取得→アップロード可能。
 
-## NEXT（次セッションで着手）
+## 2026-07-11 収支検証（the Terrace 5月・6月）で判明した要対応
+検証結論: **収入・経費の金額集計は正確**（5月はAirbnb/Booking CSV再計算＋経費8件PDF OCRが全件一致で実証）。問題は「取込漏れ・資料未着・下記バグ・電気クレカ化」に集約。
+
+### 確定バグ（ユーザーGO済み・実装中）
+- **①Booking決済手数料**: `computePnl`(pnl-logic.js:164)は `paymentFee` 対応済みだが、予約CSVに決済手数料の列が無く常に0。→ **ユーザー決定=Booking手数料請求書PDFをGeminiで自動取込し `revenue.booking.paymentFee` をセット**。6月決済手数料=1,448（請求書#1656724183）。全Booking利用月に影響。
+- **②voided除外**: `import-cleaning`(pnl.js:858)が draft のみ除外し取消済(voided)が残る。→ voided除外＋既存クリーンアップ（chosenに無いinvoice由来行を削除）。5月に西山800(voided)混入→正しくは**70,600ではなく69,800**。
+- **③複数物件按分**: `import-cleaning`(pnl.js:877)が `inv.total`(基本給・交通費込み全額)を top物件へ計上。→ **単一物件請求は現状維持（基本給込み全額）、複数物件請求のみ byProperty.total＋共通手当を shiftCount 比で按分**。5・6月は単一物件のみで数字不変（潜在バグ）。
+
+### 電気代クレカ化（重要・新経路が必要）
+- **the Terrace の電気=エネパル**。6月分より請求が**クレカ払い（セゾンプラチナビジネスAMEX 名義:西山恭介、収納代行アプラス/スマートビリング）に切替**。→ 光熱費PDFフォルダ(`driveUtilitiesFolder`)取込では拾えない。
+- **6月電気代=36,459円**（支払先エネパル、8月カード請求分。2026-07-11 ユーザー実確認）。以前の請求はスマートビリングのコンビニ/振込PDF（3・4月分まで、4月分¥31,621は1月分¥3,176+1月分¥16,172+4月分¥12,273の混在）。
+- セゾン明細=Drive「セゾン」`1l15Zou0b5AsQZS1qluPLfXYypbf16QGY` / 「241002 セゾンプラチナビジネスAMEX」`1f8GiV49afjuTuYuTe77aWT_nGVDA1UYZ` に `SAISON_YYMM.csv/pdf`。**CSVはShift-JIS化けするのでPDFを読む**。明細内「ソフトバンクでんき」は切替前/別物件の可能性。→ 将来クレカ明細から電気代抽出経路 or 手入力。
+
+### 6月 the Terrace あるべき経費（元資料でOCR確定済み）
+- 清掃13,200 / ガス5,919 / **電気36,459** / 水道(4-6月分¥7,319の月割≈2,440) / ごみ2,200 / 消耗品4,387 / 通信1,200 / Booking決済手数料1,448。
+- 6月は `pnlBatchRuns` に2026-06記録なし=**バッチ未実行**。売上(Airbnb358,460/Booking62,986)とガス5,919のみ計上済み。清掃`cleaningCosts`空・`receiptsIndex`空。
+- ⚠️ Drive上 `booking_reservations_2026-06.csv` の中身が**3月の予約**（月ズレ残骸）。Firestore値は掃引済で正しいが、「OTA CSV取込」ボタン再実行で再汚染リスク→要削除/修正。
+- 6月レシート(ハローズ/ダイソー/ローソン/ごみ)は八朔月次フォルダ`1OFuLlh4…`にあり物件フォルダ`60`(driveReceiptsFolderId=1GaQFwg2…)に未整理→自動取込が拾えない。
+
+### 5月 the Terrace 検証値（正常取込月・突合OK）
+- 収入: Airbnb335,785(6件10泊)/Booking335,600・コミッション50,340・net285,260(3件6泊) 全一致。
+- 費目: 水道光熱費22,652(ガス3,601+水道19,051)/消耗品費7,395(コーナン492+ダイソー3,525+ダイソー2,205+セリア110+ハローズ1,063)/小修繕費297(電球) 全一致。清掃70,600→西山800(voided)除外で**69,800**。
+- 5月電気代は請求書未着で未計上（開発記録の44,142は暫定値、現在22,652）。オロナミンC等アメニティ/接待の費目区分は要確認。
+
+## DONE（2026-07-11 バグ修正＋5月是正＋6月反映 全完了）
+**コード変更**:
+- `functions/api/pnl.js` `import-cleaning`: ②voided除外(`if (inv.voided === true) return;`)＋既存クリーンアップ(chosenIdsに無いinvoice由来行を削除、`removedRows`)＋③按分(`cleaningAmountForProperty(inv, propertyId)`呼び出しに置換、2箇所)。
+- `functions/api/pnl.js` `applyParsedToPnl_`: ①`docKind==="booking_invoice"`処理を追加(revenue.bookingのpaymentFeeを補完、gross/commissionは既存保持、netRevenue=gross-commission-paymentFee)。`analyzePnlPdf_`プロンプトにbooking_invoice分類＋bookingInvoiceブロックを追加。
+- `functions/api/pnl-logic.js`: `cleaningAmountForProperty(inv, propertyId)`新規＋export(単一物件=inv.total全額 / 複数物件=byProperty.total＋共通手当shiftCount比按分)。
+- `functions/api/pnl-logic.test.js`: `cleaningAmountForProperty`テスト6件追加(単一/1物件/複数按分/shiftCount0/該当外/¥カンマ入り)。**全127テスト緑**。
+- デプロイ: `firebase deploy --only functions:api --project minpaku-v2` 成功。フロント変更なし=bump不要。
+
+**5月是正(実行結果)**:
+- `import-cleaning` 再実行 → 田中俊子25200＋平川マサキ22300＋梶本里奈22300＝**69,800** (西山800/田中旧版6200/西山300 の voided=true 3件除外、削除行1件)。**70,600→69,800** で予測通り。
+
+**6月反映(実行結果、self運営=代行手数料なし)**:
+- 清掃取込: 田中15,000＋平川800＝**15,800** (invoice実額が真実。plan.md旧記載「13,200」は不正確だった)。
+- 決済手数料: paymentFee=**1,448** を admin書き込みで反映 → netRevenue=62,986-9,448-1,448=**52,090**。
+- 水道光熱費: import-utilities実行で水道4-6月分PDFは「事前通知/見積」判定で自動skip → **overridden=true で 44,818 手入力**(内訳: ガス5,919+水道月割2,440+電気36,459 エネパル/クレカ払い)。breakdown を expenses ドキュメントに保存。
+- Wi-Fi通信費: **1,200 手入力(overridden=true)**。
+- ゴミ処理費: **2,200 手入力(overridden=true、Gemini実測)**。※import-receipts の filter が「請求書」名を拾わない実装のため、手入力で反映(下記NEXT#0参照)。
+- 消耗品費: 5件のPDFを 八朔月次`1OFuLlh4…`→ Terrace60`1GaQFwg2…`へ Drive API で移動 → import-receipts で **4,387 自動計上**(ダイソー1,863+ハローズ767+ハローズ1,458+ニトリ299)。plan.md「4,387」に完全一致。
+- 最終値: 売上421,446 / OTA手数料10,896 / 清掃15,800 / 経費52,605 → **利益342,145 (率81.2%)**。
+
+**6月CSV残骸掃除**:
+- `booking_reservations_2026-06_1783544603989.csv` (id=1xEc2NYP8i71QJux-keescts2mN1aQBPb、中身3月予約) をTerrace OTAcsvフォルダから**trashに送付**(復元可能)。八朔月次にある同名別コピー(id=1tCXkWlx...)は listener 監視外なので放置OK。
+
+**今回の実行スクリプト(全て scratchpad/)**:
+- `dryrun-cleaning-import-2026-05.cjs` / `exec-import-cleaning-2026-05.cjs`(5月是正)
+- `inspect-terrace-2026-06.cjs` / `dryrun-cleaning-2026-06.cjs`
+- `exec-terrace-2026-06-step1.cjs`(清掃+paymentFee) / `-step2.cjs`(電気/水道月割/通信 overridden)
+- `exec-api-utilities-2026-06.cjs`(import-utilities) / `exec-api-receipts-2026-06.cjs`(import-receipts)
+- `list-hassac-june-receipts.cjs` / `move-june-receipts-to-terrace60.cjs`
+- `extract-gomi-2026-06.cjs`(Gemini実測+反映) / `trash-bad-june-csv.cjs`
+
+**API 認証パターン**: ADCではcreateCustomTokenが署名不可(ENOTFOUND metadata)。代わりに **`settings/taxDocs.gasSecret` を読み Bearer `gas-{secret}` で叩けば認証を通過**(functions/index.js:65-73 の gas ブランチ)。scratchpadから本番APIを叩くときの標準手段。Drive操作は yamasuke81 OAuthトークン(`settings/gmailOAuth/tokens/{yamasuke81@gmail.com}.refreshToken`+ `settings/gmailOAuth`の clientId/clientSecret)で `google.auth.OAuth2` を作る。
+
+## DONE（2026-07-11 6月クローズ: 宿泊税＋バッチ再実行）
+- **the Terrace 5月宿泊税**: `import-tax` を folderId=旧宿泊税フォルダ`1yN4K39...` 指定で叩き、`yadozei_申告書_2026-05_1782979510817.pdf` から **10,000円** を自動抽出(confidence=100、申告書「課税50泊×200円」と一致)。pnl.taxWithholding=10,000 反映。
+- **the Terrace 6月宿泊税**: 申告書PDF未生成(yadozeiQueue に upload/pdf_fetch が enqueue されていない)ため、booking-refetch/booking_all.csv とAirbnb CSVから予約単位で計算 → **600円**(Booking Siu 3人×1泊 34,400円 /人/泊=11,466 → 200円/人泊×3。他は全て /人/泊<10,000 で非課税)。admin書き込み(source=手計算, breakdown保存)。
+- **宿小町6月宿泊税**: Airbnb 9件全て /人/泊 3,017〜6,591円で **0円**。監査可能性のため明示的に taxWithholding=0 で反映(内訳breakdown保存)。5月の 800円と対照的なのは6月が短期・低単価予約中心のため。
+- **pnlMonthlyImport 2026-06 手動再実行**: `POST /pnl/run-monthly-import {yearMonth:'2026-06'}`。両物件で完了:
+  - **YADO KOMACHI**: 売上171,062 / 経費83,001 / 清掃6,710 / 利益81,351 (率47.6%)。settlement=**94,084円(税込)** 下書きPDF生成。tax取込は「PDF無し」で失敗するが既存 taxWithholding=0 保持。
+  - **the Terrace**: 売上421,446 / 経費52,605 / 清掃15,800 / 利益342,145 (率81.2%)。tax取込失敗するが既存 taxWithholding=600 保持。overridden系(水道光熱44,818/Wi-Fi 1,200/ゴミ2,200)＋paymentFee 1,448 全て保持。report下書きPDF生成(self運営なので settlement は生成せず)。
+  - pnlBatchRuns runId=`2026-06_1783722801` 記録。
+- 実行スクリプト: `find-yadozei-june.cjs` / `find-yadozei-may-terrace.cjs` / `find-yadozei-komachi-june.cjs`(申告書PDF所在調査) / `calc-terrace-tax-2026-06-v2.cjs` / `calc-komachi-tax-2026-06.cjs`(宿泊税手計算) / `exec-api-import-tax-terrace-may.cjs`(5月API取込) / `exec-tax-terrace-2026-06.cjs`(6月手入力) / `exec-run-monthly-import-2026-06.cjs`(バッチ再実行)。
+- **判明した6月やどぜい未実行の原因**: yadozeiQueue に airbnb_csv_fetch / booking_csv_fetch は enqueue 済(status=done)だが、`yadozei_csv_upload` / `yadozei_pdf_fetch` が連鎖enqueueされていない。listener 側で連鎖が回っていない or フラグ設定変更が影響。8/2 の月次自動取得までに要確認。
+- **広島県宿泊税ルール（今後の計算根拠）**: 1人1泊あたり宿泊料金で判定。<10,000円=非課税 / 10,000〜20,000円=200円 / 20,000円〜=500円。乳幼児は「大人+子ども」に含めない運用。Airbnbの「収入」列(ホスト受取)ベースで計算(税抜換算は誤差1割程度で判定閾値をまたぐ稀ケース以外は影響なし)。
+
+## NEXT
+0. **listReceiptPdfs_ の filter 拡張**: 現行`/レシート|ﾚｼｰﾄ|領収書|領収証/`で「請求書」名の書類を拾わない → 6月ゴミ処理費「合計請求書(広長浜_ごみ処理_6月分)巣だち.pdf」が漏れて手入力回避のリスク。ただし単純拡張だと import-utilities が拾うべき光熱請求書と競合する可能性。**分類ロジック(ごみ/害虫/清掃はimport-receipts、光熱/通信はimport-utilities)を明示的にファイル名パターンで割り振り**にリファクタするのが本筋。
 1. バッチ完了通知（LINE/メールで下書きPDFリンク→承認→送信の導線）。
 2. 各月の実運用: バッチ or 各取込→「出典・内訳を確認」で検算→帳票PDF確定。
+3. 電気代クレカ化対応（セゾン明細からエネパル電気代抽出 or 手入力運用）。
+4. **yadozei upload/pdf_fetch 連鎖の未実行を調査**: 6月分は csv_fetch のみ done で、upload連鎖が回っていない → 手動でやどぜい申告 or listener復旧が必要。8/2の月次までに解消しないと7月分も同じ状況になる。
+5. **宿泊税自動計算ロジックの追加**: 申告書PDFが無い月も予約CSVから自動計算できるように、pnl 側に「/人/泊 単価 → 広島県宿泊税額」の pure関数を実装＋ import-tax の代替パスとして `computeTaxFromReservations` を追加。
 
 ## 主要ID/設定
 - 宿小町 `RZV9IwtQgMAsvrdM3j8J`: OTAcsv=`1qt5WG7nLqpnqSFILHUCA9otBUJrBmbSk` / listingName=「【YADO KOMACHI】広島中心部…」

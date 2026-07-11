@@ -95,13 +95,24 @@ async function run(db, yearMonth, opts = {}) {
         const errs = Object.entries(s).filter(([, v]) => v && v.error).map(([k]) => k);
         return `【${r.property}】売上${yen(s.ota && s.ota.売上)}\n${links.join("\n") || "　（下書きなし）"}${errs.length ? `\n　⚠️未取得: ${errs.join("/")}` : ""}`;
       }).join("\n\n");
-      const body = `📊 ${yearMonth}分 月次収支の下書きが完成しました。\n\n${blocks}\n\n内容を確認し問題なければ送付してください。収支画面の「出典・内訳を確認」で金額と出典を検算できます。`;
+      const approvalUrl = await resolveApprovalUrl_(db, runId);
+      const body = `📊 ${yearMonth}分 月次収支の下書きが完成しました。\n\n${blocks}\n\n▼承認ページ(内容確認→承認/却下)\n${approvalUrl}\n\n収支画面の「出典・内訳を確認」でも金額と出典を検算できます。`;
       await notifyOwner(db, "pnl_batch", "月次収支 下書き完成", body);
     } catch (e) {
       console.warn("[pnlMonthlyImport] 通知失敗:", e.message);
     }
   }
   return { yearMonth, runId, results };
+}
+
+/** settings/notifications.appUrl を元に承認画面URLを組み立てる(LINE内蔵ブラウザ回避付き) */
+async function resolveApprovalUrl_(db, runId) {
+  let base = "https://v2-5-relay.web.app";
+  try {
+    const s = await db.collection("settings").doc("notifications").get();
+    if (s.exists && s.data().appUrl) base = String(s.data().appUrl).replace(/\/+$/, "");
+  } catch (_) { /* 既定を使う */ }
+  return `${base}/pnl-approval.html?openExternalBrowser=1#runId=${encodeURIComponent(runId)}`;
 }
 
 // Cloud Scheduler 用ハンドラ(前月分・オーナー通知あり)

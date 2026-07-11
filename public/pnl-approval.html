@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>月次収支 承認</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <style>
+    body { padding: 12px; background: #f7f7fa; }
+    .card { margin-bottom: 12px; }
+    .step-ok { color: #198754; }
+    .step-err { color: #dc3545; }
+    .link-btn { display: inline-block; margin: 4px 4px 4px 0; }
+    #status-badge { font-size: .9rem; }
+    .muted { color: #6c757d; font-size: .875rem; }
+  </style>
+</head>
+<body>
+  <div class="container-fluid" style="max-width: 900px">
+    <h5 class="mb-3">📊 月次収支 承認</h5>
+    <div id="loading">読込中...</div>
+    <div id="error" class="alert alert-danger d-none"></div>
+
+    <div id="main" class="d-none">
+      <div class="card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div><strong id="ym"></strong> 分 のバッチ結果</div>
+              <div class="muted" id="run-meta"></div>
+            </div>
+            <div><span id="status-badge" class="badge bg-secondary">未処理</span></div>
+          </div>
+        </div>
+      </div>
+      <div id="results"></div>
+
+      <div class="card">
+        <div class="card-body">
+          <div class="mb-2">
+            <label class="form-label small mb-1">コメント/理由(任意→却下時は必須)</label>
+            <textarea id="comment" class="form-control" rows="3" placeholder="例: 内容確認しました。八朔へ送付お願いします。"></textarea>
+          </div>
+          <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+            <button id="btn-approve" class="btn btn-success">承認して送付準備</button>
+            <button id="btn-reject" class="btn btn-outline-danger">却下</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/firebase-config.js?v=v0711c"></script>
+  <script>
+    (function() {
+      const params = new URLSearchParams(location.hash.replace(/^#/, ""));
+      const runId = params.get("runId");
+      const API = "https://api-5qrfx7ujcq-an.a.run.app";
+      const els = {
+        loading: document.getElementById("loading"),
+        error: document.getElementById("error"),
+        main: document.getElementById("main"),
+        ym: document.getElementById("ym"),
+        meta: document.getElementById("run-meta"),
+        badge: document.getElementById("status-badge"),
+        results: document.getElementById("results"),
+        comment: document.getElementById("comment"),
+        approve: document.getElementById("btn-approve"),
+        reject: document.getElementById("btn-reject"),
+      };
+      function showError(msg) { els.error.textContent = msg; els.error.classList.remove("d-none"); els.loading.classList.add("d-none"); }
+      function fmtDate(v) {
+        if (!v) return "-";
+        try { const d = v._seconds ? new Date(v._seconds * 1000) : new Date(v); return d.toLocaleString("ja-JP"); } catch { return String(v); }
+      }
+      function yen(n) { return n != null ? "¥" + Number(n).toLocaleString("ja-JP") : "-"; }
+
+      async function getIdToken() {
+        return new Promise((resolve, reject) => {
+          firebase.auth().onAuthStateChanged(async (u) => {
+            if (!u) return resolve(null);
+            try { resolve(await u.getIdToken()); } catch (e) { reject(e); }
+          });
+        });
+      }
+      async function api(method, path, body) {
+        const token = await getIdToken();
+        if (!token) throw new Error("ログインが必要です。/#/login を開いてから再度この画面を開いてください。");
+        const r = await fetch(`${API}${path}`, {
+          method,
+          headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+        return j;
+      }
+
+      async function load() {
+        if (!runId) return showError("runId が指定されていません");
+        try {
+          const data = await api("GET", `/pnl/batch-runs/${runId}`);
+          els.ym.textContent = data.yearMonth;
+          els.meta.textContent = `runId: ${runId} / 実行: ${fmtDate(data.ranAt)}`;
+          if (data.approvedAt) { els.badge.textContent = "承認済"; els.badge.className = "badge bg-success"; els.approve.disabled = true; els.reject.disabled = true; }
+          else if (data.rejectedAt) { els.badge.textContent = "却下"; els.badge.className = "badge bg-danger"; els.approve.disabled = true; els.reject.disabled = true; }
+          const html = (data.results || []).map(function(r) {
+            const s = r.steps || {};
+            const steps = Object.keys(s).map(function(k) {
+              const v = s[k];
+              if (!v) return "";
+              const err = v.error ? `<span class="step-err">❌ ${k}: ${v.error}</span>` : `<span class="step-ok">✓ ${k}</span>`;
+              return `<li>${err}</li>`;
+            }).join("");
+            const reportLink = s.report && s.report.url ? `<a class="btn btn-sm btn-outline-primary link-btn" target="_blank" href="${s.report.url}">📄 月次業務報告書</a>` : "";
+            const setLink = s.settlement && s.settlement.url ? `<a class="btn btn-sm btn-outline-primary link-btn" target="_blank" href="${s.settlement.url}">🧾 精算書兼請求書 (${yen(s.settlement.請求額)})</a>` : "";
+            return `<div class="card"><div class="card-body">
+              <div class="fw-bold mb-2">${r.property}</div>
+              <div class="mb-2">${reportLink}${setLink}</div>
+              <ul class="mb-0 small">${steps}</ul>
+            </div></div>`;
+          }).join("");
+          els.results.innerHTML = html;
+          els.loading.classList.add("d-none");
+          els.main.classList.remove("d-none");
+        } catch (e) { showError(e.message); }
+      }
+
+      els.approve.addEventListener("click", async function() {
+        if (!confirm("承認します。送付準備完了の記録がつきます。よろしいですか？")) return;
+        try {
+          await api("POST", `/pnl/batch-runs/${runId}/approve`, { comment: els.comment.value || null });
+          location.reload();
+        } catch (e) { alert("承認失敗: " + e.message); }
+      });
+      els.reject.addEventListener("click", async function() {
+        const reason = els.comment.value.trim();
+        if (!reason) { alert("却下理由を上のコメント欄に入力してください"); return; }
+        if (!confirm("却下します。修正が必要な旨を記録します。よろしいですか？")) return;
+        try {
+          await api("POST", `/pnl/batch-runs/${runId}/reject`, { reason });
+          location.reload();
+        } catch (e) { alert("却下失敗: " + e.message); }
+      });
+
+      load();
+    })();
+  </script>
+</body>
+</html>

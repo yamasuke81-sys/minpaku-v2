@@ -179,6 +179,119 @@ function computePnl(data, categories) {
   };
 }
 
+/**
+ * 清掃請求(invoice)から、指定物件に帰属する清掃費を算出する。
+ * - 単一物件(or byProperty無し)の請求は total(基本給・交通費等の共通手当込み)を全額計上。
+ * - 複数物件をまとめた請求は、当該物件の byProperty.total + 共通手当(基本給等)を shiftCount 比で按分。
+ */
+function cleaningAmountForProperty(inv, propertyId) {
+  const bp = inv && inv.byProperty && typeof inv.byProperty === "object" ? inv.byProperty : null;
+  const pids = bp ? Object.keys(bp) : [];
+  if (pids.length <= 1) return toInt(inv && inv.total);
+  const thisTotal = toInt(bp[propertyId] && bp[propertyId].total);
+  const sumProps = pids.reduce((s, k) => s + toInt(bp[k].total), 0);
+  const common = Math.max(0, toInt(inv.total) - sumProps); // 基本給・交通費等(物件横断)
+  const thisShift = toInt(bp[propertyId] && bp[propertyId].shiftCount);
+  const sumShift = pids.reduce((s, k) => s + toInt(bp[k].shiftCount), 0);
+  const commonShare = sumShift > 0 ? Math.round(common * thisShift / sumShift) : 0;
+  return thisTotal + commonShare;
+}
+
+/**
+ * ファイル名から経費費目と、その費目を扱う取込ルート(scope)を決定する(pure)。
+ *
+ * scope:
+ *   "receipts"  → import-receipts が担当(店舗レシート・領収書・単発請求書。ごみ/清掃/消耗品/修繕/害虫/広告)
+ *   "utilities" → import-utilities が担当(公共料金・通信の月次請求書。光熱/通信/固定電話)
+ *   null        → 経費対象外(通帳・出資金/配当・カード明細・契約金など、費目に紐付かないもの)
+ *
+ * 判定はファイル名内の「(タグ_日本語)」括弧内タグを優先し、括弧なしなら全体名で判定する。
+ * ルールは上から順に適用(先勝ち)。
+ *
+ * 使う側:
+ *   - listReceiptPdfs_ で scope==="receipts" のPDFのみを import-receipts に流す
+ *   - import-utilities は driveUtilitiesFolder 配下のサブフォルダ名で光熱/通信を判定するので直接は使わないが、
+ *     将来「Drive一箇所にすべて入れて自動仕分け」する場合の共通判定として活用可能。
+ *
+ * @param {string} name ファイル名(拡張子含んでよい)
+ * @returns {{scope:"receipts"|"utilities"|null, category:string|null}}
+ */
+function classifyExpenseByName_(name) {
+  const paren = String(name).match(/[(（]([^)）]+)[)）]/);
+  const tag = paren ? paren[1] : String(name);
+  // 明確に「経費対象外」の書類キーワード(通帳・配当・契約金・カード明細等)
+  if (/通帳|配当金|残高通知|振込明細|カードご利用明細|契約金|地震保険|届出|通知書\b/.test(tag)) {
+    return { scope: null, category: null };
+  }
+  const rules = [
+    // utilities系(公共料金・通信の月次請求書は import-utilities で拾う)
+    [/光熱|電気|水道|ガス|プロパンガス/, "utilities", "水道光熱費"],
+    [/通信費|wi-?fi|ネット|インターネット/i, "utilities", "Wi-Fi・通信費"],
+    [/固定電話|電話料金/, "utilities", "固定電話"],
+    // receipts系(店舗レシート・領収書・単発請求書)
+    [/クリーニング|リネン|洗濯/, "receipts", "リネン・クリーニング"],
+    [/ごみ|ゴミ|廃棄/, "receipts", "ゴミ処理費"],
+    [/害虫|駆除|防虫/, "receipts", "害虫駆除費"],
+    [/修繕|電球|工具|金物|部品|DIY/, "receipts", "小修繕費"],
+    [/広告|宣伝|撮影/, "receipts", "広告宣伝費"],
+    [/消耗品|日用品|雑貨|備品|アメニティ|文具/, "receipts", "消耗品費"],
+  ];
+  for (const [re, scope, category] of rules) if (re.test(tag)) return { scope, category };
+  return { scope: null, category: null };
+}
+
+/**
+ * 広島県宿泊税(呉市・広島市共通)の1人1泊あたり税額。
+ * 素泊まり相当の宿泊料金(1人1泊)で判定:
+ *   - < 10,000円 = 非課税(0円)
+ *   - 10,000円 以上 20,000円未満 = 200円
+ *   - 20,000円 以上 = 500円
+ * 課税基準は「宿泊料金(税抜)」だがAirbnb/Bookingは税込表示のケースがあり、閾値をまたぐ稀例外は
+ *  導入運用でユーザーが確認する。
+ */
+function hiroshimaTaxPerPersonPerNight(perPersonPerNightYen) {
+  const v = Number(perPersonPerNightYen) || 0;
+  if (v < 10000) return 0;
+  if (v < 20000) return 200;
+  return 500;
+}
+
+/**
+ * 予約リストから宿泊税額を集計する(pure関数)。
+ * 乳幼児(infants)は課税対象外として「大人+子ども」で人数を数える。
+ * キャンセル済みは reservations 側で除外して渡す(この関数はステータス判定しない)。
+ *
+ * @param {Array<{nights:number, adult:number, child?:number, infant?:number, income:number}>} reservations
+ * @param {(perPPN:number)=>number} taxFn 税額関数(既定=広島県)
+ * @returns {{totalTax:number, totalPersonNights:number, taxablePersonNights:number, details:Array}}
+ */
+function computeAccommodationTax(reservations, taxFn) {
+  const fn = typeof taxFn === "function" ? taxFn : hiroshimaTaxPerPersonPerNight;
+  let totalTax = 0, totalPN = 0, taxablePN = 0;
+  const details = [];
+  for (const r of (reservations || [])) {
+    const nights = toInt(r && r.nights);
+    const adult = toInt(r && r.adult);
+    const child = toInt(r && r.child);
+    const infant = toInt(r && r.infant);
+    const guests = adult + child;
+    const income = toInt(r && r.income);
+    if (nights <= 0 || guests <= 0) {
+      details.push({ ...r, personNights: 0, perPPN: 0, tax: 0, subTotal: 0, skipped: "泊数or人数0" });
+      continue;
+    }
+    const perPPN = income / nights / guests;
+    const tax = fn(perPPN);
+    const pn = nights * guests;
+    totalPN += pn;
+    if (tax > 0) taxablePN += pn;
+    const subTotal = tax * pn;
+    totalTax += subTotal;
+    details.push({ ...r, personNights: pn, perPPN: Math.round(perPPN), tax, subTotal, infant });
+  }
+  return { totalTax, totalPersonNights: totalPN, taxablePersonNights: taxablePN, details };
+}
+
 module.exports = {
   toInt,
   normLoose,
@@ -186,4 +299,8 @@ module.exports = {
   resolvePropertyForDoc,
   applyExpenses,
   computePnl,
+  cleaningAmountForProperty,
+  classifyExpenseByName_,
+  hiroshimaTaxPerPersonPerNight,
+  computeAccommodationTax,
 };

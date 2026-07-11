@@ -236,12 +236,98 @@ function computeDepositAmount(revenue) {
   return { depositAirbnb, depositBooking, depositAmount: depositAirbnb + depositBooking };
 }
 
+/**
+ * Airbnb 予約CSVを予約単位で抽出する(宿泊税計算などのため)。
+ * 各予約: { nights, adult, child, infant, income, name }
+ * キャンセルは除外。listingName 指定時は絞り込み。
+ */
+function extractAirbnbReservations(text, opts = {}) {
+  const rows = parseCsv(text);
+  if (rows.length < 2) return [];
+  const h = headerIndex(rows[0]);
+  const iStatus = h["ステータス"], iName = h["ゲスト名"];
+  const iAdult = h["大人の人数"], iChild = h["子どもの人数"], iInfant = h["乳幼児の人数"];
+  const iNights = h["宿泊日数"], iIncome = h["収入"], iListing = h["リスティング"];
+  const wantListing = opts.listingName ? normLoose(opts.listingName) : "";
+  const out = [];
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.length < 2) continue;
+    const status = String(row[iStatus] || "");
+    if (status.includes("キャンセル")) continue;
+    if (wantListing && iListing != null) {
+      const ln = normLoose(row[iListing]);
+      if (ln && !(ln === wantListing || ln.includes(wantListing) || wantListing.includes(ln))) continue;
+    }
+    const income = parseYen(row[iIncome]);
+    if (income <= 0) continue;
+    out.push({
+      name: String(row[iName] || ""),
+      nights: parseYen(row[iNights]),
+      adult: parseYen(row[iAdult]),
+      child: parseYen(row[iChild]),
+      infant: parseYen(row[iInfant]),
+      income,
+    });
+  }
+  return out;
+}
+
+/**
+ * Booking.com 予約CSVを予約単位で抽出する(宿泊税計算などのため)。
+ * 各予約: { nights, adult, child, infant, income, name }
+ * 「子供の年齢」から乳幼児(0-5歳)を判別して child/infant に分ける(6歳以上は子ども扱い、0-5歳は乳幼児扱い)。
+ * status "ok" 以外は除外。
+ */
+function extractBookingReservations(text) {
+  const rows = parseCsv(text);
+  if (rows.length < 2) return [];
+  const h = headerIndex(rows[0]);
+  const iStatus = h["ステータス"], iName = h["宿泊者氏名"] != null ? h["宿泊者氏名"] : h["予約者名"];
+  const iAdult = h["大人"], iChild = h["子供"], iChildAges = h["子供の年齢"];
+  const iAmount = h["料金"];
+  let iNights = h["滞在期間（泊数）"];
+  if (iNights == null) iNights = h["滞在期間(泊数)"];
+
+  const out = [];
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.length < 2) continue;
+    const status = String(row[iStatus] || "").trim().toLowerCase();
+    if (status !== "ok") continue;
+    const income = parseYen(row[iAmount]);
+    if (income <= 0) continue;
+    const adult = parseYen(row[iAdult]);
+    const childRaw = parseYen(row[iChild]);
+    // 子供の年齢 (例 "10, 12") から 0-5歳を infant、6歳以上を child に分割
+    let infant = 0, child = childRaw;
+    if (iChildAges != null && childRaw > 0) {
+      const ages = String(row[iChildAges] || "")
+        .split(/[,、\s]+/)
+        .map((s) => Number(s.trim()))
+        .filter((n) => Number.isFinite(n));
+      if (ages.length) {
+        infant = ages.filter((a) => a <= 5).length;
+        child = Math.max(0, childRaw - infant);
+      }
+    }
+    out.push({
+      name: String(row[iName] || ""),
+      nights: iNights != null ? parseYen(row[iNights]) : 1,
+      adult, child, infant, income,
+    });
+  }
+  return out;
+}
+
 module.exports = {
   parseCsv,
   parseYen,
   normLoose,
   sumAirbnbCsv,
   sumBookingCsv,
+  extractAirbnbReservations,
+  extractBookingReservations,
   computeSettlement,
   OPERATION_MODES,
   resolveOperationMode,

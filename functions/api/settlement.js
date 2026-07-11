@@ -18,9 +18,10 @@ const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { computePnl } = require("./pnl-logic");
+const { computePnl, computeAccommodationTax } = require("./pnl-logic");
 const {
   computeSettlement, computeDepositAmount, effectiveFeeRatePct, resolveOperationMode, isAgencyMode,
+  extractAirbnbReservations, extractBookingReservations,
 } = require("./ota-csv-logic");
 
 // ---- フォント(invoices.js と同方針) ----
@@ -396,7 +397,51 @@ module.exports = function settlementApi(db) {
         const pdfs = (r.data.files || []).filter((f) => /\.pdf$/i.test(f.name));
         if (pdfs.length) { file = pdfs[0]; break; }
       }
-      if (!file) return res.status(404).json({ error: `${yearMonth} のやどぜい月計表/申告書PDFが見つかりません` });
+      if (!file) {
+        // フォールバック: 予約CSV(Airbnb/Booking)から広島県宿泊税を自動計算
+        const listingName = (propSnap.data().yadozei?.airbnb?.listingName || propSnap.data().airbnbListingName || "");
+        const found = await findOtaCsvsForMonth_(drive, folderId, yearMonth);
+        if (!found.airbnb && !found.booking) {
+          return res.status(404).json({ error: `${yearMonth} のやどぜい申告書PDFも予約CSVも見つかりません` });
+        }
+        const items = [];
+        if (found.airbnb) {
+          const text = Buffer.from((await drive.files.get({ fileId: found.airbnb.id, alt: "media", supportsAllDrives: true }, { responseType: "arraybuffer" })).data).toString("utf8");
+          const rs = extractAirbnbReservations(text, { listingName });
+          items.push({ source: "airbnb", fileName: found.airbnb.name, fileId: found.airbnb.id, reservations: rs });
+        }
+        if (found.booking) {
+          const text = Buffer.from((await drive.files.get({ fileId: found.booking.id, alt: "media", supportsAllDrives: true }, { responseType: "arraybuffer" })).data).toString("utf8");
+          const rs = extractBookingReservations(text);
+          items.push({ source: "booking", fileName: found.booking.name, fileId: found.booking.id, reservations: rs });
+        }
+        const allReservations = items.flatMap((it) => it.reservations);
+        const r = computeAccommodationTax(allReservations);
+        await pnlCol.doc(`${propertyId}_${yearMonth}`).set({
+          propertyId, yearMonth,
+          taxWithholding: r.totalTax,
+          taxWithholdingSource: `予約CSVから自動計算(${items.map((it) => it.source).join("+")})`,
+          taxWithholdingBreakdown: {
+            method: "computed_from_reservations",
+            formula: "広島県宿泊税: /人/泊<10000=非課税, 10000〜20000=200円, 20000〜=500円",
+            byOta: items.map((it) => ({
+              source: it.source, fileName: it.fileName, fileId: it.fileId,
+              reservationCount: it.reservations.length,
+              tax: computeAccommodationTax(it.reservations).totalTax,
+            })),
+            totalPersonNights: r.totalPersonNights,
+            taxablePersonNights: r.taxablePersonNights,
+          },
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+        return res.json({
+          ok: true, source: "computed",
+          taxWithholding: r.totalTax,
+          totalPersonNights: r.totalPersonNights,
+          taxablePersonNights: r.taxablePersonNights,
+          byOta: items.map((it) => ({ source: it.source, fileName: it.fileName, count: it.reservations.length })),
+        });
+      }
 
       const bin = await drive.files.get({ fileId: file.id, alt: "media", supportsAllDrives: true }, { responseType: "arraybuffer" });
       const pdfBase64 = Buffer.from(bin.data).toString("base64");
@@ -407,12 +452,25 @@ module.exports = function settlementApi(db) {
         { propertyId, yearMonth, taxWithholding: taxAmount, taxWithholdingSource: file.name, taxWithholdingFileId: file.id, updatedAt: FieldValue.serverTimestamp() },
         { merge: true });
 
-      res.json({ ok: true, taxWithholding: taxAmount, confidence: parsed.confidence, sourceFile: file.name, link: `https://drive.google.com/file/d/${file.id}/view` });
+      res.json({ ok: true, source: "pdf", taxWithholding: taxAmount, confidence: parsed.confidence, sourceFile: file.name, link: `https://drive.google.com/file/d/${file.id}/view` });
     } catch (e) {
       console.error("宿泊税取込エラー:", e);
       res.status(400).json({ error: "宿泊税の取込に失敗しました: " + e.message });
     }
   });
+
+  /** OTAcsvフォルダ配下から指定月の Airbnb/Booking 予約CSVを最新1件ずつ探す */
+  async function findOtaCsvsForMonth_(drive, folderId, yearMonth) {
+    async function findLatest(kw) {
+      const r = await drive.files.list({
+        q: `'${folderId}' in parents and trashed=false and name contains '${kw}' and name contains '${yearMonth}' and mimeType='text/csv'`,
+        fields: "files(id,name,createdTime)", orderBy: "createdTime desc", pageSize: 5,
+        supportsAllDrives: true, includeItemsFromAllDrives: true,
+      });
+      return (r.data.files || [])[0] || null;
+    }
+    return { airbnb: await findLatest("airbnb_reservations"), booking: await findLatest("booking_reservations") };
+  }
 
   // 計算コンテキストのプレビュー(数値確認用・PDF生成なし)
   router.get("/:propertyId/:yearMonth/context", async (req, res) => {

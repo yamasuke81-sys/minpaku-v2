@@ -22,6 +22,8 @@ const {
   resolvePropertyForDoc,
   applyExpenses,
   computePnl,
+  cleaningAmountForProperty,
+  classifyExpenseByName_,
 } = require("./pnl-logic");
 // OTA予約CSV(yadozei保存物)の集計 + 運営形態/実効料率(テスト済モジュール)
 const {
@@ -94,12 +96,13 @@ module.exports = function pnlApi(db) {
       "## 分類 docKind:",
       "- airbnb_monthly : Airbnbの『収入レポート』。月次合計のみで予約明細は無い。",
       "- booking_detail : Booking.comの『お支払い明細』。予約ごとの明細表がある。",
+      "- booking_invoice : Booking.comの『請求書』。コミッション・決済サービスの手数料・未払い額合計のサマリで、予約明細表は無い。",
       "- cleaning_invoice : 清掃スタッフ個人や清掃業者からの『請求書』(請求対象年月と合計金額がある)。",
       "- other : 上記以外。",
       "",
       "## 出力JSON:",
       "{",
-      '  "docKind": "airbnb_monthly|booking_detail|cleaning_invoice|other",',
+      '  "docKind": "airbnb_monthly|booking_detail|booking_invoice|cleaning_invoice|other",',
       '  "yearMonth": "対象年月 YYYY-MM (レポート対象期間/請求対象年月から判定。支払日や生成日ではない)",',
       '  "propertyName": "PDF中に出る物件名/施設名(例: the Terrace 長浜, 広長浜)。無ければ空文字",',
       '  "airbnb": {  // docKind=airbnb_monthly のときのみ',
@@ -116,6 +119,12 @@ module.exports = function pnlApi(db) {
       '    "reservations": [',
       '      { "reservationNumber": "照会番号", "checkIn": "YYYY-MM-DD", "checkOut": "YYYY-MM-DD", "guestName": "宿泊者氏名", "amount": 金額, "commission": コミッション, "paymentFee": 決済サービスの手数料, "netRevenue": 純収益 }',
       "    ]",
+      "  },",
+      '  "bookingInvoice": {  // docKind=booking_invoice のときのみ(請求書サマリ)',
+      '    "grossRevenue": 客室売上(予約の合計金額),',
+      '    "commission": コミッション合計,',
+      '    "paymentFee": 決済サービスの手数料合計,',
+      '    "totalPayable": 未払い額合計',
       "  },",
       '  "cleaning": {  // docKind=cleaning_invoice のときのみ',
       '    "staffName": "請求者(スタッフ/業者)氏名",',
@@ -320,6 +329,71 @@ module.exports = function pnlApi(db) {
     } catch (e) {
       console.error("月料率更新エラー:", e);
       res.status(400).json({ error: "月料率の更新に失敗しました: " + e.message });
+    }
+  });
+
+  // ========================================================
+  // バッチ結果の承認/却下(下書きPDF→送付前の人間承認ゲート)
+  // ※ /:propertyId/:yearMonth より前に定義する(そちらが "batch-runs" propertyIdとして誤マッチするため)
+  // ========================================================
+
+  // GET /batch-runs/:runId — 承認画面で表示するため runId の内容を返す
+  router.get("/batch-runs/:runId", async (req, res) => {
+    try {
+      const { runId } = req.params;
+      if (!/^[\w-]+$/.test(runId)) return res.status(400).json({ error: "runId 不正" });
+      const doc = await db.collection("pnlBatchRuns").doc(runId).get();
+      if (!doc.exists) return res.status(404).json({ error: "runId が見つかりません" });
+      res.json({ runId, ...doc.data() });
+    } catch (e) {
+      console.error("batch-run 取得エラー:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /batch-runs/:runId/approve — 承認(送付準備完了)。任意で comment
+  router.post("/batch-runs/:runId/approve", async (req, res) => {
+    try {
+      const { runId } = req.params;
+      const { comment } = req.body || {};
+      const ref = db.collection("pnlBatchRuns").doc(runId);
+      const snap = await ref.get();
+      if (!snap.exists) return res.status(404).json({ error: "runId が見つかりません" });
+      const cur = snap.data();
+      if (cur.approvedAt) return res.status(400).json({ error: "既に承認済みです", approvedAt: cur.approvedAt });
+      if (cur.rejectedAt) return res.status(400).json({ error: "却下済みのため承認できません" });
+      await ref.set({
+        approvedAt: FieldValue.serverTimestamp(),
+        approvedBy: req.user?.email || req.user?.uid || "unknown",
+        approvalComment: comment || null,
+      }, { merge: true });
+      res.json({ ok: true, runId, status: "approved" });
+    } catch (e) {
+      console.error("承認エラー:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /batch-runs/:runId/reject — 却下(reason 必須)
+  router.post("/batch-runs/:runId/reject", async (req, res) => {
+    try {
+      const { runId } = req.params;
+      const { reason } = req.body || {};
+      if (!reason || !String(reason).trim()) return res.status(400).json({ error: "reason(却下理由)は必須です" });
+      const ref = db.collection("pnlBatchRuns").doc(runId);
+      const snap = await ref.get();
+      if (!snap.exists) return res.status(404).json({ error: "runId が見つかりません" });
+      const cur = snap.data();
+      if (cur.approvedAt) return res.status(400).json({ error: "承認済みのため却下できません" });
+      await ref.set({
+        rejectedAt: FieldValue.serverTimestamp(),
+        rejectedBy: req.user?.email || req.user?.uid || "unknown",
+        rejectReason: String(reason).slice(0, 500),
+      }, { merge: true });
+      res.json({ ok: true, runId, status: "rejected" });
+    } catch (e) {
+      console.error("却下エラー:", e);
+      res.status(500).json({ error: e.message });
     }
   });
 
@@ -541,22 +615,11 @@ module.exports = function pnlApi(db) {
   // 領収書PDF(修繕費/消耗品等)取込 → 月×費目に自動計上
   // ========================================================
 
-  // ファイル名から費目名を推定(ユーザーの命名規則「(広長浜_消耗品)」等)。マッチしなければ null
+  // ファイル名から費目名を推定(scope=receipts限定。utilities系や対象外はnull)。
+  // 実体は pnl-logic の classifyExpenseByName_ に委譲 → scope フィルタで receipts のみ返す。
   function guessCategoryFromName_(name) {
-    const paren = String(name).match(/[(（]([^)）]+)[)）]/);
-    const tag = paren ? paren[1] : String(name);
-    const rules = [
-      [/クリーニング|リネン|洗濯/, "リネン・クリーニング"],
-      [/ごみ|ゴミ|廃棄/, "ゴミ処理費"],
-      [/害虫|駆除|防虫/, "害虫駆除費"],
-      [/修繕|電球|工具|金物|部品|DIY/, "小修繕費"],
-      [/光熱|電気|水道|ガス/, "水道光熱費"],
-      [/広告|宣伝|撮影/, "広告宣伝費"],
-      [/通信|wi-?fi|ネット/i, "Wi-Fi・通信費"],
-      [/消耗品|日用品|雑貨|備品|アメニティ|文具/, "消耗品費"],
-    ];
-    for (const [re, cat] of rules) if (re.test(tag)) return cat;
-    return null;
+    const c = classifyExpenseByName_(name);
+    return c.scope === "receipts" ? c.category : null;
   }
 
   // ファイル名先頭の YYMMDD → "YYYY-MM"(20YY想定)。取れなければ null
@@ -586,7 +649,10 @@ module.exports = function pnlApi(db) {
     return JSON.parse(m[0]);
   }
 
-  // 指定フォルダ(+直下サブフォルダ1階層)から領収書らしいPDFを集める
+  // 指定フォルダ(+直下サブフォルダ1階層)から「経費レシート系」PDFを集める。
+  // 対象: レシート/領収書/請求書/合計請求書 (「合計請求書(...ごみ処理...)」のような書類名も含む)
+  // 除外: 光熱/通信/固定電話 の請求書(scope=utilities は import-utilities 側で処理される)
+  //       通帳・配当・カード明細・契約金・届出などの費目対象外書類(scope=null)
   async function listReceiptPdfs_(drive, folderId) {
     const out = [];
     const rootRes = await drive.files.list({
@@ -594,16 +660,19 @@ module.exports = function pnlApi(db) {
       fields: "files(id,name,mimeType)", pageSize: 500, supportsAllDrives: true, includeItemsFromAllDrives: true,
     });
     const rootFiles = rootRes.data.files || [];
-    const isReceipt = (n) => /レシート|ﾚｼｰﾄ|領収書|領収証/.test(n) && /\.pdf$/i.test(n);
-    for (const f of rootFiles) if (f.mimeType === "application/pdf" && isReceipt(f.name)) out.push(f);
-    // 直下サブフォルダも1階層だけ探索(「57 巣だち(ごみ処理)」等)
+    // 名前パターン: レシート/領収書/請求書(合計請求書含む)/納品書。拡張子.pdf。
+    const looksLikeExpense = (n) => /レシート|ﾚｼｰﾄ|領収書|領収証|請求書|納品書/.test(n) && /\.pdf$/i.test(n);
+    // classify で scope==="receipts" のみ採用(光熱/通信の請求書は除外)
+    const belongsToReceipts = (n) => classifyExpenseByName_(n).scope === "receipts";
+    const pick = (f) => f.mimeType === "application/pdf" && looksLikeExpense(f.name) && belongsToReceipts(f.name);
+    for (const f of rootFiles) if (pick(f)) out.push(f);
     const subs = rootFiles.filter((f) => f.mimeType === "application/vnd.google-apps.folder");
     for (const sub of subs) {
       const r = await drive.files.list({
         q: `'${sub.id}' in parents and trashed=false and mimeType='application/pdf'`,
         fields: "files(id,name,mimeType)", pageSize: 500, supportsAllDrives: true, includeItemsFromAllDrives: true,
       });
-      for (const f of (r.data.files || [])) if (isReceipt(f.name)) out.push(f);
+      for (const f of (r.data.files || [])) if (pick(f)) out.push(f);
     }
     return out;
   }
@@ -856,16 +925,21 @@ module.exports = function pnlApi(db) {
         const inv = { id: d.id, ...d.data() };
         if (inv.yearMonth !== yearMonth) return;
         if ((inv.status || "") === "draft") return;
+        if (inv.voided === true) return; // 取消済み(無効化)請求は計上しない
         const key = inv.staffId || inv.staffName || d.id;
         const cur = pick[key];
         const r = rank[inv.status] || 0;
         if (!cur || r > (rank[cur.status] || 0) || (r === (rank[cur.status] || 0) && toInt(inv.total) > toInt(cur.total))) pick[key] = inv;
       });
       const chosen = Object.values(pick);
+      const chosenIds = new Set(chosen.map((i) => i.id));
 
       const ref = pnlCol.doc(docId_(propertyId, yearMonth));
       const cur = await ref.get();
-      const costs = (cur.exists && Array.isArray(cur.data().cleaningCosts)) ? cur.data().cleaningCosts.slice() : [];
+      let costs = (cur.exists && Array.isArray(cur.data().cleaningCosts)) ? cur.data().cleaningCosts.slice() : [];
+      // 取消済み/消滅した請求(invoice由来)の既存行を除去(手動追加行 source≠invoice は保持)
+      const removedRows = costs.filter((c) => c.source === "invoice" && !chosenIds.has(c.sourceInvoiceId)).length;
+      costs = costs.filter((c) => c.source !== "invoice" || chosenIds.has(c.sourceInvoiceId));
       let added = 0, updated = 0;
       for (const inv of chosen) {
         const idx = costs.findIndex((c) => c.source === "invoice" && c.sourceInvoiceId === inv.id);
@@ -874,7 +948,7 @@ module.exports = function pnlApi(db) {
           source: "invoice",
           staffName: inv.staffName || "",
           staffNameRaw: inv.staffName || "",
-          amount: toInt(inv.total),
+          amount: cleaningAmountForProperty(inv, propertyId),
           count: null,
           excluded: idx >= 0 ? !!costs[idx].excluded : false, // 既存の除外状態は保持
           sourceInvoiceId: inv.id,
@@ -890,8 +964,8 @@ module.exports = function pnlApi(db) {
 
       const categories = await loadCategories_();
       const after = (await ref.get()).data();
-      res.json({ ok: true, yearMonth, invoices: chosen.length, added, updated,
-        rows: chosen.map((i) => ({ staffName: i.staffName, amount: toInt(i.total), status: i.status })),
+      res.json({ ok: true, yearMonth, invoices: chosen.length, added, updated, removed: removedRows,
+        rows: chosen.map((i) => ({ staffName: i.staffName, amount: cleaningAmountForProperty(i, propertyId), status: i.status })),
         computed: computePnl(after, categories) });
     } catch (e) {
       console.error("清掃費取込エラー:", e);
@@ -1054,6 +1128,32 @@ module.exports = function pnlApi(db) {
       };
       batch.set(ref, base, { merge: true });
       await batch.commit();
+      return;
+    }
+
+    if (parsed.docKind === "booking_invoice" && parsed.bookingInvoice) {
+      if (overrides["revenue.booking"]) return; // 手動保護
+      const bi = parsed.bookingInvoice;
+      const existing = (data && data.revenue && data.revenue.booking) || {};
+      // CSV由来の売上/コミッションは保持し、決済手数料を補完する(予約CSVに列が無く取れないため請求書から)。
+      const gross = toInt(existing.grossRevenue) || toInt(bi.grossRevenue);
+      const commission = toInt(existing.commission) || toInt(bi.commission);
+      const paymentFee = toInt(bi.paymentFee);
+      const srcIds = new Set(existing.sourceFileIds || []);
+      srcIds.add(fileId);
+      base.revenue = {
+        booking: {
+          ...existing,
+          grossRevenue: gross,
+          commission,
+          paymentFee,
+          netRevenue: gross - commission - paymentFee, // Booking送金時に手数料も差引く実手取り
+          paymentFeeSourceId: fileId,
+          sourceFileIds: Array.from(srcIds),
+          parsedAt: FieldValue.serverTimestamp(),
+        },
+      };
+      await ref.set(base, { merge: true });
       return;
     }
 

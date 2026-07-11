@@ -3,7 +3,9 @@ const assert = require("node:assert");
 const {
   parseCsv, parseYen, sumAirbnbCsv, sumBookingCsv, computeSettlement,
   resolveOperationMode, isAgencyMode, effectiveFeeRatePct, computeDepositAmount,
+  extractAirbnbReservations, extractBookingReservations,
 } = require("./ota-csv-logic");
+const { computeAccommodationTax } = require("./pnl-logic");
 
 // 実データ(宿小町 2026-05 Airbnb CSV, yadozei保存物)。キャンセル1件(¥0)含む。
 const AIRBNB_KOMACHI_MAY = `"確認コード","ステータス","ゲスト名","連絡先","大人の人数","子どもの人数","乳幼児の人数","開始日","終了日","宿泊日数","予約済み","リスティング","収入"
@@ -137,4 +139,40 @@ test("computeDepositAmount: Airbnb総額 + Booking手取り(net無ければgross
   // netRevenue 無し → gross - commission
   const d3 = computeDepositAmount({ airbnb: {}, booking: { grossRevenue: 100000, commission: 15000 } });
   assert.strictEqual(d3.depositBooking, 85000);
+});
+
+test("extractAirbnbReservations: 宿小町5月CSV → 8件(キャンセル1除外)", () => {
+  const rs = extractAirbnbReservations(AIRBNB_KOMACHI_MAY);
+  assert.strictEqual(rs.length, 8);
+  const marcel = rs.find((r) => r.name === "Marcel Leirer");
+  assert.deepStrictEqual({ adult: marcel.adult, child: marcel.child, infant: marcel.infant, nights: marcel.nights, income: marcel.income },
+    { adult: 2, child: 0, infant: 0, nights: 2, income: 40560 });
+});
+
+test("extractAirbnbReservations + computeAccommodationTax: 宿小町5月 → 800円(plan.md実証値)", () => {
+  const rs = extractAirbnbReservations(AIRBNB_KOMACHI_MAY);
+  const r = computeAccommodationTax(rs);
+  assert.strictEqual(r.totalTax, 800);
+  // Marcel Leirer 2人×2泊×200 = 800円 のみ課税、他は全て /人/泊<10000
+});
+
+test("extractBookingReservations: the Terrace 5月抜粋CSV → 3件(cancelled 1除外)", () => {
+  const rs = extractBookingReservations(BOOKING_TERRACE_MAY);
+  assert.strictEqual(rs.length, 3);
+  const shimizu = rs.find((r) => r.name.includes("shimizu"));
+  // 子供の年齢 "3, 9, 12, 10, 4" → 0-5歳が2名(3,4), 6歳以上が3名(9,12,10)
+  assert.strictEqual(shimizu.adult, 5);
+  assert.strictEqual(shimizu.child, 3);
+  assert.strictEqual(shimizu.infant, 2);
+  assert.strictEqual(shimizu.nights, 2);
+  assert.strictEqual(shimizu.income, 190000);
+});
+
+test("extractBookingReservations + computeAccommodationTax: the Terrace 5月抜粋 → 5,600円", () => {
+  const rs = extractBookingReservations(BOOKING_TERRACE_MAY);
+  const r = computeAccommodationTax(rs);
+  // shimizu: guests=8(大人5+子ども3), /人/泊=190000/2/8=11875 → 200円/人泊×16=3200
+  // Jordaan: guests=2, /人/泊=73600/3/2=12267 → 200円/人泊×6=1200
+  // Fujiwara: guests=6, /人/泊=72000/1/6=12000 → 200円/人泊×6=1200
+  assert.strictEqual(r.totalTax, 5600);
 });

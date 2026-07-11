@@ -13,6 +13,10 @@ const {
   resolvePropertyForDoc,
   applyExpenses,
   computePnl,
+  cleaningAmountForProperty,
+  classifyExpenseByName_,
+  hiroshimaTaxPerPersonPerNight,
+  computeAccommodationTax,
 } = require("./pnl-logic");
 
 describe("toInt", () => {
@@ -236,5 +240,225 @@ describe("computePnl", () => {
     const r = computePnl(data, []);
     assert.strictEqual(r.otaFees, 12613);
     assert.strictEqual(r.profit, 88200 - 12613);
+  });
+});
+
+describe("cleaningAmountForProperty", () => {
+  test("byProperty なし(単一物件) → total 全額(基本給・交通費込み)", () => {
+    const inv = { total: 15500 };
+    assert.strictEqual(cleaningAmountForProperty(inv, "p1"), 15500);
+  });
+
+  test("byProperty が1物件のみ → total 全額", () => {
+    const inv = {
+      total: 20000,
+      byProperty: { p1: { total: 15000, shiftCount: 3 } },
+    };
+    assert.strictEqual(cleaningAmountForProperty(inv, "p1"), 20000);
+  });
+
+  test("複数物件を按分: total30000, P1[10000,5shift]+P2[12000,3shift] → P1=15000/P2=15000 (総額保存)", () => {
+    const inv = {
+      total: 30000,
+      byProperty: {
+        p1: { total: 10000, shiftCount: 5 },
+        p2: { total: 12000, shiftCount: 3 },
+      },
+    };
+    const a = cleaningAmountForProperty(inv, "p1");
+    const b = cleaningAmountForProperty(inv, "p2");
+    assert.strictEqual(a, 15000);
+    assert.strictEqual(b, 15000);
+    assert.strictEqual(a + b, inv.total);
+  });
+
+  test("shiftCount 全0 → commonShare は0(共通手当を按分しない)", () => {
+    const inv = {
+      total: 20000,
+      byProperty: {
+        p1: { total: 10000, shiftCount: 0 },
+        p2: { total: 8000, shiftCount: 0 },
+      },
+    };
+    assert.strictEqual(cleaningAmountForProperty(inv, "p1"), 10000);
+    assert.strictEqual(cleaningAmountForProperty(inv, "p2"), 8000);
+  });
+
+  test("該当物件が byProperty に無い場合は共通手当の按分のみ", () => {
+    const inv = {
+      total: 20000,
+      byProperty: {
+        p1: { total: 8000, shiftCount: 2 },
+        p2: { total: 8000, shiftCount: 2 },
+      },
+    };
+    assert.strictEqual(cleaningAmountForProperty(inv, "pX"), 0);
+  });
+
+  test("¥・カンマ入りの数値も正しく扱う", () => {
+    const inv = {
+      total: "¥30,000",
+      byProperty: {
+        p1: { total: "¥10,000", shiftCount: "5" },
+        p2: { total: "¥12,000", shiftCount: "3" },
+      },
+    };
+    assert.strictEqual(cleaningAmountForProperty(inv, "p1"), 15000);
+  });
+});
+
+describe("hiroshimaTaxPerPersonPerNight", () => {
+  test("10,000円未満は非課税", () => {
+    assert.strictEqual(hiroshimaTaxPerPersonPerNight(0), 0);
+    assert.strictEqual(hiroshimaTaxPerPersonPerNight(9999), 0);
+    assert.strictEqual(hiroshimaTaxPerPersonPerNight(3017), 0);
+  });
+  test("10,000〜19,999円は200円", () => {
+    assert.strictEqual(hiroshimaTaxPerPersonPerNight(10000), 200);
+    assert.strictEqual(hiroshimaTaxPerPersonPerNight(11466), 200);
+    assert.strictEqual(hiroshimaTaxPerPersonPerNight(19999), 200);
+  });
+  test("20,000円以上は500円", () => {
+    assert.strictEqual(hiroshimaTaxPerPersonPerNight(20000), 500);
+    assert.strictEqual(hiroshimaTaxPerPersonPerNight(50000), 500);
+  });
+  test("null/undefined/NaNは0扱い(非課税)", () => {
+    assert.strictEqual(hiroshimaTaxPerPersonPerNight(null), 0);
+    assert.strictEqual(hiroshimaTaxPerPersonPerNight(undefined), 0);
+    assert.strictEqual(hiroshimaTaxPerPersonPerNight(NaN), 0);
+  });
+});
+
+describe("computeAccommodationTax", () => {
+  test("実データ検算: the Terrace 2026-06 Booking Siu 3人×1泊×34,400 → 600円", () => {
+    const r = computeAccommodationTax([
+      { nights: 1, adult: 3, child: 0, infant: 0, income: 34400 },
+    ]);
+    assert.strictEqual(r.totalTax, 600);
+    assert.strictEqual(r.totalPersonNights, 3);
+    assert.strictEqual(r.taxablePersonNights, 3);
+  });
+
+  test("実データ検算: the Terrace 2026-06 Booking Thaler 大人2+子ども2 泊1 28,586 → 非課税(乳幼児無)", () => {
+    const r = computeAccommodationTax([
+      { nights: 1, adult: 2, child: 2, infant: 0, income: 28586 },
+    ]);
+    assert.strictEqual(r.totalTax, 0);
+    assert.strictEqual(r.totalPersonNights, 4);
+    assert.strictEqual(r.taxablePersonNights, 0);
+  });
+
+  test("乳幼児は課税対象外(大人+子どものみで人数計算)", () => {
+    // 大人2, 乳幼児2, 泊2, income=44000 → 44000/2/2=11000 → 200円/人泊×2人×2泊 = 800円
+    // 乳幼児を含めると 44000/2/4=5500円 で非課税になるが、含めない運用
+    const r = computeAccommodationTax([
+      { nights: 2, adult: 2, child: 0, infant: 2, income: 44000 },
+    ]);
+    assert.strictEqual(r.totalTax, 800);
+    assert.strictEqual(r.totalPersonNights, 4); // 2大人×2泊
+  });
+
+  test("複数予約の合計", () => {
+    const r = computeAccommodationTax([
+      { nights: 1, adult: 3, child: 0, infant: 0, income: 34400 }, // Siu: 600円
+      { nights: 1, adult: 2, child: 2, infant: 0, income: 28586 }, // Thaler: 0円
+      { nights: 4, adult: 5, child: 1, infant: 0, income: 153260 }, // Zhang: /人/泊=6386 → 0円
+    ]);
+    assert.strictEqual(r.totalTax, 600);
+  });
+
+  test("実データ検算: 宿小町 2026-06 全予約(9件のうちキャンセル2件除外) → 全て非課税 = 0円", () => {
+    const r = computeAccommodationTax([
+      { nights: 4, adult: 3, income: 37856 },   // /人/泊 = 3155
+      { nights: 2, adult: 3, income: 27040 },   // /人/泊 = 4507
+      { nights: 4, adult: 2, income: 24336 },   // /人/泊 = 3042
+      { nights: 3, adult: 1, income: 19773 },   // /人/泊 = 6591
+      { nights: 4, adult: 2, income: 25857 },   // /人/泊 = 3232
+      { nights: 3, adult: 2, infant: 1, income: 18100 }, // /人/泊 = 3017 (乳幼児除外)
+      { nights: 3, adult: 2, income: 18100 },   // /人/泊 = 3017
+    ]);
+    assert.strictEqual(r.totalTax, 0);
+  });
+
+  test("空配列 → 全ゼロ", () => {
+    const r = computeAccommodationTax([]);
+    assert.strictEqual(r.totalTax, 0);
+    assert.strictEqual(r.totalPersonNights, 0);
+    assert.strictEqual(r.details.length, 0);
+  });
+
+  test("泊数or人数0の予約は subTotal=0 で details に skipped が入る", () => {
+    const r = computeAccommodationTax([
+      { nights: 0, adult: 2, income: 5000 },
+      { nights: 2, adult: 0, income: 5000 },
+    ]);
+    assert.strictEqual(r.totalTax, 0);
+    assert.strictEqual(r.details[0].skipped, "泊数or人数0");
+    assert.strictEqual(r.details[1].skipped, "泊数or人数0");
+  });
+
+  test("カスタム税関数を差し込める(将来他県対応)", () => {
+    const flatTax = () => 100; // 全予約に固定100円
+    const r = computeAccommodationTax(
+      [{ nights: 2, adult: 3, income: 30000 }],
+      flatTax,
+    );
+    assert.strictEqual(r.totalTax, 600); // 100 × 6人泊
+  });
+});
+
+describe("classifyExpenseByName_", () => {
+  test("receipts系: 消耗品/ごみ/害虫/クリーニング/修繕/広告", () => {
+    assert.deepStrictEqual(
+      classifyExpenseByName_("260626 ﾚｼｰﾄ(広長浜_消耗品_備品)ﾀﾞｲｿｰ.pdf"),
+      { scope: "receipts", category: "消耗品費" });
+    assert.deepStrictEqual(
+      classifyExpenseByName_("260630 合計請求書(広長浜_ごみ処理_6月分)巣だち.pdf"),
+      { scope: "receipts", category: "ゴミ処理費" });
+    assert.deepStrictEqual(
+      classifyExpenseByName_("260503 ﾚｼｰﾄ(広長浜_消耗品_電球)エディオン.pdf"),
+      { scope: "receipts", category: "小修繕費" });
+    assert.deepStrictEqual(
+      classifyExpenseByName_("260316 領収書(広長浜_クリーニング代)小柴クリーニング.pdf"),
+      { scope: "receipts", category: "リネン・クリーニング" });
+    assert.deepStrictEqual(
+      classifyExpenseByName_("260601 請求書(害虫駆除_6月分)ペストコントロール.pdf"),
+      { scope: "receipts", category: "害虫駆除費" });
+  });
+
+  test("utilities系: 光熱/通信/固定電話は utilities スコープ(receipts側に混入させない)", () => {
+    assert.deepStrictEqual(
+      classifyExpenseByName_("260615 請求書(広長浜_ガス料金_6月分)伊丹産業.pdf"),
+      { scope: "utilities", category: "水道光熱費" });
+    assert.deepStrictEqual(
+      classifyExpenseByName_("260622 水道使用水量等のお知らせ(広長浜_水道光熱費_4-6月分)呉市上下水道.pdf"),
+      { scope: "utilities", category: "水道光熱費" });
+    assert.deepStrictEqual(
+      classifyExpenseByName_("260622 請求書(小町民泊_通信費_6月分)NTTファイナンス.pdf"),
+      { scope: "utilities", category: "Wi-Fi・通信費" });
+  });
+
+  test("経費対象外: 通帳・配当・カード明細・契約金・届出", () => {
+    assert.deepStrictEqual(
+      classifyExpenseByName_("260630 通帳(八朔事業_海田支店_普通)広島信用金庫.pdf"),
+      { scope: null, category: null });
+    assert.deepStrictEqual(
+      classifyExpenseByName_("260622 配当金支払通知書(兼出資金残高通知書)(出資金配当金)広島商銀.pdf"),
+      { scope: null, category: null });
+    assert.deepStrictEqual(
+      classifyExpenseByName_("260630 カードご利用明細書(オフィスシミズ振込)広島市信用組合.pdf"),
+      { scope: null, category: null });
+    assert.deepStrictEqual(
+      classifyExpenseByName_("260617 請求書(福山駅家_契約金)Office Shimizu.pdf"),
+      { scope: null, category: null });
+    assert.deepStrictEqual(
+      classifyExpenseByName_("260411 地震保険継続証(城之堀_地震保険)東京海上日動.pdf"),
+      { scope: null, category: null });
+  });
+
+  test("マッチしない → null", () => {
+    assert.deepStrictEqual(classifyExpenseByName_("260503 ﾚｼｰﾄ(車両費)両備エネシス.pdf"),
+      { scope: null, category: null });
+    assert.deepStrictEqual(classifyExpenseByName_(""), { scope: null, category: null });
   });
 });
