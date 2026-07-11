@@ -958,7 +958,8 @@ module.exports = function pnlApi(db) {
       const propSnap = await db.collection("properties").doc(propertyId).get();
       if (!propSnap.exists) return res.status(404).json({ error: "物件が見つかりません" });
       const srcFolder = folderId || propSnap.data().driveSaisonFolderId;
-      if (!srcFolder) return res.status(400).json({ error: "セゾンフォルダ(driveSaisonFolderId)が未設定です。folderId を指定するか物件マスタに設定してください" });
+      // 未設定物件(クレカ払い電気を使わない)はエラーでなく skipped=正常扱い(月次バッチで毎回呼ばれるため)
+      if (!srcFolder) return res.json({ ok: true, skipped: "セゾンフォルダ未設定(クレカ払い電気なし)" });
 
       // 明細対象月: 指定なければ yearMonth の翌々月(エネパルタイムラグ)
       function addMonths(ym, n) {
@@ -998,7 +999,11 @@ module.exports = function pnlApi(db) {
         return null;
       }
       const file = await findSaisonPdf();
-      if (!file) return res.status(404).json({ error: `SAISON_${yymm}.pdf が見つかりません(明細対象月=${stmtYm})` });
+      // 明細PDF未着はエラーでなく skipped(2ヶ月先の明細を待つ通常運用。dryRun 時のみ 404 でユーザーに知らせる)
+      if (!file) {
+        if (dryRun) return res.status(404).json({ error: `SAISON_${yymm}.pdf が見つかりません(明細対象月=${stmtYm})` });
+        return res.json({ ok: true, skipped: `SAISON_${yymm}.pdf 未着(明細対象月=${stmtYm})` });
+      }
 
       const bin = await drive.files.get({ fileId: file.id, alt: "media", supportsAllDrives: true }, { responseType: "arraybuffer" });
       const b64 = Buffer.from(bin.data).toString("base64");
