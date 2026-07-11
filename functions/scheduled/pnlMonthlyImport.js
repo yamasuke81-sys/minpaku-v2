@@ -64,11 +64,16 @@ async function run(db, yearMonth, opts = {}) {
       r.steps.cleaning = clean.payload?.ok ? { 請求書: clean.payload.invoices } : { error: clean.payload?.error || `HTTP${clean.code}` };
 
       // 帳票下書き(報告書は全物件=内部用含む、精算書は八朔代行のみ。自社/その他会社は精算書を出さない)
+      // storagePath も同時保存: 都度再署名で7日失効問題を根絶(署名URLは15分有効)
       const rep = await invoke(settlement.cores.generate, params, { kind: "report" });
-      r.steps.report = rep.payload?.ok ? { url: rep.payload.url } : { error: rep.payload?.error || `HTTP${rep.code}` };
+      r.steps.report = rep.payload?.ok
+        ? { url: rep.payload.url, storagePath: rep.payload.storagePath }
+        : { error: rep.payload?.error || `HTTP${rep.code}` };
       if (p.mode === "agency_hassac") {
         const setl = await invoke(settlement.cores.generate, params, { kind: "settlement" });
-        r.steps.settlement = setl.payload?.ok ? { url: setl.payload.url, 請求額: setl.payload.settlement?.feeInclTax } : { error: setl.payload?.error || `HTTP${setl.code}` };
+        r.steps.settlement = setl.payload?.ok
+          ? { url: setl.payload.url, storagePath: setl.payload.storagePath, 請求額: setl.payload.settlement?.feeInclTax }
+          : { error: setl.payload?.error || `HTTP${setl.code}` };
       }
     } catch (e) {
       r.error = e.message;

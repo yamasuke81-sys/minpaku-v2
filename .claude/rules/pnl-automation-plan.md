@@ -187,12 +187,26 @@
 - **#3 電気代クレカ化対応**: セゾン明細PDFから電気料金を抽出→「エネパル/収納代行アプラス/スマートビリング」系のみを絞り込む pure関数 `filterElectricPaymentsForProperty` を実装。エンドポイント `POST /pnl/:pid/:ym/import-credit-card-electric` を追加(the Terrace `driveSaisonFolderId=1f8GiV49afjuTuYuTe77aWT_nGVDA1UYZ` 設定済み)。**明細検索は yearMonth の翌々月分**(エネパル 6月分請求→8月クレカ支払→8月明細)。dryRun でSAISON_2601.pdfを確認: ソフトバンクでんき18,643円を detected、フィルタで adopted=0(別物件のため正しく除外)。**実運用初回稼働は2026-08分明細=SAISON_2608.pdf**が来た時点。8月バッチで自動的にthe Terrace の水道光熱費に加算される想定。creditCardIndex で二重計上防止、水道光熱費が overridden=true なら手動値を保護。
 - **全188テスト緑**(pnl-logic 41件・ota-csv-logic 34件・pricing-logic 43件・その他)。commit `4e9ff84` (feat(pnl): 宿泊税自動計算+承認導線+分類リファクタ+yadozei調査記録)＋次コミット (電気クレカ化) で本番反映済み。
 
+## DONE（2026-07-11 workflow監査結果に基づく critical/high 修正）
+Workflow audit(65エージェント/54 findings→adversarial verify通過27件)で発見した重大バグを一括修正。
+
+- **[critical] 承認画面 pnl-approval.html の Firebase SDK 本体未ロード** → firebase-app-compat.js + firebase-auth-compat.js を追加。同時にXSS対策(全innerHTML補間を escapeHtml/safeHref)、ネイティブ confirm/alert 禁止ルール順守(showConfirm/showAlert 実装)、二重クリック抑止(setBusy)、未ログイン時の /?redirect= リダイレクト、モーダル背景オーバーレイ実装。
+- **[critical] PDF署名エラー `Cannot sign data without client_email` 修正** → getSignedUrl を v4 化 + Cloud Functions Gen2 runtime SA (`418111574543-compute@developer.gserviceaccount.com`) に `roles/iam.serviceAccountTokenCreator` を付与(gcloud iam service-accounts add-iam-policy-binding で SA自身に対して付与)。5月 the Terrace report PDF を実データで再生成成功(revenueGross=671,385 / profit=520,901)。
+- **[high] 承認/却下 endpoint を owner 限定** → pnl.js の approve/reject/GET に `req.user.role !== 'owner'` の403チェックを追加。requireOwnerRole ヘルパー化。
+- **[high] firestore.rules に pnl 系ルール追加** → propertyMonthlyPnL(owner + subOwner 自所有物件のみ read、write は API 経由禁止) / expenseCategories(owner/subOwner read) / pnlBatchRuns(owner限定 read、write禁止)。
+- **[high] PDF署名URL 7日失効問題を根絶** → savePdfToStorage_ の返り値を `{url, storagePath}` に変更、pnlMonthlyImport で storagePath を pnlBatchRuns.results[].steps.{report|settlement}.storagePath に保存。GET /pnl/batch-runs/:runId で毎回 getFreshSignedUrl_(15分有効の v4 署名) で url を差し替え。過去通知のリンクが失効しても再アクセス時に新署名で開ける運用に。
+- 認識訂正: Cloud Scheduler `firebase-schedule-pnlMonthlyImport` は **毎月6日 05:00 JST** (schedule `0 5 6 * *`)。8/2 は yadozei CSV dispatcher の実取得日で pnl バッチではない。
+- 全154テスト緑。
+
 ## NEXT
-1. **8/2の月次自動取得(初回本番稼働)を見届ける**: Cloud Scheduler `firebase-schedule-pnlMonthlyImport` が 2026-08-06 05:00 JST に発火。前月(7月)分をバッチ処理→承認通知が届く。エネパル(the Terrace 8月明細)の自動計上も同時発生。
-2. **Booking.com セッション再ログイン**: `pm2 stop yadozei-listener` → `node yadozei-listener.mjs --login` → 手動ログイン → Ctrl+C → `pm2 start yadozei-listener` を 8/2 前に実施(現在 logged_out)。
-3. **承認画面の Firestore Security Rules 追加**: pnlBatchRuns への read アクセスをオーナー限定に絞る(現状APIは authenticate + 通常ユーザー可)。承認/却下は role="owner" のみに限定するミドルウェアを追加検討。
-4. **各月の実運用サイクルを回す**: バッチ→承認画面で内容確認→approve→送付(現状は手動送付。将来は approve 時に自動送信の導線を検討)。
-5. **税抜換算対応(遅延優先度低)**: 現在は Airbnb「収入」列(ホスト受取)基準で /人/泊 を計算。厳密には税抜料金で判定すべきだが、閾値10,000円をまたぐ稀ケースの誤差程度なので、実運用で問題が出るまで保留。
+1. **8/6 05:00 JST の月次自動バッチ(初回本番稼働)を見届ける**: pnlMonthlyImport が発火→7月分をfullloop→承認通知→やますけが承認画面で確認→approve→送付。エネパル(the Terrace 8月明細)の自動計上も同時。
+2. **Booking.com セッション再ログイン**: 現在 logged_out。手順は memory `project_minpaku_v2_yadozei_csv_auto.md`。8/1深夜までに完了要。
+3. **7月分の Drive 投入(8/2〜8/5 人手)**: Terrace/宿小町 の光熱PDF(007配下)/レシート(60配下)/清掃請求書 を投入。ScanSorter経由で自動振り分けさせる。
+4. **the Terrace 固定費台帳の整備**: workflow audit で「家賃/Wi-Fi通信費/ゴミ処理費/リネン・クリーニング/固定電話 の月額固定費が5月時点で空」を指摘。properties.pnlSettings.monthlyFixedCosts を新設し、pnlMonthlyImport にapplyFixedCosts_ を組込 → 2025-09〜2026-05 バックフィル。※ ただし the Terrace は self運営で家賃なし・Wi-Fi/固定電話は光熱utilities経由で拾える設計なので、実質「ゴミ処理費」の固定化のみで足りる可能性(要確認)。
+5. **importCreditCardElectric を pnlMonthlyImport.run() に組込**: importUtilities 直後に invoke。未設定物件は skipped扱い。8月から自動稼働。
+6. **バッチ通知本文の警告強化**: importOtaCsv error 時に「🚨 売上未取得」を通知先頭に挿入するガード。売上¥0の下書きが黙って届く事故を防止。
+7. **2026-04・2026-03 リカバリ**: pnlBatchRuns に 2026-04/2026-03 の run が無い(workflow audit)。4月/3月分を手動バッチ実行して整備。
+8. **税抜換算対応(遅延優先度低)**: Airbnb「収入」列基準で /人/泊 を計算する現行仕様は、閾値10,000円をまたぐ稀ケースで誤差の可能性。運用で問題が出るまで保留。
 
 ## 主要ID/設定
 - 宿小町 `RZV9IwtQgMAsvrdM3j8J`: OTAcsv=`1qt5WG7nLqpnqSFILHUCA9otBUJrBmbSk` / listingName=「【YADO KOMACHI】広島中心部…」

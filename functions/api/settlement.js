@@ -307,7 +307,10 @@ module.exports = function settlementApi(db) {
     };
   }
 
-  // PDF doc を tmp に書き出して Storage へ保存 → 署名URL
+  // PDF doc を tmp に書き出して Storage へ保存 → {url, storagePath} を返す。
+  // 署名は v4 + iamcredentials.signBlob 経由(Cloud Functions Gen2 の runtime SA が
+  // 自身の client_email を持たないため、v2 の getSignedUrl だと Cannot sign data without client_email エラーになる)。
+  // URL は 15分有効(短命)。保存時に storagePath を Firestore に併記して、GET 時に都度再署名する運用にする。
   async function savePdfToStorage_(doc, destPath) {
     const tmpPath = path.join(os.tmpdir(), `settle_${Date.now()}_${Math.round(Math.random() * 1e6)}.pdf`);
     await new Promise((resolve, reject) => {
@@ -319,10 +322,25 @@ module.exports = function settlementApi(db) {
     });
     const bucket = getStorage().bucket("minpaku-v2.firebasestorage.app");
     await bucket.upload(tmpPath, { destination: destPath, metadata: { contentType: "application/pdf" } });
-    const [url] = await bucket.file(destPath).getSignedUrl({ action: "read", expires: Date.now() + 7 * 24 * 60 * 60 * 1000 });
+    const url = await getFreshSignedUrl_(destPath);
     try { fs.unlinkSync(tmpPath); } catch (_) {}
+    return { url, storagePath: destPath };
+  }
+
+  // 指定 Storage オブジェクトへの15分有効な v4 署名URLを生成する。
+  // runtime SA が signBlob 権限を持っていれば動く(必要ロール: roles/iam.serviceAccountTokenCreator を SA自身に付与)。
+  async function getFreshSignedUrl_(storagePath) {
+    const bucket = getStorage().bucket("minpaku-v2.firebasestorage.app");
+    const [url] = await bucket.file(storagePath).getSignedUrl({
+      action: "read",
+      version: "v4",
+      expires: Date.now() + 15 * 60 * 1000,
+    });
     return url;
   }
+  // 内部: batch-runs GET 側で再署名を呼ぶために公開
+  router.cores = router.cores || {};
+  router.cores.getFreshSignedUrl = getFreshSignedUrl_;
 
   // ── 宿泊税B: やどぜい月計表PDFから自動取込 ──
   // OTAcsvフォルダは yamasuke81 のマイドライブ体系なので OAuth トークンで開く(pnl.js と同方式)
@@ -519,9 +537,9 @@ module.exports = function settlementApi(db) {
 
       const doc = kind === "report" ? renderReportPdf(ctx, font) : renderSettlementPdf(ctx, font);
       const destPath = `settlements/${propertyId}/${yearMonth}_${kind}.pdf`;
-      const url = await savePdfToStorage_(doc, destPath);
+      const { url, storagePath } = await savePdfToStorage_(doc, destPath);
 
-      res.json({ ok: true, kind, url, settlement: ctx.settlement, computed: ctx.computed });
+      res.json({ ok: true, kind, url, storagePath, settlement: ctx.settlement, computed: ctx.computed });
     } catch (e) {
       console.error("帳票生成エラー:", e);
       res.status(400).json({ error: e.message });

@@ -337,23 +337,55 @@ module.exports = function pnlApi(db) {
   // ※ /:propertyId/:yearMonth より前に定義する(そちらが "batch-runs" propertyIdとして誤マッチするため)
   // ========================================================
 
-  // GET /batch-runs/:runId — 承認画面で表示するため runId の内容を返す
+  // GET /batch-runs/:runId — 承認画面で表示するため runId の内容を返す。owner限定。
+  // storagePath が保存されている PDF は都度再署名(15分有効)して url を差し替える。
+  // これにより「通知から時間が経って署名URLが失効する」問題を根絶する。
   router.get("/batch-runs/:runId", async (req, res) => {
     try {
+      if (req.user?.role !== "owner") return res.status(403).json({ error: "承認画面はオーナー限定です" });
       const { runId } = req.params;
       if (!/^[\w-]+$/.test(runId)) return res.status(400).json({ error: "runId 不正" });
       const doc = await db.collection("pnlBatchRuns").doc(runId).get();
       if (!doc.exists) return res.status(404).json({ error: "runId が見つかりません" });
-      res.json({ runId, ...doc.data() });
+      const data = doc.data();
+
+      // 都度再署名: settlement.js の getFreshSignedUrl を借りる(遅延require で循環回避)
+      try {
+        const settlement = require("./settlement")(db);
+        const fresh = settlement.cores?.getFreshSignedUrl;
+        if (fresh && Array.isArray(data.results)) {
+          for (const r of data.results) {
+            for (const kind of ["report", "settlement"]) {
+              const step = r.steps && r.steps[kind];
+              if (step && step.storagePath) {
+                try { step.url = await fresh(step.storagePath); }
+                catch (e) { step.urlError = e.message; }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("再署名モジュール取得失敗:", e.message);
+      }
+
+      res.json({ runId, ...data });
     } catch (e) {
       console.error("batch-run 取得エラー:", e);
       res.status(500).json({ error: e.message });
     }
   });
 
-  // POST /batch-runs/:runId/approve — 承認(送付準備完了)。任意で comment
+  // 承認/却下は物件オーナー(role=owner)限定。sub_owner や staff は不可。
+  function requireOwnerRole(req, res) {
+    if (req.user && req.user.role === "owner") return true;
+    res.status(403).json({ error: "承認/却下は物件オーナー(role=owner)のみ実行できます" });
+    return false;
+  }
+
+  // POST /batch-runs/:runId/approve — 承認(送付準備完了)。任意で comment。owner限定。
   router.post("/batch-runs/:runId/approve", async (req, res) => {
     try {
+      if (!requireOwnerRole(req, res)) return;
       const { runId } = req.params;
       const { comment } = req.body || {};
       const ref = db.collection("pnlBatchRuns").doc(runId);
@@ -374,9 +406,10 @@ module.exports = function pnlApi(db) {
     }
   });
 
-  // POST /batch-runs/:runId/reject — 却下(reason 必須)
+  // POST /batch-runs/:runId/reject — 却下(reason 必須)。owner限定。
   router.post("/batch-runs/:runId/reject", async (req, res) => {
     try {
+      if (!requireOwnerRole(req, res)) return;
       const { runId } = req.params;
       const { reason } = req.body || {};
       if (!reason || !String(reason).trim()) return res.status(400).json({ error: "reason(却下理由)は必須です" });

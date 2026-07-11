@@ -484,5 +484,27 @@ service cloud.firestore {
                             || (isAuthenticated()
                                 && resource.data.createdBy.uid == request.auth.uid);
     }
+
+    // 月次収支 pnl 系 — オーナー限定(サブオーナーは自所有物件のみ read)。書き込みは API 経由のみで直書き禁止。
+    match /propertyMonthlyPnL/{docId} {
+      allow read: if isOwner()
+        || (isSubOwner()
+            && resource != null
+            && resource.data.propertyId is string
+            && resource.data.propertyId in request.auth.token.ownedPropertyIds);
+      allow write: if false; // API(admin SDK)経由でのみ書き込み
+    }
+
+    // 費目マスタ — オーナー閲覧(サブオーナーも読み取りOK、書き込みは API 経由)
+    match /expenseCategories/{catId} {
+      allow read: if isOwner() || isSubOwner();
+      allow write: if false;
+    }
+
+    // バッチ実行結果 — オーナー限定 read(サブオーナー不可)、書き込みは API 経由のみ
+    match /pnlBatchRuns/{runId} {
+      allow read: if isOwner();
+      allow write: if false;
+    }
   }
 }
