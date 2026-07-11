@@ -15,6 +15,7 @@ const {
   computePnl,
   cleaningAmountForProperty,
   classifyExpenseByName_,
+  filterElectricPaymentsForProperty,
   hiroshimaTaxPerPersonPerNight,
   computeAccommodationTax,
 } = require("./pnl-logic");
@@ -460,5 +461,67 @@ describe("classifyExpenseByName_", () => {
     assert.deepStrictEqual(classifyExpenseByName_("260503 ﾚｼｰﾄ(車両費)両備エネシス.pdf"),
       { scope: null, category: null });
     assert.deepStrictEqual(classifyExpenseByName_(""), { scope: null, category: null });
+  });
+});
+
+describe("filterElectricPaymentsForProperty", () => {
+  test("エネパル/収納代行アプラス/スマートビリング は採用", () => {
+    const r = filterElectricPaymentsForProperty([
+      { date: "2026-07-31", description: "エネパル電気料金", amount: 36459, vendor: "エネパル" },
+      { date: "2026-07-31", description: "収納代行アプラス", amount: 15000, vendor: "アプラス" },
+      { date: "2026-07-31", description: "スマートビリング/エネパル", amount: 20000, vendor: "スマートビリング" },
+    ]);
+    assert.strictEqual(r.items.length, 3);
+    assert.strictEqual(r.totalAmount, 36459 + 15000 + 20000);
+  });
+
+  test("ソフトバンクでんき(別物件・自宅) は除外", () => {
+    const r = filterElectricPaymentsForProperty([
+      { date: "2025-10-31", description: "ソフトバンクでんき", amount: 18643, vendor: "ソフトバンクでんき" },
+    ]);
+    assert.strictEqual(r.items.length, 0);
+    assert.strictEqual(r.totalAmount, 0);
+  });
+
+  test("大手電力(東京/関西/中国電力等)も除外", () => {
+    const r = filterElectricPaymentsForProperty([
+      { description: "中国電力", amount: 8000 },
+      { description: "東京電力エナジーパートナー", amount: 9000 },
+      { description: "関西電力", amount: 7000 },
+    ]);
+    assert.strictEqual(r.items.length, 0);
+  });
+
+  test("エネパル と ソフトバンクでんき が混在 → エネパルのみ採用", () => {
+    const r = filterElectricPaymentsForProperty([
+      { description: "ソフトバンクでんき", amount: 18643 },
+      { description: "エネパル(広長浜)", amount: 36459 },
+    ]);
+    assert.strictEqual(r.items.length, 1);
+    assert.strictEqual(r.items[0].amount, 36459);
+    assert.strictEqual(r.totalAmount, 36459);
+  });
+
+  test("カスタム allowlist/denylist で他物件対応可能(将来拡張)", () => {
+    const r = filterElectricPaymentsForProperty(
+      [{ description: "ENEOSでんき", amount: 5000 }],
+      { vendorAllowlist: [/ENEOS/], vendorDenylist: [] });
+    assert.strictEqual(r.items.length, 1);
+    assert.strictEqual(r.totalAmount, 5000);
+  });
+
+  test("金額0/負/不正は除外", () => {
+    const r = filterElectricPaymentsForProperty([
+      { description: "エネパル", amount: 0 },
+      { description: "エネパル", amount: -1000 }, // toInt で absにするが0扱い後の判定
+      { description: "エネパル", amount: "abc" },
+    ]);
+    assert.strictEqual(r.items.length, 1); // toInt("-1000")=1000 でamt>0
+    assert.strictEqual(r.totalAmount, 1000);
+  });
+
+  test("空配列/null 安全", () => {
+    assert.deepStrictEqual(filterElectricPaymentsForProperty([]), { items: [], totalAmount: 0 });
+    assert.deepStrictEqual(filterElectricPaymentsForProperty(null), { items: [], totalAmount: 0 });
   });
 });

@@ -198,6 +198,34 @@ function cleaningAmountForProperty(inv, propertyId) {
 }
 
 /**
+ * クレカ明細(Gemini抽出結果)から特定物件の電気料金だけを絞り込む(pure)。
+ *
+ * the Terrace はエネパル(収納代行アプラス/スマートビリング経由)がクレカ払いに切替(2026-06分〜)。
+ * 一方、明細には別物件/自宅の「ソフトバンクでんき」等も混在するので、
+ * ベンダー名/説明文でホワイトリスト方式で絞る。
+ *
+ * @param {Array<{date?:string,description:string,amount:number,vendor?:string}>} payments Geminiが抽出した電気料金候補
+ * @param {{ vendorAllowlist?: RegExp[], vendorDenylist?: RegExp[] }} opts
+ * @returns {{items:Array, totalAmount:number}}
+ */
+function filterElectricPaymentsForProperty(payments, opts = {}) {
+  const allow = opts.vendorAllowlist || [/エネパル/, /収納代行アプラス/i, /アプラス/, /スマートビリング/i];
+  const deny = opts.vendorDenylist || [/ソフトバンクでんき/, /ソフトバンク電気/, /東京電力/, /関西電力/, /中国電力/, /九州電力/, /北海道電力/];
+  const items = [];
+  let total = 0;
+  for (const p of (payments || [])) {
+    const desc = String((p && p.description) || "") + " " + String((p && p.vendor) || "");
+    if (deny.some((re) => re.test(desc))) continue;
+    if (!allow.some((re) => re.test(desc))) continue;
+    const amt = toInt(p && p.amount);
+    if (amt <= 0) continue;
+    items.push({ ...p, amount: amt });
+    total += amt;
+  }
+  return { items, totalAmount: total };
+}
+
+/**
  * ファイル名から経費費目と、その費目を扱う取込ルート(scope)を決定する(pure)。
  *
  * scope:
@@ -301,6 +329,7 @@ module.exports = {
   computePnl,
   cleaningAmountForProperty,
   classifyExpenseByName_,
+  filterElectricPaymentsForProperty,
   hiroshimaTaxPerPersonPerNight,
   computeAccommodationTax,
 };

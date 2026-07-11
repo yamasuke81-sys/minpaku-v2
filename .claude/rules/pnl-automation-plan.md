@@ -179,13 +179,20 @@
 - **判明した6月やどぜい未実行の原因**: yadozeiQueue に airbnb_csv_fetch / booking_csv_fetch は enqueue 済(status=done)だが、`yadozei_csv_upload` / `yadozei_pdf_fetch` が連鎖enqueueされていない。listener 側で連鎖が回っていない or フラグ設定変更が影響。8/2 の月次自動取得までに要確認。
 - **広島県宿泊税ルール（今後の計算根拠）**: 1人1泊あたり宿泊料金で判定。<10,000円=非課税 / 10,000〜20,000円=200円 / 20,000円〜=500円。乳幼児は「大人+子ども」に含めない運用。Airbnbの「収入」列(ホスト受取)ベースで計算(税抜換算は誤差1割程度で判定閾値をまたぐ稀ケース以外は影響なし)。
 
+## DONE（2026-07-11 NEXT全項目実装・本番反映済）
+- **#5 予約CSVから宿泊税自動計算(申告書PDF不在時のフォールバック)**: `computeAccommodationTax` / `hiroshimaTaxPerPersonPerNight` / `extractAirbnbReservations` / `extractBookingReservations` を pure関数として追加(pnl-logic, ota-csv-logic)。宿小町5月=800円/the Terrace 5月Booking抜粋=5,600円 の実データ検算緑。settlement.js の import-tax にフォールバックとして組込済み(申告書PDF不在時に自動計算→taxWithholdingBreakdown保存)。
+- **#0 経費PDF分類ロジックを classifyExpenseByName_ に集約**: receipts系(ごみ/害虫/クリーニング/消耗品/修繕/広告)とutilities系(光熱/通信/固定電話)、対象外(通帳/配当/カード明細/契約金/届出)を明示的に振り分け。listReceiptPdfs_ は「請求書」名も拾えるように拡張しつつ scope=receipts のみ通す設計。光熱請求書との競合排除、6月ごみ処理費「合計請求書」の手入力回避を根治。
+- **#1 バッチ完了通知の承認導線**: pnlBatchRuns に approvedAt/rejectedAt を記録。エンドポイント `GET/POST /pnl/batch-runs/:runId/(approve|reject)` を追加(承認要 owner role, /:propertyId/:yearMonth 誤マッチ回避のため router 順序で前段配置)。承認画面 `public/pnl-approval.html` を実装(Firebase Auth + Bootstrap SPA、下書きPDFリンク＋承認/却下UI)。pnlMonthlyImport の通知本文に承認URLを自動付与(settings/notifications.appUrl + openExternalBrowser=1 付き)。
+- **#4 yadozei upload連鎖の未実行原因の特定**: 6月分は csv_fetch=done だが upload連鎖が飛んでいなかった。原因=6/8時点で `yadozei.yadozeiUpload.enabled=false`(バックフィル停止フラグ)だったため。現在は両物件 true に復帰済で次回8/2以降は自動で連鎖する見込み。**Booking.com セッションが `logged_out`** のため、8/2 の月次自動取得の前に `--login` で再ログインが必要(手順は memory `project_minpaku_v2_yadozei_csv_auto.md`)。6月分の申告書PDFは生成されないが、pnl の taxWithholding は #5 の計算値または手入力で既に反映済み(the Terrace 600円/宿小町 0円)。
+- **#3 電気代クレカ化対応**: セゾン明細PDFから電気料金を抽出→「エネパル/収納代行アプラス/スマートビリング」系のみを絞り込む pure関数 `filterElectricPaymentsForProperty` を実装。エンドポイント `POST /pnl/:pid/:ym/import-credit-card-electric` を追加(the Terrace `driveSaisonFolderId=1f8GiV49afjuTuYuTe77aWT_nGVDA1UYZ` 設定済み)。**明細検索は yearMonth の翌々月分**(エネパル 6月分請求→8月クレカ支払→8月明細)。dryRun でSAISON_2601.pdfを確認: ソフトバンクでんき18,643円を detected、フィルタで adopted=0(別物件のため正しく除外)。**実運用初回稼働は2026-08分明細=SAISON_2608.pdf**が来た時点。8月バッチで自動的にthe Terrace の水道光熱費に加算される想定。creditCardIndex で二重計上防止、水道光熱費が overridden=true なら手動値を保護。
+- **全188テスト緑**(pnl-logic 41件・ota-csv-logic 34件・pricing-logic 43件・その他)。commit `4e9ff84` (feat(pnl): 宿泊税自動計算+承認導線+分類リファクタ+yadozei調査記録)＋次コミット (電気クレカ化) で本番反映済み。
+
 ## NEXT
-0. **listReceiptPdfs_ の filter 拡張**: 現行`/レシート|ﾚｼｰﾄ|領収書|領収証/`で「請求書」名の書類を拾わない → 6月ゴミ処理費「合計請求書(広長浜_ごみ処理_6月分)巣だち.pdf」が漏れて手入力回避のリスク。ただし単純拡張だと import-utilities が拾うべき光熱請求書と競合する可能性。**分類ロジック(ごみ/害虫/清掃はimport-receipts、光熱/通信はimport-utilities)を明示的にファイル名パターンで割り振り**にリファクタするのが本筋。
-1. バッチ完了通知（LINE/メールで下書きPDFリンク→承認→送信の導線）。
-2. 各月の実運用: バッチ or 各取込→「出典・内訳を確認」で検算→帳票PDF確定。
-3. 電気代クレカ化対応（セゾン明細からエネパル電気代抽出 or 手入力運用）。
-4. **yadozei upload/pdf_fetch 連鎖の未実行を調査**: 6月分は csv_fetch のみ done で、upload連鎖が回っていない → 手動でやどぜい申告 or listener復旧が必要。8/2の月次までに解消しないと7月分も同じ状況になる。
-5. **宿泊税自動計算ロジックの追加**: 申告書PDFが無い月も予約CSVから自動計算できるように、pnl 側に「/人/泊 単価 → 広島県宿泊税額」の pure関数を実装＋ import-tax の代替パスとして `computeTaxFromReservations` を追加。
+1. **8/2の月次自動取得(初回本番稼働)を見届ける**: Cloud Scheduler `firebase-schedule-pnlMonthlyImport` が 2026-08-06 05:00 JST に発火。前月(7月)分をバッチ処理→承認通知が届く。エネパル(the Terrace 8月明細)の自動計上も同時発生。
+2. **Booking.com セッション再ログイン**: `pm2 stop yadozei-listener` → `node yadozei-listener.mjs --login` → 手動ログイン → Ctrl+C → `pm2 start yadozei-listener` を 8/2 前に実施(現在 logged_out)。
+3. **承認画面の Firestore Security Rules 追加**: pnlBatchRuns への read アクセスをオーナー限定に絞る(現状APIは authenticate + 通常ユーザー可)。承認/却下は role="owner" のみに限定するミドルウェアを追加検討。
+4. **各月の実運用サイクルを回す**: バッチ→承認画面で内容確認→approve→送付(現状は手動送付。将来は approve 時に自動送信の導線を検討)。
+5. **税抜換算対応(遅延優先度低)**: 現在は Airbnb「収入」列(ホスト受取)基準で /人/泊 を計算。厳密には税抜料金で判定すべきだが、閾値10,000円をまたぐ稀ケースの誤差程度なので、実運用で問題が出るまで保留。
 
 ## 主要ID/設定
 - 宿小町 `RZV9IwtQgMAsvrdM3j8J`: OTAcsv=`1qt5WG7nLqpnqSFILHUCA9otBUJrBmbSk` / listingName=「【YADO KOMACHI】広島中心部…」

@@ -907,6 +907,150 @@ module.exports = function pnlApi(db) {
   });
 
   // ========================================================
+  // クレカ明細PDFから電気代を自動取込(the Terrace はエネパルが2026-06分以降クレカ払い)
+  // ========================================================
+
+  // POST /:propertyId/:yearMonth/import-credit-card-electric { folderId?, dryRun?, targetYm? }
+  // 物件の driveSaisonFolderId (or folderId) からSAISON_YYMM.pdf を検索し、
+  // Gemini で電気料金明細を抽出→filterElectricPaymentsForProperty でエネパル系のみ絞る→
+  // expenses.水道光熱費 に加算(overridden=false, source=credit_card, breakdown 保存)。
+  // targetYm: 明細検索対象月(省略時は yearMonth の翌々月。例: yearMonth=2026-06 → 2026-08明細を見る)。
+  // ※ the Terrace エネパル 6月分請求 → 8月クレカ支払 → 8月明細 に載る、というタイムラグ運用。
+  router.post("/:propertyId/:yearMonth/import-credit-card-electric", router.cores.importCreditCardElectric = async (req, res) => {
+    try {
+      const { propertyId, yearMonth } = req.params;
+      const { folderId, dryRun, targetYm } = req.body || {};
+      if (!/^\d{4}-\d{2}$/.test(yearMonth)) return res.status(400).json({ error: "yearMonth は YYYY-MM 形式" });
+
+      const propSnap = await db.collection("properties").doc(propertyId).get();
+      if (!propSnap.exists) return res.status(404).json({ error: "物件が見つかりません" });
+      const srcFolder = folderId || propSnap.data().driveSaisonFolderId;
+      if (!srcFolder) return res.status(400).json({ error: "セゾンフォルダ(driveSaisonFolderId)が未設定です。folderId を指定するか物件マスタに設定してください" });
+
+      // 明細対象月: 指定なければ yearMonth の翌々月(エネパルタイムラグ)
+      function addMonths(ym, n) {
+        const [y, m] = ym.split("-").map(Number);
+        const t = new Date(Date.UTC(y, m - 1 + n, 1));
+        return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}`;
+      }
+      const stmtYm = targetYm && /^\d{4}-\d{2}$/.test(targetYm) ? targetYm : addMonths(yearMonth, 2);
+      const yymm = stmtYm.replace(/^20/, "").replace("-", ""); // 2026-08 → 2608
+
+      const apiKey = await getGeminiApiKey_();
+      if (!apiKey) return res.status(400).json({ error: "Gemini APIキー(settings/scanSorter)が未設定です" });
+
+      const drive = await resolveOtaDrive_();
+      // 親フォルダ直下 + 1階層サブフォルダも探索(セゾンは年ごとにサブフォルダ分けされているケースあり)
+      async function findSaisonPdf() {
+        const direct = await drive.files.list({
+          q: `'${srcFolder}' in parents and trashed=false and name contains 'SAISON_${yymm}' and mimeType='application/pdf'`,
+          fields: "files(id,name,parents)", pageSize: 5,
+          supportsAllDrives: true, includeItemsFromAllDrives: true,
+        });
+        if ((direct.data.files || []).length) return direct.data.files[0];
+        // サブフォルダ1階層を探索
+        const subs = await drive.files.list({
+          q: `'${srcFolder}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder'`,
+          fields: "files(id,name)", pageSize: 50,
+          supportsAllDrives: true, includeItemsFromAllDrives: true,
+        });
+        for (const sub of (subs.data.files || [])) {
+          const r = await drive.files.list({
+            q: `'${sub.id}' in parents and trashed=false and name contains 'SAISON_${yymm}' and mimeType='application/pdf'`,
+            fields: "files(id,name,parents)", pageSize: 5,
+            supportsAllDrives: true, includeItemsFromAllDrives: true,
+          });
+          if ((r.data.files || []).length) return r.data.files[0];
+        }
+        return null;
+      }
+      const file = await findSaisonPdf();
+      if (!file) return res.status(404).json({ error: `SAISON_${yymm}.pdf が見つかりません(明細対象月=${stmtYm})` });
+
+      const bin = await drive.files.get({ fileId: file.id, alt: "media", supportsAllDrives: true }, { responseType: "arraybuffer" });
+      const b64 = Buffer.from(bin.data).toString("base64");
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+      const prompt = [
+        "これはクレジットカード(セゾン)の月次明細PDFです。",
+        "明細行から、電気料金の支払いを漏れなく抽出してください。以下のキーワードを含む行が対象:",
+        "「エネパル」「収納代行アプラス」「アプラス」「スマートビリング」「ソフトバンクでんき」「東京電力」「関西電力」「中国電力」「電気」「でんき」",
+        "各件について date(YYYY-MM-DD), description(明細の説明そのまま), amount(税込整数円), vendor(推定事業者名) を返してください。",
+        '出力はJSONのみ: {"electricPayments":[{"date":"YYYY-MM-DD","description":"...","amount":整数,"vendor":"..."}]}',
+      ].join("\n");
+      const payload = { contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "application/pdf", data: b64 } }] }], generationConfig: { temperature: 0.1 } };
+      const gr = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!gr.ok) return res.status(500).json({ error: "Gemini API error: " + gr.status });
+      const gj = await gr.json();
+      const text = gj.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+      const m = text.match(/\{[\s\S]*\}/);
+      const parsed = m ? JSON.parse(m[0]) : { electricPayments: [] };
+
+      const { filterElectricPaymentsForProperty } = require("./pnl-logic");
+      const filtered = filterElectricPaymentsForProperty(parsed.electricPayments || []);
+
+      // 対象費目= 水道光熱費 (classify で決定的に取得)
+      const cats = await loadCategories_();
+      const utilCat = cats.find((c) => c.name === "水道光熱費");
+      if (!utilCat) return res.status(500).json({ error: "水道光熱費 費目が見つかりません(expenseCategories)" });
+
+      if (dryRun) {
+        return res.json({
+          dryRun: true, propertyId, yearMonth, stmtYm, sourceFile: file.name,
+          detected: parsed.electricPayments || [], adopted: filtered.items,
+          adoptedTotal: filtered.totalAmount, note: "本適用は dryRun=false で",
+        });
+      }
+
+      // expenses.水道光熱費 に加算。overridden=true の場合は上書き保護でスキップ。
+      const ref = pnlCol.doc(docId_(propertyId, yearMonth));
+      const cur = await ref.get();
+      const curData = cur.exists ? cur.data() : {};
+      const existing = (curData.expenses && curData.expenses[utilCat.id]) || null;
+      if (existing && existing.overridden) {
+        return res.json({ ok: true, skipped: "水道光熱費が overridden=true のため上書き保護", stmtYm, adopted: filtered.items });
+      }
+      const before = toInt(existing?.amount);
+      const newAmount = before + filtered.totalAmount;
+      // creditCardIndex に取込明細を記録(冪等性: 同じ file+description は再取込しない)
+      const already = new Set((curData.creditCardIndex || []).map((r) => `${r.fileId}|${r.description}`));
+      const newIndex = filtered.items
+        .filter((it) => !already.has(`${file.id}|${it.description}`))
+        .map((it) => ({ fileId: file.id, fileName: file.name, ym: stmtYm, ...it }));
+      if (newIndex.length === 0) {
+        return res.json({ ok: true, skipped: "全て既取込(creditCardIndexで重複判定)", stmtYm });
+      }
+      const addAmount = newIndex.reduce((s, it) => s + toInt(it.amount), 0);
+      const patch = {
+        propertyId, yearMonth,
+        expenses: {
+          ...(curData.expenses || {}),
+          [utilCat.id]: {
+            ...(existing || {}),
+            amount: before + addAmount,
+            source: "credit_card",
+            overridden: false,
+            note: `クレカ明細 (${stmtYm}) から自動計上`,
+            updatedAt: Date.now(),
+          },
+        },
+        creditCardIndex: FieldValue.arrayUnion(...newIndex),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      await ref.set(patch, { merge: true });
+      const after = (await ref.get()).data();
+      res.json({
+        ok: true, propertyId, yearMonth, stmtYm, sourceFile: file.name,
+        adopted: newIndex, adoptedTotal: addAmount,
+        beforeAmount: before, afterAmount: before + addAmount,
+        computed: computePnl(after, cats),
+      });
+    } catch (e) {
+      console.error("クレカ電気代取込エラー:", e);
+      res.status(500).json({ error: "クレカ電気代取込に失敗しました: " + e.message });
+    }
+  });
+
+  // ========================================================
   // 清掃費取込 → アプリ生成の清掃スタッフ請求書(invoices)から cleaningCosts へ
   // ========================================================
 
