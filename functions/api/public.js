@@ -800,7 +800,10 @@ router.get("/quote/:propertyId", async (req, res) => {
 // 宿公式サイトからの直接予約リクエストを受け付ける (承認制)
 // bookingRequests コレクションに保存するのみで bookings には一切書き込まない
 // (detectDoubleBooking の誤警報 / syncIcal のゴーストガード誤スキップを防ぐため)
-// body: { propertyId, checkIn, checkOut, guests, name, email, plan, notes, website, elapsedMs, turnstileToken }
+// body: { propertyId, checkIn, checkOut, guests, adults, children, infants, nationality, memberComposition,
+//         age, gender, banquetAcknowledged, name, email, plan, notes, website, elapsedMs, turnstileToken }
+// age/gender/banquetAcknowledged は2026-07追加・任意 (代表者の年代・性別・宴会禁止同意)。
+// requiresReview = 男性×20代×5名以上 のとき true で保存し、通知/管理画面で目立たせる。
 router.post("/booking-request", express.json(), async (req, res) => {
   try {
     const db = admin.firestore();
@@ -864,6 +867,14 @@ router.post("/booking-request", express.json(), async (req, res) => {
     const infants = body.infants !== undefined ? parseInt(body.infants, 10) : 0;
     const nationality = String(body.nationality || "").trim().slice(0, 60);
     const memberComposition = String(body.memberComposition || "").trim().slice(0, 100);
+
+    // ===== 代表者の年代・性別・宴会同意 (2026-07 追加・任意) =====
+    const age = String(body.age || "").trim().slice(0, 60);
+    const gender = String(body.gender || "").trim().slice(0, 20);
+    const banquetAcknowledged = body.banquetAcknowledged === true;
+
+    // ===== 要チェック判定 (男性・20代・5名以上) =====
+    const requiresReview = (gender === "男性" && age === "20代" && guests >= 5);
 
     // ===== Cloudflare Turnstile 検証 =====
     // settings/directBooking.turnstileSecret が未設定の場合は検証をスキップする (段階導入対応)
@@ -934,6 +945,10 @@ router.post("/booking-request", express.json(), async (req, res) => {
       infants,
       nationality,
       memberComposition,
+      age,
+      gender,
+      banquetAcknowledged,
+      requiresReview,
       guestName: name,
       email,
       plan,
@@ -953,9 +968,11 @@ router.post("/booking-request", express.json(), async (req, res) => {
     try {
       const { notifyByKey } = require("../utils/lineNotify");
       const appUrl = await getAppUrl(db);
+      // 要チェック (男性・20代・5名以上) は通知の先頭に警告を目立つ形で入れる
+      const reviewAlertLine = requiresReview ? "⚠️要チェック（男性・20代・5名以上）\n\n" : "";
       await notifyByKey(db, "direct_request", {
-        title: "直接予約リクエスト受信",
-        body: `📩 直接予約のリクエストが届きました\n\n宿: ${property.name || propertyId}\n日程: ${checkIn} 〜 ${checkOut}\n人数: ${guests}名 (${breakdownJa})\n国籍: ${nationality}\nメンバー構成: ${memberComposition}\nプラン: ${plan === "nonrefundable" ? "返金不可割引" : "スタンダード"}\nお名前: ${name}\n\n確認・承認: ${appUrl}/#/booking-requests`,
+        title: requiresReview ? "⚠️要チェック 直接予約リクエスト受信" : "直接予約リクエスト受信",
+        body: `${reviewAlertLine}📩 直接予約のリクエストが届きました\n\n宿: ${property.name || propertyId}\n日程: ${checkIn} 〜 ${checkOut}\n人数: ${guests}名 (${breakdownJa})\n年代: ${age || "未回答"}\n性別: ${gender || "未回答"}\n国籍: ${nationality}\nメンバー構成: ${memberComposition}\nプラン: ${plan === "nonrefundable" ? "返金不可割引" : "スタンダード"}\nお名前: ${name}\n\n確認・承認: ${appUrl}/#/booking-requests`,
         vars: {
           // booking varGroup 準拠: date=チェックアウト日, checkin=チェックイン日, guest=ゲスト名
           property: property.name || "",
@@ -963,6 +980,9 @@ router.post("/booking-request", express.json(), async (req, res) => {
           date: checkOut,
           guest: `${name} (${guests}名)`,
           url: `${appUrl}/#/booking-requests`,
+          age,
+          gender,
+          reviewAlert: requiresReview ? "⚠️要チェック（男性・20代・5名以上）" : "",
         },
         propertyId,
         _fromBatchQueue: true,

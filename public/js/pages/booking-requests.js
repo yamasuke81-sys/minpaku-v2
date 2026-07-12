@@ -169,6 +169,15 @@ const BookingRequestsPage = {
         ? '<span class="badge bg-secondary">却下済み</span>'
         : '<span class="badge bg-warning text-dark">未対応</span>';
 
+    // 要チェックフラグ (男性・20代・5名以上): カードを視覚的に目立たせる
+    const requiresReview = x.requiresReview === true;
+    const reviewBadge = requiresReview
+      ? '<span class="badge bg-danger ms-1"><i class="bi bi-exclamation-triangle-fill"></i> 要チェック</span>'
+      : "";
+    const reviewAlertHtml = requiresReview
+      ? `<div class="alert alert-danger py-1 px-2 mb-2 small"><i class="bi bi-exclamation-triangle-fill"></i> 要チェック（男性・20代・5名以上）</div>`
+      : "";
+
     // 決済バッジは直接予約 (bookingRequests は全て直接予約) の承認済み以降でのみ意味を持つ。
     // pending タブは決済未生成なので出さない。
     const paymentBadge = (tab !== "pending" && x.paymentStatus)
@@ -204,11 +213,12 @@ const BookingRequestsPage = {
     const breakdownLabel = this._guestBreakdownLabel(x);
 
     return `
-      <div class="card mb-2" data-request-id="${this._esc(x.id)}">
+      <div class="card mb-2 ${requiresReview ? "border-danger" : ""}" data-request-id="${this._esc(x.id)}">
         <div class="card-body py-2">
+          ${reviewAlertHtml}
           <div class="d-flex justify-content-between align-items-start">
             <div>
-              <div class="fw-bold">${this._esc(x.propertyName || x.propertyId || "-")} ${statusBadge}</div>
+              <div class="fw-bold">${this._esc(x.propertyName || x.propertyId || "-")} ${statusBadge}${reviewBadge}</div>
               <div class="small text-muted">${this._esc(x.checkIn || "-")} 〜 ${this._esc(x.checkOut || "-")}（${this._esc(String(x.guestCount || "-"))}名${breakdownLabel ? ` / ${breakdownLabel}` : ""} / ${planLabel}）</div>
               ${paymentBadge ? `<div class="small mt-1">${paymentBadge}</div>` : ""}
             </div>
@@ -217,8 +227,11 @@ const BookingRequestsPage = {
           <div class="mt-2 small">
             <div><i class="bi bi-person"></i> ${this._esc(x.guestName || "-")}</div>
             <div><i class="bi bi-envelope"></i> ${this._esc(x.email || "-")}</div>
+            ${x.age ? `<div><i class="bi bi-person-badge"></i> 年代: ${this._esc(x.age)}</div>` : ""}
+            ${x.gender ? `<div><i class="bi bi-gender-ambiguous"></i> 性別: ${this._esc(x.gender)}</div>` : ""}
             ${x.nationality ? `<div><i class="bi bi-flag"></i> 国籍: ${this._esc(x.nationality)}</div>` : ""}
             ${x.memberComposition ? `<div><i class="bi bi-people"></i> メンバー構成: ${this._esc(x.memberComposition)}</div>` : ""}
+            ${x.banquetAcknowledged ? `<div><i class="bi bi-check2-circle"></i> 宴会・騒ぎ禁止に同意済み</div>` : ""}
             ${x.notes ? `<div class="mt-1"><i class="bi bi-chat-left-text"></i> ${this._esc(x.notes)}</div>` : ""}
           </div>
           ${actionsHtml}

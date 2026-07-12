@@ -234,6 +234,24 @@ describe("validateBookingRequest", () => {
     const r = validateBookingRequest({ ...base, memberComposition: "あ".repeat(101) }, property, { todayStr: "2026-07-01" });
     assert.strictEqual(r.ok, false);
   });
+
+  // ===== 代表者の年代・性別 2026-07 追加 (任意) =====
+  test("age/gender 未送信でも後方互換で通過する", () => {
+    const r = validateBookingRequest(base, property, { todayStr: "2026-07-01" });
+    assert.strictEqual(r.ok, true);
+  });
+  test("age/gender を指定しても通過する", () => {
+    const r = validateBookingRequest({ ...base, age: "20代", gender: "男性" }, property, { todayStr: "2026-07-01" });
+    assert.strictEqual(r.ok, true);
+  });
+  test("age が61文字はエラー", () => {
+    const r = validateBookingRequest({ ...base, age: "あ".repeat(61) }, property, { todayStr: "2026-07-01" });
+    assert.strictEqual(r.ok, false);
+  });
+  test("gender が21文字はエラー", () => {
+    const r = validateBookingRequest({ ...base, gender: "あ".repeat(21) }, property, { todayStr: "2026-07-01" });
+    assert.strictEqual(r.ok, false);
+  });
 });
 
 describe("isSpamSubmission", () => {

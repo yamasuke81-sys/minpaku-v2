@@ -192,6 +192,17 @@ function validateBookingRequest(body, property, opts = {}) {
     return { ok: false, error: "メンバー構成は100文字以内で入力してください" };
   }
 
+  // ===== 代表者の年代・性別 (2026-07 追加・任意) =====
+  // 未送信でも既存動作を壊さない (空文字許容・ハードエラーにしない)。文字数超過のみ弾く。
+  const age = String(body.age || "").trim();
+  if (age.length > 60) {
+    return { ok: false, error: "年代は60文字以内で入力してください" };
+  }
+  const gender = String(body.gender || "").trim();
+  if (gender.length > 20) {
+    return { ok: false, error: "性別は20文字以内で入力してください" };
+  }
+
   const name = String(body.name || "").trim();
   if (name.length < 1 || name.length > 100) {
     return { ok: false, error: "お名前を1〜100文字で入力してください" };
