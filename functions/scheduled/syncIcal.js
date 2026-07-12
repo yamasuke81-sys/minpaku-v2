@@ -432,6 +432,32 @@ async function syncIcal() {
         // iCalの元の名前を保存（手動変更検知用）
         bookingData._icalOriginalName = resolvedGuestName;
 
+        // コスト対策(2026-07-12): 変化のない予約を毎回 set(merge) すると onBookingChange が
+        // 空発火し、1発火あたり約190件の read を生む(実測 21,444回/日→410万read/日=請求主犯)。
+        // 既存ドキュメントと主要フィールドが同一なら書き込みをスキップする。
+        // ※ syncedIcalUids への追加は必ず行う(スキップしてもフィードには存在する=誤キャンセル防止)。
+        // ※ updatedAt/firstMissedAt は比較対象外(前者は毎回変わる、後者は残っていれば下でクリアが必要)。
+        if (existing.exists) {
+          const ex = existing.data() || {};
+          const unchanged =
+            !ex.firstMissedAt && // 消失猶予フラグが残っていれば書き込んでクリアする
+            ex.guestName === bookingData.guestName &&
+            ex.checkIn === bookingData.checkIn &&
+            ex.checkOut === bookingData.checkOut &&
+            ex.status === bookingData.status &&
+            ex.source === bookingData.source &&
+            ex.icalUid === bookingData.icalUid &&
+            ex.icalUrl === bookingData.icalUrl &&
+            ex._icalOriginalName === bookingData._icalOriginalName &&
+            (bookingData.pendingApproval === undefined || ex.pendingApproval === bookingData.pendingApproval) &&
+            (bookingData.unverified === undefined || ex.unverified === bookingData.unverified);
+          if (unchanged) {
+            syncedIcalUids.add(uid); // フィード存在は記録(キャンセル検出用)
+            synced++; // 件数・通知の挙動は従来どおり維持(書き込みだけスキップ)
+            continue;
+          }
+        }
+
         await docRef.set(bookingData, { merge: true });
         syncedIcalUids.add(uid); // A-1: icalUid → uid バグ修正（キャンセル検出用に記録）
         synced++;
