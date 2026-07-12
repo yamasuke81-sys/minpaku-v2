@@ -3946,19 +3946,18 @@ const MyChecklistPage = {
     const makeGrid = (kind, photos) => {
       const label = kind === "before" ? "清掃前" : "清掃後";
       const count = photos.length;
-      const canAdd = !isCompleted && count < this.MAX_PHOTOS;
+      // 清掃完了後でも写真の追加・削除を許可する（完了で無効化しない）
+      const canAdd = count < this.MAX_PHOTOS;
       const thumbs = photos.map((p, i) => `
         <div class="mcl-photo-thumb" style="position:relative;width:100px;height:100px;flex-shrink:0;">
           <img src="${this.escapeHtml(p.url)}" alt="${label}" loading="lazy"
                style="width:100%;height:100%;object-fit:cover;border-radius:6px;cursor:pointer;"
                data-photo-url="${this.escapeHtml(p.url)}" data-kind="${kind}" data-idx="${i}" class="mcl-photo-preview">
-          ${isCompleted ? "" : `
-            <button type="button" class="btn btn-sm btn-danger mcl-photo-del"
-                    data-kind="${kind}" data-idx="${i}"
-                    style="position:absolute;top:2px;right:2px;padding:1px 5px;font-size:12px;border-radius:10px;opacity:0.85;">
-              ×
-            </button>
-          `}
+          <button type="button" class="btn btn-sm btn-danger mcl-photo-del"
+                  data-kind="${kind}" data-idx="${i}"
+                  style="position:absolute;top:2px;right:2px;padding:1px 5px;font-size:12px;border-radius:10px;opacity:0.85;">
+            ×
+          </button>
         </div>
       `).join("");
 
@@ -3983,11 +3982,11 @@ const MyChecklistPage = {
                            class="d-none mcl-photo-input" data-kind="${kind}">
                   </label>
                 </div>
-              ` : (!isCompleted ? `<span class="small text-muted">最大${this.MAX_PHOTOS}枚</span>` : "")}
+              ` : `<span class="small text-muted">最大${this.MAX_PHOTOS}枚</span>`}
             </div>
             <div class="d-flex gap-2 flex-wrap">
               ${thumbs || `<div class="text-muted small">まだ写真はありません</div>`}
-              ${!isCompleted && !canAdd && count >= this.MAX_PHOTOS
+              ${!canAdd && count >= this.MAX_PHOTOS
                 ? `<div class="small text-warning mt-1 w-100"><i class="bi bi-exclamation-triangle"></i> 最大枚数に達しました</div>`
                 : ""}
             </div>
@@ -3998,9 +3997,10 @@ const MyChecklistPage = {
 
     el.innerHTML = `
       <div class="px-1">
-        <div class="d-flex align-items-center mb-2 gap-2">
+        <div class="d-flex align-items-center mb-2 gap-2 flex-wrap">
           <span class="fw-bold"><i class="bi bi-images"></i> 清掃写真</span>
           <span class="small text-muted">前後の写真を記録できます（30日保持）</span>
+          ${isCompleted ? `<span class="small text-success"><i class="bi bi-check-circle"></i> 清掃完了後も写真の追加・削除ができます</span>` : ""}
         </div>
         ${makeGrid("before", before)}
         ${makeGrid("after", after)}

@@ -24,6 +24,11 @@
 - **the Terrace 2026-05 の清掃費は ¥101,376**（v2 invoice 3名¥69,800 + **タイミー手動¥31,576=やますけ本人が入力した確定値**、いずれも excluded=false）。2026-07-11 時点の一部報告「5月清掃¥69,800」はタイミー分を見落とした古い値で、**正しくは¥101,376**。タイミー分は正常(ユーザー確認済 2026-07-12)。
 - 空 pnl doc(2025-11/2026-01 等)は**触らない**(実害なし)。
 
+## DONE(2026-07-12 NEXT#6/#10/#11 恒久化＋データ是正)
+- **NEXT#11: parseBillMonths を pnl-logic.js の pure 関数へ移動＋エネパル補正(commit未、要ship)**: `functions/api/pnl-logic.js` の module.exports に `parseBillMonths(name)` を追加。判定順=①「A-B月分」範囲 → ②「N月分」単発(記載月>ファイル月なら前年) → ③明記なし+ファイル名に「エネパル」or「スマートビリング」→発行月の前月 → ④明記なし+その他=ファイル名月そのまま。pnl.js 内の `parseBillMonths_` は pure 版への薄いエイリアスへ集約(委譲)。テスト10件追加(pnl-logic.test.js、全168緑)。**firebase deploy --only functions:api 反映済**。今後の電気代ズレは自動で正しい月に載る。
+- **NEXT#10: 2026-02 伊丹産業ガス2月分3重計上を除外**: `scratchpad/dedupe-gas-2026-02.cjs`。utilitiesIndex から fileId `1jMYvrCOGWFTXodd7jDU7L_GlKr2IWUNK` / `1ztJRCYk4HAcgC7-aY4tg-4-leIC7UtIg` の2件を除外(1OwIWHOGgZtCFvcUNqKsNVKV-og9TpdCV を保持)、Drive 上の重複2件も trash 送付(復元可)。**2026-02 水道光熱費 ¥44,288→¥41,334 / 利益 ¥160,762→¥163,716(率55.8%)**。帳票PDF再生成済。
+- **NEXT#6(既存実装確認のみ、実装済み確認)**: pnlMonthlyImport 内で `revenueMissing`(computed.revenueGross===0 判定) を検知→通知タイトル「(要確認)」バナー「🚨【要確認】N物件で売上未取得/エラー」＋物件行「🚨売上未取得(下書き未生成・要人手対応)」まで完備(line 89-93, 139-153)。plan.md 側で未実装扱いだったが実際は既に恒久化済み。
+
 ## DONE(2026-07-12 電気代 全期間 audit → realign 完了)
 - **audit(scratchpad/audit-all-electric.cjs)**: 2025-09〜2026-06 の全物件 utilitiesIndex から電気代を抽出→ Gemini で発行日/検針期間/使用月を判定。**ズレは1件のみ**と確定:
   - ❌ the Terrace `2026-03` に載っていた **¥33,978**(発行 2026-03-12、事業者=エネパル/スマートビリング、供給地点=広長浜) → **使用月=2026-02(発行月の前月)** が正しい。他のエネパル分と同じ規則。
@@ -238,16 +243,15 @@ Workflow audit(65エージェント/54 findings→adversarial verify通過27件)
 
 ## NEXT
 1. **8/6 05:00 JST の月次自動バッチ(初回本番稼働)を見届ける**: pnlMonthlyImport が発火→7月分をfullloop→承認通知→やますけが承認画面で確認→approve→送付。エネパル(the Terrace 8月明細)の自動計上も同時。
-2. **Booking.com セッション再ログイン**: 現在 logged_out。手順は memory `project_minpaku_v2_yadozei_csv_auto.md`。8/1深夜までに完了要。
+2. **Booking.com セッション再ログイン(★やますけPC作業)**: 現在 Booking.com=`logged_out`(2026-07-12 実測、Airbnb/やどぜいは ok)。listener 自体は Hassac01 で lastSeenAt 生存中(PM2稼働中)。8/1深夜までに以下を実施要:
+   - **手順**: `pm2 stop yadozei-listener` → `cd C:\Users\yamas\AI_Workspace\minpaku-v2-yadozei && node scripts/yadozei-listener.mjs --login`(Playwrightブラウザが起動→Booking.com にログイン→cookie 保存されるまで放置) → Ctrl+C → `pm2 start yadozei-listener`
+   - 完了確認: Firestore `settings/yadozeiListener.sessionCheck.sessions."Booking.com" === "ok"` になれば OK
 3. **7月分の Drive 投入(8/2〜8/5 人手)**: Terrace/宿小町 の光熱PDF(007配下)/レシート(60配下)/清掃請求書 を投入。ScanSorter経由で自動振り分けさせる。
 4. **the Terrace 固定費台帳の整備**: workflow audit で「家賃/Wi-Fi通信費/ゴミ処理費/リネン・クリーニング/固定電話 の月額固定費が5月時点で空」を指摘。properties.pnlSettings.monthlyFixedCosts を新設し、pnlMonthlyImport にapplyFixedCosts_ を組込 → 2025-09〜2026-05 バックフィル。※ ただし the Terrace は self運営で家賃なし・Wi-Fi/固定電話は光熱utilities経由で拾える設計なので、実質「ゴミ処理費」の固定化のみで足りる可能性(要確認)。
 5. **importCreditCardElectric を pnlMonthlyImport.run() に組込**: importUtilities 直後に invoke。未設定物件は skipped扱い。8月から自動稼働。
-6. **バッチ通知本文の警告強化**: importOtaCsv error 時に「🚨 売上未取得」を通知先頭に挿入するガード。売上¥0の下書きが黙って届く事故を防止。
-7. **2026-04・2026-03 リカバリ**: pnlBatchRuns に 2026-04/2026-03 の run が無い(workflow audit)。4月/3月分を手動バッチ実行して整備。※ **2026-03 は電気代 realign (¥87,855→¥53,877) の影響で帳票 PDF 再生成が別途必要**。同様に **2026-02 も新規に水道光熱費計上あり(¥44,288)**。
-8. **税抜換算対応(遅延優先度低)**: Airbnb「収入」列基準で /人/泊 を計算する現行仕様は、閾値10,000円をまたぐ稀ケースで誤差の可能性。運用で問題が出るまで保留。
-9. **the Terrace 25-11/25-12/26-01 の電気請求書発掘**: Drive の 007_光熱・インフラ/54電気 には無い(調査済)。Gmail の 81hassac@ 又は yamasuke81@ の 25-11〜26-01 メールから中国電力/エネパル/スマートビリング請求書を検索して発掘。無ければ「切替空白期間で請求書なし」と確定して plan.md 追記。
-10. **2026-02 utilitiesIndex の伊丹産業ガス2月分 3重計上を除外**: fileId `1jMYvrCOGWFTXodd7jDU7L_GlKr2IWUNK` / `1OwIWHOGgZtCFvcUNqKsNVKV-og9TpdCV` / `1ztJRCYk4HAcgC7-aY4tg-4-leIC7UtIg`(いずれも¥1,477=同一請求書のDrive内3重コピー)。1件だけ残して2件除外+Drive上の重複ファイルもクリーンアップ(¥2,954 過剰計上是正)。
-11. **import-utilities の月判定ロジック恒久修正**: ファイル名「N月分」明記優先→無ければ発行日(先頭YYMMDD)→前月、の順で判定。今回の電気代ズレ(発行月の翌月ではなく前月使用)の再発防止。エネパル/スマートビリング系は必ず「発行日の前月使用」で、ファイル名に「N月分」が明記されていれば優先する。
+6. **2026-04・2026-03 リカバリ**: pnlBatchRuns に 2026-04/2026-03 の run が無い(workflow audit)。4月/3月分を手動バッチ実行して整備。
+7. **税抜換算対応(遅延優先度低)**: Airbnb「収入」列基準で /人/泊 を計算する現行仕様は、閾値10,000円をまたぐ稀ケースで誤差の可能性。運用で問題が出るまで保留。
+8. **the Terrace 25-11/25-12/26-01 の電気請求書発掘**: Drive の 007_光熱・インフラ/54電気 には無い(調査済)。Gmail の 81hassac@ 又は yamasuke81@ の 25-11〜26-01 メールから中国電力/エネパル/スマートビリング請求書を検索して発掘。無ければ「切替空白期間で請求書なし」と確定して plan.md 追記。
 
 ## 主要ID/設定
 - 宿小町 `RZV9IwtQgMAsvrdM3j8J`: OTAcsv=`1qt5WG7nLqpnqSFILHUCA9otBUJrBmbSk` / listingName=「【YADO KOMACHI】広島中心部…」
