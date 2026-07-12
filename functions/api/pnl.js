@@ -24,6 +24,7 @@ const {
   computePnl,
   cleaningAmountForProperty,
   classifyExpenseByName_,
+  parseBillMonths,
 } = require("./pnl-logic");
 // OTA予約CSV(yadozei保存物)の集計 + 運営形態/実効料率(テスト済モジュール)
 const {
@@ -806,23 +807,10 @@ module.exports = function pnlApi(db) {
     return null;
   }
 
-  // 請求書ファイル名から対象年月(複数可)を推定 → "YYYY-MM"配列
-  // 例: "260521 …5月分"→[2026-05] / "260611 …4-6月分"→[2026-04,05,06] / 月分表記無し→ファイル名日付の月
-  function parseBillMonths_(name) {
-    const m6 = String(name).match(/(\d{2})(\d{2})(\d{2})/);
-    const fy = m6 ? 2000 + Number(m6[1]) : null;
-    const fm = m6 ? Number(m6[2]) : null;
-    const ym = (y, mo) => `${y}-${String(mo).padStart(2, "0")}`;
-    const rg = String(name).match(/(\d{1,2})\s*[-~〜]\s*(\d{1,2})\s*月分/);
-    if (rg && fy) {
-      const s = Number(rg[1]), e = Number(rg[2]);
-      if (e >= s && e - s <= 6) { const out = []; for (let mo = s; mo <= e; mo++) out.push(ym(fy, mo)); return out; }
-    }
-    const sg = String(name).match(/(\d{1,2})\s*月分/);
-    if (sg && fy) { const mo = Number(sg[1]); return [ym(mo > fm ? fy - 1 : fy, mo)]; } // 記載月>ファイル月なら前年扱い
-    if (fy) return [ym(fy, fm)];
-    return [];
-  }
+  // 請求書ファイル名から対象年月(複数可)を推定 → pnl-logic.parseBillMonths に委譲。
+  // 例: "260521 …5月分"→[2026-05] / "260611 …4-6月分"→[2026-04,05,06]
+  // 月分表記無し: エネパル/スマートビリング電気は発行月の前月(=使用月)、それ以外はファイル名月。
+  const parseBillMonths_ = parseBillMonths;
 
   // POST /:propertyId/:yearMonth/import-utilities { folderId?, dryRun? }
   // 物件の 007_光熱・インフラ 配下(ガス/電気/水道/ネット/固定電話)の請求書から、

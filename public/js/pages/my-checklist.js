@@ -605,6 +605,9 @@ const MyChecklistPage = {
             // (他スタッフのチェックでチラつき / アコーディオン開閉リセット / スクロールジャンプが起きるのを防ぐ)
             if (this.activeTopTab === "checklist") {
               this._syncChecklistDomInPlace();
+              // 完了/ランドリー状態(sticky完了ボタン)は _syncChecklistDomInPlace が触らないため明示更新。
+              // status: completed への遷移後もボタンが「押せる緑」のまま残る不具合(=再度押して確認モーダルが再表示)を防ぐ
+              this.renderFooter();
             } else {
               this._renderActiveTopTab();
             }
@@ -2379,6 +2382,10 @@ const MyChecklistPage = {
     // 清掃完了ボタン: area-tabs 行の sticky スロットに出力 (チェックリストタブ時のみ)
     // ※ snapshot 連発時の差分更新では elSticky は触らない (innerHTML 入れ替えがちらつき要因)
     const elSticky = document.getElementById("mclStickyComplete");
+    // 完了/未完了ボタンを含むコンテナを「今回 innerHTML を書き換えたときだけ」記録する。
+    // sticky スロットは差分更新時に張り替えない(下記ガード)ため、毎回リスナーを貼るとタブ切替の度に
+    // 累積し、1タップで completeChecklist が多重発火 → 確認/評価モーダルが何重にも表示される事故になる。
+    let completeHost = null;
     if (this.activeTopTab === "laundry") {
       if (elSticky && elSticky.innerHTML !== "") elSticky.innerHTML = "";
       el.innerHTML = laundrySection || `<div class="alert alert-secondary">ランドリー設定がありません</div>`;
@@ -2386,11 +2393,13 @@ const MyChecklistPage = {
       // 既存と同じ HTML なら触らない (差分更新でちらつき防止)
       if (elSticky && elSticky.innerHTML.trim() !== completeSection.trim()) {
         elSticky.innerHTML = completeSection;
+        completeHost = elSticky; // 実際に書き換えた時のみリスナー再付与
       }
       el.innerHTML = "";
     } else {
       if (elSticky) elSticky.innerHTML = "";
       el.innerHTML = completeSection + laundrySection;
+      completeHost = el;
     }
 
     // #/my-laundry エイリアス経由のスクロール復元
@@ -2402,11 +2411,15 @@ const MyChecklistPage = {
       this.renderTabLaundry();
     }
 
+    // ランドリーボタンは el を毎回 innerHTML で作り直す=常に新規要素のため都度付与でよい
     el.querySelectorAll('.mcl-laundry').forEach(b => {
       b.addEventListener('click', () => this.toggleLaundry(b.dataset.key));
     });
-    document.getElementById('mclCompleteBtn')?.addEventListener('click', () => this.completeChecklist(allDone, total - done));
-    document.getElementById('mclRevertBtn')?.addEventListener('click', () => this.revertChecklist());
+    // 完了/未完了ボタンは今回書き換えたコンテナのものだけにリスナーを貼る (累積による多重発火を防止)
+    if (completeHost) {
+      completeHost.querySelector('#mclCompleteBtn')?.addEventListener('click', () => this.completeChecklist(allDone, total - done));
+      completeHost.querySelector('#mclRevertBtn')?.addEventListener('click', () => this.revertChecklist());
+    }
 
     // 完了ボタンスロットの高さが変わったため、fixed位置と spacer を再計算
     requestAnimationFrame(() => this._applyHeaderLayout());
@@ -2446,6 +2459,10 @@ const MyChecklistPage = {
 
   async toggleLaundry(key) {
     if (!this.checklistId) return;
+    // 二重発火防止: 連打で提出先入力モーダル等が多重表示されるのを防ぐ
+    if (this._togglingLaundry) return;
+    this._togglingLaundry = true;
+    try {
     const current = (this.checklist?.laundry || {})[key];
     const user = firebase.auth().currentUser;
     const by = {
@@ -2612,6 +2629,9 @@ const MyChecklistPage = {
       await firebase.firestore().collection("checklists").doc(this.checklistId).update(patch);
     } catch (e) {
       showToast("エラー", e.message, "error");
+    }
+    } finally {
+      this._togglingLaundry = false;
     }
   },
 
@@ -3094,6 +3114,10 @@ const MyChecklistPage = {
 
   async completeChecklist(allDone, unchecked) {
     if (!this.checklistId) return;
+    // 二重発火防止: リスナー累積や連打で確認/写真/ゴミ依頼/評価モーダルが何重にも表示されるのを防ぐ
+    if (this._completing) return;
+    this._completing = true;
+    try {
     const c = this.checklist || {};
     // workType に応じて確認ダイアログの文言を切り替え
     const completeWorkLabel = (c.workType === "pre_inspection") ? "直前点検完了" : "清掃完了";
@@ -3201,6 +3225,9 @@ const MyChecklistPage = {
     } catch (e) {
       if (btn) { btn.disabled = false; btn.innerHTML = `<i class="bi bi-check2-circle"></i> ${completeWorkLabel}にする`; }
       showToast("エラー", e.message, "error");
+    }
+    } finally {
+      this._completing = false;
     }
   },
 
@@ -3596,7 +3623,7 @@ const MyChecklistPage = {
         this._updateTabBadges();
         try {
           // チェックリストタブは再構築せずその場更新 (アコーディオン開閉・スクロール維持)
-          if (this.activeTopTab === "checklist") this._syncChecklistDomInPlace();
+          if (this.activeTopTab === "checklist") { this._syncChecklistDomInPlace(); this.renderFooter(); }
           else this._renderActiveTopTab();
         } catch (_) {}
         // 2段階 rAF でレイアウト確定後にスクロール復元

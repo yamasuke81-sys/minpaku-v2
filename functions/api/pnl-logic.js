@@ -320,6 +320,60 @@ function computeAccommodationTax(reservations, taxFn) {
   return { totalTax, totalPersonNights: totalPN, taxablePersonNights: taxablePN, details };
 }
 
+/**
+ * 光熱・通信の請求書ファイル名から、対象年月(複数可)を推定する pure関数。
+ *
+ * 判定順:
+ *   1. 「A-B月分」「A〜B月分」があれば A→B 月の配列を返す(範囲=最大6ヶ月)。
+ *      年はファイル名先頭 YYMMDD の年を採用。
+ *   2. 「N月分」単発があれば N月を返す(N > ファイル月なら前年扱い=年末年始のズレ吸収)。
+ *   3. 明記なし & vendor=エネパル/スマートビリング → 発行月(=ファイル名月)の前月を返す
+ *      (エネパル/スマートビリング系電気は「発行月の1ヶ月遅れ=前月使用分」規則。
+ *       2026-07-12 the Terrace ¥33,978 realign の恒久対応)。
+ *   4. 明記なし & その他 → ファイル名月をそのまま返す(中国電力/伊丹産業ガス/呉市水道/通信 等)。
+ *
+ * @param {string} name ファイル名(拡張子含んでよい)
+ * @returns {string[]} "YYYY-MM" 配列。判定不能なら []
+ */
+function parseBillMonths(name) {
+  const s = String(name || "");
+  const m6 = s.match(/(\d{2})(\d{2})(\d{2})/);
+  const fy = m6 ? 2000 + Number(m6[1]) : null;
+  const fm = m6 ? Number(m6[2]) : null;
+  const ym = (y, mo) => `${y}-${String(mo).padStart(2, "0")}`;
+
+  // 1) 範囲月 「A-B月分」「A〜B月分」
+  const rg = s.match(/(\d{1,2})\s*[-~〜]\s*(\d{1,2})\s*月分/);
+  if (rg && fy) {
+    const a = Number(rg[1]), b = Number(rg[2]);
+    if (b >= a && b - a <= 6) {
+      const out = [];
+      for (let mo = a; mo <= b; mo++) out.push(ym(fy, mo));
+      return out;
+    }
+  }
+
+  // 2) 単発 「N月分」
+  const sg = s.match(/(\d{1,2})\s*月分/);
+  if (sg && fy) {
+    const mo = Number(sg[1]);
+    return [ym(mo > fm ? fy - 1 : fy, mo)];
+  }
+
+  if (!fy) return [];
+
+  // 3) 明記なし: エネパル/スマートビリング電気は発行月の前月=使用月
+  const isEnepalSb = /エネパル|スマートビリング/.test(s);
+  if (isEnepalSb) {
+    const py = fm === 1 ? fy - 1 : fy;
+    const pm = fm === 1 ? 12 : fm - 1;
+    return [ym(py, pm)];
+  }
+
+  // 4) 明記なし: その他はファイル名月をそのまま
+  return [ym(fy, fm)];
+}
+
 module.exports = {
   toInt,
   normLoose,
@@ -332,4 +386,5 @@ module.exports = {
   filterElectricPaymentsForProperty,
   hiroshimaTaxPerPersonPerNight,
   computeAccommodationTax,
+  parseBillMonths,
 };

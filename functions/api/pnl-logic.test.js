@@ -18,6 +18,7 @@ const {
   filterElectricPaymentsForProperty,
   hiroshimaTaxPerPersonPerNight,
   computeAccommodationTax,
+  parseBillMonths,
 } = require("./pnl-logic");
 
 describe("toInt", () => {
@@ -523,5 +524,84 @@ describe("filterElectricPaymentsForProperty", () => {
   test("空配列/null 安全", () => {
     assert.deepStrictEqual(filterElectricPaymentsForProperty([]), { items: [], totalAmount: 0 });
     assert.deepStrictEqual(filterElectricPaymentsForProperty(null), { items: [], totalAmount: 0 });
+  });
+});
+
+describe("parseBillMonths", () => {
+  test("「N月分」明記あり: ファイル名月と一致するケース", () => {
+    // エネパル 4月分請求 → 発行5/14
+    assert.deepStrictEqual(
+      parseBillMonths("260514 請求書(広長浜_水道光熱費_4月分)エネパル.pdf"),
+      ["2026-04"]
+    );
+  });
+
+  test("「N月分」明記あり: ファイル名月より過去(=前月使用)", () => {
+    // スマートビリング 03月分請求 → 発行4/13
+    assert.deepStrictEqual(
+      parseBillMonths("260413 請求書(広長浜_電気代_03月分)スマートビリングサービス.pdf"),
+      ["2026-03"]
+    );
+  });
+
+  test("「A-B月分」範囲(水道)", () => {
+    assert.deepStrictEqual(
+      parseBillMonths("260622 水道使用水量等のお知らせ(広長浜_水道光熱費_4-6月分)呉市上下水道.pdf"),
+      ["2026-04", "2026-05", "2026-06"]
+    );
+  });
+
+  test("「N月分」記載月>ファイル月なら前年扱い", () => {
+    // 260115 で「12月分」が書かれていれば前年12月
+    assert.deepStrictEqual(
+      parseBillMonths("260115 請求書(電気_12月分).pdf"),
+      ["2025-12"]
+    );
+  });
+
+  test("★エネパル電気: 「N月分」明記なし → 発行月の前月扱い (NEXT#11 恒久修正)", () => {
+    // ¥33,978 の realign 元請求書。発行2026-03-12 → 使用月=2026-02
+    assert.deepStrictEqual(
+      parseBillMonths("260312 請求書(広長浜_電気代)スマートビリングサービス.pdf"),
+      ["2026-02"]
+    );
+  });
+
+  test("★エネパル電気(年跨ぎ): 1月発行→前年12月", () => {
+    assert.deepStrictEqual(
+      parseBillMonths("260112 請求書(広長浜_電気代)エネパル.pdf"),
+      ["2025-12"]
+    );
+  });
+
+  test("中国電力(明記なし): ファイル名月をそのまま(発行月=使用月ルール)", () => {
+    // 中国電力の検針周期は「発行月=使用月」なので前月に戻さない
+    assert.deepStrictEqual(
+      parseBillMonths("251023 電気ご使用量のお知らせ.pdf"),
+      ["2025-10"]
+    );
+    assert.deepStrictEqual(
+      parseBillMonths("250923 電気ご使用量のお知らせ.pdf"),
+      ["2025-09"]
+    );
+  });
+
+  test("伊丹産業ガス(明記なし): ファイル名月そのまま", () => {
+    assert.deepStrictEqual(
+      parseBillMonths("251015 請求書(広長浜 ガス使用量)伊丹.pdf"),
+      ["2025-10"]
+    );
+  });
+
+  test("ファイル名日付なし → 空配列", () => {
+    assert.deepStrictEqual(parseBillMonths("マイページ情報.pdf"), []);
+    assert.deepStrictEqual(parseBillMonths(""), []);
+    assert.deepStrictEqual(parseBillMonths(null), []);
+  });
+
+  test("範囲月に7ヶ月超えは無効(単発解釈にフォールバック)", () => {
+    // 1-8月分は範囲としては広すぎるので single-match の 8月分にフォールバック
+    const r = parseBillMonths("260322 請求書(1-8月分).pdf");
+    assert.deepStrictEqual(r, ["2025-08"]); // 「8月分」明記 & 8 > 3 → 前年
   });
 });
