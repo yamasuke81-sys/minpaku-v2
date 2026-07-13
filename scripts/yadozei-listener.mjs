@@ -1870,7 +1870,15 @@ if (LOGIN_MODE) {
         _seen.delete(id);
       }
     }
+    // キューが空になったらブラウザを閉じる(headed窓を画面に残さない+pm2再起動時の孤児化防止)。
+    // ログイン Cookie は user-data-dir に永続化済みなので閉じても失われない。
+    if (_persistentCtx) {
+      try { await _persistentCtx.close(); } catch (_) { /* ignore */ }
+      _persistentCtx = null;
+      console.log(`${LOG_PREFIX} キュー空 — ブラウザを閉じました`);
+    }
     _draining = false;
+    if (_queue.length) drainQueue(); // close 中に到着したジョブを取りこぼさない
   }
 
   unsubscribe = db
