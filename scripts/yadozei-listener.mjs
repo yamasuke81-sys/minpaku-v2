@@ -1581,7 +1581,7 @@ async function handleSessionCheck(ctx, jobId) {
     }
     const next = await getNextInfo();
     lines.push(`次の月次取得は ${next.dateLabel}（あと${next.daysUntil}日）。その${EXPIRE_REMIND_BEFORE_DAYS}日前までは再通知しません。`);
-    lines.push(`再ログイン: PCで \`scripts\\yadozei-relogin.cmd\` を実行 → 開いたブラウザでログイン → ブラウザを閉じるだけ（常駐は自動再開）`);
+    lines.push(`再ログイン: このチャンネルに **「OTA再ログイン」** と送信（PC側の準備は全自動）→ 開いたブラウザでログイン → 閉じるだけ。PCから直接なら \`scripts\\yadozei-relogin.cmd\` でも可`);
     notices.push(lines.join("\n"));
   }
   if (stillExpired.length) {
@@ -1598,7 +1598,7 @@ async function handleSessionCheck(ctx, jobId) {
     if (due.length) {
       notices.push(
         `⏰ **リマインド: ${due.join(" / ")} が未ログインのまま月次取得が迫っています**\n` +
-        `次の月次取得: ${next.dateLabel}（あと${next.daysUntil}日）。それまでに再ログインしてください: \`scripts\\yadozei-relogin.cmd\``
+        `次の月次取得: ${next.dateLabel}（あと${next.daysUntil}日）。このチャンネルに **「OTA再ログイン」** と送信 → 開いたブラウザでログイン → 閉じるだけ（PCから直接なら \`scripts\\yadozei-relogin.cmd\`）`
       );
     } else {
       console.log(`${LOG_PREFIX} [session_check] 失効継続中(${stillExpired.join(",")}) — 再通知条件外のため抑制`);
