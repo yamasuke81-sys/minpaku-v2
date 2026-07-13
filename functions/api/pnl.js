@@ -1214,15 +1214,25 @@ module.exports = function pnlApi(db) {
         if (it.ym && it.ym !== yearMonth) continue;
         expenses.push({ kind: "光熱・通信", category: catName[it.catId] || "", fileName: it.fileName || "", link: driveLink_(it.fileId), amount: it.amount || 0 });
       }
-      // クレカ電気(MF明細/セゾンPDF)。it.ym は明細対象月(=カード決済月)で使用月と異なるため月フィルタしない
+      // 外部明細(MFカード/MF銀行/楽天でんきAPI/セゾンPDF)。it.ym は明細対象月で使用月と異なるため月フィルタしない
       // (この doc に入っている時点でこの使用月の計上)。MF由来は MF のセゾン口座ページへリンク。
       const MF_SAISON_ACCOUNT_URL = "https://moneyforward.com/accounts/show/et2JNC6KSatQ9pMz6fL8voH-z9t8NpFGQ2rOnN6Ntkg";
+      const MF_TOP_URL = "https://moneyforward.com/cf";
       for (const it of (d.creditCardIndex || [])) {
-        const isMf = String(it.fileId || "").startsWith("mf:");
+        const fid = String(it.fileId || "");
+        const kind = fid.startsWith("mf:") ? "クレカ明細(MF)"
+          : fid.startsWith("mfbank:") ? "銀行引落(MF)"
+          : fid.startsWith("rakuten:") ? "楽天でんきAPI"
+          : "クレカ明細PDF";
+        const link = fid.startsWith("mf:") ? MF_SAISON_ACCOUNT_URL
+          : fid.startsWith("mfbank:") ? MF_TOP_URL
+          : fid.startsWith("rakuten:") ? "https://mypage.energy.rakuten.co.jp/contracts"
+          : driveLink_(it.fileId);
         expenses.push({
-          kind: "クレカ電気", category: "水道光熱費",
-          fileName: `${it.description || it.fileName || ""}${it.date ? `（決済 ${it.date}）` : ""}`,
-          link: isMf ? MF_SAISON_ACCOUNT_URL : driveLink_(it.fileId),
+          kind,
+          category: it.catId ? (catName[it.catId] || "") : "水道光熱費",
+          fileName: `${it.description || it.fileName || ""}${it.date ? `（${it.date}）` : ""}`,
+          link,
           amount: it.amount || 0,
         });
       }
