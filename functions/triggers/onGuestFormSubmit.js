@@ -412,13 +412,15 @@ module.exports = async function onGuestFormSubmit(event) {
     }
 
     // A-4: checkIn一致 + status == "confirmed" + propertyId一致（複数物件の誤照合防止）
+    // limit(1) は撤廃。同一CI日に複数予約がある場合に「未紐付け/本人」の予約を選ぶため全件取得する
+    // (旧実装は limit(1) で先頭を掴み、別ゲストの予約でも無条件上書きしていた)
     let bookingsQuery = db.collection("bookings")
       .where("checkIn", "==", rosterCheckIn)
       .where("status", "==", "confirmed");
     if (data.propertyId) {
       bookingsQuery = bookingsQuery.where("propertyId", "==", data.propertyId);
     }
-    const bookingsSnap = await bookingsQuery.limit(1).get();
+    const bookingsSnap = await bookingsQuery.get();
 
     // 処理B-3: checkIn 完全一致の confirmed 予約なし → 救済 → 「何が違うか」を提示
     if (bookingsSnap.empty) {
@@ -577,7 +579,91 @@ module.exports = async function onGuestFormSubmit(event) {
       return;
     }
 
-    const bookingDoc = bookingsSnap.docs[0];
+    // === 衝突ガード (2026-07-14 追加。the Terrace 7/18 で3組の名簿が1予約に上書きされた事故対策) ===
+    // マッチした確定予約が既に「別ゲストの名簿」に紐付いている場合、その予約を上書きしない。
+    // ゲストがCI日を打ち間違え、その日に別の実予約があると、旧実装(無条件上書き)は
+    // 他人の予約を乗っ取り、本人の実予約は名簿未提出のまま残っていた。
+    const norm_ = (s) => String(s || "").replace(/[^0-9a-zA-Z@.]/g, "").toLowerCase();
+    const digits_ = (s) => String(s || "").replace(/\D/g, "");
+    const rosterEmail_ = norm_(data.email);
+    const rosterTail_ = digits_(data.phone).slice(-4);
+    // 「未紐付け or 自分(=同一メール/電話の再提出含む)」の予約なら安全に上書きできる
+    const isOwnOrFree_ = (b) => {
+      if (!b.guestFormId || b.guestFormId === guestId) return true;
+      if (rosterEmail_ && norm_(b.email) === rosterEmail_) return true;
+      if (rosterTail_.length === 4 && digits_(b.phone).slice(-4) === rosterTail_) return true;
+      return false;
+    };
+    const freeMatch = bookingsSnap.docs.find((d) => isOwnOrFree_(d.data()));
+
+    if (!freeMatch) {
+      // 全マッチ予約が別ゲストに紐付き済み → 衝突。上書きせず通知し、本人の実予約候補を提示。
+      const occupantName = bookingsSnap.docs[0].data().guestName || "(別ゲスト)";
+      const occupantId = bookingsSnap.docs[0].id;
+      let confirmedForCollision = [];
+      try {
+        let cq = db.collection("bookings").where("status", "==", "confirmed");
+        if (data.propertyId) cq = cq.where("propertyId", "==", data.propertyId);
+        const cs = await cq.get();
+        confirmedForCollision = cs.docs.map((d) => ({ id: d.id, ...d.data() }));
+      } catch (e) { console.warn("[roster] 衝突候補の取得に失敗:", e.message); }
+      const todayY = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+      const dd = (a, b) => Math.round((new Date(`${a}T00:00:00Z`) - new Date(`${b}T00:00:00Z`)) / 86400000);
+      // ★=この名簿と同一連絡先(メール/電話下4桁、iCal notes の下4桁も照合)の予約=本人の実予約
+      const idMatch = (b) => {
+        const noteTail = (String(b.notes || "").match(/Last 4 Digits\)?:?\s*(\d{4})/) || [])[1] || "";
+        if (rosterEmail_ && norm_(b.email) === rosterEmail_) return true;
+        if (rosterTail_.length === 4 && (digits_(b.phone).slice(-4) === rosterTail_ || noteTail === rosterTail_)) return true;
+        return false;
+      };
+      const cands = confirmedForCollision
+        .filter((b) => b.checkIn && (b.checkOut || b.checkIn) >= todayY && b.id !== occupantId)
+        .sort((a, b) => (idMatch(b) ? 1 : 0) - (idMatch(a) ? 1 : 0) || Math.abs(dd(a.checkIn, rosterCheckIn)) - Math.abs(dd(b.checkIn, rosterCheckIn)))
+        .slice(0, 8);
+      const candLines = cands.length
+        ? cands.map((b) => `${idMatch(b) ? "★" : "・"}${b.guestName || "(名前なし)"} / ${b.checkIn} → ${b.checkOut || "?"} / ${b.source || "?"}`).join("\n")
+        : "（候補予約は見つかりませんでした）";
+      const collisionDetail =
+        `名簿のチェックイン日(${rosterCheckIn})に一致する予約は、既に別ゲスト「${occupantName}」に紐付いています。\n` +
+        `この名簿を予約へ自動反映すると別ゲストの情報を上書きしてしまうため、反映を保留しました。\n` +
+        `ゲストがチェックイン日を打ち間違えている可能性が高いです（★=この名簿と同じ連絡先の予約）。\n\n` +
+        `【名簿の入力内容】\n` +
+        `代表者: ${guestName}\n` +
+        `CI: ${rosterCheckIn} → CO: ${rosterCheckOut || "?"} / ${data.guestCount || "?"}名\n` +
+        `連絡先: ${data.email || "?"} / ${data.phone || "?"}\n\n` +
+        `【同じ物件の予約候補】\n${candLines}\n\n` +
+        `→ 正しい予約を特定し、名簿画面から手動で紐付け・日付修正してください。`;
+      const warnMsg =
+        `⚠️ 名簿照合エラー: 別ゲストの予約と衝突\n` +
+        `物件: ${propertyName || "(未設定)"}\n\n` +
+        `${collisionDetail}\n\n` +
+        `名簿確認: ${confirmUrl}`;
+      await db.collection("notifications").add({
+        type: "roster_mismatch",
+        title: `名簿照合エラー(衝突): ${guestName}`,
+        body: collisionDetail,
+        guestId,
+        propertyId: data.propertyId || null,
+        checkIn: rosterCheckIn,
+        collision: true,
+        severity: "warning",
+        createdAt: new Date(),
+      });
+      await notifyByKey(db, "roster_mismatch", {
+        title: `名簿照合エラー(衝突): ${guestName}`,
+        body: warnMsg,
+        vars: {
+          property: propertyName, propertyName, guest: guestName, guestName,
+          checkin: rosterCheckIn, checkout: rosterCheckOut || "", count: data.guestCount || "",
+          url: confirmUrl, error: collisionDetail, detail: collisionDetail, candidates: candLines,
+        },
+        propertyId: data.propertyId || null,
+      });
+      console.warn(`[roster] 衝突検知: ${rosterCheckIn} は別ゲスト(${occupantName})に紐付き済み → 上書き保留`);
+      return;
+    }
+
+    const bookingDoc = freeMatch;
     const bookingId = bookingDoc.id;
     const booking = bookingDoc.data();
 
