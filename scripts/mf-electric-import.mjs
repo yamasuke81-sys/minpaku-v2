@@ -130,7 +130,7 @@ function parseCsv(text) {
   const seen = new Set();
   const uniq = candidates.filter((c) => { if (seen.has(c.mfId)) return false; seen.add(c.mfId); return true; });
   for (const c of uniq) console.log(`  ${c.date} ${c.description} ¥${c.amount.toLocaleString()} (mfId=${String(c.mfId).slice(0, 12)}…)`);
-  if (!uniq.length) { console.log("電気候補なし。終了。"); process.exit(0); }
+  if (!uniq.length) { console.log("電気候補なし。終了。"); process.exitCode = 0; return; }
 
   // ---- 2. 使用月(=各行 posted 日付の前月)ごとにグループ化 ----
   const groups = {};
@@ -143,10 +143,10 @@ function parseCsv(text) {
   }
 
   // ---- 3. API へ POST(採否の最終判定・冪等・overridden保護はサーバ側) ----
-  const admin = (await import("firebase-admin")).default;
-  if (!admin.apps.length) admin.initializeApp({ projectId: "minpaku-v2" });
-  const secret = (await admin.firestore().collection("settings").doc("taxDocs").get()).data().gasSecret;
-  await admin.app().delete(); // grpc を先に畳む(Windows node の libuv assert 回避)
+  // API シークレットはローカルファイルから読む(firebase-admin は Windows node で終了時に
+  // libuv assert クラッシュ(exit 127)するため PC 常駐スクリプトでは使わない。NotifyInbox と同方式)
+  const { readFileSync } = await import("node:fs");
+  const secret = readFileSync("C:/Users/yamas/.claude/channels/discord/v2-gas-secret.txt", "utf8").trim();
 
   let hadError = false;
   for (const [usageYm, g] of Object.entries(groups)) {
@@ -167,5 +167,5 @@ function parseCsv(text) {
       console.log(`NOTIFY: ⚡ MF明細から the Terrace ${usageYm} の電気代 ¥${total.toLocaleString()} を自動計上しました(${detail})。収支画面の「出典・内訳を確認」で検算できます。`);
     }
   }
-  process.exit(hadError ? 1 : 0);
-})().catch((e) => { console.error("ERROR:", e.message); process.exit(1); });
+  process.exitCode = hadError ? 1 : 0;
+})().catch((e) => { console.error("ERROR:", e.message); process.exitCode = 1; });

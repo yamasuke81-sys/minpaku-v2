@@ -61,14 +61,36 @@ test("sumAirbnbCsv: listingName フィルタ(不一致→0)", () => {
   assert.strictEqual(r.reservationCount, 0);
 });
 
-test("sumBookingCsv: the Terrace5月 = gross335,600 / comm50,340 / net285,260", () => {
+test("sumBookingCsv: the Terrace5月 = gross335,600 / comm50,340 / fee7,719 / net277,541(銀行入金6/4と一致)", () => {
   const r = sumBookingCsv(BOOKING_TERRACE_MAY);
   assert.strictEqual(r.grossRevenue, 335600);
   assert.strictEqual(r.commission, 50340);
-  assert.strictEqual(r.netRevenue, 285260);
+  // 決済手数料 round(gross×2.3%)/滞在: 190,000→4,370 + 73,600→1,693 + 72,000→1,656
+  assert.strictEqual(r.paymentFee, 4370 + 1693 + 1656);
+  // net = 実際の銀行入金額(2026-06-04 楽天第三 ¥277,541 と一致・実証済)
+  assert.strictEqual(r.netRevenue, 277541);
   assert.strictEqual(r.reservationCount, 3);
-  assert.strictEqual(r.canceledCount, 1);
+  assert.strictEqual(r.canceledCount, 1); // 料金不徴収キャンセル(comm=0)
+  assert.strictEqual(r.chargedCancelCount, 0);
   assert.strictEqual(r.nights, 2 + 3 + 1); // 6泊
+});
+
+test("sumBookingCsv: キャンセル料徴収(comm>0のcancelled)は売上として計上・泊数は加算しない", () => {
+  // 実例: 2026-04 Stefan Lang 4/24-26 guest cancel 100%徴収 → 5/8入金 ¥38,704 と1円一致
+  const csv = [
+    "予約番号,チェックイン,チェックアウト,ステータス,料金,コミッション額,滞在期間（泊数）",
+    "6090699951,2026-04-24,2026-04-26,cancelled_by_guest,46800 JPY,7020 JPY,2",
+    "9999999999,2026-04-23,2026-04-26,cancelled_by_guest,130410 JPY,,3", // 無料キャンセル(comm空)
+  ].join("\n") + "\n";
+  const r = sumBookingCsv(csv);
+  assert.strictEqual(r.grossRevenue, 46800);
+  assert.strictEqual(r.commission, 7020);
+  assert.strictEqual(r.paymentFee, 1076); // round(46,800×2.3%)
+  assert.strictEqual(r.netRevenue, 38704);
+  assert.strictEqual(r.reservationCount, 0);
+  assert.strictEqual(r.nights, 0);
+  assert.strictEqual(r.chargedCancelCount, 1);
+  assert.strictEqual(r.canceledCount, 1);
 });
 
 test("computeSettlement: 宿小町5月 料率50%/消費税10%/宿泊税0", () => {

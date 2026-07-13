@@ -24,6 +24,14 @@
 - **the Terrace 2026-05 の清掃費は ¥101,376**（v2 invoice 3名¥69,800 + **タイミー手動¥31,576=やますけ本人が入力した確定値**、いずれも excluded=false）。2026-07-11 時点の一部報告「5月清掃¥69,800」はタイミー分を見落とした古い値で、**正しくは¥101,376**。タイミー分は正常(ユーザー確認済 2026-07-12)。
 - 空 pnl doc(2025-11/2026-01 等)は**触らない**(実害なし)。
 
+## DONE(2026-07-14 MF常設監視化: Booking入金の自動突合ルーチン+手数料/キャンセル料の恒久組込)
+やますけ決定「今後はMFで監視しましょう」→ 実装完了・稼働開始。
+- **sumBookingCsv を恒久修正(functions/api/ota-csv-logic.js)**: ①決済手数料 `paymentFee=round(gross×2.3%)/滞在`(定数 BOOKING_PAYMENT_FEE_RATE、銀行×財務明細で実証済)を自動計上、netRevenue=gross−comm−fee(=実際の銀行入金額)。②**キャンセル料徴収行(cancelledでもcomm>0)を売上として計上**(chargedCancelCount、泊数は加算しない)。→ 今後の「OTA CSV取込」やバッチは手数料もキャンセル料も最初から正しく入る(今回の2種類の漏れの再発防止)。テスト2件追加(全169緑)、import-ota-csv ハンドラも paymentFee 保存に対応。デプロイ済。
+- **API新設 `POST /pnl/:pid/verify-booking-payout {amount,date}`**: 入金額を「前月チェックアウト分バッチ」の期待値(Drive予約CSVから CO∈対象月 の ok行+キャンセル料徴収行の Σ(gross−comm−fee))と突合し match/residual/滞在明細を返す。
+- **PC監視ルーチン `scripts/mf-booking-monitor.mjs`(毎日07:40・command型=トークンゼロ)**: MFの楽天第三口座CSVから Booking入金を検知(MF取引IDで冪等)→APIで自動突合→**一致=💰✅ / 残差=🚨(財務明細確認を促す)を#経理へ通知**。E2E実証: 7/3入金¥52,090→CO6月分と1円一致✅、6/4入金¥277,541→CO5月分と1円一致✅。state=`~/.claude/channels/discord/mf-booking-monitor-state.json`。
+- **落とし穴修正(両MFスクリプト共通)**: ①firebase-admin は Windows node で終了時 libuv assert クラッシュ(exit127)→routines のエラー誤通知になるため排除。APIシークレットは `~/.claude/channels/discord/v2-gas-secret.txt`(NotifyInbox と同方式)から読む。②playwright CDP 接続後の `process.exit()` も同クラッシュを誘発→`process.exitCode`+自然終了に変更。**PC常駐スクリプトの鉄則: admin SDK 禁止+process.exit() 禁止**。
+- 常駐ルーチンは3本体制: 経理朝ダイジェスト07:20(Claude型) / MF電気代07:35(command型) / MF Booking入金監視07:40(command型)。AUTOMATION.md+ダッシュボード更新済。
+
 ## DONE(2026-07-14 銀行入金×Booking 全期間突合: 4月キャンセル料発見+決済手数料を全月確定)
 やますけ指摘「Booking 4月売上ゼロはありえない」→ MF の楽天第三口座入金(ドイツギンコウ BOOKING.COMブン)と booking_all.csv を**チェックアウト月バッチで厳密突合**した結果、指摘どおり計上漏れを発見・是正。
 - **突合結果: 9バッチ中7バッチが円単位で完全一致(残差0)** → booking_all.csv の ok滞在データと「決済手数料=round(gross×2.3%)」の正確性を同時に実証。

@@ -617,8 +617,9 @@ module.exports = function pnlApi(db) {
           const text = await downloadDriveText_(drive, file.id);
           const b = sumBookingCsv(text);
           patch.revenue.booking = {
-            grossRevenue: b.grossRevenue, commission: b.commission, paymentFee: 0,
+            grossRevenue: b.grossRevenue, commission: b.commission, paymentFee: b.paymentFee || 0,
             netRevenue: b.netRevenue, reservationCount: b.reservationCount, nights: b.nights,
+            chargedCancelCount: b.chargedCancelCount || 0,
             source: "ota_csv", sourceFileId: file.id, sourceFileName: file.name,
             parsedAt: FieldValue.serverTimestamp(),
           };
@@ -1236,6 +1237,59 @@ module.exports = function pnlApi(db) {
     } catch (e) {
       console.error("出典取得エラー:", e);
       res.status(500).json({ error: "出典の取得に失敗しました: " + e.message });
+    }
+  });
+
+  // POST /:propertyId/verify-booking-payout { amount, date }
+  // Booking.com の銀行入金(翌月初旬)を「前月チェックアウト分バッチ」の期待値と突合する。
+  // 期待値 = Drive の予約CSV(CO月とその前月のCI月ぶん)から CO∈対象月 の行を集め、
+  //          Σ(料金 − コミッション − round(料金×2.3%))。ok行 + キャンセル料徴収行(comm>0)を含む。
+  // MF監視ルーチン(mf-booking-monitor.mjs)が入金検知時に呼ぶ。
+  router.post("/:propertyId/verify-booking-payout", router.cores.verifyBookingPayout = async (req, res) => {
+    try {
+      const { propertyId } = req.params;
+      const { amount, date } = req.body || {};
+      const dm = String(date || "").match(/^(\d{4})-(\d{2})/);
+      if (!dm || !(Number(amount) > 0)) return res.status(400).json({ error: "amount(正数) と date(YYYY-MM-DD) が必要" });
+      const propSnap = await db.collection("properties").doc(propertyId).get();
+      if (!propSnap.exists) return res.status(404).json({ error: "物件が見つかりません" });
+      const srcFolder = propSnap.data().driveOtaCsvFolderId;
+      if (!srcFolder) return res.status(400).json({ error: "OTAcsvフォルダ(driveOtaCsvFolderId)が未設定" });
+
+      const subMonth = (y, m, n) => { const t = new Date(Date.UTC(y, m - 1 - n, 1)); return [t.getUTCFullYear(), t.getUTCMonth() + 1]; };
+      const [py, pm] = [Number(dm[1]), Number(dm[2])];
+      const [cy, cm] = subMonth(py, pm, 1); // 対象CO月 = 入金月の前月
+      const coYm = `${cy}-${String(cm).padStart(2, "0")}`;
+      const ciMonths = [subMonth(cy, cm, 1), [cy, cm]].map(([y, m]) => `${y}-${String(m).padStart(2, "0")}`);
+
+      const { BOOKING_PAYMENT_FEE_RATE, parseCsv: pCsv, parseYen: pYen } = require("./ota-csv-logic");
+      const drive = await resolveOtaDrive_();
+      const stays = [];
+      for (const ciYm of ciMonths) {
+        const file = await findLatestOtaCsv_(drive, srcFolder, "booking", ciYm);
+        if (!file) continue;
+        const rows = pCsv(await downloadDriveText_(drive, file.id));
+        if (rows.length < 2) continue;
+        const h = {}; rows[0].forEach((c, i) => { h[c] = i; });
+        const iCo = h["チェックアウト"], iCi = h["チェックイン"], iSt = h["ステータス"], iAmt = h["料金"], iComm = h["コミッション額"], iNo = h["予約番号"];
+        for (const r of rows.slice(1)) {
+          if (!r || r.length < 3) continue;
+          const co = String(r[iCo] || "");
+          if (!co.startsWith(coYm)) continue;
+          const st = String(r[iSt] || "").trim().toLowerCase();
+          const gross = pYen(r[iAmt]), comm = pYen(r[iComm]);
+          const charged = st === "ok" || (comm > 0 && gross > 0); // ok or キャンセル料徴収
+          if (!charged) continue;
+          const fee = Math.round(gross * BOOKING_PAYMENT_FEE_RATE);
+          stays.push({ bookingNumber: r[iNo], ci: r[iCi], co, status: st, gross, commission: comm, paymentFee: fee, paid: gross - comm - fee });
+        }
+      }
+      const expected = stays.reduce((s, x) => s + x.paid, 0);
+      const residual = Math.round(Number(amount)) - expected;
+      res.json({ ok: true, propertyId, coMonth: coYm, depositAmount: Math.round(Number(amount)), expected, residual, match: residual === 0, stays });
+    } catch (e) {
+      console.error("Booking入金突合エラー:", e);
+      res.status(500).json({ error: "Booking入金突合に失敗しました: " + e.message });
     }
   });
 

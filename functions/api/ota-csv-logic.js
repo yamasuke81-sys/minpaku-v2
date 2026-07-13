@@ -115,18 +115,24 @@ function sumAirbnbCsv(text, opts = {}) {
   return { grossRevenue, nights, reservationCount, canceledCount };
 }
 
+// Booking決済手数料率(Payments by Booking)。2025-10〜2026-06 の全滞在で
+// round(gross×2.3%) が銀行入金(楽天第三)×公式財務明細と1円単位で一致することを実証済(2026-07-14)。
+const BOOKING_PAYMENT_FEE_RATE = 0.023;
+
 /**
  * Booking.com 予約CSV(yadozei保存形式)を集計する。
  * 列: 予約番号,...,ステータス,...,料金,コミッション率,コミッション額,...,滞在期間（泊数）,...
- * - ステータス "ok" のみ有効(cancelled_by_* / no_show 等は除外)
- * - 料金=gross(宿泊者支払), コミッション額=OTA手数料
- * - netRevenue = 料金 − コミッション額 (Booking.com決済のホスト受取=入金額)
+ * - ステータス "ok" = 宿泊売上。加えて cancelled でも「コミッション額>0」の行は
+ *   キャンセル料徴収あり=売上として計上(財務明細では通常の予約行として支払われる。
+ *   実例: 2026-04 ¥46,800 guest cancel → net38,704 が銀行入金と一致)。泊数は実宿泊なしのため加算しない。
+ * - paymentFee = round(料金×2.3%)(滞在ごと) — Payments by Booking の決済サービス手数料
+ * - netRevenue = 料金 − コミッション額 − paymentFee (=実際の銀行入金額)
  *
- * @returns {{grossRevenue:number, commission:number, netRevenue:number, reservationCount:number, nights:number, canceledCount:number}}
+ * @returns {{grossRevenue:number, commission:number, paymentFee:number, netRevenue:number, reservationCount:number, nights:number, canceledCount:number, chargedCancelCount:number}}
  */
 function sumBookingCsv(text) {
   const rows = parseCsv(text);
-  if (rows.length < 2) return { grossRevenue: 0, commission: 0, netRevenue: 0, reservationCount: 0, nights: 0, canceledCount: 0 };
+  if (rows.length < 2) return { grossRevenue: 0, commission: 0, paymentFee: 0, netRevenue: 0, reservationCount: 0, nights: 0, canceledCount: 0, chargedCancelCount: 0 };
   const h = headerIndex(rows[0]);
   const iStatus = h["ステータス"];
   const iAmount = h["料金"];
@@ -135,18 +141,32 @@ function sumBookingCsv(text) {
   let iNights = h["滞在期間（泊数）"];
   if (iNights == null) iNights = h["滞在期間(泊数)"];
 
-  let grossRevenue = 0, commission = 0, reservationCount = 0, nights = 0, canceledCount = 0;
+  let grossRevenue = 0, commission = 0, paymentFee = 0, reservationCount = 0, nights = 0, canceledCount = 0, chargedCancelCount = 0;
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
     if (!row || row.length < 2) continue;
     const status = String(row[iStatus] || "").trim().toLowerCase();
-    if (status !== "ok") { canceledCount++; continue; }
-    grossRevenue += parseYen(row[iAmount]);
-    commission += parseYen(row[iComm]);
+    const gross = parseYen(row[iAmount]);
+    const comm = parseYen(row[iComm]);
+    if (status !== "ok") {
+      if (comm > 0 && gross > 0) {
+        // キャンセル料徴収(100%等)。売上計上・泊数は加算しない
+        grossRevenue += gross;
+        commission += comm;
+        paymentFee += Math.round(gross * BOOKING_PAYMENT_FEE_RATE);
+        chargedCancelCount++;
+      } else {
+        canceledCount++;
+      }
+      continue;
+    }
+    grossRevenue += gross;
+    commission += comm;
+    paymentFee += Math.round(gross * BOOKING_PAYMENT_FEE_RATE);
     if (iNights != null) nights += parseYen(row[iNights]);
     reservationCount++;
   }
-  return { grossRevenue, commission, netRevenue: grossRevenue - commission, reservationCount, nights, canceledCount };
+  return { grossRevenue, commission, paymentFee, netRevenue: grossRevenue - commission - paymentFee, reservationCount, nights, canceledCount, chargedCancelCount };
 }
 
 /**
@@ -326,6 +346,7 @@ module.exports = {
   normLoose,
   sumAirbnbCsv,
   sumBookingCsv,
+  BOOKING_PAYMENT_FEE_RATE,
   extractAirbnbReservations,
   extractBookingReservations,
   computeSettlement,
