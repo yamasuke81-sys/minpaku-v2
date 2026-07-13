@@ -1493,8 +1493,19 @@ async function handleSessionCheck(ctx, jobId) {
     try {
       await p.goto(s.url, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
       await p.waitForTimeout(3500); // リダイレクト確定待ち
-      const url = p.url();
-      const out = s.re.test(url);
+      let url = p.url();
+      let out = s.re.test(url);
+      if (out) {
+        // 誤検知対策(2026-07-14実測: Booking がリダイレクト途中の op_token 付きsign-in URLを掴まれ
+        // 「失効」誤報→1時間後のチェックで自然にOKへ戻った)。5秒置いて再訪問し、
+        // 2回連続で未ログインのときだけ失効と判定する。
+        await p.waitForTimeout(5000);
+        await p.goto(s.url, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
+        await p.waitForTimeout(3500);
+        url = p.url();
+        out = s.re.test(url);
+        if (!out) console.log(`${LOG_PREFIX} [session_check] ${s.name}: 初回の未ログイン判定は一過性(再訪問でOK)`);
+      }
       sessions[s.name] = out ? "logged_out" : "ok";
       if (out) loggedOut.push(s.name);
       console.log(`${LOG_PREFIX} [session_check] ${s.name}: ${out ? "✗ 未ログイン" : "✓ OK"} (${url.slice(0, 70)})`);
