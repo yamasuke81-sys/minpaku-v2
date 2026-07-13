@@ -31,6 +31,7 @@
 - **PC監視ルーチン `scripts/mf-booking-monitor.mjs`(毎日07:40・command型=トークンゼロ)**: MFの楽天第三口座CSVから Booking入金を検知(MF取引IDで冪等)→APIで自動突合→**一致=💰✅ / 残差=🚨(財務明細確認を促す)を#経理へ通知**。E2E実証: 7/3入金¥52,090→CO6月分と1円一致✅、6/4入金¥277,541→CO5月分と1円一致✅。state=`~/.claude/channels/discord/mf-booking-monitor-state.json`。
 - **落とし穴修正(両MFスクリプト共通)**: ①firebase-admin は Windows node で終了時 libuv assert クラッシュ(exit127)→routines のエラー誤通知になるため排除。APIシークレットは `~/.claude/channels/discord/v2-gas-secret.txt`(NotifyInbox と同方式)から読む。②playwright CDP 接続後の `process.exit()` も同クラッシュを誘発→`process.exitCode`+自然終了に変更。**PC常駐スクリプトの鉄則: admin SDK 禁止+process.exit() 禁止**。
 - 常駐ルーチンは3本体制: 経理朝ダイジェスト07:20(Claude型) / MF電気代07:35(command型) / MF Booking入金監視07:40(command型)。AUTOMATION.md+ダッシュボード更新済。
+- **★やますけ指示(2026-07-14): MF監視は OTA CSV 自動取得の「代替」ではない。yadozei-listener の Airbnb/Booking CSV ダウンロードは従来どおり継続する**(①やどぜい宿泊税申告に両CSVが必須 ②pnl売上取込の源泉 ③MF入金監視の期待値計算も Drive の予約CSVを参照=CSVが止まると監視も壊れる)。listener を止める判断は今後もしない。→ だからこそ NEXT#2 の Booking 再ログイン(8/1まで)は必須のまま。
 
 ## DONE(2026-07-14 銀行入金×Booking 全期間突合: 4月キャンセル料発見+決済手数料を全月確定)
 やますけ指摘「Booking 4月売上ゼロはありえない」→ MF の楽天第三口座入金(ドイツギンコウ BOOKING.COMブン)と booking_all.csv を**チェックアウト月バッチで厳密突合**した結果、指摘どおり計上漏れを発見・是正。
