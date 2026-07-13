@@ -1067,8 +1067,14 @@ module.exports = function pnlApi(db) {
       const newAmount = before + filtered.totalAmount;
       // creditCardIndex に取込明細を記録(冪等性: PDFモード=file+description、MFモード=取引ID)
       const already = new Set((curData.creditCardIndex || []).map((r) => `${r.fileId}|${r.description}`));
+      // ルート間の二重防止: 同じ明細対象月(ym=stmtYm)に同額のエントリが既にあればスキップ
+      // (MFルーチンが先に計上→後からSAISON PDFをDrive投入した場合など、経路違いの同一請求を弾く)
+      const sameYmAmounts = new Set((curData.creditCardIndex || [])
+        .filter((r) => r.ym === stmtYm)
+        .map((r) => toInt(r.amount)));
       const newIndex = filtered.items
         .filter((it) => !already.has(`${srcIdOf(it)}|${it.description}`))
+        .filter((it) => !sameYmAmounts.has(toInt(it.amount)))
         .map((it) => ({ fileId: srcIdOf(it), fileName: srcNameOf(), ym: stmtYm, ...it }));
       if (newIndex.length === 0) {
         return res.json({ ok: true, skipped: "全て既取込(creditCardIndexで重複判定)", stmtYm });
