@@ -216,7 +216,7 @@ async function notifyTimeeLoginFailure_(docId, err) {
     `⚠️ **タイミー自動投稿失敗: 未ログイン**`,
     `対象: ${c.propertyName || "物件不明"} / チェックアウト ${c.checkoutDate || "?"} / 予約 ${c.bookingId || "?"}`,
     `ジョブ ${docId} は failed にしました (予約への「募集中」書き込みは行っていません)。`,
-    `再ログイン: PCで \`scripts\\dispatch-relogin.cmd\` を実行 → 開いたブラウザでタイミーにログイン → ブラウザを閉じるだけ（常駐は自動再開）`,
+    `再ログイン: このチャンネルに **「タイミー再ログイン」** と送信（PC側の準備は全自動）→ 開いたブラウザでログイン → 閉じるだけ。PCから直接なら \`scripts\\dispatch-relogin.cmd\` でも可`,
   ].join("\n"));
 }
 
@@ -548,7 +548,7 @@ async function handleSessionCheck(jobId) {
         lines.push(`📏 持続実測: ${fmtJst_(st.sessionStartAt)} ログイン確認 〜 ${fmtJst_(st.lastOkAt)} 正常 (約${days}日)`);
       }
       lines.push(`失効中はタイミー求人の自動投稿が失敗します。リマインドは3日毎程度に送ります。`);
-      lines.push(`再ログイン: PCで \`scripts\\dispatch-relogin.cmd\` を実行 → 開いたブラウザでタイミーにログイン → ブラウザを閉じるだけ（常駐は自動再開）`);
+      lines.push(`再ログイン: このチャンネルに **「タイミー再ログイン」** と送信（PC側の準備は全自動）→ 開いたブラウザでログイン → 閉じるだけ。PCから直接なら \`scripts\\dispatch-relogin.cmd\` でも可`);
       notice = lines.join("\n");
     } else {
       // 失効継続中 → 最低20時間間隔・3日毎程度にリマインド
@@ -558,7 +558,7 @@ async function handleSessionCheck(jobId) {
         const days = ((Date.now() - new Date(st.expiredSince).getTime()) / 86400000).toFixed(1);
         notice =
           `⏰ **リマインド: タイミーが未ログインのままです** (失効から約${days}日)\n` +
-          `再ログイン: PCで \`scripts\\dispatch-relogin.cmd\` を実行 → 開いたブラウザでタイミーにログイン → ブラウザを閉じるだけ（常駐は自動再開）`;
+          `再ログイン: このチャンネルに **「タイミー再ログイン」** と送信（PC側の準備は全自動）→ 開いたブラウザでログイン → 閉じるだけ。PCから直接なら \`scripts\\dispatch-relogin.cmd\` でも可`;
       } else {
         console.log(`${LOG_PREFIX} [session_check] 失効継続中 — 再通知条件外のため抑制`);
       }
