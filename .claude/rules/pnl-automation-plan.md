@@ -24,6 +24,15 @@
 - **the Terrace 2026-05 の清掃費は ¥101,376**（v2 invoice 3名¥69,800 + **タイミー手動¥31,576=やますけ本人が入力した確定値**、いずれも excluded=false）。2026-07-11 時点の一部報告「5月清掃¥69,800」はタイミー分を見落とした古い値で、**正しくは¥101,376**。タイミー分は正常(ユーザー確認済 2026-07-12)。
 - 空 pnl doc(2025-11/2026-01 等)は**触らない**(実害なし)。
 
+## DONE(2026-07-13 クレカ電気を MF ME 経由で自動取得する経路を実装・E2E実証)
+やますけ発案「セゾン明細はマネーフォワードMEから取れない？」→ **取れることを実証し実装完了**。SAISON PDF の Drive 投入(2602〜2607未投入で途絶していた)と「バッチと明細到着のすれ違い」問題を同時に解消する。
+- **MF の口座別明細CSVエンドポイントを発見**: `https://moneyforward.com/cf/csv?account_id_hash={hash}&year=Y&month=M&from=Y%2FM%2F01&service_id=27`。セゾンアメックス(八朔)の hash=`et2JNC6KSatQ9pMz6fL8voH-z9t8NpFGQ2rOnN6Ntkg`。Shift_JIS。各行に**MF取引ID**(冪等キーに最適)。posted月単位で任意月を取得可能。MF個別ページには 2024/12〜の全月CSVリンクあり。
+- **API拡張(functions/api/pnl.js デプロイ済)**: `import-credit-card-electric` に **payments 直接モード**追加(`{payments:[{date,description,amount,mfId}], targetYm}`)。Drive/Gemini をスキップし、サーバ側 `filterElectricPaymentsForProperty`(エネパル/アプラス/スマートビリング allowlist)で最終採否→creditCardIndex 冪等キー=`mf:{mfId}`→水道光熱費へ加算(overridden保護は従来どおり)。従来の SAISON PDF モードも共存。
+- **PC側スクリプト(新規)**: `scripts/mf-electric-import.mjs`。デバッグChrome(CDP:9222・MFログイン済・browse.mjs と同方式の読み取りGETのみ)→CSV取得→電気系行を抽出→**使用月=posted月-1** で API へ POST。`--month YYYY-MM` `--dry` 対応。実行は `NODE_PATH=../minpaku-v2-yadozei/scripts/node_modules node scripts/mf-electric-import.mjs`。
+- **E2E実証**: 2026-05 posted分 → MF CSV 82行取得、楽天でんき2件(宿小町分)を候補検出→**サーバ allowlist が正しく除外(採用0)**=他物件誤計上なし。2026-07 posted分 → 22行・電気候補0(エネパル6月分は確定日7/19頃に posted される見込み)。6月分は水道光熱費 overridden=true のため仮に流れても上書き保護でスキップ=二重計上なし。
+- **タイミング設計**: エネパル N月分 → (N+1)月中旬にカードposted → **毎月25日頃に当月posted分を実行**すれば使用月N に計上が間に合う(帳票は必要時に再生成)。旧課題「8/6バッチはSAISON_2609を探して常に空振り」は MF 経路で無効化。
+- **残り**: スケジュール登録のみ(NEXT#4)。宿小町の楽天でんきは領収書PDF経路(60フォルダ)継続で変更なし。
+
 ## DONE(2026-07-13 総ざらい監査: OTA CSV残骸一掃＋再汚染是正＋宿泊税全期間整備)
 **総点検で発見した実害2件を是正**:
 - **[実害1] the Terrace 2026-03 Booking売上の再汚染**: 7/13 の手動バッチが Drive の月ズレCSV残骸(`booking_reservations_2026-03…csv`=中身2025-11×13件)から **¥332,884(11月の値)** を3月に再取込していた。booking_all.csv ground truth で検証→ 正 **¥286,528**(6件/コミッション42,979/net 243,549)。API 再取込で是正、宿泊税も 9,800(汚染CSV由来)→**¥11,200** に再計算。3月確定: **売上918,192 / 清掃91,966 / 経費74,392 / 税11,200 / 利益708,855(77.2%)**。報告書PDF再生成済。
@@ -274,8 +283,8 @@ Workflow audit(65エージェント/54 findings→adversarial verify通過27件)
    - **手順**: `pm2 stop yadozei-listener` → `cd C:\Users\yamas\AI_Workspace\minpaku-v2-yadozei && node scripts/yadozei-listener.mjs --login`(Playwrightブラウザが起動→Booking.com にログイン→cookie 保存されるまで放置) → Ctrl+C → `pm2 start yadozei-listener`
    - 完了確認: Firestore `settings/yadozeiListener.sessionCheck.sessions."Booking.com" === "ok"` になれば OK
 3. **7月分の Drive 投入(8/2〜8/5 人手)**: Terrace/宿小町 の光熱PDF(007配下)/レシート(60配下)/清掃請求書 を投入。ScanSorter経由で自動振り分けさせる。**ゴミ処理費・Wi-Fi通信費の月次自動計上もこれに乗せる**(過去月バックフィルはやますけが金額指示すれば scratchpad で個別上書き可能)。
-4. **セゾン明細PDFの投入(★やますけ)**: セゾンWebから **SAISON_2602〜最新** の明細PDFをDLし、Drive セゾンフォルダ(`1f8GiV49afjuTuYuTe77aWT_nGVDA1UYZ`)へ `SAISON_YYMM.pdf` 名で投入。投入後、the Terrace 5月電気を `import-credit-card-electric 2026-05 targetYm=2026-07` で自動計上できる(現状5月電気¥0=唯一の既知欠落)。
-5. **クレカ電気バッチの再訪ロジック(恒久修正・コード変更)**: pnlMonthlyImport.run() で対象月に加えて **yearMonth-2 の月へも importCreditCardElectric を再実行**する(creditCardIndex 冪等なので二重計上なし)。現状は「電気明細=使用月+2ヶ月到着」とバッチ周期がすれ違い、クレカ電気が自動計上されない構造(2026-07-13 発見)。
+4. **【2026-07-13 実装済→残りはスケジュール登録のみ】クレカ電気は MF ME 経由で自動取得**: SAISON PDF 投入は不要になった(下記 DONE 参照)。`scripts/mf-electric-import.mjs` を **毎月25日頃に実行**するようスケジュール登録する(★やますけ選択待ち: Windowsタスクスケジューラ or 常駐bun routines.json)。登録後は AUTOMATION.md 更新。
+   - the Terrace 5月電気(唯一の既知欠落)は、エネパル5月分がカードに posted された月のCSVに現れ次第 `--month YYYY-MM` 指定で計上可能(7月明細に載る想定 → `--month 2026-07` を7月末に実行)。※5月分がカード払いでなくコンビニ払いPDFの場合は従来どおり 54電気 フォルダへ。
 6. **税抜換算対応(遅延優先度低)**: Airbnb「収入」列基準で /人/泊 を計算する現行仕様は、閾値10,000円をまたぐ稀ケースで誤差の可能性。運用で問題が出るまで保留。
 7. **the Terrace 25-11/12/26-01 空白期間の電気は「書類なし」で確定**(NEXT#8 消化済)。中国電力ハガキ or 楽天でんき短期契約分の請求書が発掘された場合は個別追記可能。実害は最大数千円×3ヶ月レベル。
 8. **過去月のやどぜい実申告状況の確認(★やますけ)**: 自動申告済みは 2026-05 のみ。2025-09〜2026-04/2026-06 の宿泊税を手動申告済みか要確認(pnl帳簿値は全月計算済み: 09=800/10=2,000/11=3,200/12=5,200/01=0/02=1,400/03=11,200/04=2,800/06=600)。

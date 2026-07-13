@@ -940,14 +940,11 @@ module.exports = function pnlApi(db) {
   router.post("/:propertyId/:yearMonth/import-credit-card-electric", router.cores.importCreditCardElectric = async (req, res) => {
     try {
       const { propertyId, yearMonth } = req.params;
-      const { folderId, dryRun, targetYm } = req.body || {};
+      const { folderId, dryRun, targetYm, payments } = req.body || {};
       if (!/^\d{4}-\d{2}$/.test(yearMonth)) return res.status(400).json({ error: "yearMonth は YYYY-MM 形式" });
 
       const propSnap = await db.collection("properties").doc(propertyId).get();
       if (!propSnap.exists) return res.status(404).json({ error: "物件が見つかりません" });
-      const srcFolder = folderId || propSnap.data().driveSaisonFolderId;
-      // 未設定物件(クレカ払い電気を使わない)はエラーでなく skipped=正常扱い(月次バッチで毎回呼ばれるため)
-      if (!srcFolder) return res.json({ ok: true, skipped: "セゾンフォルダ未設定(クレカ払い電気なし)" });
 
       // 明細対象月: 指定なければ yearMonth の翌々月(エネパルタイムラグ)
       function addMonths(ym, n) {
@@ -958,61 +955,86 @@ module.exports = function pnlApi(db) {
       const stmtYm = targetYm && /^\d{4}-\d{2}$/.test(targetYm) ? targetYm : addMonths(yearMonth, 2);
       const yymm = stmtYm.replace(/^20/, "").replace("-", ""); // 2026-08 → 2608
 
-      const apiKey = await getGeminiApiKey_();
-      if (!apiKey) return res.status(400).json({ error: "Gemini APIキー(settings/scanSorter)が未設定です" });
+      // ---- モードA: MF等から抽出済み明細を直接受け取る(Drive/Gemini不要) ----
+      // payments: [{date, description, amount, vendor?, mfId?}] — mfId(MF取引ID)を冪等キーに使う
+      const directPayments = Array.isArray(payments) && payments.length
+        ? payments.map((p, i) => ({
+            date: String(p.date || ""),
+            description: String(p.description || ""),
+            amount: Math.abs(toInt(p.amount)),
+            vendor: String(p.vendor || ""),
+            mfId: p.mfId ? String(p.mfId) : `${stmtYm}_${i}`,
+          }))
+        : null;
 
-      const drive = await resolveOtaDrive_();
-      // 親フォルダ直下 + 1階層サブフォルダも探索(セゾンは年ごとにサブフォルダ分けされているケースあり)
-      async function findSaisonPdf() {
-        const direct = await drive.files.list({
-          q: `'${srcFolder}' in parents and trashed=false and name contains 'SAISON_${yymm}' and mimeType='application/pdf'`,
-          fields: "files(id,name,parents)", pageSize: 5,
-          supportsAllDrives: true, includeItemsFromAllDrives: true,
-        });
-        if ((direct.data.files || []).length) return direct.data.files[0];
-        // サブフォルダ1階層を探索
-        const subs = await drive.files.list({
-          q: `'${srcFolder}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder'`,
-          fields: "files(id,name)", pageSize: 50,
-          supportsAllDrives: true, includeItemsFromAllDrives: true,
-        });
-        for (const sub of (subs.data.files || [])) {
-          const r = await drive.files.list({
-            q: `'${sub.id}' in parents and trashed=false and name contains 'SAISON_${yymm}' and mimeType='application/pdf'`,
+      const srcFolder = folderId || propSnap.data().driveSaisonFolderId;
+      // 未設定物件(クレカ払い電気を使わない)はエラーでなく skipped=正常扱い(月次バッチで毎回呼ばれるため)
+      if (!directPayments && !srcFolder) return res.json({ ok: true, skipped: "セゾンフォルダ未設定(クレカ払い電気なし)" });
+
+      const apiKey = directPayments ? null : await getGeminiApiKey_();
+      if (!directPayments && !apiKey) return res.status(400).json({ error: "Gemini APIキー(settings/scanSorter)が未設定です" });
+
+      // ---- モードB: Drive の SAISON_YYMM.pdf を Gemini で抽出(従来経路) ----
+      let file = null;
+      let detected = directPayments;
+      if (!directPayments) {
+        const drive = await resolveOtaDrive_();
+        // 親フォルダ直下 + 1階層サブフォルダも探索(セゾンは年ごとにサブフォルダ分けされているケースあり)
+        async function findSaisonPdf() {
+          const direct = await drive.files.list({
+            q: `'${srcFolder}' in parents and trashed=false and name contains 'SAISON_${yymm}' and mimeType='application/pdf'`,
             fields: "files(id,name,parents)", pageSize: 5,
             supportsAllDrives: true, includeItemsFromAllDrives: true,
           });
-          if ((r.data.files || []).length) return r.data.files[0];
+          if ((direct.data.files || []).length) return direct.data.files[0];
+          // サブフォルダ1階層を探索
+          const subs = await drive.files.list({
+            q: `'${srcFolder}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder'`,
+            fields: "files(id,name)", pageSize: 50,
+            supportsAllDrives: true, includeItemsFromAllDrives: true,
+          });
+          for (const sub of (subs.data.files || [])) {
+            const r = await drive.files.list({
+              q: `'${sub.id}' in parents and trashed=false and name contains 'SAISON_${yymm}' and mimeType='application/pdf'`,
+              fields: "files(id,name,parents)", pageSize: 5,
+              supportsAllDrives: true, includeItemsFromAllDrives: true,
+            });
+            if ((r.data.files || []).length) return r.data.files[0];
+          }
+          return null;
         }
-        return null;
-      }
-      const file = await findSaisonPdf();
-      // 明細PDF未着はエラーでなく skipped(2ヶ月先の明細を待つ通常運用。dryRun 時のみ 404 でユーザーに知らせる)
-      if (!file) {
-        if (dryRun) return res.status(404).json({ error: `SAISON_${yymm}.pdf が見つかりません(明細対象月=${stmtYm})` });
-        return res.json({ ok: true, skipped: `SAISON_${yymm}.pdf 未着(明細対象月=${stmtYm})` });
-      }
+        file = await findSaisonPdf();
+        // 明細PDF未着はエラーでなく skipped(2ヶ月先の明細を待つ通常運用。dryRun 時のみ 404 でユーザーに知らせる)
+        if (!file) {
+          if (dryRun) return res.status(404).json({ error: `SAISON_${yymm}.pdf が見つかりません(明細対象月=${stmtYm})` });
+          return res.json({ ok: true, skipped: `SAISON_${yymm}.pdf 未着(明細対象月=${stmtYm})` });
+        }
 
-      const bin = await drive.files.get({ fileId: file.id, alt: "media", supportsAllDrives: true }, { responseType: "arraybuffer" });
-      const b64 = Buffer.from(bin.data).toString("base64");
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-      const prompt = [
-        "これはクレジットカード(セゾン)の月次明細PDFです。",
-        "明細行から、電気料金の支払いを漏れなく抽出してください。以下のキーワードを含む行が対象:",
-        "「エネパル」「収納代行アプラス」「アプラス」「スマートビリング」「ソフトバンクでんき」「東京電力」「関西電力」「中国電力」「電気」「でんき」",
-        "各件について date(YYYY-MM-DD), description(明細の説明そのまま), amount(税込整数円), vendor(推定事業者名) を返してください。",
-        '出力はJSONのみ: {"electricPayments":[{"date":"YYYY-MM-DD","description":"...","amount":整数,"vendor":"..."}]}',
-      ].join("\n");
-      const payload = { contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "application/pdf", data: b64 } }] }], generationConfig: { temperature: 0.1 } };
-      const gr = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      if (!gr.ok) return res.status(500).json({ error: "Gemini API error: " + gr.status });
-      const gj = await gr.json();
-      const text = gj.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
-      const m = text.match(/\{[\s\S]*\}/);
-      const parsed = m ? JSON.parse(m[0]) : { electricPayments: [] };
+        const bin = await drive.files.get({ fileId: file.id, alt: "media", supportsAllDrives: true }, { responseType: "arraybuffer" });
+        const b64 = Buffer.from(bin.data).toString("base64");
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+        const prompt = [
+          "これはクレジットカード(セゾン)の月次明細PDFです。",
+          "明細行から、電気料金の支払いを漏れなく抽出してください。以下のキーワードを含む行が対象:",
+          "「エネパル」「収納代行アプラス」「アプラス」「スマートビリング」「ソフトバンクでんき」「東京電力」「関西電力」「中国電力」「電気」「でんき」",
+          "各件について date(YYYY-MM-DD), description(明細の説明そのまま), amount(税込整数円), vendor(推定事業者名) を返してください。",
+          '出力はJSONのみ: {"electricPayments":[{"date":"YYYY-MM-DD","description":"...","amount":整数,"vendor":"..."}]}',
+        ].join("\n");
+        const payload = { contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "application/pdf", data: b64 } }] }], generationConfig: { temperature: 0.1 } };
+        const gr = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        if (!gr.ok) return res.status(500).json({ error: "Gemini API error: " + gr.status });
+        const gj = await gr.json();
+        const text = gj.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+        const m = text.match(/\{[\s\S]*\}/);
+        const parsed = m ? JSON.parse(m[0]) : { electricPayments: [] };
+        detected = parsed.electricPayments || [];
+      }
 
       const { filterElectricPaymentsForProperty } = require("./pnl-logic");
-      const filtered = filterElectricPaymentsForProperty(parsed.electricPayments || []);
+      const filtered = filterElectricPaymentsForProperty(detected);
+      // 冪等キー用のソース識別(MFモードは取引ID、PDFモードはfileId)
+      const srcIdOf = (it) => (directPayments ? `mf:${it.mfId}` : file.id);
+      const srcNameOf = () => (directPayments ? `MF明細CSV(${stmtYm})` : file.name);
 
       // 対象費目= 水道光熱費 (classify で決定的に取得)
       const cats = await loadCategories_();
@@ -1021,8 +1043,8 @@ module.exports = function pnlApi(db) {
 
       if (dryRun) {
         return res.json({
-          dryRun: true, propertyId, yearMonth, stmtYm, sourceFile: file.name,
-          detected: parsed.electricPayments || [], adopted: filtered.items,
+          dryRun: true, propertyId, yearMonth, stmtYm, sourceFile: srcNameOf(),
+          detected, adopted: filtered.items,
           adoptedTotal: filtered.totalAmount, note: "本適用は dryRun=false で",
         });
       }
@@ -1037,11 +1059,11 @@ module.exports = function pnlApi(db) {
       }
       const before = toInt(existing?.amount);
       const newAmount = before + filtered.totalAmount;
-      // creditCardIndex に取込明細を記録(冪等性: 同じ file+description は再取込しない)
+      // creditCardIndex に取込明細を記録(冪等性: PDFモード=file+description、MFモード=取引ID)
       const already = new Set((curData.creditCardIndex || []).map((r) => `${r.fileId}|${r.description}`));
       const newIndex = filtered.items
-        .filter((it) => !already.has(`${file.id}|${it.description}`))
-        .map((it) => ({ fileId: file.id, fileName: file.name, ym: stmtYm, ...it }));
+        .filter((it) => !already.has(`${srcIdOf(it)}|${it.description}`))
+        .map((it) => ({ fileId: srcIdOf(it), fileName: srcNameOf(), ym: stmtYm, ...it }));
       if (newIndex.length === 0) {
         return res.json({ ok: true, skipped: "全て既取込(creditCardIndexで重複判定)", stmtYm });
       }
@@ -1065,7 +1087,7 @@ module.exports = function pnlApi(db) {
       await ref.set(patch, { merge: true });
       const after = (await ref.get()).data();
       res.json({
-        ok: true, propertyId, yearMonth, stmtYm, sourceFile: file.name,
+        ok: true, propertyId, yearMonth, stmtYm, sourceFile: srcNameOf(),
         adopted: newIndex, adoptedTotal: addAmount,
         beforeAmount: before, afterAmount: before + addAmount,
         computed: computePnl(after, cats),
