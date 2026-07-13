@@ -46,7 +46,12 @@ module.exports = async function onErrorLogCreated(event) {
 
   // システムエラーは管理者専用通知のため notifyOwner を使用
   // (物件IDが無いため notifyByKey では全チャネルOFF扱いになる)
-  await notifyOwner(db, "error_alert", "エラー通知", text);
+  // skipLineNotify=true の doc (LINE経路全滅を知らせる lineNotify 由来のログ) は
+  // LINE を飛ばしてメール+Discord のみで通知する
+  // (error_logs → notifyOwner → LINE失敗 → また error_logs という無限ループの防止)
+  await notifyOwner(db, "error_alert", "エラー通知", text, null, null, {
+    skipLine: data.skipLineNotify === true,
+  });
 };
 
 /**

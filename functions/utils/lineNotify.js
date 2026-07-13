@@ -329,6 +329,18 @@ async function _sendOwnerLine_(settings, fallbackToken, fallbackUserId, text) {
     ? settings.ownerLineChannels.filter(c => c.token && c.userId)
     : [];
 
+  // LINE経路全滅検知用: 実際に送信を試みた Bot の結果を記録する
+  // (無料枠枯渇によるスキップは「試行」ではないので記録しない)
+  const attempts = [];
+  const record_ = (name, r) => {
+    attempts.push({
+      name: name || "Bot",
+      success: !!r.success,
+      statusCode: extractHttpStatus_(r),
+      error: r.error || null,
+    });
+  };
+
   // ownerLineChannels が設定されている場合は複数 Bot 対応ロジックを使う
   if (ownerChannels.length > 0) {
     const strategy = settings.ownerLineChannelStrategy || "fallback";
@@ -339,37 +351,130 @@ async function _sendOwnerLine_(settings, fallbackToken, fallbackUserId, text) {
       const primary = ownerChannels[idx];
       const secondary = ownerChannels[(idx + 1) % ownerChannels.length];
       let result = await sendLineMessage(primary.token, primary.userId, text);
+      record_(primary.name || "Bot#1", result);
       if (!result.success) {
         console.warn(`[LINE] ownerLine roundrobin 1番目(${primary.name || "Bot"})失敗、2番目を試みます:`, result.error);
         result = await sendLineMessage(secondary.token, secondary.userId, text);
+        record_(secondary.name || "Bot#2", result);
         if (result.success) result.usedChannel = secondary.name || "Bot#2";
       } else {
         result.usedChannel = primary.name || "Bot#1";
       }
-      return result;
+      return { ...result, attempts };
     } else {
       // fallback: 残枠 > 0 のチャネルから順に試みる
       for (const ch of ownerChannels) {
         const quota = await getChannelQuota(ch.token);
         if (quota.remaining > 0) {
           const result = await sendLineMessage(ch.token, ch.userId, text);
+          record_(ch.name || ch.userId, result);
           if (result.success) {
-            return { ...result, usedChannel: ch.name || ch.userId };
+            return { ...result, usedChannel: ch.name || ch.userId, attempts };
           }
           console.warn(`[LINE] ownerLine fallback チャネル「${ch.name || ch.userId}」送信失敗:`, result.error);
         } else {
           console.warn(`[LINE] ownerLine チャネル「${ch.name || ch.userId}」無料枠枯渇 (used=${quota.used}/${quota.max})`);
         }
       }
-      return { success: false, error: "ownerLineChannels: 全チャネルで無料枠枯渇または送信失敗" };
+      return { success: false, error: "ownerLineChannels: 全チャネルで無料枠枯渇または送信失敗", attempts };
     }
   }
 
   // 後方互換: ownerLineChannels が空なら従来の単一チャネルを使う
   if (fallbackToken && fallbackUserId) {
-    return sendLineMessage(fallbackToken, fallbackUserId, text);
+    const result = await sendLineMessage(fallbackToken, fallbackUserId, text);
+    record_("グローバル", result);
+    return { ...result, attempts };
   }
-  return { success: false, error: "Webアプリ管理者LINE User ID 未設定（lineOwnerUserId）" };
+  return { success: false, error: "Webアプリ管理者LINE User ID 未設定（lineOwnerUserId）", attempts };
+}
+
+// ========== LINE経路全滅の検知 / Discord 最終防衛線 ==========
+
+/**
+ * owner宛 Discord Webhook URL を解決する。
+ * 本番データはトップレベルが空文字でネストの settings.settings.discordOwnerWebhookUrl に
+ * 実URLが入っているケースがあるため、ネスト側にもフォールバックする
+ * (データ側の是正は別途。コードは読み取りフォールバックのみ)。
+ * @param {object} settings - settings/notifications ドキュメント
+ * @returns {string|null}
+ */
+function resolveDiscordOwnerWebhookUrl_(settings) {
+  if (!settings || typeof settings !== "object") return null;
+  const nested = (settings.settings && typeof settings.settings === "object") ? settings.settings : {};
+  return settings.discordOwnerWebhookUrl
+    || settings.discordWebhookUrl
+    || nested.discordOwnerWebhookUrl
+    || nested.discordWebhookUrl
+    || null;
+}
+
+/**
+ * LINE 送信試行が「認証系エラー (401/403/トークン無効)」かどうか判定する
+ * @param {{success: boolean, statusCode: number|null, error: string|null}} attempt
+ * @returns {boolean}
+ */
+function isLineAuthError_(attempt) {
+  if (!attempt || attempt.success) return false;
+  if (attempt.statusCode === 401 || attempt.statusCode === 403) return true;
+  return /invalid.{0,30}token|token.{0,30}(invalid|expired)/i.test(String(attempt.error || ""));
+}
+
+// LINE経路全滅の error_logs 記録デデュープ (6時間)
+const LINE_AUTH_FAIL_DEDUP_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * owner宛LINE送信の全Bot(フォールバック含む)が認証系エラーで失敗した場合に
+ * error_logs へ記録する (= onErrorLogCreated 経由でメール+Discord で owner に届く)。
+ *
+ * 無限ループ防止:
+ *  - この関数が書く error_logs doc には skipLineNotify:true を付ける
+ *    → onErrorLogCreated 側が notifyOwner を skipLine で呼ぶ = LINE 送信を試みない
+ *    → 「error_logs → notifyOwner → LINE失敗 → また error_logs」の再帰を断つ
+ *  - さらに settings/lineHealth.lastAuthFailNotifiedAt で 6時間デデュープ
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {Array} attempts - _sendOwnerLine_ が返す試行結果配列
+ * @param {string} source - 発生元 (ログ用)
+ */
+async function recordLineOutage_(db, attempts, source) {
+  try {
+    if (!Array.isArray(attempts) || attempts.length === 0) return;
+    // 1つでも成功していれば全滅ではない
+    if (attempts.some(a => a.success)) return;
+    // 認証系以外の失敗 (ネットワーク断・枠超過等) が混じる場合は「経路の死」と断定しない
+    if (!attempts.every(isLineAuthError_)) return;
+
+    const admin = require("firebase-admin");
+    const healthRef = db.collection("settings").doc("lineHealth");
+    const snap = await healthRef.get();
+    const last = snap.exists ? snap.data().lastAuthFailNotifiedAt : null;
+    const lastMs = last && last.toDate ? last.toDate().getTime() : 0;
+    if (lastMs && Date.now() - lastMs < LINE_AUTH_FAIL_DEDUP_MS) return; // 6時間デデュープ
+
+    // 先にデデュープフラグを立てる (並行呼び出しでの多重記録を抑制)
+    await healthRef.set({
+      lastAuthFailNotifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    const detail = attempts
+      .map(a => `- ${a.name}: HTTP ${a.statusCode || "-"} ${String(a.error || "").slice(0, 120)}`)
+      .join("\n");
+    await db.collection("error_logs").add({
+      functionName: "lineNotify",
+      errorMessage: "owner宛LINE送信が全Botで認証系エラー (LINE経路全滅の疑い)",
+      message: `発生元: ${source}\n`
+        + `全${attempts.length}Bot(フォールバック含む)が認証系エラー(401/403/トークン無効)で失敗しました。\n`
+        + `LINEチャネルアクセストークンの失効を確認してください。\n\n${detail}`,
+      severity: "critical",
+      skipLineNotify: true, // onErrorLogCreated が LINE を飛ばしてメール+Discordのみで通知する
+      createdAt: new Date(),
+    });
+    console.error(`[lineNotify] LINE経路全滅を検知 (${source}): error_logs に記録しました`);
+  } catch (e) {
+    // 検知処理の失敗で本処理を止めない
+    console.error("[lineNotify] LINE経路全滅の記録失敗:", e.message);
+  }
 }
 
 /**
@@ -698,11 +803,15 @@ function buildRecruitmentFlex(recruitment, baseUrl) {
 // ========== 高レベルユーティリティ ==========
 
 /**
- * Firestoreから通知設定を読み取り、LINE/メールで送信+通知ログ記録
+ * Firestoreから通知設定を読み取り、LINE/メール/Discordで送信+通知ログ記録
  * settings/notifications の enableLine / enableEmail / notifyEmails で制御
+ * Discord は Webhook URL が設定されていれば常に並行送信する (LINEが死んでも届く最終防衛線)
  * @param {object} [propertyOverrides] properties/{pid}.channelOverrides (物件別上書き)
+ * @param {object} [opts] - 追加オプション
+ * @param {boolean} [opts.skipLine=false] - LINE 送信をスキップする
+ *   (LINE経路全滅を知らせる error_logs 由来の通知で再帰を防ぐ用途。onErrorLogCreated が渡す)
  */
-async function notifyOwner(db, type, title, body, vars, propertyOverrides) {
+async function notifyOwner(db, type, title, body, vars, propertyOverrides, opts = {}) {
   body = await resolveMessage_(db, type, body, vars, propertyOverrides);
   const { settings, channelToken, ownerUserId } = await getNotificationSettings_(db);
   if (!settings) {
@@ -711,7 +820,7 @@ async function notifyOwner(db, type, title, body, vars, propertyOverrides) {
   }
 
   // デフォルト: LINE有効、メール無効（後方互換）
-  const enableLine = settings.enableLine !== false;
+  const enableLine = settings.enableLine !== false && opts.skipLine !== true;
   const enableEmail = !!settings.enableEmail;
   const notifyEmails = settings.notifyEmails || [];
 
@@ -721,6 +830,10 @@ async function notifyOwner(db, type, title, body, vars, propertyOverrides) {
   if (enableLine) {
     const lineResult = await _sendOwnerLine_(settings, channelToken, ownerUserId, body);
     results.push({ channel: "line", ...lineResult });
+    // LINE経路全滅の検知: 全Botが認証系エラーなら error_logs に記録 (6時間デデュープ・再帰防止付き)
+    if (!lineResult.success) {
+      await recordLineOutage_(db, lineResult.attempts, `notifyOwner(${type})`);
+    }
   }
 
   // メール送信
@@ -733,6 +846,20 @@ async function notifyOwner(db, type, title, body, vars, propertyOverrides) {
         results.push({ channel: "email", success: false, to: email, error: e.message });
       }
     }
+  }
+
+  // Discord送信 (最終防衛線): Webhook URL があれば LINE/メールと並行して送る。
+  // 未設定ならスキップ。失敗しても他チャネルの結果には影響させない。
+  try {
+    const discordUrl = resolveDiscordOwnerWebhookUrl_(settings);
+    if (discordUrl) {
+      const r = await sendDiscord_(discordUrl, `**${title}**\n${body}`);
+      results.push({ channel: "discord", ...r });
+      if (!r.success) console.warn("[notifyOwner] Discord送信失敗:", r.error);
+    }
+  } catch (e) {
+    results.push({ channel: "discord", success: false, error: e.message });
+    console.warn("[notifyOwner] Discord送信エラー:", e.message);
   }
 
   // 通知ログ記録
@@ -1470,6 +1597,8 @@ async function notifyByKey(db, notifyKey, options = {}) {
           console.log(`[ownerLine] 送信成功: グローバル (民泊V2管理者)`);
         } else {
           errors.push({ channel: "ownerLine", error: r.error });
+          // LINE経路全滅の検知 (6時間デデュープ・再帰防止付き)
+          await recordLineOutage_(db, r.attempts, `notifyByKey.ownerLine(${notifyKey})`);
         }
       } catch (e) { errors.push({ channel: "ownerLine", error: e.message }); }
     })());
@@ -1639,7 +1768,8 @@ async function notifyByKey(db, notifyKey, options = {}) {
   if (targets.discordOwner) {
     tasks.push((async () => {
       try {
-        const url = settings.discordOwnerWebhookUrl || settings.discordWebhookUrl;
+        // 本番はトップレベルが空文字でネストの settings.settings 側に実URLがあるためフォールバック
+        const url = resolveDiscordOwnerWebhookUrl_(settings);
         if (!url) {
           errors.push({ channel: "discordOwner", error: "Webhook URL 未設定" });
           return;

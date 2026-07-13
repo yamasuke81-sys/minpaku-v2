@@ -5,7 +5,7 @@
  *  - 毎 10 分実行 (Cloud Scheduler)
  *  - Cloud Logging から直近 12 分の "Memory limit" を含むエントリを取得
  *  - 各エントリを oom_alerts/{insertId} に upsert (重複防止)
- *  - 新規検出 (まだ通知未送信) のみ notifyByKey("error_alert", ...) で発火
+ *  - 新規検出 (まだ通知未送信) のみ notifyOwner("error_alert", ...) で発火
  *  - クールダウン: 同じ functionName + 同日内は最初の1件のみ通知 (連発抑制)
  *
  * 必要権限:
@@ -14,7 +14,7 @@
  */
 const admin = require("firebase-admin");
 const { Logging } = require("@google-cloud/logging");
-const { notifyByKey } = require("../utils/lineNotify");
+const { notifyOwner } = require("../utils/lineNotify");
 
 const LOOKBACK_MIN = 12;
 
@@ -83,17 +83,16 @@ module.exports = async function monitorOOM() {
     }
 
     // 通知発火 (error_alert)
+    // notifyByKey は「物件別のみ参照」ポリシーで propertyId=null だと全チャネルOFF扱いになり
+    // 実際には通知が飛ばないため、システムレベル通知は notifyOwner 直呼びで管理者へ届ける
+    // (onErrorLogCreated.js:47-49 と同じ理由・同じパターン)
     try {
-      await notifyByKey(db, "error_alert", {
-        title: `⚠️ Cloud Functions OOM: ${fnName}`,
-        body: `Cloud Functions が Memory limit を超過しました。\n\n関数: ${fnName}\n時刻: ${t.toISOString()}\n詳細: ${String(msg).slice(0, 200)}\n\nメモリ増量を検討してください。`,
-        vars: {
-          functionName: fnName,
-          time: t.toISOString(),
-          error: String(msg).slice(0, 200),
-        },
-        propertyId: null, // システムレベル通知のため null
-      });
+      await notifyOwner(
+        db,
+        "error_alert",
+        `⚠️ Cloud Functions OOM: ${fnName}`,
+        `⚠️ Cloud Functions OOM: ${fnName}\n\nCloud Functions が Memory limit を超過しました。\n\n関数: ${fnName}\n時刻: ${t.toISOString()}\n詳細: ${String(msg).slice(0, 200)}\n\nメモリ増量を検討してください。`
+      );
       // クールダウン登録 (1日1回)
       await cdRef.set({
         functionName: fnName,

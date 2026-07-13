@@ -10,7 +10,7 @@
  */
 const admin = require("firebase-admin");
 const ical = require("node-ical");
-const { notifyByKey } = require("../utils/lineNotify");
+const { notifyByKey, notifyOwner } = require("../utils/lineNotify");
 const { reevaluateUnmatched } = require("../utils/reevaluateUnmatched");
 const { updateSyncHealth } = require("../utils/syncHealth");
 
@@ -177,6 +177,8 @@ async function syncIcal() {
   let totalSkipped = 0;
   // A-2: フィードエラーが発生したプラットフォームを記録（キャンセル検知スキップ用）
   const erroredPlatforms = new Set();
+  // フィード取得失敗の詳細 (物件×プラットフォーム) — 連続失敗アラートの本文用
+  const feedErrors = [];
   // P1: 新規 confirmed 作成 / pendingApproval 降下した物件を記録 → ループ後に再評価
   const reevaluatePropertyIds = new Set();
 
@@ -486,6 +488,8 @@ async function syncIcal() {
       // A-2: フィード取得エラーが発生したプラットフォームを記録
       // → キャンセル検知フェーズでこのプラットフォームの予約はスキップする
       erroredPlatforms.add(platform);
+      // 連続失敗アラート用に 物件×プラットフォーム の失敗詳細を記録
+      feedErrors.push({ propertyId: setting.propertyId || "", platform, error: e.message });
       await settingDoc.ref.update({
         lastSync: admin.firestore.FieldValue.serverTimestamp(),
         lastSyncResult: `エラー: ${e.message}`,
@@ -692,6 +696,90 @@ async function syncIcal() {
     ok: erroredPlatforms.size === 0,
     error: erroredPlatforms.size > 0 ? `feed errors: ${[...erroredPlatforms].join(",")}` : undefined,
   });
+
+  // ===== フィード取得の連続失敗アラート / 復旧通知 =====
+  // syncHealth.consecutiveErrorCount (updateSyncHealth が更新済み) を見て、
+  // 3回以上連続失敗のときだけ owner に通知する (一過性の1〜2回では鳴らさない)
+  try {
+    await notifySyncIcalHealth_(db, feedErrors);
+  } catch (e) {
+    console.error("[syncIcal] 連続失敗アラート処理エラー:", e.message);
+  }
+}
+
+// 連続失敗アラートの閾値と再通知抑制 (24時間)
+const SYNC_FAIL_NOTIFY_THRESHOLD = 3;
+const SYNC_FAIL_NOTIFY_SUPPRESS_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * iCal フィード取得の連続失敗を owner に通知する。
+ * - 失敗が3回以上連続 (syncHealth/syncIcal.consecutiveErrorCount) → ⚠️ 通知 (24時間抑制)
+ * - 全フィード成功に復旧 & 過去に ⚠️ 通知済み (lastNotifiedAt あり) → ✅ 復旧通知を1回だけ
+ * 通知状態は syncHealth/syncIcal.lastNotifiedAt に merge 保存する。
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {Array<{propertyId: string, platform: string, error: string}>} feedErrors - 今回失敗したフィード
+ */
+async function notifySyncIcalHealth_(db, feedErrors) {
+  const healthRef = db.collection("syncHealth").doc("syncIcal");
+  const snap = await healthRef.get();
+  const health = snap.exists ? (snap.data() || {}) : {};
+  const lastNotifiedAt = health.lastNotifiedAt || null;
+
+  // ---- 復旧: 全フィード成功 & 過去に失敗通知済みなら復旧通知を1回だけ送る ----
+  if (feedErrors.length === 0) {
+    if (lastNotifiedAt) {
+      await notifyOwner(
+        db,
+        "error_alert",
+        "✅ iCal同期復旧",
+        "✅ iCal同期が復旧しました。\n\n全フィードの取得に成功しています。"
+      );
+      await healthRef.set({
+        lastNotifiedAt: admin.firestore.FieldValue.delete(),
+      }, { merge: true });
+      console.log("[syncIcal] 復旧通知を送信しました");
+    }
+    return;
+  }
+
+  // ---- 失敗: 3回以上連続のときだけ通知 ----
+  const count = health.consecutiveErrorCount || 0;
+  if (count < SYNC_FAIL_NOTIFY_THRESHOLD) return;
+
+  // 24時間抑制 (前回通知から24時間以内は再通知しない)
+  const lastMs = lastNotifiedAt && lastNotifiedAt.toDate ? lastNotifiedAt.toDate().getTime() : 0;
+  if (lastMs && Date.now() - lastMs < SYNC_FAIL_NOTIFY_SUPPRESS_MS) return;
+
+  // 物件名を解決して 物件×プラットフォーム別の失敗詳細を組み立てる
+  const nameCache = {};
+  const lines = [];
+  for (const fe of feedErrors) {
+    let propName = "物件不明";
+    if (fe.propertyId) {
+      if (!(fe.propertyId in nameCache)) {
+        try {
+          const pDoc = await db.collection("properties").doc(fe.propertyId).get();
+          nameCache[fe.propertyId] = pDoc.exists ? (pDoc.data().name || fe.propertyId) : fe.propertyId;
+        } catch (_) {
+          nameCache[fe.propertyId] = fe.propertyId;
+        }
+      }
+      propName = nameCache[fe.propertyId];
+    }
+    lines.push(`・${propName} × ${fe.platform}: エラー: ${String(fe.error || "").slice(0, 150)}`);
+  }
+
+  const body = `⚠️ iCal同期のフィード取得が${count}回連続で失敗しています。\n\n`
+    + `【失敗フィード (物件×プラットフォーム)】\n${lines.join("\n")}\n\n`
+    + `OTA側の一時障害・iCal URLの失効・ネットワーク障害の可能性があります。\n`
+    + `復旧しない場合、新規予約・キャンセルが取り込まれません。`;
+
+  await notifyOwner(db, "error_alert", `⚠️ iCal同期が${count}回連続失敗`, body);
+  await healthRef.set({
+    lastNotifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+  console.log(`[syncIcal] 連続失敗アラートを送信しました (count=${count})`);
 }
 
 /**

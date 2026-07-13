@@ -20,6 +20,49 @@ const scanSorterApi = require("../api/scan-sorter");
 
 const MAX_FILES_PER_RUN = 20;
 
+// error_logs 記録のデデュープ (6時間)。連発を防ぎつつ owner への通知経路 (onErrorLogCreated) は確保する
+const ERROR_LOG_DEDUP_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * scan-sorter の致命的失敗 (APIキー/設定/quota系) を error_logs に記録する。
+ * onErrorLogCreated トリガー経由で owner に通知が届く。
+ * settings/scanSorter.errorAlert.{kind}LastLoggedAt で 6時間デデュープ。
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {FirebaseFirestore.DocumentReference} settingsRef - settings/scanSorter
+ * @param {object} settings - settings/scanSorter の現在値
+ * @param {string} kind - デデュープキー ("config" | "gemini")
+ * @param {string} errorMessage - 要約 (onErrorLogCreated の翻訳対象)
+ * @param {string} detail - 詳細メッセージ
+ */
+async function logScanSorterError_(db, settingsRef, settings, kind, errorMessage, detail) {
+  try {
+    const alertState = (settings.errorAlert && typeof settings.errorAlert === "object")
+      ? settings.errorAlert
+      : {};
+    const last = alertState[`${kind}LastLoggedAt`];
+    const lastMs = last && last.toMillis ? last.toMillis() : 0;
+    if (lastMs && Date.now() - lastMs < ERROR_LOG_DEDUP_MS) return; // 6時間デデュープ
+
+    // 先にデデュープフラグを立てる (連発抑制)
+    await settingsRef.set(
+      { errorAlert: { [`${kind}LastLoggedAt`]: FieldValue.serverTimestamp() } },
+      { merge: true }
+    );
+    await db.collection("error_logs").add({
+      functionName: "scanSorterProcess",
+      errorMessage,
+      message: detail,
+      severity: "warning",
+      createdAt: new Date(),
+    });
+    console.warn(`[scanSorter] error_logs に記録 (${kind}): ${errorMessage}`);
+  } catch (e) {
+    // 記録失敗で本処理を止めない
+    console.error("[scanSorter] error_logs 記録失敗:", e.message);
+  }
+}
+
 exports.scanSorterProcess = onSchedule(
   {
     schedule: "every 5 minutes",
@@ -51,8 +94,16 @@ exports.scanSorterProcess = onSchedule(
     }
 
     // 設定チェック
+    // console.warn だけだと owner に届かず処理停止に気付けないため error_logs にも記録する
     if (!settings.folderInbox || !settings.geminiApiKey) {
       console.warn("[scanSorter] folderInbox or geminiApiKey not set");
+      await logScanSorterError_(
+        db, settingsRef, settings, "config",
+        "scan-sorter 自動処理が停止中: 受信BOXフォルダまたはGemini APIキーが未設定",
+        `settings/scanSorter の設定を確認してください。\n`
+          + `folderInbox: ${settings.folderInbox ? "設定済" : "未設定"}\n`
+          + `geminiApiKey: ${settings.geminiApiKey ? "設定済" : "未設定"}`
+      );
       await settingsRef.set(
         {
           scheduler: {
@@ -102,6 +153,18 @@ exports.scanSorterProcess = onSchedule(
           console.error(`[scanSorter] processOneFile failed for ${f.name}:`, e.message);
         }
       }
+    }
+
+    // APIキー/quota系の失敗は console だけでなく error_logs にも記録して owner に届ける
+    const apiErrors = results.errors.filter((er) =>
+      /quota|429|api.?key|permission|unauthorized|401|403/i.test(String(er.error || ""))
+    );
+    if (apiErrors.length > 0) {
+      await logScanSorterError_(
+        db, settingsRef, settings, "gemini",
+        `scan-sorter で APIキー/quota系エラー (${apiErrors.length}件の処理失敗)`,
+        apiErrors.slice(0, 5).map((er) => `${er.name}: ${String(er.error).slice(0, 150)}`).join("\n")
+      );
     }
 
     // 結果を保存
