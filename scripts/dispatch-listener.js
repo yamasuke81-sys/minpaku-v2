@@ -495,6 +495,16 @@ async function handleSessionCheck(jobId) {
     if (landedUrl && landedUrl !== "about:blank") {
       // handleTimeePost 内の未ログイン判定ロジックと同一 (/sign_in 等へのリダイレクト検出)
       status = /sign_in|login/i.test(landedUrl) ? "logged_out" : "ok";
+      if (status === "logged_out") {
+        // 誤検知対策(yadozei側で2026-07-14実測: リダイレクト途中URLを掴んで失効誤報)。
+        // 5秒置いて再訪問し、2回連続で未ログインのときだけ失効と判定する。
+        await page.waitForTimeout(5000);
+        await page.goto(checkUrl, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
+        await page.waitForTimeout(3500);
+        landedUrl = page.url();
+        status = /sign_in|login/i.test(landedUrl) ? "logged_out" : "ok";
+        if (status === "ok") console.log(`${LOG_PREFIX} [session_check] 初回の未ログイン判定は一過性(再訪問でOK)`);
+      }
     }
     console.log(`${LOG_PREFIX} [session_check] タイミー: ${status === "ok" ? "✓ OK" : status === "logged_out" ? "✗ 未ログイン" : "? 判定不能"} (${landedUrl.slice(0, 70)})`);
   } catch (e) {
