@@ -406,6 +406,13 @@ module.exports = async function onGuestFormSubmit(event) {
     const rosterCheckIn = data.checkIn;
     const rosterCheckOut = data.checkOut;
 
+    // ゲストが予約候補リストから自分の予約を選べず、CI日を手入力した場合の注記。
+    // (guest-form の予約選択ピッカーで候補に一致しない日付を手入力すると checkInManualEntry=true)
+    // 各種 roster_mismatch 通知の先頭に付けて「候補から選べず手入力＝日付の裏取り推奨」と明示する。
+    const manualEntryNote = data.checkInManualEntry
+      ? `⚠️ このゲストは予約候補リストから自分の予約を選べず、チェックイン日を手入力しています（日付の裏取りを推奨）。\n\n`
+      : "";
+
     if (!rosterCheckIn) {
       console.warn("名簿にcheckInが未設定のため照合をスキップ");
       return;
@@ -525,6 +532,7 @@ module.exports = async function onGuestFormSubmit(event) {
       let mismatchDetail;
       if (icalOccupied) {
         mismatchDetail =
+          manualEntryNote +
           `Booking.com のカレンダー上は ${rosterCheckIn} が予約済みですが、システムに予約レコードがありません。\n` +
           `Booking.com の iCal は連続する複数予約を1ブロックに匿名統合するため、\n` +
           `この予約の取り込みが漏れた可能性が高いです（ゲストの打ち間違いではありません）。\n\n` +
@@ -536,6 +544,7 @@ module.exports = async function onGuestFormSubmit(event) {
           `【同じ物件の近い予約】\n${candLines}`;
       } else {
         mismatchDetail =
+          manualEntryNote +
           `名簿のチェックイン日(${rosterCheckIn})に一致する確定予約が見つかりませんでした。\n` +
           `ゲストがチェックイン日を打ち間違えている可能性があります。\n\n` +
           `【名簿の入力内容】\n` +
@@ -624,6 +633,7 @@ module.exports = async function onGuestFormSubmit(event) {
         ? cands.map((b) => `${idMatch(b) ? "★" : "・"}${b.guestName || "(名前なし)"} / ${b.checkIn} → ${b.checkOut || "?"} / ${b.source || "?"}`).join("\n")
         : "（候補予約は見つかりませんでした）";
       const collisionDetail =
+        manualEntryNote +
         `名簿のチェックイン日(${rosterCheckIn})に一致する予約は、既に別ゲスト「${occupantName}」に紐付いています。\n` +
         `この名簿を予約へ自動反映すると別ゲストの情報を上書きしてしまうため、反映を保留しました。\n` +
         `ゲストがチェックイン日を打ち間違えている可能性が高いです（★=この名簿と同じ連絡先の予約）。\n\n` +
@@ -684,6 +694,7 @@ module.exports = async function onGuestFormSubmit(event) {
       const diffSummary = diffs.map((d) => `${d.label}(予約${d.booking}/名簿${d.roster})`).join("、");
       // 相違点の詳細。customMessage が body を破棄する物件でも {error}/{detail}/{diff} 経由で必ず届ける。
       const mismatchDetail =
+        manualEntryNote +
         `予約は見つかりましたが、予約情報と名簿の内容に相違があります。\n` +
         `CI: ${rosterCheckIn}（予約と一致）\n\n` +
         `【相違点】\n${diffLines}`;

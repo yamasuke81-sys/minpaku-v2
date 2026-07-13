@@ -2,13 +2,13 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <script src="/js/api-relay.js?v=v0713a"></script>
+  <script src="/js/api-relay.js?v=v0714a"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>宿泊者名簿 / Guest Registration</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0713a" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0714a" rel="stylesheet">
   <style>
     /* テーマカラー デフォルト（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css）
        物件別上書きが必要な場合のみ下の早期テーマスクリプトで差し替える */
@@ -532,8 +532,8 @@
     </div>
   </div>
 
-  <script src="/js/shared/form-schema.js?v=v0713a"></script>
-  <script src="/js/guide-map.js?v=v0713a"></script>
+  <script src="/js/shared/form-schema.js?v=v0714a"></script>
+  <script src="/js/guide-map.js?v=v0714a"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-storage-compat.js"></script>
@@ -2117,30 +2117,89 @@
       }
     }
 
-    // propertyId のみで来た場合に、公開APIから該当物件の未来 booking を取得して
-    // CI/CO/人数をデフォルト値として prefill する。複数あれば最も近いCIを採用 +
-    // 候補配列を _bookingCandidates に保存して送信時に検証する。
+    // propertyId のみで来た場合、公開APIから該当物件の未来 booking を取得し
+    // 「予約を選ばせる」方式で CI/CO/人数を補完する (2026-07-14 改修)。
+    //  - 候補2件以上: 自動入力せず、ゲストにピッカーで自分の予約を選ばせる
+    //    (旧実装は「最も近い予約」を無条件で自動入力していたため、別ゲストの日付が
+    //     入って気付かず送信される事故があった)
+    //  - 候補1件のみ: 一意なので従来どおり自動入力
+    //  - 候補0件 or「候補にない」選択: 日付を手入力。送信時 checkInManualEntry=true を立て、
+    //    名簿照合エラー通知に「候補から選べず手入力」と明記される。
+    function _applyBookingCandidate(b) {
+      if (!b) return;
+      const ci = document.getElementById("f_checkIn");  if (ci && b.checkIn)  ci.value = b.checkIn;
+      const co = document.getElementById("f_checkOut"); if (co && b.checkOut) co.value = b.checkOut;
+      if (b.guestCount) { const gc = document.getElementById("f_guestCount"); if (gc) { gc.value = b.guestCount; renderGuestInputs(); } }
+      const info = document.getElementById("bookingInfo");
+      const infoText = document.getElementById("bookingInfoText");
+      if (infoText) infoText.textContent = `${b.checkIn || "?"} ~ ${b.checkOut || "?"}`;
+      if (info) info.classList.remove("d-none");
+      validateCheckInAgainstCandidates();
+    }
+    function _setManualBookingEntry(on) {
+      const note = document.getElementById("bookingPickerManualNote");
+      if (note) note.classList.toggle("d-none", !on);
+      if (on) {
+        // 手入力モード: 他予約の値を誤って引き継がないよう日付を空にする
+        const ci = document.getElementById("f_checkIn");  if (ci) ci.value = "";
+        const co = document.getElementById("f_checkOut"); if (co) co.value = "";
+        const info = document.getElementById("bookingInfo"); if (info) info.classList.add("d-none");
+        validateCheckInAgainstCandidates();
+      }
+    }
+    function renderBookingPicker(items) {
+      const ja = currentLang === "ja";
+      const ciInput = document.getElementById("f_checkIn");
+      if (!ciInput) return;
+      const anchorRow = ciInput.closest(".row") || ciInput.parentNode;
+      let wrap = document.getElementById("bookingPickerWrap");
+      if (!wrap) {
+        wrap = document.createElement("div");
+        wrap.id = "bookingPickerWrap";
+        wrap.className = "mb-2";
+        anchorRow.parentNode.insertBefore(wrap, anchorRow);
+      }
+      const label       = ja ? "ご自分の予約を選択してください" : "Select your reservation";
+      const placeholder = ja ? "-- 予約を選択 --" : "-- Select your reservation --";
+      const manualLabel = ja ? "候補にない／自分の予約が見つからない（日付を手入力）" : "Not listed / can't find my reservation (enter dates manually)";
+      const manualNote  = ja ? "ご自分のチェックイン日・チェックアウト日を入力してください。" : "Please enter your own check-in / check-out dates.";
+      const single = items.length === 1;
+      const optsHtml = items.map((b, i) => {
+        const cnt = b.guestCount ? (ja ? `（${b.guestCount}名）` : ` (${b.guestCount} guests)`) : "";
+        return `<option value="${i}">${b.checkIn} 〜 ${b.checkOut}${cnt}</option>`;
+      }).join("");
+      wrap.innerHTML =
+        `<label class="form-label" for="f_bookingPicker">${label} <span class="required-mark">*</span></label>` +
+        `<select class="form-select" id="f_bookingPicker">` +
+          (items.length && !single ? `<option value="">${placeholder}</option>` : "") +
+          optsHtml +
+          `<option value="__manual__">${manualLabel}</option>` +
+        `</select>` +
+        `<div id="bookingPickerManualNote" class="form-text text-warning d-none">${manualNote}</div>`;
+      const sel = document.getElementById("f_bookingPicker");
+      sel.addEventListener("change", () => {
+        const v = sel.value;
+        if (v === "__manual__") { _setManualBookingEntry(true); }
+        else if (v === "") { /* 未選択 */ }
+        else { _setManualBookingEntry(false); _applyBookingCandidate(items[Number(v)]); }
+      });
+      if (items.length === 0) {
+        _setManualBookingEntry(true);       // 候補なし = 手入力しかない
+      } else if (single) {
+        sel.value = "0";
+        _applyBookingCandidate(items[0]);   // 一意なので自動入力
+      }
+    }
     async function prefillFromPropertyId(pid) {
       try {
         const res = await fetch(`/api/public/upcoming-bookings/${encodeURIComponent(pid)}`);
         if (!res.ok) return null;
         const data = await res.json();
         const items = data.items || [];
-        if (items.length === 0) return null;
-        const b = items[0];
-        window._bookingCandidates = items;
-        if (b.checkIn) { const el = document.getElementById("f_checkIn"); if (el) el.value = b.checkIn; }
-        if (b.checkOut) { const el = document.getElementById("f_checkOut"); if (el) el.value = b.checkOut; }
-        if (b.guestCount) {
-          const el = document.getElementById("f_guestCount");
-          if (el) { el.value = b.guestCount; renderGuestInputs(); }
-        }
-        const labelExtra = items.length > 1 ? ` (該当 ${items.length} 件中、最も近い予約)` : "";
-        const infoText = document.getElementById("bookingInfoText");
-        if (infoText) infoText.textContent = `${b.checkIn} ~ ${b.checkOut}${labelExtra}`;
-        const info = document.getElementById("bookingInfo");
-        if (info) info.classList.remove("d-none");
-        return b;
+        window._bookingCandidates = items;    // 空でもセット (送信時の手入力判定に使う)
+        window._prefillFromPropertyId = true;
+        renderBookingPicker(items);
+        return items.length === 1 ? items[0] : null;
       } catch (e) {
         console.warn("[prefillFromPropertyId] エラー:", e);
         return null;
@@ -3065,6 +3124,15 @@
         Object.keys(data).forEach(k => { if (data[k] === undefined) delete data[k]; });
         const params = getParams();
         data.bookingId = params.bookingId||""; data.propertyId = params.propertyId||"";
+
+        // 予約候補から選べず手入力した場合のフラグ (名簿照合エラー通知に「候補から選べず手入力」と明記される)
+        // propertyId 経由フォーム限定。入力された CI 日が候補予約のいずれとも一致しなければ手入力とみなす。
+        if (window._prefillFromPropertyId && !_editToken) {
+          const cands = Array.isArray(window._bookingCandidates) ? window._bookingCandidates : [];
+          if (!cands.some(c => c.checkIn === data.checkIn)) {
+            data.checkInManualEntry = true;
+          }
+        }
 
         // カスタムフィールドの値を収集して customFields に格納
         if (_customFormFields.length > 0) {

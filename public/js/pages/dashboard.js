@@ -1203,8 +1203,15 @@ ${ppCo}9:30
       return `<div class="d-flex gap-2 flex-wrap mb-3">${buttons.join("")}</div>`;
     })();
 
+    // [宿泊者名簿を開く] ボタン: 予約に紐付く名簿(guestFormId 優先、無ければ guestMap の id)があれば
+    // 名簿タブ (#/guests?id=...) へ遷移。名簿は PII を含むためオーナー閲覧時のみ表示。
+    const rosterGuestId = b.guestFormId || (guestData && guestData.id) || "";
+    const openRosterBtn = (!isStaffView && rosterGuestId)
+      ? `<button type="button" class="btn btn-sm btn-outline-primary" id="calBtnOpenRoster" data-guest-id="${this.esc(rosterGuestId)}"><i class="bi bi-person-lines-fill"></i> 宿泊者名簿を開く</button>`
+      : "";
+
     document.getElementById("calEventBody").innerHTML = `
-      <div class="d-flex gap-2 mb-1 flex-wrap align-items-center">${rosterBadge}${gasImportBtn}</div>
+      <div class="d-flex gap-2 mb-1 flex-wrap align-items-center">${rosterBadge}${openRosterBtn}${gasImportBtn}</div>
 
       ${kbTopHtml}
 
