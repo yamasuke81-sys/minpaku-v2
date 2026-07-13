@@ -24,6 +24,15 @@
 - **the Terrace 2026-05 の清掃費は ¥101,376**（v2 invoice 3名¥69,800 + **タイミー手動¥31,576=やますけ本人が入力した確定値**、いずれも excluded=false）。2026-07-11 時点の一部報告「5月清掃¥69,800」はタイミー分を見落とした古い値で、**正しくは¥101,376**。タイミー分は正常(ユーザー確認済 2026-07-12)。
 - 空 pnl doc(2025-11/2026-01 等)は**触らない**(実害なし)。
 
+## DONE(2026-07-14 銀行入金×Booking 全期間突合: 4月キャンセル料発見+決済手数料を全月確定)
+やますけ指摘「Booking 4月売上ゼロはありえない」→ MF の楽天第三口座入金(ドイツギンコウ BOOKING.COMブン)と booking_all.csv を**チェックアウト月バッチで厳密突合**した結果、指摘どおり計上漏れを発見・是正。
+- **突合結果: 9バッチ中7バッチが円単位で完全一致(残差0)** → booking_all.csv の ok滞在データと「決済手数料=round(gross×2.3%)」の正確性を同時に実証。
+- **[是正1] 4月キャンセル料 ¥46,800 を計上**: 4/24-26 guest キャンセル(4/3予約)が100%徴収されていた。5/8入金 ¥38,704 = 46,800 − comm7,020(15%) − fee1,076(2.3%) と**1円一致**。4月 booking revenue に計上(cancellationFee=true)。**4月利益 ¥1,851→¥40,555(率18.8%)**。※もう1件の4月キャンセル(¥130,410、4/23-26)は comm=0=料金不徴収(無料キャンセル)で入金なし=正しくゼロ。
+- **[是正2] Booking決済手数料を全月確定値でセット**(従来は6月の¥1,448のみ計上): 10月¥2,292 / 11月¥7,657 / 12月¥2,029 / 2月¥6,749 / 3月¥6,591 / 5月¥7,719(いずれも滞在ごとの round(gross×2.3%) 合計、CI月ベース)。netRevenue 再計算済。2026-02〜05 の報告書PDF再生成済(2月¥156,967 / 3月¥702,264 / 4月¥40,555 / 5月¥445,147)。
+- **★残る謎1件**: 2026-01-06 入金 **¥74,045**(=2025-12 チェックアウト分バッチ)が booking_all.csv のどの行でも説明できない。12月のキャンセル2件(12/28 hotel-cancel ¥47,250 / 12/31 guest-cancel ¥72,000)は CSV上 comm=0(=料金不徴収)で説明にならず、**booking_all.csv に載っていない売上(エクスポート取りこぼし)の可能性**。→ Booking 再ログイン時(NEXT#2)に extranet の財務明細(2026-01入金分の内訳)を確認して正体を特定する(NEXT#9新設)。
+- 検証スクリプト: `scratchpad/mf-scan-rakuten3-booking.mjs`(楽天第三のMF口座hash=`64SwijL8nXXCHReKyZpAbA`、CSV service_id=1331) / `scratchpad/reconcile-booking-payouts.cjs`(CO月バッチ突合) / `scratchpad/fix-booking-fees-and-april-cancel.cjs`(反映)。
+- **今後の運用**: Booking の月次入金(楽天第三、翌月3-8日頃)と CO月バッチ期待値の突合はこの検証セットで随時再実行可能。キャンセル料は CSV の cancelled 行で **comm>0 = 徴収あり**のシグナル。
+
 ## DONE(2026-07-13 クレカ電気を MF ME 経由で自動取得する経路を実装・E2E実証)
 やますけ発案「セゾン明細はマネーフォワードMEから取れない？」→ **取れることを実証し実装完了**。SAISON PDF の Drive 投入(2602〜2607未投入で途絶していた)と「バッチと明細到着のすれ違い」問題を同時に解消する。
 - **MF の口座別明細CSVエンドポイントを発見**: `https://moneyforward.com/cf/csv?account_id_hash={hash}&year=Y&month=M&from=Y%2FM%2F01&service_id=27`。セゾンアメックス(八朔)の hash=`et2JNC6KSatQ9pMz6fL8voH-z9t8NpFGQ2rOnN6Ntkg`。Shift_JIS。各行に**MF取引ID**(冪等キーに最適)。posted月単位で任意月を取得可能。MF個別ページには 2024/12〜の全月CSVリンクあり。
@@ -282,6 +291,7 @@ Workflow audit(65エージェント/54 findings→adversarial verify通過27件)
 2. **Booking.com セッション再ログイン(★やますけPC作業、8/1深夜まで)**: 現在 Booking.com=`logged_out`(2026-07-12 実測、Airbnb/やどぜいは ok)。listener 自体は Hassac01 で lastSeenAt 生存中(PM2稼働中)。
    - **手順**: `pm2 stop yadozei-listener` → `cd C:\Users\yamas\AI_Workspace\minpaku-v2-yadozei && node scripts/yadozei-listener.mjs --login`(Playwrightブラウザが起動→Booking.com にログイン→cookie 保存されるまで放置) → Ctrl+C → `pm2 start yadozei-listener`
    - 完了確認: Firestore `settings/yadozeiListener.sessionCheck.sessions."Booking.com" === "ok"` になれば OK
+   - **再ログイン後にやること(NEXT#9)**: extranet 財務明細で **2026-01-06 入金 ¥74,045 の内訳**を確認(booking_all.csv で説明できない12月CO分。エクスポート取りこぼし売上の疑い)。判明したら 2025-12 の pnl に反映。
 3. **7月分の Drive 投入(8/2〜8/5 人手)**: Terrace/宿小町 の光熱PDF(007配下)/レシート(60配下)/清掃請求書 を投入。ScanSorter経由で自動振り分けさせる。**ゴミ処理費・Wi-Fi通信費の月次自動計上もこれに乗せる**(過去月バックフィルはやますけが金額指示すれば scratchpad で個別上書き可能)。
 4. **【2026-07-14 完了】クレカ電気の MF 自動取得ルーチン稼働開始**: routines.json に `mf-electric-import`(毎日07:35・**command型=Claude不使用でトークン消費ゼロ**)を登録し常駐bun再起動済み。計上発生時とエラー時のみ #経理 に通知(無音=正常)。AUTOMATION.md 台帳+ダッシュボード更新済。
    - **command型は今回 discord-secretary-resident.mjs に新設した仕組み**(routine.command=[exe,...args] を直接spawn、stdout の「NOTIFY: 」行だけ通知、非0終了はエラー通知、routine.env で NODE_PATH 等を注入)。今後の機械処理ルーチンにも使える。
