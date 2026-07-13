@@ -29,7 +29,9 @@
 - **突合結果: 9バッチ中7バッチが円単位で完全一致(残差0)** → booking_all.csv の ok滞在データと「決済手数料=round(gross×2.3%)」の正確性を同時に実証。
 - **[是正1] 4月キャンセル料 ¥46,800 を計上**: 4/24-26 guest キャンセル(4/3予約)が100%徴収されていた。5/8入金 ¥38,704 = 46,800 − comm7,020(15%) − fee1,076(2.3%) と**1円一致**。4月 booking revenue に計上(cancellationFee=true)。**4月利益 ¥1,851→¥40,555(率18.8%)**。※もう1件の4月キャンセル(¥130,410、4/23-26)は comm=0=料金不徴収(無料キャンセル)で入金なし=正しくゼロ。
 - **[是正2] Booking決済手数料を全月確定値でセット**(従来は6月の¥1,448のみ計上): 10月¥2,292 / 11月¥7,657 / 12月¥2,029 / 2月¥6,749 / 3月¥6,591 / 5月¥7,719(いずれも滞在ごとの round(gross×2.3%) 合計、CI月ベース)。netRevenue 再計算済。2026-02〜05 の報告書PDF再生成済(2月¥156,967 / 3月¥702,264 / 4月¥40,555 / 5月¥445,147)。
-- **★残る謎1件**: 2026-01-06 入金 **¥74,045**(=2025-12 チェックアウト分バッチ)が booking_all.csv のどの行でも説明できない。12月のキャンセル2件(12/28 hotel-cancel ¥47,250 / 12/31 guest-cancel ¥72,000)は CSV上 comm=0(=料金不徴収)で説明にならず、**booking_all.csv に載っていない売上(エクスポート取りこぼし)の可能性**。→ Booking 再ログイン時(NEXT#2)に extranet の財務明細(2026-01入金分の内訳)を確認して正体を特定する(NEXT#9新設)。
+- **【解決済 2026-07-14】謎だった 2026-01-06 入金 ¥74,045 の正体判明**: やますけが extranet からDLした財務明細CSV(sln0Hj3zIHcpRhXG、1/1支払)により、**予約番号5549202547(12/27-28泊・宿泊者名空欄・gross¥86,400)が booking_all.csv(予約一覧エクスポート)から完全に欠落していた**ことが確定。86,400−comm10,368−fee1,987=74,045 で1円一致。→ **2025-12 に計上済**(booking gross 88,200→174,600 / net 149,632 / **12月利益 ¥348,593(85%)**)。Drive の 2025-12 CSV にも欠落行を追記(再取込で正値を再現可能)。**旧記載「12月Booking gross=88,200」は欠落があったため誤り、正=174,600**。
+- **教訓**: Booking の「予約一覧エクスポート」は完全ではない(1件欠落実例)。**売上の ground truth は財務明細(payout statement)×銀行入金**。財務明細のキャンセル料徴収は「予約/ok」行として表示される(4月 Stefan Lang ¥46,800 で確認)。
+- **注意(再取込時)**: 予約CSVには決済手数料が無いため、過去月を「OTA CSV取込」で再実行すると paymentFee/netRevenue が手数料抜きに戻る。過去月の再取込後は paymentFee の再セットが必要(scratchpad/fix-booking-fees-and-april-cancel.cjs 参照)。
 - 検証スクリプト: `scratchpad/mf-scan-rakuten3-booking.mjs`(楽天第三のMF口座hash=`64SwijL8nXXCHReKyZpAbA`、CSV service_id=1331) / `scratchpad/reconcile-booking-payouts.cjs`(CO月バッチ突合) / `scratchpad/fix-booking-fees-and-april-cancel.cjs`(反映)。
 - **今後の運用**: Booking の月次入金(楽天第三、翌月3-8日頃)と CO月バッチ期待値の突合はこの検証セットで随時再実行可能。キャンセル料は CSV の cancelled 行で **comm>0 = 徴収あり**のシグナル。
 
@@ -291,7 +293,7 @@ Workflow audit(65エージェント/54 findings→adversarial verify通過27件)
 2. **Booking.com セッション再ログイン(★やますけPC作業、8/1深夜まで)**: 現在 Booking.com=`logged_out`(2026-07-12 実測、Airbnb/やどぜいは ok)。listener 自体は Hassac01 で lastSeenAt 生存中(PM2稼働中)。
    - **手順**: `pm2 stop yadozei-listener` → `cd C:\Users\yamas\AI_Workspace\minpaku-v2-yadozei && node scripts/yadozei-listener.mjs --login`(Playwrightブラウザが起動→Booking.com にログイン→cookie 保存されるまで放置) → Ctrl+C → `pm2 start yadozei-listener`
    - 完了確認: Firestore `settings/yadozeiListener.sessionCheck.sessions."Booking.com" === "ok"` になれば OK
-   - **再ログイン後にやること(NEXT#9)**: extranet 財務明細で **2026-01-06 入金 ¥74,045 の内訳**を確認(booking_all.csv で説明できない12月CO分。エクスポート取りこぼし売上の疑い)。判明したら 2025-12 の pnl に反映。
+   - ~~再ログイン後にやること: ¥74,045 の内訳確認~~ → **解決済(2026-07-14)**。やますけが財務明細CSVをDLし、booking_all.csv 欠落の予約5549202547(12/27-28、gross86,400)と確定。2025-12 計上済。
 3. **7月分の Drive 投入(8/2〜8/5 人手)**: Terrace/宿小町 の光熱PDF(007配下)/レシート(60配下)/清掃請求書 を投入。ScanSorter経由で自動振り分けさせる。**ゴミ処理費・Wi-Fi通信費の月次自動計上もこれに乗せる**(過去月バックフィルはやますけが金額指示すれば scratchpad で個別上書き可能)。
 4. **【2026-07-14 完了】クレカ電気の MF 自動取得ルーチン稼働開始**: routines.json に `mf-electric-import`(毎日07:35・**command型=Claude不使用でトークン消費ゼロ**)を登録し常駐bun再起動済み。計上発生時とエラー時のみ #経理 に通知(無音=正常)。AUTOMATION.md 台帳+ダッシュボード更新済。
    - **command型は今回 discord-secretary-resident.mjs に新設した仕組み**(routine.command=[exe,...args] を直接spawn、stdout の「NOTIFY: 」行だけ通知、非0終了はエラー通知、routine.env で NODE_PATH 等を注入)。今後の機械処理ルーチンにも使える。
