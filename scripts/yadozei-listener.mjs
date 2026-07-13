@@ -34,11 +34,16 @@ import os from "node:os";
 import https from "node:https";
 
 // ================== 定数 ==================
-const VERSION = "0.1.0";
+const VERSION = "0.2.0"; // 0.2.0: 失効アラート抑制(初回+月次3日前のみ)+持続日数計測+復旧通知+relogin.cmd対応
 const LOG_PREFIX = "[yadozei-listener]";
 
 const USER_DATA_DIR = path.join(os.homedir(), ".yadozei-playwright-chrome");
 const FAILURE_DIR = path.join(USER_DATA_DIR, "failures");
+// セッション失効アラートの状態ファイル (サイト別のログイン確認/失効/通知履歴を永続化)
+const SESSION_STATE_FILE = path.join(USER_DATA_DIR, "session-state.json");
+// 失効中の再通知は「次の月次取得 N 日前」から、最低 H 時間間隔でのみ行う
+const EXPIRE_REMIND_BEFORE_DAYS = 3;
+const EXPIRE_REMIND_MIN_INTERVAL_H = 20;
 const TMP_DIR = path.join(os.tmpdir(), "yadozei-listener");
 const HEARTBEAT_INTERVAL_MS = 60_000;
 const MAX_RETRIES = 2;
@@ -1421,25 +1426,57 @@ function postDiscord_(webhookUrl, content) {
   });
 }
 
-async function notifyDiscordSessionExpired_(loggedOut) {
+async function notifyDiscord_(content) {
   try {
     const doc = await db.collection("settings").doc("notifications").get();
     const url = doc.exists && doc.data()?.settings?.discordOwnerWebhookUrl;
     if (!url) { console.warn(`${LOG_PREFIX} [session_check] Discord webhook 未設定 (settings/notifications.settings.discordOwnerWebhookUrl)`); return; }
-    const msg =
-      `⚠️ **OTA/宿泊税 自動取得: セッション失効**\n` +
-      `未ログインのサイト: **${loggedOut.join(" / ")}**\n` +
-      `このままだと月次の自動取得・やどぜいアップロードが失敗します。PCで再ログインしてください:\n` +
-      "```\n" +
-      `pm2 stop yadozei-listener\n` +
-      `cd C:\\Users\\yamas\\AI_Workspace\\minpaku-v2-yadozei\\scripts\n` +
-      `node yadozei-listener.mjs --login\n` +
-      `（該当サイトにログイン → Ctrl+C）\n` +
-      `pm2 start yadozei-listener\n` +
-      "```";
-    const r = await postDiscord_(url, msg);
-    console.log(`${LOG_PREFIX} [session_check] Discord通知 ${r.ok ? "送信OK" : "失敗:" + (r.error || r.status)} (${loggedOut.join(",")})`);
+    const r = await postDiscord_(url, content);
+    console.log(`${LOG_PREFIX} [session_check] Discord通知 ${r.ok ? "送信OK" : "失敗:" + (r.error || r.status)}`);
   } catch (e) { console.warn(`${LOG_PREFIX} [session_check] Discord通知失敗: ${e.message}`); }
+}
+
+// ---- セッション状態の永続化 (サイト別: sessionStartAt / lastOkAt / expiredSince / lastExpiredNotifyAt) ----
+function loadSessionState_() {
+  try { return JSON.parse(fs.readFileSync(SESSION_STATE_FILE, "utf8")); } catch (_) { return {}; }
+}
+function saveSessionState_(state) {
+  try { fs.writeFileSync(SESSION_STATE_FILE, JSON.stringify(state, null, 2)); }
+  catch (e) { console.warn(`${LOG_PREFIX} session-state 保存失敗: ${e.message}`); }
+}
+function fmtJst_(iso) {
+  if (!iso) return "不明";
+  const d = new Date(new Date(iso).getTime() + 9 * 3600 * 1000);
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+}
+
+// 次の月次取得日 (dispatcher と同じ properties.yadozei.schedule を参照) と残り日数を返す。
+// 読めない場合は dispatcher のデフォルト dayOfMonth=2 で計算する。
+async function nextMonthlyFetchInfo_() {
+  let days = [];
+  try {
+    const snap = await db.collection("properties").where("active", "==", true).get();
+    snap.forEach((d) => {
+      const s = d.data()?.yadozei?.schedule;
+      if (s?.enabled === true) days.push(Number(s.dayOfMonth) || 2);
+    });
+  } catch (e) {
+    console.warn(`${LOG_PREFIX} [session_check] properties 読取失敗 (デフォルト2日で計算): ${e.message}`);
+  }
+  if (!days.length) days = [2];
+  const j = new Date(Date.now() + 9 * 3600 * 1000); // JST
+  const todayUtc = Date.UTC(j.getUTCFullYear(), j.getUTCMonth(), j.getUTCDate());
+  let best = null;
+  for (const dom of new Set(days)) {
+    let cand = Date.UTC(j.getUTCFullYear(), j.getUTCMonth(), dom);
+    if (dom < j.getUTCDate()) cand = Date.UTC(j.getUTCFullYear(), j.getUTCMonth() + 1, dom);
+    if (best === null || cand < best) best = cand;
+  }
+  const bd = new Date(best);
+  return {
+    dateLabel: `${bd.getUTCMonth() + 1}/${bd.getUTCDate()}`,
+    daysUntil: Math.round((best - todayUtc) / 86400000),
+  };
 }
 
 // 3サイトのログイン状態を点検。切れていれば Discord 通知。アクセス自体がキープアライブ(セッション延命)。
@@ -1475,8 +1512,91 @@ async function handleSessionCheck(ctx, jobId) {
       { sessionCheck: { at: admin.firestore.FieldValue.serverTimestamp(), sessions, loggedOut } },
       { merge: true });
   } catch (_) { /* ignore */ }
-  if (loggedOut.length) await notifyDiscordSessionExpired_(loggedOut);
-  else console.log(`${LOG_PREFIX} [session_check] 全サイトOK (キープアライブ完了)`);
+
+  // ---- 通知ポリシー (鳴りっぱなし防止) ----
+  //   失効の初回検知: 即通知 (セッション持続日数の実測付き)
+  //   失効継続中:     次の月次取得 EXPIRE_REMIND_BEFORE_DAYS 日前から、EXPIRE_REMIND_MIN_INTERVAL_H 時間間隔でリマインド
+  //   復旧(再ログイン): 即「✅確認」を通知し、持続日数の計測を再スタート
+  const state = loadSessionState_();
+  const nowIso = new Date().toISOString();
+  const recovered = [];
+  const newlyExpired = [];
+  const stillExpired = [];
+  for (const s of sites) {
+    const st = state[s.name] || (state[s.name] = {});
+    const status = sessions[s.name];
+    if (status === "ok") {
+      if (st.expiredSince) {
+        recovered.push(s.name);
+        st.sessionStartAt = nowIso; // 新セッションの計測開始
+        st.expiredSince = null;
+        st.lastExpiredNotifyAt = null;
+      } else if (!st.sessionStartAt) {
+        st.sessionStartAt = nowIso; // 初回観測 (実ログインより遅い可能性あり=下限値)
+      }
+      st.lastOkAt = nowIso;
+    } else if (status === "logged_out") {
+      if (!st.expiredSince) {
+        st.expiredSince = nowIso;
+        st.lastExpiredNotifyAt = nowIso;
+        newlyExpired.push(s.name);
+      } else {
+        stillExpired.push(s.name);
+      }
+    }
+    // status === "error" は判定不能のため状態を変更しない
+  }
+
+  let _nextInfo = null;
+  const getNextInfo = async () => (_nextInfo ??= await nextMonthlyFetchInfo_());
+  const notices = [];
+
+  if (recovered.length) {
+    notices.push(
+      `✅ **OTA/宿泊税: ${recovered.join(" / ")} 再ログイン確認** — 自動取得・キープアライブを再開しました。セッション持続日数はここから自動計測します。`
+    );
+  }
+  if (newlyExpired.length) {
+    const lines = [
+      `⚠️ **OTA/宿泊税 自動取得: セッション失効**`,
+      `未ログイン: **${newlyExpired.join(" / ")}**`,
+    ];
+    for (const name of newlyExpired) {
+      const st = state[name];
+      if (st.sessionStartAt && st.lastOkAt) {
+        const days = ((new Date(st.lastOkAt) - new Date(st.sessionStartAt)) / 86400000).toFixed(1);
+        lines.push(`📏 持続実測: ${fmtJst_(st.sessionStartAt)} ログイン確認 〜 ${fmtJst_(st.lastOkAt)} 正常 (約${days}日)`);
+      }
+    }
+    const next = await getNextInfo();
+    lines.push(`次の月次取得は ${next.dateLabel}（あと${next.daysUntil}日）。その${EXPIRE_REMIND_BEFORE_DAYS}日前までは再通知しません。`);
+    lines.push(`再ログイン: PCで \`scripts\\yadozei-relogin.cmd\` を実行 → 開いたブラウザでログイン → ブラウザを閉じるだけ（常駐は自動再開）`);
+    notices.push(lines.join("\n"));
+  }
+  if (stillExpired.length) {
+    const next = await getNextInfo();
+    const due = [];
+    for (const name of stillExpired) {
+      const st = state[name];
+      const hoursSince = (Date.now() - new Date(st.lastExpiredNotifyAt || 0).getTime()) / 3600000;
+      if (next.daysUntil <= EXPIRE_REMIND_BEFORE_DAYS && hoursSince >= EXPIRE_REMIND_MIN_INTERVAL_H) {
+        st.lastExpiredNotifyAt = nowIso;
+        due.push(name);
+      }
+    }
+    if (due.length) {
+      notices.push(
+        `⏰ **リマインド: ${due.join(" / ")} が未ログインのまま月次取得が迫っています**\n` +
+        `次の月次取得: ${next.dateLabel}（あと${next.daysUntil}日）。それまでに再ログインしてください: \`scripts\\yadozei-relogin.cmd\``
+      );
+    } else {
+      console.log(`${LOG_PREFIX} [session_check] 失効継続中(${stillExpired.join(",")}) — 再通知条件外のため抑制`);
+    }
+  }
+
+  saveSessionState_(state);
+  if (notices.length) await notifyDiscord_(notices.join("\n\n"));
+  if (!loggedOut.length) console.log(`${LOG_PREFIX} [session_check] 全サイトOK (キープアライブ完了)`);
   return { sessions, loggedOut };
 }
 
@@ -1661,6 +1781,11 @@ if (LOGIN_MODE) {
   // ここでログインすると Cookie が USER_DATA_DIR に保存され、以降の通常起動で自動継続する。
   (async () => {
     const ctx = await getContext();
+    // ブラウザ(全ウィンドウ)が閉じられたら自動終了 → yadozei-relogin.cmd が pm2 再開に進める
+    ctx.on("close", () => {
+      console.log(`${LOG_PREFIX} ブラウザが閉じられました。ログインモードを終了します。`);
+      process.exit(0);
+    });
     const sites = [
       { name: "Airbnb", url: "https://www.airbnb.com/hosting/reservations" },
       { name: "Booking.com extranet", url: "https://admin.booking.com/" },
@@ -1675,7 +1800,7 @@ if (LOGIN_MODE) {
     console.log(`${LOG_PREFIX} ================================================`);
     console.log(`${LOG_PREFIX} 3サイトのタブを開きました。各タブでログインしてください:`);
     console.log(`${LOG_PREFIX}   1) Airbnb  2) Booking.com extranet  3) やどぜい`);
-    console.log(`${LOG_PREFIX} ログイン完了後、この窓で Ctrl+C → 通常起動 'node yadozei-listener.mjs' で常駐開始`);
+    console.log(`${LOG_PREFIX} ログイン完了後、ブラウザを閉じれば自動で終了します (Ctrl+C でも可)`);
     console.log(`${LOG_PREFIX} ================================================`);
     // プロセスを生かし続ける (Chromium を開いたまま)
     setInterval(() => {}, 1 << 30);
@@ -1707,6 +1832,25 @@ if (LOGIN_MODE) {
   }
   setTimeout(enqueueSessionCheck, 20_000); // 起動20秒後に初回
   setInterval(enqueueSessionCheck, 60 * 60 * 1000); // 毎時トライ(8hバケットで冪等 → 実質1日3回)
+
+  // 失効検知中のまま再起動された場合 (=再ログイン直後の可能性が高い) は、8hバケットを
+  // 待たずユニークIDで即チェックを投入し、「✅ 再ログイン確認」を早く返す。
+  try {
+    const st = loadSessionState_();
+    if (Object.values(st).some((v) => v && v.expiredSince)) {
+      setTimeout(async () => {
+        try {
+          await db.collection("yadozeiQueue").doc(`session_check_boot_${Date.now()}`).create({
+            kind: "session_check", status: "pending",
+            createdAt: admin.firestore.FieldValue.serverTimestamp(), source: "listener_boot_recovery",
+          });
+          console.log(`${LOG_PREFIX} 再ログイン確認用 session_check を投入 (boot)`);
+        } catch (e) {
+          console.warn(`${LOG_PREFIX} boot session_check 投入失敗: ${e.message}`);
+        }
+      }, 30_000);
+    }
+  } catch (_) { /* ignore */ }
 
   // ジョブは必ず直列処理する。並行して同じ Chrome プロファイルを起動すると
   // ロック競合で "context has been closed" になるため。docId 単位で重複投入も防ぐ。
