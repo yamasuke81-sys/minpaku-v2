@@ -1,19 +1,20 @@
 #!/usr/bin/env node
-// マネーフォワードME の楽天第三口座から Booking.com 入金を検知し、
-// v2 API /pnl/:pid/verify-booking-payout で「前月チェックアウト分バッチ」の期待値と自動突合する。
+// マネーフォワードME の楽天口座から OTA 入金を検知し、v2 API で帳簿と自動突合する。
+//   A) Booking.com 入金(ドイツギンコウ BOOKING.COMブン、楽天第三):
+//      /pnl/:pid/verify-booking-payout — 前月チェックアウト分バッチの期待値と突合。
+//      一致=💰✅通知 / 残差=🚨通知(キャンセル料 or 予約エクスポート欠落の可能性)。
+//   B) Airbnb 入金(ペイオニア ジヤパン、楽天第三=the Terrace / 楽天ハープ=宿小町):
+//      /pnl/:pid/verify-airbnb-payout — 予約CSVの「収入」との単独/2件合算一致を確認。
+//      一致=無音(件数が多いため) / 不一致=🚨通知(予約エクスポート欠落・金額相違・他物件入金の可能性)。
+//      口座と物件の対応が違う期間があるため、割当物件で不一致なら他物件でも照合してから通知。
+//      CSV未着(月次取得前)の場合は保留し翌日以降に再試行(stateに載せない)。
 //
-//   使い方: NODE_PATH=../minpaku-v2-yadozei/scripts/node_modules node scripts/mf-booking-monitor.mjs [--month 2026-07] [--replay]
+//   使い方: node scripts/mf-booking-monitor.mjs [--month 2026-07] [--replay]
 //     --month:  走査する MF家計簿月を1ヶ月だけ指定。省略時は前月+当月。
-//     --replay: 処理済みでも再通知(検算やり直し用)。
+//     --replay: 処理済みでも再突合(検算やり直し用)。
 //
-//   動作:
-//     1. debug Chrome(CDP:9222・MFログイン済) 経由で楽天第三の月次CSVを取得(読み取りGETのみ)
-//     2. 「ドイツギンコウ BOOKING.COMブン」等の入金行を抽出
-//     3. 未処理の入金(MF取引IDで管理、state=~/.claude/channels/discord/mf-booking-monitor-state.json)を
-//        API で突合 → NOTIFY 行を出力(常駐bun routines の command型が #経理 へ通知)
-//     4. 残差0=✅一致 / 残差あり=🚨(キャンセル料 or 計上漏れの可能性、財務明細CSVの確認を促す)
-//
-//   実証: 2025-11〜2026-07 の全9入金で本方式の期待値が銀行実額と一致(残差はキャンセル料/欠落売上として全件解明済)
+//   state=~/.claude/channels/discord/mf-booking-monitor-state.json (MF取引IDで冪等)
+//   実証: Booking=2025-11〜2026-07 の全9入金一致 / Airbnb=3月ペイオニア9件合計¥631,664=帳簿3月売上と一致
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -21,12 +22,15 @@ const requireScripts = createRequire("C:/Users/yamas/.claude/scripts/node_module
 const { chromium } = requireScripts("playwright-core");
 
 const TERRACE = "tsZybhDMcPrxqgcRy7wp";
-const RAKUTEN3_HASH = "64SwijL8nXXCHReKyZpAbA"; // MF ㊇楽天第3(八朔)
+const KOMACHI = "RZV9IwtQgMAsvrdM3j8J";
+const RAKUTEN3_HASH = "64SwijL8nXXCHReKyZpAbA"; // MF ㊇楽天第3(八朔) → Booking + Airbnb(the Terrace)
+const HARP_HASH = "tXfU3weteHfPaOksh_Kf_g";      // MF ㉂楽天ハープ    → Airbnb(宿小町)
 const RAKUTEN3_SERVICE = "1331";
 const API = "https://api-5qrfx7ujcq-an.a.run.app";
 const CDP = "http://127.0.0.1:9222";
 const STATE = "C:/Users/yamas/.claude/channels/discord/mf-booking-monitor-state.json";
 const HIT = /ブッキング|BOOKING|Booking|ﾌﾞﾂｷﾝｸﾞ|ﾌﾞｯｷﾝｸﾞ/;
+const PAYONEER = /ペイオニア|ﾍﾟｲｵﾆｱ|PAYONEER/i;
 
 const REPLAY = process.argv.includes("--replay");
 const mi = process.argv.indexOf("--month");
@@ -68,38 +72,47 @@ function parseCsv(text) {
 function loadState() { try { return JSON.parse(readFileSync(STATE, "utf8")); } catch { return { processed: {} }; } }
 function saveState(s) { try { writeFileSync(STATE, JSON.stringify({ ...s, at: new Date().toISOString() }, null, 2)); } catch {} }
 
+async function fetchAccountRows(page, hash, ym) {
+  const [Y, M] = ym.split("-").map(Number);
+  const url = `https://moneyforward.com/cf/csv?account_id_hash=${hash}&from=${Y}%2F${String(M).padStart(2, "0")}%2F01&month=${M}&service_id=${RAKUTEN3_SERVICE}&year=${Y}`;
+  const buf = await page.evaluate(async (u) => {
+    const r = await fetch(u, { credentials: "include" });
+    if (!r.ok) throw new Error("csv fetch " + r.status);
+    return Array.from(new Uint8Array(await r.arrayBuffer()));
+  }, url);
+  const rows = parseCsv(new TextDecoder("shift_jis").decode(new Uint8Array(buf)));
+  const head = rows[0] || [];
+  const iDate = head.indexOf("日付"), iDesc = head.indexOf("内容"), iAmt = head.indexOf("金額（円）"), iId = head.indexOf("ID");
+  return rows.slice(1)
+    .filter((r) => r.length > iId)
+    .map((r) => ({
+      date: String(r[iDate] || "").replace(/\//g, "-"),
+      desc: r[iDesc] || "",
+      amount: Number(String(r[iAmt]).replace(/,/g, "")) || 0,
+      mfId: r[iId],
+    }));
+}
+
 (async () => {
-  console.log(`MF Booking入金監視: 走査月=${SCAN.join(", ")}${REPLAY ? " [replay]" : ""}`);
+  console.log(`MF OTA入金監視(Booking+Airbnb): 走査月=${SCAN.join(", ")}${REPLAY ? " [replay]" : ""}`);
   const browser = await connectCdp();
   const ctx = browser.contexts()[0];
   const page = await ctx.newPage();
-  const deposits = [];
+  const bookingDeposits = [];
+  const airbnbDeposits = []; // { ..., primary: pid, secondary: pid }
   try {
     await page.goto("https://moneyforward.com/accounts", { waitUntil: "domcontentloaded", timeout: 30000 });
     await page.waitForTimeout(1500);
     if (/sign_in|login/.test(page.url())) throw new Error("MF未ログイン(debug ChromeでMFに再ログインが必要)");
     for (const ym of SCAN) {
-      const [Y, M] = ym.split("-").map(Number);
-      const url = `https://moneyforward.com/cf/csv?account_id_hash=${RAKUTEN3_HASH}&from=${Y}%2F${String(M).padStart(2, "0")}%2F01&month=${M}&service_id=${RAKUTEN3_SERVICE}&year=${Y}`;
-      const buf = await page.evaluate(async (u) => {
-        const r = await fetch(u, { credentials: "include" });
-        if (!r.ok) throw new Error("csv fetch " + r.status);
-        return Array.from(new Uint8Array(await r.arrayBuffer()));
-      }, url);
-      const rows = parseCsv(new TextDecoder("shift_jis").decode(new Uint8Array(buf)));
-      const head = rows[0] || [];
-      const iDate = head.indexOf("日付"), iDesc = head.indexOf("内容"), iAmt = head.indexOf("金額（円）"), iId = head.indexOf("ID");
-      const hits = rows.slice(1)
-        .filter((r) => r.length > iId && HIT.test(r[iDesc] || ""))
-        .map((r) => ({
-          date: String(r[iDate] || "").replace(/\//g, "-"),
-          desc: r[iDesc],
-          amount: Number(String(r[iAmt]).replace(/,/g, "")) || 0,
-          mfId: r[iId],
-        }))
-        .filter((d) => d.amount > 0); // 入金のみ
-      console.log(`[${ym}] Booking入金 ${hits.length}件`);
-      deposits.push(...hits);
+      const r3 = await fetchAccountRows(page, RAKUTEN3_HASH, ym);
+      const harp = await fetchAccountRows(page, HARP_HASH, ym);
+      const bk = r3.filter((d) => HIT.test(d.desc) && d.amount > 0);
+      const abT = r3.filter((d) => PAYONEER.test(d.desc) && d.amount > 0).map((d) => ({ ...d, primary: TERRACE, secondary: KOMACHI, acct: "楽天第三" }));
+      const abK = harp.filter((d) => PAYONEER.test(d.desc) && d.amount > 0).map((d) => ({ ...d, primary: KOMACHI, secondary: TERRACE, acct: "楽天ハープ" }));
+      console.log(`[${ym}] Booking入金 ${bk.length}件 / Airbnb入金 第三${abT.length}+ハープ${abK.length}件`);
+      bookingDeposits.push(...bk);
+      airbnbDeposits.push(...abT, ...abK);
     }
   } finally {
     await page.close();
@@ -107,30 +120,60 @@ function saveState(s) { try { writeFileSync(STATE, JSON.stringify({ ...s, at: ne
   }
 
   const state = loadState();
-  const fresh = deposits.filter((d) => REPLAY || !state.processed[d.mfId]);
-  if (!fresh.length) { console.log("新規入金なし。終了。"); process.exitCode = 0; return; }
+  const freshBk = bookingDeposits.filter((d) => REPLAY || !state.processed[d.mfId]);
+  const freshAb = airbnbDeposits.filter((d) => REPLAY || !state.processed[d.mfId]);
+  if (!freshBk.length && !freshAb.length) { console.log("新規入金なし。終了。"); process.exitCode = 0; return; }
 
   // API シークレットはローカルファイルから読む(firebase-admin は Windows node で終了時に
   // libuv assert クラッシュ(exit 127)するため PC 常駐スクリプトでは使わない。NotifyInbox と同方式)
   const secret = readFileSync("C:/Users/yamas/.claude/channels/discord/v2-gas-secret.txt", "utf8").trim();
-
+  const H = { "authorization": `Bearer gas-${secret}`, "content-type": "application/json" };
   let hadError = false;
-  for (const d of fresh) {
-    console.log(`\n▼ 入金 ${d.date} ¥${d.amount.toLocaleString()} (${d.desc})`);
-    const r = await fetch(`${API}/pnl/${TERRACE}/verify-booking-payout`, {
-      method: "POST",
-      headers: { "authorization": `Bearer gas-${secret}`, "content-type": "application/json" },
-      body: JSON.stringify({ amount: d.amount, date: d.date }),
-    });
+
+  // ---- A) Booking ----
+  for (const d of freshBk) {
+    console.log(`\n▼ Booking入金 ${d.date} ¥${d.amount.toLocaleString()} (${d.desc})`);
+    const r = await fetch(`${API}/pnl/${TERRACE}/verify-booking-payout`, { method: "POST", headers: H, body: JSON.stringify({ amount: d.amount, date: d.date }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { hadError = true; console.log("error:", j.error || r.status); continue; }
     console.log(`  対象CO月=${j.coMonth} 期待¥${(j.expected || 0).toLocaleString()} 残差¥${(j.residual || 0).toLocaleString()} (${j.stays?.length || 0}滞在)`);
+    if (!j.match && (j.missingCsvMonths || []).length) {
+      console.log(`  → CSV未着(${j.missingCsvMonths.join(",")})のため保留(翌日再試行)`);
+      continue; // stateに載せない=保留
+    }
     if (j.match) {
       console.log(`NOTIFY: 💰 Booking入金 ¥${d.amount.toLocaleString()}(${d.date}、${j.coMonth}チェックアウト分) — 帳簿の期待値と**1円一致** ✅`);
     } else {
       console.log(`NOTIFY: 🚨 Booking入金 ¥${d.amount.toLocaleString()}(${d.date}) が帳簿の期待値 ¥${(j.expected || 0).toLocaleString()}(${j.coMonth}CO分) と **¥${(j.residual || 0).toLocaleString()} ズレ**ています。キャンセル料徴収 or 予約エクスポート欠落の可能性 → extranet の財務明細CSV(該当支払い)をDLして確認してください。`);
     }
-    state.processed[d.mfId] = { date: d.date, amount: d.amount, verifiedAt: new Date().toISOString(), residual: j.residual };
+    state.processed[d.mfId] = { kind: "booking", date: d.date, amount: d.amount, verifiedAt: new Date().toISOString(), residual: j.residual };
+  }
+
+  // ---- B) Airbnb(ペイオニア) ----
+  const verifyAirbnb = async (pid, d) => {
+    const r = await fetch(`${API}/pnl/${pid}/verify-airbnb-payout`, { method: "POST", headers: H, body: JSON.stringify({ amount: d.amount, date: d.date }) });
+    return { status: r.status, j: await r.json().catch(() => ({})) };
+  };
+  for (const d of freshAb) {
+    console.log(`\n▼ Airbnb入金 ${d.date} ¥${d.amount.toLocaleString()} (${d.acct})`);
+    const p1 = await verifyAirbnb(d.primary, d);
+    if (p1.status !== 200) { hadError = true; console.log("error:", p1.j.error || p1.status); continue; }
+    let matched = p1.j.match ? d.primary : null;
+    let missing = p1.j.missingCsvMonths || [];
+    if (!matched) {
+      const p2 = await verifyAirbnb(d.secondary, d);
+      if (p2.status === 200 && p2.j.match) matched = d.secondary;
+      missing = [...new Set([...missing, ...(p2.j?.missingCsvMonths || [])])];
+    }
+    if (matched) {
+      console.log(`  ✅ 一致(${matched === TERRACE ? "the Terrace" : "宿小町"})${matched !== d.primary ? " ※口座と物件の対応が通常と逆" : ""}`);
+      state.processed[d.mfId] = { kind: "airbnb", date: d.date, amount: d.amount, matched, verifiedAt: new Date().toISOString() };
+    } else if (missing.length) {
+      console.log(`  → CSV未着(${missing.join(",")})のため保留(翌日再試行)`);
+    } else {
+      console.log(`NOTIFY: 🚨 Airbnb入金 ¥${d.amount.toLocaleString()}(${d.date}、${d.acct}) に一致する予約が Terrace/小町 の予約CSVに見つかりません。予約エクスポート欠落・金額相違・対象外物件の入金の可能性 → Airbnb 管理画面の取引履歴で確認してください。`);
+      state.processed[d.mfId] = { kind: "airbnb", date: d.date, amount: d.amount, matched: null, verifiedAt: new Date().toISOString() };
+    }
   }
   saveState(state);
   process.exitCode = hadError ? 1 : 0;

@@ -856,7 +856,12 @@ module.exports = function pnlApi(db) {
       const dups = [];       // 除外した重複(捨てず記録。出典で表示・金額差は要確認)
       let processed = 0, skippedDup = 0, errors = 0, unmatchedCat = 0;
 
+      // MF等の外部ソースが担う費目のサブフォルダはPDF取込をスキップ(二重計上防止)。
+      // 例: 宿小町 driveUtilitiesSkipFolders=["ガス","電気","固定電話"](2026-07〜 MFルーチンが計上)
+      const skipFolders = propSnap.data().driveUtilitiesSkipFolders || [];
+
       for (const sub of subs) {
+        if (skipFolders.some((s) => String(sub.name || "").includes(s))) { items.push({ folder: sub.name, skipped: "外部ソース(MF等)担当のためPDF取込対象外" }); continue; }
         const catName = mapUtilityCategory_(sub.name);
         if (!catName) { unmatchedCat++; continue; }
         const catId = catByName[catName] || null;
@@ -1240,6 +1245,136 @@ module.exports = function pnlApi(db) {
     }
   });
 
+  // POST /:propertyId/:yearMonth/import-external-utility { items:[{sourceId, description, amount, date?, category}], source, dryRun? }
+  // MF銀行明細/楽天でんきマイページ等の「PDFを介さない外部ソース」から光熱・通信系費目へ冪等計上する汎用口。
+  // - 冪等キー = sourceId(creditCardIndex.fileId に保存。mfbank:{MF取引ID} / rakuten:{契約番号}:{ym} 等)
+  // - category は expenseCategories の名前(水道光熱費/固定電話/Wi-Fi・通信費など)。overridden=true の費目は上書き保護。
+  router.post("/:propertyId/:yearMonth/import-external-utility", router.cores.importExternalUtility = async (req, res) => {
+    try {
+      const { propertyId, yearMonth } = req.params;
+      const { items, source, dryRun } = req.body || {};
+      if (!/^\d{4}-\d{2}$/.test(yearMonth)) return res.status(400).json({ error: "yearMonth は YYYY-MM 形式" });
+      if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: "items が必要" });
+      const propSnap = await db.collection("properties").doc(propertyId).get();
+      if (!propSnap.exists) return res.status(404).json({ error: "物件が見つかりません" });
+
+      const cats = await loadCategories_();
+      const ref = pnlCol.doc(docId_(propertyId, yearMonth));
+      const cur = await ref.get();
+      const curData = cur.exists ? cur.data() : {};
+      const already = new Set((curData.creditCardIndex || []).map((r) => String(r.fileId || "")));
+
+      const adopted = [], skipped = [];
+      for (const it of items) {
+        const cat = cats.find((c) => c.name === String(it.category || ""));
+        const amount = Math.abs(toInt(it.amount));
+        if (!cat) { skipped.push({ ...it, reason: "費目不明" }); continue; }
+        if (!it.sourceId || !amount) { skipped.push({ ...it, reason: "sourceId/amount不足" }); continue; }
+        if (already.has(String(it.sourceId))) { skipped.push({ ...it, reason: "既取込" }); continue; }
+        const exp = (curData.expenses || {})[cat.id] || {};
+        if (exp.overridden) { skipped.push({ ...it, reason: `${cat.name}がoverridden(上書き保護)` }); continue; }
+        adopted.push({ it, cat, amount });
+      }
+      if (dryRun) return res.json({ dryRun: true, propertyId, yearMonth, adopted: adopted.map((a) => ({ ...a.it, amount: a.amount })), skipped });
+      if (!adopted.length) return res.json({ ok: true, adopted: [], skipped });
+
+      const newExpenses = { ...(curData.expenses || {}) };
+      const newIndex = [];
+      for (const { it, cat, amount } of adopted) {
+        const exp = newExpenses[cat.id] || {};
+        newExpenses[cat.id] = {
+          ...exp,
+          amount: toInt(exp.amount) + amount,
+          source: exp.source || String(source || "external"),
+          overridden: false,
+          note: `${exp.note ? exp.note + " " : ""}※${String(source || "外部")}から自動計上(${it.description || it.sourceId})`,
+          updatedAt: Date.now(),
+        };
+        newIndex.push({
+          fileId: String(it.sourceId), fileName: String(source || "外部ソース"), ym: yearMonth,
+          date: String(it.date || ""), description: String(it.description || ""), amount, vendor: String(it.vendor || ""),
+          catId: cat.id,
+        });
+      }
+      await ref.set({
+        propertyId, yearMonth,
+        expenses: newExpenses,
+        creditCardIndex: FieldValue.arrayUnion(...newIndex),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      const after = (await ref.get()).data();
+      res.json({ ok: true, propertyId, yearMonth, adopted: newIndex, adoptedTotal: newIndex.reduce((s, x) => s + x.amount, 0), skipped, computed: computePnl(after, cats) });
+    } catch (e) {
+      console.error("外部光熱計上エラー:", e);
+      res.status(500).json({ error: "外部光熱計上に失敗しました: " + e.message });
+    }
+  });
+
+  // POST /:propertyId/verify-airbnb-payout { amount, date }
+  // ペイオニア(Airbnb)の銀行入金1件を、Drive の Airbnb 予約CSV(入金月とその前月のCI分)の「収入」と突合する。
+  // 単独一致 → match。無ければ2件合算(同日まとめ払い)も試す。どちらも無ければ mismatch(予約欠落/金額相違の疑い)。
+  router.post("/:propertyId/verify-airbnb-payout", router.cores.verifyAirbnbPayout = async (req, res) => {
+    try {
+      const { propertyId } = req.params;
+      const { amount, date } = req.body || {};
+      const dm = String(date || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (!dm || !(Number(amount) > 0)) return res.status(400).json({ error: "amount(正数) と date(YYYY-MM-DD) が必要" });
+      const propSnap = await db.collection("properties").doc(propertyId).get();
+      if (!propSnap.exists) return res.status(404).json({ error: "物件が見つかりません" });
+      const srcFolder = propSnap.data().driveOtaCsvFolderId;
+      if (!srcFolder) return res.status(400).json({ error: "OTAcsvフォルダ未設定" });
+
+      const target = Math.round(Number(amount));
+      const depDate = new Date(`${dm[1]}-${dm[2]}-${dm[3]}T00:00:00Z`);
+      const months = [];
+      {
+        const [y, m] = [Number(dm[1]), Number(dm[2])];
+        months.push(`${y}-${String(m).padStart(2, "0")}`);
+        const t = new Date(Date.UTC(y, m - 2, 1));
+        months.push(`${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}`);
+      }
+      const { parseCsv: pCsv, parseYen: pYen } = require("./ota-csv-logic");
+      const drive = await resolveOtaDrive_();
+      const rows = [];
+      const missingCsvMonths = [];
+      for (const ciYm of months) {
+        const file = await findLatestOtaCsv_(drive, srcFolder, "airbnb", ciYm);
+        if (!file) { missingCsvMonths.push(ciYm); continue; }
+        const parsed = pCsv(await downloadDriveText_(drive, file.id));
+        if (parsed.length < 2) continue;
+        const h = {}; parsed[0].forEach((c, i) => { h[c] = i; });
+        for (const r of parsed.slice(1)) {
+          if (!r || r.length < 3) continue;
+          const income = pYen(r[h["収入"]]);
+          if (income <= 0) continue;
+          const ciRaw = String(r[h["開始日"]] || "").replace(/\//g, "-");
+          const cm = ciRaw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+          const ci = cm ? new Date(Date.UTC(Number(cm[1]), Number(cm[2]) - 1, Number(cm[3]))) : null;
+          // 入金日は CI+数日。CI が入金日の 21日前〜2日後 の予約だけ候補にする
+          if (!ci) continue;
+          const diffDays = (depDate - ci) / 86400000;
+          if (diffDays < -2 || diffDays > 21) continue;
+          rows.push({ code: r[h["確認コード"]], name: r[h["ゲスト名"]], ci: ciRaw, income });
+        }
+      }
+      // 単独一致
+      const single = rows.find((r) => r.income === target);
+      if (single) return res.json({ ok: true, match: true, mode: "single", stay: single, candidates: rows.length, missingCsvMonths });
+      // 2件合算(同日まとめ振込)
+      for (let i = 0; i < rows.length; i++) {
+        for (let j = i + 1; j < rows.length; j++) {
+          if (rows[i].income + rows[j].income === target) {
+            return res.json({ ok: true, match: true, mode: "pair", stays: [rows[i], rows[j]], candidates: rows.length, missingCsvMonths });
+          }
+        }
+      }
+      res.json({ ok: true, match: false, candidates: rows.length, missingCsvMonths, nearbyIncomes: rows.map((r) => r.income).sort((a, b) => b - a).slice(0, 12) });
+    } catch (e) {
+      console.error("Airbnb入金突合エラー:", e);
+      res.status(500).json({ error: "Airbnb入金突合に失敗しました: " + e.message });
+    }
+  });
+
   // POST /:propertyId/verify-booking-payout { amount, date }
   // Booking.com の銀行入金(翌月初旬)を「前月チェックアウト分バッチ」の期待値と突合する。
   // 期待値 = Drive の予約CSV(CO月とその前月のCI月ぶん)から CO∈対象月 の行を集め、
@@ -1265,9 +1400,10 @@ module.exports = function pnlApi(db) {
       const { BOOKING_PAYMENT_FEE_RATE, parseCsv: pCsv, parseYen: pYen } = require("./ota-csv-logic");
       const drive = await resolveOtaDrive_();
       const stays = [];
+      const missingCsvMonths = [];
       for (const ciYm of ciMonths) {
         const file = await findLatestOtaCsv_(drive, srcFolder, "booking", ciYm);
-        if (!file) continue;
+        if (!file) { missingCsvMonths.push(ciYm); continue; }
         const rows = pCsv(await downloadDriveText_(drive, file.id));
         if (rows.length < 2) continue;
         const h = {}; rows[0].forEach((c, i) => { h[c] = i; });
@@ -1286,7 +1422,7 @@ module.exports = function pnlApi(db) {
       }
       const expected = stays.reduce((s, x) => s + x.paid, 0);
       const residual = Math.round(Number(amount)) - expected;
-      res.json({ ok: true, propertyId, coMonth: coYm, depositAmount: Math.round(Number(amount)), expected, residual, match: residual === 0, stays });
+      res.json({ ok: true, propertyId, coMonth: coYm, depositAmount: Math.round(Number(amount)), expected, residual, match: residual === 0, stays, missingCsvMonths });
     } catch (e) {
       console.error("Booking入金突合エラー:", e);
       res.status(500).json({ error: "Booking入金突合に失敗しました: " + e.message });
