@@ -1202,6 +1202,18 @@ module.exports = function pnlApi(db) {
         if (it.ym && it.ym !== yearMonth) continue;
         expenses.push({ kind: "光熱・通信", category: catName[it.catId] || "", fileName: it.fileName || "", link: driveLink_(it.fileId), amount: it.amount || 0 });
       }
+      // クレカ電気(MF明細/セゾンPDF)。it.ym は明細対象月(=カード決済月)で使用月と異なるため月フィルタしない
+      // (この doc に入っている時点でこの使用月の計上)。MF由来は MF のセゾン口座ページへリンク。
+      const MF_SAISON_ACCOUNT_URL = "https://moneyforward.com/accounts/show/et2JNC6KSatQ9pMz6fL8voH-z9t8NpFGQ2rOnN6Ntkg";
+      for (const it of (d.creditCardIndex || [])) {
+        const isMf = String(it.fileId || "").startsWith("mf:");
+        expenses.push({
+          kind: "クレカ電気", category: "水道光熱費",
+          fileName: `${it.description || it.fileName || ""}${it.date ? `（決済 ${it.date}）` : ""}`,
+          link: isMf ? MF_SAISON_ACCOUNT_URL : driveLink_(it.fileId),
+          amount: it.amount || 0,
+        });
+      }
       // 除外した重複(捨てず表示。金額差があれば要確認)
       const duplicates = (d.utilitiesDuplicates || [])
         .filter((x) => !x.ym || x.ym === yearMonth)
