@@ -283,8 +283,9 @@ Workflow audit(65エージェント/54 findings→adversarial verify通過27件)
    - **手順**: `pm2 stop yadozei-listener` → `cd C:\Users\yamas\AI_Workspace\minpaku-v2-yadozei && node scripts/yadozei-listener.mjs --login`(Playwrightブラウザが起動→Booking.com にログイン→cookie 保存されるまで放置) → Ctrl+C → `pm2 start yadozei-listener`
    - 完了確認: Firestore `settings/yadozeiListener.sessionCheck.sessions."Booking.com" === "ok"` になれば OK
 3. **7月分の Drive 投入(8/2〜8/5 人手)**: Terrace/宿小町 の光熱PDF(007配下)/レシート(60配下)/清掃請求書 を投入。ScanSorter経由で自動振り分けさせる。**ゴミ処理費・Wi-Fi通信費の月次自動計上もこれに乗せる**(過去月バックフィルはやますけが金額指示すれば scratchpad で個別上書き可能)。
-4. **【2026-07-13 実装済→残りはスケジュール登録のみ】クレカ電気は MF ME 経由で自動取得**: SAISON PDF 投入は不要になった(下記 DONE 参照)。`scripts/mf-electric-import.mjs` を **毎月25日頃に実行**するようスケジュール登録する(★やますけ選択待ち: Windowsタスクスケジューラ or 常駐bun routines.json)。登録後は AUTOMATION.md 更新。
-   - the Terrace 5月電気(唯一の既知欠落)は、エネパル5月分がカードに posted された月のCSVに現れ次第 `--month YYYY-MM` 指定で計上可能(7月明細に載る想定 → `--month 2026-07` を7月末に実行)。※5月分がカード払いでなくコンビニ払いPDFの場合は従来どおり 54電気 フォルダへ。
+4. **【2026-07-14 完了】クレカ電気の MF 自動取得ルーチン稼働開始**: routines.json に `mf-electric-import`(毎日07:35・**command型=Claude不使用でトークン消費ゼロ**)を登録し常駐bun再起動済み。計上発生時とエラー時のみ #経理 に通知(無音=正常)。AUTOMATION.md 台帳+ダッシュボード更新済。
+   - **command型は今回 discord-secretary-resident.mjs に新設した仕組み**(routine.command=[exe,...args] を直接spawn、stdout の「NOTIFY: 」行だけ通知、非0終了はエラー通知、routine.env で NODE_PATH 等を注入)。今後の機械処理ルーチンにも使える。
+   - **5月電気の謎も解決**: 「5月電気欠落」の正体は「5月分¥36,459がカード決済6/9で、やますけが6月分として6月に手入力していた誤帰属」だった。MF全月×PDF系列(2月分→3/12決済、3月分→4/13、4月分→5/14、カード上のエネパル決済は6/9の1件のみ=初回カード決済)の突合で5月分と確定。6月手入力¥44,818→¥8,359(ガス5,919+水道月割2,440、overridden解除=6月分電気の自動加算を許可)、5月へ MF ルート実計上¥36,459。**5月利益 ¥452,866(率67.5%) / 6月利益 ¥341,466(率81%、6月分電気が7月中旬にカードpostedされ次第ルーチンが自動加算予定)**。両月の報告書PDF再生成済。
 6. **税抜換算対応(遅延優先度低)**: Airbnb「収入」列基準で /人/泊 を計算する現行仕様は、閾値10,000円をまたぐ稀ケースで誤差の可能性。運用で問題が出るまで保留。
 7. **the Terrace 25-11/12/26-01 空白期間の電気は「書類なし」で確定**(NEXT#8 消化済)。中国電力ハガキ or 楽天でんき短期契約分の請求書が発掘された場合は個別追記可能。実害は最大数千円×3ヶ月レベル。
 8. **過去月のやどぜい実申告状況の確認(★やますけ)**: 自動申告済みは 2026-05 のみ。2025-09〜2026-04/2026-06 の宿泊税を手動申告済みか要確認(pnl帳簿値は全月計算済み: 09=800/10=2,000/11=3,200/12=5,200/01=0/02=1,400/03=11,200/04=2,800/06=600)。

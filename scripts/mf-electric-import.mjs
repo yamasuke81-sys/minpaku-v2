@@ -3,22 +3,23 @@
 // v2 pnl API (import-credit-card-electric の payments 直接モード) へ冪等計上する。
 //
 //   使い方: NODE_PATH=../minpaku-v2-yadozei/scripts/node_modules node scripts/mf-electric-import.mjs [--month 2026-07] [--dry]
-//     --month: MF家計簿の対象月(=カードに posted された月)。省略時は当月(JST)。
+//     --month: 走査する MF家計簿月(=カードに posted された月)を1ヶ月だけ指定。省略時は当月+前月の2ヶ月を走査
+//              (月初に前月末 posted 分を取りこぼさないため)。
 //     --dry:   API に dryRun で投げ、計上せず判定結果のみ表示。
 //
 //   仕組み:
 //     1. 常駐デバッグChrome(CDP:9222、MFログイン済) に接続(browse.mjs と同方式・読み取りGETのみ)
 //     2. MF の口座別明細CSV https://moneyforward.com/cf/csv?account_id_hash=...&year=Y&month=M を取得(Shift_JIS)
 //     3. 「内容」が電気系キーワードに一致する行を抽出(厳密な採否はサーバ側 filterElectricPaymentsForProperty が判定)
-//     4. 使用月 = posted月の前月 (エネパル系は「使用月+1ヶ月後にカード請求」の運用) として API へ POST
-//        冪等キー = MF取引ID(CSV最終列) → 何度流しても二重計上しない。overridden=true の月は上書き保護。
+//     4. 使用月 = 各行の posted 日付の前月 (エネパル系は「使用月+1ヶ月後にカード請求」の運用) として使用月ごとに API へ POST
+//        冪等キー = MF取引ID(CSV「ID」列) → 何度流しても二重計上しない。overridden=true の月は上書き保護。
+//     5. 計上が発生したときだけ stdout に「NOTIFY: …」を出す(常駐bun routines の command型がこの行だけ #経理 へ通知)。
 //
 //   前提: デバッグChrome は Startup\ClaudeDebugChrome.vbs で常駐(MFログイン済み)。落ちていれば自己修復起動。
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 const requireScripts = createRequire("C:/Users/yamas/.claude/scripts/node_modules/");
 const { chromium } = requireScripts("playwright-core");
-const admin = (await import("firebase-admin")).default;
 
 const TERRACE = "tsZybhDMcPrxqgcRy7wp";
 const SAISON_HASH = "et2JNC6KSatQ9pMz6fL8voH-z9t8NpFGQ2rOnN6Ntkg"; // MF セゾンアメックス(八朔)
@@ -29,11 +30,20 @@ const ELECTRIC_HINT = /エネパル|アプラス|スマートビリング|電気
 
 const DRY = process.argv.includes("--dry");
 const mi = process.argv.indexOf("--month");
-const now = new Date(Date.now() + 9 * 3600 * 1000); // JST
-const monthArg = mi >= 0 ? process.argv[mi + 1] : `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-if (!/^\d{4}-\d{2}$/.test(monthArg)) { console.error("--month は YYYY-MM"); process.exit(2); }
-const [Y, M] = monthArg.split("-").map(Number);
-const prevYm = M === 1 ? `${Y - 1}-12` : `${Y}-${String(M - 1).padStart(2, "0")}`;
+const nowJst = new Date(Date.now() + 9 * 3600 * 1000);
+const curYm = `${nowJst.getUTCFullYear()}-${String(nowJst.getUTCMonth() + 1).padStart(2, "0")}`;
+const prevOf = (ym) => {
+  const [y, m] = ym.split("-").map(Number);
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
+};
+let SCAN_MONTHS;
+if (mi >= 0) {
+  const m = process.argv[mi + 1];
+  if (!/^\d{4}-\d{2}$/.test(m || "")) { console.error("--month は YYYY-MM"); process.exit(2); }
+  SCAN_MONTHS = [m];
+} else {
+  SCAN_MONTHS = [prevOf(curYm), curYm]; // 前月+当月(月初の取りこぼし防止)
+}
 
 const withTimeout = (p, ms, l) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(l + " timeout")), ms))]);
 function launchDebugChrome() {
@@ -51,7 +61,7 @@ async function connectCdp() {
   throw new Error("CDP接続不可(debug Chrome起動失敗)");
 }
 
-// MF CSV(RFC4180風・全フィールド引用符付き)の簡易パース
+// MF CSV(全フィールド引用符付き)の簡易パース
 function parseCsv(text) {
   const rows = [];
   let cur = [], field = "", inQ = false;
@@ -74,65 +84,88 @@ function parseCsv(text) {
 }
 
 (async () => {
-  console.log(`MF電気代取込: posted月=${monthArg} → 使用月=${prevYm} ${DRY ? "[dry]" : ""}`);
+  console.log(`MF電気代取込: 走査月=${SCAN_MONTHS.join(", ")} ${DRY ? "[dry]" : ""}`);
 
   // ---- 1. MF CSV 取得(読み取りGETのみ) ----
   const browser = await connectCdp();
   const ctx = browser.contexts()[0];
   const page = await ctx.newPage();
-  let csvText;
+  const candidates = [];
   try {
     await page.goto("https://moneyforward.com/accounts", { waitUntil: "domcontentloaded", timeout: 30000 });
     await page.waitForTimeout(1500);
-    // ログイン確認(未ログインならサインイン画面に飛ぶ)
     if (/sign_in|login/.test(page.url())) throw new Error("MF未ログイン(debug ChromeでMFに再ログインが必要)");
-    const url = `https://moneyforward.com/cf/csv?account_id_hash=${SAISON_HASH}&from=${Y}%2F${String(M).padStart(2, "0")}%2F01&month=${M}&service_id=27&year=${Y}`;
-    const buf = await page.evaluate(async (u) => {
-      const r = await fetch(u, { credentials: "include" });
-      if (!r.ok) throw new Error("csv fetch " + r.status);
-      return Array.from(new Uint8Array(await r.arrayBuffer()));
-    }, url);
-    csvText = new TextDecoder("shift_jis").decode(new Uint8Array(buf));
+    for (const ym of SCAN_MONTHS) {
+      const [Y, M] = ym.split("-").map(Number);
+      const url = `https://moneyforward.com/cf/csv?account_id_hash=${SAISON_HASH}&from=${Y}%2F${String(M).padStart(2, "0")}%2F01&month=${M}&service_id=27&year=${Y}`;
+      const buf = await page.evaluate(async (u) => {
+        const r = await fetch(u, { credentials: "include" });
+        if (!r.ok) throw new Error("csv fetch " + r.status);
+        return Array.from(new Uint8Array(await r.arrayBuffer()));
+      }, url);
+      const csvText = new TextDecoder("shift_jis").decode(new Uint8Array(buf));
+      const rows = parseCsv(csvText);
+      const head = rows[0] || [];
+      const iDate = head.indexOf("日付"), iDesc = head.indexOf("内容"), iAmt = head.indexOf("金額（円）"), iId = head.indexOf("ID");
+      if (iDesc < 0) throw new Error(`MF CSV(${ym})のヘッダが想定外: ` + head.join(","));
+      const hits = rows.slice(1)
+        .filter((r) => r.length > iId && ELECTRIC_HINT.test(r[iDesc] || ""))
+        .map((r) => ({
+          date: String(r[iDate] || "").replace(/\//g, "-"),
+          description: r[iDesc],
+          amount: Math.abs(Number(String(r[iAmt]).replace(/,/g, "")) || 0),
+          vendor: "",
+          mfId: r[iId],
+        }))
+        .filter((p) => p.amount > 0);
+      console.log(`[${ym}] CSV ${rows.length - 1}行中、電気候補 ${hits.length}件`);
+      candidates.push(...hits);
+    }
   } finally {
     await page.close();
     await browser.close();
   }
 
-  // ---- 2. 電気系行の抽出 ----
-  const rows = parseCsv(csvText);
-  const head = rows[0] || [];
-  const iDate = head.indexOf("日付"), iDesc = head.indexOf("内容"), iAmt = head.indexOf("金額（円）"), iId = head.indexOf("ID");
-  if (iDesc < 0) throw new Error("MF CSVのヘッダが想定外: " + head.join(","));
-  const candidates = rows.slice(1)
-    .filter((r) => r.length > iId && ELECTRIC_HINT.test(r[iDesc] || ""))
-    .map((r) => ({
-      date: String(r[iDate] || "").replace(/\//g, "-"),
-      description: r[iDesc],
-      amount: Math.abs(Number(String(r[iAmt]).replace(/,/g, "")) || 0),
-      vendor: "",
-      mfId: r[iId],
-    }))
-    .filter((p) => p.amount > 0);
+  // mfId で重複排除(2ヶ月走査の境界で同一行が両方に出るケース)
+  const seen = new Set();
+  const uniq = candidates.filter((c) => { if (seen.has(c.mfId)) return false; seen.add(c.mfId); return true; });
+  for (const c of uniq) console.log(`  ${c.date} ${c.description} ¥${c.amount.toLocaleString()} (mfId=${String(c.mfId).slice(0, 12)}…)`);
+  if (!uniq.length) { console.log("電気候補なし。終了。"); process.exit(0); }
 
-  console.log(`CSV ${rows.length - 1}行中、電気候補 ${candidates.length}件:`);
-  for (const c of candidates) console.log(`  ${c.date} ${c.description} ¥${c.amount.toLocaleString()} (mfId=${c.mfId.slice(0, 12)}…)`);
-  if (!candidates.length) { console.log("電気候補なし。終了。"); process.exit(0); }
+  // ---- 2. 使用月(=各行 posted 日付の前月)ごとにグループ化 ----
+  const groups = {};
+  for (const c of uniq) {
+    const m = c.date.match(/^(\d{4})-(\d{1,2})/);
+    if (!m) continue;
+    const postedYm = `${m[1]}-${String(Number(m[2])).padStart(2, "0")}`;
+    const usageYm = prevOf(postedYm);
+    (groups[usageYm] = groups[usageYm] || { postedYm, items: [] }).items.push(c);
+  }
 
   // ---- 3. API へ POST(採否の最終判定・冪等・overridden保護はサーバ側) ----
+  const admin = (await import("firebase-admin")).default;
   if (!admin.apps.length) admin.initializeApp({ projectId: "minpaku-v2" });
-  const db = admin.firestore();
-  const secret = (await db.collection("settings").doc("taxDocs").get()).data().gasSecret;
-  const r = await fetch(`${API}/pnl/${TERRACE}/${prevYm}/import-credit-card-electric`, {
-    method: "POST",
-    headers: { "authorization": `Bearer gas-${secret}`, "content-type": "application/json" },
-    body: JSON.stringify({ payments: candidates, targetYm: monthArg, dryRun: DRY }),
-  });
-  const j = await r.json();
-  console.log(`\nAPI status=${r.status}`);
-  if (j.skipped) console.log("skipped:", j.skipped);
-  if (j.error) console.log("error:", j.error);
-  console.log("採用(サーバallowlist通過):", JSON.stringify(j.adopted || [], null, 2));
-  console.log(`採用合計: ¥${(j.adoptedTotal || 0).toLocaleString()}`);
-  if (j.computed) console.log(`計上後: 水道光熱含む経費計 ¥${(j.computed.expensesTotal || 0).toLocaleString()} / 利益 ¥${(j.computed.profit || 0).toLocaleString()}`);
-  process.exit(0);
+  const secret = (await admin.firestore().collection("settings").doc("taxDocs").get()).data().gasSecret;
+  await admin.app().delete(); // grpc を先に畳む(Windows node の libuv assert 回避)
+
+  let hadError = false;
+  for (const [usageYm, g] of Object.entries(groups)) {
+    const r = await fetch(`${API}/pnl/${TERRACE}/${usageYm}/import-credit-card-electric`, {
+      method: "POST",
+      headers: { "authorization": `Bearer gas-${secret}`, "content-type": "application/json" },
+      body: JSON.stringify({ payments: g.items, targetYm: g.postedYm, dryRun: DRY }),
+    });
+    const j = await r.json().catch(() => ({}));
+    console.log(`\n[使用月 ${usageYm}] API status=${r.status}`);
+    if (!r.ok) { hadError = true; console.log("error:", j.error || "(不明)"); continue; }
+    if (j.skipped) console.log("skipped:", j.skipped);
+    const adopted = j.adopted || [];
+    const total = Number(j.adoptedTotal) || 0;
+    console.log(`採用: ${adopted.length}件 ¥${total.toLocaleString()}`);
+    if (!DRY && total > 0) {
+      const detail = adopted.map((a) => `${a.description} ¥${Number(a.amount).toLocaleString()}`).join(" / ");
+      console.log(`NOTIFY: ⚡ MF明細から the Terrace ${usageYm} の電気代 ¥${total.toLocaleString()} を自動計上しました(${detail})。収支画面の「出典・内訳を確認」で検算できます。`);
+    }
+  }
+  process.exit(hadError ? 1 : 0);
 })().catch((e) => { console.error("ERROR:", e.message); process.exit(1); });
