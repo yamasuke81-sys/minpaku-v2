@@ -1242,16 +1242,50 @@ module.exports = function pnlApi(db) {
         .map((x) => ({ category: catName[x.catId] || "", fileName: x.fileName || "", link: x.link || driveLink_(x.fileId), amount: x.amount || 0,
           keptFileName: x.keptFileName || "", keptAmount: x.keptAmount || 0, needsReview: !!x.needsReview }));
 
-      // 清掃費(アプリ生成請求書)。invoice に Drive/保存リンクがあれば付与
+      // 清掃費(全ソース: アプリ請求書 / GAS版PDF / タイミー / 手入力)。
+      // 同じ「清掃費」でもソースが複数種類あるので、全 cleaningCosts 行を出典として表示する。
+      // - source=invoice   : アプリ生成の清掃請求書 → PDF(Drive保存 or 都度署名 Storage)を開ける
+      // - source=drive_pdf : GAS版アプリで作成された月次請求書PDF(Drive) → Drive リンク
+      // - source=timee/manual: 手入力(タイミー等) → リンクなし
       const cleaning = [];
-      const invRows = (d.cleaningCosts || []).filter((c) => c.source === "invoice" && c.sourceInvoiceId);
-      for (const c of invRows) {
+      let freshSign_ = null;
+      try {
+        const settlementMod = require("./settlement")(db);
+        freshSign_ = settlementMod.cores && settlementMod.cores.getFreshSignedUrl;
+      } catch (_) {}
+      for (const c of (d.cleaningCosts || [])) {
+        const src = c.source || "manual";
         let link = null;
-        try {
-          const inv = await db.collection("invoices").doc(c.sourceInvoiceId).get();
-          if (inv.exists) { const iv = inv.data(); link = driveLink_(iv.driveFileId) || iv.driveLink || null; }
-        } catch (_) {}
-        cleaning.push({ staffName: c.staffName || "", amount: c.amount || 0, excluded: !!c.excluded, invoiceId: c.sourceInvoiceId, link });
+        let sourceLabel = "手入力";
+        if (src === "invoice" && c.sourceInvoiceId) {
+          sourceLabel = "アプリ請求書";
+          try {
+            const inv = await db.collection("invoices").doc(c.sourceInvoiceId).get();
+            if (inv.exists) {
+              const iv = inv.data();
+              // 出典リンク: Drive保存分 → 都度署名した Storage PDF → 既存 pdfUrl の順で確実に開けるものを選ぶ
+              link = driveLink_(iv.driveFileId) || iv.driveLink || null;
+              if (!link && freshSign_) {
+                try { link = await freshSign_(`invoices/${c.sourceInvoiceId}.pdf`); } catch (_) {}
+              }
+              if (!link) link = iv.pdfUrl || null;
+            }
+          } catch (_) {}
+        } else if (src === "drive_pdf") {
+          sourceLabel = "GAS版請求書PDF";
+          link = driveLink_(c.fileId) || null;
+        } else if (src === "timee") {
+          sourceLabel = "タイミー(手入力)";
+        }
+        cleaning.push({
+          staffName: c.staffName || "",
+          amount: c.amount || 0,
+          excluded: !!c.excluded,
+          source: src,
+          sourceLabel,
+          invoiceId: c.sourceInvoiceId || null,
+          link,
+        });
       }
 
       res.json({ propertyId, yearMonth, revenue, tax, expenses, cleaning, duplicates });
