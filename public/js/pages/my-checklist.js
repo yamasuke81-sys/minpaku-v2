@@ -16,6 +16,9 @@ const MyChecklistPage = {
   activeAreaId: null,
   // 上位タブ: schedule / checklist / photos / laundry / restock
   activeTopTab: "schedule",
+  // 清掃チェックリストタブを開く前に「ビフォー写真の撮影は完了したか」を確認済みか
+  // (この清掃セッション中に「はい」を選んだら再確認しない)
+  _beforePhotoConfirmed: false,
   unsubscribe: null,
   saveTimers: {},
   presenceTimer: null,
@@ -760,6 +763,7 @@ const MyChecklistPage = {
     this.checklist = null;
     this.activeAreaId = null;
     this.activeTopTab = "schedule";
+    this._beforePhotoConfirmed = false;
     this._nextBooking = null;
     this._todayStaffNames = [];
     this._noteSelectedFiles = [];
@@ -882,9 +886,31 @@ const MyChecklistPage = {
 
     // 上位タブのクリックイベント
     body.querySelectorAll(".mcl-top-tab").forEach(el => {
-      el.addEventListener("click", (ev) => {
+      el.addEventListener("click", async (ev) => {
         ev.preventDefault();
-        this.activeTopTab = el.dataset.topTab;
+        const target = el.dataset.topTab;
+        // 清掃チェックリストタブを開くときは、まずビフォー写真の撮影完了を確認する。
+        // 未確認なら確認ポップアップを出し、「いいえ」なら写真撮影(カメラ)タブへ誘導する。
+        if (target === "checklist" && !this._beforePhotoConfirmed) {
+          const done = await showConfirm("ビフォー写真の撮影は完了しましたか？", {
+            title: "清掃前チェック",
+            okLabel: "はい",
+            cancelLabel: "いいえ",
+            okClass: "btn-primary",
+          });
+          if (done) {
+            // はい → チェックリストへ進む (この清掃中は再確認しない)
+            this._beforePhotoConfirmed = true;
+            this.activeTopTab = "checklist";
+          } else {
+            // いいえ → 写真撮影タブへ移動して撮影を促す
+            this.activeTopTab = "photos";
+          }
+          this._updateTopTabStyles();
+          this._renderActiveTopTab();
+          return;
+        }
+        this.activeTopTab = target;
         this._updateTopTabStyles();
         this._renderActiveTopTab();
       });
