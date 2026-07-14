@@ -29,6 +29,14 @@
 - **My docomo**: やますけが debug Chrome でログイン済(dアカウント=yamasuke81@gmail.com、ahamo回線+**ひかり契約中**を確認)。トップの内部API群(mydocomo.docomo.ne.jp/common-ui/...)はセッションで読める(7月携帯分¥4,122等)が、**料金内訳(光の金額)ページは追加の認証ホップ(loginAuthFlg=false)が必要**でSPAクリックも阻まれる=楽天でんきほど素直にAPI化できない。
 - **提案**: ドコモ光は定額プランなので、**やますけに「光の月額(税込)と支払い元(マリオットAMEX一括か)」を1回確認 → 固定額として毎月自動計上**(external endpoint、sourceId=docomo-hikari:{ym})が最も堅牢。MFのAMEX行「ドコモご利用料金」(例 4/30 ¥7,213=携帯+光合算?)を横目の検算に使う。深掘りAPI化は費用対効果が薄く保留。
 
+## DONE(2026-07-14 ドコモ光 折衷案自動化・稼働開始)
+やますけ決定: **完全定額にしない**(期間限定割引で変動しうる)。**固定額ベース+eビリング実額の裏取り**で運用。
+- **設計**: ①固定額=2028-04ご利用分まで¥6,636(工事分割916込み)/以降¥5,720 ②eビリングで実額取得できたら実額優先(upsert=true・割引反映) ③実額≠固定額で⚠️通知、取得失敗は固定額fallback+🚨通知、変化なしは無音。overridden保護は upsert では意図的に無視(実額=最新情報として上書き)。
+- **API拡張(functions/api/pnl.js デプロイ済)**: `import-external-utility` に `upsert:true` モード追加=同一sourceIdでも金額違えば旧額差引+新額計上(creditCardIndexも差替え、arrayUnion→全体書換に変更)。全169テスト緑。
+- **PC側 `scripts/docomo-hikari-import.mjs`(新規、毎日07:42・command型)**: eビリング(payment2.smt.docomo.ne.jp/…/gkfap001.srv?bis=lpb)→月タブ→select DENWABANGOPULLDOWN で F5392930898(光,v=3)選択→「表示」→◇合計 抽出。sourceId=`docomo-hikari:{使用月}`。E2E 6月裏取り**¥6,636(実額)=¥6,636(既存)で完璧に一致・skip**を実証。
+- **properties.driveUtilitiesSkipFolders**: the Terrace=[電気, インターネット] に更新(56インターネットPDFはドコモ光ルーチン専任のためPDF取込対象外化=二重防止)。
+- **朝ルーチン5本体制**: 07:20 経理ダイジェスト / 07:35 Terrace電気(セゾン) / 07:37 小町光熱通信 / 07:40 OTA入金監視 / **07:42 ドコモ光**。routines.json 登録・常駐bun再起動済(routines loaded 確認済)。AUTOMATION.md 台帳+ダッシュボード更新済。次回の実戦=8月上旬に7月分ご利用の裏取り(¥6,636想定)。
+
 ## DONE(2026-07-14 ドコモ光 5月分も自力取得・計上 — eビリング自動取得を実証)
 やますけ「今ブラウザ操作でできるか試して。5月分を自分で取りに行って」→ **成功**。
 - **CDP不調の真因=Chrome更新保留でハング**: connectOverCDP が WS接続後にセッション確立でtimeout連発。**debug Chrome を kill→再起動したら Chrome が 7871.102→7871.115 に更新され CDP即応答**。教訓: CDP接続が繰り返しtimeoutしたら Chrome更新保留を疑い kill→再起動(ログインcookieはプロファイル保持で維持)。

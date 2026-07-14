@@ -1261,14 +1261,15 @@ module.exports = function pnlApi(db) {
     }
   });
 
-  // POST /:propertyId/:yearMonth/import-external-utility { items:[{sourceId, description, amount, date?, category}], source, dryRun? }
-  // MF銀行明細/楽天でんきマイページ等の「PDFを介さない外部ソース」から光熱・通信系費目へ冪等計上する汎用口。
-  // - 冪等キー = sourceId(creditCardIndex.fileId に保存。mfbank:{MF取引ID} / rakuten:{契約番号}:{ym} 等)
+  // POST /:propertyId/:yearMonth/import-external-utility { items:[{sourceId, description, amount, date?, category}], source, dryRun?, upsert? }
+  // MF銀行明細/楽天でんきマイページ/ドコモeビリング等の「PDFを介さない外部ソース」から光熱・通信系費目へ冪等計上する汎用口。
+  // - 冪等キー = sourceId(creditCardIndex.fileId に保存。mfbank:{MF取引ID} / rakuten:{契約番号}:{ym} / docomo-hikari:{ym} 等)
   // - category は expenseCategories の名前(水道光熱費/固定電話/Wi-Fi・通信費など)。overridden=true の費目は上書き保護。
+  // - upsert=true: 既存 sourceId でも金額が違えば差し替え(旧額を引いて新額を足す)。実額での裏取り更新用(overridden保護は無視=呼び出し側管理)。
   router.post("/:propertyId/:yearMonth/import-external-utility", router.cores.importExternalUtility = async (req, res) => {
     try {
       const { propertyId, yearMonth } = req.params;
-      const { items, source, dryRun } = req.body || {};
+      const { items, source, dryRun, upsert } = req.body || {};
       if (!/^\d{4}-\d{2}$/.test(yearMonth)) return res.status(400).json({ error: "yearMonth は YYYY-MM 形式" });
       if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: "items が必要" });
       const propSnap = await db.collection("properties").doc(propertyId).get();
@@ -1278,7 +1279,8 @@ module.exports = function pnlApi(db) {
       const ref = pnlCol.doc(docId_(propertyId, yearMonth));
       const cur = await ref.get();
       const curData = cur.exists ? cur.data() : {};
-      const already = new Set((curData.creditCardIndex || []).map((r) => String(r.fileId || "")));
+      const existingBySource = {};
+      for (const r of (curData.creditCardIndex || [])) if (r.fileId) existingBySource[String(r.fileId)] = r;
 
       const adopted = [], skipped = [];
       for (const it of items) {
@@ -1286,40 +1288,49 @@ module.exports = function pnlApi(db) {
         const amount = Math.abs(toInt(it.amount));
         if (!cat) { skipped.push({ ...it, reason: "費目不明" }); continue; }
         if (!it.sourceId || !amount) { skipped.push({ ...it, reason: "sourceId/amount不足" }); continue; }
-        if (already.has(String(it.sourceId))) { skipped.push({ ...it, reason: "既取込" }); continue; }
+        const ex = existingBySource[String(it.sourceId)];
         const exp = (curData.expenses || {})[cat.id] || {};
-        if (exp.overridden) { skipped.push({ ...it, reason: `${cat.name}がoverridden(上書き保護)` }); continue; }
-        adopted.push({ it, cat, amount });
+        if (ex) {
+          if (!upsert) { skipped.push({ ...it, reason: "既取込" }); continue; }
+          if (toInt(ex.amount) === amount) { skipped.push({ ...it, reason: "既取込(同額)" }); continue; }
+          adopted.push({ it, cat, amount, prevAmount: toInt(ex.amount) }); // 差し替え(実額更新)
+        } else {
+          if (exp.overridden && !upsert) { skipped.push({ ...it, reason: `${cat.name}がoverridden(上書き保護)` }); continue; }
+          adopted.push({ it, cat, amount, prevAmount: 0 });
+        }
       }
-      if (dryRun) return res.json({ dryRun: true, propertyId, yearMonth, adopted: adopted.map((a) => ({ ...a.it, amount: a.amount })), skipped });
+      if (dryRun) return res.json({ dryRun: true, propertyId, yearMonth, adopted: adopted.map((a) => ({ ...a.it, amount: a.amount, prevAmount: a.prevAmount })), skipped });
       if (!adopted.length) return res.json({ ok: true, adopted: [], skipped });
 
       const newExpenses = { ...(curData.expenses || {}) };
-      const newIndex = [];
-      for (const { it, cat, amount } of adopted) {
+      let newCC = (curData.creditCardIndex || []).slice();
+      const applied = [];
+      for (const { it, cat, amount, prevAmount } of adopted) {
         const exp = newExpenses[cat.id] || {};
         newExpenses[cat.id] = {
           ...exp,
-          amount: toInt(exp.amount) + amount,
+          amount: Math.max(0, toInt(exp.amount) - prevAmount + amount),
           source: exp.source || String(source || "external"),
-          overridden: false,
-          note: `${exp.note ? exp.note + " " : ""}※${String(source || "外部")}から自動計上(${it.description || it.sourceId})`,
+          overridden: exp.overridden || false,
+          note: `${exp.note ? exp.note + " " : ""}※${String(source || "外部")}から${prevAmount ? "更新" : "自動計上"}(${it.description || it.sourceId})`,
           updatedAt: Date.now(),
         };
-        newIndex.push({
+        newCC = newCC.filter((r) => String(r.fileId) !== String(it.sourceId)); // 旧sourceId除去(差し替え)
+        const entry = {
           fileId: String(it.sourceId), fileName: String(source || "外部ソース"), ym: yearMonth,
           date: String(it.date || ""), description: String(it.description || ""), amount, vendor: String(it.vendor || ""),
           catId: cat.id,
-        });
+        };
+        newCC.push(entry); applied.push({ ...entry, prevAmount });
       }
       await ref.set({
         propertyId, yearMonth,
         expenses: newExpenses,
-        creditCardIndex: FieldValue.arrayUnion(...newIndex),
+        creditCardIndex: newCC, // upsert対応のため arrayUnion でなく全体を書き換え
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
       const after = (await ref.get()).data();
-      res.json({ ok: true, propertyId, yearMonth, adopted: newIndex, adoptedTotal: newIndex.reduce((s, x) => s + x.amount, 0), skipped, computed: computePnl(after, cats) });
+      res.json({ ok: true, propertyId, yearMonth, adopted: applied, adoptedTotal: applied.reduce((s, x) => s + x.amount, 0), skipped, computed: computePnl(after, cats) });
     } catch (e) {
       console.error("外部光熱計上エラー:", e);
       res.status(500).json({ error: "外部光熱計上に失敗しました: " + e.message });
