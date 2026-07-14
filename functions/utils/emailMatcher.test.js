@@ -8,6 +8,9 @@ const {
   findBookingMatch,
   decideBookingUpdate,
   decideVerificationStatus,
+  isChangeNotifyKind,
+  computeRosterTotals,
+  buildChangeEmailNotification,
   _normalizeCheckInDate,
 } = require("./emailMatcher");
 
@@ -340,5 +343,109 @@ describe("decideVerificationStatus", () => {
   });
   test("parsedInfo null → 'pending'", () => {
     assert.strictEqual(decideVerificationStatus(null, null), "pending");
+  });
+});
+
+// ======================================================
+// Airbnb 変更メール通知の判定/組立
+// ======================================================
+
+describe("isChangeNotifyKind", () => {
+  test("change-approved / change-request のみ true", () => {
+    assert.strictEqual(isChangeNotifyKind("change-approved"), true);
+    assert.strictEqual(isChangeNotifyKind("change-request"), true);
+    assert.strictEqual(isChangeNotifyKind("confirmed"), false);
+    assert.strictEqual(isChangeNotifyKind("cancelled"), false);
+    assert.strictEqual(isChangeNotifyKind(undefined), false);
+  });
+});
+
+describe("computeRosterTotals", () => {
+  test("空配列/undefined は 0 集計", () => {
+    assert.deepStrictEqual(computeRosterTotals([]), {
+      total: 0, adults: 0, children: 0, infants: 0, count: 0,
+    });
+    assert.deepStrictEqual(computeRosterTotals(undefined), {
+      total: 0, adults: 0, children: 0, infants: 0, count: 0,
+    });
+  });
+  test("複数レコード合算 (乳幼児は total に含めない)", () => {
+    const r = computeRosterTotals([
+      { numAdults: 2, numChildren: 1, numInfants: 1 },
+      { numAdults: 3, numChildren: 0, numInfants: 0 },
+    ]);
+    assert.strictEqual(r.count, 2);
+    assert.strictEqual(r.adults, 5);
+    assert.strictEqual(r.children, 1);
+    assert.strictEqual(r.infants, 1);
+    assert.strictEqual(r.total, 6); // 大人5 + 子ども1
+  });
+  test("欠損フィールドは 0 として集計", () => {
+    const r = computeRosterTotals([{}]);
+    assert.strictEqual(r.total, 0);
+    assert.strictEqual(r.count, 1);
+  });
+});
+
+describe("buildChangeEmailNotification", () => {
+  const parsedApproved = {
+    kind: "change-approved",
+    reservationCode: "HMJZRZ4C99",
+    guestName: "美月山田",
+  };
+  const parsedRequest = {
+    kind: "change-request",
+    guestName: "Roxmara",
+  };
+  const booking = {
+    propertyName: "the Terrace 長浜",
+    guestName: "8月18日に美月山田",
+    checkIn: "2026-08-18",
+    checkOut: "2026-08-19",
+    guestCount: 4,
+  };
+
+  test("change-approved: 名簿一致 → mismatch=false", () => {
+    const roster = [{ numAdults: 3, numChildren: 1, numInfants: 0 }];
+    const n = buildChangeEmailNotification(parsedApproved, booking, roster, {});
+    assert.strictEqual(n.hasMismatch, false);
+    assert.ok(n.body.includes("予約変更が承認されました"));
+    assert.ok(n.body.includes("HMJZRZ4C99"));
+    assert.ok(n.body.includes("2026-08-18 〜 2026-08-19"));
+    assert.ok(n.body.includes("予約の登録人数: 4人"));
+    assert.ok(n.body.includes("名簿の申告人数: 合計4人"));
+    assert.ok(!n.body.includes("食い違い"));
+    assert.strictEqual(n.vars.mismatch, "");
+    assert.strictEqual(n.vars.roster_total, "4");
+  });
+
+  test("change-approved: 名簿人数が違う → mismatch=true + ⚠️", () => {
+    const roster = [{ numAdults: 5, numChildren: 0, numInfants: 0 }];
+    const n = buildChangeEmailNotification(parsedApproved, booking, roster, {});
+    assert.strictEqual(n.hasMismatch, true);
+    assert.ok(n.body.includes("⚠️ 名簿との食い違いあり"));
+    assert.ok(n.body.includes("予約=4人 / 名簿=5人"));
+    assert.strictEqual(n.vars.mismatch, "1");
+  });
+
+  test("change-request: 「予約変更希望」ラベルで組立", () => {
+    const n = buildChangeEmailNotification(parsedRequest, null, [], { propertyName: "テラス" });
+    assert.ok(n.body.includes("予約変更希望が届きました"));
+    assert.ok(n.body.includes("Roxmara"));
+    assert.ok(n.body.includes("名簿の申告人数: 未入力"));
+    assert.ok(n.title.includes("予約変更希望"));
+  });
+
+  test("bookingData null でも動作 (unmatched でも通知は組める)", () => {
+    const n = buildChangeEmailNotification(parsedApproved, null, [], { propertyName: "" });
+    assert.strictEqual(n.hasMismatch, false); // booking なし → 判定不能で false
+    assert.ok(n.body.includes("HMJZRZ4C99"));
+    assert.ok(n.body.includes("(不明)"));
+  });
+
+  test("名簿0件でも booking.guestCount との食い違い判定は false (名簿未提出のうちは警告しない)", () => {
+    const n = buildChangeEmailNotification(parsedApproved, booking, [], {});
+    assert.strictEqual(n.hasMismatch, false);
+    assert.ok(n.body.includes("名簿の申告人数: 未入力"));
   });
 });

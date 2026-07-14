@@ -22,6 +22,8 @@ const {
   decideBookingUpdate,
   decideVerificationStatus,
   isPendingRequest,
+  isChangeNotifyKind,
+  buildChangeEmailNotification,
 } = require("../utils/emailMatcher");
 const { recordParseError, checkThresholdsAndNotify } = require("../utils/parseErrors");
 const { updateSyncHealth } = require("../utils/syncHealth");
@@ -465,6 +467,25 @@ async function emailVerificationCore(db, opts = {}) {
             }
           }
 
+          // ===== Airbnb 変更メール検知時の即時通知 =====
+          // change-approved (予約変更が承認された) / change-request (ゲストから変更希望)
+          // を検知したら、オーナー宛てに通知1発。名簿との人数食い違いがあれば本文に併記。
+          // 冪等: emailVerifications/{messageId}.notifiedAt が set 直後に付いたら再送しない
+          if (extractedInfo && isChangeNotifyKind(extractedInfo.kind)) {
+            try {
+              await notifyBookingChangeEmail_(db, {
+                messageId: msg.id,
+                evRef,
+                parsedInfo: extractedInfo,
+                bookingMatch,
+                propertyId: finalPropertyId,
+                log,
+              });
+            } catch (nerr) {
+              console.error(`[emailVerification] booking_change_email 通知エラー: ${nerr.message}`);
+            }
+          }
+
           // ===== 案B: チェーン追跡 =====
           // 新しい confirmed メールが保存された場合、同じ物件+チェックイン日の
           // pending_request エントリを resolved_to_confirmed に更新
@@ -548,6 +569,79 @@ async function emailVerificationCore(db, opts = {}) {
   });
 
   return result;
+}
+
+/**
+ * Airbnb 変更メール検知時にオーナー宛て通知を発火
+ *   - 冪等: emailVerifications/{messageId}.notifiedAt が既に set されていたらスキップ
+ *   - 本文: bookings 現況 + 名簿(guestRegistrations) 現況 + 食い違い警告
+ *   - 通知キー: "booking_change_email"
+ */
+async function notifyBookingChangeEmail_(db, opts) {
+  const admin = require("firebase-admin");
+  const { notifyByKey } = require("../utils/lineNotify");
+  const { messageId, evRef, parsedInfo, bookingMatch, propertyId, log } = opts;
+
+  // 冪等ガード: 保存直後の同じドキュメントを読み、notifiedAt があれば既に通知済み
+  try {
+    const cur = await evRef.get();
+    if (cur.exists && cur.data().notifiedAt) {
+      log && log.info && log.info(`[booking_change_email] 既に通知済 msg=${messageId}`);
+      return;
+    }
+  } catch (_e) { /* 読み取り失敗は続行 */ }
+
+  // 現況取得: booking と 名簿
+  let bookingData = null;
+  let bookingId = null;
+  let propertyName = "";
+  const rosterDocs = [];
+
+  if (bookingMatch && bookingMatch.id && bookingMatch.data) {
+    bookingId = bookingMatch.id;
+    bookingData = bookingMatch.data;
+    propertyName = bookingData.propertyName || "";
+  }
+
+  // 物件名の補完
+  if (!propertyName && propertyId) {
+    try {
+      const pDoc = await db.collection("properties").doc(propertyId).get();
+      if (pDoc.exists) propertyName = pDoc.data().name || "";
+    } catch (_e) { /* 握り潰し */ }
+  }
+
+  // 名簿取得: booking にリンクされた guestRegistrations を集める
+  if (bookingId) {
+    try {
+      const grSnap = await db.collection("guestRegistrations")
+        .where("bookingId", "==", bookingId).get();
+      for (const g of grSnap.docs) rosterDocs.push(g.data());
+    } catch (_e) { /* 握り潰し */ }
+  }
+
+  const notif = buildChangeEmailNotification(parsedInfo, bookingData, rosterDocs, {
+    propertyName,
+  });
+
+  await notifyByKey(db, "booking_change_email", {
+    title: notif.title,
+    body: notif.body,
+    vars: notif.vars,
+    propertyId: propertyId || null,
+  });
+
+  // 冪等マーク
+  try {
+    await evRef.update({
+      notifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+      notifiedKind: parsedInfo.kind || null,
+      notifiedMismatch: notif.hasMismatch === true,
+    });
+  } catch (e) {
+    console.error(`[booking_change_email] notifiedAt update 失敗: msg=${messageId}: ${e.message}`);
+  }
+  console.log(`[booking_change_email] 通知送信: msg=${messageId} kind=${parsedInfo.kind} booking=${bookingId || "unmatched"} mismatch=${notif.hasMismatch}`);
 }
 
 /**

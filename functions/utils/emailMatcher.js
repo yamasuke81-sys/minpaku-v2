@@ -312,11 +312,146 @@ function decideVerificationStatus(parsedInfo, matchedBooking) {
   return "matched";
 }
 
+// ======================================================
+// 変更メール通知の判定 (Airbnb change-approved / change-request)
+// ======================================================
+
+// 通知対象の kind
+function isChangeNotifyKind(kind) {
+  return kind === "change-approved" || kind === "change-request";
+}
+
+/**
+ * 名簿(guestRegistrations)の合計人数を計算
+ *   - numAdults + numChildren を採用 (乳幼児は宿泊税/人数集計で通常除外)
+ *   - 複数レコードあれば合算
+ * @param {Array<object>} rosterDocs - guestRegistrations の data 配列
+ * @returns {{total:number, adults:number, children:number, infants:number, count:number}}
+ */
+function computeRosterTotals(rosterDocs) {
+  const out = { total: 0, adults: 0, children: 0, infants: 0, count: 0 };
+  if (!Array.isArray(rosterDocs)) return out;
+  for (const g of rosterDocs) {
+    if (!g) continue;
+    const a = Number(g.numAdults || 0);
+    const c = Number(g.numChildren || 0);
+    const i = Number(g.numInfants || 0);
+    out.adults += a;
+    out.children += c;
+    out.infants += i;
+    out.total += a + c;
+    out.count++;
+  }
+  return out;
+}
+
+/**
+ * Airbnb変更メール通知の本文/変数を組み立てる純粋関数
+ *   - kind=change-approved: 「予約変更が承認されました」
+ *   - kind=change-request : 「ゲストから変更希望」
+ *   - bookingData と roster から現況を並記
+ *   - roster.total>0 かつ booking.guestCount と食い違いあれば ⚠️ を追加
+ *
+ * @param {object} parsedInfo
+ * @param {object|null} bookingData - matched booking の data (無ければ null)
+ * @param {Array<object>} rosterDocs - guestRegistrations data 配列 (無ければ [])
+ * @param {object} opts - { propertyName?, appUrl? }
+ * @returns {{title:string, body:string, vars:object, hasMismatch:boolean}}
+ */
+function buildChangeEmailNotification(parsedInfo, bookingData, rosterDocs, opts) {
+  const kind = parsedInfo && parsedInfo.kind;
+  const opt = opts || {};
+  const isRequest = kind === "change-request";
+
+  const code = (parsedInfo && parsedInfo.reservationCode) || "";
+  const emailGuestName =
+    (parsedInfo && (parsedInfo.guestName || parsedInfo.guestFirstName)) || "";
+  const propertyName =
+    opt.propertyName || (bookingData && bookingData.propertyName) || "";
+
+  const bookingGuestName = (bookingData && bookingData.guestName) || "";
+  const ci = (bookingData && bookingData.checkIn) || "";
+  const co = (bookingData && bookingData.checkOut) || "";
+  const bookingCount =
+    bookingData && bookingData.guestCount != null ? Number(bookingData.guestCount) : null;
+
+  const roster = computeRosterTotals(rosterDocs);
+  const hasMismatch =
+    roster.total > 0 && bookingCount != null && roster.total !== bookingCount;
+
+  const guestForDisplay =
+    bookingGuestName || emailGuestName || "(不明)";
+
+  const emoji = isRequest ? "🙋" : "🔄";
+  const kindLabel = isRequest
+    ? "予約変更希望が届きました"
+    : "予約変更が承認されました";
+
+  const bodyLines = [
+    `${emoji} Airbnb: ${kindLabel}`,
+    "",
+    `物件: ${propertyName || "(不明)"}`,
+    `ゲスト: ${guestForDisplay}`,
+  ];
+  if (code) bodyLines.push(`予約コード: ${code}`);
+  if (ci || co) {
+    bodyLines.push(`現在の予約: ${ci || "?"} 〜 ${co || "?"}`);
+  }
+  if (bookingCount != null) {
+    bodyLines.push(`予約の登録人数: ${bookingCount}人`);
+  }
+  if (roster.count > 0) {
+    bodyLines.push(
+      `名簿の申告人数: 合計${roster.total}人 (大人${roster.adults}/子ども${roster.children}/乳幼児${roster.infants}) ${roster.count}件`,
+    );
+  } else {
+    bodyLines.push("名簿の申告人数: 未入力");
+  }
+  if (hasMismatch) {
+    bodyLines.push("");
+    bodyLines.push(
+      `⚠️ 名簿との食い違いあり (予約=${bookingCount}人 / 名簿=${roster.total}人)`,
+    );
+  }
+  bodyLines.push("");
+  bodyLines.push(
+    isRequest
+      ? "→ Airbnb で変更希望の内容を確認して承認/拒否してください。承認後、必要なら人数を手動で更新してください。"
+      : "→ Airbnb で変更後の内容を確認し、必要なら人数を手動で更新してください。",
+  );
+
+  return {
+    title: `${emoji} Airbnb ${isRequest ? "予約変更希望" : "予約変更承認"}: ${
+      propertyName || guestForDisplay
+    }`,
+    body: bodyLines.join("\n"),
+    vars: {
+      property: propertyName || "",
+      guest: guestForDisplay,
+      code,
+      checkin: ci,
+      date: co,
+      kind: kind || "",
+      booking_count: bookingCount != null ? String(bookingCount) : "",
+      roster_total: String(roster.total),
+      roster_adults: String(roster.adults),
+      roster_children: String(roster.children),
+      roster_infants: String(roster.infants),
+      roster_count: String(roster.count),
+      mismatch: hasMismatch ? "1" : "",
+    },
+    hasMismatch,
+  };
+}
+
 module.exports = {
   findBookingMatch,
   decideBookingUpdate,
   decideVerificationStatus,
   isPendingRequest,
+  isChangeNotifyKind,
+  computeRosterTotals,
+  buildChangeEmailNotification,
   // テスト用 internal
   _normalizeCheckInDate: normalizeCheckInDate_,
 };
