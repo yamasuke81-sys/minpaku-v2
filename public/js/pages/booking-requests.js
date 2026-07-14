@@ -22,7 +22,7 @@ const BookingRequestsPage = {
           <a href="https://dashboard.stripe.com/acct_1Tqet7AoOutkYY4H/payments" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary" title="小町・若草の決済（個人事業アカウント）">
             <i class="bi bi-credit-card"></i> Stripe（個人）
           </a>
-          <a href="https://dashboard.stripe.com/acct_1TIZYiIpGeRzVeLg/payments" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary" title="テラス等の決済（合同会社八朔アカウント）">
+          <a href="https://dashboard.stripe.com/acct_1TIZYXIAOReFNNip/payments" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary" title="テラス等の決済（合同会社八朔アカウント）">
             <i class="bi bi-credit-card"></i> Stripe（八朔）
           </a>
         </div>
