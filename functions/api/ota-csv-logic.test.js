@@ -103,12 +103,39 @@ test("computeSettlement: 宿小町5月 料率50%/消費税10%/宿泊税0", () =>
   assert.strictEqual(s.feeInclTax, 110974);
 });
 
-test("computeSettlement: 宿泊税預りBを差し引く", () => {
+test("computeSettlement: 宿泊税預りBを差し引く(後方互換・売上ベース)", () => {
   const s = computeSettlement({ depositAmount: 201769, taxWithholding: 1769, feeRatePct: 50 });
+  assert.strictEqual(s.basis, "revenue");
   assert.strictEqual(s.salesBase, 200000);
   assert.strictEqual(s.feeExclTax, 100000);
   assert.strictEqual(s.consumptionTax, 10000);
   assert.strictEqual(s.feeInclTax, 110000);
+});
+
+test("computeSettlement: 利益ベース(feeBase) — 運営利益×料率", () => {
+  // 運営利益 90000 × 50% = 45000、消費税 4500、税込 49500
+  const s = computeSettlement({ feeBase: 90000, feeRatePct: 50, consumptionTaxPct: 10 });
+  assert.strictEqual(s.basis, "profit");
+  assert.strictEqual(s.feeBase, 90000);
+  assert.strictEqual(s.salesBase, 90000); // 後方互換の別名
+  assert.strictEqual(s.feeExclTax, 45000);
+  assert.strictEqual(s.consumptionTax, 4500);
+  assert.strictEqual(s.feeInclTax, 49500);
+});
+
+test("computeSettlement: 利益ベース — 宿泊税は基礎に影響しない", () => {
+  // feeBase(運営利益) 100000 が基礎。taxWithholding を渡しても feeBase 側が優先され不変
+  const s = computeSettlement({ feeBase: 100000, taxWithholding: 5000, depositAmount: 300000, feeRatePct: 50 });
+  assert.strictEqual(s.feeBase, 100000);
+  assert.strictEqual(s.feeExclTax, 50000);
+});
+
+test("computeSettlement: 利益ベース — 運営利益が0以下なら手数料0(フロア)", () => {
+  const s = computeSettlement({ feeBase: -12000, feeRatePct: 50, consumptionTaxPct: 10 });
+  assert.strictEqual(s.feeBase, 0);
+  assert.strictEqual(s.feeExclTax, 0);
+  assert.strictEqual(s.consumptionTax, 0);
+  assert.strictEqual(s.feeInclTax, 0);
 });
 
 test("resolveOperationMode: operationMode優先 / settlementMode後方互換 / 既定=八朔", () => {

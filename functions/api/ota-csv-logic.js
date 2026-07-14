@@ -171,13 +171,20 @@ function sumBookingCsv(text) {
 
 /**
  * 精算(運営代行手数料)を計算する。
- * 月間売上高 = 入金額A − 宿泊税預りB
- * 手数料(税抜) = 月間売上高 × 料率%
- * 消費税 = 手数料(税抜) × 消費税率%
- * 手数料(税込) = 手数料(税抜) + 消費税  ← これが乙(八朔)への請求額
+ *
+ * ★2026-07-14 ユーザー決定: 手数料は「利益ベース」で算定する。
+ *   算定基礎(feeBase) = 運営利益 = 売上 − OTA手数料 − 清掃費 − 諸経費
+ *   (宿泊税は預り金なので基礎に含めない)
+ *   手数料(税抜) = 運営利益 × 料率%（運営利益が0以下なら0でフロア）
+ *   消費税 = 手数料(税抜) × 消費税率%
+ *   手数料(税込) = 手数料(税抜) + 消費税  ← これが乙(八朔)への請求額
+ *
+ * 呼び出し側は `feeBase`(運営利益 = computePnl().profit) を渡す。
+ * 後方互換: `feeBase` 未指定時は旧・売上ベース(入金額A − 宿泊税預りB)で算定する
+ *   (既存テスト/旧データ経路のため残置)。
  *
  * 端数は各段で四捨五入(円未満)。※必要なら feeRounding で切替可能。
- * @returns {{depositAmount, taxWithholding, salesBase, feeRatePct, feeExclTax, consumptionTaxPct, consumptionTax, feeInclTax}}
+ * @returns {{basis, feeBase, salesBase, depositAmount, taxWithholding, feeRatePct, feeExclTax, consumptionTaxPct, consumptionTax, feeInclTax}}
  */
 function computeSettlement(input = {}) {
   const depositAmount = Math.max(0, Math.round(Number(input.depositAmount) || 0));
@@ -187,12 +194,21 @@ function computeSettlement(input = {}) {
   const round = input.feeRounding === "floor" ? Math.floor
     : input.feeRounding === "ceil" ? Math.ceil : Math.round;
 
-  const salesBase = Math.max(0, depositAmount - taxWithholding);
-  const feeExclTax = round(salesBase * feeRatePct / 100);
+  // 手数料算定基礎: 利益ベース(feeBase)を優先、無ければ旧・売上ベース(A − B)
+  const usingProfitBase = input.feeBase != null;
+  const feeBase = usingProfitBase
+    ? Math.max(0, Math.round(Number(input.feeBase) || 0))
+    : Math.max(0, depositAmount - taxWithholding);
+
+  const feeExclTax = round(feeBase * feeRatePct / 100);
   const consumptionTax = round(feeExclTax * consumptionTaxPct / 100);
   const feeInclTax = feeExclTax + consumptionTax;
   return {
-    depositAmount, taxWithholding, salesBase,
+    basis: usingProfitBase ? "profit" : "revenue",
+    // feeBase = 手数料算定基礎(利益ベースなら運営利益、旧経路なら売上高)
+    // salesBase は後方互換の別名(旧テスト/精算書PDFの参照名)
+    feeBase, salesBase: feeBase,
+    depositAmount, taxWithholding,
     feeRatePct, feeExclTax, consumptionTaxPct, consumptionTax, feeInclTax,
   };
 }

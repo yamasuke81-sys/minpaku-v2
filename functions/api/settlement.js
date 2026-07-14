@@ -145,6 +145,12 @@ function renderReportPdf(ctx, font) {
   rows.push({ label: "清掃費", value: "▲ " + fmtYen(c.cleaningTotal) });
   (c.expenses || []).forEach((e) => rows.push({ label: `経費：${e.name}`, value: "▲ " + fmtYen(e.amount) }));
   rows.push({ label: "運営利益（総合収支）", value: fmtYen(c.profit), emph: true });
+  // 運営代行ありの物件は、代行手数料(税込)とオーナー最終利益も明示(月別収支と一致)
+  if (isAgencyMode(ctx.operationMode) && ctx.settlement) {
+    const s = ctx.settlement;
+    rows.push({ label: `運営代行手数料（税込・運営利益 × ${s.feeRatePct}%）`, value: "▲ " + fmtYen(s.feeInclTax) });
+    rows.push({ label: "オーナー最終利益", value: fmtYen((c.profit || 0) - s.feeInclTax), emph: true });
+  }
   drawKvTable(doc, rows);
   doc.moveDown(0.8);
 
@@ -191,11 +197,14 @@ function renderSettlementPdf(ctx, font) {
     X, doc.y, { width: W });
   doc.moveDown(0.6);
 
+  // ★利益ベース精算(2026-07-14〜): 手数料 = 運営利益 × 料率。宿泊税は預り金のため基礎に含めない。
+  const c = ctx.computed;
+  const costsTotal = (c.revenueGross || 0) - (c.profit || 0); // OTA手数料+清掃費+諸経費 の合計
   const rows = [
-    { label: `月間入金額 (A)　Airbnb受取${ctx.revenue.bookingNet ? " + Booking手取り" : ""}`, value: fmtYen(s.depositAmount) },
-    { label: "宿泊税預り (B)", value: "▲ " + fmtYen(s.taxWithholding) },
-    { label: "月間売上高 (A − B)", value: fmtYen(s.salesBase), emph: true },
-    { label: `運営代行手数料（売上高 × ${s.feeRatePct}%）`, value: fmtYen(s.feeExclTax) },
+    { label: "売上合計", value: fmtYen(c.revenueGross) },
+    { label: "OTA手数料・清掃費・諸経費 計", value: "▲ " + fmtYen(costsTotal) },
+    { label: "運営利益（総合収支）", value: fmtYen(c.profit), emph: true },
+    { label: `運営代行手数料（運営利益 × ${s.feeRatePct}%）`, value: fmtYen(s.feeExclTax) },
     { label: `消費税（${s.consumptionTaxPct}%）`, value: fmtYen(s.consumptionTax) },
     { label: "ご請求金額（税込）", value: fmtYen(s.feeInclTax), emph: true },
   ];
@@ -279,8 +288,11 @@ module.exports = function settlementApi(db) {
     const config = await loadConfig_();
     // 実効料率: 自社運営=0 / 月固定 > 物件既定 / 既定50(唯一の決定ロジック)
     const feeRatePct = effectiveFeeRatePct(data, prop);
+    // ★手数料は「利益ベース」で算定(2026-07-14 ユーザー決定)。
+    //   算定基礎 = 運営利益(computed.profit = 売上−OTA手数料−清掃費−諸経費)。宿泊税は基礎に含めない。
     const settlement = computeSettlement({
-      depositAmount, taxWithholding, feeRatePct,
+      feeBase: computed.profit,
+      depositAmount, taxWithholding, feeRatePct, // depositAmount/taxWithholding は記録・表示用に保持
       consumptionTaxPct: config.consumptionTaxPct, feeRounding: config.feeRounding,
     });
 

@@ -391,7 +391,7 @@ const PnlPage = {
           ${th("清掃費", "text-end")}
           ${cats.map(c => th(c.name, "text-end")).join("")}
           ${th("費目計", "text-end")}
-          ${th("利益", "text-end")}
+          ${th(agency ? "利益(手数料控除後)" : "利益", "text-end")}
           ${th("利益率", "text-end")}
           ${agency ? th("代行手数料(税込)", "text-end") : ""}
           ${th("帳票", "text-center")}
@@ -1167,18 +1167,21 @@ const PnlPage = {
 
     const settlementCol = showSettlement ? `
         <div class="col-md-7">
-          <h6 class="text-muted"><i class="bi bi-receipt"></i> 精算プレビュー（運営代行手数料）</h6>
+          <h6 class="text-muted"><i class="bi bi-receipt"></i> 精算プレビュー（運営代行手数料・利益ベース）</h6>
           <table class="table table-sm table-bordered mb-2">
-            <tr><td>月間入金額 (A)</td><td class="text-end">${this.fmtYen(s.depositAmount)}</td></tr>
-            <tr><td>宿泊税預り (B)
-              <input type="number" id="pnlDocTax" class="form-control form-control-sm d-inline-block ms-1" style="width:100px" value="${s.taxWithholding || 0}" min="0">
-              <button class="btn btn-outline-secondary btn-sm ms-1" id="btnDocImportTax" title="やどぜい月計表PDFから自動取込"><i class="bi bi-magic"></i> 月計表</button>
-            </td><td class="text-end" id="pnlDocBView">▲ ${this.fmtYen(s.taxWithholding)}</td></tr>
-            <tr class="table-light"><td>月間売上高 (A − B)</td><td class="text-end fw-bold" id="pnlDocBase">${this.fmtYen(s.salesBase)}</td></tr>
+            <tr><td>売上合計</td><td class="text-end">${this.fmtYen(ctx.computed.revenueGross)}</td></tr>
+            <tr><td>OTA手数料・清掃費・諸経費 計</td><td class="text-end">▲ ${this.fmtYen((ctx.computed.revenueGross || 0) - (ctx.computed.profit || 0))}</td></tr>
+            <tr class="table-light"><td>運営利益（総合収支）</td><td class="text-end fw-bold" id="pnlDocBase">${this.fmtYen(ctx.computed.profit)}</td></tr>
             <tr><td>運営代行手数料 (×${s.feeRatePct}%)</td><td class="text-end" id="pnlDocFee">${this.fmtYen(s.feeExclTax)}</td></tr>
             <tr><td>消費税 (${s.consumptionTaxPct}%)</td><td class="text-end" id="pnlDocTaxAmt">${this.fmtYen(s.consumptionTax)}</td></tr>
             <tr class="table-primary"><td>ご請求金額(税込)</td><td class="text-end fw-bold" id="pnlDocTotal">${this.fmtYen(s.feeInclTax)}</td></tr>
           </table>
+          <div class="d-flex align-items-center flex-wrap gap-1 mb-2 small">
+            <span class="text-muted">宿泊税預り(記録用)</span>
+            <input type="number" id="pnlDocTax" class="form-control form-control-sm d-inline-block" style="width:100px" value="${s.taxWithholding || 0}" min="0">
+            <button class="btn btn-outline-secondary btn-sm" id="btnDocImportTax" title="やどぜい月計表PDFから自動取込"><i class="bi bi-magic"></i> 月計表</button>
+            <span class="text-muted">※手数料には影響しません</span>
+          </div>
           <div class="mb-2">
             <label class="form-label small mb-0">お支払期限</label>
             <input type="text" id="pnlDocDue" class="form-control form-control-sm" value="翌月末日">
@@ -1351,16 +1354,17 @@ const PnlPage = {
   },
 
   _recalcDocPreview() {
+    // 利益ベース: 手数料 = max(0, 運営利益) × 料率。宿泊税は手数料に影響しない(記録用)。
     const s = this._docCtx.settlement;
-    const B = Math.max(0, Math.round(Number(document.getElementById("pnlDocTax")?.value) || 0));
-    const base = Math.max(0, s.depositAmount - B);
+    const profit = Number(this._docCtx.computed?.profit) || 0;
+    const base = Math.max(0, profit);
     const fee = Math.round(base * s.feeRatePct / 100);
     const tax = Math.round(fee * s.consumptionTaxPct / 100);
-    document.getElementById("pnlDocBView").textContent = "▲ " + this.fmtYen(B);
-    document.getElementById("pnlDocBase").textContent = this.fmtYen(base);
-    document.getElementById("pnlDocFee").textContent = this.fmtYen(fee);
-    document.getElementById("pnlDocTaxAmt").textContent = this.fmtYen(tax);
-    document.getElementById("pnlDocTotal").textContent = this.fmtYen(fee + tax);
+    const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = this.fmtYen(v); };
+    setTxt("pnlDocBase", profit);
+    setTxt("pnlDocFee", fee);
+    setTxt("pnlDocTaxAmt", tax);
+    setTxt("pnlDocTotal", fee + tax);
   },
 
   async _generateDoc(kind) {

@@ -270,23 +270,30 @@ module.exports = function pnlApi(db) {
         .sort((a, b) => (a.yearMonth < b.yearMonth ? -1 : 1));
       const result = months.map((d) => {
         const base = computePnl(d, categories);
-        // 代行手数料は精算書(computeSettlement)と同一式で算出 → テーブル=実請求額と一致
-        const { depositAmount } = computeDepositAmount(d.revenue);
+        // ★代行手数料は「利益ベース」で算定(2026-07-14 ユーザー決定)。
+        //   算定基礎 = 運営利益(base.profit = 売上−OTA手数料−清掃費−諸経費)。精算書と同一式。
+        const operatingProfit = base.profit;
         const feeRatePct = effectiveFeeRatePct(d, prop);
         const settlement = computeSettlement({
-          depositAmount,
-          taxWithholding: Number(d.taxWithholding || 0),
+          feeBase: operatingProfit,
+          taxWithholding: Number(d.taxWithholding || 0), // 記録用(利益ベースでは手数料に非影響)
           feeRatePct, consumptionTaxPct, feeRounding,
         });
+        // 表示利益 = 運営利益 − 代行手数料(税込) = オーナー最終手取り
+        const netProfit = operatingProfit - settlement.feeInclTax;
         return {
           yearMonth: d.yearMonth,
           nights: d.nights || 0,
           cleaningCount: d.cleaningCount || 0,
           ...base,
+          // base.profit(運営利益)を netProfit で上書き。運営利益は operatingProfit で保持
+          operatingProfit,
+          profit: netProfit,
+          profitRate: base.revenueGross > 0 ? Math.round((netProfit / base.revenueGross) * 1000) / 10 : 0,
           // 実効料率(自社=0/月固定>物件既定)と手数料(税抜/税込・実請求準拠)
           feeRatePct,
           feeRateIsMonthOverride: d.feeRatePct != null,
-          mgmtFeeBase: settlement.salesBase,
+          mgmtFeeBase: settlement.feeBase,
           mgmtFeeExclTax: settlement.feeExclTax,
           mgmtFeeInclTax: settlement.feeInclTax,
         };
