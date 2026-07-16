@@ -207,9 +207,14 @@ service cloud.firestore {
       allow write: if isOwner();
 
       // 月別単価スナップショット (onPropertyWorkItemsWrite が自動保存)
-      // 過去月の請求書画面がサーバーと同じ単価を表示するために読み取りのみ許可。書き込みは Admin SDK のみ
+      // 過去月の請求書画面がサーバーと同じ単価を表示するために読み取りを許可。
+      // 書き込みは原則 Admin SDK のみだが、「翌月1日から反映」予約 (rates.js) の
+      // 当月凍結 doc (archivedBy=ratesNextMonthApply) に限りオーナーが作成/取消できる。
+      // トリガー由来の確定スナップショットはオーナーでも削除不可 (締め済み月の保護)
       match /history/{yearMonth} {
         allow read: if isAuthenticated();
+        allow create: if isOwner() && request.resource.data.archivedBy == "ratesNextMonthApply";
+        allow delete: if isOwner() && resource.data.archivedBy == "ratesNextMonthApply";
       }
     }
 

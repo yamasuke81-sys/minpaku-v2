@@ -7,6 +7,8 @@ const admin = require("firebase-admin");
  * - propertyWorkItems/{propertyId}/history/{YYYY-MM} = 「その月末時点の items スナップショット」
  * - history は onPropertyWorkItemsWrite トリガーが「月をまたいだ最初の変更」の直前状態を自動保存する
  * - 過去月の請求書計算は getWorkItemsForMonth() で当該月のスナップショットを参照する
+ * - 加えて「翌月1日から反映」予約 (rates.js) は、変更前の items を history/{当月} に凍結保存する。
+ *   当月に凍結 doc があれば当月の計算も凍結値 (=変更前単価) を使い、翌月から現行マスタが効く
  */
 
 const JST_OFFSET = 9 * 60 * 60 * 1000;
@@ -26,7 +28,8 @@ function prevYmOf(ym) {
 
 /**
  * 指定月に適用すべき作業項目リスト (items) を返す
- * - 当月・未来月・月指定なし → 現行マスタ
+ * - 未来月・月指定なし → 現行マスタ
+ * - 当月 → history/{当月} (=「翌月1日から反映」予約の凍結スナップショット) があればそれ、無ければ現行マスタ
  * - 過去月 → history から「対象月以降で最も古いスナップショット」(= 対象月末時点の状態)。
  *   スナップショットが無ければ現行マスタ (その月以降単価変更が無かったということ)
  * @param {object} db - Firestore
@@ -40,7 +43,7 @@ async function getWorkItemsForMonth(db, propertyId, yearMonth) {
     const doc = await db.collection("propertyWorkItems").doc(propertyId).get();
     return doc.exists ? (doc.data().items || []) : [];
   };
-  if (!yearMonth || yearMonth >= jstYm()) return readCurrent();
+  if (!yearMonth || yearMonth > jstYm()) return readCurrent();
   try {
     const snap = await db.collection("propertyWorkItems").doc(propertyId)
       .collection("history")

@@ -21,6 +21,7 @@ const RatesPage = {
       <div class="page-header">
         <h2><i class="bi bi-currency-yen"></i> 報酬単価設定</h2>
         <div class="d-flex align-items-center gap-2 flex-wrap">
+          <span id="ratesSaveStatus" class="small"></span>
           <button class="btn btn-outline-primary" id="ratesBtnImport">
             <i class="bi bi-box-arrow-in-down"></i> 他施設からインポート
           </button>
@@ -36,9 +37,13 @@ const RatesPage = {
       <!-- 物件選定 (清掃フローと同じボタン群方式) -->
       <div id="ratesPropertySelector" class="mb-3"></div>
 
+      <!-- 翌月反映予約の状態バナー -->
+      <div id="ratesFreezeBanner"></div>
+
       <div class="alert alert-info small py-2">
         <i class="bi bi-info-circle"></i>
         「共通単価」はスタッフ個別単価が未設定の場合に使用されます。タイミー用の時給は別枠です。
+        単価を変更したら右上の「保存」を押してください。保存時に「今月から反映 / 翌月1日から反映」を選択できます。
       </div>
 
       <div id="ratesBody">
@@ -49,6 +54,17 @@ const RatesPage = {
     document.getElementById("ratesBtnAdd").addEventListener("click", () => this.addWorkItem());
     document.getElementById("ratesBtnSave").addEventListener("click", () => this.save());
     document.getElementById("ratesBtnImport").addEventListener("click", () => this.openImportModal());
+
+    // タブを閉じる/リロード時の未保存ガード (SPA内遷移は sessionStorage ドラフトで保護)
+    if (!this._unloadGuardBound) {
+      window.addEventListener("beforeunload", (e) => {
+        if (this.dirty && location.hash.startsWith("#/rates")) {
+          e.preventDefault();
+          e.returnValue = "";
+        }
+      });
+      this._unloadGuardBound = true;
+    }
 
     await this.loadData();
   },
@@ -139,7 +155,10 @@ const RatesPage = {
       const res = await API.properties.getWorkItems(this.currentPropertyId);
       const items = res.items || [];
       // 後方互換: 旧 commonRate(scalar) → commonRates(object)
-      items.forEach(wi => {
+      items.forEach((wi, idx) => {
+        // 旧データに id が無いと入力ハンドラが item を特定できず「書き換えても反応しない」
+        // → 表示時に安定 id を採番 (次回保存で永続化される)
+        if (!wi.id) wi.id = `wi_${Date.now().toString(36)}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
         if (typeof wi.commonRate === "number" && !wi.commonRates) {
           wi.commonRates = { 1: wi.commonRate, 2: wi.commonRate, 3: wi.commonRate };
         }
@@ -159,11 +178,48 @@ const RatesPage = {
       });
       this.workItems = items;
       this.workItems.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+      // 「翌月1日から反映」用の変更前スナップショット (最後に保存された状態)
+      this._pristineItems = JSON.parse(JSON.stringify(this.workItems));
       this.dirty = false;
       this.updateSaveButton();
       this.renderWorkItems();
+      await this.loadFreezeState();
+      await this.offerDraftRestore();
     } catch (e) {
       body.innerHTML = `<div class="alert alert-danger">読み込み失敗: ${this.esc(e.message)}</div>`;
+    }
+  },
+
+  // === 未保存ドラフト (SPA内遷移・リロードでの編集消失防止) ===
+  _draftKey() {
+    return `ratesDraft:${this.currentPropertyId}`;
+  },
+  _saveDraft() {
+    try {
+      sessionStorage.setItem(this._draftKey(), JSON.stringify({ items: this.workItems, at: Date.now() }));
+    } catch (_) { /* 容量超過等は無視 (ドラフトは補助機能) */ }
+  },
+  _clearDraft() {
+    try { sessionStorage.removeItem(this._draftKey()); } catch (_) {}
+  },
+  async offerDraftRestore() {
+    let draft = null;
+    try { draft = JSON.parse(sessionStorage.getItem(this._draftKey()) || "null"); } catch (_) {}
+    if (!draft || !Array.isArray(draft.items)) return;
+    // 保存済み内容と同一なら復元不要
+    if (JSON.stringify(draft.items) === JSON.stringify(this.workItems)) { this._clearDraft(); return; }
+    const ok = await this.showConfirmDialog({
+      title: "未保存の変更が見つかりました",
+      message: "この物件の報酬単価に、前回保存されなかった変更があります。復元しますか？（復元後、「保存」を押すまで反映されません）",
+      confirmLabel: "復元する",
+      danger: false,
+    });
+    if (ok) {
+      this.workItems = draft.items;
+      this.markDirty();
+      this.renderWorkItems();
+    } else {
+      this._clearDraft();
     }
   },
 
@@ -766,41 +822,129 @@ const RatesPage = {
 
   markDirty() {
     this.dirty = true;
+    this._saveDraft();
     this.updateSaveButton();
-    // 自動保存 (800ms debounce)
-    this._queueAutoSave();
-  },
-  _queueAutoSave() {
-    if (this._autoSaveTimer) clearTimeout(this._autoSaveTimer);
-    this._showAutoSaveStatus("saving");
-    this._autoSaveTimer = setTimeout(() => {
-      this.save({ silent: true }).then(() => this._showAutoSaveStatus("saved"))
-        .catch((e) => this._showAutoSaveStatus("error", e?.message));
-    }, 800);
-  },
-  _showAutoSaveStatus(kind, msg) {
-    let el = document.getElementById("ratesAutoSaveStatus");
-    if (!el) {
-      const header = document.querySelector(".page-header");
-      if (header) {
-        el = document.createElement("span");
-        el.id = "ratesAutoSaveStatus";
-        el.className = "small ms-2";
-        header.querySelector(".d-flex")?.prepend(el);
-      }
-    }
-    if (!el) return;
-    if (kind === "saving") el.innerHTML = `<i class="bi bi-arrow-repeat text-muted"></i> <span class="text-muted">保存中...</span>`;
-    else if (kind === "saved") {
-      el.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill"></i> 保存済み</span>`;
-      setTimeout(() => { if (el.innerHTML.includes("保存済み")) el.innerHTML = ""; }, 2000);
-    } else if (kind === "error") el.innerHTML = `<span class="text-danger">保存失敗: ${msg || ""}</span>`;
   },
   updateSaveButton() {
     const btn = document.getElementById("ratesBtnSave");
-    if (!btn) return;
-    // 自動保存化したため、保存ボタンは非表示
-    btn.style.display = "none";
+    const st = document.getElementById("ratesSaveStatus");
+    if (btn) btn.disabled = !this.dirty;
+    if (st) {
+      st.innerHTML = this.dirty
+        ? `<span class="text-danger"><i class="bi bi-exclamation-circle"></i> 未保存の変更があります</span>`
+        : "";
+    }
+  },
+
+  // === 翌月反映予約 (当月凍結スナップショット) ===
+  jstYm() {
+    const t = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}`;
+  },
+  nextYmOf(ym) {
+    const [y, m] = ym.split("-").map(Number);
+    const d = new Date(Date.UTC(y, m, 1)); // m は 0-index 扱いで翌月1日
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  },
+  async loadFreezeState() {
+    this._freeze = null;
+    try {
+      const doc = await API.properties.getWorkItemsHistory(this.currentPropertyId, this.jstYm());
+      if (doc && doc.archivedBy === "ratesNextMonthApply") this._freeze = doc;
+    } catch (e) {
+      console.warn("翌月反映予約の読込失敗:", e.message);
+    }
+    this.renderFreezeBanner();
+  },
+  renderFreezeBanner() {
+    const wrap = document.getElementById("ratesFreezeBanner");
+    if (!wrap) return;
+    if (!this._freeze) { wrap.innerHTML = ""; return; }
+    const nowYm = this.jstYm();
+    const nextYm = this.nextYmOf(nowYm);
+    const at = this._freeze.archivedAt && this._freeze.archivedAt.toDate ? this._freeze.archivedAt.toDate() : null;
+    const atLabel = at ? `${at.getMonth() + 1}/${at.getDate()} ${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}` : "";
+    wrap.innerHTML = `
+      <div class="alert alert-warning small py-2 d-flex align-items-center flex-wrap gap-2">
+        <div class="flex-grow-1">
+          <i class="bi bi-calendar-event"></i>
+          <strong>翌月1日から反映の予約があります。</strong>
+          今月(${Number(nowYm.split("-")[1])}月)分の請求書は${atLabel ? `予約時(${atLabel})` : "予約時点"}の単価で計算され、${Number(nextYm.split("-")[1])}月1日から現在保存されている単価が適用されます。
+        </div>
+        <button class="btn btn-sm btn-outline-danger" id="ratesFreezeCancel">予約を取り消して今月から反映</button>
+      </div>
+    `;
+    document.getElementById("ratesFreezeCancel").addEventListener("click", async () => {
+      const ok = await this.showConfirmDialog({
+        title: "翌月反映予約の取消",
+        message: "予約を取り消すと、現在保存されている単価が今月分の請求書計算からすぐに適用されます。よろしいですか？",
+        confirmLabel: "取り消す",
+        danger: true,
+      });
+      if (!ok) return;
+      try {
+        await API.properties.cancelWorkItemsFreeze(this.currentPropertyId, nowYm);
+        await this.loadFreezeState();
+        showToast("取消完了", "翌月反映の予約を取り消しました。現在の単価が今月分から適用されます", "success");
+      } catch (e) {
+        showToast("エラー", "取消失敗: " + e.message, "error");
+      }
+    });
+  },
+
+  // 反映タイミング選択ダイアログ → "now" | "next" | null (キャンセル)
+  openApplyTimingDialog(nowYm, nextYm) {
+    return new Promise(resolve => {
+      const modalId = "ratesTiming_" + Date.now().toString(36);
+      const mLabel = (ym) => `${Number(ym.split("-")[1])}月`;
+      const freezeNote = this._freeze
+        ? `<div class="alert alert-warning small py-2 mt-2 mb-0"><i class="bi bi-exclamation-triangle"></i> 翌月反映の予約が既にあります。「今月から反映」で保存すると予約は取り消され、予約分も含めた新しい単価が今月分から適用されます。</div>`
+        : "";
+      const html = `
+        <div class="modal fade" id="${modalId}" tabindex="-1">
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title">単価の反映タイミング</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+              </div>
+              <div class="modal-body">
+                <div class="small text-muted mb-2">変更した単価をいつから請求書計算に使うかを選択してください。</div>
+                <div class="form-check mb-2">
+                  <input class="form-check-input" type="radio" name="${modalId}_timing" id="${modalId}_now" value="now" checked>
+                  <label class="form-check-label" for="${modalId}_now">
+                    <strong>今月から反映</strong>
+                    <small class="text-muted d-block">${mLabel(nowYm)}分の請求書計算からすぐに新単価を使います</small>
+                  </label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="${modalId}_timing" id="${modalId}_next" value="next">
+                  <label class="form-check-label" for="${modalId}_next">
+                    <strong>翌月1日から反映</strong>
+                    <small class="text-muted d-block">${mLabel(nowYm)}分は変更前の単価のまま計算し、${mLabel(nextYm)}1日から新単価を使います</small>
+                  </label>
+                </div>
+                ${freezeNote}
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                <button type="button" class="btn btn-success" id="${modalId}_ok"><i class="bi bi-check2"></i> 保存</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.insertAdjacentHTML("beforeend", html);
+      const modalEl = document.getElementById(modalId);
+      const modal = new bootstrap.Modal(modalEl);
+      let result = null;
+      modalEl.querySelector(`#${modalId}_ok`).addEventListener("click", () => {
+        result = modalEl.querySelector(`input[name="${modalId}_timing"]:checked`)?.value || "now";
+        modal.hide();
+      });
+      modalEl.addEventListener("hidden.bs.modal", () => { modalEl.remove(); resolve(result); });
+      modal.show();
+    });
   },
 
   // === 他施設からインポート ===
@@ -894,21 +1038,41 @@ const RatesPage = {
       "success");
   },
 
-  async save(opts = {}) {
+  async save() {
+    if (!this.dirty) return;
+    const nowYm = this.jstYm();
+    const nextYm = this.nextYmOf(nowYm);
+    const timing = await this.openApplyTimingDialog(nowYm, nextYm);
+    if (!timing) return; // キャンセル
     const btn = document.getElementById("ratesBtnSave");
-    if (btn && !opts.silent) {
+    if (btn) {
       btn.disabled = true;
       btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> 保存中...`;
     }
     try {
+      if (timing === "next") {
+        // 変更前の単価を当月スナップショットとして凍結 → 当月の請求書計算は変更前のまま、翌月1日から新単価
+        await API.properties.freezeWorkItemsMonth(this.currentPropertyId, nowYm, this._pristineItems || []);
+      } else if (this._freeze) {
+        // 今月から反映: 残っている翌月反映予約は取消 (ダイアログで注意喚起済み)
+        await API.properties.cancelWorkItemsFreeze(this.currentPropertyId, nowYm);
+      }
       await API.properties.saveWorkItems(this.currentPropertyId, this.workItems);
+      this._pristineItems = JSON.parse(JSON.stringify(this.workItems));
       this.dirty = false;
-      this.updateSaveButton();
-      if (!opts.silent) showToast("保存完了", "報酬単価を保存しました", "success");
+      this._clearDraft();
+      await this.loadFreezeState();
+      const mLabel = (ym) => `${Number(ym.split("-")[1])}月`;
+      showToast("保存完了",
+        timing === "next"
+          ? `保存しました。${mLabel(nowYm)}分は変更前の単価のまま、${mLabel(nextYm)}1日から新単価で計算されます`
+          : `保存しました（${mLabel(nowYm)}分から反映）`,
+        "success");
     } catch (e) {
-      if (!opts.silent) showToast("エラー", "保存失敗: " + e.message, "error");
-      if (btn) btn.disabled = false;
-      throw e;
+      showToast("エラー", "保存失敗: " + e.message, "error");
+    } finally {
+      if (btn) btn.innerHTML = `<i class="bi bi-check2"></i> 保存`;
+      this.updateSaveButton();
     }
   },
 

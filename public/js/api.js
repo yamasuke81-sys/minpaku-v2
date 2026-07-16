@@ -197,6 +197,44 @@ const API = {
     },
 
     /**
+     * 報酬単価の月別スナップショット history/{YYYY-MM} を1件取得 (無ければ null)
+     */
+    async getWorkItemsHistory(propertyId, ym) {
+      const d = await db.collection("propertyWorkItems").doc(propertyId)
+        .collection("history").doc(ym).get();
+      return d.exists ? d.data() : null;
+    },
+
+    /**
+     * 「翌月1日から反映」予約: 変更前の items を当月スナップショットとして凍結保存。
+     * 既に凍結 doc がある場合は上書きしない (最初に凍結した時点の単価を当月に適用し続ける)
+     */
+    async freezeWorkItemsMonth(propertyId, ym, items) {
+      const ref = db.collection("propertyWorkItems").doc(propertyId)
+        .collection("history").doc(ym);
+      await db.runTransaction(async (tx) => {
+        const d = await tx.get(ref);
+        if (d.exists) return; // 既存凍結を保持 (冪等)
+        tx.set(ref, {
+          propertyId,
+          items: items || [],
+          sourceUpdatedAt: null,
+          archivedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          archivedBy: "ratesNextMonthApply",
+        });
+      });
+    },
+
+    /**
+     * 「翌月1日から反映」予約の取消 (凍結 doc の削除)。
+     * ルール上 archivedBy=ratesNextMonthApply の doc のみ削除できる
+     */
+    async cancelWorkItemsFreeze(propertyId, ym) {
+      await db.collection("propertyWorkItems").doc(propertyId)
+        .collection("history").doc(ym).delete();
+    },
+
+    /**
      * ゲスト宿泊料金マスタ (propertyRates) — 予約サイトの表示・見積の元データ。
      * propertyWorkItems (スタッフ報酬単価) とは別物。混同しないこと。
      */

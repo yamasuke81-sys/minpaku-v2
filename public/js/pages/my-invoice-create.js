@@ -452,10 +452,11 @@ const MyInvoiceCreatePage = {
     };
     // 過去月はその月末時点の単価スナップショット propertyWorkItems/{pid}/history/{YYYY-MM} を参照
     // (サーバー getWorkItemsForMonth と同じ規則: 対象月以降で最古の doc。無ければ現行マスタ)
+    // 当月も history/{当月} (=「翌月1日から反映」予約の凍結スナップショット) があればそれを使う
     const ym = document.getElementById("invMonth")?.value || "";
     const nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000);
     const currentYm = `${nowJst.getUTCFullYear()}-${String(nowJst.getUTCMonth() + 1).padStart(2, "0")}`;
-    const usePastSnapshot = !!ym && ym < currentYm;
+    const usePastSnapshot = !!ym && ym <= currentYm;
     if (!this._historyItemsCache) this._historyItemsCache = {}; // {"pid|ym": items | null}
     const getItemsForMonth = async (propertyId, currentItems) => {
       if (!usePastSnapshot) return currentItems;
