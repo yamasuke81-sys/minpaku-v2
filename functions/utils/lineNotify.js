@@ -1894,5 +1894,6 @@ module.exports = {
   getNotificationSettings_,
   sendNotificationEmail_,
   sendDiscord_,
+  resolveDiscordOwnerWebhookUrl_,
   resolveSenderGmail_,
 };

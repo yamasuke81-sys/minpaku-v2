@@ -272,6 +272,14 @@ exports.morningBriefing = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/morningBriefing"));
 
+// OTA予約突合＋朝の点検通知（毎朝7:00 JST）
+// PC常駐リスナーが書き込む otaCalendarSnapshots とv2予約台帳を突合し、キーボックス未送信・名簿未提出も含めて物件ごとに通知
+exports.morningOtaAudit = onSchedule({
+  schedule: "0 7 * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/morningOtaAudit"));
+
 // alertUnconfirmed (未確定アラート) は 2026-06-12 廃止。
 // staffUndecidedRemind (物件別 channelOverrides.staff_undecided.timings) に完全に重複しており、
 // 通知キー "alert" はどの物件にも未定義のため一度も送信実績がなかった
