@@ -9,6 +9,8 @@
  *      - booking_csv_fetch  : Booking extranet で xlsx DL → CSV 変換 → Drive 保存
  *      - yadozei_csv_upload : (F3 で実装) — 現状は未対応エラー
  *      - yadozei_pdf_fetch  : (F3 で実装) — 現状は未対応エラー
+ *      - session_check      : Airbnb/Booking/やどぜい のログイン状態点検 (8時間毎・キープアライブ兼)
+ *      - calendar_audit     : 夜間カレンダー監査 (毎日2:30 JST、今後30日のOTA実予約→otaCalendarSnapshots)
  *   4. 完了/失敗を Firestore に書き戻し
  *   5. settings/yadozeiListener を 60 秒毎に heartbeat 更新
  *
@@ -34,7 +36,7 @@ import os from "node:os";
 import https from "node:https";
 
 // ================== 定数 ==================
-const VERSION = "0.2.0"; // 0.2.0: 失効アラート抑制(初回+月次3日前のみ)+持続日数計測+復旧通知+relogin.cmd対応
+const VERSION = "0.3.0"; // 0.3.0: 夜間カレンダー監査 calendar_audit 追加(今後30日のOTA実予約→otaCalendarSnapshots、毎日2:30 JST)
 const LOG_PREFIX = "[yadozei-listener]";
 
 const USER_DATA_DIR = path.join(os.homedir(), ".yadozei-playwright-chrome");
@@ -172,6 +174,32 @@ function monthRange(yearMonth) {
   const lastDate = new Date(Date.UTC(y, m, 0)).getUTCDate(); // 翌月0日 = 当月末日
   const last = `${y}-${String(m).padStart(2, "0")}-${String(lastDate).padStart(2, "0")}`;
   return { first, last };
+}
+
+function jstTodayStr() {
+  // JST の今日 (YYYY-MM-DD)
+  const j = new Date(Date.now() + 9 * 3600 * 1000);
+  return `${j.getUTCFullYear()}-${String(j.getUTCMonth() + 1).padStart(2, "0")}-${String(j.getUTCDate()).padStart(2, "0")}`;
+}
+
+function addDaysStr_(ymd, n) {
+  // "YYYY-MM-DD" に n 日を加算した "YYYY-MM-DD"
+  const [y, m, d] = ymd.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d + n));
+  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}-${String(t.getUTCDate()).padStart(2, "0")}`;
+}
+
+function ymdParts_(ymd) {
+  // "YYYY-MM-DD" → {y, m, d}
+  const [y, m, d] = ymd.split("-").map(Number);
+  return { y, m, d };
+}
+
+function normalizeDateStr_(s) {
+  // "2026/07/20" "2026-07-20" "2026年7月20日" 等を "YYYY-MM-DD" に正規化 (不明は "")
+  const m = String(s || "").trim().match(/^(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})/);
+  if (!m) return "";
+  return `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
 }
 
 async function saveScreenshot(page, jobId, tag) {
@@ -490,17 +518,12 @@ function filterAirbnbCsvByListing(csvText, listingName) {
 }
 
 // ================== Airbnb ハンドラ ==================
-async function handleAirbnbCsv(job, ctx, jobId) {
-  const { propertyId, propertyName, yearMonth, params } = job;
-  if (!yearMonth) throw new Error("yearMonth が未指定");
-  const [ty, tm] = yearMonth.split("-").map(Number);
-  const targetLabel = `${ty}年${tm}月`;
-  const lastDay = new Date(Date.UTC(ty, tm, 0)).getUTCDate();
-
-  // フィルタに使うリスティング名 (yadozei.airbnb.listingName 優先、params でも可)
-  const propSnap = await db.collection("properties").doc(propertyId).get();
-  const listingName =
-    (propSnap.exists && propSnap.data()?.yadozei?.airbnb?.listingName) || params?.listingName || "";
+// 期間指定で Airbnb 予約CSV (全リスティング) を取得する共通コア。
+// 月次取得 (handleAirbnbCsv) と夜間カレンダー監査 (handleCalendarAudit) で共用する。
+// fromD/toD は {y, m, d} (同月でも別月でも可)。返り値は生CSVテキスト (リスティング絞込・Drive保存はしない)。
+async function fetchAirbnbCsvRange(ctx, jobId, fromD, toD) {
+  const fromLabel = `${fromD.y}年${fromD.m}月`;
+  const toLabel = `${toD.y}年${toD.m}月`;
 
   const page = await ctx.newPage();
   let tmpFile = null;
@@ -552,29 +575,33 @@ async function handleAirbnbCsv(job, ctx, jobId) {
       await page.waitForTimeout(1000);
       await debugShot(page, jobId, "airbnb_calendar_open");
       await dumpCalendar(page, "airbnb_calendar_open");
-      // 対象月見出しが DOM に現れるまで prev/next で移動
-      for (let i = 0; i < 30; i++) {
-        const has = await page.evaluate(
-          (lbl) => [...document.querySelectorAll('[role="dialog"] *')].some((e) => e.children.length === 0 && e.textContent.trim() === lbl),
-          targetLabel
-        );
-        if (has) break;
-        const cur = await page.evaluate(() => {
-          const h = [...document.querySelectorAll('[role="dialog"] *')].find((e) => e.children.length === 0 && /^\d{4}年\d{1,2}月$/.test(e.textContent.trim()));
-          return h ? h.textContent.trim() : "";
-        });
-        const mm = cur.match(/(\d+)年(\d+)月/);
-        const goPrev = mm ? parseInt(mm[1]) * 12 + parseInt(mm[2]) > ty * 12 + tm : true;
-        await page
-          .locator(goPrev ? 'button[aria-label="表示する月を前月に戻します。"]' : 'button[aria-label="表示する月を翌月に進めます。"]')
-          .first()
-          .click()
-          .catch(() => {});
-        await page.waitForTimeout(500);
-      }
+      // 対象月見出しが DOM に現れるまで prev/next で移動する (月をまたぐ範囲選択でも使う)
+      const gotoMonth = async (lbl, y, m) => {
+        for (let i = 0; i < 30; i++) {
+          const has = await page.evaluate(
+            (lbl) => [...document.querySelectorAll('[role="dialog"] *')].some((e) => e.children.length === 0 && e.textContent.trim() === lbl),
+            lbl
+          );
+          if (has) return true;
+          const cur = await page.evaluate(() => {
+            const h = [...document.querySelectorAll('[role="dialog"] *')].find((e) => e.children.length === 0 && /^\d{4}年\d{1,2}月$/.test(e.textContent.trim()));
+            return h ? h.textContent.trim() : "";
+          });
+          const mm = cur.match(/(\d+)年(\d+)月/);
+          const goPrev = mm ? parseInt(mm[1]) * 12 + parseInt(mm[2]) > y * 12 + m : true;
+          await page
+            .locator(goPrev ? 'button[aria-label="表示する月を前月に戻します。"]' : 'button[aria-label="表示する月を翌月に進めます。"]')
+            .first()
+            .click()
+            .catch(() => {});
+          await page.waitForTimeout(500);
+        }
+        return false;
+      };
+      await gotoMonth(fromLabel, fromD.y, fromD.m);
       // 対象月の日セルを「文書順」で特定してクリック
       // (カレンダーは3ヶ月分を同時描画するので、対象月見出し〜次の月見出しの間にある td[role=button] を選ぶ)
-      const clickDay = (day) =>
+      const clickDay = (lbl, day) =>
         page.evaluate(
           ({ lbl, day }) => {
             const dlg = document.querySelector('[role="dialog"]');
@@ -594,11 +621,13 @@ async function handleAirbnbCsv(job, ctx, jobId) {
             cell.click();
             return "ok";
           },
-          { lbl: targetLabel, day }
+          { lbl, day }
         );
-      const r1 = await clickDay(1);
+      const r1 = await clickDay(fromLabel, fromD.d);
       await page.waitForTimeout(700);
-      const r2 = await clickDay(lastDay);
+      // To が別月なら見出しの表示を確認してから選択 (通常は隣月が同時描画済みで移動不要)
+      if (toLabel !== fromLabel) await gotoMonth(toLabel, toD.y, toD.m);
+      const r2 = await clickDay(toLabel, toD.d);
       await page.waitForTimeout(700);
       await debugShot(page, jobId, "airbnb_dates_selected");
       // 選択された From/To の実値をログに残す (検証用)
@@ -610,7 +639,7 @@ async function handleAirbnbCsv(job, ctx, jobId) {
         console.log(`${LOG_PREFIX} 日付選択 r1=${r1} r2=${r2} inputs=${JSON.stringify(vals)}`);
       } catch (_) {}
       if (r1 !== "ok" || r2 !== "ok") {
-        console.warn(`${LOG_PREFIX} 日付選択が不完全: 1日=${r1} ${lastDay}日=${r2}`);
+        console.warn(`${LOG_PREFIX} 日付選択が不完全: from(${fromLabel}${fromD.d}日)=${r1} to(${toLabel}${toD.d}日)=${r2}`);
       }
     } else {
       console.warn(`${LOG_PREFIX} From 日付欄が見つからない — 期間フィルタなしで続行`);
@@ -695,21 +724,8 @@ async function handleAirbnbCsv(job, ctx, jobId) {
     await download.saveAs(tmpFile);
     console.log(`${LOG_PREFIX} Airbnb CSV 保存: ${tmpFile}`);
 
-    // リスティング列で行フィルタ (形式は無加工=元の行をそのまま残す)。全リスティング出力から対象宿のみ抽出。
-    if (listingName) {
-      try {
-        const raw = fs.readFileSync(tmpFile, "utf8");
-        const f = filterAirbnbCsvByListing(raw, listingName);
-        fs.writeFileSync(tmpFile, f.csv, "utf8");
-        console.log(`${LOG_PREFIX} リスティング「${listingName.slice(0, 14)}…」で ${f.total}→${f.kept}行に絞込`);
-        if (f.kept === 0) console.warn(`${LOG_PREFIX} 該当行0件 — listingName が Airbnb の実リスティング名と一致しているか確認`);
-      } catch (e) {
-        console.warn(`${LOG_PREFIX} CSV行フィルタ失敗 (元CSVのまま続行): ${e.message}`);
-      }
-    }
-
-    const result = await uploadCsvToDrive(propertyId, propertyName, "airbnb", yearMonth, tmpFile);
-    return result;
+    // 生CSVテキストを返す (リスティング絞込・保存は呼び出し側の責務)
+    return fs.readFileSync(tmpFile, "utf8");
   } finally {
     safeUnlink(tmpFile);
     try {
@@ -717,6 +733,42 @@ async function handleAirbnbCsv(job, ctx, jobId) {
     } catch (_) {
       /* ignore */
     }
+  }
+}
+
+// 月次取得: 対象月の1日〜末日を共通コアで取得し、リスティング絞込 → Drive 保存
+async function handleAirbnbCsv(job, ctx, jobId) {
+  const { propertyId, propertyName, yearMonth, params } = job;
+  if (!yearMonth) throw new Error("yearMonth が未指定");
+  const [ty, tm] = yearMonth.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(ty, tm, 0)).getUTCDate();
+
+  // フィルタに使うリスティング名 (yadozei.airbnb.listingName 優先、params でも可)
+  const propSnap = await db.collection("properties").doc(propertyId).get();
+  const listingName =
+    (propSnap.exists && propSnap.data()?.yadozei?.airbnb?.listingName) || params?.listingName || "";
+
+  const raw = await fetchAirbnbCsvRange(ctx, jobId, { y: ty, m: tm, d: 1 }, { y: ty, m: tm, d: lastDay });
+
+  // リスティング列で行フィルタ (形式は無加工=元の行をそのまま残す)。全リスティング出力から対象宿のみ抽出。
+  let csvText = raw;
+  if (listingName) {
+    try {
+      const f = filterAirbnbCsvByListing(raw, listingName);
+      csvText = f.csv;
+      console.log(`${LOG_PREFIX} リスティング「${listingName.slice(0, 14)}…」で ${f.total}→${f.kept}行に絞込`);
+      if (f.kept === 0) console.warn(`${LOG_PREFIX} 該当行0件 — listingName が Airbnb の実リスティング名と一致しているか確認`);
+    } catch (e) {
+      console.warn(`${LOG_PREFIX} CSV行フィルタ失敗 (元CSVのまま続行): ${e.message}`);
+    }
+  }
+
+  const tmpFile = path.join(TMP_DIR, `airbnb_${jobId}_${Date.now()}.csv`);
+  try {
+    fs.writeFileSync(tmpFile, csvText, "utf8");
+    return await uploadCsvToDrive(propertyId, propertyName, "airbnb", yearMonth, tmpFile);
+  } finally {
+    safeUnlink(tmpFile);
   }
 }
 
@@ -768,16 +820,12 @@ function verifyBookingCsvMonth(csv, yearMonth) {
   return { count: checked };
 }
 
-async function handleBookingCsv(job, ctx, jobId) {
-  const { propertyId, propertyName, yearMonth, params } = job;
-  const bookingPropertyId = params?.bookingPropertyId;
-  if (!bookingPropertyId) throw new Error("params.bookingPropertyId が未指定");
-  if (!yearMonth) throw new Error("yearMonth が未指定");
-  const { first, last } = monthRange(yearMonth);
-
+// 期間指定で Booking.com 予約一覧 (xlsx→CSV変換済みテキスト) を取得する共通コア。
+// 月次取得 (handleBookingCsv) と夜間カレンダー監査 (handleCalendarAudit) で共用する。
+// first/last は "YYYY-MM-DD" (チェックイン日基準の絞込範囲)。返り値は CSVテキスト (検証・Drive保存はしない)。
+async function fetchBookingCsvRange(ctx, jobId, first, last) {
   const page = await ctx.newPage();
   let tmpXlsx = null;
-  let tmpCsv = null;
   try {
     // lang=ja を明示して日本語表示を強制 (アカウント言語が英語だとセレクタ("予約"等)が一致しないため)
     await page.goto("https://admin.booking.com/?lang=ja", {
@@ -988,25 +1036,277 @@ async function handleBookingCsv(job, ctx, jobId) {
     const wb = XLSX.readFile(tmpXlsx);
     const firstSheetName = wb.SheetNames[0];
     if (!firstSheetName) throw new Error("Booking.com xlsx にシートが無い");
-    const csv = XLSX.utils.sheet_to_csv(wb.Sheets[firstSheetName]);
-    tmpCsv = path.join(TMP_DIR, `booking_${jobId}_${Date.now()}.csv`);
-    fs.writeFileSync(tmpCsv, csv, "utf8");
-
-    // 取得内容が要求月と一致するか検証(別月の取り違え=月ズレを保存前に検出してエラー化)
-    const vr = verifyBookingCsvMonth(csv, yearMonth);
-    console.log(`${LOG_PREFIX} Booking CSV 検証OK: ${yearMonth} の予約 ${vr.count} 件(全て対象月チェックイン)`);
-
-    const result = await uploadCsvToDrive(propertyId, propertyName, "booking", yearMonth, tmpCsv);
-    return result;
+    return XLSX.utils.sheet_to_csv(wb.Sheets[firstSheetName]);
   } finally {
     safeUnlink(tmpXlsx);
-    safeUnlink(tmpCsv);
     try {
       await page.close();
     } catch (_) {
       /* ignore */
     }
   }
+}
+
+// 月次取得: 対象月の月初〜月末を共通コアで取得し、月一致検証 → Drive 保存
+async function handleBookingCsv(job, ctx, jobId) {
+  const { propertyId, propertyName, yearMonth, params } = job;
+  const bookingPropertyId = params?.bookingPropertyId;
+  if (!bookingPropertyId) throw new Error("params.bookingPropertyId が未指定");
+  if (!yearMonth) throw new Error("yearMonth が未指定");
+  const { first, last } = monthRange(yearMonth);
+
+  const csv = await fetchBookingCsvRange(ctx, jobId, first, last);
+
+  // 取得内容が要求月と一致するか検証(別月の取り違え=月ズレを保存前に検出してエラー化)
+  const vr = verifyBookingCsvMonth(csv, yearMonth);
+  console.log(`${LOG_PREFIX} Booking CSV 検証OK: ${yearMonth} の予約 ${vr.count} 件(全て対象月チェックイン)`);
+
+  const tmpCsv = path.join(TMP_DIR, `booking_${jobId}_${Date.now()}.csv`);
+  try {
+    fs.writeFileSync(tmpCsv, csv, "utf8");
+    return await uploadCsvToDrive(propertyId, propertyName, "booking", yearMonth, tmpCsv);
+  } finally {
+    safeUnlink(tmpCsv);
+  }
+}
+
+// ================== 夜間カレンダー監査 (calendar_audit) ==================
+// OTA の実予約一覧 (今日〜+AUDIT_WINDOW_DAYS日) をブラウザ取得し、Firestore スナップショットへ保存する。
+// v2 予約台帳との突合・通知はサーバ側 (Cloud Functions morningOtaAudit, 毎朝7:00 JST) が行う。
+const AUDIT_WINDOW_DAYS = 30;
+
+// Airbnb 生CSV → 監査用の正規化行配列 (列名はゆるく照合し、UI/書式変更に耐える)
+function parseAirbnbAuditRows_(csvText) {
+  const rows = parseCsvSimple(csvText);
+  if (rows.length <= 1) return [];
+  const h = rows[0].map((x) => String(x || "").replace(/"/g, "").trim());
+  const idx = (...keys) => h.findIndex((c) => keys.some((k) => c.includes(k)));
+  const iCode = idx("確認コード");
+  const iStatus = idx("ステータス");
+  const iGuest = idx("ゲスト名", "ゲストの名前");
+  const iAdults = idx("大人");
+  const iChildren = idx("子ども", "子供");
+  const iInfants = idx("乳幼児");
+  const iIn = idx("チェックイン", "開始日");
+  const iOut = idx("チェックアウト", "終了日");
+  const iListing = idx("リスティング");
+  const num = (r, i) => {
+    if (i < 0) return null;
+    const n = parseInt(String(r[i] || "").replace(/[^\d]/g, ""), 10);
+    return Number.isFinite(n) ? n : null;
+  };
+  const out = [];
+  for (const r of rows.slice(1)) {
+    if (!r.length || r.every((c) => !String(c || "").trim())) continue;
+    const status = iStatus >= 0 ? String(r[iStatus] || "").trim() : "";
+    const adults = num(r, iAdults);
+    const children = num(r, iChildren);
+    const infants = num(r, iInfants);
+    out.push({
+      code: iCode >= 0 ? String(r[iCode] || "").trim() : "",
+      status,
+      cancelled: /キャンセル|cancel/i.test(status),
+      guestName: iGuest >= 0 ? String(r[iGuest] || "").trim() : "",
+      checkIn: iIn >= 0 ? normalizeDateStr_(r[iIn]) : "",
+      checkOut: iOut >= 0 ? normalizeDateStr_(r[iOut]) : "",
+      adults,
+      children,
+      infants,
+      guests: adults != null || children != null ? (adults || 0) + (children || 0) : null,
+      listing: iListing >= 0 ? String(r[iListing] || "").trim() : "",
+    });
+  }
+  return out;
+}
+
+// Booking 生CSV → 監査用の正規化行配列。子供の年齢列があれば 0-5歳を乳幼児に振り分ける
+// (v2 の人数セマンティクス「guests=大人+子ども(乳幼児除外)」に合わせる)
+function parseBookingAuditRows_(csvText) {
+  const rows = parseCsvSimple(csvText);
+  if (rows.length <= 1) return [];
+  const h = rows[0].map((x) => String(x || "").trim());
+  const iCode = h.findIndex((c) => c.includes("予約番号"));
+  const iStatus = h.findIndex((c) => c.includes("ステータス"));
+  const iGuest = h.findIndex((c) => c.includes("宿泊者氏名"));
+  const iBooker = h.findIndex((c) => c.includes("予約者名"));
+  const iIn = h.findIndex((c) => c.includes("チェックイン"));
+  const iOut = h.findIndex((c) => c.includes("チェックアウト"));
+  const iAdults = h.findIndex((c) => c.includes("大人"));
+  const iChildren = h.findIndex((c) => c.includes("子供") && !c.includes("年齢"));
+  const iChildAges = h.findIndex((c) => c.includes("子供の年齢"));
+  const iNights = h.findIndex((c) => /滞在期間/.test(c));
+  const iHotel = h.findIndex((c) => c.includes("施設"));
+  const num = (r, i) => {
+    if (i < 0) return null;
+    const n = parseInt(String(r[i] || "").replace(/[^\d]/g, ""), 10);
+    return Number.isFinite(n) ? n : null;
+  };
+  const out = [];
+  for (const r of rows.slice(1)) {
+    if (!r.length || r.every((c) => !String(c || "").trim())) continue;
+    const status = iStatus >= 0 ? String(r[iStatus] || "").trim() : "";
+    const adults = num(r, iAdults);
+    let children = num(r, iChildren);
+    let infants = null;
+    if (iChildAges >= 0) {
+      const ages = (String(r[iChildAges] || "").match(/\d+/g) || []).map((a) => parseInt(a, 10));
+      if (ages.length) {
+        infants = ages.filter((a) => a <= 5).length;
+        children = ages.length - infants;
+      }
+    }
+    const checkIn = iIn >= 0 ? normalizeDateStr_(r[iIn]) : "";
+    let checkOut = iOut >= 0 ? normalizeDateStr_(r[iOut]) : "";
+    if (!checkOut && checkIn) {
+      const nights = num(r, iNights);
+      if (nights) checkOut = addDaysStr_(checkIn, nights);
+    }
+    out.push({
+      code: iCode >= 0 ? String(r[iCode] || "").trim() : "",
+      status,
+      cancelled: /cancel|キャンセル/i.test(status),
+      guestName: (iGuest >= 0 && String(r[iGuest] || "").trim()) || (iBooker >= 0 ? String(r[iBooker] || "").trim() : ""),
+      checkIn,
+      checkOut,
+      adults,
+      children,
+      infants,
+      guests: adults != null || children != null ? (adults || 0) + (children || 0) : null,
+      hotel: iHotel >= 0 ? String(r[iHotel] || "").trim() : "",
+    });
+  }
+  return out;
+}
+
+// リスティング名/施設名の照合 (filterAirbnbCsvByListing と同じ双方向部分一致)
+function listingMatches_(listing, key) {
+  const a = String(listing || "").trim();
+  const b = String(key || "").trim();
+  if (!a || !b) return false;
+  return a.includes(b) || b.includes(a);
+}
+
+async function handleCalendarAudit(job, ctx, jobId) {
+  const fromStr = jstTodayStr();
+  const toStr = addDaysStr_(fromStr, AUDIT_WINDOW_DAYS);
+
+  // 対象物件の列挙 (月次 dispatcher と同条件: active × yadozei.airbnb/booking.enabled)
+  const propsSnap = await db.collection("properties").where("active", "==", true).get();
+  const airbnbProps = [];
+  const bookingProps = [];
+  propsSnap.forEach((d) => {
+    const p = d.data() || {};
+    const y = p.yadozei || {};
+    if (y.airbnb?.enabled === true) {
+      // 監査用リスティング名: auditListingNames (1宿=複数リスティング用の配列) > listingName
+      const names = (
+        Array.isArray(y.airbnb.auditListingNames) && y.airbnb.auditListingNames.filter(Boolean).length
+          ? y.airbnb.auditListingNames
+          : [y.airbnb.listingName]
+      ).filter(Boolean);
+      if (names.length) airbnbProps.push({ id: d.id, name: p.name || d.id, listingNames: names });
+    }
+    if (y.booking?.enabled === true) {
+      bookingProps.push({ id: d.id, name: p.name || d.id, bookingPropertyName: y.booking.propertyName || "" });
+    }
+  });
+
+  const errors = [];
+  const reservations = [];
+  let unassignedCount = 0;
+  let attempted = 0;
+
+  // Airbnb: 1回の取得で全リスティング分を取り、リスティング名で物件へ振り分け
+  if (airbnbProps.length) {
+    attempted++;
+    try {
+      const raw = await fetchAirbnbCsvRange(ctx, jobId, ymdParts_(fromStr), ymdParts_(toStr));
+      const rows = parseAirbnbAuditRows_(raw);
+      let assigned = 0;
+      for (const row of rows) {
+        const prop = airbnbProps.find((p) => p.listingNames.some((k) => listingMatches_(row.listing, k)));
+        if (!prop) {
+          unassignedCount++;
+          continue;
+        }
+        reservations.push({
+          ota: "airbnb", propertyId: prop.id, propertyName: prop.name,
+          code: row.code, status: row.status, cancelled: row.cancelled,
+          guestName: row.guestName, checkIn: row.checkIn, checkOut: row.checkOut,
+          adults: row.adults, children: row.children, infants: row.infants, guests: row.guests,
+        });
+        assigned++;
+      }
+      console.log(`${LOG_PREFIX} [calendar_audit] Airbnb ${rows.length}行取得 → ${assigned}行割当 / 未割当${unassignedCount}`);
+    } catch (e) {
+      errors.push({ ota: "airbnb", message: String(e.message || e).slice(0, 300) });
+      console.warn(`${LOG_PREFIX} [calendar_audit] Airbnb 取得失敗: ${e.message}`);
+    }
+  }
+
+  // Booking: アカウント一括の予約一覧を取得し、施設列があれば物件へ振り分け (単一物件なら全行その物件)
+  if (bookingProps.length) {
+    attempted++;
+    try {
+      const csv = await fetchBookingCsvRange(ctx, jobId, fromStr, toStr);
+      const rows = parseBookingAuditRows_(csv);
+      let assigned = 0;
+      for (const row of rows) {
+        let prop = null;
+        if (bookingProps.length === 1) prop = bookingProps[0];
+        else if (row.hotel) {
+          prop = bookingProps.find(
+            (p) => listingMatches_(row.hotel, p.bookingPropertyName) || listingMatches_(row.hotel, p.name)
+          );
+        }
+        if (!prop) {
+          unassignedCount++;
+          continue;
+        }
+        reservations.push({
+          ota: "booking", propertyId: prop.id, propertyName: prop.name,
+          code: row.code, status: row.status, cancelled: row.cancelled,
+          guestName: row.guestName, checkIn: row.checkIn, checkOut: row.checkOut,
+          adults: row.adults, children: row.children, infants: row.infants, guests: row.guests,
+        });
+        assigned++;
+      }
+      console.log(`${LOG_PREFIX} [calendar_audit] Booking ${rows.length}行取得 → ${assigned}行割当`);
+    } catch (e) {
+      errors.push({ ota: "booking", message: String(e.message || e).slice(0, 300) });
+      console.warn(`${LOG_PREFIX} [calendar_audit] Booking 取得失敗: ${e.message}`);
+    }
+  }
+
+  const counts = {
+    airbnb: reservations.filter((r) => r.ota === "airbnb").length,
+    booking: reservations.filter((r) => r.ota === "booking").length,
+  };
+  const status = errors.length === 0 ? "done" : errors.length < attempted ? "partial" : "failed";
+
+  // 監査対象 (物件×OTA) の一覧。逆方向チェック (v2→OTA) はこのペアに限定する
+  // (別アカウント運用の物件=おのみちホテル/Hotel Zen 等を誤って「OTAに無い」と検知しないため)。
+  // 取得失敗した OTA のペアは除外する (失敗時の誤検知防止)。
+  const failedOtaKeys = errors.map((e) => e.ota);
+  const auditedTargets = [
+    ...airbnbProps.filter(() => !failedOtaKeys.includes("airbnb")).map((p) => ({ propertyId: p.id, ota: "airbnb" })),
+    ...bookingProps.filter(() => !failedOtaKeys.includes("booking")).map((p) => ({ propertyId: p.id, ota: "booking" })),
+  ];
+
+  // スナップショット保存 (同日再実行は上書き)。部分失敗でも取れた分は保存し、morningOtaAudit が errors を報告する。
+  await db.collection("otaCalendarSnapshots").doc(fromStr).set({
+    date: fromStr, from: fromStr, to: toStr,
+    fetchedAt: admin.firestore.FieldValue.serverTimestamp(),
+    status, errors, counts, unassignedCount, auditedTargets, reservations,
+  });
+  console.log(
+    `${LOG_PREFIX} [calendar_audit] スナップショット保存 ${fromStr} status=${status} airbnb=${counts.airbnb} booking=${counts.booking} 未割当=${unassignedCount}`
+  );
+
+  if (status === "failed") {
+    throw new Error(`OTAカレンダー取得が全滅: ${errors.map((e) => `${e.ota}: ${e.message}`).join(" / ")}`);
+  }
+  return { date: fromStr, from: fromStr, to: toStr, status, counts, errors, unassignedCount };
 }
 
 // ================== やどぜい操作ヘルパー (F3) ==================
@@ -1660,6 +1960,8 @@ async function handleJob(docId, job) {
       result = await handleYadozeiPdfFetch(job, ctx, docId);
     } else if (job.kind === "session_check") {
       result = await handleSessionCheck(ctx, docId);
+    } else if (job.kind === "calendar_audit") {
+      result = await handleCalendarAudit(job, ctx, docId);
     } else {
       throw new Error(`未知の kind: ${job.kind}`);
     }
@@ -1668,14 +1970,17 @@ async function handleJob(docId, job) {
     const isUpload = job.kind === "yadozei_csv_upload";
     const isPdf = job.kind === "yadozei_pdf_fetch";
     const isSessionCheck = job.kind === "session_check";
+    const isCalendarAudit = job.kind === "calendar_audit";
 
     // queue ドキュメントの result を kind 別に整形
     const queueResult =
       isSessionCheck
         ? { sessions: result.sessions, loggedOut: result.loggedOut }
-        : isFetch || isPdf
-          ? { fileName: result.fileName, driveFileId: result.fileId, driveLink: result.webViewLink, taxCopy: result.taxCopy || null }
-          : { uploaded: true };
+        : isCalendarAudit
+          ? { date: result.date, status: result.status, counts: result.counts, errors: result.errors, unassignedCount: result.unassignedCount }
+          : isFetch || isPdf
+            ? { fileName: result.fileName, driveFileId: result.fileId, driveLink: result.webViewLink, taxCopy: result.taxCopy || null }
+            : { uploaded: true };
     await ref.update({
       status: "done",
       completedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1843,6 +2148,28 @@ if (LOGIN_MODE) {
   }
   setTimeout(enqueueSessionCheck, 20_000); // 起動20秒後に初回
   setInterval(enqueueSessionCheck, 60 * 60 * 1000); // 毎時トライ(8hバケットで冪等 → 実質1日3回)
+
+  // 夜間カレンダー監査 (OTA実予約とv2の突合用スナップショット取得) を毎日1回 enqueue。
+  // docId=日付で冪等 (同日2回目以降は create() が already exists で自動スキップ)。
+  // JST 2:30 より前は投入しない → 常時稼働なら 2:30〜3:30 の毎時ティックで実行。
+  // PC が夜間停止していた場合は復帰後最初のティックで遅延実行される (morningOtaAudit 側が鮮度を検査)。
+  async function enqueueCalendarAudit() {
+    try {
+      const j = new Date(Date.now() + 9 * 3600 * 1000); // JST
+      if (j.getUTCHours() * 60 + j.getUTCMinutes() < 150) return; // 2:30 前は投入しない
+      const ymd = `${j.getUTCFullYear()}${String(j.getUTCMonth() + 1).padStart(2, "0")}${String(j.getUTCDate()).padStart(2, "0")}`;
+      const id = `calendar_audit_${ymd}`;
+      await db.collection("yadozeiQueue").doc(id).create({
+        kind: "calendar_audit", status: "pending",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(), source: "listener_daily",
+      });
+      console.log(`${LOG_PREFIX} calendar_audit enqueued: ${id}`);
+    } catch (e) {
+      if (!/already exists/i.test(e.message)) console.warn(`${LOG_PREFIX} calendar_audit enqueue: ${e.message}`);
+    }
+  }
+  setTimeout(enqueueCalendarAudit, 40_000); // 起動40秒後に初回トライ (2:30前なら無視される)
+  setInterval(enqueueCalendarAudit, 60 * 60 * 1000); // 毎時トライ(日付IDで冪等 → 実質1日1回)
 
   // 失効検知中のまま再起動された場合 (=再ログイン直後の可能性が高い) は、8hバケットを
   // 待たずユニークIDで即チェックを投入し、「✅ 再ログイン確認」を早く返す。
