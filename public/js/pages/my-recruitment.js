@@ -26,6 +26,14 @@ const MyRecruitmentPage = {
     // URL パスパラメータから recruitmentId を取得 (#/my-recruitment/{id} 形式対応)
     // 通知からの直リンク時に、該当募集を自動的に開くために使用
     this._pendingOpenId = (pathParams && pathParams[0]) ? pathParams[0] : null;
+    // URL クエリから bookingId を取得 (#/schedule?bookingId=xxx 形式)
+    // 朝点検通知等からの直リンク時に、該当予約の詳細モーダルを自動的に開くために使用
+    try {
+      const _qs = (location.hash || "").includes("?") ? (location.hash || "").split("?")[1] : "";
+      this._pendingBookingId = new URLSearchParams(_qs).get("bookingId") || null;
+    } catch (_) {
+      this._pendingBookingId = null;
+    }
     // ビューモード判定: #/schedule(-vertical) → owner ビュー、#/my-recruitment(-vertical) → staff ビュー
     const _hash = (location.hash || "").split("?")[0];
     const isScheduleRoute = _hash === "#/schedule" || _hash.startsWith("#/schedule/")
@@ -2001,6 +2009,38 @@ const MyRecruitmentPage = {
             RecruitmentPage.openDetailModal(recruit, this._detailOpts());
           })();
         }
+      }
+
+      // URL クエリに bookingId が含まれている場合 (朝点検通知等からの直リンク)、
+      // 初回スクロール後に該当予約の詳細モーダルを自動表示する
+      if (this._pendingBookingId) {
+        const bookingId = this._pendingBookingId;
+        this._pendingBookingId = null; // 再描画時の二重起動を防ぐ
+        (async () => {
+          let target = this.bookings.find(x => x.id === bookingId)
+            || (this._rawBookings && this._rawBookings.find(x => x.id === bookingId))
+            || null;
+          if (!target) {
+            // 表示範囲外の予約は単体フェッチ (Webアプリ管理者のみ読める想定。失敗時は下の未発見表示に落ちる)
+            try {
+              const doc = await db.collection("bookings").doc(bookingId).get();
+              if (doc.exists) target = { id: doc.id, ...doc.data() };
+            } catch (_) { /* ignore */ }
+          }
+          if (target && typeof DashboardPage !== "undefined" && DashboardPage.showBookingModal) {
+            DashboardPage.showBookingModal(target, {
+              bookings: this.bookings,
+              recruitments: this.recruitments,
+              guestMap: this.guestMap,
+              properties: this.minpakuProperties || [],
+              viewMode: this.isOwnerView ? "owner" : "staff",
+              anonymous: this._isAnonymousStaffView(),
+              onGuestCountSaved: () => this.renderCalendar && this.renderCalendar(),
+            });
+          } else if (!target && typeof showAlert === "function") {
+            await showAlert("指定された予約が見つかりません（削除済み・キャンセル済みの可能性があります）");
+          }
+        })();
       }
     }
 

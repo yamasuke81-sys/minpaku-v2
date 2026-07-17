@@ -47,11 +47,11 @@ function daysBetween_(a, b) {
 }
 
 // 通知に添付するアプリ内URL (appUrl 未指定なら null → URL行は出さない)
-// - 予約詳細: ダッシュボードのディープリンク (#/dashboard?bookingId=) で詳細モーダルを直接開く
+// - 予約詳細: 予約・清掃スケジュールのディープリンク (#/schedule?bookingId=) で詳細モーダルを直接開く
 // - 名簿詳細: 既存の #/guests?id= (guests.js が id クエリで該当名簿を開く)
 // - openExternalBrowser=1 は lineNotify 側の appendOpenExternalBrowser が自動付与する
 function bookingUrl_(appUrl, bookingId) {
-  return appUrl && bookingId ? `${appUrl}/#/dashboard?bookingId=${encodeURIComponent(bookingId)}` : null;
+  return appUrl && bookingId ? `${appUrl}/#/schedule?bookingId=${encodeURIComponent(bookingId)}` : null;
 }
 function guestUrl_(appUrl, guestId) {
   return appUrl && guestId ? `${appUrl}/#/guests?id=${encodeURIComponent(guestId)}` : null;

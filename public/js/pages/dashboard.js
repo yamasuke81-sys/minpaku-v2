@@ -107,33 +107,8 @@ const DashboardPage = {
     });
 
     this.initCalendar();
-    // 通知メッセージ等のディープリンク (#/dashboard?bookingId=xxx) から予約詳細モーダルを開く
-    this._openBookingFromHash();
     // FCM初期化 + 通知許可バナー（バックグラウンド実行）
     this._initFCMBanner();
-  },
-
-  // 通知のURL (#/dashboard?bookingId=xxx) で着地したとき、該当予約の詳細モーダルを直接開く
-  async _openBookingFromHash() {
-    try {
-      const hash = location.hash || "";
-      const queryStr = hash.includes("?") ? hash.split("?")[1] : "";
-      const bookingId = new URLSearchParams(queryStr).get("bookingId");
-      if (!bookingId) return;
-      let b = (this.bookings || []).find(x => x.id === bookingId);
-      if (!b) {
-        // 表示範囲外・統合で落ちた場合は単体フェッチ
-        const doc = await db.collection("bookings").doc(bookingId).get();
-        if (doc.exists) b = { id: doc.id, ...doc.data() };
-      }
-      if (b) {
-        this.showBookingModal(b);
-      } else {
-        await showAlert("指定された予約が見つかりません（削除済みの可能性があります）");
-      }
-    } catch (e) {
-      console.error("[Dashboard] bookingId ディープリンク処理失敗:", e);
-    }
   },
 
   /**

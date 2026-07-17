@@ -518,7 +518,7 @@ describe("finding.url (ディープリンク付与)", () => {
     const bookings = [{ id: "bk1", propertyId: PID, propertyName: "宿A", status: "confirmed", checkIn: "2026-07-19" }];
     const { findings } = collectRosterFindings({ bookings, properties: props, todayStr: "2026-07-18", appUrl: APP });
     assert.strictEqual(findings.length, 1);
-    assert.strictEqual(findings[0].url, `${APP}/#/dashboard?bookingId=bk1`);
+    assert.strictEqual(findings[0].url, `${APP}/#/schedule?bookingId=bk1`);
   });
 
   test("keybox_unsent: 名簿詳細 (#/guests?id=) のリンク", () => {
@@ -549,7 +549,7 @@ describe("finding.url (ディープリンク付与)", () => {
     assert.strictEqual(gc.url, `${APP}/#/guests?id=g9`);
     const mo = findings.find((f) => f.type === "missing_in_ota");
     assert.ok(mo);
-    assert.strictEqual(mo.url, `${APP}/#/dashboard?bookingId=bk2`);
+    assert.strictEqual(mo.url, `${APP}/#/schedule?bookingId=bk2`);
     const mv = findings.find((f) => f.type === "missing_in_v2");
     assert.ok(mv);
     assert.strictEqual(mv.url, `${APP}/#/schedule`);
@@ -564,10 +564,10 @@ describe("finding.url (ディープリンク付与)", () => {
 
   test("buildPropertyReport: url がある項目の直下に 🔗 行が入る", () => {
     const report = buildPropertyReport("宿A", [
-      { type: "roster_missing", message: "⚠️ テスト様: 名簿未提出", url: `${APP}/#/dashboard?bookingId=bk1` },
+      { type: "roster_missing", message: "⚠️ テスト様: 名簿未提出", url: `${APP}/#/schedule?bookingId=bk1` },
       { type: "parse_error", message: "ℹ️ 解析エラー", url: null },
     ], "2026-07-18");
-    assert.ok(report.includes("・⚠️ テスト様: 名簿未提出\n　🔗 https://v2-5-relay.web.app/#/dashboard?bookingId=bk1"));
+    assert.ok(report.includes("・⚠️ テスト様: 名簿未提出\n　🔗 https://v2-5-relay.web.app/#/schedule?bookingId=bk1"));
     assert.ok(!report.includes("🔗 null"));
   });
 });
