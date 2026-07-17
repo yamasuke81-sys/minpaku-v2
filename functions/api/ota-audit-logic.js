@@ -46,6 +46,20 @@ function daysBetween_(a, b) {
   return Math.round((db_ - da) / 86400000);
 }
 
+// 通知に添付するアプリ内URL (appUrl 未指定なら null → URL行は出さない)
+// - 予約詳細: ダッシュボードのディープリンク (#/dashboard?bookingId=) で詳細モーダルを直接開く
+// - 名簿詳細: 既存の #/guests?id= (guests.js が id クエリで該当名簿を開く)
+// - openExternalBrowser=1 は lineNotify 側の appendOpenExternalBrowser が自動付与する
+function bookingUrl_(appUrl, bookingId) {
+  return appUrl && bookingId ? `${appUrl}/#/dashboard?bookingId=${encodeURIComponent(bookingId)}` : null;
+}
+function guestUrl_(appUrl, guestId) {
+  return appUrl && guestId ? `${appUrl}/#/guests?id=${encodeURIComponent(guestId)}` : null;
+}
+function scheduleUrl_(appUrl) {
+  return appUrl ? `${appUrl}/#/schedule` : null;
+}
+
 /**
  * OTAスナップショットとv2予約台帳を突合する。
  *
@@ -71,9 +85,11 @@ function daysBetween_(a, b) {
  *   滞在中予約 (ステータス「現在ホスティング中」) もスナップショットに含まれる。呼び出し側の bookings
  *   クエリ範囲(today−7日〜)に入らない長期滞在などで誤検知にならないよう、片方向チェックは
  *   「checkIn が今日以降」の行に限定する。
+ * @param {string} [params.appUrl] - v2 アプリのベースURL。指定時、各 finding に該当予約/名簿への
+ *   ディープリンク (finding.url) を付与する (通知本文で 🔗 行として出力される)。
  * @returns {{findings: Array}}
  */
-function reconcileOtaSnapshot({ reservations = [], bookings = [], registrations = [], auditedTargets, todayStr } = {}) {
+function reconcileOtaSnapshot({ reservations = [], bookings = [], registrations = [], auditedTargets, todayStr, appUrl } = {}) {
   const findings = [];
 
   // ---- 1) 日付解析エラー行(checkIn=="")を除外し、物件ごとにまとめて1件のfindingに ----
@@ -217,6 +233,7 @@ function reconcileOtaSnapshot({ reservations = [], bookings = [], registrations 
           propertyId, propertyName, ota,
           detail: { code: r.code, guestName: r.guestName, checkIn: r.checkIn, checkOut: r.checkOut, bookingId: b.id },
           message: `🚨 ${r.guestName || "ゲスト"}様(${r.checkIn}〜${r.checkOut})はOTA側でキャンセル済みですが、v2では確定(confirmed)のままです。`,
+          url: bookingUrl_(appUrl, b.id),
         });
       }
 
@@ -231,6 +248,7 @@ function reconcileOtaSnapshot({ reservations = [], bookings = [], registrations 
             v2CheckIn: b.checkIn, v2CheckOut: b.checkOut,
           },
           message: `🚨 ${r.guestName || "ゲスト"}様: OTA(${r.checkIn}〜${r.checkOut}) と v2(${b.checkIn}〜${b.checkOut}) で日付が食い違っています。`,
+          url: bookingUrl_(appUrl, b.id),
         });
       }
 
@@ -243,8 +261,9 @@ function reconcileOtaSnapshot({ reservations = [], bookings = [], registrations 
             findings.push({
               type: "guest_count_mismatch",
               propertyId, propertyName, ota,
-              detail: { guestName: r.guestName, bookingId: b.id, otaGuests: r.guests, rosterGuests },
+              detail: { guestName: r.guestName, bookingId: b.id, guestId: reg.id, otaGuests: r.guests, rosterGuests },
               message: `⚠️ ${r.guestName || "ゲスト"}様: OTA人数${r.guests}名に対し、名簿は${rosterGuests}名(乳幼児除く)です。`,
+              url: guestUrl_(appUrl, reg.id) || bookingUrl_(appUrl, b.id),
             });
           }
         }
@@ -265,6 +284,7 @@ function reconcileOtaSnapshot({ reservations = [], bookings = [], registrations 
         propertyId, propertyName, ota,
         detail: { code: r.code, guestName: r.guestName, checkIn: r.checkIn, checkOut: r.checkOut },
         message: `🚨 ${r.guestName || "ゲスト"}様(${r.checkIn}〜${r.checkOut})はOTAに予約がありますが、v2に見当たりません。`,
+        url: scheduleUrl_(appUrl), // v2側に実体が無いため該当日のカレンダー確認へ誘導
       });
     }
 
@@ -285,6 +305,7 @@ function reconcileOtaSnapshot({ reservations = [], bookings = [], registrations 
           propertyId, propertyName, ota,
           detail: { bookingId: b.id, guestName: b.guestName, checkIn: b.checkIn, checkOut: b.checkOut },
           message: `⚠️ ${b.guestName || "ゲスト"}様(${b.checkIn}〜${b.checkOut})はv2にありますが、OTA一覧に見当たりません(OTA側でキャンセルされた可能性)。`,
+          url: bookingUrl_(appUrl, b.id),
         });
       }
     }
@@ -301,9 +322,10 @@ function reconcileOtaSnapshot({ reservations = [], bookings = [], registrations 
  * @param {Array} params.bookings - v2 bookings (孤児名簿ガード用)
  * @param {Array} params.properties - properties (keyboxSend.enabled 判定用)
  * @param {string} params.todayStr - "YYYY-MM-DD"
+ * @param {string} [params.appUrl] - v2 アプリのベースURL (finding.url 付与用)
  * @returns {{findings: Array}}
  */
-function collectKeyboxFindings({ registrations = [], bookings = [], properties = [], todayStr } = {}) {
+function collectKeyboxFindings({ registrations = [], bookings = [], properties = [], todayStr, appUrl } = {}) {
   const findings = [];
   const propById = new Map((properties || []).filter(Boolean).map((p) => [p.id, p]));
   const bookById = new Map((bookings || []).filter(Boolean).map((b) => [b.id, b]));
@@ -333,6 +355,7 @@ function collectKeyboxFindings({ registrations = [], bookings = [], properties =
       message: confirmed
         ? `⚠️ ${g.guestName || "ゲスト"}様(本日CI)はOKボタン押下済みですが、キーボックス情報がまだ送信されていません。`
         : `⚠️ ${g.guestName || "ゲスト"}様(本日CI)はOKボタン未押下のため、キーボックス情報が送信されていません。`,
+      url: guestUrl_(appUrl, g.id),
     });
   }
 
@@ -349,9 +372,10 @@ function collectKeyboxFindings({ registrations = [], bookings = [], properties =
  * @param {Array} [params.properties] - properties (channelOverrides.roster_remind.enabled 判定用)
  * @param {string} params.todayStr - "YYYY-MM-DD"
  * @param {number} [params.warnDays=3]
+ * @param {string} [params.appUrl] - v2 アプリのベースURL (finding.url 付与用)
  * @returns {{findings: Array}}
  */
-function collectRosterFindings({ bookings = [], properties = [], todayStr, warnDays = 3 } = {}) {
+function collectRosterFindings({ bookings = [], properties = [], todayStr, warnDays = 3, appUrl } = {}) {
   const findings = [];
   const limitStr = addDaysStr_(todayStr, warnDays);
   const rosterEnabledIds = new Set(
@@ -377,6 +401,7 @@ function collectRosterFindings({ bookings = [], properties = [], todayStr, warnD
       ota: null,
       detail: { bookingId: b.id, guestName: b.guestName, checkIn: b.checkIn, daysUntil },
       message: `⚠️ ${b.guestName || "ゲスト"}様: CIまであと${daysUntil}日(${b.checkIn})ですが、名簿が未提出です。`,
+      url: bookingUrl_(appUrl, b.id),
     });
   }
 
@@ -404,19 +429,25 @@ function buildPropertyReport(propertyName, findings, todayStr) {
 
   const lines = [`📋 ${propertyName} — ${todayStr} 朝点検`, ""];
 
+  // 各項目の直下に該当予約/名簿へのディープリンクを 🔗 行として添付する (url が無い項目は本文のみ)
+  const pushItem = (f) => {
+    lines.push(`・${f.message}`);
+    if (f.url) lines.push(`　🔗 ${f.url}`);
+  };
+
   if (critical.length > 0) {
     lines.push(`🚨 突合差分・要緊急確認 (${critical.length}件)`);
-    for (const f of critical) lines.push(`・${f.message}`);
+    for (const f of critical) pushItem(f);
     lines.push("");
   }
   if (warning.length > 0) {
     lines.push(`⚠️ 要確認 (${warning.length}件)`);
-    for (const f of warning) lines.push(`・${f.message}`);
+    for (const f of warning) pushItem(f);
     lines.push("");
   }
   if (other.length > 0) {
     lines.push(`ℹ️ その他 (${other.length}件)`);
-    for (const f of other) lines.push(`・${f.message}`);
+    for (const f of other) pushItem(f);
     lines.push("");
   }
 

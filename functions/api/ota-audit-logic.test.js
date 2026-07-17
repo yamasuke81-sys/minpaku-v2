@@ -509,3 +509,65 @@ describe("buildPropertyReport", () => {
     assert.ok(typeof text === "string");
   });
 });
+
+describe("finding.url (ディープリンク付与)", () => {
+  const APP = "https://v2-5-relay.web.app";
+
+  test("roster_missing: 予約詳細モーダルのディープリンク", () => {
+    const props = [{ id: PID, channelOverrides: { roster_remind: { enabled: true } } }];
+    const bookings = [{ id: "bk1", propertyId: PID, propertyName: "宿A", status: "confirmed", checkIn: "2026-07-19" }];
+    const { findings } = collectRosterFindings({ bookings, properties: props, todayStr: "2026-07-18", appUrl: APP });
+    assert.strictEqual(findings.length, 1);
+    assert.strictEqual(findings[0].url, `${APP}/#/dashboard?bookingId=bk1`);
+  });
+
+  test("keybox_unsent: 名簿詳細 (#/guests?id=) のリンク", () => {
+    const props = [{ id: PID, name: "宿A", keyboxSend: { enabled: true } }];
+    const regs = [{ id: "g1", propertyId: PID, guestName: "ゲスト", checkIn: "2026-07-18", status: "submitted" }];
+    const { findings } = collectKeyboxFindings({ registrations: regs, bookings: [], properties: props, todayStr: "2026-07-18", appUrl: APP });
+    assert.strictEqual(findings.length, 1);
+    assert.strictEqual(findings[0].url, `${APP}/#/guests?id=g1`);
+  });
+
+  test("guest_count_mismatch: 名簿リンク優先 / missing_in_ota: 予約リンク / missing_in_v2: scheduleリンク", () => {
+    const reservations = [
+      { ota: "airbnb", propertyId: PID, propertyName: "宿A", code: "HMAAA", cancelled: false, checkIn: "2026-07-20", checkOut: "2026-07-22", guests: 5 },
+      { ota: "airbnb", propertyId: PID, propertyName: "宿A", code: "HMBBB", cancelled: false, checkIn: "2026-07-25", checkOut: "2026-07-26", guests: 2 },
+    ];
+    const bookings = [
+      { id: "bk1", propertyId: PID, source: "Airbnb", status: "confirmed", checkIn: "2026-07-20", checkOut: "2026-07-22", notes: "HMAAA" },
+      { id: "bk2", propertyId: PID, source: "Airbnb", status: "confirmed", checkIn: "2026-07-28", checkOut: "2026-07-29", notes: "" },
+    ];
+    const regs = [{ id: "g9", bookingId: "bk1", propertyId: PID, status: "submitted", guestCount: 4, guestCountInfants: 0 }];
+    const { findings } = reconcileOtaSnapshot({
+      reservations, bookings, registrations: regs,
+      auditedTargets: [{ propertyId: PID, ota: "airbnb" }],
+      todayStr: "2026-07-18", appUrl: APP,
+    });
+    const gc = findings.find((f) => f.type === "guest_count_mismatch");
+    assert.ok(gc);
+    assert.strictEqual(gc.url, `${APP}/#/guests?id=g9`);
+    const mo = findings.find((f) => f.type === "missing_in_ota");
+    assert.ok(mo);
+    assert.strictEqual(mo.url, `${APP}/#/dashboard?bookingId=bk2`);
+    const mv = findings.find((f) => f.type === "missing_in_v2");
+    assert.ok(mv);
+    assert.strictEqual(mv.url, `${APP}/#/schedule`);
+  });
+
+  test("appUrl 未指定なら url は null (後方互換)", () => {
+    const props = [{ id: PID, channelOverrides: { roster_remind: { enabled: true } } }];
+    const bookings = [{ id: "bk1", propertyId: PID, status: "confirmed", checkIn: "2026-07-19" }];
+    const { findings } = collectRosterFindings({ bookings, properties: props, todayStr: "2026-07-18" });
+    assert.strictEqual(findings[0].url, null);
+  });
+
+  test("buildPropertyReport: url がある項目の直下に 🔗 行が入る", () => {
+    const report = buildPropertyReport("宿A", [
+      { type: "roster_missing", message: "⚠️ テスト様: 名簿未提出", url: `${APP}/#/dashboard?bookingId=bk1` },
+      { type: "parse_error", message: "ℹ️ 解析エラー", url: null },
+    ], "2026-07-18");
+    assert.ok(report.includes("・⚠️ テスト様: 名簿未提出\n　🔗 https://v2-5-relay.web.app/#/dashboard?bookingId=bk1"));
+    assert.ok(!report.includes("🔗 null"));
+  });
+});

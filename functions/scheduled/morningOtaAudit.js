@@ -16,6 +16,7 @@
  */
 const admin = require("firebase-admin");
 const { nowJst, addDays } = require("../utils/dateUtils");
+const { getAppUrl } = require("../utils/appUrl");
 const {
   notifyByKey,
   sendDiscord_,
@@ -51,6 +52,8 @@ module.exports = async function morningOtaAudit() {
   console.log(`[morningOtaAudit] 起動 JST=${todayStr}`);
 
   try {
+    // 通知に添付するディープリンクの基点URL (v2-5-relay固定運用。openExternalBrowser=1 は送信側で自動付与)
+    const appUrl = await getAppUrl(db);
     // ---- 1) スナップショット取得 ----
     const snapDoc = await db.collection("otaCalendarSnapshots").doc(todayStr).get();
     const snapshot = snapDoc.exists ? snapDoc.data() : null;
@@ -108,10 +111,10 @@ module.exports = async function morningOtaAudit() {
       const auditedTargets = Array.isArray(snapshot.auditedTargets)
         ? snapshot.auditedTargets.filter((t) => t && activePropertyIds.has(t.propertyId))
         : undefined;
-      reconcileFindings = reconcileOtaSnapshot({ reservations, bookings, registrations, auditedTargets, todayStr }).findings;
+      reconcileFindings = reconcileOtaSnapshot({ reservations, bookings, registrations, auditedTargets, todayStr, appUrl }).findings;
     }
-    const keyboxFindings = collectKeyboxFindings({ registrations, bookings, properties: activeProps, todayStr }).findings;
-    const rosterFindings = collectRosterFindings({ bookings, properties: activeProps, todayStr, warnDays: ROSTER_WARN_DAYS }).findings;
+    const keyboxFindings = collectKeyboxFindings({ registrations, bookings, properties: activeProps, todayStr, appUrl }).findings;
+    const rosterFindings = collectRosterFindings({ bookings, properties: activeProps, todayStr, warnDays: ROSTER_WARN_DAYS, appUrl }).findings;
 
     const allFindings = [...reconcileFindings, ...keyboxFindings, ...rosterFindings];
 
