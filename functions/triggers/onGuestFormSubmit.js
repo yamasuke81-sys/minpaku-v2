@@ -28,6 +28,28 @@ module.exports = async function onGuestFormSubmit(event) {
   const docRef = event.data.ref;
   const guestId = event.params?.guestId || docRef.id;
 
+  // === 0. propertyId 実在チェック ===
+  // フォームURLの ?propertyId= はゲストが手打ちで写し間違えることがある
+  // (2026-07-19 宿小町: 1文字違いのIDで保存され名簿ドットが赤のままになった事故)。
+  // 実在しない物件IDは空にして続行し、後続の照合で予約が見つかり次第
+  // 予約側の propertyId を書き戻して自動治癒させる。
+  // 一時エラーで実在確認できない場合は誤削除を避けるためそのまま通す。
+  let invalidPropertyId = null;
+  if (data.propertyId) {
+    if (!/^[\w-]+$/.test(String(data.propertyId))) {
+      invalidPropertyId = data.propertyId;
+    } else {
+      try {
+        const pCheck = await db.collection("properties").doc(String(data.propertyId)).get();
+        if (!pCheck.exists) invalidPropertyId = data.propertyId;
+      } catch (e) { console.warn("[roster] propertyId 実在チェック失敗(そのまま続行):", e.message); }
+    }
+    if (invalidPropertyId) {
+      data.propertyId = "";
+      console.warn(`[roster] 実在しない propertyId "${invalidPropertyId}" を検出 → 空にして照合続行 (guestId=${guestId})`);
+    }
+  }
+
   // === 1. editToken生成・ステータス設定 (有効期限30日) ===
   const editToken = crypto.randomBytes(32).toString("hex");
   const editTokenExpiresAt = admin.firestore.Timestamp.fromMillis(
@@ -42,6 +64,8 @@ module.exports = async function onGuestFormSubmit(event) {
     editTokenExpiresAt,
     status: "submitted",
     keyboxConfirmToken,
+    // 無効な propertyId は除去し、元の値を監査用に残す
+    ...(invalidPropertyId ? { propertyId: "", propertyIdInvalid: invalidPropertyId } : {}),
   });
 
   const guestName = data.guestName || "名前不明";
@@ -465,7 +489,11 @@ module.exports = async function onGuestFormSubmit(event) {
             if (data.phone) smUpdate.phone = data.phone;
             if (data.email) smUpdate.email = data.email;
             await db.collection("bookings").doc(sm.id).update(smUpdate);
-            await docRef.update({ bookingId: sm.id });
+            // propertyId が空(未指定/無効ID除去済)なら予約側の値を書き戻す (自動治癒)
+            await docRef.update({
+              bookingId: sm.id,
+              ...(data.propertyId ? {} : { propertyId: sm.propertyId || "" }),
+            });
 
             const smDetail =
               `名簿のCI(${rosterCheckIn})に完全一致する予約はありませんでしたが、` +
@@ -603,7 +631,17 @@ module.exports = async function onGuestFormSubmit(event) {
       if (rosterTail_.length === 4 && digits_(b.phone).slice(-4) === rosterTail_) return true;
       return false;
     };
-    const freeMatch = bookingsSnap.docs.find((d) => isOwnOrFree_(d.data()));
+    // 名簿と同一連絡先(メール/電話下4桁、iCal notes の下4桁)の予約か (=本人の実予約シグナル)
+    const contactMatch_ = (b) => {
+      const noteTail = (String(b.notes || "").match(/Last 4 Digits\)?:?\s*(\d{4})/) || [])[1] || "";
+      if (rosterEmail_ && norm_(b.email) === rosterEmail_) return true;
+      if (rosterTail_.length === 4 && (digits_(b.phone).slice(-4) === rosterTail_ || noteTail === rosterTail_)) return true;
+      return false;
+    };
+    // propertyId 空(未指定/無効ID除去済)の場合は物件横断の checkIn 照合になるため、
+    // 同一連絡先の予約を優先して別物件の同日予約への誤紐付けを防ぐ
+    const freeMatches = bookingsSnap.docs.filter((d) => isOwnOrFree_(d.data()));
+    const freeMatch = freeMatches.find((d) => contactMatch_(d.data())) || freeMatches[0] || null;
 
     if (!freeMatch) {
       // 全マッチ予約が別ゲストに紐付き済み → 衝突。上書きせず通知し、本人の実予約候補を提示。
@@ -619,18 +657,12 @@ module.exports = async function onGuestFormSubmit(event) {
       const todayY = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
       const dd = (a, b) => Math.round((new Date(`${a}T00:00:00Z`) - new Date(`${b}T00:00:00Z`)) / 86400000);
       // ★=この名簿と同一連絡先(メール/電話下4桁、iCal notes の下4桁も照合)の予約=本人の実予約
-      const idMatch = (b) => {
-        const noteTail = (String(b.notes || "").match(/Last 4 Digits\)?:?\s*(\d{4})/) || [])[1] || "";
-        if (rosterEmail_ && norm_(b.email) === rosterEmail_) return true;
-        if (rosterTail_.length === 4 && (digits_(b.phone).slice(-4) === rosterTail_ || noteTail === rosterTail_)) return true;
-        return false;
-      };
       const cands = confirmedForCollision
         .filter((b) => b.checkIn && (b.checkOut || b.checkIn) >= todayY && b.id !== occupantId)
-        .sort((a, b) => (idMatch(b) ? 1 : 0) - (idMatch(a) ? 1 : 0) || Math.abs(dd(a.checkIn, rosterCheckIn)) - Math.abs(dd(b.checkIn, rosterCheckIn)))
+        .sort((a, b) => (contactMatch_(b) ? 1 : 0) - (contactMatch_(a) ? 1 : 0) || Math.abs(dd(a.checkIn, rosterCheckIn)) - Math.abs(dd(b.checkIn, rosterCheckIn)))
         .slice(0, 8);
       const candLines = cands.length
-        ? cands.map((b) => `${idMatch(b) ? "★" : "・"}${b.guestName || "(名前なし)"} / ${b.checkIn} → ${b.checkOut || "?"} / ${b.source || "?"}`).join("\n")
+        ? cands.map((b) => `${contactMatch_(b) ? "★" : "・"}${b.guestName || "(名前なし)"} / ${b.checkIn} → ${b.checkOut || "?"} / ${b.source || "?"}`).join("\n")
         : "（候補予約は見つかりませんでした）";
       const collisionDetail =
         manualEntryNote +
@@ -744,7 +776,11 @@ module.exports = async function onGuestFormSubmit(event) {
     console.log(`booking補完完了: ${bookingId}`);
 
     // 処理C: guestRegistrationsにbookingIdを紐付け
-    await docRef.update({ bookingId });
+    // propertyId が空(未指定/無効ID除去済)なら予約側の値を書き戻す (自動治癒)
+    await docRef.update({
+      bookingId,
+      ...(data.propertyId ? {} : { propertyId: booking.propertyId || "" }),
+    });
     console.log(`guestRegistrations bookingId記録完了: ${bookingId}`);
 
   } catch (e) {
