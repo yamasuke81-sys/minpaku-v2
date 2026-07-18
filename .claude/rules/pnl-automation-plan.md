@@ -389,6 +389,15 @@ Workflow audit(65エージェント/54 findings→adversarial verify通過27件)
 - 認識訂正: Cloud Scheduler `firebase-schedule-pnlMonthlyImport` は **毎月6日 05:00 JST** (schedule `0 5 6 * *`)。8/2 は yadozei CSV dispatcher の実取得日で pnl バッチではない。
 - 全154テスト緑。
 
+## DONE(2026-07-16 楽天でんき電気を「月次1回」ルーチンへ分離)
+やますけ判断「MFは毎日でOK・楽天でんきだけ月1回」を実装。背景=**楽天でんきの login.account.rakuten.com/session/upgrade セッションは短命(実測: ログイン後1時間以内に失効を再現)**で、いつ読むにしても毎回手動再ログインが要る → 読む回数を月1に最小化するのが最適。
+- **検針日を実データで特定**(月別API `https://api.energy.rakuten.co.jp/mypage/v1/usages/denki/{cn}/monthly?target_year=YYYY` を生CDP=ページ直結WebSocket+Runtime.evaluateで直読み): 宿小町(8070379292)の検針日は毎月**11〜14日**、金額確定(amount!=null/status=2)はその数日後 → **翌月1日には前月分が確実に確定**。契約ごとに検針日は違う(呉市清水8076857892=**月末**/音戸8087608092=**月初**/西川原石8071429292=**月初**)が、PnL取込対象は宿小町のみ。
+- **★重要バグ発見・解消**: 月別APIの実レスポンスは `{usages:[...]}`(オブジェクト包み・配列直ではない)。旧 mf-komachi-utilities は `Array.isArray(j)?j:[]` で**空振り=楽天でんき電気を何も取り込めていなかった**(2026-07使用分が確定する頃から顕在化する潜在バグ)。分離時に正しい `{usages}` 解釈で新実装。
+- **新ルーチン `minpaku-v2/scripts/rakuten-denki-monthly.mjs`**(command型・依存なし・生CDP): 毎朝**08:00**発火(routines.json `rakuten-denki-monthly` 登録済)。スクリプトが**日付ゲート(翌月1〜7日)+取得済みskip+短命セッション対策**を内蔵。前月分が未取得なら → ログイン済み: 取得しNOTIFY計上 / 未ログイン: ログイン画面を前面待機させ #経理へ「ログインして『楽天取り込み』と返信」を**1日1回**プロンプト。やますけがログイン後「楽天取り込み」返信 → 経理ペルソナ(discord-secretary-resident.mjs)が `node rakuten-denki-monthly.mjs --capture` を実行し**その場で即取得**(短命セッションが生きているうちに拾う=NOTIFYは終了時送信のためポーリング常駐は不可、この方式にした)。冪等=state(`~/.claude/channels/discord/rakuten-denki-state.json` の imported/promptedYmd)+ import-external-utility の sourceId=`rakuten:{cn}:{ym}`。フラグ: `--capture`(ゲート無視で即取得) `--check`(疎通/確定状況表示のみ) `--dry` `--force` `--month YYYY-MM`。
+- **`mf-komachi-utilities.mjs` から電気ブロックを撤去**(ガス/固定電話/水道は毎日のまま=MFは持続セッションで毎日読んでOK)。ヘッダ/定数(DENKI_KOMACHI削除)も整理。
+- **若草**の楽天でんき開通後は rakuten-denki-monthly.mjs の `CONTRACTS` に1行追加で同枠に乗る(pid=ZXW6wdpnBFk1azQ87KXQ)。
+- discord-secretary(PM2)再起動で新ルーチン+経理ペルソナ反映済(起動ログで `楽天でんき 月次計上…@08:00` ロード確認)。`--check` スモークテスト緑(未ログイン=session/upgrade を正しく検出)。**初回実戦=8/1〜7に2026-07使用分**(やますけが1回ログイン→「楽天取り込み」返信で計上)。
+
 ## NEXT
 1. **8/6 05:00 JST の月次自動バッチ(初回本番稼働)を見届ける(★時限性)**: pnlMonthlyImport が発火→7月分をfullloop→承認通知→やますけが承認画面で確認→approve→送付。エネパル(the Terrace 8月クレカ明細=SAISON_2608.pdf)の自動計上も同時。
 2. **Booking.com セッション再ログイン(★やますけPC作業、8/1深夜まで)**: 現在 Booking.com=`logged_out`(2026-07-12 実測、Airbnb/やどぜいは ok)。listener 自体は Hassac01 で lastSeenAt 生存中(PM2稼働中)。

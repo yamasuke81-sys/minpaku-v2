@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// 宿小町の光熱・通信費を MF / 楽天でんきマイページから自動計上する(毎日実行・冪等)。
+// 宿小町の光熱・通信費(ガス/固定電話/水道)を MF から自動計上する(毎日実行・冪等)。
+//   ※電気(楽天でんき)は別ルーチン rakuten-denki-monthly.mjs へ分離済(月次・下記2026-07-16の分離理由参照)。
 //
 //   使い方: node scripts/mf-komachi-utilities.mjs [--dry]
 //
 //   対象(2026-07 使用分以降のみ。過去月はPDF経由で計上済みのため触らない):
 //     1. ガス(ニシモトヤ):      MF 楽天ハープの引落「SMBC(ニシモトヤ」→ 使用月=引落月の前月 → 水道光熱費
-//     2. 電気(楽天でんき):      マイページAPI /usages/denki/8070379292/monthly → 月ラベル=使用月 → 水道光熱費
 //     3. 固定電話(NTTファイナンス): MF 楽天第三の引落 → 使用月=引落月 → 固定電話
 //        ※楽天フーガ側で NTTファイナンス を見つけた場合は計上せず NOTIFY のみ(支払方法の揺れ検知)
 //     4. 水道(広島市水道):      MF ゆうちょ高陽の引落「水道 ヒロシマシ」(隔月) → 引落月と前月に÷2月割 → 水道光熱費
@@ -13,7 +13,7 @@
 //
 //   計上先: v2 API /pnl/{小町}/{ym}/import-external-utility (冪等キー=sourceId、overridden保護はサーバ側)
 //   通知: 計上発生時とエラー時のみ NOTIFY 行(常駐bun command型が #経理 へ)
-//   前提: debug Chrome(CDP:9222) に MF・楽天でんきのログインセッション。楽天でんき切れは NOTIFY で再ログイン依頼。
+//   前提: debug Chrome(CDP:9222) に MF のログインセッション(MFは持続=毎日読んでOK)。
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -28,7 +28,6 @@ const R3_HASH = "64SwijL8nXXCHReKyZpAbA";     // MF ㊇楽天第3(八朔)
 const YUCHO_HASH = "k5ed6gnMzjChkCsMJ9WJXQ";  // MF 恭ゆうちょ高陽(川原石ラベル) — 広島市水道=小町の引落元
 const FUGA_NAME = /フーガ|ﾌｰｶﾞ/;
 const BANK_SERVICE = "1331";
-const DENKI_KOMACHI = "8070379292";           // 楽天でんき エクセリア小町704
 const START_YM = "2026-07";                   // これより前の使用月は計上しない(PDF計上済み)
 
 const DRY = process.argv.includes("--dry");
@@ -186,35 +185,10 @@ const ymOfDate = (d) => (String(d).match(/^(\d{4})-(\d{1,2})/) ? `${RegExp.$1}-$
       }
     } catch {}
 
-    // ---- 2. 電気(楽天でんきマイページAPI) ----
-    try {
-      await page.goto("https://mypage.energy.rakuten.co.jp/contracts", { waitUntil: "domcontentloaded", timeout: 30000 });
-      await page.waitForTimeout(2500);
-      if (/login\.account\.rakuten|sign_in/.test(page.url())) {
-        notices.push("⚠️ 楽天でんきマイページのセッション切れ。debug Chrome で再ログインしてください(宿小町の電気自動計上が止まっています)");
-      } else {
-        const years = [...new Set(SCAN.map((ym) => ym.split("-")[0]))];
-        for (const y of years) {
-          const j = await page.evaluate(async ([cn, yy]) => {
-            const r = await fetch(`https://api.energy.rakuten.co.jp/mypage/v1/usages/denki/${cn}/monthly?target_year=${yy}`, { credentials: "include" });
-            if (!r.ok) throw new Error("denki api " + r.status);
-            return r.json();
-          }, [DENKI_KOMACHI, y]);
-          for (const m of (Array.isArray(j) ? j : [])) {
-            if (m.amount == null || !(m.amount > 0)) continue;
-            const usage = `${y}-${String(m.month).padStart(2, "0")}`;
-            if (usage < START_YM || !SCAN.includes(usage)) continue;
-            (perYm[usage] = perYm[usage] || []).push({
-              sourceId: `rakuten:${DENKI_KOMACHI}:${usage}`,
-              description: `電気(楽天でんき小町) ${usage}分 ${m.total_usage}kWh${m.period ? ` ${m.period.start_date}〜${m.period.end_date}` : ""}`.slice(0, 90),
-              amount: Math.round(m.amount), date: m.period?.end_date || usage, category: "水道光熱費", vendor: "楽天でんき",
-            });
-          }
-        }
-      }
-    } catch (e) {
-      notices.push(`⚠️ 楽天でんきマイページ読取エラー: ${e.message}`);
-    }
+    // ---- 電気(楽天でんき)は月次ルーチン rakuten-denki-monthly.mjs へ分離(2026-07-16) ----
+    //   理由: 楽天でんきはステップアップ認証(session/upgrade)のセッションが短命(実測: ログイン後1時間以内に失効)で、
+    //   いつ読むにしても毎回手動再ログインが要る。よって日次で読まず「翌月1〜7日に前月分が確定したら1回だけ」取得する
+    //   方式へ移行(手動ログインの手間を月1回に最小化)。このルーチンではガス/固定電話/水道(MF・持続セッション)のみ扱う。
   } finally {
     await page.close();
     await browser.close();

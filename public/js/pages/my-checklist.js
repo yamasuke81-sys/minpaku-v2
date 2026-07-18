@@ -17,7 +17,7 @@ const MyChecklistPage = {
   // 上位タブ: schedule / checklist / photos / laundry / restock
   activeTopTab: "schedule",
   // 清掃チェックリストタブを開く前に「ビフォー写真の撮影は完了したか」を確認済みか
-  // (この清掃セッション中に「はい」を選んだら再確認しない)
+  // (この清掃セッション中に「はい」または「後で撮影する」を選んだら再確認しない)
   _beforePhotoConfirmed: false,
   unsubscribe: null,
   saveTimers: {},
@@ -896,12 +896,18 @@ const MyChecklistPage = {
             title: "清掃前チェック",
             okLabel: "はい",
             cancelLabel: "いいえ",
+            extraLabel: "後で撮影する",
             okClass: "btn-primary",
           });
-          if (done) {
+          if (done === true) {
             // はい → チェックリストへ進む (この清掃中は再確認しない)
             this._beforePhotoConfirmed = true;
             this.activeTopTab = "checklist";
+          } else if (done === "extra") {
+            // 後で撮影する → 撮影は保留のままチェックリストを閲覧できる (この清掃中は再確認しない)
+            this._beforePhotoConfirmed = true;
+            this.activeTopTab = "checklist";
+            showToast("後で撮影", "ビフォー写真を忘れずに撮影してください", "info");
           } else {
             // いいえ → 写真撮影タブへ移動して撮影を促す
             this.activeTopTab = "photos";

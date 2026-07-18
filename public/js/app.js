@@ -721,13 +721,16 @@ function _escHtml(s) { const d = document.createElement("div"); d.textContent = 
 // 全ページ共通の HTML エスケープ (各ページのコピペ定義は本関数へ委譲済み)
 window.escapeHtml = _escHtml;
 
-/** Promise<boolean> を返す確認モーダル。OK=true / キャンセル=false */
+/** Promise<boolean> を返す確認モーダル。OK=true / キャンセル=false
+ *  opts.extraLabel を指定すると第3ボタンを表示し、押下時は "extra" で resolve する */
 function showConfirm(message, opts = {}) {
   return new Promise((resolve) => {
     const title = opts.title || "確認";
     const okLabel = opts.okLabel || "OK";
     const cancelLabel = opts.cancelLabel || "キャンセル";
     const okClass = opts.okClass || "btn-primary";
+    const extraLabel = opts.extraLabel || "";
+    const extraClass = opts.extraClass || "btn-outline-primary";
     const modalId = `confirmModal_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
     const html = `
       <div class="modal fade" id="${modalId}" tabindex="-1">
@@ -740,6 +743,7 @@ function showConfirm(message, opts = {}) {
             <div class="modal-body" style="white-space:pre-wrap;">${_escHtml(message)}</div>
             <div class="modal-footer">
               <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">${_escHtml(cancelLabel)}</button>
+              ${extraLabel ? `<button type="button" class="btn ${extraClass}" data-role="extra">${_escHtml(extraLabel)}</button>` : ""}
               <button type="button" class="btn ${okClass}" data-role="ok">${_escHtml(okLabel)}</button>
             </div>
           </div>
@@ -750,6 +754,8 @@ function showConfirm(message, opts = {}) {
     const modal = new bootstrap.Modal(el);
     let confirmed = false;
     el.querySelector('[data-role="ok"]').addEventListener("click", () => { confirmed = true; modal.hide(); });
+    const extraBtn = el.querySelector('[data-role="extra"]');
+    if (extraBtn) extraBtn.addEventListener("click", () => { confirmed = "extra"; modal.hide(); });
     el.addEventListener("hidden.bs.modal", () => { resolve(confirmed); el.remove(); });
     modal.show();
   });
