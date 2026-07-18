@@ -36,7 +36,7 @@ import os from "node:os";
 import https from "node:https";
 
 // ================== 定数 ==================
-const VERSION = "0.3.2"; // 0.3.2: やどぜい施設切替オーバーレイの消滅待ち+インポートボタン出現待ち (切替直後の即時判定失敗を修正)
+const VERSION = "0.3.3"; // 0.3.3: 「復元しますか?」バブル抑止 + ログインモードは3サイトのタブのみ (about:blank を閉じる)
 const LOG_PREFIX = "[yadozei-listener]";
 
 const USER_DATA_DIR = path.join(os.homedir(), ".yadozei-playwright-chrome");
@@ -94,7 +94,9 @@ async function launchCtx() {
   const baseOpts = {
     headless: PLAYWRIGHT_HEADLESS,
     viewport: null,
-    args: ["--start-maximized", "--disable-blink-features=AutomationControlled"],
+    // --hide-crash-restore-bubble: pm2 停止等の強制終了後に出る「復元しますか?」バブルを抑止
+    // (復元を押すと過去セッションの about:blank タブが積み重なるため)
+    args: ["--start-maximized", "--disable-blink-features=AutomationControlled", "--hide-crash-restore-bubble"],
     ignoreDefaultArgs: ["--enable-automation"],
     acceptDownloads: true,
   };
@@ -2136,6 +2138,10 @@ if (LOGIN_MODE) {
       await p.goto(s.url, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch((e) => {
         console.warn(`${LOG_PREFIX} ${s.name} を開けませんでした: ${e.message}`);
       });
+    }
+    // 初期タブ+キープアライブの about:blank を閉じ、3サイトのタブだけにする
+    for (const p of ctx.pages()) {
+      if (p.url() === "about:blank") await p.close().catch(() => {});
     }
     console.log(`${LOG_PREFIX} ================================================`);
     console.log(`${LOG_PREFIX} 3サイトのタブを開きました。各タブでログインしてください:`);
