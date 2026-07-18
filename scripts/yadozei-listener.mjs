@@ -36,7 +36,7 @@ import os from "node:os";
 import https from "node:https";
 
 // ================== 定数 ==================
-const VERSION = "0.3.0"; // 0.3.0: 夜間カレンダー監査 calendar_audit 追加(今後30日のOTA実予約→otaCalendarSnapshots、毎日2:30 JST)
+const VERSION = "0.3.1"; // 0.3.1: 月次Airbnb絞込を複数リスティング対応 (auditListingNames を月次 filterAirbnbCsvByListing にも適用)
 const LOG_PREFIX = "[yadozei-listener]";
 
 const USER_DATA_DIR = path.join(os.homedir(), ".yadozei-playwright-chrome");
@@ -495,26 +495,39 @@ function parseCsvLine(line) {
   return out;
 }
 
-// Airbnb 純正CSVを「リスティング」列が listingName を含む行だけに絞る (形式は無加工=行を減らすだけ)。
-// 1宿が複数Airbnbリスティングでも、共通する名前部分でまとめて対象にできる。
-function filterAirbnbCsvByListing(csvText, listingName) {
-  if (!listingName) return { csv: csvText, total: 0, kept: 0, note: "listingName未設定=全行" };
+// Airbnb 純正CSVを「リスティング」列がいずれかのリスティング名と一致(双方向部分一致)する行だけに絞る
+// (形式は無加工=行を減らすだけ)。1宿=複数Airbnbリスティング (宿小町A/B等) は names に複数渡す。
+function filterAirbnbCsvByListing(csvText, listingNames) {
+  const keys = (Array.isArray(listingNames) ? listingNames : [listingNames])
+    .map((s) => String(s || "").trim())
+    .filter(Boolean);
+  if (!keys.length) return { csv: csvText, total: 0, kept: 0, note: "リスティング名未設定=全行" };
   const lines = csvText.split(/\r?\n/);
   if (lines.length < 2) return { csv: csvText, total: 0, kept: 0 };
   const header = lines[0];
   const cols = parseCsvLine(header);
   const idx = cols.findIndex((c) => c.replace(/"/g, "").includes("リスティング"));
   if (idx < 0) return { csv: csvText, total: lines.length - 1, kept: lines.length - 1, note: "リスティング列不明=全行" };
-  const key = listingName.trim();
   const out = [header];
   let total = 0, kept = 0;
   for (let i = 1; i < lines.length; i++) {
     if (!lines[i].trim()) continue;
     total++;
     const listing = (parseCsvLine(lines[i])[idx] || "").trim();
-    if (listing.includes(key) || key.includes(listing)) { out.push(lines[i]); kept++; }
+    if (keys.some((k) => listingMatches_(listing, k))) { out.push(lines[i]); kept++; }
   }
   return { csv: out.join("\r\n") + "\r\n", total, kept };
+}
+
+// 物件の yadozei.airbnb 設定から対象リスティング名の配列を解決する
+// (auditListingNames=1宿複数リスティング用の配列 > listingName 単体)。月次取得と夜間監査で共用。
+function resolveAirbnbListingNames_(cfg, fallbackName) {
+  const c = cfg || {};
+  const names =
+    Array.isArray(c.auditListingNames) && c.auditListingNames.filter(Boolean).length
+      ? c.auditListingNames
+      : [c.listingName || fallbackName || ""];
+  return names.map((s) => String(s || "").trim()).filter(Boolean);
 }
 
 // ================== Airbnb ハンドラ ==================
@@ -553,7 +566,7 @@ async function fetchAirbnbCsvRange(ctx, jobId, fromD, toD) {
 
     // ★ リスティング絞り込みは Airbnb UI では行わない (特殊文字/複数リスティングで不安定なため)。
     // 期間(日付)だけ Airbnb でフィルタして全リスティングを出力し、ダウンロード後に
-    // listener 側で CSV の「リスティング」列を listingName で行フィルタする (形式は無加工)。
+    // listener 側で CSV の「リスティング」列をリスティング名(複数可)で行フィルタする (形式は無加工)。
 
     // 期間: From カレンダーを開き、対象月の1日〜末日を範囲選択
     // From 欄の「From」は placeholder ではなくアクセシブル名なので getByRole で拾う
@@ -743,21 +756,23 @@ async function handleAirbnbCsv(job, ctx, jobId) {
   const [ty, tm] = yearMonth.split("-").map(Number);
   const lastDay = new Date(Date.UTC(ty, tm, 0)).getUTCDate();
 
-  // フィルタに使うリスティング名 (yadozei.airbnb.listingName 優先、params でも可)
+  // フィルタに使うリスティング名 (auditListingNames=複数リスティング対応 > listingName > params)
   const propSnap = await db.collection("properties").doc(propertyId).get();
-  const listingName =
-    (propSnap.exists && propSnap.data()?.yadozei?.airbnb?.listingName) || params?.listingName || "";
+  const airbnbCfg = (propSnap.exists && propSnap.data()?.yadozei?.airbnb) || {};
+  const listingNames = resolveAirbnbListingNames_(airbnbCfg, params?.listingName);
 
   const raw = await fetchAirbnbCsvRange(ctx, jobId, { y: ty, m: tm, d: 1 }, { y: ty, m: tm, d: lastDay });
 
   // リスティング列で行フィルタ (形式は無加工=元の行をそのまま残す)。全リスティング出力から対象宿のみ抽出。
   let csvText = raw;
-  if (listingName) {
+  if (listingNames.length) {
     try {
-      const f = filterAirbnbCsvByListing(raw, listingName);
+      const f = filterAirbnbCsvByListing(raw, listingNames);
       csvText = f.csv;
-      console.log(`${LOG_PREFIX} リスティング「${listingName.slice(0, 14)}…」で ${f.total}→${f.kept}行に絞込`);
-      if (f.kept === 0) console.warn(`${LOG_PREFIX} 該当行0件 — listingName が Airbnb の実リスティング名と一致しているか確認`);
+      console.log(
+        `${LOG_PREFIX} リスティング${listingNames.length}名「${listingNames.map((n) => n.slice(0, 14)).join("」「")}…」で ${f.total}→${f.kept}行に絞込`
+      );
+      if (f.kept === 0) console.warn(`${LOG_PREFIX} 該当行0件 — listingName/auditListingNames が Airbnb の実リスティング名と一致しているか確認`);
     } catch (e) {
       console.warn(`${LOG_PREFIX} CSV行フィルタ失敗 (元CSVのまま続行): ${e.message}`);
     }
@@ -1199,11 +1214,7 @@ async function handleCalendarAudit(job, ctx, jobId) {
     const y = p.yadozei || {};
     if (y.airbnb?.enabled === true) {
       // 監査用リスティング名: auditListingNames (1宿=複数リスティング用の配列) > listingName
-      const names = (
-        Array.isArray(y.airbnb.auditListingNames) && y.airbnb.auditListingNames.filter(Boolean).length
-          ? y.airbnb.auditListingNames
-          : [y.airbnb.listingName]
-      ).filter(Boolean);
+      const names = resolveAirbnbListingNames_(y.airbnb);
       if (names.length) airbnbProps.push({ id: d.id, name: p.name || d.id, listingNames: names });
     }
     if (y.booking?.enabled === true) {

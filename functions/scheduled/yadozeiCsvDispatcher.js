@@ -91,7 +91,14 @@ module.exports = async function yadozeiCsvDispatcher(event) {
 
         const listingId = ota === "airbnb" ? (cfg.listingId || "").trim() : "";
         const bookingPropertyId = ota === "booking" ? (cfg.propertyId || "").trim() : "";
-        if (ota === "airbnb" && !listingId) {
+        // Airbnb は listener 側の行フィルタに使う「リスティング名」があれば実行可能
+        // (listingId は取得処理では未使用のため必須にしない — 空のまま silent skip になる事故防止)
+        const airbnbListingNames = ota === "airbnb"
+          ? (Array.isArray(cfg.auditListingNames) && cfg.auditListingNames.filter(Boolean).length
+              ? cfg.auditListingNames.filter(Boolean)
+              : [String(cfg.listingName || "").trim()].filter(Boolean))
+          : [];
+        if (ota === "airbnb" && !airbnbListingNames.length) {
           skippedConfig++;
           continue;
         }

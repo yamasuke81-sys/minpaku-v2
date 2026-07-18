@@ -107,8 +107,13 @@ module.exports = function yadozeiApi(db) {
         let bookingPropertyId = "";
         if (o === "airbnb") {
           listingId = (cfg.listingId || "").trim();
-          if (!listingId) {
-            skipped.push({ ota: o, reason: "Airbnb リスティングIDが未設定です" });
+          // 取得処理で実際に使うのは「リスティング名」(listingName/auditListingNames)。
+          // listingId は未使用のため必須にしない (空のままエラーになる事故防止)
+          const listingNames = Array.isArray(cfg.auditListingNames) && cfg.auditListingNames.filter(Boolean).length
+            ? cfg.auditListingNames.filter(Boolean)
+            : [String(cfg.listingName || "").trim()].filter(Boolean);
+          if (!listingNames.length) {
+            skipped.push({ ota: o, reason: "Airbnb リスティング名 (listingName / auditListingNames) が未設定です" });
             continue;
           }
           kind = "airbnb_csv_fetch";
