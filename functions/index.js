@@ -536,15 +536,18 @@ exports.onChecklistTemplateUpdate = onDocumentUpdated(
 );
 
 // チェックリスト完了→シフト完了+通知
+// checklists は templateSnapshot 全文を含む大型doc。イベント1件≈276KB(before+after)が
+// スタッフのチェック操作バーストで同時多発するため 512MiB (2026-07-18 laundry側でOOM実測)
 exports.onChecklistComplete = onDocumentUpdated(
-  { document: "checklists/{checklistId}", region: "asia-northeast1" },
+  { document: "checklists/{checklistId}", region: "asia-northeast1", memory: "512MiB" },
   require("./triggers/onChecklistComplete")
 );
 
 // チェックリスト laundry フィールド変更→対応する通知 type を送信
 // (laundry_put_out / laundry_collected / laundry_stored)
+// 2026-07-18 に 256MiB で OOM (265MiB使用)。上と同じ大型イベントバースト要因のため 512MiB
 exports.onChecklistLaundryChange = onDocumentUpdated(
-  { document: "checklists/{checklistId}", region: "asia-northeast1" },
+  { document: "checklists/{checklistId}", region: "asia-northeast1", memory: "512MiB" },
   require("./triggers/onChecklistLaundryChange")
 );
 
