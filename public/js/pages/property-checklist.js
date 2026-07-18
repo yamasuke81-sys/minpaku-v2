@@ -1678,7 +1678,7 @@ const PropertyChecklistPage = {
     if (!wrap || !this.template) return;
     const photos = this.template.cameraSamplePhotos || [];
     const thumbs = photos.map((p, i) => `
-      <div style="position:relative;display:inline-block;margin:2px;">
+      <div class="pcl-camera-thumb" data-photo-idx="${i}" style="position:relative;display:inline-block;margin:2px;">
         <img src="${this.escapeHtml(p.url)}" alt="見本"
              style="width:60px;height:60px;object-fit:cover;border-radius:4px;cursor:pointer;border:1px solid #dee2e6;"
              data-pcl-camera-preview="${this.escapeHtml(p.url)}">
@@ -1700,9 +1700,9 @@ const PropertyChecklistPage = {
             </label>
           </div>
           <div class="small text-muted" style="font-size:11px;">
-            スタッフ画面のカメラタブ（写真撮影）の一番下に表示されます。カメラロールから複数選択で一括追加できます
+            スタッフ画面のカメラタブ（写真撮影）の一番下に表示されます。カメラロールから複数選択で一括追加できます。写真はドラッグ（スマホは長押し）で並び替えできます
           </div>
-          ${thumbs ? `<div class="d-flex flex-wrap mt-1">${thumbs}</div>` : ""}
+          ${thumbs ? `<div class="d-flex flex-wrap mt-1" id="pclCameraThumbs">${thumbs}</div>` : ""}
           <div class="small text-muted d-none" id="pclCameraUploadStatus"></div>
         </div>
       </div>
@@ -1721,6 +1721,44 @@ const PropertyChecklistPage = {
         if (files.length) this._handleCameraSampleFiles(files);
       });
     }
+    this._setupCameraSampleSortable();
+  },
+
+  // === カメラタブ見本写真の D&D 並び替え ===
+  _setupCameraSampleSortable() {
+    if (typeof Sortable === "undefined") return;
+    const thumbsEl = document.getElementById("pclCameraThumbs");
+    if (this._cameraSampleSortable) {
+      try { this._cameraSampleSortable.destroy(); } catch {}
+      this._cameraSampleSortable = null;
+    }
+    if (!thumbsEl) return;
+    this._cameraSampleSortable = Sortable.create(thumbsEl, {
+      animation: 150,
+      draggable: ".pcl-camera-thumb",
+      // プレビュークリックとのコンフリクトを避けるため、タッチは長押しでドラッグ開始
+      delay: 150,
+      delayOnTouchOnly: true,
+      onEnd: () => this._onCameraSampleDragEnd(),
+    });
+  },
+
+  _onCameraSampleDragEnd() {
+    const thumbsEl = document.getElementById("pclCameraThumbs");
+    if (!thumbsEl || !this.template) return;
+    const photos = this.template.cameraSamplePhotos || [];
+    const newOrder = [...thumbsEl.querySelectorAll(".pcl-camera-thumb")]
+      .map(el => photos[parseInt(el.dataset.photoIdx, 10)])
+      .filter(Boolean);
+    if (newOrder.length !== photos.length) {
+      console.warn("[camera-sample] 並び替え: 写真数不一致、再描画で修復");
+      this.renderCameraSamplesSection();
+      return;
+    }
+    this.template.cameraSamplePhotos = newOrder;
+    this.markDirty();
+    // data-photo-idx / data-img-idx を新順序で振り直す
+    this.renderCameraSamplesSection();
   },
 
   /** カメラタブ見本写真: ファイル選択後のアップロード処理 (複数選択対応) */
