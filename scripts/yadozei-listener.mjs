@@ -36,7 +36,7 @@ import os from "node:os";
 import https from "node:https";
 
 // ================== 定数 ==================
-const VERSION = "0.3.1"; // 0.3.1: 月次Airbnb絞込を複数リスティング対応 (auditListingNames を月次 filterAirbnbCsvByListing にも適用)
+const VERSION = "0.3.2"; // 0.3.2: やどぜい施設切替オーバーレイの消滅待ち+インポートボタン出現待ち (切替直後の即時判定失敗を修正)
 const LOG_PREFIX = "[yadozei-listener]";
 
 const USER_DATA_DIR = path.join(os.homedir(), ".yadozei-playwright-chrome");
@@ -1392,6 +1392,14 @@ async function selectYadozeiProperty(page, targetLabel, jobId) {
     }
   }
 
+  // 「施設を切り替えています...」オーバーレイの消滅を待つ
+  // (切替直後は画面全体が再描画され、インポート等のボタンが一時的に未描画のまま次工程に進んで失敗するため)
+  await page
+    .getByText("施設を切り替えています", { exact: false })
+    .first()
+    .waitFor({ state: "hidden", timeout: 25_000 })
+    .catch(() => {});
+
   // 最終確認 (施設切替後は再ロードで「読み込み中...」の間があるので、対象施設名が出るまで最大16秒待つ)
   for (let i = 0; i < 20; i++) {
     if (await page.getByText(targetLabel, { exact: false }).count()) return;
@@ -1542,9 +1550,14 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
     await selectYadozeiProperty(page, yadozeiLabel, jobId);
     await debugShot(page, jobId, "yadozei_stays");
 
-    // インポートボタン → ウィザード起動
+    // インポートボタン → ウィザード起動 (施設切替直後の再描画に備えて出現を待つ)
     const importBtn = page.locator('button:has-text("インポート")').first();
-    if (!(await importBtn.count())) throw new Error("やどぜい「インポート」ボタンが見つからない (UI 変更の可能性)");
+    try {
+      await importBtn.waitFor({ state: "visible", timeout: 15_000 });
+    } catch (_) {
+      await saveScreenshot(page, jobId, "yadozei_import_btn_not_found");
+      throw new Error("やどぜい「インポート」ボタンが見つからない (UI 変更の可能性)");
+    }
     await importBtn.click({ timeout: 5000 });
     await page.waitForTimeout(1500);
     await debugShot(page, jobId, "yadozei_wizard_open");
