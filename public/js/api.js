@@ -1493,6 +1493,10 @@ const API = {
         saveReason: opts.reason || "save",
         restoredFrom: opts.restoredFrom || null,
       };
+      // カメラタブの見本写真: 未定義の場合はフィールド省略 (set merge により既存値を維持)
+      if (tree.cameraSamplePhotos !== undefined) {
+        data.cameraSamplePhotos = tree.cameraSamplePhotos || [];
+      }
       await db.collection("checklistTemplates").doc(docId).set(data, { merge: true });
       return data;
     },
@@ -1596,6 +1600,13 @@ const API = {
         },
         saveReason: "copyFrom",
       };
+      // カメラタブの見本写真は物件固有 (Storage パスがコピー元物件に紐づく) のためコピーせず、
+      // コピー先の既存写真を維持する (set は全置換のため明示的に引き継ぐ)
+      try {
+        const destDoc = await db.collection("checklistTemplates").doc(destDocId).get();
+        const destPhotos = destDoc.exists ? destDoc.data().cameraSamplePhotos : null;
+        if (Array.isArray(destPhotos) && destPhotos.length) data.cameraSamplePhotos = destPhotos;
+      } catch (_) { /* 読めない場合はフィールド無しで保存 (写真なし扱い) */ }
       await db.collection("checklistTemplates").doc(destDocId).set(data);
       return { id: destDocId, ...data };
     },

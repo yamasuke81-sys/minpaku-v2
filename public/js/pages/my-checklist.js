@@ -769,6 +769,7 @@ const MyChecklistPage = {
     this._noteSelectedFiles = [];
     this._navList = null;
     this._navListPropertyId = null;
+    this._cameraSamplesCache = null;
   },
 
   async resolveChecklistId() {
@@ -1874,98 +1875,60 @@ const MyChecklistPage = {
   },
 
   // ===== 見本写真セクション (スタッフ用・読み取り専用) =====
+  // 原紙(checklistTemplates)の cameraSamplePhotos をライブ参照して表示する。
+  // 項目に紐づく見本写真の自動集約は廃止 (項目カード内のインライン表示は従来どおり)
   renderSamplePhotoSection() {
     const el = document.getElementById("mclSamplePhotoSection");
     if (!el || !this.checklist) return;
-    const areas = this.checklist.templateSnapshot || [];
+    el.innerHTML = "";
+    const c = this.checklist;
+    const cacheKey = `${c.propertyId}_${c.workType || "cleaning"}`;
 
-    // 全ノードから見本写真を再帰収集
-    const allSamples = [];  // { label, url }[]
-    const walk = (node, pathParts) => {
-      // sampleImages 配列 (複数枚対応)
-      const imgs = node.sampleImages || [];
-      // 後方互換: sampleImageUrl が存在し sampleImages が空なら使用
-      if (!imgs.length && node.sampleImageUrl) {
-        allSamples.push({ label: pathParts.join(" › "), url: node.sampleImageUrl });
-      }
-      imgs.forEach(img => {
-        allSamples.push({ label: pathParts.join(" › "), url: img.url });
-      });
-      // 再帰探索
-      (node.taskTypes || []).forEach(tt => walk(tt, [...pathParts, tt.name]));
-      (node.subCategories || []).forEach(sc => walk(sc, [...pathParts, sc.name]));
-      (node.subSubCategories || []).forEach(ss => walk(ss, [...pathParts, ss.name]));
-      // item の見本写真
-      [...(node.directItems || []), ...(node.items || [])].forEach(it => {
-        const itImgs = it.sampleImages || [];
-        if (!itImgs.length && it.sampleImageUrl) {
-          allSamples.push({ label: [...pathParts, it.name].join(" › "), url: it.sampleImageUrl });
-        }
-        itImgs.forEach(img => {
-          allSamples.push({ label: [...pathParts, it.name].join(" › "), url: img.url });
+    const renderPhotos = (photos) => {
+      const target = document.getElementById("mclSamplePhotoSection");
+      if (!target) return;
+      if (!photos.length) { target.innerHTML = ""; return; }
+      const thumbs = photos.map(p => `
+        <img src="${this.escapeHtml(p.url)}" alt="見本" loading="lazy"
+             style="width:80px;height:80px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid #dee2e6;"
+             class="mcl-sample-thumb"
+             data-sample-url="${this.escapeHtml(p.url)}">
+      `).join("");
+      target.innerHTML = `
+        <div class="card mb-3">
+          <div class="card-body pb-2">
+            <h6 class="card-title mb-2">
+              <i class="bi bi-camera"></i> 見本写真
+              <span class="badge bg-secondary ms-1">${photos.length}</span>
+            </h6>
+            <div class="d-flex flex-wrap gap-1 mb-2">${thumbs}</div>
+          </div>
+        </div>
+      `;
+      // サムネイルタップ → ライトボックス
+      target.querySelectorAll(".mcl-sample-thumb").forEach(img => {
+        img.addEventListener("click", () => {
+          const thumbEls = Array.from(target.querySelectorAll(".mcl-sample-thumb"));
+          const allUrls = thumbEls.map(t => t.dataset.sampleUrl);
+          const allLabels = allUrls.map(() => "");
+          this._openSampleLightbox(allUrls, allLabels, thumbEls.indexOf(img));
         });
       });
     };
-    areas.forEach(a => walk(a, [a.name]));
 
-    if (!allSamples.length) {
-      // 見本写真がない場合は何も表示しない
-      el.innerHTML = "";
+    if (this._cameraSamplesCache && this._cameraSamplesCache.key === cacheKey) {
+      renderPhotos(this._cameraSamplesCache.photos);
       return;
     }
-
-    // グループ化: 同一ラベルをまとめる
-    const grouped = [];
-    for (const s of allSamples) {
-      const last = grouped[grouped.length - 1];
-      if (last && last.label === s.label) {
-        last.urls.push(s.url);
-      } else {
-        grouped.push({ label: s.label, urls: [s.url] });
-      }
-    }
-
-    const rows = grouped.map(g => {
-      const thumbs = g.urls.map((u, i) => {
-        const absIdx = allSamples.findIndex(s => s.url === u);
-        return `
-          <img src="${this.escapeHtml(u)}" alt="見本" loading="lazy"
-               style="width:80px;height:80px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid #dee2e6;"
-               class="mcl-sample-thumb"
-               data-sample-url="${this.escapeHtml(u)}"
-               data-sample-label="${this.escapeHtml(g.label)}">
-        `;
-      }).join("");
-      return `
-        <div class="mb-2">
-          <div class="small text-muted mb-1" style="font-size:11px;">${this.escapeHtml(g.label)}</div>
-          <div class="d-flex flex-wrap gap-1">${thumbs}</div>
-        </div>
-      `;
-    }).join("");
-
-    el.innerHTML = `
-      <div class="card mb-3">
-        <div class="card-body pb-2">
-          <h6 class="card-title mb-2">
-            <i class="bi bi-camera"></i> 見本写真
-            <span class="badge bg-secondary ms-1">${allSamples.length}</span>
-          </h6>
-          ${rows}
-        </div>
-      </div>
-    `;
-
-    // サムネイルタップ → ライトボックス
-    el.querySelectorAll(".mcl-sample-thumb").forEach(img => {
-      img.addEventListener("click", () => {
-        // 全サムネイル URL リストを渡してスライドできるようにする
-        const thumbs = Array.from(el.querySelectorAll(".mcl-sample-thumb"));
-        const allUrls = thumbs.map(t => t.dataset.sampleUrl);
-        const allLabels = thumbs.map(t => t.dataset.sampleLabel);
-        const startIdx = thumbs.indexOf(img);
-        this._openSampleLightbox(allUrls, allLabels, startIdx);
-      });
+    API.checklist.getTemplateTree(c.propertyId, c.workType).then(tmpl => {
+      const photos = (tmpl && Array.isArray(tmpl.cameraSamplePhotos))
+        ? tmpl.cameraSamplePhotos.filter(p => p && p.url) : [];
+      this._cameraSamplesCache = { key: cacheKey, photos };
+      // タブが切り替わっていたら描画しない
+      if (this.activeTopTab !== "photos") return;
+      renderPhotos(photos);
+    }).catch(err => {
+      console.warn("[my-checklist] カメラタブ見本写真の取得失敗:", err?.message || err);
     });
   },
 

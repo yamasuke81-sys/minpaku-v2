@@ -295,6 +295,7 @@ const PropertyChecklistPage = {
           </li>
         </ul>
       </div>
+      <div id="pclCameraSamples"></div>
       <div id="areaContent"></div>
     `;
     this._setupTabStickyObserver(body);
@@ -326,6 +327,7 @@ const PropertyChecklistPage = {
     // タブ (大カテゴリ=エリア) の D&D 並び替え
     this._setupTabSortable();
 
+    this.renderCameraSamplesSection();
     this.renderAreaContent();
   },
 
@@ -1667,6 +1669,142 @@ const PropertyChecklistPage = {
     `;
     div.addEventListener("click", () => div.remove());
     document.body.appendChild(div);
+  },
+
+  // === カメラタブの見本写真 (テンプレート全体で1セット・スタッフ画面の写真撮影タブに表示) ===
+
+  renderCameraSamplesSection() {
+    const wrap = document.getElementById("pclCameraSamples");
+    if (!wrap || !this.template) return;
+    const photos = this.template.cameraSamplePhotos || [];
+    const thumbs = photos.map((p, i) => `
+      <div style="position:relative;display:inline-block;margin:2px;">
+        <img src="${this.escapeHtml(p.url)}" alt="見本"
+             style="width:60px;height:60px;object-fit:cover;border-radius:4px;cursor:pointer;border:1px solid #dee2e6;"
+             data-pcl-camera-preview="${this.escapeHtml(p.url)}">
+        <button type="button" class="pcl-camera-del-btn" data-img-idx="${i}"
+                style="position:absolute;top:-4px;right:-4px;width:18px;height:18px;border-radius:50%;border:none;background:#dc3545;color:#fff;font-size:11px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;">
+          ×
+        </button>
+      </div>
+    `).join("");
+    wrap.innerHTML = `
+      <div class="card mt-2 mb-2">
+        <div class="card-body py-2">
+          <div class="d-flex align-items-center flex-wrap gap-1">
+            <span class="small fw-bold"><i class="bi bi-camera"></i> カメラタブの見本写真</span>
+            <span class="badge bg-secondary" style="font-size:10px;">${photos.length}</span>
+            <label class="btn btn-sm btn-outline-primary mb-0 ms-auto" style="cursor:pointer;">
+              <i class="bi bi-plus"></i> 見本写真を追加
+              <input type="file" accept="image/*" multiple class="d-none" id="pclCameraSampleInput">
+            </label>
+          </div>
+          <div class="small text-muted" style="font-size:11px;">
+            スタッフ画面のカメラタブ（写真撮影）の一番下に表示されます。カメラロールから複数選択で一括追加できます
+          </div>
+          ${thumbs ? `<div class="d-flex flex-wrap mt-1">${thumbs}</div>` : ""}
+          <div class="small text-muted d-none" id="pclCameraUploadStatus"></div>
+        </div>
+      </div>
+    `;
+    wrap.querySelectorAll("[data-pcl-camera-preview]").forEach(img => {
+      img.addEventListener("click", () => this._previewSampleImage(img.dataset.pclCameraPreview));
+    });
+    wrap.querySelectorAll(".pcl-camera-del-btn").forEach(btn => {
+      btn.addEventListener("click", () => this.deleteCameraSamplePhoto(parseInt(btn.dataset.imgIdx, 10)));
+    });
+    const inp = wrap.querySelector("#pclCameraSampleInput");
+    if (inp) {
+      inp.addEventListener("change", (ev) => {
+        const files = Array.from(ev.target.files || []);
+        inp.value = "";
+        if (files.length) this._handleCameraSampleFiles(files);
+      });
+    }
+  },
+
+  /** カメラタブ見本写真: ファイル選択後のアップロード処理 (複数選択対応) */
+  async _handleCameraSampleFiles(files) {
+    const status = document.getElementById("pclCameraUploadStatus");
+    if (status) status.classList.remove("d-none");
+    let done = 0, failed = 0;
+    for (const file of files) {
+      if (status) status.textContent = `アップロード中... ${done + failed + 1}/${files.length}`;
+      try {
+        await this._uploadCameraSamplePhoto(file);
+        done++;
+      } catch (e) {
+        console.error("[camera-sample] アップロードエラー:", e);
+        failed++;
+      }
+    }
+    // アップロード完了後は保存を促す (自動保存はしない・項目の見本写真と同じ運用)
+    this.markDirty();
+    this.renderCameraSamplesSection();
+    if (failed) showToast("エラー", `見本写真 ${failed}件のアップロードに失敗しました`, "error");
+    if (done) showToast("追加完了", `見本写真を${done}件追加しました。「保存」で確定してください`, "success");
+  },
+
+  /** Storage へアップロードして template.cameraSamplePhotos に追加 */
+  async _uploadCameraSamplePhoto(file) {
+    let blob;
+    let ext = "jpg";
+    let contentType = "image/jpeg";
+    try {
+      blob = await this._resizeImageForSample(file, 1280, 0.78);
+    } catch (e) {
+      console.warn("[camera-sample] リサイズ失敗、元ファイルでアップロード:", e.message);
+      blob = file;
+      ext = (file.name.split(".").pop().replace(/[^a-z0-9]/gi, "") || "jpg").toLowerCase();
+      contentType = file.type || "image/jpeg";
+    }
+    const ts = Date.now();
+    const rand = Math.random().toString(36).slice(2, 7);
+    const path = `checklist-samples/${this.propertyId}/_camera-tab/${ts}_${rand}.${ext}`;
+
+    const storageRef = firebase.storage().ref(path);
+    const user = firebase.auth().currentUser;
+    const metadata = {
+      contentType,
+      customMetadata: {
+        uploadedBy: user?.uid || "",
+        uploadedAt: new Date().toISOString(),
+        propertyId: this.propertyId,
+        nodeId: "_camera-tab",
+        compressed: "v1",
+      },
+    };
+    await storageRef.put(blob, metadata);
+    const url = await storageRef.getDownloadURL();
+
+    this.template.cameraSamplePhotos = this.template.cameraSamplePhotos || [];
+    this.template.cameraSamplePhotos.push({ url, path, uploadedAt: new Date().toISOString() });
+  },
+
+  /** カメラタブ見本写真を削除 (Storage + template.cameraSamplePhotos) */
+  async deleteCameraSamplePhoto(idx) {
+    const photos = this.template.cameraSamplePhotos || [];
+    const p = photos[idx];
+    if (!p) return;
+
+    const ok = await this.showConfirmDialog({
+      title: "見本写真の削除",
+      message: "この見本写真を削除しますか？",
+      confirmLabel: "削除", danger: true
+    });
+    if (!ok) return;
+
+    if (p.path) {
+      try {
+        await firebase.storage().ref(p.path).delete();
+      } catch (e) {
+        console.warn("[camera-sample] Storage削除失敗:", e.message);
+      }
+    }
+
+    photos.splice(idx, 1);
+    this.markDirty();
+    this.renderCameraSamplesSection();
   },
 
   /** 全ノードから id でノードを検索 (area/tt/sc/ss/item 全対応) */
