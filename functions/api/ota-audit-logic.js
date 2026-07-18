@@ -253,16 +253,19 @@ function reconcileOtaSnapshot({ reservations = [], bookings = [], registrations 
       }
 
       // guest_count_mismatch: 対応付いたペアで、OTA人数と名簿人数(乳幼児除く)が食い違う
+      // 名簿フォームの guestCount は入力時点で「3才以下の乳幼児を除く人数」(guest-form.html の仕様)。
+      // 乳幼児は guestCountInfants に別建てなので、ここで再度引くと二重控除になる。
       if (r.guests != null && b.id) {
         const reg = regByBookingId.get(b.id);
         if (reg) {
-          const rosterGuests = Number(reg.guestCount || 0) - Number(reg.guestCountInfants || 0);
+          const rosterGuests = Number(reg.guestCount || 0);
+          const infants = Number(reg.guestCountInfants || 0);
           if (rosterGuests !== r.guests) {
             findings.push({
               type: "guest_count_mismatch",
               propertyId, propertyName, ota,
-              detail: { guestName: r.guestName, bookingId: b.id, guestId: reg.id, otaGuests: r.guests, rosterGuests },
-              message: `⚠️ ${r.guestName || "ゲスト"}様: OTA人数${r.guests}名に対し、名簿は${rosterGuests}名(乳幼児除く)です。`,
+              detail: { guestName: r.guestName, bookingId: b.id, guestId: reg.id, otaGuests: r.guests, rosterGuests, rosterInfants: infants },
+              message: `⚠️ ${r.guestName || "ゲスト"}様: OTA人数${r.guests}名に対し、名簿は${rosterGuests}名(乳幼児除く${infants > 0 ? `・ほか乳幼児${infants}名` : ""})です。`,
               url: guestUrl_(appUrl, reg.id) || bookingUrl_(appUrl, b.id),
             });
           }

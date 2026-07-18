@@ -176,18 +176,19 @@ describe("reconcileOtaSnapshot", () => {
       bookings: [booking({})],
       registrations: [{ id: "g1", bookingId: "bk1", propertyId: PID, guestCount: 5, guestCountInfants: 1, status: "submitted" }],
     });
-    // guestCount5 - infants1 = 4 ≠ ota.guests3
+    // guestCount はフォーム仕様で乳幼児除きの値。5 ≠ ota.guests3 (乳幼児の再減算はしない)
     const f = r.findings.find(x => x.type === "guest_count_mismatch");
     assert.ok(f);
     assert.strictEqual(f.detail.otaGuests, 3);
-    assert.strictEqual(f.detail.rosterGuests, 4);
+    assert.strictEqual(f.detail.rosterGuests, 5);
+    assert.strictEqual(f.detail.rosterInfants, 1);
   });
 
-  test("guest_count_mismatch: 乳幼児を除いた人数が一致すれば検出しない", () => {
+  test("guest_count_mismatch: guestCount(乳幼児除き入力)がOTA人数と一致すれば検出しない", () => {
     const r = reconcileOtaSnapshot({
       reservations: [otaRow({ guests: 4 })],
       bookings: [booking({})],
-      registrations: [{ id: "g1", bookingId: "bk1", propertyId: PID, guestCount: 5, guestCountInfants: 1, status: "submitted" }],
+      registrations: [{ id: "g1", bookingId: "bk1", propertyId: PID, guestCount: 4, guestCountInfants: 1, status: "submitted" }],
     });
     assert.strictEqual(r.findings.filter(f => f.type === "guest_count_mismatch").length, 0);
   });
