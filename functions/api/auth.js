@@ -542,8 +542,11 @@ module.exports = function authApi(db) {
       if (!user) {
         return res.status(401).json({ error: "認証が必要です" });
       }
-      // Webアプリ管理者権限チェック: role=="owner" OR roleが未設定（既存Webアプリ管理者互換）
-      if (user.role && user.role !== "owner") {
+      // Webアプリ管理者権限チェック（★role 未設定素通りの旧フォールバックは撤去済）
+      // role=='owner' または
+      //   staff.isOwner===true(DB確認)のみ許可する(未招待の自己登録が owner 化する穴の封鎖)。
+      const _ownerChk = await checkIfOwnerUid(db, user.uid);
+      if (user.role !== "owner" && !_ownerChk.isOwner) {
         return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
@@ -593,8 +596,11 @@ module.exports = function authApi(db) {
       if (!user) {
         return res.status(401).json({ error: "認証が必要です" });
       }
-      // Webアプリ管理者権限チェック: role=="owner" OR roleが未設定（既存Webアプリ管理者互換）
-      if (user.role && user.role !== "owner") {
+      // Webアプリ管理者権限チェック（★role 未設定素通りの旧フォールバックは撤去済）
+      // role=='owner' または
+      //   staff.isOwner===true(DB確認)のみ許可する(未招待の自己登録が owner 化する穴の封鎖)。
+      const _ownerChk = await checkIfOwnerUid(db, user.uid);
+      if (user.role !== "owner" && !_ownerChk.isOwner) {
         return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
@@ -648,7 +654,10 @@ module.exports = function authApi(db) {
       if (!user) {
         return res.status(401).json({ error: "認証が必要です" });
       }
-      if (user.role && user.role !== "owner") {
+      // ★role 未設定でも素通りする旧フォールバックを撤去。role=='owner' または
+      //   staff.isOwner===true(DB確認)のみ許可する(未招待の自己登録が owner 化する穴の封鎖)。
+      const _ownerChk = await checkIfOwnerUid(db, user.uid);
+      if (user.role !== "owner" && !_ownerChk.isOwner) {
         return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 
@@ -714,7 +723,10 @@ module.exports = function authApi(db) {
       if (!user) {
         return res.status(401).json({ error: "認証が必要です" });
       }
-      if (user.role && user.role !== "owner") {
+      // ★role 未設定でも素通りする旧フォールバックを撤去。role=='owner' または
+      //   staff.isOwner===true(DB確認)のみ許可する(未招待の自己登録が owner 化する穴の封鎖)。
+      const _ownerChk = await checkIfOwnerUid(db, user.uid);
+      if (user.role !== "owner" && !_ownerChk.isOwner) {
         return res.status(403).json({ error: "Webアプリ管理者権限が必要です" });
       }
 

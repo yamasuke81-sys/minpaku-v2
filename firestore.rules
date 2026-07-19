@@ -2,14 +2,17 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // オーナー: 全データ読み書き可能
-    // カスタムクレーム未設定（role==null）の場合もオーナーとして扱う（既存アカウント互換）
-    // ただし匿名認証(guest-form の Storage 用 signInAnonymously)は role==null でも owner にしない。
-    // 匿名を owner 扱いすると誰でも bookings/guestRegistrations を全読みできてしまうため。
+    // オーナー: 全データ読み書き可能。
+    // 原則 role=='owner' クレームを持つアカウントのみ。ログイン時に checkIfOwnerUid が
+    // メインオーナー(staff.isOwner===true)へ必ず role:"owner" を付与するため、正規オーナーは常にこれを満たす。
+    // ★role 未設定(null)を owner 扱いする旧フォールバックは撤去した(未招待の自己登録アカウントが
+    //   全権限 owner に化ける穴だったため)。唯一の例外として、既知のメインオーナー UID のみ
+    //   ブレークグラス(クレーム未反映でもロックアウトしない安全弁)として null を許容する。
     function isOwner() {
       return request.auth != null
         && request.auth.token.firebase.sign_in_provider != 'anonymous'
-        && (!('role' in request.auth.token) || request.auth.token.role == 'owner' || request.auth.token.role == null);
+        && (request.auth.token.role == 'owner'
+            || (!('role' in request.auth.token) && request.auth.uid == 'rwHczfRz8DfnWCrQ7yeAYnsd8in2'));
     }
 
     // サブオーナー: role == sub_owner

@@ -245,6 +245,20 @@ module.exports = function settlementApi(db) {
     next();
   });
 
+  // ★物件スコープ: サブオーナーは自分の所有物件のみ。owner は無制限。
+  //   これが無いと sub_owner が任意 propertyId を指定して他物件の精算書兼請求書PDFを
+  //   閲覧/生成できた。全ルートが /:propertyId/... のため router.param で一括ガードする。
+  //   (月次バッチの cores 直呼びは Express を経由しないため対象外=system実行)
+  router.param("propertyId", (req, res, next, propertyId) => {
+    if (req.user && req.user.role === "sub_owner") {
+      const owned = Array.isArray(req.user.ownedPropertyIds) ? req.user.ownedPropertyIds : [];
+      if (!propertyId || !owned.includes(propertyId)) {
+        return res.status(403).json({ error: "この物件へのアクセス権限がありません" });
+      }
+    }
+    next();
+  });
+
   async function loadConfig_() {
     const doc = await db.collection("settings").doc("settlementConfig").get();
     const c = doc.exists ? doc.data() : {};

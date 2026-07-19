@@ -122,7 +122,9 @@ const Auth = {
         //    (オーナー/サブオーナー/スタッフ全員に role クレームが付与されている)。
         //    その場合だけ従来どおり強制更新を待つ (新規スタッフの名前が出ない症状の再発防止)。
         const applyClaims = (result) => {
-          this.currentUser.role = result.claims.role || "owner";
+          // ★role 未設定を "owner" に化かす旧フォールバックを撤去(未招待の自己登録が owner 化する穴)。
+          //   role が無いアカウントは null のまま扱い、isOwner() 側で既知オーナー UID のみ救済する。
+          this.currentUser.role = result.claims.role || null;
           this.currentUser.staffId = result.claims.staffId || null;
           this.currentUser.ownedPropertyIds = result.claims.ownedPropertyIds || [];
         };
@@ -133,7 +135,7 @@ const Auth = {
             App.onAuthReady();
             user.getIdTokenResult(true).then((fresh) => {
               const changed =
-                (fresh.claims.role || "owner") !== this.currentUser.role ||
+                (fresh.claims.role || null) !== this.currentUser.role ||
                 (fresh.claims.staffId || null) !== this.currentUser.staffId ||
                 JSON.stringify(fresh.claims.ownedPropertyIds || []) !==
                   JSON.stringify(this.currentUser.ownedPropertyIds || []);
@@ -426,7 +428,12 @@ const Auth = {
   },
 
   isOwner() {
-    return this.currentUser && (this.currentUser.role === "owner" || this.currentUser.role == null);
+    // role=='owner' を持つアカウントのみオーナー扱い。
+    // ★role 未設定(null)を owner とみなす旧フォールバックは撤去(未招待の自己登録が owner に化ける穴)。
+    //   既知のメインオーナー UID のみ、クレーム未反映時のブレークグラスとして null を許容する。
+    if (!this.currentUser) return false;
+    if (this.currentUser.role === "owner") return true;
+    return this.currentUser.role == null && this.currentUser.uid === "rwHczfRz8DfnWCrQ7yeAYnsd8in2";
   },
 
   isSubOwner() {

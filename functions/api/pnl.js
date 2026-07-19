@@ -51,6 +51,30 @@ module.exports = function pnlApi(db) {
     next();
   });
 
+  // ★物件スコープ: サブオーナー(物件オーナー)は自分の所有物件のみアクセス可。owner は無制限。
+  //   role チェックだけでは sub_owner が任意 propertyId を指定して他物件の収支・帳票PDFを
+  //   閲覧/生成できる穴があった(所有物件との突合が無かった)。以下で封鎖する。
+  function subOwnerScopeError_(req, propertyId) {
+    if (!req.user || req.user.role !== "sub_owner") return null; // owner は無制限
+    const owned = Array.isArray(req.user.ownedPropertyIds) ? req.user.ownedPropertyIds : [];
+    if (!propertyId || !owned.includes(propertyId)) {
+      return "この物件へのアクセス権限がありません";
+    }
+    return null;
+  }
+  // /:propertyId/... の全ルートに自動適用(HTTP経由のみ発火。月次バッチの cores 直呼びは対象外=system実行)
+  router.param("propertyId", (req, res, next, propertyId) => {
+    const err = subOwnerScopeError_(req, propertyId);
+    if (err) return res.status(403).json({ error: err });
+    next();
+  });
+  // 全物件横断/バッチ/共通マスタ編集はオーナー限定(sub_owner は行わない)
+  function ownerOnly_(req, res) {
+    if (req.user && req.user.role === "owner") return true;
+    res.status(403).json({ error: "この操作は物件オーナー(role=owner)のみ実行できます" });
+    return false;
+  }
+
   // ========================================================
   // 内部ヘルパ
   // ========================================================
@@ -253,6 +277,9 @@ module.exports = function pnlApi(db) {
     try {
       const { propertyId, from, to } = req.query;
       if (!propertyId) return res.status(400).json({ error: "propertyId は必須です" });
+      // /summary は query の propertyId を使うため router.param 対象外。個別にスコープ確認する。
+      const scopeErr = subOwnerScopeError_(req, propertyId);
+      if (scopeErr) return res.status(403).json({ error: scopeErr });
       const categories = await loadCategories_();
       // 物件マスタ(運営形態/既定料率)と精算設定(消費税/丸め)を1回だけ読む
       const propSnap = await db.collection("properties").doc(propertyId).get();
@@ -467,6 +494,7 @@ module.exports = function pnlApi(db) {
   // POST /import { folderId?, dryRun? }
   router.post("/import", async (req, res) => {
     try {
+      if (!ownerOnly_(req, res)) return; // 全物件横断の一括取込はオーナー限定
       const { folderId, dryRun } = req.body || {};
       const settings = await getPnlSettings_();
       const srcFolder = folderId || settings.sourceFolderId || DEFAULT_SOURCE_FOLDER_ID;
@@ -1500,6 +1528,7 @@ module.exports = function pnlApi(db) {
   // 月次自動取込バッチを手動実行(指定月 or 前月)。全取込＋帳票下書きを生成
   router.post("/run-monthly-import", async (req, res) => {
     try {
+      if (!ownerOnly_(req, res)) return; // 全 pnlBatchEnabled 物件を回すバッチはオーナー限定
       const mod = require("../scheduled/pnlMonthlyImport"); // 遅延require(循環回避)
       const ym = req.body && /^\d{4}-\d{2}$/.test(req.body.yearMonth || "") ? req.body.yearMonth : mod.prevYearMonthJst(new Date());
       const out = await mod.run(db, ym);
@@ -1827,6 +1856,7 @@ module.exports = function pnlApi(db) {
 
   router.post("/expense-categories", async (req, res) => {
     try {
+      if (!ownerOnly_(req, res)) return; // 共通の費目マスタ編集はオーナー限定
       const { name, type, defaultAmount, appliesTo, displayOrder } = req.body || {};
       if (!name || !type) return res.status(400).json({ error: "name と type は必須です" });
       if (type !== "fixed" && type !== "manual") return res.status(400).json({ error: "type は fixed か manual" });
@@ -1844,6 +1874,7 @@ module.exports = function pnlApi(db) {
   // 推奨費目を一括作成(運営代行契約の費用負担区分ベース)。既存同名はスキップ(冪等)
   router.post("/expense-categories/seed-defaults", async (req, res) => {
     try {
+      if (!ownerOnly_(req, res)) return; // 共通の費目マスタ編集はオーナー限定
       const DEFAULTS = [
         { name: "家賃", type: "fixed" },
         { name: "水道光熱費", type: "manual" },
@@ -1879,6 +1910,7 @@ module.exports = function pnlApi(db) {
 
   router.put("/expense-categories/:catId", async (req, res) => {
     try {
+      if (!ownerOnly_(req, res)) return; // 共通の費目マスタ編集はオーナー限定
       const { catId } = req.params;
       const { name, type, defaultAmount, appliesTo, displayOrder, active } = req.body || {};
       const update = { updatedAt: FieldValue.serverTimestamp() };
@@ -1897,6 +1929,7 @@ module.exports = function pnlApi(db) {
 
   router.delete("/expense-categories/:catId", async (req, res) => {
     try {
+      if (!ownerOnly_(req, res)) return; // 共通の費目マスタ編集はオーナー限定
       // 過去月の値は残すため、論理削除(active=false)
       await catCol.doc(req.params.catId).set(
         { active: false, updatedAt: FieldValue.serverTimestamp() }, { merge: true });

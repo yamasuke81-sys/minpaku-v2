@@ -11,6 +11,7 @@
  */
 const { Router } = require("express");
 const { google } = require("googleapis");
+const admin = require("firebase-admin");
 const { getAppUrl, DEFAULT_APP_URL } = require("../utils/appUrl");
 
 // OAuth復旧などの運用通知 (LINE + メール)。oauthReminder.js の sendRecovery_ と同じ配信経路。
@@ -37,6 +38,28 @@ async function sendOAuthNotice_(db, email, text, mailSubject) {
 
 module.exports = function gmailAuthApi(db) {
   const router = Router();
+
+  // このルータは index.js で authenticate ミドルウェアより前(=認証不要)にマウントされる。
+  // OAuth の /start・/callback はブラウザ直アクセスのため認証不要で正しいが、
+  // 連携アカウントの一覧取得・削除は管理操作なので、この関数で明示的に owner 認証を課す。
+  // (以前は無認証で誰でも連携一覧の取得・任意アカウントの OAuth トークン削除ができる穴だった)
+  async function requireOwner_(req) {
+    const authHeader = req.headers.authorization || "";
+    if (!authHeader.startsWith("Bearer ")) {
+      return { ok: false, status: 401, error: "認証が必要です" };
+    }
+    const token = authHeader.slice(7);
+    try {
+      const decoded = await admin.auth().verifyIdToken(token);
+      if (decoded.role === "owner") return { ok: true, uid: decoded.uid };
+      // role クレーム未反映のメインオーナー救済: staff.isOwner===true を DB で確認
+      const snap = await db.collection("staff").where("authUid", "==", decoded.uid).limit(1).get();
+      if (!snap.empty && snap.docs[0].data().isOwner === true) return { ok: true, uid: decoded.uid };
+      return { ok: false, status: 403, error: "Webアプリ管理者権限が必要です" };
+    } catch (e) {
+      return { ok: false, status: 401, error: "無効なトークンです" };
+    }
+  }
 
   // OAuth2クライアント生成
   function getOAuth2Client_() {
@@ -352,6 +375,8 @@ module.exports = function gmailAuthApi(db) {
   //   ?context=emailVerification で メール照合用アカウント一覧。省略時は default (税理士資料)
   // ========================================
   router.get("/accounts", async (req, res) => {
+    const auth = await requireOwner_(req);
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
     try {
       const context = normalizeContext_(req.query.context);
       const snap = await tokensCollection_(context).get();
@@ -373,6 +398,8 @@ module.exports = function gmailAuthApi(db) {
   //   ?context=emailVerification で メール照合用アカウント削除
   // ========================================
   router.delete("/accounts/:email", async (req, res) => {
+    const auth = await requireOwner_(req);
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
     try {
       const context = normalizeContext_(req.query.context);
       const docId = req.params.email.replace(/[@.]/g, "_");
