@@ -88,8 +88,10 @@ service cloud.firestore {
 
     // 予約 — オーナーは全操作、サブオーナーは所有物件のみ読み書き。
     // スタッフは直読み禁止 (PII を含むため) → /api/staff-data 経由で PII 除外サマリのみ取得する。
+    // ★read も isMyProperty で物件スコープ(旧: isSubOwner() 無条件=全物件のゲストPIIが読めた穴)。
+    //   フロントは sub_owner 時 where("propertyId","in",ownedPropertyIds) で絞る(my-recruitment.js 等)。
     match /bookings/{bookingId} {
-      allow read: if isOwner() || isSubOwner();
+      allow read: if isMyProperty(resource.data.propertyId);
       allow write: if isOwner() || (isSubOwner() && isMyProperty(resource.data.propertyId));
     }
 
@@ -251,7 +253,9 @@ service cloud.firestore {
     // 読み取りは owner/sub_owner のみ (PII の塊)。スタッフ・匿名は直読み禁止
     // → スタッフは /api/staff-data 経由で PII 除外サマリのみ取得する。
     match /guestRegistrations/{guestId} {
-      allow read: if isOwner() || isSubOwner();
+      // ★read を isMyProperty で物件スコープ(旧: isSubOwner() 無条件=全物件のゲストPII/氏名/電話/
+      //   パスポートが横断で読めた穴)。フロントは sub_owner 時 propertyId in ownedPropertyIds で絞る。
+      allow read: if isMyProperty(resource.data.propertyId);
       // ゲスト公開フォームからの新規登録を許可（source=guest_form のみ）
       allow create: if true
         && request.resource.data.guestName is string
@@ -381,7 +385,9 @@ service cloud.firestore {
     // 直接予約リクエスト (承認制) — 読み取りはオーナー/サブオーナーのみ (管理画面は API 経由で取得するが念のため)。
     // 書き込みは Cloud Functions (Admin SDK) 専用 (公開エンドポイントからの新規作成・オーナー承認/却下ともにバイパス)
     match /bookingRequests/{requestId} {
-      allow read: if isOwner() || isSubOwner();
+      // ★read を isMyProperty で物件スコープ(旧: isSubOwner() 無条件)。管理UIは API 経由取得のため
+      //   直読みは保険だが、sub_owner が他物件の予約リクエストを直読みできないよう締める。
+      allow read: if isMyProperty(resource.data.propertyId);
       allow write: if false;
     }
 

@@ -802,6 +802,13 @@ const MyRecruitmentPage = {
       bookingQuery = bookingQuery.where("propertyId", "in", assignedIds);
     } else if (blockAllAsStaff) {
       bookingQuery = bookingQuery.where("propertyId", "==", "__NONE__");
+    } else if (Auth.isSubOwner()) {
+      // ★実ロールが物件オーナー(sub_owner)本人: 自分の所有物件のみ(Firestore rules もこれを要求)。
+      //   owner / owner の impersonation は Auth.isSubOwner()=false のため従来どおり全件。
+      const owned = Array.isArray(Auth.currentUser?.ownedPropertyIds) ? Auth.currentUser.ownedPropertyIds : [];
+      bookingQuery = owned.length
+        ? bookingQuery.where("propertyId", "in", owned.slice(0, 30))
+        : bookingQuery.where("propertyId", "==", "__NONE__");
     }
     const unsubBooking = bookingQuery.onSnapshot(snap => {
       // 全 booking ドキュメントを id でマップ化して取り込み (キャンセル/保留フィルタ・
@@ -825,6 +832,12 @@ const MyRecruitmentPage = {
       guestQuery = guestQuery.where("propertyId", "in", assignedIds);
     } else if (blockAllAsStaff) {
       guestQuery = guestQuery.where("propertyId", "==", "__NONE__");
+    } else if (Auth.isSubOwner()) {
+      // ★実ロールが物件オーナー(sub_owner)本人: 自分の所有物件のみ(Firestore rules もこれを要求)。
+      const owned = Array.isArray(Auth.currentUser?.ownedPropertyIds) ? Auth.currentUser.ownedPropertyIds : [];
+      guestQuery = owned.length
+        ? guestQuery.where("propertyId", "in", owned.slice(0, 30))
+        : guestQuery.where("propertyId", "==", "__NONE__");
     }
     const unsubGuest = guestQuery.onSnapshot(snap => {
       // 生データ整形・PII除外・guestMap構築・再マージは _ingestGuests に集約

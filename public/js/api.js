@@ -881,7 +881,15 @@ const API = {
   // 宿泊者名簿 API
   guests: {
     async list(params = {}) {
-      const snap = await db.collection("guestRegistrations").get();
+      // ★実ロールが物件オーナー(sub_owner)なら自分の所有物件のみ(Firestore rules もこれを要求)。
+      //   owner は全件。無条件 get だと rules 側で permission-denied になるため必ず絞る。
+      let q = db.collection("guestRegistrations");
+      if (typeof Auth !== "undefined" && Auth.isSubOwner && Auth.isSubOwner()) {
+        const owned = Array.isArray(Auth.currentUser?.ownedPropertyIds) ? Auth.currentUser.ownedPropertyIds : [];
+        if (!owned.length) return [];
+        q = q.where("propertyId", "in", owned.slice(0, 30));
+      }
+      const snap = await q.get();
       let list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       if (params.from) {
         list = list.filter(g => (g.checkIn || "") >= params.from);
