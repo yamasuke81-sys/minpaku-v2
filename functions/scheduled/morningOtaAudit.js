@@ -88,10 +88,11 @@ module.exports = async function morningOtaAudit() {
     const allRegistrations = regSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
     // ---- 4) properties (active のみ対象) ----
+    // ★他オーナー物件(managedBy="owner_manual")は八朔の朝点検・通知の対象外(未設定/hassaku_autoのみ)。
     const propsSnap = await db.collection("properties").get();
     const activeProps = propsSnap.docs
       .map((d) => ({ id: d.id, ...d.data() }))
-      .filter((p) => p.active !== false);
+      .filter((p) => p.active !== false && p.managedBy !== "owner_manual");
     const activePropertyIds = new Set(activeProps.map((p) => p.id));
     const propNameById = new Map(activeProps.map((p) => [p.id, p.name || p.id]));
 

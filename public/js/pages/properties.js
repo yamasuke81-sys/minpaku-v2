@@ -402,6 +402,9 @@ const PropertiesPage = {
       ? property.operationMode
       : (property?.settlementMode === "self" ? "self" : "agency_hassac");
     document.getElementById("propertyOperationMode").value = _opMode;
+    // 自動化管理区分: 未設定は "hassaku_auto"(全自動) 既定。"owner_manual" のみ他オーナー扱い。
+    const _managedByEl = document.getElementById("propertyManagedBy");
+    if (_managedByEl) _managedByEl.value = property?.managedBy === "owner_manual" ? "owner_manual" : "hassaku_auto";
     const _toggleFeeRate = () => {
       const mode = document.getElementById("propertyOperationMode").value;
       const wrap = document.getElementById("propertyFeeRateWrap");
@@ -676,6 +679,8 @@ const PropertiesPage = {
       },
       cleaningFee: Number(document.getElementById("propertyCleaningFee").value) || 0,
       operationMode: document.getElementById("propertyOperationMode")?.value || "agency_hassac",
+      // 自動化管理区分(西山/八朔=全自動 / 他オーナー=手動)。既定 hassaku_auto。
+      managedBy: document.getElementById("propertyManagedBy")?.value === "owner_manual" ? "owner_manual" : "hassaku_auto",
       // 料率は 0 を許容(自社の0%等)。空/不正のみ既定50、0-100にクランプ
       managementFeeRate: (() => {
         const n = Number(document.getElementById("propertyManagementFeeRate").value);
@@ -859,6 +864,8 @@ const PropertiesPage = {
       },
       cleaningFee: Number(document.getElementById("propertyCleaningFee").value) || 0,
       operationMode: document.getElementById("propertyOperationMode")?.value || "agency_hassac",
+      // 自動化管理区分(西山/八朔=全自動 / 他オーナー=手動)。既定 hassaku_auto。
+      managedBy: document.getElementById("propertyManagedBy")?.value === "owner_manual" ? "owner_manual" : "hassaku_auto",
       // 料率は 0 を許容(自社の0%等)。空/不正のみ既定50、0-100にクランプ
       managementFeeRate: (() => {
         const n = Number(document.getElementById("propertyManagementFeeRate").value);

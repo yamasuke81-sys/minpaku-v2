@@ -19,10 +19,21 @@ module.exports = function guestsApi(db) {
       return res.status(403).json({ error: "権限がありません" });
     }
     const role = u.role;
-    if (role === "owner" || role === "sub_owner" || role == null) {
+    // ★role 未設定を無条件許可する旧フォールバックは撤去(未招待の自己登録が名簿を全読みできる穴)。
+    //   既知メインオーナー UID のみ、クレーム未反映時のブレークグラスとして null を許容。
+    if (role === "owner" || role === "sub_owner"
+        || (role == null && u.uid === "rwHczfRz8DfnWCrQ7yeAYnsd8in2")) {
       return next();
     }
     return res.status(403).json({ error: "権限がありません" });
+  }
+
+  // sub_owner(物件オーナー)は自分の所有物件のゲストのみ操作可。owner/GAS(role=owner)は全て可。
+  function subOwnerCanAccessProperty_(req, propertyId) {
+    const u = req.user || {};
+    if (u.role !== "sub_owner") return true; // owner 等はここでは制限しない
+    const owned = Array.isArray(u.ownedPropertyIds) ? u.ownedPropertyIds : [];
+    return !!propertyId && owned.includes(propertyId);
   }
 
   // 宿泊者名簿一覧（チェックイン日降順）
@@ -37,6 +48,11 @@ module.exports = function guestsApi(db) {
       }
       const snapshot = await query.get();
       let list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      // ★sub_owner は自分の所有物件のゲストのみ(admin SDK はルールをバイパスするためここで絞る)
+      if (req.user && req.user.role === "sub_owner") {
+        const owned = Array.isArray(req.user.ownedPropertyIds) ? req.user.ownedPropertyIds : [];
+        list = list.filter((g) => owned.includes(g.propertyId));
+      }
       // 検索フィルタ
       if (req.query.search) {
         const s = req.query.search.toLowerCase();
@@ -60,6 +76,9 @@ module.exports = function guestsApi(db) {
       if (!doc.exists) {
         return res.status(404).json({ error: "宿泊者情報が見つかりません" });
       }
+      if (!subOwnerCanAccessProperty_(req, doc.data().propertyId)) {
+        return res.status(403).json({ error: "この物件へのアクセス権限がありません" });
+      }
       res.json({ id: doc.id, ...doc.data() });
     } catch (e) {
       console.error("宿泊者名簿取得エラー:", e);
@@ -68,11 +87,14 @@ module.exports = function guestsApi(db) {
   });
 
   // 新規登録 or CI日一致で上書き（Googleフォーム連携 or 手動）
-  router.post("/", async (req, res) => {
+  router.post("/", requireOwnerOrSubOwner_, async (req, res) => {
     try {
       const data = validateGuestData(req.body);
       if (data.error) {
         return res.status(400).json({ error: data.error });
+      }
+      if (!subOwnerCanAccessProperty_(req, data.propertyId)) {
+        return res.status(403).json({ error: "この物件へのアクセス権限がありません" });
       }
 
       // CI日が同じ既存データがあれば上書き（重複防止）
@@ -200,13 +222,16 @@ module.exports = function guestsApi(db) {
   });
 
   // 宿泊者名簿 確認（Webアプリ管理者が「確認済み」にする）
-  router.put("/:id/confirm", async (req, res) => {
+  router.put("/:id/confirm", requireOwnerOrSubOwner_, async (req, res) => {
     try {
       const docRef = collection.doc(req.params.id);
       const doc = await docRef.get();
       if (!doc.exists) return res.status(404).json({ error: "見つかりません" });
 
       const data = doc.data();
+      if (!subOwnerCanAccessProperty_(req, data.propertyId)) {
+        return res.status(403).json({ error: "この物件へのアクセス権限がありません" });
+      }
       if (data.status === "confirmed") {
         return res.json({ success: true, message: "既に確認済みです" });
       }
@@ -226,12 +251,15 @@ module.exports = function guestsApi(db) {
   });
 
   // 駐車場料金 入金確認
-  router.put("/:id/parking-paid", async (req, res) => {
+  router.put("/:id/parking-paid", requireOwnerOrSubOwner_, async (req, res) => {
     try {
       const docRef = collection.doc(req.params.id);
       const doc = await docRef.get();
       if (!doc.exists) return res.status(404).json({ error: "見つかりません" });
 
+      if (!subOwnerCanAccessProperty_(req, doc.data().propertyId)) {
+        return res.status(403).json({ error: "この物件へのアクセス権限がありません" });
+      }
       await docRef.update({
         parkingPaymentConfirmed: true,
         parkingPaymentConfirmedAt: FieldValue.serverTimestamp(),

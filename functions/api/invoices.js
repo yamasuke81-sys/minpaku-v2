@@ -674,6 +674,12 @@ async function uploadInvoiceToDrive_(db, filePath, invoice, staff, fromEmail) {
     throw new Error("invoice.propertyId 未設定 (物件単位の保存先が必要)");
   }
   const propDoc = await dbRef.collection("properties").doc(propertyId).get();
+  // ★安全弁: 他オーナー物件(managedBy="owner_manual")の請求書は西山個人のDriveへ自動保存しない。
+  //   driveInvoiceFolderId が誤設定されていても、ここで確実にスキップする(他人の資料の混入防止)。
+  if (propDoc.exists && propDoc.data().managedBy === "owner_manual") {
+    console.log(`[invoice-drive] ${propertyId} は owner_manual のため西山Driveへの自動保存をスキップ`);
+    return { skipped: "owner_manual" };
+  }
   const driveInvoiceFolderId = propDoc.exists ? (propDoc.data().driveInvoiceFolderId || "") : "";
   if (!driveInvoiceFolderId) {
     throw new Error("請求書PDF保存フォルダID (driveInvoiceFolderId) 未設定 — 物件編集モーダルで Drive のフォルダIDを登録してください");

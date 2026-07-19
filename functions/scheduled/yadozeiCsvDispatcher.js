@@ -55,6 +55,14 @@ module.exports = async function yadozeiCsvDispatcher(event) {
     for (const pDoc of propsSnap.docs) {
       const prop = pDoc.data();
       const pid = pDoc.id;
+
+      // ★他オーナー物件(managedBy="owner_manual")は八朔の全自動処理の対象外。
+      //   西山/八朔物件(未設定 or "hassaku_auto")のみ宿泊税CSVを自動取得する。
+      if (prop.managedBy === "owner_manual") {
+        scanned++;
+        continue;
+      }
+
       const yadozei = prop.yadozei || {};
       const schedule = yadozei.schedule || {};
 

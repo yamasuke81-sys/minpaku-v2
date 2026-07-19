@@ -40,12 +40,15 @@ async function run(db, yearMonth, opts = {}) {
   const settlement = require("../api/settlement")(db);
 
   // 対象: pnlBatchEnabled=true の物件(開業済みの収支対象。宿小町/the Terrace 等)
+  // ★他オーナー物件(managedBy="owner_manual")は八朔の全自動処理の対象外(未設定/hassaku_autoのみ)。
   const snap = await db.collection("properties").where("pnlBatchEnabled", "==", true).get();
-  const targets = snap.docs.map((d) => ({
-    id: d.id, name: d.data().name || d.id,
-    mode: resolveOperationMode(d.data()),
-    pnlStartMonth: d.data().pnlStartMonth || null, // 開業月 "YYYY-MM"(これより前はスキップ)
-  }));
+  const targets = snap.docs
+    .filter((d) => d.data().managedBy !== "owner_manual")
+    .map((d) => ({
+      id: d.id, name: d.data().name || d.id,
+      mode: resolveOperationMode(d.data()),
+      pnlStartMonth: d.data().pnlStartMonth || null, // 開業月 "YYYY-MM"(これより前はスキップ)
+    }));
 
   const results = [];
   for (const p of targets) {
