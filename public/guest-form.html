@@ -2,13 +2,13 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <script src="/js/api-relay.js?v=v0719i"></script>
+  <script src="/js/api-relay.js?v=v0719j"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>宿泊者名簿 / Guest Registration</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0719i" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0719j" rel="stylesheet">
   <style>
     /* テーマカラー デフォルト（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css）
        物件別上書きが必要な場合のみ下の早期テーマスクリプトで差し替える */
@@ -543,8 +543,8 @@
     </div>
   </div>
 
-  <script src="/js/shared/form-schema.js?v=v0719i"></script>
-  <script src="/js/guide-map.js?v=v0719i"></script>
+  <script src="/js/shared/form-schema.js?v=v0719j"></script>
+  <script src="/js/guide-map.js?v=v0719j"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-storage-compat.js"></script>
@@ -701,7 +701,7 @@
         carCount: "お車は何台でお越しになりますか？ <span class='required-mark'>*</span>",
         carOverError: "申し訳ございませんが、7台以上の駐車はお受けできません。乗り合わせるなどして台数を減らしていただきますようお願いいたします。",
         vehicleTypeLabel: "{n}台目の車種 <span class='required-mark'>*</span>",
-        vt_small: "軽自動車/小型車", vt_minivan: "ミニバン以下（セレナ等）", vt_large: "全長5m級（アルファード等）",
+        vt_small: "軽自動車/小型車", vt_minivan: "ミニバン以下（セレナ等）", vt_large: "全長5mまで（アルファード等）",
         vt_xl: "全長5m超（ハイエースロング・キャンピングカー等）",
         vtLargeWarn: "⚠️ 転回場、未舗装駐車場でアゴ（フロントバンパー下部）を擦る恐れがあります。ご注意ください。",
         vtXlWarn: "🅿️ 全長5mを超えるお車は無料駐車場をご利用いただけません。有料駐車場のご利用が必要です（2,000円/台/泊）。",
@@ -837,7 +837,7 @@
         carCount: "How many cars will you bring? <span class='required-mark'>*</span>",
         carOverError: "Sorry, we cannot accommodate 7 or more cars. Please carpool to reduce the number of vehicles.",
         vehicleTypeLabel: "Car {n} — Vehicle Type <span class='required-mark'>*</span>",
-        vt_small: "Compact car", vt_minivan: "Minivan or smaller (e.g. Serena)", vt_large: "Full-size 5m+ (e.g. Alphard)",
+        vt_small: "Compact car", vt_minivan: "Minivan or smaller (e.g. Serena)", vt_large: "Up to 5 m long (e.g. Alphard)",
         vt_xl: "Over 5 m long (e.g. extended van, camper)",
         vtLargeWarn: "⚠️ Large vehicles may scrape the front bumper in the turning area and unpaved parking lot. Please be careful.",
         vtXlWarn: "🅿️ Vehicles over 5 m long cannot use the free parking. Paid parking is required (¥2,000/car/night).",
@@ -982,7 +982,7 @@
         vehicleTypeLabel: "{n}번째 차량 종류 <span class='required-mark'>*</span>",
         vt_small: "경차/소형차",
         vt_minivan: "미니밴 이하 (세레나 등)",
-        vt_large: "전장 5m급 (알파드 등)",
+        vt_large: "전장 5m까지 (알파드 등)",
         vt_xl: "전장 5m 초과 (하이에이스 롱, 캠핑카 등)",
         vtLargeWarn: "⚠️ 회전장, 비포장 주차장에서 차량 하부 (프론트 범퍼 하단)가 긁힐 우려가 있습니다. 주의해 주십시오.",
         vtXlWarn: "🅿️ 전장 5m를 초과하는 차량은 무료 주차장을 이용할 수 없습니다. 유료 주차장 이용이 필요합니다 (2,000엔/대/박).",
@@ -1153,7 +1153,7 @@
         vehicleTypeLabel: "第{n}辆车的车型 <span class='required-mark'>*</span>",
         vt_small: "轻型车/小型车",
         vt_minivan: "小型面包车以下（如 Serena）",
-        vt_large: "全长5米级（如 Alphard）",
+        vt_large: "全长5米以内（如 Alphard）",
         vt_xl: "全长超过5米（如 Hiace 长轴、房车等）",
         vtLargeWarn: "⚠️ 请注意，在掉头区和未铺设路面的停车场，车头（前保险杠下部）可能会刮擦。请务必小心。",
         vtXlWarn: "🅿️ 全长超过5米的车辆无法使用免费停车场，必须使用收费停车场（2,000日元/辆/晚）。",
@@ -1324,7 +1324,7 @@
         vehicleTypeLabel: "第{n}輛車的車種 <span class='required-mark'>*</span>",
         vt_small: "輕型車/小型車",
         vt_minivan: "小型廂型車以下（如 Serena）",
-        vt_large: "全長5米級（如 Alphard）",
+        vt_large: "全長5米以內（如 Alphard）",
         vt_xl: "全長超過5米（如 Hiace 長軸、露營車等）",
         vtLargeWarn: "⚠️ 請注意，在迴轉場和未鋪設路面的停車場，車頭下緣（前保險桿底部）可能會刮傷。請小心。",
         vtXlWarn: "🅿️ 全長超過5米的車輛無法使用免費停車場，必須使用付費停車場（2,000日圓/輛/晚）。",
@@ -1776,7 +1776,7 @@
             <option value="">--</option>
             <option value="軽自動車/小型車" ${sv === "軽自動車/小型車" ? "selected" : ""}>${t.vt_small}</option>
             <option value="ミニバン以下（セレナ等）" ${sv === "ミニバン以下（セレナ等）" ? "selected" : ""}>${t.vt_minivan}</option>
-            <option value="全長5m級（アルファード等）" ${sv === "全長5m級（アルファード等）" ? "selected" : ""}>${t.vt_large}</option>
+            <option value="全長5mまで（アルファード等）" ${sv === "全長5mまで（アルファード等）" ? "selected" : ""}>${t.vt_large}</option>
             <option value="全長5m超（ハイエースロング・キャンピングカー等）" ${sv === "全長5m超（ハイエースロング・キャンピングカー等）" ? "selected" : ""}>${t.vt_xl}</option>
           </select></div>`;
       }
@@ -1791,7 +1791,7 @@
       runParkingAllocation();
     }
 
-    // 全長5m級/5m超を選択した車種セレクトの直下に警告を表示
+    // 全長5mまで(大型)/5m超を選択した車種セレクトの直下に警告を表示
     function updateLargeVehicleWarnings() {
       const t = i18n[currentLang];
       document.querySelectorAll(".vt-large-warn").forEach(el => el.remove());
@@ -1852,7 +1852,8 @@
         const typeMap = {
           "軽自動車/小型車": "compact",
           "ミニバン以下（セレナ等）": "minivan",
-          "全長5m級（アルファード等）": "large",
+          "全長5mまで（アルファード等）": "large",
+          "全長5m級（アルファード等）": "large", // 旧表記(保存済みデータ互換)
           "全長5m超（ハイエースロング・キャンピングカー等）": "xl",
         };
         let allDisabled = true;
@@ -2118,7 +2119,10 @@
             if (Array.isArray(d.vehicleTypes) && d.vehicleTypes.length > 0) {
               document.querySelectorAll("#vehicleTypeList .vt-select").forEach((sel, i) => {
                 if (d.vehicleTypes[i]) {
-                  sel.value = d.vehicleTypes[i];
+                  // 旧表記「全長5m級」の保存データは新表記の選択肢へ読み替える
+                  sel.value = d.vehicleTypes[i] === "全長5m級（アルファード等）"
+                    ? "全長5mまで（アルファード等）"
+                    : d.vehicleTypes[i];
                 }
               });
             }
