@@ -177,12 +177,12 @@ module.exports = function keyboxApi(db) {
   return router;
 };
 
-/** 物件データを取得するヘルパー */
+/** 物件データを取得するヘルパー (キーボックス番号/Wi-Fi等は private/secrets 分離済 → マージ取得) */
 async function getPropertyData(db, propertyId) {
   if (!propertyId) return null;
   try {
-    const snap = await db.collection("properties").doc(propertyId).get();
-    return snap.exists ? snap.data() : null;
+    const { getPropertyWithSecrets } = require("../utils/propertySecrets");
+    return await getPropertyWithSecrets(db, propertyId);
   } catch (_) { return null; }
 }
 

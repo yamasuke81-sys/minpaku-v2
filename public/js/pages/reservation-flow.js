@@ -1368,11 +1368,10 @@ const ReservationFlowPage = {
       postCode:        "（ポスト番号未設定）",
     };
 
-    // 物件実データ取得して上書き
+    // 物件実データ取得して上書き (キーボックス/Wi-Fi は private/secrets 分離済 → マージ取得)
     try {
-      const pDoc = await db.collection("properties").doc(pid).get();
-      if (pDoc.exists) {
-        const p = pDoc.data();
+      const p = await API.properties.getWithSecrets(pid);
+      if (p) {
         sampleVars.propertyName    = p.name    || "（物件名未設定）";
         sampleVars.propertyAddress = p.address || "（住所未設定）";
         sampleVars.addressMapUrl   = p.address
@@ -1440,12 +1439,11 @@ const ReservationFlowPage = {
       changes:      "代表者の年齢: 30 → 35",
     };
 
-    // 物件実データを取得して sampleVars を上書き
+    // 物件実データを取得して sampleVars を上書き (キーボックス/Wi-Fi は private/secrets → マージ取得)
     let sampleVars = { ...baseVars };
     try {
-      const pDoc = await db.collection("properties").doc(pid).get();
-      if (pDoc.exists) {
-        const p = pDoc.data();
+      const p = await API.properties.getWithSecrets(pid);
+      if (p) {
         sampleVars.propertyName    = p.name    || "（物件名未設定）";
         sampleVars.propertyAddress = p.address || "（住所未設定）";
         sampleVars.addressMapUrl   = p.address
@@ -1731,6 +1729,12 @@ const ReservationFlowPage = {
       const owned = new Set(Array.isArray(Auth.currentUser?.ownedPropertyIds) ? Auth.currentUser.ownedPropertyIds : []);
       this.properties = this.properties.filter(p => owned.has(p.id));
     }
+    // ★キーボックス/Wi-Fi等の秘密情報は private/secrets 分離済 → 各物件マージ
+    //   (この画面は owner/sub_owner 専用。読めない物件は getSecrets が {} を返す)
+    try {
+      const secretsList = await Promise.all(this.properties.map(p => API.properties.getSecrets(p.id)));
+      this.properties = this.properties.map((p, i) => ({ ...p, ...secretsList[i] }));
+    } catch (_) { /* secrets 取得失敗時は本体のみで続行 */ }
 
     try {
       const nDoc = await db.collection("settings").doc("notifications").get();
@@ -3223,9 +3227,24 @@ const ReservationFlowPage = {
       propertyFields.keyboxNumber = propertyFields.keyboxCode;
     }
 
+    // ★秘密フィールド (キーボックス暗証番号/Wi-Fiパスワード等) は本体 doc でなく
+    //   private/secrets へ分離保存。本体側の残骸は削除して自己移行。
+    const secretFields = {};
+    API.properties.SECRET_FIELDS.forEach((f) => {
+      if (f in propertyFields) { secretFields[f] = propertyFields[f]; delete propertyFields[f]; }
+    });
+
     try {
+      if (Object.keys(secretFields).length > 0) {
+        await API.properties.saveSecrets(pid, secretFields);
+      }
+      const remnantDeletes = {};
+      API.properties.SECRET_FIELDS.forEach((f) => {
+        remnantDeletes[f] = firebase.firestore.FieldValue.delete();
+      });
       await db.collection("properties").doc(pid).set({
         ...propertyFields,
+        ...remnantDeletes,
         reservationFlow,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
@@ -3239,7 +3258,7 @@ const ReservationFlowPage = {
       const prop = this.properties.find(p => p.id === pid);
       if (prop) {
         prop.reservationFlow = reservationFlow;
-        Object.assign(prop, propertyFields);
+        Object.assign(prop, propertyFields, secretFields);
       }
       this._showStatus("saved");
     } catch (e) {

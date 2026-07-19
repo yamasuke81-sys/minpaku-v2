@@ -111,6 +111,39 @@ const API = {
       return { id, ...data };
     },
 
+    // ===== 物件秘密情報 (properties/{id}/private/secrets) =====
+    // Wi-Fiパスワード/キーボックス暗証番号/LINE Botトークン/取得価格/内部メモ等は
+    // サブコレクションに分離済 (read/write = owner / 所有sub_owner のみ)。
+    // 本体 doc から移動した秘密フィールドの一覧 (バックエンド utils/propertySecrets.js と同期)
+    SECRET_FIELDS: [
+      "wifiPassword", "wifiInfo", "keyboxCode", "keyboxNumber",
+      "lineChannels", "lineChannelToken", "lineChannelSecret", "lineGroupId",
+      "purchasePrice", "monthlyFixedCost", "notes",
+    ],
+
+    async getSecrets(id) {
+      try {
+        const doc = await db.collection("properties").doc(id)
+          .collection("private").doc("secrets").get();
+        return doc.exists ? doc.data() : {};
+      } catch (_) {
+        // 権限なし (staff等) は空 = 秘密は見えない
+        return {};
+      }
+    },
+
+    async saveSecrets(id, patch) {
+      await db.collection("properties").doc(id)
+        .collection("private").doc("secrets")
+        .set({ ...patch, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    },
+
+    // 物件データに secrets をマージして返す (owner/sub_owner の編集画面用)
+    async getWithSecrets(id) {
+      const [main, secrets] = await Promise.all([this.get(id), this.getSecrets(id)]);
+      return { ...main, ...secrets };
+    },
+
     async delete(id) {
       await db.collection("properties").doc(id).update({
         active: false,

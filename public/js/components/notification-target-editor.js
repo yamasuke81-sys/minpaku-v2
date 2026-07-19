@@ -109,8 +109,13 @@
     if (!pid) return {};
     if (_propertyCache[pid] !== undefined) return _propertyCache[pid];
     try {
-      const snap = await db.collection("properties").doc(pid).get();
-      _propertyCache[pid] = snap.exists ? snap.data() : {};
+      // lineChannels は private/secrets 分離済 → マージ取得 (secrets を読めないロールは本体のみ)
+      const [snap, secrets] = await Promise.all([
+        db.collection("properties").doc(pid).get(),
+        (typeof API !== "undefined" && API.properties?.getSecrets)
+          ? API.properties.getSecrets(pid) : Promise.resolve({}),
+      ]);
+      _propertyCache[pid] = snap.exists ? { ...snap.data(), ...secrets } : {};
     } catch (e) {
       console.warn("[NotifyTargetEditor] properties 取得失敗:", e.message);
       _propertyCache[pid] = {};

@@ -171,9 +171,19 @@ module.exports = function propertiesApi(db) {
         }
       });
       const propsSnap = await dbRef.collection("properties").where("active", "==", true).get();
+      // lineChannels/lineGroupId は private/secrets 分離済 → 各物件マージ取得。
+      // sub_owner は所有物件のみ対象(担当外物件の groupId 紐付けを露出しない)
+      const { mergeSecretsInto } = require("../utils/propertySecrets");
+      const owned = Array.isArray(req.user.ownedPropertyIds) ? req.user.ownedPropertyIds : [];
+      const targetDocs = propsSnap.docs.filter(
+        (p) => req.user.role !== "sub_owner" || owned.includes(p.id)
+      );
+      const mergedList = await Promise.all(
+        targetDocs.map(async (p) => ({ id: p.id, data: await mergeSecretsInto(dbRef, p.id, p.data() || {}) }))
+      );
       const linked = {};
-      propsSnap.forEach((p) => {
-        const d = p.data() || {};
+      mergedList.forEach((p) => {
+        const d = p.data;
         const chs = Array.isArray(d.lineChannels) ? d.lineChannels : [];
         chs.forEach((c, idx) => {
           if (!c || !c.groupId) return;
@@ -255,10 +265,7 @@ module.exports = function propertiesApi(db) {
         // 運営形態(agency_hassac/agency_other/self)。settlementMode は後方互換で同期
         ..._resolveOperationFields(body),
         managementFeeRate: _parseFeeRate(body.managementFeeRate),
-        monthlyFixedCost: Number(body.monthlyFixedCost) || 0,
-        purchasePrice: Number(body.purchasePrice) || 0,
         purchaseDate: body.purchaseDate || null,
-        notes: body.notes ? String(body.notes).trim() : "",
         active: body.active !== false,
         // タイミー作業時間 (タイミー時給計算用)
         baseWorkTime: (body.baseWorkTime && typeof body.baseWorkTime === "object")
@@ -266,20 +273,27 @@ module.exports = function propertiesApi(db) {
           : { start: "10:30", end: "14:30" },
         // タイミー求人自動入力設定 (userscripts/timee-autofill.user.js が利用)
         timeeAutofill: _sanitizeTimeeAutofill(body.timeeAutofill),
-        // 物件別 LINE 連携設定（後方互換フィールド）
+        // 物件別 LINE 連携設定（非秘密の設定フラグのみ本体。トークン等は private/secrets へ）
         lineEnabled: body.lineEnabled === true,
-        lineChannelToken: body.lineChannelToken ? String(body.lineChannelToken).trim() : "",
-        lineChannelSecret: body.lineChannelSecret ? String(body.lineChannelSecret).trim() : "",
-        lineGroupId: body.lineGroupId ? String(body.lineGroupId).trim() : "",
         lineChannelName: body.lineChannelName ? String(body.lineChannelName).trim() : "",
-        // 複数チャネル設定 (lineChannels[])
-        lineChannels: _sanitizeLineChannels(body.lineChannels),
         lineChannelStrategy: ["fallback", "roundrobin"].includes(body.lineChannelStrategy)
           ? body.lineChannelStrategy : "fallback",
         // 物件ごとの騒音ルール黄色カードの表示ON/OFF (default: true)
         showNoiseAgreement: body.showNoiseAgreement !== false,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
+      };
+
+      // ★秘密フィールドは本体 doc でなく private/secrets サブコレクションへ
+      //   (本体 read は全認証ユーザー開放のため。読み手は propertySecrets のマージ取得を使う)
+      const secretsData = {
+        monthlyFixedCost: Number(body.monthlyFixedCost) || 0,
+        purchasePrice: Number(body.purchasePrice) || 0,
+        notes: body.notes ? String(body.notes).trim() : "",
+        lineChannelToken: body.lineChannelToken ? String(body.lineChannelToken).trim() : "",
+        lineChannelSecret: body.lineChannelSecret ? String(body.lineChannelSecret).trim() : "",
+        lineGroupId: body.lineGroupId ? String(body.lineGroupId).trim() : "",
+        lineChannels: _sanitizeLineChannels(body.lineChannels),
       };
 
       // 宿泊税CSV (やどぜい) 設定 — 指定時のみフィールド追加
@@ -291,7 +305,9 @@ module.exports = function propertiesApi(db) {
       }
 
       const docRef = await collection.add(data);
-      res.status(201).json({ id: docRef.id, ...data });
+      const { secretsRef } = require("../utils/propertySecrets");
+      await secretsRef(collection.firestore, docRef.id).set(secretsData, { merge: true });
+      res.status(201).json({ id: docRef.id, ...data, ...secretsData });
     } catch (e) {
       console.error("物件登録エラー:", e);
       res.status(500).json({ error: "物件の登録に失敗しました" });
@@ -331,9 +347,11 @@ module.exports = function propertiesApi(db) {
         Object.assign(data, _resolveOperationFields(body));
       }
       if (body.managementFeeRate !== undefined) data.managementFeeRate = _parseFeeRate(body.managementFeeRate);
-      if (body.monthlyFixedCost !== undefined) data.monthlyFixedCost = Number(body.monthlyFixedCost) || 0;
-      if (body.purchasePrice !== undefined) data.purchasePrice = Number(body.purchasePrice) || 0;
       if (body.purchaseDate !== undefined) data.purchaseDate = body.purchaseDate;
+      // ★秘密フィールドは本体 doc でなく private/secrets へ (指定されたもののみ)
+      const secretsPatch = {};
+      if (body.monthlyFixedCost !== undefined) secretsPatch.monthlyFixedCost = Number(body.monthlyFixedCost) || 0;
+      if (body.purchasePrice !== undefined) secretsPatch.purchasePrice = Number(body.purchasePrice) || 0;
       // 収支機能 OTAマッピング (Airbnb収入レポート/Booking.com明細の物件突合用)
       if (body.bookingPropertyId !== undefined) data.bookingPropertyId = String(body.bookingPropertyId).trim();
       if (body.airbnbListingName !== undefined) data.airbnbListingName = String(body.airbnbListingName).trim();
@@ -342,7 +360,7 @@ module.exports = function propertiesApi(db) {
           ? body.airbnbListingAliases.map((s) => String(s).trim()).filter(Boolean) : [];
       }
       if (body.checklistTemplateId !== undefined) data.checklistTemplateId = body.checklistTemplateId;
-      if (body.notes !== undefined) data.notes = String(body.notes).trim();
+      if (body.notes !== undefined) secretsPatch.notes = String(body.notes).trim();
       if (body.active !== undefined) data.active = Boolean(body.active);
       if (body.baseWorkTime !== undefined && typeof body.baseWorkTime === "object") {
         data.baseWorkTime = {
@@ -354,14 +372,14 @@ module.exports = function propertiesApi(db) {
       if (body.timeeAutofill !== undefined) {
         data.timeeAutofill = body.timeeAutofill === null ? null : _sanitizeTimeeAutofill(body.timeeAutofill);
       }
-      // 物件別 LINE 連携設定（後方互換フィールド）
+      // 物件別 LINE 連携設定（非秘密のフラグは本体、トークン等は private/secrets へ）
       if (body.lineEnabled !== undefined) data.lineEnabled = Boolean(body.lineEnabled);
-      if (body.lineChannelToken !== undefined) data.lineChannelToken = String(body.lineChannelToken).trim();
-      if (body.lineChannelSecret !== undefined) data.lineChannelSecret = String(body.lineChannelSecret).trim();
-      if (body.lineGroupId !== undefined) data.lineGroupId = String(body.lineGroupId).trim();
+      if (body.lineChannelToken !== undefined) secretsPatch.lineChannelToken = String(body.lineChannelToken).trim();
+      if (body.lineChannelSecret !== undefined) secretsPatch.lineChannelSecret = String(body.lineChannelSecret).trim();
+      if (body.lineGroupId !== undefined) secretsPatch.lineGroupId = String(body.lineGroupId).trim();
       if (body.lineChannelName !== undefined) data.lineChannelName = String(body.lineChannelName).trim();
       // 複数チャネル設定
-      if (body.lineChannels !== undefined) data.lineChannels = _sanitizeLineChannels(body.lineChannels);
+      if (body.lineChannels !== undefined) secretsPatch.lineChannels = _sanitizeLineChannels(body.lineChannels);
       if (body.lineChannelStrategy !== undefined) {
         data.lineChannelStrategy = ["fallback", "roundrobin"].includes(body.lineChannelStrategy)
           ? body.lineChannelStrategy : "fallback";
@@ -402,7 +420,11 @@ module.exports = function propertiesApi(db) {
       data.updatedAt = FieldValue.serverTimestamp();
 
       await docRef.update(data);
-      res.json({ id: req.params.id, ...data });
+      if (Object.keys(secretsPatch).length > 0) {
+        const { secretsRef } = require("../utils/propertySecrets");
+        await secretsRef(collection.firestore, req.params.id).set(secretsPatch, { merge: true });
+      }
+      res.json({ id: req.params.id, ...data, ...secretsPatch });
     } catch (e) {
       console.error("物件更新エラー:", e);
       res.status(500).json({ error: "物件の更新に失敗しました" });
@@ -529,7 +551,9 @@ module.exports = function propertiesApi(db) {
         if (!owned.includes(pid)) return res.status(403).json({ error: "この物件のアクセス権がありません" });
       }
 
-      const data = propDoc.data();
+      // lineChannels は private/secrets 分離済 → マージ取得
+      const { mergeSecretsInto } = require("../utils/propertySecrets");
+      const data = await mergeSecretsInto(dbRef, pid, propDoc.data());
       const channels = Array.isArray(data.lineChannels) ? data.lineChannels : [];
       const groupIds = channels.map(c => c.groupId).filter(Boolean);
       const tokens = channels.map(c => c.token).filter(Boolean);
@@ -643,6 +667,11 @@ module.exports = function propertiesApi(db) {
     try {
       if (req.user.role !== "owner" && req.user.role !== "sub_owner") {
         return res.status(403).json({ error: "権限がありません" });
+      }
+      // sub_owner は所有物件のみ (line-recent-users と同じスコープ)
+      if (req.user.role === "sub_owner") {
+        const owned = req.user.ownedPropertyIds || [];
+        if (!owned.includes(req.params.id)) return res.status(403).json({ error: "この物件のアクセス権がありません" });
       }
       const snap = await db.collection("icalFeeds")
         .where("propertyId", "==", req.params.id)

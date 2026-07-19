@@ -83,12 +83,12 @@ module.exports = function lineProfileApi(db) {
    */
   async function resolveTokenList(propertyId, botIndex) {
     const tokens = [];
-    // 物件の lineChannels
+    // 物件の lineChannels (private/secrets 分離済 → マージ取得)
     if (propertyId) {
       try {
-        const propSnap = await db.collection("properties").doc(propertyId).get();
-        if (propSnap.exists) {
-          const propData = propSnap.data();
+        const { getPropertyWithSecrets } = require("../utils/propertySecrets");
+        const propData = await getPropertyWithSecrets(db, propertyId);
+        if (propData) {
           const channels = Array.isArray(propData.lineChannels) ? propData.lineChannels : [];
           if (botIndex != null && channels[botIndex] && channels[botIndex].token) {
             tokens.push(channels[botIndex].token);

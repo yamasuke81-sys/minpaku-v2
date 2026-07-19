@@ -558,8 +558,14 @@ exports.onErrorLogCreated = onDocumentCreated(
 );
 
 // LINE Channel Access Token 変更検知 → Bot Info (displayName/basicId) 自動取得
+// 本体 doc 側は移行期間の残骸編集用に残す (lineChannels は private/secrets へ分離済)
 exports.onPropertyLineTokenChange = onDocumentWritten(
   { document: "properties/{propertyId}", region: "asia-northeast1" },
+  require("./triggers/onLineTokenChange").onPropertyChange
+);
+// 分離後の実体: properties/{pid}/private/secrets の lineChannels[].token 変更を監視
+exports.onPropertySecretsLineTokenChange = onDocumentWritten(
+  { document: "properties/{propertyId}/private/secrets", region: "asia-northeast1" },
   require("./triggers/onLineTokenChange").onPropertyChange
 );
 exports.onNotificationsLineTokenChange = onDocumentWritten(

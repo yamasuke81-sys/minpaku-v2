@@ -2059,8 +2059,10 @@ module.exports = function invoicesApi(db) {
         // スタッフ個別LINE: 提出者本人のみに送信（全スタッフ同報は絶対禁止）
         // 物件別 Bot をフォールバック付きで使う（グローバル channelToken 直送を廃止）
         if (staffDoc.lineUserId) {
-          const pDoc = await db.collection("properties").doc(propertyId).get().catch(() => null);
-          const propChannels = (pDoc?.exists ? pDoc.data().lineChannels : []) || [];
+          // lineChannels は private/secrets 分離済 → マージ取得
+          const { getPropertyWithSecrets } = require("../utils/propertySecrets");
+          const pData = await getPropertyWithSecrets(db, propertyId).catch(() => null);
+          const propChannels = (pData && Array.isArray(pData.lineChannels) ? pData.lineChannels : []);
           const lineChannelsFiltered = propChannels.filter((c) => c.token);
           const staffLineBody = `📨 ${yearMonth} の請求書を提出しました\n合計: ¥${Number(computed.total).toLocaleString("ja-JP")}${linkLine}\n確認: ${confirmUrl}`;
           notifyStaff(db, staffDoc.id, "invoice_submitted",

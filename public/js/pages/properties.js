@@ -174,6 +174,12 @@ const PropertiesPage = {
         const btnAdd = document.getElementById("btnAddProperty");
         if (btnAdd) btnAdd.style.display = "none";
       }
+      // ★秘密情報 (Wi-Fi/キーボックス/LINEトークン/取得価格/メモ等) は private/secrets 分離済。
+      //   この画面は owner/sub_owner 専用なので各物件の secrets をマージ (カード表示と編集モーダルの初期値用)
+      const secretsList = await Promise.all(
+        this.propertyList.map(p => API.properties.getSecrets(p.id))
+      );
+      this.propertyList = this.propertyList.map((p, i) => ({ ...p, ...secretsList[i] }));
       // Webアプリ管理者候補 (isOwner or isSubOwner の staff) を取得
       await this._loadOwnerStaffOptions();
       this.renderCards();
@@ -760,14 +766,28 @@ const PropertiesPage = {
       data.lineChannelName = "";
     }
 
+    // ★秘密フィールド (Wi-Fi/キーボックス/LINEトークン/取得価格/メモ等) は本体 doc でなく
+    //   private/secrets サブコレクションへ分離保存 (本体は全認証ユーザー read のため)
+    const secrets = {};
+    API.properties.SECRET_FIELDS.forEach((f) => {
+      if (f in data) { secrets[f] = data[f]; delete data[f]; }
+    });
+
     try {
       let finalId = id;
       if (id) {
-        await API.properties.update(id, data);
+        // secrets を先に保存 → 成功後に本体を更新 (本体側の残骸フィールドは削除して自己移行)
+        await API.properties.saveSecrets(id, secrets);
+        const remnantDeletes = {};
+        API.properties.SECRET_FIELDS.forEach((f) => {
+          remnantDeletes[f] = firebase.firestore.FieldValue.delete();
+        });
+        await API.properties.update(id, { ...data, ...remnantDeletes });
         showToast("完了", "物件情報を更新しました", "success");
       } else {
         const created = await API.properties.create(data);
         finalId = created?.id || created?.propertyId || id;
+        if (finalId) await API.properties.saveSecrets(finalId, secrets);
         showToast("完了", "物件を登録しました", "success");
       }
       // 物件オーナー (staff) の ownedPropertyIds に当該物件を同期追加 (物件オーナー設定と整合)
@@ -787,8 +807,8 @@ const PropertiesPage = {
             }
 
             // --- 物件設定 → 連絡先マスタ: ownerLineUserId の同期 ---
-            // 保存した lineChannels のうち ownerLineUserId が入っているものを取得
-            const savedChannels = data.lineChannels || [];
+            // 保存した lineChannels のうち ownerLineUserId が入っているものを取得 (secrets 側に分離済)
+            const savedChannels = secrets.lineChannels || [];
             const newOwnerLineUserId = savedChannels.reduce((found, ch) => found || ch.ownerLineUserId || "", "");
             const existingStaffLineUserId = (sData.lineUserId || "").trim();
             if (newOwnerLineUserId && newOwnerLineUserId !== existingStaffLineUserId) {
@@ -945,13 +965,25 @@ const PropertiesPage = {
       data.lineChannelName = "";
     }
 
+    // ★秘密フィールドは private/secrets へ分離保存 (saveProperty と同じ分割)
+    const secrets = {};
+    API.properties.SECRET_FIELDS.forEach((f) => {
+      if (f in data) { secrets[f] = data[f]; delete data[f]; }
+    });
+
     try {
-      await API.properties.update(id, data);
+      // secrets を先に保存 → 本体更新 (本体側の残骸フィールドは削除して自己移行)
+      await API.properties.saveSecrets(id, secrets);
+      const remnantDeletes = {};
+      API.properties.SECRET_FIELDS.forEach((f) => {
+        remnantDeletes[f] = firebase.firestore.FieldValue.delete();
+      });
+      await API.properties.update(id, { ...data, ...remnantDeletes });
       // 自動保存は loadProperties() を呼ばないため、ローカルの propertyList を手動で同期する
       // これをしないと「物件番号 5 → 10」に変更後も使用済み判定が旧番号 5 を残し続けるバグになる
       const idx = (this.propertyList || []).findIndex(p => p.id === id);
       if (idx >= 0) {
-        this.propertyList[idx] = { ...this.propertyList[idx], ...data };
+        this.propertyList[idx] = { ...this.propertyList[idx], ...data, ...secrets };
       }
       // 現在モーダルに開いている物件の番号プルダウン / 色スウォッチも最新データで再描画
       // (他フィールド変更でも呼ばれるが軽量なので問題なし)

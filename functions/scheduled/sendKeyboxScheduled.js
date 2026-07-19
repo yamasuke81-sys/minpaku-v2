@@ -43,14 +43,14 @@ module.exports = async function sendKeyboxScheduled() {
     return;
   }
 
-  // 物件設定キャッシュ
+  // 物件設定キャッシュ (キーボックス番号/Wi-Fi等は private/secrets 分離済 → マージ取得)
   const propCache = {};
   async function getPropData(propertyId) {
     if (!propertyId) return null;
     if (propCache[propertyId] !== undefined) return propCache[propertyId];
     try {
-      const p = await db.collection("properties").doc(propertyId).get();
-      propCache[propertyId] = p.exists ? p.data() : null;
+      const { getPropertyWithSecrets } = require("../utils/propertySecrets");
+      propCache[propertyId] = await getPropertyWithSecrets(db, propertyId);
     } catch (_) { propCache[propertyId] = null; }
     return propCache[propertyId];
   }

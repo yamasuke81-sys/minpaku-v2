@@ -73,9 +73,10 @@ module.exports = function notificationsApi(db) {
     let propBotToken = null, propBotName = null, propBotGroupId = null;
     if (propertyId) {
       try {
-        const pDoc = await db.collection("properties").doc(propertyId).get();
-        if (pDoc.exists) {
-          const pData = pDoc.data() || {};
+        // lineChannels は private/secrets 分離済 → マージ取得
+        const { getPropertyWithSecrets } = require("../utils/propertySecrets");
+        const pData = await getPropertyWithSecrets(db, propertyId);
+        if (pData) {
           const ch0 = Array.isArray(pData.lineChannels)
             ? pData.lineChannels.find(c => c && c.enabled !== false && c.token)
             : null;
@@ -364,11 +365,14 @@ module.exports = function notificationsApi(db) {
       (Array.isArray(sd.ownerLineChannels) ? sd.ownerLineChannels : []).forEach((c, i) => {
         if (c?.token) candidates.push({ name: c.name || `追加 Bot #${i+1}`, token: c.token });
       });
-      // 物件別 Bot も候補に追加
+      // 物件別 Bot も候補に追加 (lineChannels は private/secrets 分離済 → 各物件マージ取得)
+      const { mergeSecretsInto } = require("../utils/propertySecrets");
       const propsSnap = await db.collection("properties").get();
-      propsSnap.docs.forEach(d => {
-        const p = d.data();
-        const pname = p.name || d.id;
+      const mergedProps = await Promise.all(
+        propsSnap.docs.map(async (d) => ({ id: d.id, data: await mergeSecretsInto(db, d.id, d.data()) }))
+      );
+      mergedProps.forEach(({ id, data: p }) => {
+        const pname = p.name || id;
         (Array.isArray(p.lineChannels) ? p.lineChannels : []).forEach((c, i) => {
           if (c?.token) candidates.push({ name: `${pname} #${i+1}`, token: c.token });
         });

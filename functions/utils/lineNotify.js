@@ -908,13 +908,13 @@ async function notifySubOwners(db, propertyId, title, body, opts = {}) {
     const { channelToken } = await getNotificationSettings_(db);
     const propertySenderGmail = await resolveSenderGmail_(db, propertyId);
 
-    // 物件別 Bot トークンをすべて取得 (lineChannels[])
+    // 物件別 Bot トークンをすべて取得 (lineChannels[] は private/secrets 分離済 → マージ取得)
     // → Bot#1 → Bot#2 → グローバル の順でフォールバック
     let propChannels = [];
     try {
-      const pDoc = await db.collection("properties").doc(propertyId).get();
-      if (pDoc.exists) {
-        const pData = pDoc.data() || {};
+      const { getPropertyWithSecrets } = require("./propertySecrets");
+      const pData = await getPropertyWithSecrets(db, propertyId);
+      if (pData) {
         propChannels = Array.isArray(pData.lineChannels)
           ? pData.lineChannels.filter(c => c && c.enabled !== false && c.token)
           : [];
@@ -1278,12 +1278,12 @@ async function sendLineMessageForProperty(db, propertyId, text, logExtra = {}) {
   let usedChannel = "global";
   let usedChannelName = null;
 
-  // ---- 物件ドキュメントから LINE 設定を取得 ----
+  // ---- 物件ドキュメントから LINE 設定を取得 (lineChannels は private/secrets 分離済 → マージ取得) ----
   if (propertyId) {
     try {
-      const propDoc = await db.collection("properties").doc(propertyId).get();
-      if (propDoc.exists) {
-        const pd = propDoc.data();
+      const { getPropertyWithSecrets } = require("./propertySecrets");
+      const pd = await getPropertyWithSecrets(db, propertyId);
+      if (pd) {
 
         // 複数チャネル設定がある場合
         let channels = Array.isArray(pd.lineChannels) ? pd.lineChannels : [];
@@ -1545,13 +1545,13 @@ async function notifyByKey(db, notifyKey, options = {}) {
         const { channelToken, ownerUserId } = await getNotificationSettings_(db);
         const text = typeof resolvedBody === "string" ? resolvedBody : title;
 
-        // 物件別 lineChannels[] を取得 (token があるものすべて)
+        // 物件別 lineChannels[] を取得 (private/secrets 分離済 → マージ取得)
         let propChannels = [];
         if (propertyId) {
           try {
-            const pd = await db.collection("properties").doc(propertyId).get();
-            if (pd.exists) {
-              const pData = pd.data() || {};
+            const { getPropertyWithSecrets } = require("./propertySecrets");
+            const pData = await getPropertyWithSecrets(db, propertyId);
+            if (pData) {
               propChannels = Array.isArray(pData.lineChannels)
                 ? pData.lineChannels.filter(c => c && c.enabled !== false && c.token)
                 : [];
@@ -1640,13 +1640,13 @@ async function notifyByKey(db, notifyKey, options = {}) {
   if (targets.staffLine) {
     tasks.push((async () => {
       try {
-        // 物件別 Bot トークンをすべて取得（ownerLine のフェッチと独立して実行）
+        // 物件別 Bot トークンをすべて取得（ownerLine のフェッチと独立して実行。private/secrets マージ取得）
         let staffPropChannels = [];
         if (propertyId) {
           try {
-            const pd = await db.collection("properties").doc(propertyId).get();
-            if (pd.exists) {
-              const pData = pd.data() || {};
+            const { getPropertyWithSecrets } = require("./propertySecrets");
+            const pData = await getPropertyWithSecrets(db, propertyId);
+            if (pData) {
               staffPropChannels = Array.isArray(pData.lineChannels)
                 ? pData.lineChannels.filter(c => c && c.enabled !== false && c.token)
                 : [];

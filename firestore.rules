@@ -84,6 +84,15 @@ service cloud.firestore {
       allow create, delete: if isOwner();
       allow update: if isOwner()
         || (isSubOwner() && propertyId in request.auth.token.ownedPropertyIds);
+
+      // ★秘密情報サブコレクション (private/secrets):
+      //   Wi-Fiパスワード / キーボックス暗証番号 / LINE Botトークン / 取得価格 / 内部メモ等。
+      //   本体 doc は全認証ユーザー read のため、秘密はここに分離して owner / 所有sub_owner に限定。
+      //   staff・匿名は read 不可。バックエンドは utils/propertySecrets.js のマージ取得を使う。
+      match /private/{docId} {
+        allow read, write: if isOwner()
+          || (isSubOwner() && propertyId in request.auth.token.ownedPropertyIds);
+      }
     }
 
     // 予約 — オーナーは全操作、サブオーナーは所有物件のみ読み書き。

@@ -62,6 +62,11 @@ const ContactsPage = {
     this.properties = propR.status === "fulfilled"
       ? propR.value.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.propertyNumber ?? 999) - (b.propertyNumber ?? 999))
       : [];
+    // ★LINE Bot トークン等は private/secrets 分離済 → 各物件マージ (この画面はオーナー専用)
+    try {
+      const secretsList = await Promise.all(this.properties.map(p => API.properties.getSecrets(p.id)));
+      this.properties = this.properties.map((p, i) => ({ ...p, ...secretsList[i] }));
+    } catch (_) { /* secrets 取得失敗時は本体のみで続行 */ }
     this.notifSettings = notifR.status === "fulfilled" && notifR.value.exists
       ? notifR.value.data()
       : {};
@@ -797,14 +802,21 @@ const ContactsPage = {
           channels.push(ch);
         }
       });
-      // properties/{id}.lineChannels に保存 (物件編集と同期)
+      // ★lineChannels は private/secrets 分離済 → secrets へ保存 (物件編集と同期)
       const updateData = { lineChannels: channels };
       // 後方互換: lineChannels[0] を旧単一フィールドに反映
       if (channels[0]) {
         updateData.lineChannelToken = channels[0].token || "";
         updateData.lineGroupId = channels[0].groupId || "";
       }
-      await db.collection("properties").doc(propId).set(updateData, { merge: true });
+      await API.properties.saveSecrets(propId, updateData);
+      // 本体 doc に残る旧フィールドの残骸は削除 (自己移行)
+      await db.collection("properties").doc(propId).set({
+        lineChannels: firebase.firestore.FieldValue.delete(),
+        lineChannelToken: firebase.firestore.FieldValue.delete(),
+        lineGroupId: firebase.firestore.FieldValue.delete(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
       // ローカル状態も更新
       if (local) local.lineChannels = channels;
       showToast("保存", `物件「${local?.name || propId}」の LINE Bot を ${channels.length} 件保存しました`, "success");
@@ -1135,7 +1147,11 @@ const ContactsPage = {
       const snap = await db.collection("properties").where("ownerStaffId", "==", staffId).get();
       if (snap.empty) return; // 関連物件なし
 
-      const targetProps = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // lineChannels は private/secrets 分離済 → 各物件マージ
+      const targetProps = await Promise.all(snap.docs.map(async (d) => {
+        const secrets = await API.properties.getSecrets(d.id);
+        return { id: d.id, ...d.data(), ...secrets };
+      }));
       const staffLocal = this.staff.find(s => s.id === staffId);
       const staffName = staffLocal?.name || staffId;
 
@@ -1157,7 +1173,7 @@ const ContactsPage = {
       );
       if (!confirmed) return;
 
-      // 各物件の lineChannels[*].ownerLineUserId を更新
+      // 各物件の lineChannels[*].ownerLineUserId を更新 (保存先は private/secrets)
       const batch = db.batch();
       for (const prop of needsUpdate) {
         const channels = Array.isArray(prop.lineChannels) ? prop.lineChannels.map(ch => ({ ...ch })) : [];
@@ -1165,11 +1181,12 @@ const ContactsPage = {
         channels.forEach(ch => {
           ch.ownerLineUserId = newLineUserId;
         });
-        const ref = db.collection("properties").doc(prop.id);
-        batch.update(ref, {
+        const ref = db.collection("properties").doc(prop.id)
+          .collection("private").doc("secrets");
+        batch.set(ref, {
           lineChannels: channels,
           updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        });
+        }, { merge: true });
         // ローカルキャッシュも更新
         const localProp = this.properties.find(p => p.id === prop.id);
         if (localProp) localProp.lineChannels = channels;
