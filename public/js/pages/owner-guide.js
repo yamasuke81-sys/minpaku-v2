@@ -133,7 +133,6 @@ const OwnerGuidePage = {
           </div>
           <p>
             ログインすると、左メニューに次の項目が表示されます。
-            基本は「見て確認する」使い方で大丈夫です。操作が必要な場面はほとんどありません。
           </p>
 
           <h6 class="fw-bold mt-3 border-start border-4 border-secondary ps-2 py-1 bg-light">予約まわり</h6>
@@ -148,7 +147,7 @@ const OwnerGuidePage = {
 
           <h6 class="fw-bold mt-3 border-start border-4 border-secondary ps-2 py-1 bg-light">清掃まわり</h6>
           <ul>
-            <li><i class="bi bi-megaphone"></i> <strong>募集</strong> — 清掃スタッフ募集の回答・確定状況</li>
+            <li><i class="bi bi-megaphone"></i> <strong>募集</strong> — 清掃スタッフ募集の回答確認とスタッフの選定・確定</li>
             <li><i class="bi bi-clipboard-check"></i> <strong>チェックリスト</strong> — 清掃チェックリストの内容と実施状況</li>
             <li><i class="bi bi-basket3"></i> <strong>ランドリー</strong> — リネン・ランドリー運用の記録</li>
             <li><i class="bi bi-people"></i> <strong>スタッフ</strong> — 清掃スタッフの一覧</li>
@@ -283,12 +282,13 @@ const OwnerGuidePage = {
           </h5>
           <p>
             チェックアウト後の清掃は、予約に連動して自動で募集 → スタッフ確定 → 当日チェックリスト実施、
-            という流れで進みます。オーナー様は以下のメニューで各段階を確認できます。
+            という流れで進みます。オーナー様は以下のメニューで各段階を確認・管理できます。
           </p>
           <ul>
             <li>
               <strong><i class="bi bi-megaphone"></i> 募集</strong> —
-              清掃募集ごとのスタッフの回答状況（◎／△／×）と確定状況
+              清掃募集ごとのスタッフの回答状況（◎／△／×）の確認と、担当スタッフの選定・確定。
+              募集をタップして開く詳細画面から、回答したスタッフの中から担当を選んで確定できます
             </li>
             <li>
               <strong><i class="bi bi-clipboard-check"></i> チェックリスト</strong> —
@@ -303,12 +303,6 @@ const OwnerGuidePage = {
               清掃スタッフから月末に提出される請求書の内容と金額
             </li>
           </ul>
-          <div class="alert alert-info small">
-            <i class="bi bi-info-circle"></i>
-            日々の清掃手配（募集の作成・スタッフの選定・確定）は自動化されており、管理者が運用しています。
-            オーナー様の操作は不要です。
-          </div>
-
           <!-- チェックリストの編集 -->
           <h6 id="og-checklist-edit" class="mt-4 fw-bold border-start border-4 border-primary ps-2 py-1 bg-light">
             清掃チェックリストを編集する
