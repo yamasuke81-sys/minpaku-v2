@@ -51,6 +51,8 @@ const App = {
     "booking-requests": BookingRequestsPage,
     // 宿泊料金 (直販サイトのゲスト向け料金。報酬単価 #/rates とは別物)
     "property-rates": PropertyRatesPage,
+    // 物件オーナー用 使い方ガイド (公開ページ /owner-guide.html と同内容)
+    "owner-guide": OwnerGuidePage,
   },
 
   // スタッフ用ページ
