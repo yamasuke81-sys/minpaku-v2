@@ -29,7 +29,12 @@ const OwnerGuidePage = {
                 </ul>
               </li>
               <li><a href="#og-guests">宿泊者名簿を確認する</a></li>
-              <li><a href="#og-cleaning">清掃の状況を確認する</a></li>
+              <li>
+                <a href="#og-cleaning">清掃の状況を確認する</a>
+                <ul class="mb-0">
+                  <li><a href="#og-checklist-edit">清掃チェックリストを編集する</a></li>
+                </ul>
+              </li>
               <li><a href="#og-pnl">収支・帳票を確認する</a></li>
               <li><a href="#og-reports">定期報告・宿泊税</a></li>
               <li><a href="#og-notify">通知について</a></li>
@@ -302,6 +307,76 @@ const OwnerGuidePage = {
             <i class="bi bi-info-circle"></i>
             日々の清掃手配（募集の作成・スタッフの選定・確定）は自動化されており、管理者が運用しています。
             オーナー様の操作は不要です。
+          </div>
+
+          <!-- チェックリストの編集 -->
+          <h6 id="og-checklist-edit" class="mt-4 fw-bold border-start border-4 border-primary ps-2 py-1 bg-light">
+            清掃チェックリストを編集する
+          </h6>
+          <p>
+            清掃チェックリストの内容（エリア・項目・メモ・見本写真）は、オーナー様ご自身で編集できます。
+            「この項目を足してほしい」「注意書きを入れたい」といった変更は、以下の手順でその場で反映できます。
+          </p>
+
+          <h6 class="fw-bold mt-3 border-start border-4 border-secondary ps-2 py-1 bg-light">編集画面の開き方</h6>
+          <ol>
+            <li>左メニューから <strong>「チェックリスト」</strong> をタップ</li>
+            <li>上部の <strong>「チェックリストマスタ編集」</strong> で物件を選択し、
+              <span class="badge bg-primary"><i class="bi bi-clipboard2-pulse"></i> マスタを開く</span>
+              ボタンをタップ</li>
+            <li>編集画面が開きます。上部の <strong>「清掃」「直前チェック」</strong> タブで、
+              どちらの作業用チェックリストを編集するか切り替えられます</li>
+          </ol>
+
+          <h6 class="fw-bold mt-3 border-start border-4 border-secondary ps-2 py-1 bg-light">編集画面でできること</h6>
+          <ul>
+            <li><strong>エリア（部屋）の追加・並び替え</strong> —
+              上部に並ぶタブがエリアです。タブ列の右端の <strong>「＋エリア追加」</strong> で部屋を追加。
+              タブをドラッグ（スマホは長押し）すると並び替えできます</li>
+            <li><strong>項目の追加</strong> —
+              エリア見出し右上の <span class="badge bg-light text-primary border"><i class="bi bi-plus"></i> 項目</span>
+              ボタン、または各分類の中の同じボタンをタップし、名前とメモ（任意）を入力</li>
+            <li><strong>分類の追加</strong> —
+              「＋掃除種類」→ その中に「＋サブ分類」→「＋サブサブ」と、必要に応じて細かく階層化できます</li>
+            <li><strong>名前の変更・削除</strong> —
+              各行の <i class="bi bi-pencil"></i>（鉛筆）で名前やメモを変更、
+              <i class="bi bi-trash text-danger"></i>（ゴミ箱）で削除</li>
+            <li><strong>並び替え</strong> —
+              各行の左端の <i class="bi bi-grip-vertical"></i>（つまみ）をドラッグ（スマホは長押し）</li>
+            <li><strong>メモ</strong> —
+              エリア・分類・項目のどこにでも書けます。スタッフの清掃画面では黄色いカードで目立つように表示されます</li>
+            <li><strong>見本写真</strong> —
+              エリア・分類・項目ごとに「見本写真を追加」から登録できます（仕上がりの見本・備品の配置など）。
+              エリアタブのすぐ下の「カメラタブの見本写真」枠に追加した写真は、
+              スタッフの写真撮影（カメラ）タブに表示されます</li>
+          </ul>
+
+          <h6 class="fw-bold mt-3 border-start border-4 border-secondary ps-2 py-1 bg-light">保存と反映のルール</h6>
+          <ol>
+            <li>内容を変えると右上の <span class="badge bg-success"><i class="bi bi-check2"></i> 保存</span>
+              ボタンが押せるようになります。編集が終わったら必ず <strong>「保存」</strong> をタップしてください
+              （保存せずに画面を離れると変更は反映されません）</li>
+            <li>保存すると、<strong>未着手のチェックリスト（まだ誰もチェックを入れていないもの）には自動で反映</strong>されます</li>
+            <li>すでに進行中のチェックリストにも反映したい場合は、上部の
+              <span class="badge bg-warning text-dark">未着手を最新化</span> ボタンから実行できます</li>
+            <li><strong>完了済みの過去のチェックリストは変更されません</strong>（記録として保護されます）</li>
+          </ol>
+          <div class="alert alert-success small">
+            <i class="bi bi-clock-history"></i>
+            <strong>失敗しても大丈夫：</strong>
+            保存のたびに履歴が自動で残ります（最大20世代）。
+            編集画面上部の <strong>「履歴」</strong> ボタンからいつでも以前の状態に戻せます。
+          </div>
+          <div class="alert alert-info small">
+            <i class="bi bi-info-circle"></i>
+            「チェックリスト」画面の <strong>「他物件からインポート」</strong>（編集画面内の「コピー」も同じ機能）で、
+            別物件のチェックリストを丸ごとコピーして作り始めることもできます。
+            <strong>現在の内容が上書きされる</strong>ため、使うときはご注意ください。
+          </div>
+          <div class="alert alert-light border small">
+            <i class="bi bi-people"></i>
+            レギュラーの清掃スタッフも、担当物件のチェックリストを編集できる運用にしています
+            （現場の気付きを直接反映してもらうためです）。
           </div>
         </section>
 

@@ -34,6 +34,7 @@ const StaffGuidePage = {
                   <li><a href="#sg-invoice-manual">手動で明細を追記する方法</a></li>
                 </ul>
               </li>
+              <li><a href="#sg-checklist-edit">清掃チェックリストの編集方法</a></li>
               <li><a href="#sg-timee">タイミーの方と一緒に作業する場合</a></li>
             </ol>
           </div>
@@ -389,10 +390,86 @@ const StaffGuidePage = {
           </div>
         </section>
 
-        <!-- ===== 5. タイミー対応 ===== -->
+        <!-- ===== 5. チェックリストの編集 ===== -->
+        <section id="sg-checklist-edit" class="mb-5">
+          <h5 class="bg-primary text-white px-3 py-2 rounded-3 shadow-sm mb-3" style="font-weight:700;">
+            5. 清掃チェックリストの編集方法
+          </h5>
+          <p>
+            チェックリストの内容（エリア・項目・メモ・見本写真）は、スタッフの皆さんも編集できます。
+            「この項目を足したい」「順番を変えたい」「注意書きを残したい」といった現場の気付きは、
+            管理者に依頼しなくてもその場で反映してOKです。
+          </p>
+          <div class="alert alert-info small">
+            <i class="bi bi-info-circle"></i>
+            編集できるのは <strong>レギュラースタッフ（担当物件が設定されている方）のみ</strong> で、
+            対象は <strong>ご自身の担当物件</strong> です。タイミーの方は編集できません。
+          </div>
+
+          <h6 class="fw-bold mt-3 border-start border-4 border-secondary ps-2 py-1 bg-light">編集画面の開き方</h6>
+          <ol>
+            <li>左メニュー（スマホは左上の三本線アイコンから開く）の
+              <strong>「チェックリスト」</strong> をタップして、
+              <strong>「チェックリスト履歴・予定」</strong> の一覧を開く</li>
+            <li>一覧の右上にある
+              <span class="badge bg-light text-secondary border"><i class="bi bi-pencil-square"></i> テンプレ編集</span>
+              ボタンをタップ</li>
+            <li>担当物件が複数ある場合は、編集したい物件を選択</li>
+            <li>編集画面が開きます。上部の <strong>「清掃」「直前チェック」</strong> タブで、
+              どちらの作業用チェックリストを編集するか切り替えられます</li>
+          </ol>
+
+          <h6 class="fw-bold mt-3 border-start border-4 border-secondary ps-2 py-1 bg-light">編集画面でできること</h6>
+          <ul>
+            <li><strong>エリア（部屋）の追加・並び替え</strong> —
+              上部に並ぶタブがエリアです。タブ列の右端の <strong>「＋エリア追加」</strong> で部屋を追加。
+              タブをドラッグ（スマホは長押し）すると並び替えできます</li>
+            <li><strong>項目の追加</strong> —
+              エリア見出し右上の <span class="badge bg-light text-primary border"><i class="bi bi-plus"></i> 項目</span>
+              ボタン、または各分類の中の同じボタンをタップし、名前とメモ（任意）を入力</li>
+            <li><strong>分類の追加</strong> —
+              「＋掃除種類」→ その中に「＋サブ分類」→「＋サブサブ」と、必要に応じて細かく階層化できます</li>
+            <li><strong>名前の変更・削除</strong> —
+              各行の <i class="bi bi-pencil"></i>（鉛筆）で名前やメモを変更、
+              <i class="bi bi-trash text-danger"></i>（ゴミ箱）で削除</li>
+            <li><strong>並び替え</strong> —
+              各行の左端の <i class="bi bi-grip-vertical"></i>（つまみ）をドラッグ（スマホは長押し）</li>
+            <li><strong>メモ</strong> —
+              エリア・分類・項目のどこにでも書けます。清掃画面では黄色いカードで目立つように表示されます</li>
+            <li><strong>見本写真</strong> —
+              エリア・分類・項目ごとに「見本写真を追加」から登録できます（仕上がりの見本・備品の配置など）</li>
+            <li><strong>カメラタブの見本写真</strong> —
+              エリアタブのすぐ下にある専用枠です。ここに追加した写真は、清掃画面の写真撮影（カメラ）タブの
+              一番下に表示されます。カメラロールから複数枚まとめて追加でき、ドラッグで並び替えできます</li>
+          </ul>
+
+          <h6 class="fw-bold mt-3 border-start border-4 border-secondary ps-2 py-1 bg-light">保存と反映のルール</h6>
+          <ol>
+            <li>内容を変えると右上の <span class="badge bg-success"><i class="bi bi-check2"></i> 保存</span>
+              ボタンが押せるようになります。編集が終わったら必ず <strong>「保存」</strong> をタップしてください
+              （保存せずに画面を離れると変更は反映されません）</li>
+            <li>保存すると、<strong>未着手のチェックリスト（まだ誰もチェックを入れていないもの）には自動で反映</strong>されます</li>
+            <li>すでに進行中のチェックリストにも反映したい場合は、上部の
+              <span class="badge bg-warning text-dark">未着手を最新化</span> ボタンから実行できます</li>
+            <li><strong>完了済みの過去のチェックリストは変更されません</strong>（記録として保護されます）</li>
+          </ol>
+          <div class="alert alert-success small">
+            <i class="bi bi-clock-history"></i>
+            <strong>失敗しても大丈夫：</strong>
+            保存のたびに履歴が自動で残ります（最大20世代）。
+            上部の <strong>「履歴」</strong> ボタンからいつでも以前の状態に戻せます。
+          </div>
+          <div class="alert alert-warning small">
+            <i class="bi bi-exclamation-triangle"></i>
+            上部の <strong>「コピー」</strong> は他の物件のチェックリストを丸ごとコピーする機能です。
+            現在の内容が上書きされるため、使うときはご注意ください。
+          </div>
+        </section>
+
+        <!-- ===== 6. タイミー対応 ===== -->
         <section id="sg-timee" class="mb-5">
           <h5 class="bg-primary text-white px-3 py-2 rounded-3 shadow-sm mb-3" style="font-weight:700;">
-            5. タイミーの方と一緒に作業する場合
+            6. タイミーの方と一緒に作業する場合
           </h5>
           <p>
             タイミーで応募してきたヘルパーさんと一緒に清掃する日は、
