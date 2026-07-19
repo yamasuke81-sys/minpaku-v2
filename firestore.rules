@@ -74,6 +74,19 @@ service cloud.firestore {
                   .hasAny(['isSubOwner', 'ownedPropertyIds', 'role', 'authUid',
                            'isOwner', 'assignedPropertyIds', 'active', 'displayOrder',
                            'lineUserId', 'staffId']));
+
+      // ★機微情報サブコレクション (private/details):
+      //   電話/住所/銀行口座/請求名義(billingProfiles)/契約書URL等。
+      //   本体 doc は「active スタッフなら full doc を相互閲覧可」(清掃カレンダー用) のため、
+      //   機微はここに分離して owner / 本人 / 担当物件の sub_owner のみに限定する。
+      //   同僚スタッフは互いの private を読めない。
+      match /private/{docId} {
+        allow read, write: if isOwner()
+          || (isStaff() && myStaffId() == staffId)
+          || (isSubOwner()
+              && get(/databases/$(database)/documents/staff/$(staffId)).data.get('assignedPropertyIds', [])
+                   .hasAny(request.auth.token.ownedPropertyIds));
+      }
     }
 
     // 物件 — read は全認証ユーザー (各画面が properties を全件クエリするため)

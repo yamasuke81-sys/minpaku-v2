@@ -365,8 +365,12 @@ const MyInvoiceCreatePage = {
 
   async loadStaffDoc() {
     try {
-      const d = await db.collection("staff").doc(this.staffId).get();
-      this.staffDoc = d.exists ? { id: d.id, ...d.data() } : {};
+      // 電話/住所/口座等は private/details 分離済 → 本体とマージして取得 (本人は read 可)
+      const [d, priv] = await Promise.all([
+        db.collection("staff").doc(this.staffId).get(),
+        API.staff.getPrivate(this.staffId),
+      ]);
+      this.staffDoc = d.exists ? { id: d.id, ...d.data(), ...priv } : {};
     } catch (_) { this.staffDoc = {}; }
     this._renderStaffInfoFields();
     this._updateStaffInfoSummary();
@@ -411,7 +415,19 @@ const MyInvoiceCreatePage = {
     });
     const status = document.getElementById("staffInfoSaveStatus");
     try {
+      // ★機微フィールド(電話/住所/口座等)は private/details へ、それ以外(氏名/メール)は本体へ。
+      //   本体側の機微残骸は削除して自己移行 (本人 update ルールで削除可)
+      const priv = {};
+      API.staff.PRIVATE_FIELDS.forEach((f) => {
+        if (f in patch) { priv[f] = patch[f]; delete patch[f]; }
+      });
+      if (Object.keys(priv).length > 0) await API.staff.savePrivate(this.staffId, priv);
+      API.staff.PRIVATE_FIELDS.forEach((f) => {
+        patch[f] = firebase.firestore.FieldValue.delete();
+      });
       await db.collection("staff").doc(this.staffId).set(patch, { merge: true });
+      Object.assign(this.staffDoc, priv);
+      API.staff.PRIVATE_FIELDS.forEach((f) => { delete patch[f]; });
       Object.assign(this.staffDoc, patch);
       this._updateStaffInfoSummary();
       if (status) {

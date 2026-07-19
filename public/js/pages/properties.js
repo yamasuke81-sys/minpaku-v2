@@ -209,9 +209,12 @@ const PropertiesPage = {
   async _loadOwnerStaffOptions() {
     try {
       const snap = await db.collection("staff").orderBy("displayOrder", "asc").get();
-      this._ownerStaffOptions = snap.docs
+      const options = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .filter(s => s.isOwner === true || s.isSubOwner === true);
+      // billingProfiles(請求名義) は staff/{id}/private/details 分離済 → マージ
+      const privList = await Promise.all(options.map(s => API.staff.getPrivate(s.id)));
+      this._ownerStaffOptions = options.map((s, i) => ({ ...s, ...privList[i] }));
     } catch (e) {
       console.warn("Webアプリ管理者候補読込失敗:", e.message);
       this._ownerStaffOptions = [];

@@ -1116,9 +1116,15 @@ const ContactsPage = {
       inputs.forEach(inp => {
         update[inp.dataset.field] = (inp.value || "").trim();
       });
+      // ★電話等の機微フィールドは staff/{id}/private/details へ分離保存
+      const priv = {};
+      API.staff.PRIVATE_FIELDS.forEach((f) => {
+        if (f in update) { priv[f] = update[f]; delete update[f]; }
+      });
+      if (Object.keys(priv).length > 0) await API.staff.savePrivate(staffId, priv);
       await db.collection("staff").doc(staffId).update(update);
       const local = this.staff.find(s => s.id === staffId);
-      if (local) Object.assign(local, update);
+      if (local) Object.assign(local, update, priv);
       showToast("保存", "スタッフ情報を保存しました", "success");
 
       // --- 連絡先マスタ → 物件設定: lineUserId 変更時に ownerLineUserId を同期 ---

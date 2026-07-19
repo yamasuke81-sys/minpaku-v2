@@ -95,9 +95,10 @@ async function resolveInvoiceRecipient_(db, propertyId, client) {
     const ownerStaffId = pData.ownerStaffId;
     const ownerBillingProfileId = pData.ownerBillingProfileId || null;
     if (!ownerStaffId) return fallback;
-    const sDoc = await db.collection("staff").doc(ownerStaffId).get();
-    if (!sDoc.exists) return fallback;
-    const s = sDoc.data();
+    // billingProfiles/住所は private/details 分離済 → マージ取得
+    const { getStaffWithPrivate } = require("../utils/staffPrivate");
+    const s = await getStaffWithPrivate(db, ownerStaffId);
+    if (!s) return fallback;
 
     // 1. 物件に紐付けられた billingProfile を優先して解決
     const profiles = Array.isArray(s.billingProfiles) ? s.billingProfiles : [];
@@ -383,8 +384,9 @@ async function generateInvoicePdf_(db, invoiceId) {
   if (!doc.exists) throw new Error("請求書が見つかりません");
   const invoice = { id: doc.id, ...doc.data() };
 
-  const staffDoc = await db.collection("staff").doc(invoice.staffId).get();
-  const staff = staffDoc.exists ? staffDoc.data() : {};
+  // 口座情報等は private/details 分離済 → マージ取得
+  const { getStaffWithPrivate: getStaffWithPrivate_pdf } = require("../utils/staffPrivate");
+  const staff = (await getStaffWithPrivate_pdf(db, invoice.staffId)) || {};
 
   // 宛先(請求先)情報: まず settings/clientInfo を取得
   let clientBase = {};
@@ -845,10 +847,11 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
   const start = new Date(y, m - 1, 1);
   const end = new Date(y, m, 0, 23, 59, 59);
 
-  // スタッフ情報
-  const staffDoc = await db.collection("staff").doc(staffId).get();
-  if (!staffDoc.exists) throw new Error("スタッフが見つかりません");
-  const staff = { id: staffDoc.id, ...staffDoc.data() };
+  // スタッフ情報 (口座情報等は private/details 分離済 → マージ取得)
+  const { getStaffWithPrivate: getStaffWithPrivate_calc } = require("../utils/staffPrivate");
+  const staffMerged = await getStaffWithPrivate_calc(db, staffId);
+  if (!staffMerged) throw new Error("スタッフが見つかりません");
+  const staff = { id: staffId, ...staffMerged };
 
   // --- 除外設定 (invoiceExclusions/{yearMonth}_{staffId}_{propertyId}) の読み込み ---
   // 各 row に {type, refId} を付けておき、"type:refId" が excludedSet に含まれる場合はスキップ
@@ -1777,17 +1780,22 @@ module.exports = function invoicesApi(db) {
       const uid = req.user.uid;
       const reqStaffId = req.user.staffId;
       let staffDoc = null;
+      // 口座情報等は private/details 分離済 → マージ取得
+      const { getStaffWithPrivate: _gswp } = require("../utils/staffPrivate");
       if (asStaffId && req.user.role === "owner") {
-        const d = await db.collection("staff").doc(asStaffId).get();
-        if (d.exists) staffDoc = { id: d.id, ...d.data() };
+        const m = await _gswp(db, asStaffId);
+        if (m) staffDoc = { id: asStaffId, ...m };
       } else {
         if (reqStaffId) {
-          const d = await db.collection("staff").doc(reqStaffId).get();
-          if (d.exists) staffDoc = { id: d.id, ...d.data() };
+          const m = await _gswp(db, reqStaffId);
+          if (m) staffDoc = { id: reqStaffId, ...m };
         }
         if (!staffDoc) {
           const snap = await db.collection("staff").where("authUid", "==", uid).limit(1).get();
-          if (!snap.empty) staffDoc = { id: snap.docs[0].id, ...snap.docs[0].data() };
+          if (!snap.empty) {
+            const m = await _gswp(db, snap.docs[0].id);
+            staffDoc = { id: snap.docs[0].id, ...(m || snap.docs[0].data()) };
+          }
         }
       }
       if (!staffDoc) return res.status(404).json({ error: "スタッフが見つかりません" });
@@ -1868,17 +1876,22 @@ module.exports = function invoicesApi(db) {
       const reqStaffId = req.user.staffId;
       // Webアプリ管理者が asStaffId を指定した場合: そのスタッフの請求書を代理作成 (テスト用)
       let staffDoc = null;
+      // 口座情報等は private/details 分離済 → マージ取得
+      const { getStaffWithPrivate: _gswp } = require("../utils/staffPrivate");
       if (asStaffId && req.user.role === "owner") {
-        const d = await db.collection("staff").doc(asStaffId).get();
-        if (d.exists) staffDoc = { id: d.id, ...d.data() };
+        const m = await _gswp(db, asStaffId);
+        if (m) staffDoc = { id: asStaffId, ...m };
       } else {
         if (reqStaffId) {
-          const d = await db.collection("staff").doc(reqStaffId).get();
-          if (d.exists) staffDoc = { id: d.id, ...d.data() };
+          const m = await _gswp(db, reqStaffId);
+          if (m) staffDoc = { id: reqStaffId, ...m };
         }
         if (!staffDoc) {
           const snap = await db.collection("staff").where("authUid", "==", uid).limit(1).get();
-          if (!snap.empty) staffDoc = { id: snap.docs[0].id, ...snap.docs[0].data() };
+          if (!snap.empty) {
+            const m = await _gswp(db, snap.docs[0].id);
+            staffDoc = { id: snap.docs[0].id, ...(m || snap.docs[0].data()) };
+          }
         }
       }
       if (!staffDoc) return res.status(404).json({ error: "スタッフ情報が見つかりません" });

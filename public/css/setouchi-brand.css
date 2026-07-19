@@ -126,8 +126,10 @@ label, .form-label, .form-check-label { color: var(--ss-text); }
   --bs-btn-hover-color: var(--ss-sand);
 }
 
-/* カードは透明化（白い面・境界線を排して背景と一体に） */
-.card { background: transparent; border: none; }
+/* カードは透明化（白い面・境界線を排して背景と一体に）
+   ※ color 上書き必須: Bootstrap の .card は --bs-body-color(近黒) を直接参照するため、
+   暗い背景の上で黒文字になり読めなくなる（駐車場案内カードの視認性不良の原因） */
+.card { background: transparent; border: none; color: var(--ss-text); }
 
 /* Bootstrap アラート → 半透明パネル（意味の色みは薄く残す・文字は砂） */
 .alert { border-radius: 12px; color: var(--ss-text); }

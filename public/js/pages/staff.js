@@ -97,6 +97,7 @@ const StaffPage = {
         API.properties.listMinpakuNumbered(),
       ]);
       this.staffList = staff;
+      await this._mergePrivateIntoList();
       this._recruitments = recruitments;
       this.properties = minpaku;
       this._propMap = {};
@@ -125,9 +126,23 @@ const StaffPage = {
     }
   },
 
+  // ★電話/住所/口座等は staff/{id}/private/details 分離済。
+  //   この画面 (owner/sub_owner) では一覧表示・編集モーダル用に各スタッフの private をマージする。
+  //   sub_owner は担当スタッフ以外の private を読めない (getPrivate が {} を返す) が、
+  //   一覧自体も担当スタッフに絞られるため実害なし。
+  async _mergePrivateIntoList() {
+    try {
+      const privList = await Promise.all(
+        (this.staffList || []).map(s => API.staff.getPrivate(s.id))
+      );
+      this.staffList = (this.staffList || []).map((s, i) => ({ ...s, ...privList[i] }));
+    } catch (_) { /* private 取得失敗時は本体のみで続行 */ }
+  },
+
   async loadStaff(activeOnly) {
     try {
       this.staffList = await API.staff.list(activeOnly);
+      await this._mergePrivateIntoList();
       // 重複 ID 除去 (Firestore 上の重複ドキュメントが画面に二重表示されるのを防ぐ)
       const seenIds = new Set();
       const dups = [];

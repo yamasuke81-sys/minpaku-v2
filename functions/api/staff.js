@@ -74,11 +74,21 @@ module.exports = function staffApi(db) {
         return res.status(400).json({ error: data.error });
       }
 
+      // ★機微フィールド(電話/住所/口座等)は本体 doc でなく private/details へ分離
+      const { STAFF_PRIVATE_FIELDS, privateRef } = require("../utils/staffPrivate");
+      const priv = {};
+      STAFF_PRIVATE_FIELDS.forEach((f) => {
+        if (f in data) { priv[f] = data[f]; delete data[f]; }
+      });
+
       data.createdAt = FieldValue.serverTimestamp();
       data.updatedAt = FieldValue.serverTimestamp();
 
       const docRef = await collection.add(data);
-      res.status(201).json({ id: docRef.id, ...data });
+      if (Object.keys(priv).length > 0) {
+        await privateRef(db, docRef.id).set(priv, { merge: true });
+      }
+      res.status(201).json({ id: docRef.id, ...data, ...priv });
     } catch (e) {
       console.error("スタッフ登録エラー:", e);
       res.status(500).json({ error: "スタッフの登録に失敗しました" });
@@ -103,9 +113,19 @@ module.exports = function staffApi(db) {
         return res.status(400).json({ error: data.error });
       }
 
+      // ★機微フィールド(電話/住所/口座等)は本体 doc でなく private/details へ分離
+      const { STAFF_PRIVATE_FIELDS, privateRef } = require("../utils/staffPrivate");
+      const priv = {};
+      STAFF_PRIVATE_FIELDS.forEach((f) => {
+        if (f in data) { priv[f] = data[f]; delete data[f]; }
+      });
+      if (Object.keys(priv).length > 0) {
+        await privateRef(db, req.params.id).set(priv, { merge: true });
+      }
+
       data.updatedAt = FieldValue.serverTimestamp();
       await docRef.update(data);
-      res.json({ id: req.params.id, ...data });
+      res.json({ id: req.params.id, ...data, ...priv });
     } catch (e) {
       console.error("スタッフ更新エラー:", e);
       res.status(500).json({ error: "スタッフの更新に失敗しました" });

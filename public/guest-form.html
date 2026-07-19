@@ -2,13 +2,13 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <script src="/js/api-relay.js?v=v0719g"></script>
+  <script src="/js/api-relay.js?v=v0719h"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>宿泊者名簿 / Guest Registration</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0719g" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0719h" rel="stylesheet">
   <style>
     /* テーマカラー デフォルト（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css）
        物件別上書きが必要な場合のみ下の早期テーマスクリプトで差し替える */
@@ -326,6 +326,7 @@
                   <li id="lbl_ppPrice"></li>
                   <li id="lbl_ppTime"></li>
                   <li id="lbl_ppMax"></li>
+                  <li class="fw-bold" id="lbl_ppXlOnly"></li>
                   <li><span id="lbl_ppLocation"></span> <a href="https://www.google.com/maps/place/34.213105,132.622144" target="_blank" rel="noopener">→MAP</a></li>
                 </ul>
                 <p class="small fw-bold mb-1" id="lbl_ppNotesTitle"></p>
@@ -338,6 +339,11 @@
                   <li id="lbl_ppNote6"></li>
                   <li id="lbl_ppNote7"></li>
                 </ul>
+                <!-- 有料駐車場が使えない日のコインパーキング案内 -->
+                <div class="warning-box mb-2">
+                  <i class="bi bi-exclamation-triangle-fill text-danger me-1"></i><span id="lbl_coinParkWarn"></span>
+                  <div class="mt-1"><i class="bi bi-map me-1"></i><a href="https://maps.app.goo.gl/gs6z1JnYPcKD8ALx8" target="_blank" rel="noopener" id="lbl_coinParkMapLink"></a></div>
+                </div>
                 <div id="parkingPhotos" class="d-none mb-2">
                   <p class="small fw-bold mb-1" id="lbl_ppPhotosTitle"></p>
                   <div class="d-flex gap-2 flex-wrap" id="parkingPhotoContainer"></div>
@@ -352,6 +358,11 @@
                     <option value="1台利用" id="opt_pp1">1台利用</option>
                     <option value="2台利用" id="opt_pp2">2台利用</option>
                   </select>
+                  <!-- 有料利用時のみ表示: コインパーキング利用可能性の了承 -->
+                  <div class="form-check mt-2 d-none" id="coinParkAgreeWrap">
+                    <input class="form-check-input" type="checkbox" id="f_coinParkingAgree" style="margin-top: 0.35em;">
+                    <label class="form-check-label small" for="f_coinParkingAgree" id="lbl_coinParkAgree"></label>
+                  </div>
                 </div>
               </div>
             </div>
@@ -532,8 +543,8 @@
     </div>
   </div>
 
-  <script src="/js/shared/form-schema.js?v=v0719g"></script>
-  <script src="/js/guide-map.js?v=v0719g"></script>
+  <script src="/js/shared/form-schema.js?v=v0719h"></script>
+  <script src="/js/guide-map.js?v=v0719h"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-storage-compat.js"></script>
@@ -572,10 +583,13 @@
        駐車場 割り当てロジック（順番非依存・最適化版）
        ============================
        在庫:
-         5番  : 全サイズ ×1（最も駐車しやすい）
+         5番  : 全サイズ ×1（最も駐車しやすい）※全長5m超は不可
          1番  : 軽・小型のみ ×1
-         未舗装: 軽・小型 ×2 OR それ以外 ×1
+         未舗装: 軽・小型 ×2 OR それ以外 ×1 ※全長5m超は不可
          有料  : 全サイズ ×2 (2,000円/台/泊)
+
+       制約: 全長5m超（ハイエースロング・キャンピングカー等）は
+             無料駐車場を利用できず、有料駐車場のみ (2026-07 ルール改定)
 
        最適化方針: 無料駐車場の利用を最大化（有料を最小化）
          - 未舗装は軽×2がスペース効率最大（非軽×1だと1枠無駄）
@@ -583,8 +597,10 @@
          - 軽は1番→未舗装→5番の順（5番を非軽に空けるため）
     */
     function allocateParking(vehicles) {
-      const compacts = vehicles.filter(v => v.type === "compact");
-      const nonCompacts = vehicles.filter(v => v.type !== "compact");
+      const xls = vehicles.filter(v => v.type === "xl"); // 全長5m超 → 有料のみ
+      const rest = vehicles.filter(v => v.type !== "xl");
+      const compacts = rest.filter(v => v.type === "compact");
+      const nonCompacts = rest.filter(v => v.type !== "compact");
       const result = [];
       const unallocated = [];
 
@@ -610,14 +626,15 @@
         result.push({ ...nonCompacts.shift(), spot: "unpaved" });
       }
 
-      // 残り = 有料駐車場行き
-      unallocated.push(...compacts, ...nonCompacts);
+      // 残り = 有料駐車場行き（5m超を先頭に）
+      unallocated.push(...xls, ...compacts, ...nonCompacts);
       return { result, unallocated };
     }
 
     // 台数ベースで収容可能か判定（順番に依存しない）
-    function canAllocate(numCompact, numNonCompact) {
+    function canAllocate(numCompact, numNonCompact, numXl) {
       let c = numCompact, nc = numNonCompact;
+      const xl = numXl || 0; // 全長5m超は無料枠を使えず有料直行
       // 5番: 非軽優先
       if (nc > 0) nc--; else if (c > 0) c--;
       // 1番: 軽のみ
@@ -626,12 +643,13 @@
       if (c >= 2) c -= 2;
       else if (c === 1) c--;
       else if (nc > 0) nc--;
-      // 残り = 有料（最大2台）
-      return (c + nc) <= 2;
+      // 残り = 有料（最大2台、5m超も同じ枠を消費）
+      return (c + nc + xl) <= 2;
     }
 
     // 車種値 → allocation用のtype
     function vtToType(val) {
+      if (val.includes("5m超") || val.includes("Over 5")) return "xl";
       if (val.includes("軽") || val.includes("小型") || val.includes("Compact")) return "compact";
       if (val.includes("ミニバン") || val.includes("Minivan")) return "minivan";
       return "large";
@@ -684,7 +702,9 @@
         carOverError: "申し訳ございませんが、7台以上の駐車はお受けできません。乗り合わせるなどして台数を減らしていただきますようお願いいたします。",
         vehicleTypeLabel: "{n}台目の車種 <span class='required-mark'>*</span>",
         vt_small: "軽自動車/小型車", vt_minivan: "ミニバン以下（セレナ等）", vt_large: "全長5m級（アルファード等）",
+        vt_xl: "全長5m超（ハイエースロング・キャンピングカー等）",
         vtLargeWarn: "⚠️ 転回場、未舗装駐車場でアゴ（フロントバンパー下部）を擦る恐れがあります。ご注意ください。",
+        vtXlWarn: "🅿️ 全長5mを超えるお車は無料駐車場をご利用いただけません。有料駐車場のご利用が必要です（2,000円/台/泊）。",
         parkNeighborWarn: "隣家の駐車場には絶対に侵入しないでください。駐車場の境界線を必ず確認してください。",
         neighborAgree: "上記の注意事項を理解し、隣家の駐車場には侵入しないことを了承しました <span class='required-mark'>*</span>",
         taxiWarn: "タクシーでお越しの場合、運転手さんに以下をお伝えください：「宿の駐車場や転回場への進入は問題ありませんが、近隣住民の家の駐車場には絶対に入らないでください。」降車・乗車時も近隣の駐車場への侵入がないよう、運転手さんへの周知徹底をお願いいたします。",
@@ -719,6 +739,10 @@
         ppNote5: "カフェ所有の軽トラが停車している場合、軽トラが出られるよう配慮して駐車してください",
         ppNote6: "カフェ主催のイベントなどにより、ご利用できない場合がございます",
         ppNote7: "時間外や無断駐車は発見次第レッカー移動いたします",
+        ppXlOnly: "全長5mを超えるお車は、無料駐車場はご利用いただけません（この有料駐車場のみ駐車可能です）",
+        coinParkWarn: "有料駐車場は、カフェのイベント等によりご利用いただけない日があります。その場合は、宿から徒歩約30分のコインパーキングをご利用いただく可能性があります。あらかじめご了承ください。",
+        coinParkMapLink: "コインパーキングの場所（Googleマップ）",
+        coinParkAgree: "有料駐車場が利用できない日は、宿から徒歩約30分のコインパーキングを利用する可能性があることを了承しました <span class='required-mark'>*</span>",
         ppPhotosTitle: "駐車場の様子",
         ppUsage: "有料駐車場をご利用されますか？ <span class='required-mark'>*</span>",
         ppOptional: "無料駐車場に収まりますが、駐車のしやすさを重視される場合は有料駐車場もご検討ください（2,000円/台/泊） <span class='required-mark'>*</span>",
@@ -814,7 +838,9 @@
         carOverError: "Sorry, we cannot accommodate 7 or more cars. Please carpool to reduce the number of vehicles.",
         vehicleTypeLabel: "Car {n} — Vehicle Type <span class='required-mark'>*</span>",
         vt_small: "Compact car", vt_minivan: "Minivan or smaller (e.g. Serena)", vt_large: "Full-size 5m+ (e.g. Alphard)",
+        vt_xl: "Over 5 m long (e.g. extended van, camper)",
         vtLargeWarn: "⚠️ Large vehicles may scrape the front bumper in the turning area and unpaved parking lot. Please be careful.",
+        vtXlWarn: "🅿️ Vehicles over 5 m long cannot use the free parking. Paid parking is required (¥2,000/car/night).",
         parkNeighborWarn: "NEVER park in or encroach on the neighbor's parking area. Always confirm the boundaries.",
         neighborAgree: "I understand and agree not to encroach on the neighbor's parking area <span class='required-mark'>*</span>",
         taxiWarn: "If arriving by taxi, please inform the driver: 'You may enter our property's parking area and turning space, but NEVER enter the neighbors' parking areas.' Please make sure the driver fully understands this, including when dropping off and picking up.",
@@ -847,6 +873,10 @@
         ppNote5: "If the café's light truck is parked, please leave enough space for it to exit",
         ppNote6: "Parking may be unavailable during café events",
         ppNote7: "Unauthorized or after-hours parking will be towed immediately",
+        ppXlOnly: "Vehicles over 5 m long cannot use the free parking — this paid lot is the only option for them",
+        coinParkWarn: "The paid parking lot is unavailable on some days (e.g. cafe events). In that case, you may need to use a coin parking lot about a 30-minute walk from the property. Thank you for your understanding.",
+        coinParkMapLink: "Coin parking location (Google Maps)",
+        coinParkAgree: "I understand that if the paid parking is unavailable, I may need to use a coin parking lot about a 30-minute walk from the property <span class='required-mark'>*</span>",
         ppPhotosTitle: "Parking Lot Photos",
         ppUsage: "Would you like to use the paid parking? <span class='required-mark'>*</span>",
         ppOptional: "Your cars fit in free parking, but if you prefer easier parking access, paid parking is also available (¥2,000/car/night) <span class='required-mark'>*</span>",
@@ -953,7 +983,9 @@
         vt_small: "경차/소형차",
         vt_minivan: "미니밴 이하 (세레나 등)",
         vt_large: "전장 5m급 (알파드 등)",
+        vt_xl: "전장 5m 초과 (하이에이스 롱, 캠핑카 등)",
         vtLargeWarn: "⚠️ 회전장, 비포장 주차장에서 차량 하부 (프론트 범퍼 하단)가 긁힐 우려가 있습니다. 주의해 주십시오.",
+        vtXlWarn: "🅿️ 전장 5m를 초과하는 차량은 무료 주차장을 이용할 수 없습니다. 유료 주차장 이용이 필요합니다 (2,000엔/대/박).",
         parkNeighborWarn: "이웃집 주차장에는 절대 침범하지 마십시오. 주차장 경계선을 반드시 확인해 주십시오.",
         neighborAgree: "위의 주의사항을 이해하고, 이웃집 주차장에 침범하지 않을 것에 동의합니다 <span class='required-mark'>*</span>",
         taxiWarn: "택시로 오시는 경우, 운전기사님께 다음을 전달해 주십시오: \"숙소 주차장이나 회전장 진입은 문제없지만, 인근 주민의 집 주차장에는 절대 들어가지 마십시오.\" 하차·승차 시에도 인근 주차장 침범이 없도록 운전기사님께 철저히 주지시켜 주시길 부탁드립니다.",
@@ -988,6 +1020,10 @@
         ppNote5: "카페 소유의 경트럭이 주차되어 있는 경우, 경트럭이 나갈 수 있도록 배려하여 주차해 주십시오",
         ppNote6: "카페 주최 이벤트 등으로 인해 이용할 수 없는 경우가 있습니다",
         ppNote7: "시간 외 또는 무단 주차는 발견 즉시 견인 조치됩니다",
+        ppXlOnly: "전장 5m를 초과하는 차량은 무료 주차장을 이용할 수 없습니다 (이 유료 주차장만 이용 가능합니다)",
+        coinParkWarn: "유료 주차장은 카페 이벤트 등으로 이용할 수 없는 날이 있습니다. 그 경우, 숙소에서 도보 약 30분 거리의 코인 주차장을 이용하시게 될 수 있습니다. 미리 양해 부탁드립니다.",
+        coinParkMapLink: "코인 주차장 위치 (Google 지도)",
+        coinParkAgree: "유료 주차장을 이용할 수 없는 날에는 숙소에서 도보 약 30분 거리의 코인 주차장을 이용할 가능성이 있음을 이해했습니다 <span class='required-mark'>*</span>",
         ppPhotosTitle: "주차장 모습",
         ppUsage: "유료 주차장을 이용하시겠습니까? <span class='required-mark'>*</span>",
         ppOptional: "무료 주차장에 수용 가능하지만, 주차 편의성을 중요하게 생각하신다면 유료 주차장도 고려해 주십시오 (2,000엔/대/박) <span class='required-mark'>*</span>",
@@ -1118,7 +1154,9 @@
         vt_small: "轻型车/小型车",
         vt_minivan: "小型面包车以下（如 Serena）",
         vt_large: "全长5米级（如 Alphard）",
+        vt_xl: "全长超过5米（如 Hiace 长轴、房车等）",
         vtLargeWarn: "⚠️ 请注意，在掉头区和未铺设路面的停车场，车头（前保险杠下部）可能会刮擦。请务必小心。",
+        vtXlWarn: "🅿️ 全长超过5米的车辆无法使用免费停车场，必须使用收费停车场（2,000日元/辆/晚）。",
         parkNeighborWarn: "请勿驶入邻居的停车场。请务必确认停车场的边界线。",
         neighborAgree: "我已理解上述注意事项，并同意不驶入邻居的停车场 <span class='required-mark'>*</span>",
         taxiWarn: "如果您乘坐出租车前来，请告知司机以下内容：“进入住宿的停车场或掉头区没有问题，但请绝对不要进入附近居民的停车场。”在下车和上车时，也请务必告知司机，确保不进入附近停车场。",
@@ -1153,6 +1191,10 @@
         ppNote5: "如果咖啡馆的轻型卡车停在那里，请注意停车，以便轻型卡车可以驶出",
         ppNote6: "由于咖啡馆举办活动等原因，可能无法使用",
         ppNote7: "非营业时间或未经许可停车，一经发现将立即拖走",
+        ppXlOnly: "全长超过5米的车辆无法使用免费停车场（只能停放在此收费停车场）",
+        coinParkWarn: "收费停车场因咖啡馆活动等原因，有些日子无法使用。届时，您可能需要使用距住宿步行约30分钟的投币停车场。敬请谅解。",
+        coinParkMapLink: "投币停车场位置（Google地图）",
+        coinParkAgree: "我已了解，在收费停车场无法使用的日子，可能需要使用距住宿步行约30分钟的投币停车场 <span class='required-mark'>*</span>",
         ppPhotosTitle: "停车场情况",
         ppUsage: "您是否使用收费停车场？ <span class='required-mark'>*</span>",
         ppOptional: "虽然可以停放在免费停车场，但如果您重视停车便利性，也可以考虑收费停车场（2,000日元/辆/晚） <span class='required-mark'>*</span>",
@@ -1283,7 +1325,9 @@
         vt_small: "輕型車/小型車",
         vt_minivan: "小型廂型車以下（如 Serena）",
         vt_large: "全長5米級（如 Alphard）",
+        vt_xl: "全長超過5米（如 Hiace 長軸、露營車等）",
         vtLargeWarn: "⚠️ 請注意，在迴轉場和未鋪設路面的停車場，車頭下緣（前保險桿底部）可能會刮傷。請小心。",
+        vtXlWarn: "🅿️ 全長超過5米的車輛無法使用免費停車場，必須使用付費停車場（2,000日圓/輛/晚）。",
         parkNeighborWarn: "請勿駛入鄰居的停車場。請務必確認停車場的界線。",
         neighborAgree: "我已理解上述注意事項，並同意不駛入鄰居的停車場 <span class='required-mark'>*</span>",
         taxiWarn: "如果您搭乘計程車前來，請告知司機：「進入民宿的停車場或迴轉場沒有問題，但絕對不要駛入附近居民的停車場。」在下車和上車時，也請務必告知司機，確保不會駛入附近的停車場。",
@@ -1318,6 +1362,10 @@
         ppNote5: "如果咖啡廳的輕型卡車停放，請考慮讓輕型卡車能夠駛出而停車",
         ppNote6: "由於咖啡廳舉辦活動等原因，可能無法使用",
         ppNote7: "營業時間外或未經許可的停車，一經發現將立即拖吊",
+        ppXlOnly: "全長超過5米的車輛無法使用免費停車場（僅能停放在此付費停車場）",
+        coinParkWarn: "付費停車場因咖啡廳活動等原因，有些日子無法使用。屆時，您可能需要使用距民宿步行約30分鐘的投幣停車場。敬請見諒。",
+        coinParkMapLink: "投幣停車場位置（Google 地圖）",
+        coinParkAgree: "我已了解，在付費停車場無法使用的日子，可能需要使用距民宿步行約30分鐘的投幣停車場 <span class='required-mark'>*</span>",
         ppPhotosTitle: "停車場狀況",
         ppUsage: "您會使用付費停車場嗎？ <span class='required-mark'>*</span>",
         ppOptional: "所有車輛都可停在免費停車場，但如果您重視停車的便利性，也可以考慮付費停車場（2,000日圓/輛/晚） <span class='required-mark'>*</span>",
@@ -1467,9 +1515,13 @@
       setText("lbl_ppPrice", t.ppPrice);
       setText("lbl_ppTime", t.ppTime);
       setText("lbl_ppMax", t.ppMax);
+      setText("lbl_ppXlOnly", t.ppXlOnly);
       setText("lbl_ppLocation", t.ppLocation);
       setText("lbl_ppNotesTitle", t.ppNotesTitle);
       for (let i = 1; i <= 7; i++) setText("lbl_ppNote" + i, t["ppNote" + i]);
+      setText("lbl_coinParkWarn", t.coinParkWarn);
+      setText("lbl_coinParkMapLink", t.coinParkMapLink);
+      setHtml("lbl_coinParkAgree", t.coinParkAgree);
       setText("lbl_ppPhotosTitle", t.ppPhotosTitle);
       setHtml("lbl_ppSelectLabel", t.ppOptional);
       setText("lbl_bbqRulesIntro", t.bbqRulesIntro);
@@ -1623,6 +1675,22 @@
       if (!visible) cb.checked = false;
     }
 
+    // ===== コインパーキング了承チェックボックスの表示/required連動 =====
+    // 有料駐車場を実際に利用する場合のみ表示+必須
+    // (有料駐車場が使えない日は徒歩約30分のコインパーキング利用の可能性を了承してもらう)
+    function updateCoinParkingAgree() {
+      const wrap = document.getElementById("coinParkAgreeWrap");
+      const cb = document.getElementById("f_coinParkingAgree");
+      if (!wrap || !cb) return;
+      const guide = document.getElementById("paidParkingGuide");
+      const ppVal = document.getElementById("f_paidParking")?.value || "";
+      const willUsePaid = !!guide && !guide.classList.contains("d-none")
+        && (ppVal === "1台利用" || ppVal === "2台利用");
+      wrap.classList.toggle("d-none", !willUsePaid);
+      cb.required = willUsePaid && !cb.disabled;
+      if (!willUsePaid) cb.checked = false;
+    }
+
     // ===== 交通手段 =====
     // ヘルパー: 要素が存在するときのみ classList 操作／value代入する
     function _safeToggle(id, cls, force) {
@@ -1664,6 +1732,7 @@
         _safeToggle("paidParkingSelect", "d-none", true);
         _safeSet("f_paidParking", "required", false);
         _safeToggle("carOverError", "d-none", true);
+        if (typeof updateCoinParkingAgree === "function") updateCoinParkingAgree();
       } else {
         // 「車」を選択した時点で、f_carCount に既存値 (ブラウザ autocomplete や復元値) が
         // 入っていれば、その時点で車種選択・駐車場割り当て UI を即時描画する。
@@ -1682,6 +1751,7 @@
         document.getElementById("parkingAllocation").classList.add("d-none");
         document.getElementById("parkingNotes").classList.add("d-none"); updateNeighborAgreeRequired(false);
         document.getElementById("paidParkingGuide").classList.add("d-none"); document.getElementById("paidParkingSelect").classList.add("d-none"); document.getElementById("f_paidParking").required = false;
+        updateCoinParkingAgree();
         return;
       }
       renderVehicleTypes();
@@ -1707,6 +1777,7 @@
             <option value="軽自動車/小型車" ${sv === "軽自動車/小型車" ? "selected" : ""}>${t.vt_small}</option>
             <option value="ミニバン以下（セレナ等）" ${sv === "ミニバン以下（セレナ等）" ? "selected" : ""}>${t.vt_minivan}</option>
             <option value="全長5m級（アルファード等）" ${sv === "全長5m級（アルファード等）" ? "selected" : ""}>${t.vt_large}</option>
+            <option value="全長5m超（ハイエースロング・キャンピングカー等）" ${sv === "全長5m超（ハイエースロング・キャンピングカー等）" ? "selected" : ""}>${t.vt_xl}</option>
           </select></div>`;
       }
       container.innerHTML = html;
@@ -1720,12 +1791,19 @@
       runParkingAllocation();
     }
 
-    // 全長5m級を選択した車種セレクトの直下に警告を表示
+    // 全長5m級/5m超を選択した車種セレクトの直下に警告を表示
     function updateLargeVehicleWarnings() {
       const t = i18n[currentLang];
       document.querySelectorAll(".vt-large-warn").forEach(el => el.remove());
       document.querySelectorAll(".vt-select").forEach(sel => {
-        if (sel.value.includes("5m") || sel.value.includes("アルファード") || sel.value.includes("Alphard")) {
+        if (!sel.value) return;
+        if (vtToType(sel.value) === "xl") {
+          // 5m超: 無料駐車場不可 → 有料のみの案内
+          const warn = document.createElement("p");
+          warn.className = "vt-large-warn small text-danger fw-bold mt-1 mb-0";
+          warn.textContent = t.vtXlWarn;
+          sel.parentElement.appendChild(warn);
+        } else if (sel.value.includes("5m") || sel.value.includes("アルファード") || sel.value.includes("Alphard")) {
           const warn = document.createElement("p");
           warn.className = "vt-large-warn small text-danger mt-1 mb-0";
           warn.textContent = t.vtLargeWarn;
@@ -1743,31 +1821,39 @@
       document.querySelectorAll(".vt-allgrey-warn").forEach(el => el.remove());
 
       // 全スロットの現在の選択を集計
-      let totalC = 0, totalNC = 0;
+      let totalC = 0, totalNC = 0, totalXL = 0;
       selects.forEach(sel => {
         if (sel.value) {
-          if (vtToType(sel.value) === "compact") totalC++; else totalNC++;
+          const ty = vtToType(sel.value);
+          if (ty === "compact") totalC++;
+          else if (ty === "xl") totalXL++;
+          else totalNC++;
         }
       });
 
       selects.forEach(sel => {
         // このスロットの選択を除いた集計
-        let baseC = totalC, baseNC = totalNC;
+        let baseC = totalC, baseNC = totalNC, baseXL = totalXL;
         if (sel.value) {
-          if (vtToType(sel.value) === "compact") baseC--; else baseNC--;
+          const ty = vtToType(sel.value);
+          if (ty === "compact") baseC--;
+          else if (ty === "xl") baseXL--;
+          else baseNC--;
         }
 
         // 各車種を追加した場合に収容可能か（全体の台数構成で判定）
         const avail = {
-          compact: canAllocate(baseC + 1, baseNC),
-          minivan: canAllocate(baseC, baseNC + 1),
-          large: canAllocate(baseC, baseNC + 1),
+          compact: canAllocate(baseC + 1, baseNC, baseXL),
+          minivan: canAllocate(baseC, baseNC + 1, baseXL),
+          large: canAllocate(baseC, baseNC + 1, baseXL),
+          xl: canAllocate(baseC, baseNC, baseXL + 1),
         };
 
         const typeMap = {
           "軽自動車/小型車": "compact",
           "ミニバン以下（セレナ等）": "minivan",
           "全長5m級（アルファード等）": "large",
+          "全長5m超（ハイエースロング・キャンピングカー等）": "xl",
         };
         let allDisabled = true;
         sel.querySelectorAll("option").forEach(opt => {
@@ -1810,6 +1896,7 @@
         container.classList.add("d-none");
         document.getElementById("paidParkingGuide").classList.add("d-none"); document.getElementById("paidParkingSelect").classList.add("d-none"); document.getElementById("f_paidParking").required = false;
         document.getElementById("parkingNotes").classList.add("d-none"); updateNeighborAgreeRequired(false);
+        updateCoinParkingAgree();
         return;
       }
 
@@ -1827,6 +1914,7 @@
         container.classList.add("d-none");
         document.getElementById("paidParkingGuide").classList.add("d-none"); document.getElementById("paidParkingSelect").classList.add("d-none"); document.getElementById("f_paidParking").required = false;
         document.getElementById("parkingNotes").classList.add("d-none"); updateNeighborAgreeRequired(false);
+        updateCoinParkingAgree();
         return;
       }
 
@@ -1841,10 +1929,12 @@
         document.getElementById("parkingNotes").classList.remove("d-none"); updateNeighborAgreeRequired(true);
         document.getElementById("paidParkingGuide").classList.add("d-none"); document.getElementById("paidParkingSelect").classList.add("d-none"); document.getElementById("f_paidParking").required = false;
         document.getElementById("f_paidParking").value = "";
+        updateCoinParkingAgree();
         return;
       }
 
       const vtDisplay = (label) => {
+        if (vtToType(label) === "xl") return t.vt_xl;
         if (label.includes("軽") || label.includes("小型")) return t.vt_small;
         if (label.includes("ミニバン")) return t.vt_minivan;
         return t.vt_large;
@@ -1929,6 +2019,9 @@
       ppSel.addEventListener("change", function() {
         if (this.value) optBlank.disabled = true;
       }, { once: true });
+
+      // 有料利用時のコインパーキング了承チェックを連動
+      updateCoinParkingAgree();
     }
 
     // ===== BBQ =====
@@ -2036,6 +2129,8 @@
               const ppSel = document.getElementById("f_paidParking");
               if (ppSel) ppSel.value = d.paidParking;
             }
+            // 値を直接セットした場合も了承チェックの表示/必須を連動
+            if (typeof updateCoinParkingAgree === "function") updateCoinParkingAgree();
           }, 100);
         }
         if (d.bbq)         { const el = document.getElementById("f_bbq");         if (el) el.value = d.bbq; }
@@ -3077,7 +3172,9 @@
         if (vehicleTypes.length > 0) {
           const vs = vehicleTypes.map((v,i) => ({ type: vtToType(v), label: v, index: i+1 }));
           const alloc = allocateParking(vs);
-          parkingAllocation = alloc.result.map(r => ({ index: r.index, vehicleType: r.label, spot: r.spot }));
+          // 無料枠 + 有料行き（5m超・あふれ分）の両方を保存（spot:"paid" は管理画面/ガイドで有料駐車場表示）
+          parkingAllocation = alloc.result.map(r => ({ index: r.index, vehicleType: r.label, spot: r.spot }))
+            .concat(alloc.unallocated.map(r => ({ index: r.index, vehicleType: r.label, spot: "paid" })));
         }
 
         // hidden フィールドは送信データに含めないヘルパー
@@ -3101,6 +3198,7 @@
           vehicleTypes:     fieldVal("vehicleTypes",     vehicleTypes),
           parkingAllocation:fieldVal("vehicleTypes",     parkingAllocation),
           paidParking:      fieldVal("paidParking",      document.getElementById("f_paidParking")?.value || ""),
+          coinParkingAgree: fieldVal("paidParking",      !!document.getElementById("f_coinParkingAgree")?.checked),
           bbq:              fieldVal("bbq",              document.getElementById("f_bbq").value),
           bedChoice:        fieldVal("bedChoice",        document.getElementById("f_bedChoice").value),
           purpose:          fieldVal("purpose",          purpose),
@@ -3441,6 +3539,7 @@
       const _bind = (id, evt, fn) => { const el = document.getElementById(id); if (el) el.addEventListener(evt, fn); };
       _bind("f_transport", "change", updateTransportUI);
       _bind("f_carCount", "change", updateCarUI);
+      _bind("f_paidParking", "change", updateCoinParkingAgree);
       _bind("f_bbq", "change", updateBbqUI);
       _bind("f_emergencyPhone", "input", checkEmergencyPhone);
       if (params.edit) {

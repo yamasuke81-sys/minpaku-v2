@@ -47,7 +47,48 @@ const API = {
       return API._normalizeStaff({ id: doc.id, ...doc.data() });
     },
 
+    // ===== スタッフ機微情報 (staff/{id}/private/details) =====
+    // 電話/住所/銀行口座/請求名義(billingProfiles)/契約書URL等は private/details に分離済
+    // (read/write = owner / 本人 / 担当物件の sub_owner)。本体 doc は氏名等の業務フィールドのみ。
+    PRIVATE_FIELDS: [
+      "phone", "address", "zipCode",
+      "bankName", "branchName", "accountType", "accountNumber", "accountHolder",
+      "billingProfiles", "contractUrl", "contractMemo",
+    ],
+
+    async getPrivate(id) {
+      try {
+        const doc = await db.collection("staff").doc(id)
+          .collection("private").doc("details").get();
+        return doc.exists ? doc.data() : {};
+      } catch (_) {
+        // 権限なし (同僚スタッフ等) は空 = 機微は見えない
+        return {};
+      }
+    },
+
+    async savePrivate(id, patch) {
+      await db.collection("staff").doc(id)
+        .collection("private").doc("details")
+        .set({ ...patch, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    },
+
+    async getWithPrivate(id) {
+      const [main, priv] = await Promise.all([this.get(id), this.getPrivate(id)]);
+      return { ...main, ...priv };
+    },
+
+    // data から機微フィールドを分離して { main, priv } を返す (create/update 共用)
+    _splitPrivate(data) {
+      const priv = {};
+      this.PRIVATE_FIELDS.forEach((f) => {
+        if (f in data) { priv[f] = data[f]; delete data[f]; }
+      });
+      return priv;
+    },
+
     async create(data) {
+      const priv = this._splitPrivate(data);
       data.active = data.active !== false;
       data.displayOrder = data.displayOrder || 0;
       data.skills = data.skills || [];
@@ -55,13 +96,20 @@ const API = {
       data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
       data.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
       const ref = await db.collection("staff").add(data);
-      return { id: ref.id, ...data };
+      if (Object.keys(priv).length > 0) await this.savePrivate(ref.id, priv);
+      return { id: ref.id, ...data, ...priv };
     },
 
     async update(id, data) {
+      const priv = this._splitPrivate(data);
+      // 機微を先に保存 → 本体更新 (本体側の残骸フィールドは削除して自己移行)
+      if (Object.keys(priv).length > 0) await this.savePrivate(id, priv);
+      this.PRIVATE_FIELDS.forEach((f) => {
+        data[f] = firebase.firestore.FieldValue.delete();
+      });
       data.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
       await db.collection("staff").doc(id).update(data);
-      return { id, ...data };
+      return { id, ...data, ...priv };
     },
 
     async delete(id) {
