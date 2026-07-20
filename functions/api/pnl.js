@@ -627,10 +627,14 @@ module.exports = function pnlApi(db) {
         if (file) {
           const text = await downloadDriveText_(drive, file.id);
           const a = sumAirbnbCsv(text, { listingName });
+          // 入金監視の自動売上調整(autoAdjustments)は CSV 再取込でも維持する(合計に再適用)
+          const prevAb = (cur.exists && cur.data().revenue && cur.data().revenue.airbnb) || {};
+          const autoAdjSum = (Array.isArray(prevAb.autoAdjustments) ? prevAb.autoAdjustments : [])
+            .reduce((s, x) => s + (Number(x.delta) || 0), 0);
           patch.revenue.airbnb = {
-            grossRevenue: a.grossRevenue, serviceFee: 0, netRevenue: a.grossRevenue,
+            grossRevenue: a.grossRevenue + autoAdjSum, serviceFee: 0, netRevenue: a.grossRevenue + autoAdjSum,
             nights: a.nights, reservationCount: a.reservationCount,
-            // キャンセル料入金の検知情報(売上には自動計上しない。⚠️通知→人が照合して手修正する運用)
+            // キャンセル料入金の検知情報(売上には自動計上しない。入金確認時に verify-airbnb-payout の自動調整が反映)
             cancelledPayoutTotal: a.cancelledPayoutTotal || 0,
             cancelledPayoutRows: a.cancelledPayoutRows || [],
             source: "ota_csv", sourceFileId: file.id, sourceFileName: file.name,
@@ -1409,13 +1413,17 @@ module.exports = function pnlApi(db) {
     }
   });
 
-  // POST /:propertyId/verify-airbnb-payout { amount, date }
+  // POST /:propertyId/verify-airbnb-payout { amount, date, apply?, mfId? }
   // ペイオニア(Airbnb)の銀行入金1件を、Drive の Airbnb 予約CSV(入金月とその前月のCI分)の「収入」と突合する。
-  // 単独一致 → match。無ければ2件合算(同日まとめ払い)も試す。どちらも無ければ mismatch(予約欠落/金額相違の疑い)。
+  // interpretAirbnbPayout で 完全一致(exact) / キャンセル料+返金調整の残差解釈(residual) まで機械判定。
+  // apply=true なら、解釈から導いた売上調整(delta≠0)を該当CI月の pnl に自動適用する(全自動運用・2026-07-20やますけ決定):
+  //   - 冪等: revenue.airbnb.autoAdjustments[].mfId で同一入金の再適用を防止
+  //   - manualOverrides["revenue.airbnb"] がある月は適用せず reason="manual_override"(手修正を尊重)
+  //   - 解釈が複数(ambiguous)/解釈不能は適用せず、監視側が⚠️/🚨通知
   router.post("/:propertyId/verify-airbnb-payout", router.cores.verifyAirbnbPayout = async (req, res) => {
     try {
       const { propertyId } = req.params;
-      const { amount, date } = req.body || {};
+      const { amount, date, apply, mfId } = req.body || {};
       const dm = String(date || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
       if (!dm || !(Number(amount) > 0)) return res.status(400).json({ error: "amount(正数) と date(YYYY-MM-DD) が必要" });
       const propSnap = await db.collection("properties").doc(propertyId).get();
@@ -1432,7 +1440,7 @@ module.exports = function pnlApi(db) {
         const t = new Date(Date.UTC(y, m - 2, 1));
         months.push(`${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}`);
       }
-      const { parseCsv: pCsv, parseYen: pYen } = require("./ota-csv-logic");
+      const { parseCsv: pCsv, parseYen: pYen, interpretAirbnbPayout } = require("./ota-csv-logic");
       const drive = await resolveOtaDrive_();
       const rows = [];
       const missingCsvMonths = [];
@@ -1453,24 +1461,73 @@ module.exports = function pnlApi(db) {
           if (!ci) continue;
           const diffDays = (depDate - ci) / 86400000;
           if (diffDays < -2 || diffDays > 21) continue;
-          // キャンセル済み行(収入>0=キャンセル料入金)も候補に含める。ただし pnl 売上には自動計上されないため、
-          // 一致した場合は cancelledFeeInvolved を返し、監視側が⚠️(手修正要確認)を出す。
+          // キャンセル済み行(収入>0=キャンセル料入金)も候補に含める(interpretAirbnbPayout が解釈)
           rows.push({ code: r[h["確認コード"]], name: r[h["ゲスト名"]], ci: ciRaw, income,
             cancelled: String(r[h["ステータス"]] || "").includes("キャンセル") });
         }
       }
-      // 単独一致
-      const single = rows.find((r) => r.income === target);
-      if (single) return res.json({ ok: true, match: true, mode: "single", stay: single, cancelledFeeInvolved: !!single.cancelled, candidates: rows.length, missingCsvMonths });
-      // 2件合算(同日まとめ振込)
-      for (let i = 0; i < rows.length; i++) {
-        for (let j = i + 1; j < rows.length; j++) {
-          if (rows[i].income + rows[j].income === target) {
-            return res.json({ ok: true, match: true, mode: "pair", stays: [rows[i], rows[j]], cancelledFeeInvolved: !!(rows[i].cancelled || rows[j].cancelled), candidates: rows.length, missingCsvMonths });
-          }
-        }
+
+      const depDateStr = `${dm[1]}-${dm[2]}-${dm[3]}`;
+      const interp = interpretAirbnbPayout(target, rows, depDateStr);
+      const resolved = !!(interp && !interp.ambiguous);
+      const base = {
+        ok: true,
+        match: resolved,
+        mode: resolved ? interp.mode : undefined,
+        stays: resolved ? interp.stays : undefined,
+        cancelledFeeInvolved: resolved ? interp.feeSum > 0 : false,
+        interpretation: interp,
+        candidates: rows.length,
+        missingCsvMonths,
+      };
+      if (!resolved && !interp) {
+        base.nearbyIncomes = rows.map((r) => r.income).sort((a, b) => b - a).slice(0, 12);
       }
-      res.json({ ok: true, match: false, candidates: rows.length, missingCsvMonths, nearbyIncomes: rows.map((r) => r.income).sort((a, b) => b - a).slice(0, 12) });
+
+      // 自動売上調整(apply=true かつ 一意解釈 かつ delta≠0 のときだけ書き込み)
+      if (apply === true) {
+        const adj = { attempted: true, applied: false };
+        if (!interp) adj.reason = "no_interpretation";
+        else if (interp.ambiguous) adj.reason = "ambiguous";
+        else if (!interp.delta) adj.reason = "no_adjustment_needed";
+        else if (!interp.ciYm) adj.reason = "ciym_unresolved";
+        else {
+          const num = (v) => Number(v) || 0;
+          const adjKey = String(mfId || `${depDateStr}:${target}`);
+          const ciRef = pnlCol.doc(docId_(propertyId, interp.ciYm));
+          await db.runTransaction(async (tx) => {
+            adj.applied = false; delete adj.reason; // トランザクション再試行時の持ち越し防止
+            const snap = await tx.get(ciRef);
+            const data = snap.exists ? snap.data() : {};
+            const ab = (data.revenue && data.revenue.airbnb) || {};
+            const existing = Array.isArray(ab.autoAdjustments) ? ab.autoAdjustments : [];
+            if (existing.some((x) => x.mfId === adjKey)) { adj.reason = "duplicate"; return; }
+            if ((data.manualOverrides || {})["revenue.airbnb"]) { adj.reason = "manual_override"; return; }
+            const entry = {
+              mfId: adjKey, depositDate: depDateStr, depositAmount: target,
+              mode: interp.mode, feeSum: interp.feeSum, clawback: interp.clawback, delta: interp.delta,
+              stays: interp.stays.map((s) => ({ code: s.code || "", guest: s.name || "", income: s.income, cancelled: !!s.cancelled })),
+              note: `入金¥${target.toLocaleString("ja-JP")}(${depDateStr})の自動解釈: キャンセル料¥${interp.feeSum.toLocaleString("ja-JP")} − 返金調整¥${interp.clawback.toLocaleString("ja-JP")} = 調整${interp.delta >= 0 ? "+" : ""}¥${interp.delta.toLocaleString("ja-JP")}`,
+              appliedAt: Date.now(),
+            };
+            const newGross = num(ab.grossRevenue) + interp.delta;
+            tx.set(ciRef, {
+              propertyId, yearMonth: interp.ciYm, updatedAt: FieldValue.serverTimestamp(),
+              revenue: { airbnb: {
+                grossRevenue: newGross,
+                netRevenue: num(ab.netRevenue != null ? ab.netRevenue : ab.grossRevenue) + interp.delta,
+                autoAdjustments: [...existing, entry],
+              } },
+            }, { merge: true });
+            adj.applied = true; adj.delta = interp.delta; adj.ciYm = interp.ciYm; adj.newGross = newGross;
+            adj.feeSum = interp.feeSum; adj.clawback = interp.clawback;
+          });
+          if (!adj.applied && !adj.reason) adj.reason = "unknown";
+        }
+        base.autoAdjust = adj;
+      }
+
+      res.json(base);
     } catch (e) {
       console.error("Airbnb入金突合エラー:", e);
       res.status(500).json({ error: "Airbnb入金突合に失敗しました: " + e.message });

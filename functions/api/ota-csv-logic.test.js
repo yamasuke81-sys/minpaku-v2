@@ -3,7 +3,7 @@ const assert = require("node:assert");
 const {
   parseCsv, parseYen, sumAirbnbCsv, sumBookingCsv, computeSettlement,
   resolveOperationMode, isAgencyMode, effectiveFeeRatePct, computeDepositAmount,
-  extractAirbnbReservations, extractBookingReservations,
+  extractAirbnbReservations, extractBookingReservations, interpretAirbnbPayout,
 } = require("./ota-csv-logic");
 const { computeAccommodationTax } = require("./pnl-logic");
 
@@ -60,6 +60,57 @@ const AIRBNB_TERRACE_JUNE_CANCEL = `"確認コード","ステータス","ゲス�
 "HMKFRRCJTK","ゲストによりキャンセル済み","Zhang","","4","1","0","2026/6/27","2026/7/1","4","2026-06-24","瀬戸内海ビュー大テラス｜10名OK・BBQ可・駐車3台","¥102,335"
 "HMYYYEHT4P","過去のゲスト","似子 繁山","","4","0","4","2026/6/21","2026/6/22","1","2026-05-27","瀬戸内海ビュー大テラス｜10名OK・BBQ可・駐車3台","¥14,550"
 `;
+
+test("interpretAirbnbPayout: Zhang実例 — 入金153,135 = 予約153,260+キャンセル料102,335−返金調整102,460 → delta=-125", () => {
+  const rows = [
+    { code: "HMKJSHXTQX", name: "Zhang Jingyu", ci: "2026-06-27", income: 153260, cancelled: false },
+    { code: "HMKFRRCJTK", name: "Zhang", ci: "2026-06-27", income: 102335, cancelled: true },
+    // 同月の別予約(既に別入金で支払済み。tight窓(1〜10日前CI)の外なので誤解釈しない)
+    { code: "HMJF58H5K3", name: "濵田 薫平", ci: "2026-06-13", income: 116610, cancelled: false },
+    { code: "HMYYYEHT4P", name: "似子 繁山", ci: "2026-06-21", income: 14550, cancelled: false },
+  ];
+  const r = interpretAirbnbPayout(153135, rows, "2026-07-03");
+  assert.strictEqual(r.mode, "residual");
+  assert.strictEqual(r.feeSum, 102335);
+  assert.strictEqual(r.clawback, 102460);
+  assert.strictEqual(r.delta, -125);
+  assert.strictEqual(r.ciYm, "2026-06");
+});
+
+test("interpretAirbnbPayout: 純粋なキャンセル料入金(返金なし) → exact/delta=+全額", () => {
+  const r = interpretAirbnbPayout(102335, [
+    { code: "HMKFRRCJTK", name: "Zhang", ci: "2026-06-27", income: 102335, cancelled: true },
+  ], "2026-06-28");
+  assert.strictEqual(r.mode, "exact");
+  assert.strictEqual(r.delta, 102335);
+  assert.strictEqual(r.ciYm, "2026-06");
+});
+
+test("interpretAirbnbPayout: 通常予約の完全一致は delta=0(調整不要)", () => {
+  const r = interpretAirbnbPayout(153260, [
+    { code: "A", name: "x", ci: "2026-06-27", income: 153260, cancelled: false },
+    { code: "B", name: "y", ci: "2026-06-27", income: 102335, cancelled: true },
+  ], "2026-07-03");
+  assert.strictEqual(r.mode, "exact");
+  assert.strictEqual(r.delta, 0);
+});
+
+test("interpretAirbnbPayout: 解釈が複数割れたら ambiguous(自動調整しない)", () => {
+  const rows = [
+    { code: "C1", name: "a", ci: "2026-06-27", income: 60000, cancelled: true },
+    { code: "C2", name: "b", ci: "2026-06-27", income: 70000, cancelled: true },
+    { code: "O1", name: "c", ci: "2026-06-27", income: 50000, cancelled: false },
+  ];
+  const r = interpretAirbnbPayout(100000, rows, "2026-07-01");
+  assert.strictEqual(r.ambiguous, true);
+});
+
+test("interpretAirbnbPayout: 該当なしは null(従来の🚨mismatch)", () => {
+  const r = interpretAirbnbPayout(99999, [
+    { code: "A", name: "x", ci: "2026-06-27", income: 153260, cancelled: false },
+  ], "2026-07-03");
+  assert.strictEqual(r, null);
+});
 
 test("sumAirbnbCsv: キャンセル料入金(収入>0のキャンセル行)は売上に含めず検知情報で返す", () => {
   const r = sumAirbnbCsv(AIRBNB_TERRACE_JUNE_CANCEL);

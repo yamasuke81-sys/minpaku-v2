@@ -373,11 +373,93 @@ function extractBookingReservations(text) {
   return out;
 }
 
+/**
+ * Airbnb 入金1件(銀行着金額)を予約候補と突合し、キャンセル料・返金調整まで含めて解釈する。
+ * 銀行入金が現金の最終真実である前提で、pnl への自動売上調整額(delta)まで機械的に導出する。
+ *
+ * @param {number} target 入金額(円)
+ * @param {Array<{code:string,name:string,ci:string,income:number,cancelled:boolean}>} rows
+ *   予約候補(CSV由来)。ci は "YYYY-MM-DD" or "YYYY/M/D"。cancelled=キャンセル行(収入>0=キャンセル料入金)。
+ * @param {string} depDate 入金日 "YYYY-MM-DD"
+ * @returns {null | {ambiguous:true, options:number} |
+ *   {mode:"exact"|"residual", stays:Array, feeSum:number, clawback:number, delta:number, ciYm:string|null}}
+ * - exact: 組合せ(1〜3件)の合計=入金。キャンセル行を含む場合 delta=+feeSum(キャンセル料を満額実受領)、含まなければ delta=0。
+ * - residual: exact 不成立時。キャンセル行を含む組合せで 合計−入金=残差(0<残差≤feeSum×1.1) を
+ *   「問題解決による返金調整(外貨建てで金額が微妙にズレることがある)」と解釈し delta=feeSum−残差。
+ *   residual 候補は入金日の1〜10日前チェックインに絞る(同一支払いグループの予約だけを対象にし誤解釈を防ぐ)。
+ * - 解釈(delta,ciYm)が複数割れたら ambiguous(自動調整せず人へ)。該当なしは null。
+ */
+function interpretAirbnbPayout(target, rows, depDate) {
+  const t = Math.round(Number(target));
+  if (!(t > 0) || !Array.isArray(rows) || !rows.length) return null;
+  const dep = new Date(String(depDate).replace(/\//g, "-") + "T00:00:00Z");
+  const norm = rows.map((r) => {
+    const ci = String(r.ci || "").replace(/\//g, "-");
+    const m = ci.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    const d = m ? new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))) : null;
+    return { ...r, income: Math.round(Number(r.income) || 0), _diffDays: d ? (dep - d) / 86400000 : null,
+      _ciYm: m ? `${m[1]}-${String(Number(m[2])).padStart(2, "0")}` : null };
+  }).filter((r) => r.income > 0);
+
+  const combos = (list) => {
+    const out = [];
+    for (let i = 0; i < list.length; i++) {
+      out.push([list[i]]);
+      for (let j = i + 1; j < list.length; j++) {
+        out.push([list[i], list[j]]);
+        for (let k = j + 1; k < list.length; k++) out.push([list[i], list[j], list[k]]);
+      }
+    }
+    return out;
+  };
+  const feeOf = (combo) => combo.filter((r) => r.cancelled).reduce((s, r) => s + r.income, 0);
+  const ciYmOf = (combo) => {
+    const yms = [...new Set(combo.filter((r) => r.cancelled).map((r) => r._ciYm).filter(Boolean))];
+    return yms.length === 1 ? yms[0] : null; // キャンセル行が複数月に跨る解釈は採用しない
+  };
+  const dedupe = (list) => {
+    const seen = new Map();
+    for (const it of list) seen.set(`${it.delta}|${it.ciYm}`, it);
+    return [...seen.values()];
+  };
+
+  // 1) exact: 合計=入金(候補は呼び出し側の緩い窓のまま)
+  const exacts = [];
+  for (const c of combos(norm)) {
+    if (c.reduce((s, r) => s + r.income, 0) !== t) continue;
+    const feeSum = feeOf(c);
+    if (feeSum > 0 && !ciYmOf(c)) continue;
+    exacts.push({ mode: "exact", stays: c, feeSum, clawback: 0, delta: feeSum, ciYm: feeSum > 0 ? ciYmOf(c) : null });
+  }
+  if (exacts.length) {
+    const uniq = dedupe(exacts);
+    return uniq.length === 1 ? uniq[0] : { ambiguous: true, options: uniq.length };
+  }
+
+  // 2) residual: キャンセル行を含む組合せの超過分を返金調整と解釈(入金日1〜10日前CIに限定)
+  const tight = norm.filter((r) => r._diffDays != null && r._diffDays >= 1 && r._diffDays <= 10);
+  const residuals = [];
+  for (const c of combos(tight)) {
+    const feeSum = feeOf(c);
+    if (feeSum <= 0) continue;
+    const sum = c.reduce((s, r) => s + r.income, 0);
+    const residual = sum - t;
+    if (residual <= 0 || residual > Math.ceil(feeSum * 1.1)) continue;
+    const ciYm = ciYmOf(c);
+    if (!ciYm) continue;
+    residuals.push({ mode: "residual", stays: c, feeSum, clawback: residual, delta: feeSum - residual, ciYm });
+  }
+  if (!residuals.length) return null;
+  const uniq = dedupe(residuals);
+  return uniq.length === 1 ? uniq[0] : { ambiguous: true, options: uniq.length };
+}
+
 module.exports = {
   parseCsv,
   parseYen,
   normLoose,
   sumAirbnbCsv,
+  interpretAirbnbPayout,
   sumBookingCsv,
   BOOKING_PAYMENT_FEE_RATE,
   extractAirbnbReservations,

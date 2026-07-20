@@ -175,8 +175,10 @@ async function fetchAccountRows(page, hash, ym) {
   }
 
   // ---- B) Airbnb(ペイオニア) ----
+  // apply:true = キャンセル料入金・返金調整の一意解釈が得られたら、該当CI月の売上へ自動調整まで行う
+  // (全自動運用・2026-07-20やますけ決定。手修正保護月/解釈が割れる場合はAPI側が適用せず reason を返す)
   const verifyAirbnb = async (pid, d) => {
-    const r = await fetch(`${API}/pnl/${pid}/verify-airbnb-payout`, { method: "POST", headers: H, body: JSON.stringify({ amount: d.amount, date: d.date }) });
+    const r = await fetch(`${API}/pnl/${pid}/verify-airbnb-payout`, { method: "POST", headers: H, body: JSON.stringify({ amount: d.amount, date: d.date, apply: true, mfId: d.mfId }) });
     return { status: r.status, j: await r.json().catch(() => ({})) };
   };
   for (const d of freshAb) {
@@ -186,23 +188,31 @@ async function fetchAccountRows(page, hash, ym) {
     let matched = p1.j.match ? d.primary : null;
     let matchedJson = matched ? p1.j : null;
     let missing = p1.j.missingCsvMonths || [];
+    let p2j = null;
     if (!matched) {
       const p2 = await verifyAirbnb(d.secondary, d);
-      if (p2.status === 200 && p2.j.match) { matched = d.secondary; matchedJson = p2.j; }
-      missing = [...new Set([...missing, ...(p2.j?.missingCsvMonths || [])])];
+      p2j = p2.status === 200 ? p2.j : null;
+      if (p2j?.match) { matched = d.secondary; matchedJson = p2j; }
+      missing = [...new Set([...missing, ...(p2j?.missingCsvMonths || [])])];
     }
     if (matched) {
       const propName = matched === TERRACE ? "the Terrace" : "宿小町";
-      console.log(`  ✅ 一致(${propName})${matched !== d.primary ? " ※口座と物件の対応が通常と逆" : ""}`);
-      // キャンセル料入金が絡む一致は無音にしない(pnl売上には自動計上されないため、放置すると帳簿と実入金がズレる)
-      if (matchedJson?.cancelledFeeInvolved) {
-        const stays = matchedJson.mode === "pair" ? matchedJson.stays : [matchedJson.stay];
-        const cxl = (stays || []).filter((s) => s && s.cancelled).map((s) => `${s.name || s.code} ¥${Number(s.income).toLocaleString()}`).join("、");
-        console.log(`NOTIFY: ⚠️ Airbnb入金 ¥${d.amount.toLocaleString()}(${d.date}、${propName}) に**キャンセル料入金**が含まれます(${cxl})。収支には自動計上されていません — Airbnb取引履歴で実受領(後日の返金調整の有無)を確認し、受領確定なら収支画面で売上を手修正してください。`);
+      const aa = matchedJson.autoAdjust || {};
+      console.log(`  ✅ 一致(${propName}/${matchedJson.mode})${matched !== d.primary ? " ※口座と物件の対応が通常と逆" : ""}`);
+      if (aa.applied) {
+        const sign = aa.delta >= 0 ? "+" : "";
+        console.log(`NOTIFY: ✅💴 Airbnb入金 ¥${d.amount.toLocaleString()}(${d.date}、${propName}) にキャンセル料入金が含まれていたため、**${aa.ciYm} の売上を ${sign}¥${aa.delta.toLocaleString()} 自動調整**しました(キャンセル料 ¥${(aa.feeSum || 0).toLocaleString()} − 返金調整 ¥${(aa.clawback || 0).toLocaleString()})。調整後Airbnb売上=¥${(aa.newGross || 0).toLocaleString()}。出典・取消は収支画面から。`);
+      } else if (aa.attempted && aa.reason === "manual_override") {
+        console.log(`NOTIFY: ⚠️ Airbnb入金 ¥${d.amount.toLocaleString()}(${d.date}、${propName}) にキャンセル料入金が含まれますが、対象月の売上が手修正保護中のため自動調整しませんでした(調整候補: ${matchedJson.interpretation?.delta >= 0 ? "+" : ""}¥${(matchedJson.interpretation?.delta || 0).toLocaleString()})。手修正額に反映済みか収支画面で確認してください。`);
+      } else if (matchedJson.cancelledFeeInvolved && aa.attempted && !["duplicate", "no_adjustment_needed"].includes(aa.reason)) {
+        console.log(`NOTIFY: ⚠️ Airbnb入金 ¥${d.amount.toLocaleString()}(${d.date}、${propName}) にキャンセル料入金が含まれますが自動調整できませんでした(理由: ${aa.reason})。Airbnb取引履歴を確認し、必要なら収支画面で売上を手修正してください。`);
       }
-      state.processed[d.mfId] = { kind: "airbnb", date: d.date, amount: d.amount, matched, cancelledFeeInvolved: !!matchedJson?.cancelledFeeInvolved, verifiedAt: new Date().toISOString() };
+      state.processed[d.mfId] = { kind: "airbnb", date: d.date, amount: d.amount, matched, cancelledFeeInvolved: !!matchedJson.cancelledFeeInvolved, autoAdjust: aa.applied ? { ciYm: aa.ciYm, delta: aa.delta } : (aa.reason || null), verifiedAt: new Date().toISOString() };
     } else if (missing.length) {
       console.log(`  → CSV未着(${missing.join(",")})のため保留(翌日再試行)`);
+    } else if (p1.j.interpretation?.ambiguous || p2j?.interpretation?.ambiguous) {
+      console.log(`NOTIFY: ⚠️ Airbnb入金 ¥${d.amount.toLocaleString()}(${d.date}、${d.acct}) はキャンセル料入金を含む解釈が**複数あり**自動調整できません。Airbnb取引履歴(支払い済み)で内訳を確認し、収支画面で売上を手修正してください。`);
+      state.processed[d.mfId] = { kind: "airbnb", date: d.date, amount: d.amount, matched: null, ambiguous: true, verifiedAt: new Date().toISOString() };
     } else {
       console.log(`NOTIFY: 🚨 Airbnb入金 ¥${d.amount.toLocaleString()}(${d.date}、${d.acct}) に一致する予約が Terrace/小町 の予約CSVに見つかりません。予約エクスポート欠落・金額相違・対象外物件の入金の可能性 → Airbnb 管理画面の取引履歴で確認してください。`);
       state.processed[d.mfId] = { kind: "airbnb", date: d.date, amount: d.amount, matched: null, verifiedAt: new Date().toISOString() };

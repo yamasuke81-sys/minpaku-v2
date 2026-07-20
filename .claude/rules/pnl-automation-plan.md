@@ -398,7 +398,16 @@ Workflow audit(65エージェント/54 findings→adversarial verify通過27件)
   2. `import-ota-csv`がrevenue.airbnbに保存+月次バッチ`pnlMonthlyImport`が⚠️「キャンセル料入金の可能性¥X — 照合して手修正」を通知(attention判定にも追加)
   3. `verify-airbnb-payout`が`cancelledFeeInvolved`を返し、`mf-booking-monitor.mjs`(毎朝07:40)がキャンセル料絡みの入金一致を**無音にせず⚠️通知**(従来は一致=無音で帳簿ズレに気づけなかった)
 - テスト: sumAirbnbCsvにZhang実データのキャンセル料検知テスト追加(**全414緑**)。
-- **運用**: 今後⚠️が出たら Airbnb取引履歴(支払い済み)で実受領と返金調整の有無を確認→受領確定なら収支画面の売上手修正で反映(今回のような返金相殺なら差引だけ反映)。
+- **運用**: 今後⚠️が出たら Airbnb取引履歴(支払い済み)で実受領と返金調整の有無を確認→受領確定なら収支画面の売上手修正で反映(今回のような返金相殺なら差引だけ反映)。→ **同日、下記の全自動化で置換**。
+
+## DONE(2026-07-20 キャンセル料入金の売上調整を全自動化 — やますけ「全自動」決定)
+上記⚠️→人手確認→手修正のループを、銀行入金を最終真実として**機械で完結**させた。
+- **`interpretAirbnbPayout(target, rows, depDate)`(ota-csv-logic.js、pure関数)**: 入金1件を予約候補(キャンセル行含む)と突合し、①exact=組合せ(1〜3件)完全一致(キャンセル行含む場合 delta=+キャンセル料満額) ②residual=キャンセル行を含む組合せの超過分を「問題解決の返金調整(外貨建てで微ズレあり)」と解釈し delta=キャンセル料−残差(上限フィー×1.1、候補は入金日1〜10日前CIに限定=同一支払グループのみで誤解釈防止)。解釈が複数割れたら ambiguous、該当なしは null。
+- **`verify-airbnb-payout` に `apply:true, mfId` を追加**: 一意解釈かつ delta≠0 ならトランザクションで該当CI月の `revenue.airbnb` に自動調整(grossRevenue/netRevenue += delta、`autoAdjustments[]` に mfId冪等キー・入金出典・内訳note・stays を記録)。**manualOverrides["revenue.airbnb"] の月は不適用(reason=manual_override)**、duplicate/ambiguous/no_interpretation も不適用で理由返却。
+- **`import-ota-csv` は autoAdjustments を再適用**: CSV再取込時も `grossRevenue = CSV合計 + Σdelta` で自動調整が消えない。
+- **mf-booking-monitor(毎朝07:40) は apply:true で呼ぶ**: 適用=✅💴通知(調整額・内訳・調整後売上) / manual_override・その他不適用=⚠️ / 複数解釈=⚠️ / 解釈不能=🚨(従来)。state に autoAdjust 記録。
+- **本番E2E検証**: Zhang実入金¥153,135(7/3)をドライ実行→ residual/feeSum102,335/clawback102,460/**delta=-125/ciYm=2026-06 を機械導出** ✓。apply実行→ 6月は手修正保護中のため **manual_override で不適用・doc無変更** ✓(二重調整防止も実証)。テスト5件追加(**全419緑**)、functions:api+pnlMonthlyImport デプロイ済。AUTOMATION.md 台帳更新済。
+- 月次バッチ⚠️文言も「入金確認時に自動調整します(✅💴が出ていれば対応不要)」に更新。
 
 ## DONE(2026-07-16 楽天でんき電気を「月次1回」ルーチンへ分離)
 やますけ判断「MFは毎日でOK・楽天でんきだけ月1回」を実装。背景=**楽天でんきの login.account.rakuten.com/session/upgrade セッションは短命(実測: ログイン後1時間以内に失効を再現)**で、いつ読むにしても毎回手動再ログインが要る → 読む回数を月1に最小化するのが最適。

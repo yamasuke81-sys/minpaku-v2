@@ -152,7 +152,7 @@ async function run(db, yearMonth, opts = {}) {
         if (errs.length) warns.push(`未取得: ${errs.join("/")}`);
         if (r.cancelledPayout) {
           const who = (r.cancelledPayout.rows || []).map((x) => `${x.guest || x.code} ${yen(x.income)}`).join("、");
-          warns.push(`Airbnbキャンセル料入金の可能性 ${yen(r.cancelledPayout.total)}(${who})。売上には自動計上していません — Airbnbの取引履歴で実受領(返金調整の有無)を確認し、受領していれば収支画面で売上を手修正してください`);
+          warns.push(`Airbnbキャンセル料入金の検知 ${yen(r.cancelledPayout.total)}(${who})。CSV合計には含めていません — 銀行入金の確認時に入金監視が自動で売上調整します(✅💴通知が出ていれば対応不要。⚠️のままの場合のみAirbnb取引履歴を確認して手修正)`);
         }
         return `${head}\n${links.join("\n") || "　（下書きなし）"}${warns.length ? `\n　⚠️${warns.join(" / ")}` : ""}`;
       }).join("\n\n");
