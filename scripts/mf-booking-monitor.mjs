@@ -56,7 +56,7 @@ function killDebugChrome() {
 }
 function launchDebugChrome() {
   const cp = spawn("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-    ["--remote-debugging-port=9222", "--user-data-dir=C:\\Users\\yamas\\.claude\\chrome-debug-profile", "--no-first-run", "--no-default-browser-check"],
+    ["--remote-debugging-port=9222", "--user-data-dir=C:\\Users\\yamas\\.claude\\chrome-debug-profile", "--no-first-run", "--no-default-browser-check", "--hide-crash-restore-bubble"],
     { detached: true, stdio: "ignore" });
   cp.on("error", () => {}); cp.unref();
 }
