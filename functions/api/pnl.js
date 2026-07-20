@@ -630,6 +630,9 @@ module.exports = function pnlApi(db) {
           patch.revenue.airbnb = {
             grossRevenue: a.grossRevenue, serviceFee: 0, netRevenue: a.grossRevenue,
             nights: a.nights, reservationCount: a.reservationCount,
+            // キャンセル料入金の検知情報(売上には自動計上しない。⚠️通知→人が照合して手修正する運用)
+            cancelledPayoutTotal: a.cancelledPayoutTotal || 0,
+            cancelledPayoutRows: a.cancelledPayoutRows || [],
             source: "ota_csv", sourceFileId: file.id, sourceFileName: file.name,
             parsedAt: FieldValue.serverTimestamp(),
           };
@@ -1450,17 +1453,20 @@ module.exports = function pnlApi(db) {
           if (!ci) continue;
           const diffDays = (depDate - ci) / 86400000;
           if (diffDays < -2 || diffDays > 21) continue;
-          rows.push({ code: r[h["確認コード"]], name: r[h["ゲスト名"]], ci: ciRaw, income });
+          // キャンセル済み行(収入>0=キャンセル料入金)も候補に含める。ただし pnl 売上には自動計上されないため、
+          // 一致した場合は cancelledFeeInvolved を返し、監視側が⚠️(手修正要確認)を出す。
+          rows.push({ code: r[h["確認コード"]], name: r[h["ゲスト名"]], ci: ciRaw, income,
+            cancelled: String(r[h["ステータス"]] || "").includes("キャンセル") });
         }
       }
       // 単独一致
       const single = rows.find((r) => r.income === target);
-      if (single) return res.json({ ok: true, match: true, mode: "single", stay: single, candidates: rows.length, missingCsvMonths });
+      if (single) return res.json({ ok: true, match: true, mode: "single", stay: single, cancelledFeeInvolved: !!single.cancelled, candidates: rows.length, missingCsvMonths });
       // 2件合算(同日まとめ振込)
       for (let i = 0; i < rows.length; i++) {
         for (let j = i + 1; j < rows.length; j++) {
           if (rows[i].income + rows[j].income === target) {
-            return res.json({ ok: true, match: true, mode: "pair", stays: [rows[i], rows[j]], candidates: rows.length, missingCsvMonths });
+            return res.json({ ok: true, match: true, mode: "pair", stays: [rows[i], rows[j]], cancelledFeeInvolved: !!(rows[i].cancelled || rows[j].cancelled), candidates: rows.length, missingCsvMonths });
           }
         }
       }

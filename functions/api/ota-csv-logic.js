@@ -80,39 +80,56 @@ function headerIndex(header) {
 /**
  * Airbnb 予約CSV(yadozei保存形式)を集計する。
  * 列: 確認コード,ステータス,ゲスト名,...,開始日,終了日,宿泊日数,予約済み,リスティング,収入
- * - ステータスに「キャンセル」を含む行は除外(収入も¥0)
+ * - ステータスに「キャンセル」を含む行は売上から除外(収入も¥0が通常)
+ * - ★キャンセル行でも収入>0は「キャンセル料入金あり」。後日Airbnb「問題解決」で返金(引落)されても
+ *   予約CSVには現れないため、売上へは自動計上せず cancelledPayoutTotal/Rows で検知情報として返す
+ *   (月次バッチ通知と入金監視が⚠️を出し、人が実入金と照合して手修正する運用。実例: the Terrace 2026-06 Zhang ¥102,335)
  * - listingName 指定時はリスティング列を曖昧一致で絞る(保存CSVは既に絞り込み済だが二重の安全弁)
  * - 収入(入金額=ホスト受取)を合算 → grossRevenue
  *
- * @returns {{grossRevenue:number, nights:number, reservationCount:number, canceledCount:number}}
+ * @returns {{grossRevenue:number, nights:number, reservationCount:number, canceledCount:number, cancelledPayoutTotal:number, cancelledPayoutRows:Array<{code:string,guest:string,income:number}>}}
  */
 function sumAirbnbCsv(text, opts = {}) {
   const rows = parseCsv(text);
-  if (rows.length < 2) return { grossRevenue: 0, nights: 0, reservationCount: 0, canceledCount: 0 };
+  if (rows.length < 2) return { grossRevenue: 0, nights: 0, reservationCount: 0, canceledCount: 0, cancelledPayoutTotal: 0, cancelledPayoutRows: [] };
   const h = headerIndex(rows[0]);
   const iStatus = h["ステータス"];
   const iIncome = h["収入"];
   const iNights = h["宿泊日数"];
   const iListing = h["リスティング"];
+  const iCode = h["確認コード"];
+  const iGuest = h["ゲスト名"];
   const wantListing = opts.listingName ? normLoose(opts.listingName) : "";
 
-  let grossRevenue = 0, nights = 0, reservationCount = 0, canceledCount = 0;
+  let grossRevenue = 0, nights = 0, reservationCount = 0, canceledCount = 0, cancelledPayoutTotal = 0;
+  const cancelledPayoutRows = [];
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
     if (!row || row.length < 2) continue;
-    const status = String(row[iStatus] || "");
-    if (status.includes("キャンセル")) { canceledCount++; continue; }
     if (wantListing && iListing != null) {
       const ln = normLoose(row[iListing]);
       if (ln && !(ln === wantListing || ln.includes(wantListing) || wantListing.includes(ln))) continue;
     }
+    const status = String(row[iStatus] || "");
     const income = parseYen(row[iIncome]);
+    if (status.includes("キャンセル")) {
+      canceledCount++;
+      if (income > 0) {
+        cancelledPayoutTotal += income;
+        cancelledPayoutRows.push({
+          code: iCode != null ? String(row[iCode] || "") : "",
+          guest: iGuest != null ? String(row[iGuest] || "") : "",
+          income,
+        });
+      }
+      continue;
+    }
     if (income <= 0) continue; // 収入0(未確定/キャンセル相当)は売上に含めない
     grossRevenue += income;
     nights += parseYen(row[iNights]);
     reservationCount++;
   }
-  return { grossRevenue, nights, reservationCount, canceledCount };
+  return { grossRevenue, nights, reservationCount, canceledCount, cancelledPayoutTotal, cancelledPayoutRows };
 }
 
 // Booking決済手数料率(Payments by Booking)。2025-10〜2026-06 の全滞在で

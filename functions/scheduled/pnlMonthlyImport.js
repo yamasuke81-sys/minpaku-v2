@@ -67,6 +67,11 @@ async function run(db, yearMonth, opts = {}) {
       r.steps.ota = ota.payload?.ok ? { 売上: ota.payload.computed?.revenueGross ?? null } : { error: ota.payload?.error || `HTTP${ota.code}` };
       // 売上取得の成否を明示フラグに(通知の警告判定に使う)
       r.otaFailed = !ota.payload?.ok;
+      // Airbnbキャンセル料入金の検知(売上未計上のまま黙って月次確定する事故の防止。実例: the Terrace 2026-06 ¥102,335)
+      const cxlTotal = ota.payload?.airbnb?.cancelledPayoutTotal || 0;
+      if (cxlTotal > 0) {
+        r.cancelledPayout = { total: cxlTotal, rows: ota.payload.airbnb.cancelledPayoutRows || [] };
+      }
 
       const tax = await invoke(settlement.cores.importTax, params, {});
       r.steps.tax = tax.payload?.ok ? { 宿泊税: tax.payload.taxWithholding } : { error: tax.payload?.error || `HTTP${tax.code}` };
@@ -126,9 +131,9 @@ async function run(db, yearMonth, opts = {}) {
       const { notifyOwner } = require("../utils/lineNotify");
       const yen = (n) => (n != null ? "¥" + Number(n).toLocaleString("ja-JP") : "-");
 
-      // 要対応判定: 売上未取得 or 帳票エラー or 実行例外 のいずれかがあれば警告
+      // 要対応判定: 売上未取得 or 帳票エラー or 実行例外 or キャンセル料入金検知 のいずれかがあれば警告
       const attention = results.filter((r) =>
-        r.revenueMissing || r.error ||
+        r.revenueMissing || r.error || r.cancelledPayout ||
         Object.values(r.steps || {}).some((v) => v && v.error && v !== (r.steps || {}).ota));
       // ↑ ota の error 単体は「CSV未取得だが既存revenueで帳票OK」のケースがあるので revenueMissing で別途拾う
 
@@ -145,6 +150,10 @@ async function run(db, yearMonth, opts = {}) {
         const warns = [];
         if (r.error) warns.push(`実行エラー: ${r.error}`);
         if (errs.length) warns.push(`未取得: ${errs.join("/")}`);
+        if (r.cancelledPayout) {
+          const who = (r.cancelledPayout.rows || []).map((x) => `${x.guest || x.code} ${yen(x.income)}`).join("、");
+          warns.push(`Airbnbキャンセル料入金の可能性 ${yen(r.cancelledPayout.total)}(${who})。売上には自動計上していません — Airbnbの取引履歴で実受領(返金調整の有無)を確認し、受領していれば収支画面で売上を手修正してください`);
+        }
         return `${head}\n${links.join("\n") || "　（下書きなし）"}${warns.length ? `\n　⚠️${warns.join(" / ")}` : ""}`;
       }).join("\n\n");
 

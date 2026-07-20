@@ -184,15 +184,23 @@ async function fetchAccountRows(page, hash, ym) {
     const p1 = await verifyAirbnb(d.primary, d);
     if (p1.status !== 200) { hadError = true; console.log("error:", p1.j.error || p1.status); continue; }
     let matched = p1.j.match ? d.primary : null;
+    let matchedJson = matched ? p1.j : null;
     let missing = p1.j.missingCsvMonths || [];
     if (!matched) {
       const p2 = await verifyAirbnb(d.secondary, d);
-      if (p2.status === 200 && p2.j.match) matched = d.secondary;
+      if (p2.status === 200 && p2.j.match) { matched = d.secondary; matchedJson = p2.j; }
       missing = [...new Set([...missing, ...(p2.j?.missingCsvMonths || [])])];
     }
     if (matched) {
-      console.log(`  ✅ 一致(${matched === TERRACE ? "the Terrace" : "宿小町"})${matched !== d.primary ? " ※口座と物件の対応が通常と逆" : ""}`);
-      state.processed[d.mfId] = { kind: "airbnb", date: d.date, amount: d.amount, matched, verifiedAt: new Date().toISOString() };
+      const propName = matched === TERRACE ? "the Terrace" : "宿小町";
+      console.log(`  ✅ 一致(${propName})${matched !== d.primary ? " ※口座と物件の対応が通常と逆" : ""}`);
+      // キャンセル料入金が絡む一致は無音にしない(pnl売上には自動計上されないため、放置すると帳簿と実入金がズレる)
+      if (matchedJson?.cancelledFeeInvolved) {
+        const stays = matchedJson.mode === "pair" ? matchedJson.stays : [matchedJson.stay];
+        const cxl = (stays || []).filter((s) => s && s.cancelled).map((s) => `${s.name || s.code} ¥${Number(s.income).toLocaleString()}`).join("、");
+        console.log(`NOTIFY: ⚠️ Airbnb入金 ¥${d.amount.toLocaleString()}(${d.date}、${propName}) に**キャンセル料入金**が含まれます(${cxl})。収支には自動計上されていません — Airbnb取引履歴で実受領(後日の返金調整の有無)を確認し、受領確定なら収支画面で売上を手修正してください。`);
+      }
+      state.processed[d.mfId] = { kind: "airbnb", date: d.date, amount: d.amount, matched, cancelledFeeInvolved: !!matchedJson?.cancelledFeeInvolved, verifiedAt: new Date().toISOString() };
     } else if (missing.length) {
       console.log(`  → CSV未着(${missing.join(",")})のため保留(翌日再試行)`);
     } else {

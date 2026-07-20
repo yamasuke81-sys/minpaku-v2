@@ -389,6 +389,17 @@ Workflow audit(65エージェント/54 findings→adversarial verify通過27件)
 - 認識訂正: Cloud Scheduler `firebase-schedule-pnlMonthlyImport` は **毎月6日 05:00 JST** (schedule `0 5 6 * *`)。8/2 は yadozei CSV dispatcher の実取得日で pnl バッチではない。
 - 全154テスト緑。
 
+## DONE(2026-07-20 the Terrace 6月Airbnb売上の実入金一致調整 + キャンセル料入金の検知恒久化)
+やますけ報告「スプシ収支とAirbnb実売上が違う」→ 1円単位で解明・調整・再発防止まで完了。
+- **差異の正体(全額説明済)**: v2収支=¥358,460(CI月・キャンセル除外) vs Airbnb実績画面=¥356,952(入金日基準)。差1,508円 = ①Zhang 6/27-7/1のゲスト取消→**キャンセル料+¥102,335入金**(HMKFRRCJTK、CSVではキャンセル行のためv2未計上)→同ゲスト再予約(HMKJSHXTQX ¥153,260)→**Airbnb問題解決17824340548868でキャンセル料相当を返金、なぜかSEK建て-kr6,167.08=実引落-¥102,460**(差引実害**-¥125**のみ) + ②Airbnb実績画面がSEK調整を別レート(≈-103,843)で換算表示する**表示上のみのFXズレ-1,383**(アカウント合計511,297vsリスティング別合計509,914の差1,383と同源)。6/28支払¥153,135=102,335+153,260-102,460、7/3八朔口座着金。
+- **[調整済] 6月Airbnb売上 358,460→¥358,335**(実入金一致、PATCH経由でmanualOverrides["revenue.airbnb"]=true保護付き=再取込で戻らない。adjustmentNoteに根拠全記載)。**6月確定: 売上421,321(Airbnb358,335+Booking62,986) / 利益295,660(70.2%)**(6月分電気40,245が7月中旬にMFルーチンで自動計上済みの状態+今回-125)。報告書PDF再生成済。
+- **[再発防止・デプロイ済 functions:api+pnlMonthlyImport]** Airbnbキャンセル料入金(キャンセル行なのに収入>0)を3層で検知:
+  1. `sumAirbnbCsv`が`cancelledPayoutTotal/Rows`を返す(売上への自動計上はしない=後日の問題解決返金がCSVに現れないため。Booking側のキャンセル料自動計上とは意図的に非対称)
+  2. `import-ota-csv`がrevenue.airbnbに保存+月次バッチ`pnlMonthlyImport`が⚠️「キャンセル料入金の可能性¥X — 照合して手修正」を通知(attention判定にも追加)
+  3. `verify-airbnb-payout`が`cancelledFeeInvolved`を返し、`mf-booking-monitor.mjs`(毎朝07:40)がキャンセル料絡みの入金一致を**無音にせず⚠️通知**(従来は一致=無音で帳簿ズレに気づけなかった)
+- テスト: sumAirbnbCsvにZhang実データのキャンセル料検知テスト追加(**全414緑**)。
+- **運用**: 今後⚠️が出たら Airbnb取引履歴(支払い済み)で実受領と返金調整の有無を確認→受領確定なら収支画面の売上手修正で反映(今回のような返金相殺なら差引だけ反映)。
+
 ## DONE(2026-07-16 楽天でんき電気を「月次1回」ルーチンへ分離)
 やますけ判断「MFは毎日でOK・楽天でんきだけ月1回」を実装。背景=**楽天でんきの login.account.rakuten.com/session/upgrade セッションは短命(実測: ログイン後1時間以内に失効を再現)**で、いつ読むにしても毎回手動再ログインが要る → 読む回数を月1に最小化するのが最適。
 - **検針日を実データで特定**(月別API `https://api.energy.rakuten.co.jp/mypage/v1/usages/denki/{cn}/monthly?target_year=YYYY` を生CDP=ページ直結WebSocket+Runtime.evaluateで直読み): 宿小町(8070379292)の検針日は毎月**11〜14日**、金額確定(amount!=null/status=2)はその数日後 → **翌月1日には前月分が確実に確定**。契約ごとに検針日は違う(呉市清水8076857892=**月末**/音戸8087608092=**月初**/西川原石8071429292=**月初**)が、PnL取込対象は宿小町のみ。

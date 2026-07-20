@@ -48,6 +48,26 @@ test("sumAirbnbCsv: 宿小町5月 = 201,769 (キャンセル除外)", () => {
   assert.strictEqual(r.reservationCount, 8);
   assert.strictEqual(r.canceledCount, 1);
   assert.strictEqual(r.nights, 3 + 3 + 2 + 4 + 1 + 3 + 2 + 2); // 20泊
+  // 収入¥0のキャンセルはキャンセル料入金なし
+  assert.strictEqual(r.cancelledPayoutTotal, 0);
+  assert.deepStrictEqual(r.cancelledPayoutRows, []);
+});
+
+// 実データ(the Terrace 2026-06 抜粋)。ゲスト取消→キャンセル料¥102,335入金→同ゲスト再予約¥153,260。
+// 後日Airbnb「問題解決」でキャンセル料相当が返金(SEK建て-¥102,460)されたがCSVには現れない実例。
+const AIRBNB_TERRACE_JUNE_CANCEL = `"確認コード","ステータス","ゲスト名","連絡先","大人の人数","子どもの人数","乳幼児の人数","開始日","終了日","宿泊日数","予約済み","リスティング","収入"
+"HMKJSHXTQX","過去のゲスト","Zhang Jingyu","","4","1","0","2026/6/27","2026/7/1","4","2026-06-25","瀬戸内海ビュー大テラス｜10名OK・BBQ可・駐車3台","¥153,260"
+"HMKFRRCJTK","ゲストによりキャンセル済み","Zhang","","4","1","0","2026/6/27","2026/7/1","4","2026-06-24","瀬戸内海ビュー大テラス｜10名OK・BBQ可・駐車3台","¥102,335"
+"HMYYYEHT4P","過去のゲスト","似子 繁山","","4","0","4","2026/6/21","2026/6/22","1","2026-05-27","瀬戸内海ビュー大テラス｜10名OK・BBQ可・駐車3台","¥14,550"
+`;
+
+test("sumAirbnbCsv: キャンセル料入金(収入>0のキャンセル行)は売上に含めず検知情報で返す", () => {
+  const r = sumAirbnbCsv(AIRBNB_TERRACE_JUNE_CANCEL);
+  assert.strictEqual(r.grossRevenue, 153260 + 14550); // キャンセル料¥102,335は売上に自動計上しない
+  assert.strictEqual(r.reservationCount, 2);
+  assert.strictEqual(r.canceledCount, 1);
+  assert.strictEqual(r.cancelledPayoutTotal, 102335);
+  assert.deepStrictEqual(r.cancelledPayoutRows, [{ code: "HMKFRRCJTK", guest: "Zhang", income: 102335 }]);
 });
 
 test("sumAirbnbCsv: listingName フィルタ(一致)", () => {
