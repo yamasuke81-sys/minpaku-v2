@@ -66,7 +66,7 @@ function saveState(s) { try { writeFileSync(STATE_PATH, JSON.stringify({ ...s, a
 // ---- CDP(生HTTP + ページ直結WebSocket。Playwright不使用でハング回避) ----
 async function cdpAlive() { try { const r = await withTimeout(fetch(CDP + "/json/version"), 3000, "ver"); return r.ok; } catch { return false; } }
 function launchDebugChrome() {
-  try { const p = spawn(CHROME, ["--remote-debugging-port=9222", `--user-data-dir=${PROFILE}`, "--no-first-run", "--no-default-browser-check", "--hide-crash-restore-bubble"], { detached: true, stdio: "ignore" }); p.on("error", () => {}); p.unref(); } catch {}
+  try { const p = spawn(CHROME, ["--remote-debugging-port=9222", `--user-data-dir=${PROFILE}`, "--no-first-run", "--no-default-browser-check", "--hide-crash-restore-bubble", "--enable-unsafe-extension-debugging"], { detached: true, stdio: "ignore" }); p.on("error", () => {}); p.unref(); } catch {}
 }
 async function getTabs() { const r = await withTimeout(fetch(CDP + "/json"), 5000, "tabs"); return r.json(); }
 async function cdpPut(path) { return withTimeout(fetch(CDP + path, { method: "PUT" }), 8000, "put"); }
