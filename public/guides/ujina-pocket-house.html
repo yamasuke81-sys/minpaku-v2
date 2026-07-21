@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0719j" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0722a" rel="stylesheet">
   <style>
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; }
@@ -72,8 +72,21 @@
     .steps > li { position: relative; padding: 6px 0 14px 44px; }
     .steps > li::before { counter-increment: step; content: counter(step); position: absolute; left: 0; top: 2px; width: 30px; height: 30px; border-radius: 50%; background: var(--ss-sea); color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 15px; }
 
-    .contact a { color: var(--ss-glow); }
-    .foot { text-align: center; color: var(--ss-muted); font-size: 12px; letter-spacing: .1em; margin-top: 34px; }
+    /* お問合せ＋最下部（宿小町ガイドと同一スタイル） */
+    .contact {
+      text-align: center; padding: 30px 20px;
+      background: var(--ss-sea-deep);
+      color: rgba(244,239,230,0.85); border-radius: 18px; margin-top: 30px;
+    }
+    .contact .label { font-size: 11px; letter-spacing: 0.2em; color: var(--ss-gold); margin-bottom: 6px; }
+    .contact .msg { margin-bottom: 10px; opacity: 0.85; font-size: 13px; }
+    .contact .tel {
+      font-family: "Playfair Display", serif;
+      font-size: 26px; color: var(--ss-sand);
+      text-decoration: none; letter-spacing: 0.05em;
+    }
+    .contact .tel:hover { color: var(--ss-hassaku); }
+    .foot { text-align: center; margin-top: 30px; font-size: 11px; color: var(--ss-muted); letter-spacing: 0.15em; }
   </style>
 </head>
 <body class="lang-jp">
@@ -187,18 +200,14 @@
       </ul>
     </section>
 
-    <!-- お問い合わせ -->
-    <section class="sec contact" id="contact">
-      <h2><i class="bi bi-telephone"></i><span class="jp">お問い合わせ</span><span class="en">Contact</span></h2>
-      <p><span class="jp">ご滞在中のお困りごとは、ご予約サイトのメッセージ、または下記までお気軽にご連絡ください。</span><span class="en">For anything you need during your stay, please message us via your booking site or contact us below.</span></p>
-      <div class="kv">
-        <div class="row"><span class="k">Email</span><span class="v"><a href="mailto:81hassac@gmail.com">81hassac@gmail.com</a></span></div>
-        <div class="row"><span class="k"><span class="jp">緊急連絡先</span><span class="en">Emergency</span></span><span class="v"><span class="soon"><span class="jp">チェックイン前にご案内します</span><span class="en">Provided before check-in</span></span></span></div>
-      </div>
-      <!-- TODO(ujina): 緊急連絡先の電話番号を記入 -->
+    <!-- お問合せ＋最下部（宿小町ガイドと同一スタイルに統一） -->
+    <section class="contact" id="contact">
+      <div class="label">CONTACT / お問合せ</div>
+      <div class="msg"><span class="jp">ご質問・ご相談等ございましたら、お気軽にご連絡ください。</span><span class="en">If you have any questions, please feel free to contact us.</span></div>
+      <a class="tel" href="tel:09075009595">090-7500-9595</a>
     </section>
 
-    <div class="foot">SETOUCHI STAY</div>
+    <div class="foot">UJINA Pocket House · Thank you for your stay</div>
   </div>
 
 <script>

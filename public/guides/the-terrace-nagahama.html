@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0719j" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0722a" rel="stylesheet">
   <style>
     /* === 共通トークン（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css） === */
     /* 和文フォントは KOMACHI と揃えて Noto Sans JP に統一 */
@@ -259,25 +259,23 @@
       border-bottom: 1px solid var(--ss-border);
     }
 
-    /* フッター（問い合わせカード＋小さな下部注記） */
-    .guide-footer {
+    /* お問合せ＋最下部（宿小町ガイドと同一スタイル） */
+    .contact {
+      text-align: center; padding: 30px 20px;
       background: var(--ss-sea-deep);
-      color: rgba(244,239,230,0.85);
-      padding: 30px 20px;
-      text-align: center;
-      font-size: 0.85rem;
-      border-radius: 18px;
-      margin-top: 30px;
+      color: rgba(244,239,230,0.85); border-radius: 18px; margin-top: 30px;
     }
-    .guide-footer p:first-child {
+    .contact .label { font-size: 11px; letter-spacing: 0.2em; color: var(--ss-gold); margin-bottom: 6px; }
+    .contact .contact-msg { margin-bottom: 10px; opacity: 0.85; font-size: 13px; }
+    .contact .tel {
       font-family: "Playfair Display", serif;
-      font-size: 22px; color: var(--ss-sand);
-      letter-spacing: 0.05em; margin-bottom: 8px;
+      font-size: 26px; color: var(--ss-sand);
+      text-decoration: none; letter-spacing: 0.05em;
     }
-    .guide-footer .footer-note {
-      display: block; margin-top: 14px;
-      font-size: 11px; letter-spacing: 0.12em;
-      color: rgba(244,239,230,0.6);
+    .contact .tel:hover { color: var(--ss-hassaku); }
+    footer.bottom {
+      text-align: center; margin-top: 30px;
+      font-size: 11px; color: var(--ss-muted); letter-spacing: 0.15em;
     }
 
     /* スマホ全幅 */
@@ -929,11 +927,15 @@
 
   </div><!-- /本文 -->
 
-  <!-- フッター（問い合わせカード＋下部注記） -->
-  <footer class="guide-footer">
-    <p class="fw-bold mb-1">the Terrace 長浜</p>
-    <p class="mb-1">緊急時は <strong>119番</strong> または <strong>110番</strong> へ</p>
-    <p class="mb-0"><span class="footer-note">&copy; 2026 the Terrace 長浜 · Thank you for your stay</span></p>
+  <!-- お問合せ＋最下部（宿小町ガイドと同一スタイルに統一） -->
+  <section id="contact" class="contact">
+    <div class="label">CONTACT / お問合せ</div>
+    <div class="contact-msg">ご質問・ご相談等ございましたら、お気軽にご連絡ください。</div>
+    <a class="tel" href="tel:09075009595">090-7500-9595</a>
+  </section>
+
+  <footer class="bottom">
+    the Terrace Nagahama · Thank you for your stay
   </footer>
 
 </div>
@@ -1094,7 +1096,7 @@
     ["#rule-other li:nth-child(1)", "アーリーチェックイン・レイトチェックアウトには対応しておりません。", "No early check-in or late check-out.", "얼리 체크인/레이트 체크아웃은 지원하지 않습니다.", "不提供提前入住和延迟退房服务。", "不提供提早入住・延遲退房服務。"],
     ["#rule-other li:nth-child(2)", "スーツケース等の大型ゴミの処分は不可です。残置された場合、処分費<strong>1万円</strong>を請求します。", "No disposal of large items (suitcases, etc.). <strong>¥10,000</strong> charge if left behind.", "여행 가방 등 대형 쓰레기 처리는 불가합니다. 방치될 경우, 처리 비용 <strong>1만 엔</strong>을 청구합니다.", "不可处理行李箱等大型垃圾。如遗留，将收取<strong>1万日元</strong>的处理费。", "不可丟棄行李箱等大型垃圾。若留下，將收取<strong>1萬日圓</strong>的處理費。"],
     ["#rule-other li:nth-child(3)", "屋外共用部に限り防犯カメラを設置しています（室内にはありません）。", "Security cameras are installed in outdoor common areas only (not indoors).", "야외 공용부에 한해 방범 카메라를 설치하고 있습니다 (실내에는 없음).", "仅在室外公共区域安装了监控摄像头（室内没有）。", "僅在戶外公共區域設有監視器（室內沒有）。"],
-    [".guide-footer p:nth-child(2)", "緊急時は <strong>119番</strong> または <strong>110番</strong> へ", "Emergency: call <strong>119</strong> or <strong>110</strong>", "긴급 상황 시 <strong>119번</strong> 또는 <strong>110번</strong>으로", "紧急情况请拨打 <strong>119</strong> 或 <strong>110</strong>", "緊急情況請撥打 <strong>119</strong> 或 <strong>110</strong>"],
+    [".contact .contact-msg", "ご質問・ご相談等ございましたら、お気軽にご連絡ください。", "If you have any questions, please feel free to contact us.", "질문이나 상담이 있으시면 언제든지 편하게 연락 주십시오.", "如有任何问题或咨询，请随时与我们联系。", "若有任何問題或需要諮詢，請隨時與我們聯繫。"],
   ];
 
   let currentLang = 'ja';
