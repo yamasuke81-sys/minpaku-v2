@@ -900,6 +900,14 @@ router.post("/booking-request", express.json(), async (req, res) => {
     const parkingCharge = computeParkingCharge(property.paidParking, checkIn, checkOut, body.parkingCars);
     const parkingCars = parkingCharge.cars;
 
+    // ===== お車の台数 (2026-07 追加・任意) =====
+    // 無料/有料を問わない来訪車両の総数。オーナーの駐車場計画用 (0=車なし、null=未回答)。
+    let carCount = null;
+    if (body.carCount !== undefined && body.carCount !== null && body.carCount !== "") {
+      const c = parseInt(body.carCount, 10);
+      if (Number.isFinite(c) && c >= 0) carCount = Math.min(c, 9);
+    }
+
     // ===== 要チェック判定 (男性・20代・5名以上) =====
     const requiresReview = (gender === "男性" && age === "20代" && guests >= 5);
 
@@ -977,6 +985,7 @@ router.post("/booking-request", express.json(), async (req, res) => {
       banquetAcknowledged,
       requiresReview,
       parkingCars,
+      carCount,
       guestName: name,
       email,
       plan,
@@ -999,12 +1008,15 @@ router.post("/booking-request", express.json(), async (req, res) => {
       // 要チェック (男性・20代・5名以上) は通知の先頭に警告を目立つ形で入れる
       const reviewAlertLine = requiresReview ? "⚠️要チェック（男性・20代・5名以上）\n\n" : "";
       // 有料駐車場希望はカフェ (うみとやまと) への空き確認が必要なため、承認前アクションとして目立たせる
-      const parkingLine = parkingCars > 0
-        ? `\n🅿️ 有料駐車場: ${parkingCars}台希望（¥${parkingCharge.fee.toLocaleString("ja-JP")}・承認前にカフェへ空き確認を！）`
+      const carLine = carCount !== null
+        ? `\n🚗 お車の台数: ${carCount === 0 ? "車なし" : `${carCount}台`}`
         : "";
+      const parkingLine = (parkingCars > 0
+        ? `\n🅿️ 有料駐車場: ${parkingCars}台希望（¥${parkingCharge.fee.toLocaleString("ja-JP")}・承認前にカフェへ空き確認を！）`
+        : "") ;
       await notifyByKey(db, "direct_request", {
         title: requiresReview ? "⚠️要チェック 直接予約リクエスト受信" : "直接予約リクエスト受信",
-        body: `${reviewAlertLine}📩 直接予約のリクエストが届きました\n\n宿: ${property.name || propertyId}\n日程: ${checkIn} 〜 ${checkOut}\n人数: ${guests}名 (${breakdownJa})${parkingLine}\n年代: ${age || "未回答"}\n性別: ${gender || "未回答"}\n国籍: ${nationality}\nメンバー構成: ${memberComposition}\nプラン: ${plan === "nonrefundable" ? "返金不可割引" : "スタンダード"}\nお名前: ${name}\n\n確認・承認: ${appUrl}/#/booking-requests`,
+        body: `${reviewAlertLine}📩 直接予約のリクエストが届きました\n\n宿: ${property.name || propertyId}\n日程: ${checkIn} 〜 ${checkOut}\n人数: ${guests}名 (${breakdownJa})${carLine}${parkingLine}\n年代: ${age || "未回答"}\n性別: ${gender || "未回答"}\n国籍: ${nationality}\nメンバー構成: ${memberComposition}\nプラン: ${plan === "nonrefundable" ? "返金不可割引" : "スタンダード"}\nお名前: ${name}\n\n確認・承認: ${appUrl}/#/booking-requests`,
         vars: {
           // booking varGroup 準拠: date=チェックアウト日, checkin=チェックイン日, guest=ゲスト名
           property: property.name || "",
@@ -1033,6 +1045,12 @@ router.post("/booking-request", express.json(), async (req, res) => {
       if (children > 0) breakdownEnParts.push(`${children} child${children === 1 ? "" : "ren"}`);
       if (infants > 0) breakdownEnParts.push(`${infants} infant${infants === 1 ? "" : "s"}`);
       const breakdownEn = breakdownEnParts.join(", ");
+      const carLineJa = carCount !== null
+        ? [`お車の台数: ${carCount === 0 ? "車では行かない" : `${carCount}台`}`]
+        : [];
+      const carLineEn = carCount !== null
+        ? [`Cars: ${carCount === 0 ? "not driving" : String(carCount)}`]
+        : [];
       const parkingLineJa = parkingCars > 0
         ? [`有料駐車場: ${parkingCars}台希望（1台1泊 ¥${parkingCharge.pricePerNightPerCar.toLocaleString("ja-JP")}・空き確認のうえ承認時に確定します）`]
         : [];
@@ -1052,6 +1070,7 @@ router.post("/booking-request", express.json(), async (req, res) => {
         `国籍: ${nationality}`,
         `メンバー構成: ${memberComposition}`,
         `プラン: ${plan === "nonrefundable" ? "返金不可割引" : "スタンダード"}`,
+        ...carLineJa,
         ...parkingLineJa,
         ``,
         `オーナーが内容を確認のうえ、24時間以内に承認可否をご連絡いたします。`,
@@ -1071,6 +1090,7 @@ router.post("/booking-request", express.json(), async (req, res) => {
         `Nationality: ${nationality}`,
         `Group composition: ${memberComposition}`,
         `Plan: ${plan === "nonrefundable" ? "Non-refundable discount plan" : "Standard plan"}`,
+        ...carLineEn,
         ...parkingLineEn,
         ``,
         `The owner will review your request and let you know within 24 hours whether it can be confirmed.`,
