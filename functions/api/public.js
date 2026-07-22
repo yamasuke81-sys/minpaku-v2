@@ -900,12 +900,17 @@ router.post("/booking-request", express.json(), async (req, res) => {
     const parkingCharge = computeParkingCharge(property.paidParking, checkIn, checkOut, body.parkingCars);
     const parkingCars = parkingCharge.cars;
 
-    // ===== お車の台数 (2026-07 追加・任意) =====
-    // 無料/有料を問わない来訪車両の総数。オーナーの駐車場計画用 (0=車なし、null=未回答)。
+    // ===== お車の台数・車種 (2026-07 追加・任意) =====
+    // 無料/有料を問わない来訪車両の総数と各車の車種 (名簿と同じ4区分のJP正準値)。
+    // オーナーの駐車場計画用 (0=車なし、null=未回答)。
     let carCount = null;
     if (body.carCount !== undefined && body.carCount !== null && body.carCount !== "") {
       const c = parseInt(body.carCount, 10);
       if (Number.isFinite(c) && c >= 0) carCount = Math.min(c, 9);
+    }
+    let carSizes = [];
+    if (Array.isArray(body.carSizes)) {
+      carSizes = body.carSizes.slice(0, 9).map((s) => String(s).slice(0, 60)).filter(Boolean);
     }
 
     // ===== 要チェック判定 (男性・20代・5名以上) =====
@@ -986,6 +991,7 @@ router.post("/booking-request", express.json(), async (req, res) => {
       requiresReview,
       parkingCars,
       carCount,
+      carSizes,
       guestName: name,
       email,
       plan,
@@ -1008,8 +1014,9 @@ router.post("/booking-request", express.json(), async (req, res) => {
       // 要チェック (男性・20代・5名以上) は通知の先頭に警告を目立つ形で入れる
       const reviewAlertLine = requiresReview ? "⚠️要チェック（男性・20代・5名以上）\n\n" : "";
       // 有料駐車場希望はカフェ (うみとやまと) への空き確認が必要なため、承認前アクションとして目立たせる
+      const hasXlCar = carSizes.some((s) => s.includes("5m超"));
       const carLine = carCount !== null
-        ? `\n🚗 お車の台数: ${carCount === 0 ? "車なし" : `${carCount}台`}`
+        ? `\n🚗 お車の台数: ${carCount === 0 ? "車なし" : `${carCount}台`}${carSizes.length ? `（${carSizes.join(" / ")}）` : ""}${hasXlCar ? "\n⚠️ 全長5m超あり＝無料駐車場不可・有料駐車場必須" : ""}`
         : "";
       const parkingLine = (parkingCars > 0
         ? `\n🅿️ 有料駐車場: ${parkingCars}台希望（¥${parkingCharge.fee.toLocaleString("ja-JP")}・承認前にカフェへ空き確認を！）`

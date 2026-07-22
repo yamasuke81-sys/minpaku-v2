@@ -231,7 +231,7 @@ const BookingRequestsPage = {
             ${x.gender ? `<div><i class="bi bi-gender-ambiguous"></i> 性別: ${this._esc(x.gender)}</div>` : ""}
             ${x.nationality ? `<div><i class="bi bi-flag"></i> 国籍: ${this._esc(x.nationality)}</div>` : ""}
             ${x.memberComposition ? `<div><i class="bi bi-people"></i> メンバー構成: ${this._esc(x.memberComposition)}</div>` : ""}
-            ${x.carCount != null ? `<div><i class="bi bi-car-front"></i> お車の台数: ${x.carCount === 0 ? "車なし" : `${this._esc(String(x.carCount))}台`}</div>` : ""}
+            ${x.carCount != null ? `<div><i class="bi bi-car-front"></i> お車の台数: ${x.carCount === 0 ? "車なし" : `${this._esc(String(x.carCount))}台`}${Array.isArray(x.carSizes) && x.carSizes.length ? `<span class="text-muted">（${this._esc(x.carSizes.join(" / "))}）</span>` : ""}</div>` : ""}
             ${Number(x.parkingCars) > 0 ? `<div class="text-warning-emphasis fw-bold"><i class="bi bi-p-circle-fill"></i> 有料駐車場: ${this._esc(String(x.parkingCars))}台希望${tab === "pending" ? "（承認前にカフェへ空き確認）" : ""}</div>` : ""}
             ${x.banquetAcknowledged ? `<div><i class="bi bi-check2-circle"></i> 宴会・騒ぎ禁止に同意済み</div>` : ""}
             ${x.notes ? `<div class="mt-1"><i class="bi bi-chat-left-text"></i> ${this._esc(x.notes)}</div>` : ""}
