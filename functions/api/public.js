@@ -912,6 +912,8 @@ router.post("/booking-request", express.json(), async (req, res) => {
     if (Array.isArray(body.carSizes)) {
       carSizes = body.carSizes.slice(0, 9).map((s) => String(s).slice(0, 60)).filter(Boolean);
     }
+    // コインパーキング前提の了承（有料枠でも収まらない車両構成のとき、サイト側で同意必須にしている）
+    const coinParkingAcknowledged = body.coinParkingAcknowledged === true;
 
     // ===== 要チェック判定 (男性・20代・5名以上) =====
     const requiresReview = (gender === "男性" && age === "20代" && guests >= 5);
@@ -992,6 +994,7 @@ router.post("/booking-request", express.json(), async (req, res) => {
       parkingCars,
       carCount,
       carSizes,
+      coinParkingAcknowledged,
       guestName: name,
       email,
       plan,
@@ -1016,7 +1019,7 @@ router.post("/booking-request", express.json(), async (req, res) => {
       // 有料駐車場希望はカフェ (うみとやまと) への空き確認が必要なため、承認前アクションとして目立たせる
       const hasXlCar = carSizes.some((s) => s.includes("5m超"));
       const carLine = carCount !== null
-        ? `\n🚗 お車の台数: ${carCount === 0 ? "車なし" : `${carCount}台`}${carSizes.length ? `（${carSizes.join(" / ")}）` : ""}${hasXlCar ? "\n⚠️ 全長5m超あり＝無料駐車場不可・有料駐車場必須" : ""}`
+        ? `\n🚗 お車の台数: ${carCount === 0 ? "車なし" : `${carCount}台`}${carSizes.length ? `（${carSizes.join(" / ")}）` : ""}${hasXlCar ? "\n⚠️ 全長5m超あり＝無料駐車場不可・有料駐車場必須" : ""}${coinParkingAcknowledged ? "\n🅿️ 有料枠超過分はコインパーキング前提（ゲスト了承済み・駐車保証なし）" : ""}`
         : "";
       const parkingLine = (parkingCars > 0
         ? `\n🅿️ 有料駐車場: ${parkingCars}台希望（¥${parkingCharge.fee.toLocaleString("ja-JP")}・承認前にカフェへ空き確認を！）`
