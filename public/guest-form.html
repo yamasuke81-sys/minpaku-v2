@@ -2,13 +2,13 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <script src="/js/api-relay.js?v=v0722e"></script>
+  <script src="/js/api-relay.js?v=v0723a"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>宿泊者名簿 / Guest Registration</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0722e" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0723a" rel="stylesheet">
   <style>
     /* テーマカラー デフォルト（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css）
        物件別上書きが必要な場合のみ下の早期テーマスクリプトで差し替える */
@@ -542,8 +542,8 @@
     </div>
   </div>
 
-  <script src="/js/shared/form-schema.js?v=v0722e"></script>
-  <script src="/js/guide-map.js?v=v0722e"></script>
+  <script src="/js/shared/form-schema.js?v=v0723a"></script>
+  <script src="/js/guide-map.js?v=v0723a"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-storage-compat.js"></script>
@@ -584,14 +584,15 @@
        在庫:
          5番  : 全サイズ ×1（最も駐車しやすい）※全長5m超は不可
          1番  : 軽・小型のみ ×1
-         未舗装: 軽・小型 ×2 OR それ以外 ×1 ※全長5m超は不可
+         未舗装: 全サイズ ×1（軽優先）※全長5m超は不可
          有料  : 全サイズ ×2 (2,000円/台/泊)
 
        制約: 全長5m超（ハイエースロング・キャンピングカー等）は
              無料駐車場を利用できず、有料駐車場のみ (2026-07 ルール改定)
+       無料は最大3台 (2026-07-23 ルール改定: 未舗装の軽2台詰めは廃止。
+       宿サイト予約フォーム booking-form.js の assignCars と同一ルール)
 
        最適化方針: 無料駐車場の利用を最大化（有料を最小化）
-         - 未舗装は軽×2がスペース効率最大（非軽×1だと1枠無駄）
          - 非軽は5番を優先利用
          - 軽は1番→未舗装→5番の順（5番を非軽に空けるため）
     */
@@ -615,11 +616,8 @@
         result.push({ ...compacts.shift(), spot: "spot1" });
       }
 
-      // 未舗装: 軽×2を優先（非軽×1より効率的）
-      if (compacts.length >= 2) {
-        result.push({ ...compacts.shift(), spot: "unpaved" });
-        result.push({ ...compacts.shift(), spot: "unpaved" });
-      } else if (compacts.length === 1) {
+      // 未舗装: 1台のみ（軽優先）※軽2台詰めは廃止（2026-07-23）
+      if (compacts.length > 0) {
         result.push({ ...compacts.shift(), spot: "unpaved" });
       } else if (nonCompacts.length > 0) {
         result.push({ ...nonCompacts.shift(), spot: "unpaved" });
@@ -638,9 +636,8 @@
       if (nc > 0) nc--; else if (c > 0) c--;
       // 1番: 軽のみ
       if (c > 0) c--;
-      // 未舗装: 軽×2優先、なければ非軽×1
-      if (c >= 2) c -= 2;
-      else if (c === 1) c--;
+      // 未舗装: 1台のみ（軽優先）※軽2台詰めは廃止（2026-07-23）
+      if (c > 0) c--;
       else if (nc > 0) nc--;
       // 残り = 有料（最大2台、5m超も同じ枠を消費）
       return (c + nc + xl) <= 2;
