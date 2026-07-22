@@ -514,9 +514,13 @@ const DashboardPage = {
       extras.push(`入金日時 ${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
     }
     const extrasHtml = extras.length ? `<div class="small text-muted mt-1">${extras.map((e) => this.esc(e)).join(" / ")}</div>` : "";
+    // 有料駐車場 (カフェ駐車場) を宿泊料金と合算決済した予約は内訳を併記
+    const parkingHtml = Number(b.parkingCars) > 0
+      ? `<div class="small mt-1"><i class="bi bi-p-circle-fill"></i> 有料駐車場 ${this.esc(String(b.parkingCars))}台${b.parkingFee ? `（¥${Number(b.parkingFee).toLocaleString("ja-JP")}・宿泊料金と合算決済）` : ""}</div>`
+      : "";
     return `<tr><th class="text-muted">決済</th><td>
       <span class="badge ${meta.cls}"><i class="bi bi-credit-card"></i> ${meta.label}</span>
-      ${extrasHtml}
+      ${parkingHtml}${extrasHtml}
     </td></tr>`;
   },
 

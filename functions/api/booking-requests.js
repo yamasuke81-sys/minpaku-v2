@@ -12,7 +12,7 @@
 const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
 const { getAppUrl } = require("../utils/appUrl");
-const { periodsOverlap, ymd: normalizeYmd } = require("./booking-request-logic");
+const { periodsOverlap, ymd: normalizeYmd, computeParkingCharge } = require("./booking-request-logic");
 const { getStripe, getStripeForProperty } = require("../utils/stripe");
 const { computeQuoteFromDb } = require("../utils/pricing");
 
@@ -95,6 +95,25 @@ module.exports = function bookingRequestsApi(db) {
         return res.status(409).json({ error: `既に処理済みです (status=${reqData.status})` });
       }
 
+      // ===== 有料駐車場 (カフェ駐車場) の台数確定 =====
+      // 基本はリクエスト時の希望台数。承認時に body.parkingCars を渡すとオーナーが上書きできる
+      // (カフェ空き確認の結果、台数を減らして承認する等)。料金は物件設定から常にサーバー側で再計算。
+      let requestedCars = reqData.parkingCars || 0;
+      if (req.body && req.body.parkingCars !== undefined && req.body.parkingCars !== null) {
+        const o = parseInt(req.body.parkingCars, 10);
+        if (Number.isFinite(o) && o >= 0) requestedCars = o;
+      }
+      let parkingCharge = { cars: 0, fee: 0, nights: 0, pricePerNightPerCar: 0 };
+      if (requestedCars > 0) {
+        try {
+          const propSnap = await db.collection("properties").doc(reqData.propertyId).get();
+          const paidParking = propSnap.exists ? propSnap.data().paidParking : null;
+          parkingCharge = computeParkingCharge(paidParking, reqData.checkIn, reqData.checkOut, requestedCars);
+        } catch (ppErr) {
+          console.warn("[booking-requests/approve] paidParking 取得失敗 (駐車料金なしで続行):", ppErr.message);
+        }
+      }
+
       // 最終重複チェック (リクエスト受付後に別ルートで確定した予約と衝突していないか)
       const bookingsSnap = await db.collection("bookings")
         .where("propertyId", "==", reqData.propertyId)
@@ -132,6 +151,9 @@ module.exports = function bookingRequestsApi(db) {
         gender: reqData.gender || "",
         banquetAcknowledged: reqData.banquetAcknowledged === true,
         requiresReview: reqData.requiresReview === true,
+        // 有料駐車場 (承認時確定の台数。0=利用なし)
+        parkingCars: parkingCharge.cars,
+        parkingFee: parkingCharge.fee,
         cancellationPlan: reqData.plan || "standard",
         propertyId: reqData.propertyId,
         propertyName: reqData.propertyName || "",
@@ -203,6 +225,8 @@ module.exports = function bookingRequestsApi(db) {
             console.warn(`[booking-requests/approve] 見積算出不可のため決済リンク無しで承認完了 (${quoteResult.error || "no_rates"})`);
           } else {
             const total = Number(quoteResult.quote.total);
+            // 有料駐車場料金を宿泊料金と同一セッションで合算決済する (明細は別 line_item)
+            const grandTotal = total + (parkingCharge.fee || 0);
             if (!Number.isFinite(total) || total <= 0) {
               console.warn("[booking-requests/approve] 見積合計が不正のため決済リンク無しで承認完了");
             } else {
@@ -223,22 +247,36 @@ module.exports = function bookingRequestsApi(db) {
               } catch (_e) { /* fallback */ }
               const successUrl = `${returnBase}/payment-success.html?bookingId=${encodeURIComponent(bookingRef.id)}&pid=${encodeURIComponent(reqData.propertyId || "")}&sid={CHECKOUT_SESSION_ID}`;
               const cancelUrl = `${returnBase}/payment-cancel.html?bookingId=${encodeURIComponent(bookingRef.id)}`;
+              const lineItems = [{
+                quantity: 1,
+                price_data: {
+                  currency: "jpy",
+                  unit_amount: total,
+                  product_data: {
+                    name: `【${reqData.propertyName || "宿泊予約"}】宿泊料金`,
+                    description: description.slice(0, 200),
+                  },
+                },
+              }];
+              if (parkingCharge.fee > 0) {
+                lineItems.push({
+                  quantity: 1,
+                  price_data: {
+                    currency: "jpy",
+                    unit_amount: parkingCharge.fee,
+                    product_data: {
+                      name: `【${reqData.propertyName || "宿泊予約"}】有料駐車場（カフェ駐車場）`,
+                      description: `${parkingCharge.cars}台 × ${parkingCharge.nights}泊（1台1泊 ¥${parkingCharge.pricePerNightPerCar.toLocaleString("ja-JP")}）`.slice(0, 200),
+                    },
+                  },
+                });
+              }
               const session = await stripe.client.checkout.sessions.create({
                 mode: "payment",
                 currency: "jpy",
                 expires_at: expiresAtSec,
                 customer_email: reqData.email || undefined,
-                line_items: [{
-                  quantity: 1,
-                  price_data: {
-                    currency: "jpy",
-                    unit_amount: total,
-                    product_data: {
-                      name: `【${reqData.propertyName || "宿泊予約"}】宿泊料金`,
-                      description: description.slice(0, 200),
-                    },
-                  },
-                }],
+                line_items: lineItems,
                 metadata: {
                   bookingId: bookingRef.id,
                   bookingRequestId: id,
@@ -250,6 +288,9 @@ module.exports = function bookingRequestsApi(db) {
                   checkOut: reqData.checkOut,
                   guests: String(reqData.guestCount || 1),
                   quoteTotal: String(total),
+                  parkingCars: String(parkingCharge.cars),
+                  parkingFee: String(parkingCharge.fee),
+                  grandTotal: String(grandTotal),
                   // どちらの Stripe アカウントで作られたセッションかを webhook 側で照合するため付与
                   accountKind: stripe.accountKind,
                 },
@@ -267,7 +308,11 @@ module.exports = function bookingRequestsApi(db) {
               payment = {
                 status: "pending",
                 url: session.url,
-                amount: total,
+                amount: grandTotal,
+                lodgingAmount: total,
+                parkingFee: parkingCharge.fee,
+                parkingCars: parkingCharge.cars,
+                parkingNights: parkingCharge.nights,
                 expiresAt: expiresAtSec,
                 sessionId: session.id,
               };
@@ -277,14 +322,19 @@ module.exports = function bookingRequestsApi(db) {
                   provider: "stripe",
                   sessionId: session.id,
                   url: session.url,
-                  amount: total,
+                  amount: grandTotal,
                   currency: "jpy",
                   expiresAt: expiresAtSec,
                   createdAt: FieldValue.serverTimestamp(),
                   // 返金 API / charge.refunded webhook が正しいアカウントの Stripe client を選ぶために保存
                   accountKind: stripe.accountKind,
                 },
-                priceBreakdown: quoteResult.quote,
+                priceBreakdown: {
+                  ...quoteResult.quote,
+                  ...(parkingCharge.fee > 0
+                    ? { parkingCars: parkingCharge.cars, parkingFee: parkingCharge.fee, parkingNights: parkingCharge.nights, grandTotal }
+                    : {}),
+                },
               });
             }
           }
@@ -340,6 +390,7 @@ module.exports = function bookingRequestsApi(db) {
         ];
         if (reqData.nationality) bodyLines.push(`国籍: ${reqData.nationality}`);
         if (reqData.memberComposition) bodyLines.push(`メンバー構成: ${reqData.memberComposition}`);
+        if (parkingCharge.cars > 0) bodyLines.push(`有料駐車場（カフェ駐車場）: ${parkingCharge.cars}台（ご利用時間 17:00〜翌9:30）`);
         bodyLines.push(
           `キャンセルポリシー: ${planText}`,
           ``,
@@ -349,9 +400,17 @@ module.exports = function bookingRequestsApi(db) {
           const expDate = new Date(payment.expiresAt * 1000);
           // JST表記 (Asia/Tokyo 固定): UTC からのオフセットで簡易に変換 (Node の toLocaleString でもよいが依存を減らす)
           const jst = new Date(expDate.getTime() + 9 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 16);
+          bodyLines.push(`■お支払いのご案内`);
+          if (payment.parkingFee > 0) {
+            bodyLines.push(
+              `宿泊料金: ¥${Number(payment.lodgingAmount).toLocaleString("ja-JP")}`,
+              `有料駐車場: ¥${Number(payment.parkingFee).toLocaleString("ja-JP")}（${payment.parkingCars}台 × ${payment.parkingNights}泊）`,
+            );
+          }
           bodyLines.push(
-            `■お支払いのご案内`,
-            `合計金額: ¥${Number(payment.amount).toLocaleString("ja-JP")}（税込・宿泊料金）`,
+            payment.parkingFee > 0
+              ? `合計金額: ¥${Number(payment.amount).toLocaleString("ja-JP")}（税込・宿泊料金＋駐車場料金）`
+              : `合計金額: ¥${Number(payment.amount).toLocaleString("ja-JP")}（税込・宿泊料金）`,
             `お支払い方法: クレジットカード（Visa / Mastercard / JCB / American Express 等）`,
             `お支払い期限: ${jst} JST まで（承認から約24時間）`,
             ``,
@@ -392,14 +451,23 @@ module.exports = function bookingRequestsApi(db) {
         );
         if (reqData.nationality) bodyLines.push(`Nationality: ${reqData.nationality}`);
         if (reqData.memberComposition) bodyLines.push(`Group composition: ${reqData.memberComposition}`);
+        if (parkingCharge.cars > 0) bodyLines.push(`Paid parking (cafe parking lot): ${parkingCharge.cars} car${parkingCharge.cars === 1 ? "" : "s"} (available 5:00 pm - 9:30 am)`);
         bodyLines.push(`Cancellation policy: ${planTextEn}`, ``);
 
         if (payment.status === "pending" && payment.url) {
           const expDate = new Date(payment.expiresAt * 1000);
           const jst = new Date(expDate.getTime() + 9 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 16);
+          bodyLines.push(`Payment information`);
+          if (payment.parkingFee > 0) {
+            bodyLines.push(
+              `Accommodation fee: JPY ${Number(payment.lodgingAmount).toLocaleString("en-US")}`,
+              `Paid parking: JPY ${Number(payment.parkingFee).toLocaleString("en-US")} (${payment.parkingCars} car${payment.parkingCars === 1 ? "" : "s"} x ${payment.parkingNights} night${payment.parkingNights === 1 ? "" : "s"})`,
+            );
+          }
           bodyLines.push(
-            `Payment information`,
-            `Total amount: JPY ${Number(payment.amount).toLocaleString("en-US")} (tax included, accommodation fee)`,
+            payment.parkingFee > 0
+              ? `Total amount: JPY ${Number(payment.amount).toLocaleString("en-US")} (tax included, accommodation + parking)`
+              : `Total amount: JPY ${Number(payment.amount).toLocaleString("en-US")} (tax included, accommodation fee)`,
             `Payment method: Credit card (Visa / Mastercard / JCB / American Express, etc.)`,
             `Payment deadline: ${jst} JST (approx. 24 hours after confirmation)`,
             ``,

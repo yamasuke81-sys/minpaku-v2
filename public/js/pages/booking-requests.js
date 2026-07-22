@@ -231,6 +231,7 @@ const BookingRequestsPage = {
             ${x.gender ? `<div><i class="bi bi-gender-ambiguous"></i> 性別: ${this._esc(x.gender)}</div>` : ""}
             ${x.nationality ? `<div><i class="bi bi-flag"></i> 国籍: ${this._esc(x.nationality)}</div>` : ""}
             ${x.memberComposition ? `<div><i class="bi bi-people"></i> メンバー構成: ${this._esc(x.memberComposition)}</div>` : ""}
+            ${Number(x.parkingCars) > 0 ? `<div class="text-warning-emphasis fw-bold"><i class="bi bi-p-circle-fill"></i> 有料駐車場: ${this._esc(String(x.parkingCars))}台希望${tab === "pending" ? "（承認前にカフェへ空き確認）" : ""}</div>` : ""}
             ${x.banquetAcknowledged ? `<div><i class="bi bi-check2-circle"></i> 宴会・騒ぎ禁止に同意済み</div>` : ""}
             ${x.notes ? `<div class="mt-1"><i class="bi bi-chat-left-text"></i> ${this._esc(x.notes)}</div>` : ""}
           </div>
@@ -251,8 +252,13 @@ const BookingRequestsPage = {
   async _onApprove(id) {
     const x = this.state.items.find((i) => i.id === id);
     if (!x) return;
+    // 有料駐車場希望がある場合は、承認＝駐車料金込みのStripe決済リンク発行になるため
+    // カフェ（うみとやまと）への空き確認を済ませたか確認してから承認する
+    const parkingLine = Number(x.parkingCars) > 0
+      ? `\n🅿️ 有料駐車場: ${x.parkingCars}台（駐車料金を宿泊料金と合算して請求します。カフェへの空き確認は済みましたか？）`
+      : "";
     const ok = await showConfirm(
-      `承認して予約を確定しますか？OTAカレンダーに反映されます。\n\n${x.propertyName || x.propertyId}\n${x.checkIn} 〜 ${x.checkOut}（${x.guestCount || "-"}名）\nお名前: ${x.guestName}`,
+      `承認して予約を確定しますか？OTAカレンダーに反映されます。\n\n${x.propertyName || x.propertyId}\n${x.checkIn} 〜 ${x.checkOut}（${x.guestCount || "-"}名）\nお名前: ${x.guestName}${parkingLine}`,
       { title: "予約リクエストの承認", okLabel: "承認する", okClass: "btn-success" }
     );
     if (!ok) return;

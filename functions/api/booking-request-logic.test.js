@@ -268,3 +268,47 @@ describe("isSpamSubmission", () => {
     assert.strictEqual(isSpamSubmission({ website: "" }), false);
   });
 });
+
+describe("computeParkingCharge (有料駐車場の追加料金)", () => {
+  const { computeParkingCharge } = require("./booking-request-logic");
+  const cfg = { enabled: true, pricePerNightPerCar: 2000, maxCars: 2 };
+
+  test("1台×2泊 = 4,000円", () => {
+    const r = computeParkingCharge(cfg, "2026-08-01", "2026-08-03", 1);
+    assert.deepStrictEqual(r, { cars: 1, fee: 4000, nights: 2, pricePerNightPerCar: 2000 });
+  });
+  test("2台×3泊 = 12,000円", () => {
+    const r = computeParkingCharge(cfg, "2026-08-01", "2026-08-04", 2);
+    assert.strictEqual(r.fee, 12000);
+    assert.strictEqual(r.cars, 2);
+  });
+  test("maxCars 超過は上限にクランプ (5台希望→2台)", () => {
+    const r = computeParkingCharge(cfg, "2026-08-01", "2026-08-02", 5);
+    assert.strictEqual(r.cars, 2);
+    assert.strictEqual(r.fee, 4000);
+  });
+  test("設定なし/無効なら常に0", () => {
+    assert.strictEqual(computeParkingCharge(null, "2026-08-01", "2026-08-03", 1).fee, 0);
+    assert.strictEqual(computeParkingCharge({ enabled: false, pricePerNightPerCar: 2000 }, "2026-08-01", "2026-08-03", 1).fee, 0);
+  });
+  test("単価が不正 (0/NaN) なら0", () => {
+    assert.strictEqual(computeParkingCharge({ enabled: true, pricePerNightPerCar: 0 }, "2026-08-01", "2026-08-03", 1).fee, 0);
+    assert.strictEqual(computeParkingCharge({ enabled: true }, "2026-08-01", "2026-08-03", 1).fee, 0);
+  });
+  test("台数0・負値・文字列ゴミは0台", () => {
+    assert.strictEqual(computeParkingCharge(cfg, "2026-08-01", "2026-08-03", 0).cars, 0);
+    assert.strictEqual(computeParkingCharge(cfg, "2026-08-01", "2026-08-03", -1).cars, 0);
+    assert.strictEqual(computeParkingCharge(cfg, "2026-08-01", "2026-08-03", "abc").cars, 0);
+  });
+  test("文字列の台数は数値に解釈 ('2'→2台)", () => {
+    assert.strictEqual(computeParkingCharge(cfg, "2026-08-01", "2026-08-02", "2").fee, 4000);
+  });
+  test("泊数0 (日付不正/同日) なら0", () => {
+    assert.strictEqual(computeParkingCharge(cfg, "2026-08-03", "2026-08-01", 1).fee, 0);
+    assert.strictEqual(computeParkingCharge(cfg, "bad", "2026-08-01", 1).fee, 0);
+  });
+  test("maxCars 未設定は既定2", () => {
+    const r = computeParkingCharge({ enabled: true, pricePerNightPerCar: 2000 }, "2026-08-01", "2026-08-02", 3);
+    assert.strictEqual(r.cars, 2);
+  });
+});

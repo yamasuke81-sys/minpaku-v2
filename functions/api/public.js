@@ -13,6 +13,7 @@ const {
   validateBookingRequest,
   isSpamSubmission,
   todayJst,
+  computeParkingCharge,
 } = require("./booking-request-logic");
 const { verifyTurnstileToken, getTurnstileSecret } = require("../utils/turnstile");
 const { computeQuote } = require("./pricing-logic");
@@ -788,8 +789,28 @@ router.get("/quote/:propertyId", async (req, res) => {
     const result = computeQuote({ rates, checkIn, checkOut, guests, plan, overrides });
     if (!result.ok) return res.status(400).json({ error: result.error });
 
+    // 有料駐車場 (カフェ駐車場) の追加料金。&parkingCars=N 指定時のみ物件設定を参照して加算情報を返す。
+    // total は宿泊料金のまま変えない (後方互換)。サイト側は parkingFee を別行で表示し合計する。
+    let parking = null;
+    const parkingCarsReq = parseInt(req.query.parkingCars, 10) || 0;
+    if (parkingCarsReq > 0) {
+      try {
+        const propSnap = await db.collection("properties").doc(pid).get();
+        const paidParking = propSnap.exists ? propSnap.data().paidParking : null;
+        const charge = computeParkingCharge(paidParking, checkIn, checkOut, parkingCarsReq);
+        if (charge.cars > 0) parking = charge;
+      } catch (pErr) {
+        console.warn("[public/quote] paidParking 取得失敗:", pErr.message);
+      }
+    }
+
     res.set("Cache-Control", "public, max-age=300"); // 5分キャッシュ
-    res.json({ propertyId: pid, hasRates: true, ...result.quote });
+    res.json({
+      propertyId: pid,
+      hasRates: true,
+      ...result.quote,
+      ...(parking ? { parkingCars: parking.cars, parkingFee: parking.fee, parkingNights: parking.nights } : {}),
+    });
   } catch (e) {
     console.error("[public/quote]", e);
     res.status(500).json({ error: e.message });
@@ -873,6 +894,12 @@ router.post("/booking-request", express.json(), async (req, res) => {
     const gender = String(body.gender || "").trim().slice(0, 20);
     const banquetAcknowledged = body.banquetAcknowledged === true;
 
+    // ===== 有料駐車場 (カフェ駐車場) 利用希望 (2026-07 追加・任意) =====
+    // 物件の paidParking 設定が有効な場合のみ台数を受け付ける (それ以外は 0 に丸める)。
+    // 料金は承認時にサーバー側で再計算して Stripe に合算するため、ここでは希望台数だけ保存する。
+    const parkingCharge = computeParkingCharge(property.paidParking, checkIn, checkOut, body.parkingCars);
+    const parkingCars = parkingCharge.cars;
+
     // ===== 要チェック判定 (男性・20代・5名以上) =====
     const requiresReview = (gender === "男性" && age === "20代" && guests >= 5);
 
@@ -949,6 +976,7 @@ router.post("/booking-request", express.json(), async (req, res) => {
       gender,
       banquetAcknowledged,
       requiresReview,
+      parkingCars,
       guestName: name,
       email,
       plan,
@@ -970,9 +998,13 @@ router.post("/booking-request", express.json(), async (req, res) => {
       const appUrl = await getAppUrl(db);
       // 要チェック (男性・20代・5名以上) は通知の先頭に警告を目立つ形で入れる
       const reviewAlertLine = requiresReview ? "⚠️要チェック（男性・20代・5名以上）\n\n" : "";
+      // 有料駐車場希望はカフェ (うみとやまと) への空き確認が必要なため、承認前アクションとして目立たせる
+      const parkingLine = parkingCars > 0
+        ? `\n🅿️ 有料駐車場: ${parkingCars}台希望（¥${parkingCharge.fee.toLocaleString("ja-JP")}・承認前にカフェへ空き確認を！）`
+        : "";
       await notifyByKey(db, "direct_request", {
         title: requiresReview ? "⚠️要チェック 直接予約リクエスト受信" : "直接予約リクエスト受信",
-        body: `${reviewAlertLine}📩 直接予約のリクエストが届きました\n\n宿: ${property.name || propertyId}\n日程: ${checkIn} 〜 ${checkOut}\n人数: ${guests}名 (${breakdownJa})\n年代: ${age || "未回答"}\n性別: ${gender || "未回答"}\n国籍: ${nationality}\nメンバー構成: ${memberComposition}\nプラン: ${plan === "nonrefundable" ? "返金不可割引" : "スタンダード"}\nお名前: ${name}\n\n確認・承認: ${appUrl}/#/booking-requests`,
+        body: `${reviewAlertLine}📩 直接予約のリクエストが届きました\n\n宿: ${property.name || propertyId}\n日程: ${checkIn} 〜 ${checkOut}\n人数: ${guests}名 (${breakdownJa})${parkingLine}\n年代: ${age || "未回答"}\n性別: ${gender || "未回答"}\n国籍: ${nationality}\nメンバー構成: ${memberComposition}\nプラン: ${plan === "nonrefundable" ? "返金不可割引" : "スタンダード"}\nお名前: ${name}\n\n確認・承認: ${appUrl}/#/booking-requests`,
         vars: {
           // booking varGroup 準拠: date=チェックアウト日, checkin=チェックイン日, guest=ゲスト名
           property: property.name || "",
@@ -1001,6 +1033,12 @@ router.post("/booking-request", express.json(), async (req, res) => {
       if (children > 0) breakdownEnParts.push(`${children} child${children === 1 ? "" : "ren"}`);
       if (infants > 0) breakdownEnParts.push(`${infants} infant${infants === 1 ? "" : "s"}`);
       const breakdownEn = breakdownEnParts.join(", ");
+      const parkingLineJa = parkingCars > 0
+        ? [`有料駐車場: ${parkingCars}台希望（1台1泊 ¥${parkingCharge.pricePerNightPerCar.toLocaleString("ja-JP")}・空き確認のうえ承認時に確定します）`]
+        : [];
+      const parkingLineEn = parkingCars > 0
+        ? [`Paid parking: ${parkingCars} car${parkingCars === 1 ? "" : "s"} requested (JPY ${parkingCharge.pricePerNightPerCar.toLocaleString("en-US")} per car per night, confirmed upon approval)`]
+        : [];
       const bodyText = [
         `${name} 様`,
         ``,
@@ -1014,6 +1052,7 @@ router.post("/booking-request", express.json(), async (req, res) => {
         `国籍: ${nationality}`,
         `メンバー構成: ${memberComposition}`,
         `プラン: ${plan === "nonrefundable" ? "返金不可割引" : "スタンダード"}`,
+        ...parkingLineJa,
         ``,
         `オーナーが内容を確認のうえ、24時間以内に承認可否をご連絡いたします。`,
         `今しばらくお待ちください。`,
@@ -1032,6 +1071,7 @@ router.post("/booking-request", express.json(), async (req, res) => {
         `Nationality: ${nationality}`,
         `Group composition: ${memberComposition}`,
         `Plan: ${plan === "nonrefundable" ? "Non-refundable discount plan" : "Standard plan"}`,
+        ...parkingLineEn,
         ``,
         `The owner will review your request and let you know within 24 hours whether it can be confirmed.`,
         `Thank you for your patience.`,

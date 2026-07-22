@@ -99,6 +99,33 @@ function nightsBetween(checkIn, checkOut) {
 }
 
 /**
+ * 有料駐車場の追加料金を計算する (単価 × 泊数 × 台数)。
+ * 物件 properties/{pid}.paidParking = { enabled, pricePerNightPerCar, maxCars } を参照。
+ * 設定なし/無効/単価不正/台数0/泊数0 は必ず { cars: 0, fee: 0 } を返す (課金なし)。
+ * 台数は 0〜maxCars にクランプ (不正値・過大値をサイレントに丸める。サーバー側が正)。
+ * @param {object|null} paidParking - 物件の paidParking 設定
+ * @param {string} checkIn
+ * @param {string} checkOut
+ * @param {*} requestedCars - リクエストされた台数 (文字列/数値)
+ * @returns {{cars:number, fee:number, nights:number, pricePerNightPerCar:number}}
+ */
+function computeParkingCharge(paidParking, checkIn, checkOut, requestedCars) {
+  const none = { cars: 0, fee: 0, nights: 0, pricePerNightPerCar: 0 };
+  const cfg = paidParking || {};
+  if (cfg.enabled !== true) return none;
+  const price = Number(cfg.pricePerNightPerCar);
+  if (!Number.isFinite(price) || price <= 0) return none;
+  const maxCarsRaw = Number(cfg.maxCars);
+  const maxCars = (Number.isFinite(maxCarsRaw) && maxCarsRaw > 0) ? Math.floor(maxCarsRaw) : 2;
+  let cars = parseInt(requestedCars, 10);
+  if (!Number.isFinite(cars) || cars < 0) cars = 0;
+  cars = Math.min(cars, maxCars);
+  const nights = nightsBetween(checkIn, checkOut);
+  if (cars === 0 || nights === 0) return none;
+  return { cars, fee: price * nights * cars, nights, pricePerNightPerCar: price };
+}
+
+/**
  * メールアドレスの簡易形式チェック (厳密な RFC 準拠ではない実用チェック)
  * @param {string} email
  * @returns {boolean}
@@ -247,6 +274,7 @@ module.exports = {
   enumerateBlockedDates,
   periodsOverlap,
   nightsBetween,
+  computeParkingCharge,
   isValidEmail,
   validateBookingRequest,
   isSpamSubmission,
