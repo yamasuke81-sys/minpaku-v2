@@ -897,7 +897,8 @@ router.post("/booking-request", express.json(), async (req, res) => {
     // ===== 有料駐車場 (カフェ駐車場) 利用希望 (2026-07 追加・任意) =====
     // 物件の paidParking 設定が有効な場合のみ台数を受け付ける (それ以外は 0 に丸める)。
     // 料金は承認時にサーバー側で再計算して Stripe に合算するため、ここでは希望台数だけ保存する。
-    const parkingCharge = computeParkingCharge(property.paidParking, checkIn, checkOut, body.parkingCars);
+    // 有料台数は「来場する車の総台数(body.carCount)」を超えないようにもクランプする (過大請求防止)
+    const parkingCharge = computeParkingCharge(property.paidParking, checkIn, checkOut, body.parkingCars, body.carCount);
     const parkingCars = parkingCharge.cars;
 
     // ===== お車の台数・車種 (2026-07 追加・任意) =====

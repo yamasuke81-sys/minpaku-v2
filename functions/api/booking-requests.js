@@ -108,7 +108,7 @@ module.exports = function bookingRequestsApi(db) {
         try {
           const propSnap = await db.collection("properties").doc(reqData.propertyId).get();
           const paidParking = propSnap.exists ? propSnap.data().paidParking : null;
-          parkingCharge = computeParkingCharge(paidParking, reqData.checkIn, reqData.checkOut, requestedCars);
+          parkingCharge = computeParkingCharge(paidParking, reqData.checkIn, reqData.checkOut, requestedCars, reqData.carCount);
         } catch (ppErr) {
           console.warn("[booking-requests/approve] paidParking 取得失敗 (駐車料金なしで続行):", ppErr.message);
         }

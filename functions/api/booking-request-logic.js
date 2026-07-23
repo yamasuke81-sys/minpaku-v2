@@ -103,13 +103,16 @@ function nightsBetween(checkIn, checkOut) {
  * 物件 properties/{pid}.paidParking = { enabled, pricePerNightPerCar, maxCars } を参照。
  * 設定なし/無効/単価不正/台数0/泊数0 は必ず { cars: 0, fee: 0 } を返す (課金なし)。
  * 台数は 0〜maxCars にクランプ (不正値・過大値をサイレントに丸める。サーバー側が正)。
+ * carCount (来場する車の総台数) が正の数で渡されたときは、有料台数を carCount 以下にもクランプする
+ * (車1台なのに有料2台請求、のような過大請求を防ぐ)。
  * @param {object|null} paidParking - 物件の paidParking 設定
  * @param {string} checkIn
  * @param {string} checkOut
  * @param {*} requestedCars - リクエストされた台数 (文字列/数値)
+ * @param {*} [carCount] - 来場する車の総台数 (任意。正の数のときだけ上限に使う)
  * @returns {{cars:number, fee:number, nights:number, pricePerNightPerCar:number}}
  */
-function computeParkingCharge(paidParking, checkIn, checkOut, requestedCars) {
+function computeParkingCharge(paidParking, checkIn, checkOut, requestedCars, carCount) {
   const none = { cars: 0, fee: 0, nights: 0, pricePerNightPerCar: 0 };
   const cfg = paidParking || {};
   if (cfg.enabled !== true) return none;
@@ -120,6 +123,8 @@ function computeParkingCharge(paidParking, checkIn, checkOut, requestedCars) {
   let cars = parseInt(requestedCars, 10);
   if (!Number.isFinite(cars) || cars < 0) cars = 0;
   cars = Math.min(cars, maxCars);
+  const cc = parseInt(carCount, 10);
+  if (Number.isFinite(cc) && cc > 0) cars = Math.min(cars, cc); // 車の総台数を超えない
   const nights = nightsBetween(checkIn, checkOut);
   if (cars === 0 || nights === 0) return none;
   return { cars, fee: price * nights * cars, nights, pricePerNightPerCar: price };

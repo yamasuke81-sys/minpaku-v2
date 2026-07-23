@@ -287,6 +287,16 @@ describe("computeParkingCharge (有料駐車場の追加料金)", () => {
     assert.strictEqual(r.cars, 2);
     assert.strictEqual(r.fee, 4000);
   });
+  test("carCount を超える有料台数は carCount にクランプ (車1台で有料2台希望→1台)", () => {
+    const r = computeParkingCharge(cfg, "2026-08-01", "2026-08-02", 2, 1);
+    assert.strictEqual(r.cars, 1);
+    assert.strictEqual(r.fee, 2000);
+  });
+  test("carCount 未指定/0/不正なら carCount 制約なし (従来どおり maxCars まで)", () => {
+    assert.strictEqual(computeParkingCharge(cfg, "2026-08-01", "2026-08-02", 2).cars, 2);
+    assert.strictEqual(computeParkingCharge(cfg, "2026-08-01", "2026-08-02", 2, 0).cars, 2);
+    assert.strictEqual(computeParkingCharge(cfg, "2026-08-01", "2026-08-02", 2, "abc").cars, 2);
+  });
   test("設定なし/無効なら常に0", () => {
     assert.strictEqual(computeParkingCharge(null, "2026-08-01", "2026-08-03", 1).fee, 0);
     assert.strictEqual(computeParkingCharge({ enabled: false, pricePerNightPerCar: 2000 }, "2026-08-01", "2026-08-03", 1).fee, 0);
