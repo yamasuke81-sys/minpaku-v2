@@ -2339,7 +2339,10 @@ const MyChecklistPage = {
           </button>
         </div>
         ${laundryAddCharges.length ? `<ul class="list-unstyled small text-muted mt-2 mb-0">
-          ${laundryAddCharges.map(a => `<li><i class="bi bi-plus"></i> ¥${(Number(a.amount)||0).toLocaleString()}（${this.escapeHtml(pmLabel(a.paymentMethod))}${a.note ? " / " + this.escapeHtml(a.note) : ""}）${a.by?.name ? " ・" + this.escapeHtml(a.by.name) : ""}</li>`).join("")}
+          ${laundryAddCharges.map(a => `<li class="d-flex align-items-center gap-2">
+            <span class="flex-grow-1"><i class="bi bi-plus"></i> ¥${(Number(a.amount)||0).toLocaleString()}（${this.escapeHtml(pmLabel(a.paymentMethod))}${a.note ? " / " + this.escapeHtml(a.note) : ""}）${a.by?.name ? " ・" + this.escapeHtml(a.by.name) : ""}</span>
+            <button type="button" class="btn btn-sm btn-link text-danger p-0 mcl-del-laundry-charge" data-charge-id="${this.escapeHtml(a.id || "")}" title="この追加料金を削除"><i class="bi bi-trash"></i></button>
+          </li>`).join("")}
         </ul>` : ""}
       </div>`;
 
@@ -2435,6 +2438,9 @@ const MyChecklistPage = {
       b.addEventListener('click', () => this.toggleLaundry(b.dataset.key));
     });
     el.querySelector('#mclAddLaundryCharge')?.addEventListener('click', () => this.addLaundryCharge());
+    el.querySelectorAll('.mcl-del-laundry-charge').forEach(b => {
+      b.addEventListener('click', () => this.deleteLaundryCharge(b.dataset.chargeId));
+    });
     // 完了/未完了ボタンは今回書き換えたコンテナのものだけにリスナーを貼る (累積による多重発火を防止)
     if (completeHost) {
       completeHost.querySelector('#mclCompleteBtn')?.addEventListener('click', () => this.completeChecklist(allDone, total - done));
@@ -2713,6 +2719,61 @@ const MyChecklistPage = {
     }
   },
 
+  // 追加料金の削除。additionalCharges から除外すると trigger の照合で
+  // 対応する laundry doc / 立替 shift も削除され、請求書からも自動的に消える。
+  async deleteLaundryCharge(chargeId) {
+    if (!this.checklistId || !chargeId) return;
+    if (this._deletingLaundryCharge) return;
+    this._deletingLaundryCharge = true;
+    try {
+      const putOut = (this.checklist?.laundry || {}).putOut;
+      const charges = Array.isArray(putOut?.additionalCharges) ? putOut.additionalCharges : [];
+      const target = charges.find(c => c && c.id === chargeId);
+      if (!target) { showToast("対象の追加料金が見つかりません", "", "error"); return; }
+      // 権限: 追加した本人 / Webアプリ管理者 / 物件オーナー
+      const user = firebase.auth().currentUser;
+      const role = (Auth.currentUser && Auth.currentUser.role) || "staff";
+      const isPrivileged = role === "owner" || role === "sub_owner";
+      const isAuthor = target.by?.uid && target.by.uid === user?.uid;
+      if (!isAuthor && !isPrivileged) {
+        showToast("削除不可", `この追加料金は「${target.by?.name || "別のスタッフ"}」のものです。本人かWebアプリ管理者/物件オーナーのみ削除できます。`, "error");
+        return;
+      }
+      const pmLbl = { cash: "現金", credit: "クレカ", prepaid: "プリカ", invoice: "店舗請求" }[target.paymentMethod] || target.paymentMethod;
+      const ok = await showConfirm(
+        `この追加料金を削除しますか？\n\n¥${(Number(target.amount) || 0).toLocaleString()}（${pmLbl}）${target.note ? "\n" + target.note : ""}\n\n請求書からも削除されます。${target.paymentMethod === "prepaid" && target.prepaidCardId ? "\nプリカ残高は元に戻します。" : ""}`,
+        { title: "料金追加の削除", okLabel: "削除する", okClass: "btn-danger" }
+      );
+      if (!ok) return;
+      // プリカだった場合は残高を戻す
+      if (target.paymentMethod === "prepaid" && target.prepaidCardId) {
+        try {
+          const ref = firebase.firestore().collection("settings").doc("prepaidCards");
+          const doc = await ref.get();
+          const items = (doc.exists ? (doc.data().items || []) : []).map(c =>
+            c.id === target.prepaidCardId
+              ? { ...c, balance: (Number(c.balance) || 0) + (Number(target.amount) || 0) }
+              : c
+          );
+          await ref.update({ items });
+        } catch (e) {
+          showToast("プリカ残高の復元に失敗", e.message, "error");
+          return;
+        }
+      }
+      const next = charges.filter(c => c.id !== chargeId);
+      await firebase.firestore().collection("checklists").doc(this.checklistId).update({
+        "laundry.putOut.additionalCharges": next,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      showToast("追加料金を削除しました", "請求書からも除外されます", "success");
+    } catch (e) {
+      showToast("エラー", e.message, "error");
+    } finally {
+      this._deletingLaundryCharge = false;
+    }
+  },
+
   // 料金追加モーダル。記録済み提出先の rate を候補に出しつつ、支払方法(既定=元の支払方法)/メモを入力させる。
   async askLaundryAddChargeInfo(putOut) {
     const depotName = putOut.depot || putOut.depotOther || "";
@@ -2731,8 +2792,16 @@ const MyChecklistPage = {
       modalEl.className = "modal fade";
       modalEl.id = "laundryAddChargeModal";
       modalEl.tabIndex = -1;
-      const rateOptions = rates.map((r, i) =>
-        `<option value="${i}" data-amount="${Number(r.amount) || 0}">${esc(r.label)} ¥${(Number(r.amount) || 0).toLocaleString()}</option>`
+      // 既定の少額候補 (¥100 / ¥200) を先頭に、続けて提出先の rate 候補。金額重複は除外。
+      const quickRates = [{ label: "", amount: 100 }, { label: "", amount: 200 }];
+      const mergedRates = [];
+      const seenAmt = new Set();
+      [...quickRates, ...rates].forEach(r => {
+        const a = Number(r.amount) || 0;
+        if (a > 0 && !seenAmt.has(a)) { seenAmt.add(a); mergedRates.push({ label: r.label || "", amount: a }); }
+      });
+      const rateOptions = mergedRates.map((r, i) =>
+        `<option value="r${i}" data-amount="${r.amount}">${r.label ? esc(r.label) + " " : ""}¥${r.amount.toLocaleString()}</option>`
       ).join("");
       const cardOptions = prepaidCards.map(c =>
         `<option value="${esc(c.id)}">${esc(c.cardNumber || c.id)}（残¥${(Number(c.balance) || 0).toLocaleString()}）</option>`
