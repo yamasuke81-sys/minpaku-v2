@@ -326,7 +326,6 @@ async function syncAdditionalCharges(db, checklistId, after, putOut) {
   const charges = Array.isArray(putOut.additionalCharges) ? putOut.additionalCharges : [];
   const validIds = new Set(charges.map(c => c && c.id).filter(Boolean));
   const propertyId = after.propertyId || "";
-  const staffIdStr = await resolveStaffDocId(db, putOut.by) || "";
   const date = after.checkoutDate || after.date || null;
   const dateVal = date ? (typeof date === "string" ? new Date(date + "T00:00:00.000Z") : date) : null;
 
@@ -336,6 +335,8 @@ async function syncAdditionalCharges(db, checklistId, after, putOut) {
     const paymentMethod = c.paymentMethod || "";
     const isReimbursable = ["cash", "credit"].includes(paymentMethod);
     const sourceField = `putOut_add:${c.id}`;
+    // 立替先は「その追加料金を払った人」(c.by)。無ければ putOut の実施者にフォールバック
+    const staffIdStr = await resolveStaffDocId(db, c.by || putOut.by) || "";
 
     // laundry ledger doc (費用台帳)
     const laundryData = {
