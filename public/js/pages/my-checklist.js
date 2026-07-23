@@ -2320,6 +2320,29 @@ const MyChecklistPage = {
           return d && d.kind === "linen_shop";
         })
       : false;
+    // 料金内訳 (基本 + 料金追加) の集計。putOut.amount=基本額、additionalCharges[]=追加分
+    const putOutRaw = laundry.putOut || {};
+    const laundryBaseAmount = Number(putOutRaw.amount) || 0;
+    const laundryAddCharges = Array.isArray(putOutRaw.additionalCharges) ? putOutRaw.additionalCharges : [];
+    const laundryAddSum = laundryAddCharges.reduce((s, a) => s + (Number(a.amount) || 0), 0);
+    const laundryTotal = laundryBaseAmount + laundryAddSum;
+    const pmLabel = (m) => ({ cash: "現金", credit: "クレカ", prepaid: "プリカ", invoice: "店舗請求" }[m] || m || "");
+    const laundryAmountBlock = !putOutInfo.active ? "" : `
+      <div class="mt-3 pt-2 border-top">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div class="small">
+            支払総額: <strong>¥${laundryTotal.toLocaleString()}</strong>
+            ${laundryAddCharges.length ? `<span class="text-muted">（基本¥${laundryBaseAmount.toLocaleString()} + 追加${laundryAddCharges.length}件 ¥${laundryAddSum.toLocaleString()}）</span>` : ""}
+          </div>
+          <button type="button" class="btn btn-outline-primary btn-sm" id="mclAddLaundryCharge">
+            <i class="bi bi-plus-circle"></i> 料金追加
+          </button>
+        </div>
+        ${laundryAddCharges.length ? `<ul class="list-unstyled small text-muted mt-2 mb-0">
+          ${laundryAddCharges.map(a => `<li><i class="bi bi-plus"></i> ¥${(Number(a.amount)||0).toLocaleString()}（${this.escapeHtml(pmLabel(a.paymentMethod))}${a.note ? " / " + this.escapeHtml(a.note) : ""}）${a.by?.name ? " ・" + this.escapeHtml(a.by.name) : ""}</li>`).join("")}
+        </ul>` : ""}
+      </div>`;
+
     const laundrySection = !laundryEnabledByFlow ? "" : `
       <div class="card mb-3" id="laundrySection">
         <div class="card-body">
@@ -2333,6 +2356,7 @@ const MyChecklistPage = {
             ${allLinenShop ? '' : lBtn('collected', '② 洗濯物を回収した', 'bi-arrow-down-circle', collectedInfo)}
             ${allLinenShop ? '' : lBtn('stored', '③ 洗濯物を収納した', 'bi-check2-circle', storedInfo)}
           </div>
+          ${laundryAmountBlock}
         </div>
       </div>`;
 
@@ -2410,6 +2434,7 @@ const MyChecklistPage = {
     el.querySelectorAll('.mcl-laundry').forEach(b => {
       b.addEventListener('click', () => this.toggleLaundry(b.dataset.key));
     });
+    el.querySelector('#mclAddLaundryCharge')?.addEventListener('click', () => this.addLaundryCharge());
     // 完了/未完了ボタンは今回書き換えたコンテナのものだけにリスナーを貼る (累積による多重発火を防止)
     if (completeHost) {
       completeHost.querySelector('#mclCompleteBtn')?.addEventListener('click', () => this.completeChecklist(allDone, total - done));
@@ -2631,6 +2656,189 @@ const MyChecklistPage = {
   },
 
   // ランドリー「出した」時の入力モーダル (Promise<{depot, paymentMethod, amount} | null>)
+  // ランドリー「料金追加」: putOut 記録後、追加乾燥などで料金が増えたときに追加分を記録する。
+  // 追加分は putOut.additionalCharges[] に積む。onChecklistLaundryChange が請求書用の
+  // 別レコード (laundry コレクション + laundry_expense shift) を追加分ごとに生成する。
+  async addLaundryCharge() {
+    if (!this.checklistId) return;
+    if (this._addingLaundryCharge) return;
+    this._addingLaundryCharge = true;
+    try {
+      const putOut = (this.checklist?.laundry || {}).putOut;
+      if (!putOut || !(putOut.at || putOut.by)) {
+        showToast("先に「① 洗濯物を出した」を記録してください", "", "error");
+        return;
+      }
+      const info = await this.askLaundryAddChargeInfo(putOut);
+      if (info === null) return; // キャンセル
+      const user = firebase.auth().currentUser;
+      const by = { uid: user?.uid || "", staffId: this.staffDoc?.id || "", name: this.staffDoc?.name || user?.displayName || "" };
+      const charge = {
+        id: "add_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        amount: Number(info.amount) || 0,
+        paymentMethod: info.paymentMethod || "",
+        note: info.note || "",
+        at: firebase.firestore.Timestamp.now(), // 配列要素内は serverTimestamp 不可のため client Timestamp
+        by,
+      };
+      if (info.paymentMethod === "prepaid" && info.prepaidCardId) {
+        charge.prepaidCardId = info.prepaidCardId;
+        charge.prepaidLabel = info.prepaidLabel || "";
+        // プリカ残高を減算
+        try {
+          const ref = firebase.firestore().collection("settings").doc("prepaidCards");
+          const doc = await ref.get();
+          const items = (doc.exists ? (doc.data().items || []) : []).map(c =>
+            c.id === info.prepaidCardId
+              ? { ...c, balance: Math.max(0, (Number(c.balance) || 0) - charge.amount) }
+              : c
+          );
+          await ref.update({ items });
+        } catch (e) {
+          showToast("プリカ残高の更新に失敗", e.message, "error");
+          return;
+        }
+      }
+      const cur = Array.isArray(putOut.additionalCharges) ? putOut.additionalCharges : [];
+      await firebase.firestore().collection("checklists").doc(this.checklistId).update({
+        "laundry.putOut.additionalCharges": [...cur, charge],
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      const pmLbl = { cash: "現金", credit: "クレカ", prepaid: "プリカ", invoice: "店舗請求" }[charge.paymentMethod] || charge.paymentMethod;
+      showToast("料金を追加しました", `¥${charge.amount.toLocaleString()}（${pmLbl}）`, "success");
+    } catch (e) {
+      showToast("エラー", e.message, "error");
+    } finally {
+      this._addingLaundryCharge = false;
+    }
+  },
+
+  // 料金追加モーダル。記録済み提出先の rate を候補に出しつつ、支払方法(既定=元の支払方法)/メモを入力させる。
+  async askLaundryAddChargeInfo(putOut) {
+    const depotName = putOut.depot || putOut.depotOther || "";
+    const depot = (Array.isArray(this._depotMasterCache) ? this._depotMasterCache : []).find(d => (d.name || "") === depotName);
+    const rates = (depot && Array.isArray(depot.rates)) ? depot.rates : [];
+    let prepaidCards = [];
+    try {
+      const doc = await firebase.firestore().collection("settings").doc("prepaidCards").get();
+      if (doc.exists && Array.isArray(doc.data().items)) prepaidCards = doc.data().items.filter(c => (Number(c.balance) || 0) > 0);
+    } catch (_) {}
+    const esc = (s) => this.escapeHtml(String(s == null ? "" : s));
+    return new Promise((resolve) => {
+      const existing = document.getElementById("laundryAddChargeModal");
+      if (existing) existing.remove();
+      const modalEl = document.createElement("div");
+      modalEl.className = "modal fade";
+      modalEl.id = "laundryAddChargeModal";
+      modalEl.tabIndex = -1;
+      const rateOptions = rates.map((r, i) =>
+        `<option value="${i}" data-amount="${Number(r.amount) || 0}">${esc(r.label)} ¥${(Number(r.amount) || 0).toLocaleString()}</option>`
+      ).join("");
+      const cardOptions = prepaidCards.map(c =>
+        `<option value="${esc(c.id)}">${esc(c.cardNumber || c.id)}（残¥${(Number(c.balance) || 0).toLocaleString()}）</option>`
+      ).join("");
+      const baseMethod = putOut.paymentMethod || "cash";
+      const mOpt = (v, label) => `<option value="${v}" ${baseMethod === v ? "selected" : ""}>${label}</option>`;
+      modalEl.innerHTML = `
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="bi bi-plus-circle"></i> 料金追加</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="small text-muted mb-3">
+                提出先: <strong>${depotName ? esc(depotName) : "(未記録)"}</strong><br>
+                追加乾燥などで料金が増えたときに、増えた分だけを記録します。
+              </div>
+              <div class="mb-3">
+                <label class="form-label">① 追加金額 <span class="text-danger">*</span></label>
+                <select class="form-select" id="lacRate">
+                  <option value="">-- 選択 --</option>
+                  ${rateOptions}
+                  <option value="__other__">その他 (金額手入力)</option>
+                </select>
+                <input type="number" class="form-control mt-2 d-none" id="lacRateOther" min="0" placeholder="金額を手入力(円)">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">② 支払方法 <span class="text-danger">*</span></label>
+                <select class="form-select" id="lacPayment">
+                  ${mOpt("cash", "現金(立替)")}
+                  ${mOpt("credit", "クレジットカード(立替)")}
+                  ${mOpt("prepaid", "プリペイド(プリカ)")}
+                  ${mOpt("invoice", "店舗請求(後払い)")}
+                </select>
+              </div>
+              <div class="mb-3 d-none" id="lacPrepaidWrap">
+                <label class="form-label">使用するプリカ <span class="text-danger">*</span></label>
+                <select class="form-select" id="lacPrepaidCard">
+                  <option value="">-- 選択 --</option>
+                  ${cardOptions}
+                </select>
+                ${prepaidCards.length ? "" : '<div class="small text-danger mt-1">使用可能なプリカ(残高あり)がありません。現金/クレカ等を選んでください。</div>'}
+              </div>
+              <div class="mb-3">
+                <label class="form-label">③ メモ</label>
+                <input type="text" class="form-control" id="lacNote" placeholder="例: 追加乾燥">
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="lacCancel">キャンセル</button>
+              <button type="button" class="btn btn-primary" id="lacSubmit"><i class="bi bi-check-lg"></i> 追加する</button>
+            </div>
+          </div>
+        </div>`;
+      document.body.appendChild(modalEl);
+      const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+      let decided = false;
+
+      const rateSel = modalEl.querySelector("#lacRate");
+      const rateOther = modalEl.querySelector("#lacRateOther");
+      const paySel = modalEl.querySelector("#lacPayment");
+      const prepaidWrap = modalEl.querySelector("#lacPrepaidWrap");
+      const cardSel = modalEl.querySelector("#lacPrepaidCard");
+
+      rateSel.addEventListener("change", () => {
+        rateOther.classList.toggle("d-none", rateSel.value !== "__other__");
+        if (rateSel.value === "__other__") rateOther.focus();
+      });
+      const syncPrepaidWrap = () => prepaidWrap.classList.toggle("d-none", paySel.value !== "prepaid");
+      paySel.addEventListener("change", syncPrepaidWrap);
+      syncPrepaidWrap(); // 既定=元の支払方法 を反映
+
+      modalEl.querySelector("#lacSubmit").addEventListener("click", () => {
+        let amount = 0;
+        if (rateSel.value === "__other__") {
+          amount = Number(rateOther.value) || 0;
+        } else if (rateSel.value !== "") {
+          amount = Number(rateSel.options[rateSel.selectedIndex]?.dataset?.amount) || 0;
+        }
+        if (!amount || amount <= 0) { showToast("入力エラー", "追加金額を選択/入力してください", "error"); return; }
+        const paymentMethod = paySel.value;
+        if (!paymentMethod) { showToast("入力エラー", "支払方法を選択してください", "error"); return; }
+        let prepaidCardId = "", prepaidLabel = "";
+        if (paymentMethod === "prepaid") {
+          prepaidCardId = cardSel.value;
+          if (!prepaidCardId) { showToast("入力エラー", "使用するプリカを選択してください", "error"); return; }
+          const card = prepaidCards.find(c => c.id === prepaidCardId);
+          if (!card || (Number(card.balance) || 0) < amount) {
+            showToast("残高不足", `プリカ残高が不足しています（残¥${(Number(card?.balance) || 0).toLocaleString()}）`, "error");
+            return;
+          }
+          prepaidLabel = `${card.cardNumber || card.id}(¥${amount.toLocaleString()})`;
+        }
+        decided = true;
+        const info = { amount, paymentMethod, prepaidCardId, prepaidLabel, note: modalEl.querySelector("#lacNote").value.trim() };
+        modal.hide();
+        modalEl.addEventListener("hidden.bs.modal", () => { modalEl.remove(); resolve(info); }, { once: true });
+      });
+      modalEl.addEventListener("hidden.bs.modal", () => {
+        if (!decided) { modalEl.remove(); resolve(null); }
+      });
+      modal.show();
+    });
+  },
+
   async askLaundryPutOutInfo() {
     // 提出先マスターを読み込み (settings/laundryDepots.items: [{id,kind,name,rates}])
     let depotMaster = [];
@@ -2644,14 +2852,19 @@ const MyChecklistPage = {
         { id: "default_linen", kind: "linen_shop", name: "リネン屋", rates: [{ label: "1泊分", amount: 3000 }] },
       ];
     }
-    // 該当物件の cleaningFlow.laundryDepotIds があれば絞り込み
+    // 該当物件の cleaningFlow.laundryDepotIds で提出先を絞り込む。
+    // - 配列で設定あり → その物件の提出先だけを候補にする (他宿のランドリーは出さない)
+    // - 未設定 (undefined) → 提出先マスタは出さず「その他 (手入力)」のみにする
+    //   (旧仕様は未設定時に全宿の提出先を表示していたため、担当中の宿以外のランドリーが混入していた)
     const propertyId = this.checklist?.propertyId;
     if (propertyId) {
       try {
         const p = await firebase.firestore().collection("properties").doc(propertyId).get();
         const cf = (p.exists && p.data().cleaningFlow) || {};
-        if (Array.isArray(cf.laundryDepotIds) && cf.laundryDepotIds.length) {
+        if (Array.isArray(cf.laundryDepotIds)) {
           depotMaster = depotMaster.filter(d => cf.laundryDepotIds.includes(d.id || d.name));
+        } else {
+          depotMaster = [];
         }
       } catch (_) {}
     }

@@ -315,6 +315,98 @@ async function deleteLaundryByChecklist(db, checklistId) {
   }
 }
 
+/**
+ * putOut.additionalCharges[] (料金追加) を請求書用の別レコードに同期する。
+ * - laundry コレクション: sourceField=`putOut_add:{id}` で 1 追加 = 1 doc
+ * - shifts (立替): sourceAction=`expense_add:{id}` で 1 追加 = 1 expense shift
+ * 追加ごとに支払方法が異なっても正しく立替判定できるよう、基本の putOut とは別レコードにする。
+ * 現存しない (削除された) 追加分の doc/shift は掃除する。
+ */
+async function syncAdditionalCharges(db, checklistId, after, putOut) {
+  const charges = Array.isArray(putOut.additionalCharges) ? putOut.additionalCharges : [];
+  const validIds = new Set(charges.map(c => c && c.id).filter(Boolean));
+  const propertyId = after.propertyId || "";
+  const staffIdStr = await resolveStaffDocId(db, putOut.by) || "";
+  const date = after.checkoutDate || after.date || null;
+  const dateVal = date ? (typeof date === "string" ? new Date(date + "T00:00:00.000Z") : date) : null;
+
+  for (const c of charges) {
+    if (!c || !c.id) continue;
+    const amount = Number(c.amount) || 0;
+    const paymentMethod = c.paymentMethod || "";
+    const isReimbursable = ["cash", "credit"].includes(paymentMethod);
+    const sourceField = `putOut_add:${c.id}`;
+
+    // laundry ledger doc (費用台帳)
+    const laundryData = {
+      date, propertyId,
+      staffId: staffIdStr,
+      depot: putOut.depot || "",
+      depotOther: putOut.depotOther || "",
+      depotKind: putOut.depotKind || "",
+      paymentMethod, sheets: 0, amount,
+      memo: c.note || "追加料金",
+      isReimbursable,
+      sourceChecklistId: checklistId,
+      sourceField,
+      isAdditionalCharge: true,
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    const existing = await db.collection("laundry")
+      .where("sourceChecklistId", "==", checklistId)
+      .where("sourceField", "==", sourceField).limit(1).get();
+    if (!existing.empty) await existing.docs[0].ref.update(laundryData);
+    else await db.collection("laundry").add({ ...laundryData, createdAt: FieldValue.serverTimestamp() });
+
+    // 立替 expense shift (金額>0 のとき)。名前で支払方法を表現し請求書側で立替判定される
+    const sourceAction = `expense_add:${c.id}`;
+    if (amount > 0) {
+      const expenseName = paymentMethod === "prepaid" ? `ランドリープリカ${amount}` : `ランドリー現金${amount}`;
+      const expenseItem = await findWorkItemByName(db, propertyId, expenseName);
+      const expenseAmount = expenseItem ? (Number(expenseItem.commonRate || expenseItem.commonRates?.[1] || amount)) : amount;
+      await upsertLaundryShift(db, checklistId, sourceAction, {
+        staffId: staffIdStr, propertyId,
+        propertyName: after.propertyName || "",
+        bookingId: after.bookingId || "",
+        date: dateVal,
+        status: "completed",
+        assignMethod: "auto_laundry",
+        workType: "laundry_expense",
+        workItemName: expenseName,
+        amount: expenseAmount,
+      });
+    } else {
+      await deleteLaundryShift(db, checklistId, sourceAction);
+    }
+  }
+
+  // 掃除: 現存しない追加分の doc / shift を削除
+  const allLaundry = await db.collection("laundry").where("sourceChecklistId", "==", checklistId).get();
+  for (const d of allLaundry.docs) {
+    const sf = d.data().sourceField || "";
+    if (sf.startsWith("putOut_add:") && !validIds.has(sf.slice("putOut_add:".length))) await d.ref.delete();
+  }
+  const allShifts = await db.collection("shifts").where("sourceChecklistId", "==", checklistId).get();
+  for (const d of allShifts.docs) {
+    const sa = d.data().sourceAction || "";
+    if (sa.startsWith("expense_add:") && !validIds.has(sa.slice("expense_add:".length))) await d.ref.delete();
+  }
+}
+
+/**
+ * putOut 削除時に追加料金の doc / shift も全削除する
+ */
+async function deleteAdditionalCharges(db, checklistId) {
+  const allLaundry = await db.collection("laundry").where("sourceChecklistId", "==", checklistId).get();
+  await Promise.all(allLaundry.docs
+    .filter(d => (d.data().sourceField || "").startsWith("putOut_add:"))
+    .map(d => d.ref.delete()));
+  const allShifts = await db.collection("shifts").where("sourceChecklistId", "==", checklistId).get();
+  await Promise.all(allShifts.docs
+    .filter(d => (d.data().sourceAction || "").startsWith("expense_add:"))
+    .map(d => d.ref.delete()));
+}
+
 module.exports = async (event) => {
   const db = admin.firestore();
   const before = event.data?.before?.data();
@@ -333,7 +425,15 @@ module.exports = async (event) => {
     const isNow  = isLaundrySet(afterLaundry[key]);
     return wasPrev !== isNow;
   });
-  if (!hasLaundryChange) return;
+  // putOut の料金追加 (additionalCharges) は「セット状態は不変・内容だけ変化」するため
+  // 上記の set/unset 判定では拾えない。内容差分を別途検知する。
+  const addSig = (po) => JSON.stringify(
+    (po && Array.isArray(po.additionalCharges) ? po.additionalCharges : [])
+      .map(c => ({ id: c && c.id, a: Number(c && c.amount) || 0, m: (c && c.paymentMethod) || "" }))
+  );
+  const putOutAddChanged = isLaundrySet(beforeLaundry.putOut) && isLaundrySet(afterLaundry.putOut)
+    && addSig(beforeLaundry.putOut) !== addSig(afterLaundry.putOut);
+  if (!hasLaundryChange && !putOutAddChanged) return;
 
   // --- putOut の同期処理 ---
   const beforePutOut = beforeLaundry.putOut;
@@ -370,6 +470,12 @@ module.exports = async (event) => {
         });
       } catch (_) { /* ignore */ }
     }
+    // 料金追加が既にある場合も同期 (通常は空)
+    try {
+      await syncAdditionalCharges(db, checklistId, after, afterPutOut);
+    } catch (e) {
+      console.error(`[onChecklistLaundryChange] syncAdditionalCharges(new) エラー:`, e);
+    }
   } else if (wasSet && !nowSet) {
     // putOut が削除された → laundry コレクションからも削除、対応 shift も削除
     try {
@@ -382,6 +488,27 @@ module.exports = async (event) => {
       await deleteLaundryShift(db, checklistId, "expense");
     } catch (e) {
       console.error(`[onChecklistLaundryChange] deleteLaundryShift(put_out/expense) エラー:`, e);
+    }
+    // 料金追加の doc / shift も掃除
+    try {
+      await deleteAdditionalCharges(db, checklistId);
+    } catch (e) {
+      console.error(`[onChecklistLaundryChange] deleteAdditionalCharges エラー:`, e);
+    }
+  } else if (wasSet && nowSet && putOutAddChanged) {
+    // putOut はセットのまま「料金追加」だけ変化 → 追加分レコードのみ再同期
+    try {
+      await syncAdditionalCharges(db, checklistId, after, afterPutOut);
+    } catch (e) {
+      console.error(`[onChecklistLaundryChange] syncAdditionalCharges(modify) エラー:`, e);
+      try {
+        await db.collection("error_logs").add({
+          type: "onChecklistLaundryChange_addCharge",
+          message: e.message,
+          checklistId,
+          createdAt: new Date(),
+        });
+      } catch (_) { /* ignore */ }
     }
   }
 
