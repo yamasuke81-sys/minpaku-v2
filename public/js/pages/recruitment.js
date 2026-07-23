@@ -303,6 +303,33 @@ const RecruitmentPage = {
       return;
     }
     const oldDate = r.checkoutDate;
+
+    // ── モード選択 (担当そのまま / 担当を外して再募集) ──
+    // showConfirm の第3ボタン(extraLabel)で3択を実現。
+    //   OK    = 担当そのまま・日付だけ変更 (keep_staff・推奨)
+    //   extra = 担当を外して再募集 (reset・従来動作)
+    //   cancel= 中止
+    const confirmedStaffCount = (Array.isArray(r.selectedStaffIds) ? r.selectedStaffIds : []).length;
+    const isConfirmed = r.status === "スタッフ確定済み";
+    const modeChoice = await showConfirm(
+      "この募集の清掃日をどう変更しますか？\n\n" +
+      "①担当そのまま・日付だけ変更\n" +
+      "　今の担当者を維持し、再募集はしません" +
+      (isConfirmed && confirmedStaffCount > 0 ? `（確定済み ${confirmedStaffCount} 名に日付変更を通知）` : "") + "。\n\n" +
+      "②担当を外して再募集（従来）\n" +
+      "　回答・選定をクリアして「募集中」に戻し、再募集通知を送ります。",
+      {
+        title: "清掃日変更",
+        okLabel: "①担当そのまま",
+        okClass: "btn-warning",
+        extraLabel: "②外して再募集",
+        extraClass: "btn-outline-secondary",
+        cancelLabel: "キャンセル",
+      }
+    );
+    if (!modeChoice) return; // false = キャンセル
+    const mode = modeChoice === "extra" ? "reset" : "keep_staff";
+
     const newDate = await showPrompt(
       `新しい清掃日 (YYYY-MM-DD)\n現在: ${oldDate}`,
       { title: "清掃日を変更", defaultValue: oldDate, okLabel: "変更" }
@@ -310,13 +337,19 @@ const RecruitmentPage = {
     if (!newDate) return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) { await showAlert("日付形式が不正です (YYYY-MM-DD)"); return; }
     if (newDate === oldDate) { await showAlert("日付に変更がありません"); return; }
+
     const responseCount = (r.responses || []).length;
     const ok = await showConfirm(
       `清掃日を変更します:\n\n旧: ${oldDate}\n新: ${newDate}\n物件: ${r.propertyName || "-"}\n\n` +
-      (responseCount > 0
-        ? `※ 既に回答済みのスタッフ ${responseCount} 名にも日付変更通知が送られます。\n  回答内容と選定状態はクリアされます (新しい日付で再募集)。\n`
-        : "") +
-      "※ 変更後の日付について新たな募集開始通知も送られます。",
+      (mode === "keep_staff"
+        ? "※ 担当者はそのまま維持します（再募集はしません）。\n" +
+          (isConfirmed && confirmedStaffCount > 0
+            ? `※ 確定済みの担当者 ${confirmedStaffCount} 名に日付変更を通知します。\n`
+            : "")
+        : (responseCount > 0
+            ? `※ 既に回答済みのスタッフ ${responseCount} 名にも日付変更通知が送られます。\n  回答内容と選定状態はクリアされます (新しい日付で再募集)。\n`
+            : "") +
+          "※ 変更後の日付について新たな募集開始通知も送られます。"),
       { title: "清掃日変更", okLabel: "変更", okClass: "btn-warning" }
     );
     if (!ok) return;
@@ -324,18 +357,21 @@ const RecruitmentPage = {
     try {
       const dbRef = firebase.firestore();
       // 1) 同一 recruitment の checkoutDate を更新
-      //    回答 (responses) と選定 (selectedStaff/selectedStaffIds) は引き継がず全クリア
-      //    status も "募集中" に戻す
-      await dbRef.collection("recruitments").doc(r.id).update({
+      //    mode="keep_staff": 担当(responses/selectedStaff/selectedStaffIds)と status を維持し日付だけ動かす
+      //    mode="reset":      回答・選定を全クリアして "募集中" に戻す (従来動作)
+      const recruitmentUpdate = {
         checkoutDate: newDate,
         previousCheckoutDate: r.previousCheckoutDate || oldDate,
         manualDateChange: true,
-        responses: [],
-        selectedStaff: "",
-        selectedStaffIds: [],
-        status: "募集中",
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      });
+      };
+      if (mode === "reset") {
+        recruitmentUpdate.responses = [];
+        recruitmentUpdate.selectedStaff = "";
+        recruitmentUpdate.selectedStaffIds = [];
+        recruitmentUpdate.status = "募集中";
+      }
+      await dbRef.collection("recruitments").doc(r.id).update(recruitmentUpdate);
 
       // 2) 関連 shift の date も更新 (recruitmentId 一致 or 旧 date+pid+workType)
       const targetWorkType = r.workType === "pre_inspection" ? "pre_inspection" : "cleaning_by_count";
@@ -393,8 +429,8 @@ const RecruitmentPage = {
       }
 
       // 3) 通知 (Cloud Function 経由)
-      // - recruit_date_change: 既回答スタッフに日付変更を伝える (新規通知タイプ)
-      // - recruit_start: 変更後の日付について再募集の通知
+      // - keep_staff: 確定済みの担当者にのみ日付変更を通知 (再募集通知なし)
+      // - reset:      既回答スタッフに回答クリア通知 + 全スタッフへ再募集通知
       try {
         await fetch("/api/recruitment/notify-date-change", {
           method: "POST",
@@ -406,13 +442,17 @@ const RecruitmentPage = {
             recruitmentId: r.id,
             oldDate,
             newDate,
+            mode,
           }),
         });
       } catch (notifyErr) {
         console.warn("日付変更通知エラー (続行):", notifyErr);
       }
 
-      showToast("完了", `清掃日を ${newDate} に変更しました (shift ${shiftUpdated}件 / checklist ${checklistUpdated}件更新)`, "success");
+      const doneMsg = mode === "keep_staff"
+        ? `清掃日を ${newDate} に変更しました（担当そのまま / shift ${shiftUpdated}件・checklist ${checklistUpdated}件更新）`
+        : `清掃日を ${newDate} に変更しました (shift ${shiftUpdated}件 / checklist ${checklistUpdated}件更新)`;
+      showToast("完了", doneMsg, "success");
       this.detailModal.hide();
     } catch (e) {
       console.error("[changeRecruitmentDate] エラー:", e);

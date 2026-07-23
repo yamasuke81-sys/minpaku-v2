@@ -630,6 +630,39 @@ module.exports = function recruitmentApi(db) {
       const appUrl = settings?.appUrl || DEFAULT_APP_URL;
       const recruitUrl = `${appUrl.replace(/\/$/, "")}/#/my-recruitment/${recruitmentId}`;
       const propertyName = r.propertyName || "";
+      const mode = req.body.mode === "keep_staff" ? "keep_staff" : "reset";
+
+      // ────────────────────────────────────────────────────────────
+      // mode="keep_staff": 担当そのまま・日付だけ変更。
+      //   確定済みの担当スタッフ(selectedStaffIds)にのみ日付変更を通知し、
+      //   再募集通知(recruit_start)は送らない。「回答クリア」の文面も使わない。
+      // ────────────────────────────────────────────────────────────
+      if (mode === "keep_staff") {
+        const confirmedStaffIds = [...new Set((Array.isArray(r.selectedStaffIds) ? r.selectedStaffIds : []).filter(Boolean))];
+        let staffNotified = 0;
+        for (const sid of confirmedStaffIds) {
+          try {
+            await notifyStaff(db, sid, "recruit_date_change",
+              `清掃日が変更されました: ${oldDate} → ${newDate}`,
+              `【清掃日変更】\n${propertyName}\n旧: ${oldDate}\n新: ${newDate}\n\n担当はそのままです。新しい日付で対応をお願いします。\n${recruitUrl}`,
+              { date: newDate, oldDate, property: propertyName, url: recruitUrl, work: "清掃" },
+              {} // propertyOverrides
+            );
+            staffNotified++;
+          } catch (e) {
+            console.warn(`日付変更通知(keep) staff=${sid} 失敗:`, e.message);
+          }
+        }
+        return res.json({
+          message: `日付変更を確定済み担当者 ${staffNotified}名に通知しました (再募集なし)`,
+          mode,
+          confirmedStaffNotified: staffNotified,
+        });
+      }
+
+      // ────────────────────────────────────────────────────────────
+      // mode="reset" (従来): 既回答スタッフに「回答クリア」通知 + 全スタッフへ再募集
+      // ────────────────────────────────────────────────────────────
       const responses = Array.isArray(r.responses) ? r.responses : [];
 
       // 1) 既回答スタッフに日付変更通知 (個別 LINE)
@@ -667,6 +700,7 @@ module.exports = function recruitmentApi(db) {
 
       res.json({
         message: `日付変更通知を送信しました (既回答 ${staffNotified}名 + 全スタッフ募集通知)`,
+        mode,
         respondedStaffNotified: staffNotified,
       });
     } catch (e) {
