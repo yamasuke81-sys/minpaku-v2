@@ -529,8 +529,16 @@ const MyChecklistPage = {
   },
 
   // 宿泊日数 = 泊数 + 1 (2泊3日 → 3個/人)。ci/co は Timestamp/文字列いずれも可。算出不能なら null。
+  // ※ 日付正規化はメソッド内で自己完結させる (renderTabSchedule ローカルの toDateStr に依存しない)
   _stayDays(ci, co) {
-    const a = toDateStr(ci), b = toDateStr(co);
+    const norm = (v) => {
+      if (!v) return "";
+      if (typeof v === "string") return v.length >= 10 ? v.slice(0, 10) : v;
+      const d = v.toDate ? v.toDate() : (v instanceof Date ? v : new Date(v));
+      if (isNaN(d.getTime())) return "";
+      return new Date(d.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10); // JST
+    };
+    const a = norm(ci), b = norm(co);
     const m1 = String(a || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
     const m2 = String(b || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (!m1 || !m2) return null;
