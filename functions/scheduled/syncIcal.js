@@ -389,6 +389,15 @@ async function syncIcal() {
           firstMissedAt: admin.firestore.FieldValue.delete(),
         };
 
+        // 「コーヒーあり」判別: syncSetting に coffeePrep=true が付いたフィード
+        // (宿小町の「挽きたて珈琲」リスティング等) 由来の予約には coffeePrep フラグを
+        // スタンプする。同一物件に複数リスティングがぶら下がる構成で、コーヒー準備が
+        // 必要な予約を清掃側で判別するために使う。false 側は書き込まず、既存予約への
+        // 不要な再書き込み(=onBookingChange 空発火)を避ける。
+        if (setting.coffeePrep === true) {
+          bookingData.coffeePrep = true;
+        }
+
         // Airbnb で guestName が "Reserved" のまま (=保留中の可能性) は pendingApproval=true で取り込む
         // → onBookingChange は pendingApproval=true なら募集生成・通知をスキップする
         // → メール照合(emailVerificationCore)で確定メールが見つかった瞬間に false に降ろされ、再発火で募集が走る
@@ -451,6 +460,8 @@ async function syncIcal() {
             ex.icalUid === bookingData.icalUid &&
             ex.icalUrl === bookingData.icalUrl &&
             ex._icalOriginalName === bookingData._icalOriginalName &&
+            // coffeePrep フラグの一致も比較 (フラグ追加以前の既存予約を1回だけ再スタンプさせる)
+            ((setting.coffeePrep === true) === (ex.coffeePrep === true)) &&
             (bookingData.pendingApproval === undefined || ex.pendingApproval === bookingData.pendingApproval) &&
             (bookingData.unverified === undefined || ex.unverified === bookingData.unverified);
           if (unchanged) {

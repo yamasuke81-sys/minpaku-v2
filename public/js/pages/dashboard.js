@@ -1014,7 +1014,12 @@ const DashboardPage = {
     const cancelTitleBadge = isCancelledBooking
       ? `<span class="badge bg-danger ms-2"><i class="bi bi-x-octagon-fill"></i> キャンセル済み</span>`
       : "";
-    document.getElementById("calEventTitle").innerHTML = `<i class="bi bi-calendar-event"></i> 予約詳細 ${propNameBadge} ${sourceBadge} ${cancelTitleBadge}`;
+    // コーヒーあり予約 (挽きたて珈琲リスティング由来) はタイトルに一目で分かるバッジを出す。
+    // PII ではないので全ビュー(オーナー/スタッフ)で常時表示。
+    const coffeeTitleBadge = b.coffeePrep === true
+      ? `<span class="badge bg-warning text-dark ms-2"><i class="bi bi-cup-hot-fill"></i> コーヒーあり</span>`
+      : "";
+    document.getElementById("calEventTitle").innerHTML = `<i class="bi bi-calendar-event"></i> 予約詳細 ${propNameBadge} ${sourceBadge} ${cancelTitleBadge} ${coffeeTitleBadge}`;
     // モーダルは使い回されるため、キャンセル状態に応じて毎回スタイルを設定/解除する
     const mc = modalEl.querySelector(".modal-content");
     if (mc) {

@@ -29,6 +29,28 @@ function normDate_(v) {
   return new Date(d.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
+// 名簿(guestRegistration)から「10歳以上」の宿泊者数を数える (コーヒー豆計算用)。
+// allGuests[] (代表者+同行者の全員) があればそれを使い、無ければ
+// 代表者(top-level age) + 同行者(guests[]) を対象にする。
+// 年齢が1件も判読できない場合は null (=人数未確定) を返す。PII(氏名等)は返さず人数のみ算出。
+function countGuests10plus_(g) {
+  if (!g || typeof g !== "object") return null;
+  let list = Array.isArray(g.allGuests) && g.allGuests.length ? g.allGuests : null;
+  if (!list) {
+    list = [];
+    if (g.age !== undefined && g.age !== null && String(g.age).trim() !== "") list.push({ age: g.age });
+    if (Array.isArray(g.guests)) list = list.concat(g.guests);
+  }
+  if (!list.length) return null;
+  let count = 0;
+  let known = false;
+  for (const p of list) {
+    const a = parseInt(String((p && p.age) != null ? p.age : "").trim(), 10);
+    if (Number.isFinite(a)) { known = true; if (a >= 10) count++; }
+  }
+  return known ? count : null;
+}
+
 // Timestamp/Date/文字列から JST の HH:MM を導出 (00:00 は「終日」)
 function toHhmm_(v) {
   if (!v) return "";
@@ -268,6 +290,8 @@ module.exports = function staffDataApi(db) {
             transport: g.transport || "",
             carCount: g.carCount || 0,
             paidParking: g.paidParking || "",
+            // コーヒー豆計算用: 10歳以上の人数だけをサーバ側で算出して返す (年齢配列=PIIは返さない)
+            coffeeGuests10plus: countGuests10plus_(g),
           };
         }
       });
@@ -283,6 +307,8 @@ module.exports = function staffDataApi(db) {
           source: nb.source || "",
           bookingSite: nb.bookingSite || "",
           propertyId: nb.propertyId || "",
+          // コーヒーあり予約フラグ (syncIcal が挽きたて珈琲リスティング由来にスタンプ)
+          coffeePrep: nb.coffeePrep === true,
         },
         nextGuest,
       });

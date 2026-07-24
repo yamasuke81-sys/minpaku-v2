@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-  <script src="/js/api-relay.js?v=v0723e"></script>
+  <script src="/js/api-relay.js?v=v0724a"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ヘルパー用 清掃チェックリスト</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
@@ -227,7 +227,7 @@
 
 <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore-compat.js"></script>
-<script src="js/firebase-config.js?v=v0723e"></script>
+<script src="js/firebase-config.js?v=v0724a"></script>
 <script>
 (function() {
   const API_BASE = "https://api-5qrfx7ujcq-an.a.run.app";
@@ -261,6 +261,7 @@
   let checklistId = null;
   let areas = [];
   let itemStates = {}; // サーバーから受信した最新状態
+  let selectedGroupChoices = {}; // 選択式グループ(コーヒーの用意など)の選択値
   let activeAreaId = null;
   let pendingItems = new Set(); // 送信中の itemId
 
@@ -310,13 +311,57 @@
     return [...items, ...cats].sort((a, b) => a.sortOrder - b.sortOrder);
   }
 
+  // 子(項目+カテゴリ)を描画。選択式グループ(コーヒーの用意など)は
+  // 子カテゴリを <select> に置き換え、選んだ子だけを展開表示する (未選択=以降スキップ)。
+  function renderChildren(node) {
+    const items = (node.directItems || node.items || []).map(it => ({ kind: "item", sortOrder: it.sortOrder || 0, data: it }));
+    const catField = node.taskTypes ? "taskTypes"
+                  : node.subCategories ? "subCategories"
+                  : node.subSubCategories ? "subSubCategories"
+                  : null;
+    const cats = catField ? (node[catField] || []).map(c => ({ kind: "cat", sortOrder: c.sortOrder || 0, data: c })) : [];
+    const sortedItems = items.slice().sort((a, b) => a.sortOrder - b.sortOrder);
+    const sortedCats = cats.slice().sort((a, b) => a.sortOrder - b.sortOrder);
+
+    if (node.isSelectGroup && sortedCats.length > 0) {
+      const selectedId = selectedGroupChoices[node.id] || "";
+      const selectedCat = sortedCats.find(c => c.data.id === selectedId)?.data;
+      const options = sortedCats.map(c =>
+        `<option value="${esc(c.data.id)}" ${c.data.id === selectedId ? "selected" : ""}>${esc(c.data.name)}</option>`
+      ).join("");
+      return `
+        ${sortedItems.map(m => renderItem(m.data)).join("")}
+        <div class="gc-sg-wrapper" data-stop="1" data-parent-id="${esc(node.id)}" style="background:#eef5ff;border-radius:6px;padding:8px;margin:6px 0;">
+          <label style="display:block;font-size:12px;font-weight:600;color:#0d6efd;margin-bottom:4px;"><i class="bi bi-ui-radios"></i> 以下から1つ選んでください</label>
+          <select class="gc-sg-select" data-parent-id="${esc(node.id)}" style="width:100%;padding:6px;border-radius:4px;border:1px solid #ced4da;font-size:14px;">
+            <option value="">— 選んでください —</option>
+            ${options}
+          </select>
+        </div>
+        ${selectedCat
+          ? renderCat(selectedCat)
+          : `<div style="text-align:center;color:#6c757d;font-size:12px;padding:8px;"><i class="bi bi-arrow-up"></i> 上のメニューから選んでください</div>`}
+      `;
+    }
+
+    const merged = [...sortedItems, ...sortedCats].sort((a, b) => a.sortOrder - b.sortOrder);
+    return merged.map(m => m.kind === "item" ? renderItem(m.data) : renderCat(m.data)).join("");
+  }
+
+  // 選択式グループ配下は「選ばれた子カテゴリ」だけを数える (未選択・非選択の枝は除外)
+  function selectGroupChild(x) {
+    const childCats = [...(x.taskTypes || []), ...(x.subCategories || []), ...(x.subSubCategories || [])];
+    if (x.isSelectGroup && childCats.length > 0) {
+      const sel = childCats.find(c => c.id === selectedGroupChoices[x.id]);
+      return { isGroup: true, cats: sel ? [sel] : [] };
+    }
+    return { isGroup: false, cats: childCats };
+  }
   function countItems(node) {
     let n = 0;
     const walk = (x) => {
       (x.directItems || x.items || []).forEach(() => n++);
-      (x.taskTypes || []).forEach(walk);
-      (x.subCategories || []).forEach(walk);
-      (x.subSubCategories || []).forEach(walk);
+      selectGroupChild(x).cats.forEach(walk);
     };
     walk(node);
     return n;
@@ -325,9 +370,7 @@
     let n = 0;
     const walk = (x) => {
       (x.directItems || x.items || []).forEach(it => { if (itemStates[it.id]?.checked) n++; });
-      (x.taskTypes || []).forEach(walk);
-      (x.subCategories || []).forEach(walk);
-      (x.subSubCategories || []).forEach(walk);
+      selectGroupChild(x).cats.forEach(walk);
     };
     walk(node);
     return n;
@@ -395,7 +438,6 @@
     const done = countChecked(cat);
     const allDone = total > 0 && done === total;
     const isCollapsed = collapsedSet.has(cat.id);
-    const children = getSortedChildren(cat);
     return `
       <div class="gc-cat${isCollapsed ? " collapsed" : ""}" data-cat-id="${esc(cat.id)}">
         <div class="gc-cat-header${allDone ? " all-done" : ""}" data-cat-toggle="${esc(cat.id)}">
@@ -406,14 +448,13 @@
         <div class="gc-cat-body">
           ${cat.memo ? `<div class="gc-memo"><i class="bi bi-sticky"></i> ${esc(cat.memo)}</div>` : ""}
           ${thumbsHtml(cat, cat.name)}
-          ${children.map(c => c.kind === "item" ? renderItem(c.data) : renderCat(c.data)).join("")}
+          ${renderChildren(cat)}
         </div>
       </div>
     `;
   }
 
   function renderArea(area) {
-    const children = getSortedChildren(area);
     return `
       <div class="area-controls">
         <button type="button" class="btn btn-sm btn-outline-secondary" id="btnToggleAllExpand">
@@ -422,7 +463,7 @@
       </div>
       ${area.memo ? `<div class="gc-memo"><i class="bi bi-sticky"></i> ${esc(area.memo)}</div>` : ""}
       ${thumbsHtml(area, area.name)}
-      ${children.map(c => c.kind === "item" ? renderItem(c.data) : renderCat(c.data)).join("")}
+      ${renderChildren(area)}
     `;
   }
 
@@ -667,6 +708,12 @@
         await sendToggle(id, newChecked);
       });
     });
+    // 選択式グループのセレクト (コーヒーの用意など)
+    content.querySelectorAll(".gc-sg-select").forEach(sel => {
+      sel.addEventListener("change", async () => {
+        await sendSelectGroup(sel.dataset.parentId, sel.value || "");
+      });
+    });
     content.querySelector("#btnToggleAllExpand")?.addEventListener("click", () => {
       const catIds = [];
       const walk = (x) => {
@@ -708,6 +755,24 @@
       if (row) row.classList.toggle("checked", !!itemStates[itemId]?.checked);
     } finally {
       pendingItems.delete(itemId);
+    }
+  }
+
+  // 選択式グループの選択値を保存 (onSnapshot が selectedGroupChoices を更新→再描画)
+  async function sendSelectGroup(parentId, childId) {
+    if (!checklistId || !parentId) return;
+    try {
+      const res = await fetch(`${API_BASE}/helper-checklist/select-group`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ checklistId, parentId, childId }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+    } catch (e) {
+      showToast(`保存失敗: ${e.message}`, 3000);
     }
   }
 
@@ -786,6 +851,7 @@
         const snapshot = data.templateSnapshot || [];
         areas = snapshot.slice().sort((x,y) => (x.sortOrder||0) - (y.sortOrder||0));
         itemStates = data.itemStates || {};
+        selectedGroupChoices = data.selectedGroupChoices || {};
         if (!activeAreaId && areas.length > 0) activeAreaId = areas[0].id;
         if (areas.length === 0) {
           content.className = "empty-state";

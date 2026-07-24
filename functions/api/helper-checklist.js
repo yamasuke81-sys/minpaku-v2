@@ -117,6 +117,40 @@ function isCancelledStatus(s) {
   return x.includes("cancel") || s === "キャンセル" || s === "キャンセル済み";
 }
 
+// 名簿から「10歳以上」の宿泊者数を数える (コーヒー豆計算用、PII は返さず人数のみ)。
+// allGuests[] があればそれを、無ければ 代表者(top-level age)+同行者(guests[]) を対象。
+// 年齢が1件も判読できなければ null (=人数未確定)。
+function countGuests10plus(g) {
+  if (!g || typeof g !== "object") return null;
+  let list = Array.isArray(g.allGuests) && g.allGuests.length ? g.allGuests : null;
+  if (!list) {
+    list = [];
+    if (g.age !== undefined && g.age !== null && String(g.age).trim() !== "") list.push({ age: g.age });
+    if (Array.isArray(g.guests)) list = list.concat(g.guests);
+  }
+  if (!list.length) return null;
+  let count = 0;
+  let known = false;
+  for (const p of list) {
+    const a = parseInt(String((p && p.age) != null ? p.age : "").trim(), 10);
+    if (Number.isFinite(a)) { known = true; if (a >= 10) count++; }
+  }
+  return known ? count : null;
+}
+
+// 宿泊日数 = 泊数 + 1 (2泊3日 → 3)。コーヒー豆は「初日IN・中日・最終日朝」に1個ずつ必要。
+// ci/co は "YYYY-MM-DD"。算出不能なら null。
+function stayDaysFor(ciStr, coStr) {
+  const m1 = String(ciStr || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const m2 = String(coStr || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m1 || !m2) return null;
+  const ci = Date.UTC(+m1[1], +m1[2] - 1, +m1[3]);
+  const co = Date.UTC(+m2[1], +m2[2] - 1, +m2[3]);
+  const nights = Math.round((co - ci) / 86400000);
+  if (!Number.isFinite(nights) || nights < 0) return null;
+  return nights + 1;
+}
+
 module.exports = function helperChecklistApi(db) {
   const router = Router();
 
@@ -327,6 +361,25 @@ module.exports = function helperChecklistApi(db) {
         fields.push({ label: "有料駐車場", value: guest.paidParking ? String(guest.paidParking) : "-" });
       }
 
+      // コーヒー準備 (coffeePrepEnabled 物件=宿小町 のみ)。挽きたて珈琲リスティング由来の
+      // 予約は準備が必要 → 必要なコーヒー豆の数 (10歳以上の人数 × 宿泊日数) も示す。
+      if (propData.coffeePrepEnabled === true) {
+        if (next.coffeePrep === true) {
+          fields.push({ label: "コーヒー準備", value: "必要 ☕（挽きたて珈琲プラン）" });
+          const cnt = countGuests10plus(guest);
+          const days = stayDaysFor(next._ci, ciToJstStr(next.checkOut));
+          if (cnt != null && days != null) {
+            fields.push({ label: "必要なコーヒー豆", value: `${cnt * days}個（10歳以上${cnt}名 × ${days}日分）` });
+          } else if (days != null) {
+            fields.push({ label: "必要なコーヒー豆", value: `名簿の年齢が未確定（10歳以上1名につき${days}個）` });
+          } else {
+            fields.push({ label: "必要なコーヒー豆", value: "名簿の人数・日数が未確定" });
+          }
+        } else {
+          fields.push({ label: "コーヒー準備", value: "不要" });
+        }
+      }
+
       return res.json({ hasNext: true, source: next.source || next.bookingSite || "", fields });
     } catch (e) {
       console.error("[helper-checklist next-booking]", e);
@@ -396,6 +449,56 @@ module.exports = function helperChecklistApi(db) {
     }
   });
 
+  // ============================================================
+  // POST /select-group
+  // body: { checklistId, parentId, childId }
+  // 選択式グループ (コーヒーの用意など) の選択値を保存する。childId が空なら選択解除。
+  // ============================================================
+  router.post("/select-group", async (req, res) => {
+    try {
+      const { checklistId, parentId } = req.body || {};
+      const childId = req.body?.childId ? String(req.body.childId) : "";
+
+      if (!checklistId || typeof checklistId !== "string") {
+        return res.status(400).json({ error: "checklistId required" });
+      }
+      if (!parentId || typeof parentId !== "string") {
+        return res.status(400).json({ error: "parentId required" });
+      }
+      if (checklistId.length > 64 || parentId.length > 128 || childId.length > 128) {
+        return res.status(400).json({ error: "id too long" });
+      }
+
+      const ref = db.collection("checklists").doc(checklistId);
+      const snap = await ref.get();
+      if (!snap.exists) return res.status(404).json({ error: "checklist not found" });
+
+      const data = snap.data();
+      if (data.status === "completed") {
+        return res.status(409).json({ error: "checklist already completed" });
+      }
+
+      // parentId / childId が template のカテゴリとして実在するか検証 (任意 key の埋め込み防止)
+      const catIds = collectCategoryIds_(data.templateSnapshot || []);
+      if (!catIds.has(parentId)) {
+        return res.status(400).json({ error: "unknown parentId" });
+      }
+      if (childId && !catIds.has(childId)) {
+        return res.status(400).json({ error: "unknown childId" });
+      }
+
+      await ref.update({
+        [`selectedGroupChoices.${parentId}`]: childId ? childId : FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error("[helper-checklist select-group]", e);
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
   return router;
 };
 
@@ -412,6 +515,21 @@ function collectItemIds_(snapshot) {
     (node.subSubCategories || []).forEach(walk);
   };
   // snapshot は areas 配列
+  (Array.isArray(snapshot) ? snapshot : []).forEach(walk);
+  return ids;
+}
+
+// templateSnapshot から全カテゴリ(area/taskType/subCategory/subSubCategory)の id を抽出。
+// 選択式グループの選択保存(/select-group)で parentId の実在検証に使う。
+function collectCategoryIds_(snapshot) {
+  const ids = new Set();
+  const walk = (node) => {
+    if (!node) return;
+    if (node.id) ids.add(node.id);
+    (node.taskTypes || []).forEach(walk);
+    (node.subCategories || []).forEach(walk);
+    (node.subSubCategories || []).forEach(walk);
+  };
   (Array.isArray(snapshot) ? snapshot : []).forEach(walk);
   return ids;
 }

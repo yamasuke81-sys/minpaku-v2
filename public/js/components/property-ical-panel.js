@@ -48,12 +48,20 @@
           </button>
           <span class="ical-panel-syncstatus text-muted small ms-2"></span>
         </div>
-        <div class="input-group input-group-sm ical-panel-addrow">
-          <input type="url" class="form-control ical-panel-url" placeholder="https://www.airbnb.com/calendar/ical/xxxxx.ics">
-          <input type="text" class="form-control ical-panel-platform" readonly placeholder="自動検出" style="max-width:120px">
-          <button type="button" class="btn btn-outline-primary ical-panel-add">
-            <i class="bi bi-plus-lg"></i> 追加
-          </button>
+        <div class="ical-panel-addrow">
+          <div class="input-group input-group-sm">
+            <input type="url" class="form-control ical-panel-url" placeholder="https://www.airbnb.com/calendar/ical/xxxxx.ics">
+            <input type="text" class="form-control ical-panel-platform" readonly placeholder="自動検出" style="max-width:120px">
+            <button type="button" class="btn btn-outline-primary ical-panel-add">
+              <i class="bi bi-plus-lg"></i> 追加
+            </button>
+          </div>
+          <div class="form-check mt-1">
+            <input class="form-check-input ical-panel-coffee" type="checkbox" id="icalCoffee-${instanceId}">
+            <label class="form-check-label small text-muted" for="icalCoffee-${instanceId}">
+              <i class="bi bi-cup-hot"></i> 「挽きたて珈琲」リスティング（この予約はコーヒー準備が必要）
+            </label>
+          </div>
         </div>
         <div class="verification-emails-panel mt-3 pt-3 border-top">
           ${buildVerificationEmailsHtml()}
@@ -325,17 +333,24 @@
         const statusBadge = d.active === false
           ? '<span class="badge bg-secondary ms-1">無効</span>'
           : '<span class="badge bg-success ms-1">有効</span>';
+        const coffeeBadge = d.coffeePrep === true
+          ? '<span class="badge bg-warning text-dark ms-1"><i class="bi bi-cup-hot"></i> コーヒー</span>'
+          : "";
         const urlStr = d.icalUrl || "";
         html += `
           <div class="list-group-item py-2 px-3">
             <div class="d-flex justify-content-between align-items-start">
               <div class="flex-grow-1 me-2">
-                <strong>${escapeHtml(d.platform || "unknown")}</strong>${statusBadge}
+                <strong>${escapeHtml(d.platform || "unknown")}</strong>${statusBadge}${coffeeBadge}
                 <br><small class="text-muted font-monospace">${escapeHtml(urlStr.slice(0, 70))}${urlStr.length > 70 ? "…" : ""}</small>
                 <br><small class="text-muted">最終同期: ${lastSync}</small>
                 ${d.lastSyncResult ? `<br><small class="text-muted">結果: ${escapeHtml(d.lastSyncResult)}</small>` : ""}
               </div>
               <div class="btn-group btn-group-sm flex-shrink-0">
+                <button class="btn btn-outline-${d.coffeePrep ? "warning" : "secondary"} ical-panel-coffee-toggle"
+                  data-id="${doc.id}" data-coffee="${d.coffeePrep === true}" title="コーヒー準備要否を切替">
+                  <i class="bi bi-cup-hot${d.coffeePrep ? "-fill" : ""}"></i>
+                </button>
                 <button class="btn btn-outline-${d.active === false ? "success" : "warning"} ical-panel-toggle"
                   data-id="${doc.id}" data-active="${d.active !== false}">
                   <i class="bi bi-${d.active === false ? "play" : "pause"}"></i>
@@ -403,6 +418,7 @@
         const url = urlInput?.value.trim() || "";
         const platform = platformInput?.value.trim() || "other";
         const pid = container.dataset.icalPid;
+        const coffeeChk = container.querySelector(".ical-panel-coffee");
         if (!url || !url.startsWith("http")) {
           showToast("エラー", "正しいiCal URLを入力してください", "error");
           return;
@@ -413,10 +429,12 @@
             platform: platform || "other",
             propertyId: pid,
             active: true,
+            coffeePrep: !!(coffeeChk && coffeeChk.checked),
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
           });
           if (urlInput) urlInput.value = "";
           if (platformInput) platformInput.value = "";
+          if (coffeeChk) coffeeChk.checked = false;
           showToast("追加", `${platform || "iCal"} URLを登録しました`, "success");
           loadList(container, pid);
         } catch (e) {
@@ -427,9 +445,23 @@
 
     // リスト領域内のトグル/削除はイベント委譲で捕捉
     container.addEventListener("click", async (e) => {
+      const coffeeBtn = e.target.closest(".ical-panel-coffee-toggle");
       const toggleBtn = e.target.closest(".ical-panel-toggle");
       const deleteBtn = e.target.closest(".ical-panel-delete");
       const pid = container.dataset.icalPid;
+
+      if (coffeeBtn) {
+        const id = coffeeBtn.dataset.id;
+        const isCoffee = coffeeBtn.dataset.coffee === "true";
+        try {
+          await db.collection("syncSettings").doc(id).update({ coffeePrep: !isCoffee });
+          showToast("更新", !isCoffee ? "コーヒー準備要フラグをONにしました" : "OFFにしました", "info");
+          loadList(container, pid);
+        } catch (err) {
+          showToast("エラー", `更新失敗: ${err.message}`, "error");
+        }
+        return;
+      }
 
       if (toggleBtn) {
         const id = toggleBtn.dataset.id;
@@ -545,6 +577,21 @@
         await loadVerificationEmailsInto(verifEl, propertyId);
       }
 
+      // ---- 追加: コーヒー準備チェックボックスを追加フォーム直下に挿入 ----
+      // (verifEl 挿入後に addRow.nextSibling へ入れることで addRow → coffeeRow → verifEl の順にする)
+      let coffeeRow = document.getElementById("propertyIcalCoffeeRow");
+      if (!coffeeRow && addRow) {
+        coffeeRow = document.createElement("div");
+        coffeeRow.id = "propertyIcalCoffeeRow";
+        coffeeRow.className = "form-check mt-1 mb-2";
+        coffeeRow.innerHTML = `
+          <input class="form-check-input" type="checkbox" id="propertyNewIcalCoffee">
+          <label class="form-check-label small text-muted" for="propertyNewIcalCoffee">
+            <i class="bi bi-cup-hot"></i> 「挽きたて珈琲」リスティング（この予約はコーヒー準備が必要）
+          </label>`;
+        addRow.parentNode.insertBefore(coffeeRow, addRow.nextSibling);
+      }
+
       const renderList = async () => {
         try {
           const snap = await db.collection("syncSettings")
@@ -563,17 +610,24 @@
             const statusBadge = d.active === false
               ? '<span class="badge bg-secondary ms-1">無効</span>'
               : '<span class="badge bg-success ms-1">有効</span>';
+            const coffeeBadge = d.coffeePrep === true
+              ? '<span class="badge bg-warning text-dark ms-1"><i class="bi bi-cup-hot"></i> コーヒー</span>'
+              : "";
             const urlStr = d.icalUrl || "";
             html += `
               <div class="list-group-item py-2 px-3">
                 <div class="d-flex justify-content-between align-items-start">
                   <div class="flex-grow-1 me-2">
-                    <strong>${escapeHtml(d.platform || "unknown")}</strong>${statusBadge}
+                    <strong>${escapeHtml(d.platform || "unknown")}</strong>${statusBadge}${coffeeBadge}
                     <br><small class="text-muted font-monospace">${escapeHtml(urlStr.slice(0, 70))}${urlStr.length > 70 ? "…" : ""}</small>
                     <br><small class="text-muted">最終同期: ${lastSync}</small>
                     ${d.lastSyncResult ? `<br><small class="text-muted">結果: ${escapeHtml(d.lastSyncResult)}</small>` : ""}
                   </div>
                   <div class="btn-group btn-group-sm flex-shrink-0">
+                    <button class="btn btn-outline-${d.coffeePrep ? "warning" : "secondary"} btnPropCoffeeIcal"
+                      data-id="${doc.id}" data-coffee="${d.coffeePrep === true}" title="コーヒー準備要否を切替">
+                      <i class="bi bi-cup-hot${d.coffeePrep ? "-fill" : ""}"></i>
+                    </button>
                     <button class="btn btn-outline-${d.active === false ? "success" : "warning"} btnPropToggleIcal"
                       data-id="${doc.id}" data-pid="${propertyId}" data-active="${d.active !== false}">
                       <i class="bi bi-${d.active === false ? "play" : "pause"}"></i>
@@ -610,6 +664,21 @@
             });
           });
 
+          // コーヒー準備要否トグル
+          listEl.querySelectorAll(".btnPropCoffeeIcal").forEach(btn => {
+            btn.addEventListener("click", async () => {
+              const id = btn.dataset.id;
+              const isCoffee = btn.dataset.coffee === "true";
+              try {
+                await db.collection("syncSettings").doc(id).update({ coffeePrep: !isCoffee });
+                showToast("更新", !isCoffee ? "コーヒー準備要フラグをONにしました" : "OFFにしました", "info");
+                renderList();
+              } catch (err) {
+                showToast("エラー", `更新失敗: ${err.message}`, "error");
+              }
+            });
+          });
+
         } catch (e) {
           listEl.innerHTML = `<div class="alert alert-danger py-1 small">読み込みエラー: ${escapeHtml(e.message)}</div>`;
         }
@@ -630,6 +699,7 @@
         freshBtn.addEventListener("click", async () => {
           const url = urlInput?.value.trim() || "";
           const platform = platformInput?.value.trim() || "other";
+          const coffeeChk = document.getElementById("propertyNewIcalCoffee");
           if (!url || !url.startsWith("http")) {
             showToast("エラー", "正しいiCal URLを入力してください", "error");
             return;
@@ -640,10 +710,12 @@
               platform: platform || "other",
               propertyId,
               active: true,
+              coffeePrep: !!(coffeeChk && coffeeChk.checked),
               createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             });
             if (urlInput) urlInput.value = "";
             if (platformInput) platformInput.value = "";
+            if (coffeeChk) coffeeChk.checked = false;
             showToast("追加", `${platform || "iCal"} URLを登録しました`, "success");
             renderList();
           } catch (e) {

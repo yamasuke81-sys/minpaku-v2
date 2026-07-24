@@ -328,8 +328,8 @@ const MyChecklistPage = {
 
     // 各 checklist にカウントを付与
     items.forEach(c => {
-      c._total = this._countListItems(c.templateSnapshot || []);
-      c._done = this._countListDone(c.templateSnapshot || [], c.itemStates || {});
+      c._total = this._countListItems(c.templateSnapshot || [], c.selectedGroupChoices || {});
+      c._done = this._countListDone(c.templateSnapshot || [], c.itemStates || {}, c.selectedGroupChoices || {});
       c._isCompleted = c.status === "completed";
       c._isAllDone = c._total > 0 && c._done === c._total;
     });
@@ -470,11 +470,18 @@ const MyChecklistPage = {
     }
   },
 
-  _countListItems(areas) {
+  _countListItems(areas, choices = {}) {
     let n = 0;
     const walk = (node) => {
       (node.items || []).forEach(() => n++);
       (node.directItems || []).forEach(() => n++);
+      // 選択式グループ: 選ばれた子カテゴリのみ数える (未選択・非選択の枝は除外)
+      const childCats = [...(node.taskTypes || []), ...(node.subCategories || []), ...(node.subSubCategories || [])];
+      if (node.isSelectGroup && childCats.length > 0) {
+        const sel = childCats.find(c => c.id === choices[node.id]);
+        if (sel) walk(sel);
+        return;
+      }
       (node.taskTypes || []).forEach(walk);
       (node.subCategories || []).forEach(walk);
       (node.subSubCategories || []).forEach(walk);
@@ -483,17 +490,55 @@ const MyChecklistPage = {
     return n;
   },
 
-  _countListDone(areas, states) {
+  _countListDone(areas, states, choices = {}) {
     let n = 0;
     const walk = (node) => {
       (node.items || []).forEach(it => { if (states[it.id]?.checked) n++; });
       (node.directItems || []).forEach(it => { if (states[it.id]?.checked) n++; });
+      const childCats = [...(node.taskTypes || []), ...(node.subCategories || []), ...(node.subSubCategories || [])];
+      if (node.isSelectGroup && childCats.length > 0) {
+        const sel = childCats.find(c => c.id === choices[node.id]);
+        if (sel) walk(sel);
+        return;
+      }
       (node.taskTypes || []).forEach(walk);
       (node.subCategories || []).forEach(walk);
       (node.subSubCategories || []).forEach(walk);
     };
     areas.forEach(walk);
     return n;
+  },
+
+  // 名簿から「10歳以上」の宿泊者数を数える (owner 経路のコーヒー豆計算用)。
+  // allGuests[] があればそれを、無ければ 代表者(age)+同行者(guests[]) を対象。年齢が判読不能なら null。
+  _countGuests10plus(g) {
+    if (!g || typeof g !== "object") return null;
+    let list = Array.isArray(g.allGuests) && g.allGuests.length ? g.allGuests : null;
+    if (!list) {
+      list = [];
+      if (g.age !== undefined && g.age !== null && String(g.age).trim() !== "") list.push({ age: g.age });
+      if (Array.isArray(g.guests)) list = list.concat(g.guests);
+    }
+    if (!list.length) return null;
+    let count = 0, known = false;
+    for (const p of list) {
+      const a = parseInt(String((p && p.age) != null ? p.age : "").trim(), 10);
+      if (Number.isFinite(a)) { known = true; if (a >= 10) count++; }
+    }
+    return known ? count : null;
+  },
+
+  // 宿泊日数 = 泊数 + 1 (2泊3日 → 3個/人)。ci/co は Timestamp/文字列いずれも可。算出不能なら null。
+  _stayDays(ci, co) {
+    const a = toDateStr(ci), b = toDateStr(co);
+    const m1 = String(a || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const m2 = String(b || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m1 || !m2) return null;
+    const t1 = Date.UTC(+m1[1], +m1[2] - 1, +m1[3]);
+    const t2 = Date.UTC(+m2[1], +m2[2] - 1, +m2[3]);
+    const nights = Math.round((t2 - t1) / 86400000);
+    if (!Number.isFinite(nights) || nights < 0) return null;
+    return nights + 1;
   },
 
   async attach() {
@@ -1689,6 +1734,32 @@ const MyChecklistPage = {
         const ciDisplay = nextGuest.checkInTime
           ? `${nbCiDate} <strong>${this.escapeHtml(nextGuest.checkInTime)}</strong>`
           : nbCiDate;
+
+        // コーヒー準備 (coffeePrepEnabled 物件=宿小町 のみ)。挽きたて珈琲リスティング由来の
+        // 予約は準備が必要。必要なコーヒー豆 = 10歳以上の人数 × 宿泊日数(泊数+1)。
+        let coffeeRow = "";
+        if (propDoc && propDoc.coffeePrepEnabled === true) {
+          if (nb.coffeePrep === true) {
+            // staff 経路は API がサーバ算出 (number|null)、owner 経路は名簿から client 算出
+            const cnt = (typeof nextGuest.coffeeGuests10plus === "number" || nextGuest.coffeeGuests10plus === null)
+              ? nextGuest.coffeeGuests10plus
+              : this._countGuests10plus(nextGuest);
+            const days = this._stayDays(nb.checkIn, nb.checkOut);
+            let beanText;
+            if (cnt != null && days != null) {
+              beanText = `<strong>${cnt * days}個</strong> <small class="text-muted">(10歳以上${cnt}名 × ${days}日分)</small>`;
+            } else if (days != null) {
+              beanText = `<span class="text-muted">名簿の年齢が未確定 (10歳以上1名につき${days}個)</span>`;
+            } else {
+              beanText = `<span class="text-muted">名簿の人数・日数が未確定</span>`;
+            }
+            coffeeRow = `
+                <tr><th class="text-muted">コーヒー準備</th><td><span class="badge bg-warning text-dark"><i class="bi bi-cup-hot-fill"></i> 必要</span> <small class="text-muted">挽きたて珈琲プラン</small></td></tr>
+                <tr><th class="text-muted">必要なコーヒー豆</th><td>${beanText}</td></tr>`;
+          } else {
+            coffeeRow = `<tr><th class="text-muted">コーヒー準備</th><td>不要</td></tr>`;
+          }
+        }
         nextHtml = `
           <div class="card">
             <div class="card-body">
@@ -1709,6 +1780,7 @@ const MyChecklistPage = {
                 ${isFieldVisible("transport", "facility") ? `<tr><th class="text-muted">交通手段</th><td>${nextGuest.transport ? this.escapeHtml(nextGuest.transport) : "-"}</td></tr>` : ""}
                 ${isFieldVisible("carCount", "facility") ? `<tr><th class="text-muted">車台数</th><td>${nextGuest.carCount ? this.escapeHtml(String(nextGuest.carCount)) + "台" : "-"}</td></tr>` : ""}
                 ${isFieldVisible("paidParking", "facility") ? `<tr><th class="text-muted">有料駐車場</th><td>${nextGuest.paidParking ? this.escapeHtml(nextGuest.paidParking) : "-"}</td></tr>` : ""}
+                ${coffeeRow}
               </table>
             </div>
           </div>`;
