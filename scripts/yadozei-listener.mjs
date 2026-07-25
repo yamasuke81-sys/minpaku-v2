@@ -38,7 +38,9 @@ import https from "node:https";
 import { handleOtaMessage } from "./ota-message.mjs";
 
 // ================== 定数 ==================
-const VERSION = "0.3.3"; // 0.3.3: 「復元しますか?」バブル抑止 + ログインモードは3サイトのタブのみ (about:blank を閉じる)
+const VERSION = "0.3.5"; // 0.3.5: 失効検知はどのタイミングでも「はい」ワンタップ再ログイン促し(pending書込+CRD URL)を出す
+// 0.3.4: Booking ログイン判定を session_check と取得で共通化(OAuthバウンス誤検出根絶)+DL段リトライ/途中失効検知
+// 0.3.3: 「復元しますか?」バブル抑止 + ログインモードは3サイトのタブのみ (about:blank を閉じる)
 const LOG_PREFIX = "[yadozei-listener]";
 
 const USER_DATA_DIR = path.join(os.homedir(), ".yadozei-playwright-chrome");
@@ -48,6 +50,11 @@ const SESSION_STATE_FILE = path.join(USER_DATA_DIR, "session-state.json");
 // 失効中の再通知は「次の月次取得 N 日前」から、最低 H 時間間隔でのみ行う
 const EXPIRE_REMIND_BEFORE_DAYS = 3;
 const EXPIRE_REMIND_MIN_INTERVAL_H = 20;
+// OTA失効を検知したら「どのタイミングでも」秘書(#民泊管理)経由でワンタップ再ログインを促すための連携先。
+// ota-login-check.mjs(朝4時)と同じ pending ファイル/チャンネルを使い、handleOne の「はい」が拾って runRelogin する。
+const MINPAKU_CHANNEL_ID = "1518754802572722306"; // #民泊管理 (channels.json minpaku。notifyDiscord_ の webhook も同チャンネル)
+const OTA_RELOGIN_PENDING_FILE = path.join(os.homedir(), ".claude", "channels", "discord", "ota-relogin-pending.json");
+const CRD_URL = "https://remotedesktop.google.com/access"; // Chromeリモートデスクトップ(外出先からPC操作)
 const TMP_DIR = path.join(os.tmpdir(), "yadozei-listener");
 const HEARTBEAT_INTERVAL_MS = 60_000;
 const MAX_RETRIES = 2;
@@ -839,6 +846,81 @@ function verifyBookingCsvMonth(csv, yearMonth) {
   return { count: checked };
 }
 
+// ================== Booking.com ログイン状態の共通判定 ==================
+// admin.booking.com は有効セッションでも一瞬 account.booking.com/sign-in?op_token=... へ
+// OAuthバウンスしてから home.htm へ自動復帰する。単発でURLを見ると復帰前を掴んで誤って
+// 「未ログイン」と判定してしまう(これが「点検OKなのに取得は未ログイン」食い違いの正体)。
+// session_check と fetchBookingCsvRange の両方でこの共通判定を使い、バウンス完了を待ってから
+// 「ログインフォームが残っているか」で確定させることで、両者が食い違わないようにする。
+const BOOKING_ADMIN_URL = "https://admin.booking.com/?lang=ja";
+
+// ログイン画面の確実なシグナル(ユーザー名入力欄／ログイン誘導見出し／アカウント作成ボタン)。
+async function bookingLoginFormVisible_(page) {
+  return (
+    (await page
+      .locator(
+        'input[name="username"], input[name="loginname"], ' +
+          ':text("ページ・予約の管理をするには"), :text("パートナー施設様向けアカウント"), ' +
+          ':text("パートナーアカウント"), :text("Sign in to manage")'
+      )
+      .first()
+      .count()
+      .catch(() => 0)) > 0
+  );
+}
+
+// ログイン済みの確実なシグナル。
+// バウンス直前の一瞬だけ admin が表示される事故を避けるため、「admin かつフォーム無し」では足りず、
+// ダッシュボードURL(home.htm/extranet/hoteladmin)か、ログイン後UI(予約ナビ/日付カテゴリ)の実在を要求する。
+async function bookingDashboardVisible_(page) {
+  const url = page.url();
+  if (/\/sign-?in|account\.booking\.com/i.test(url)) return false; // バウンス/サインイン中
+  if (!/admin\.booking\.com/i.test(url)) return false;
+  // 明確なダッシュボードURLなら確定 (session_check の実測 OK は必ず home.htm)。
+  if (/(hoteladmin|extranet|home\.htm|\/hotel\/)/i.test(url)) return true;
+  // admin.booking.com/?lang=ja のまま留まる場合は、ログイン後UIの実在で判定。
+  return (
+    (await page
+      .locator('a:has-text("予約"), a:has-text("Reservations"), [data-testid*="reservation"], :text("日付カテゴリ")')
+      .first()
+      .count()
+      .catch(() => 0)) > 0
+  );
+}
+
+// admin.booking.com へ遷移し、OAuthバウンス(sign-in?op_token)の自動復帰を待ってから
+// ログイン状態を確定する。返り値: "ok" | "logged_out"。
+// 有効セッションはバウンスが数秒で home.htm へ復帰する。settle待ちの中で
+//   - ログインフォームが出れば確定的に "logged_out"(それ以上待たない)
+//   - ダッシュボードが出れば確定的に "ok"
+// のどちらかが立つまで待つ。判定不能(遷移途中)のまま attempts 回粘っても決まらなければ安全側で "logged_out"。
+async function resolveBookingLoginState_(page, jobId, { attempts = 3, tag = "booking" } = {}) {
+  for (let a = 0; a < attempts; a++) {
+    await page
+      .goto(BOOKING_ADMIN_URL, { waitUntil: "domcontentloaded", timeout: 60_000 })
+      .catch(() => {});
+    // バウンス(account.booking.com/sign-in?op_token)からの自動復帰を最大 ~18秒待つ。
+    const settleDeadline = Date.now() + 18_000;
+    let decided = null;
+    while (Date.now() < settleDeadline) {
+      await page.waitForTimeout(1500);
+      if (await bookingLoginFormVisible_(page)) { decided = "logged_out"; break; }
+      if (await bookingDashboardVisible_(page)) { decided = "ok"; break; }
+      // まだバウンス途中 → 継続待機。
+    }
+    if (decided === "ok") return "ok";
+    if (decided === "logged_out") {
+      await saveScreenshot(page, jobId, `${tag}_not_logged_in`);
+      return "logged_out";
+    }
+    // 判定不能(バウンス継続 or 遷移未完) → もう一度リトライして復帰を待つ。
+    console.log(`${LOG_PREFIX} [booking-login] 判定不能(遷移途中) 試行${a + 1}/${attempts} url=${page.url().slice(0, 70)}`);
+  }
+  // リトライ後もログイン済みシグナルが取れない → 安全側で未ログイン扱い。
+  await saveScreenshot(page, jobId, `${tag}_login_indeterminate`);
+  return "logged_out";
+}
+
 // 期間指定で Booking.com 予約一覧 (xlsx→CSV変換済みテキスト) を取得する共通コア。
 // 月次取得 (handleBookingCsv) と夜間カレンダー監査 (handleCalendarAudit) で共用する。
 // first/last は "YYYY-MM-DD" (チェックイン日基準の絞込範囲)。返り値は CSVテキスト (検証・Drive保存はしない)。
@@ -846,20 +928,10 @@ async function fetchBookingCsvRange(ctx, jobId, first, last) {
   const page = await ctx.newPage();
   let tmpXlsx = null;
   try {
-    // lang=ja を明示して日本語表示を強制 (アカウント言語が英語だとセレクタ("予約"等)が一致しないため)
-    await page.goto("https://admin.booking.com/?lang=ja", {
-      waitUntil: "domcontentloaded",
-      timeout: 60_000,
-    });
-    await page.waitForTimeout(2500);
-
-    // 未ログインだと account.booking.com/sign-in へ飛ぶ (ハイフン有り"sign-in"・別ホスト)。
-    // 予約ページUIの有無も併せて判定し、ログアウト時は明確にエラーにする。
-    const loggedOut =
-      /account\.booking\.com|\/(login|signin|sign-in|sign_in)/i.test(page.url()) ||
-      (await page.locator(':text("Sign in to manage"), :text("パートナーアカウント"), input[name="username"], input[name="loginname"]').first().count().catch(() => 0)) > 0;
-    if (loggedOut) {
-      await saveScreenshot(page, jobId, "booking_not_logged_in");
+    // ログイン状態は session_check と同じ共通判定を使う (lang=ja へ遷移し OAuthバウンス完了を待つ)。
+    // 単発判定だとバウンス途中を掴んで誤って「未ログイン」になり、点検OKでも取得0になる食い違いが起きるため。
+    const loginState = await resolveBookingLoginState_(page, jobId, { tag: "booking" });
+    if (loginState !== "ok") {
       throw new Error("Booking.com extranet 未ログイン (再ログインが必要: node yadozei-listener.mjs --login でログイン)");
     }
 
@@ -1039,13 +1111,46 @@ async function fetchBookingCsvRange(ctx, jobId, first, last) {
       throw new Error(`Booking.com 対象月(${first}〜${last})のダウンロードがタイムアウト (5分)`);
     }
 
-    // 対象行の「ダウンロード可能」クリック → xlsx を受信
-    const [download] = await Promise.all([
-      page.waitForEvent("download", { timeout: 60_000 }).catch((e) => {
-        throw new Error(`Booking.com ダウンロード待機タイムアウト: ${e.message}`);
-      }),
-      downloadTrigger.click({ timeout: 8000 }),
-    ]);
+    // 対象行の「ダウンロード可能」クリック → xlsx を受信。
+    // ダウンロードが発火しないこと(セッション不安定・サーバ側の生成遅延)があるため、対象行を都度
+    // 取り直しつつ最大3回リトライする。フロー途中でログイン画面に落ちた場合は「取得中に失効」と明示して
+    // エラーにする(誤検知でない本物の失効として分類し、再ログイン導線につなげる)。
+    let download = null;
+    const DL_ATTEMPTS = 3;
+    for (let attempt = 1; attempt <= DL_ATTEMPTS && !download; attempt++) {
+      if (await bookingLoginFormVisible_(page)) {
+        await saveScreenshot(page, jobId, "booking_session_died_midflow");
+        throw new Error("Booking.com extranet セッションが取得中に切れた (再ログインが必要: node yadozei-listener.mjs --login でログイン)");
+      }
+      try {
+        const [dl] = await Promise.all([
+          page.waitForEvent("download", { timeout: 45_000 }),
+          downloadTrigger.click({ timeout: 8000 }),
+        ]);
+        download = dl;
+      } catch (e) {
+        console.warn(`${LOG_PREFIX} Booking ダウンロード発火せず (試行${attempt}/${DL_ATTEMPTS}): ${e.message}`);
+        if (attempt < DL_ATTEMPTS) {
+          // 「ダウンロード」メニューを開き直して対象月の行を取り直す(古いハンドルはデタッチされている)。
+          for (const sel of dlMenuCandidates) {
+            try {
+              const loc = page.locator(sel).first();
+              if (await loc.count()) { await loc.click({ timeout: 3000 }); await page.waitForTimeout(1500); break; }
+            } catch (_) { /* ignore */ }
+          }
+          await page.waitForTimeout(1500);
+          const dlEls2 = await page.getByText("ダウンロード可能").all().catch(() => []);
+          for (const el of dlEls2) {
+            const t = await ancestorRowText(el).catch(() => "");
+            if (t.includes(first) && t.includes(last)) { downloadTrigger = el; break; }
+          }
+        }
+      }
+    }
+    if (!download) {
+      await saveScreenshot(page, jobId, "booking_download_no_fire");
+      throw new Error(`Booking.com ダウンロードが発火しない (${DL_ATTEMPTS}回試行)`);
+    }
 
     tmpXlsx = path.join(TMP_DIR, `booking_${jobId}_${Date.now()}.xlsx`);
     await download.saveAs(tmpXlsx);
@@ -1842,11 +1947,43 @@ async function nextMonthlyFetchInfo_() {
   };
 }
 
+// OTA失効検知時、秘書(#民泊管理)の「はい」ワンタップ再ログインを有効化する pending を書く。
+// ota-login-check.mjs(朝4時)と同一ファイル・スキーマ。これで「どのタイミングでも」失効検知→即プロンプトが成立する。
+function writeOtaReloginPending_(sites) {
+  try {
+    fs.mkdirSync(path.dirname(OTA_RELOGIN_PENDING_FILE), { recursive: true });
+    fs.writeFileSync(
+      OTA_RELOGIN_PENDING_FILE,
+      JSON.stringify({ pending: true, ts: new Date().toISOString(), sites, channelId: MINPAKU_CHANNEL_ID }, null, 2)
+    );
+    console.log(`${LOG_PREFIX} [session_check] OTA再ログイン pending 書込 (${sites.join("/")})`);
+  } catch (e) {
+    console.warn(`${LOG_PREFIX} [session_check] pending 書込失敗: ${e.message}`);
+  }
+}
+// 復帰(再ログイン確認)時に stale な pending を掃除する(別経路でログインした場合の後始末)。
+function clearOtaReloginPending_() {
+  try {
+    if (fs.existsSync(OTA_RELOGIN_PENDING_FILE)) {
+      fs.writeFileSync(OTA_RELOGIN_PENDING_FILE, JSON.stringify({ pending: false, clearedAt: new Date().toISOString() }));
+    }
+  } catch (_) { /* ignore */ }
+}
+// 再ログイン導線(はい/閉じて + CRD URL)。newlyExpired/リマインド 双方で共通に使う。
+function reloginPromptLines_() {
+  return [
+    `▶ 再ログイン: このチャンネルに **「はい」** と送信 → PCでログイン画面が自動で開きます → ログイン後 **「閉じて」** と送信で完了(自動取得を再開)。`,
+    `📱 外出先からは Chromeリモートデスクトップ ${CRD_URL} でPCに接続してログインできます。（「OTA再ログイン」/PC直接の \`scripts\\yadozei-relogin.cmd\` でも可）`,
+  ];
+}
+
 // 3サイトのログイン状態を点検。切れていれば Discord 通知。アクセス自体がキープアライブ(セッション延命)。
 async function handleSessionCheck(ctx, jobId) {
   const sites = [
     { name: "Airbnb", url: "https://www.airbnb.com/hosting/reservations", re: /\/login|signin|sign_in|authwall/i },
-    { name: "Booking.com", url: "https://admin.booking.com/?lang=ja", re: /account\.booking\.com|\/(login|signin|sign-in|sign_in)/i },
+    // Booking は取得(fetchBookingCsvRange)と全く同じ共通判定を使う。点検OKなのに取得は未ログイン、という
+    // 食い違いを構造的に無くすため、URL正規表現ではなく resolveBookingLoginState_ で判定する。
+    { name: "Booking.com", url: BOOKING_ADMIN_URL, check: (p) => resolveBookingLoginState_(p, jobId, { tag: "session_booking" }) },
     { name: "やどぜい", url: "https://app.yadozei.com/", re: /\/login/i },
   ];
   const sessions = {};
@@ -1854,20 +1991,28 @@ async function handleSessionCheck(ctx, jobId) {
   for (const s of sites) {
     const p = await ctx.newPage();
     try {
-      await p.goto(s.url, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
-      await p.waitForTimeout(3500); // リダイレクト確定待ち
-      let url = p.url();
-      let out = s.re.test(url);
-      if (out) {
-        // 誤検知対策(2026-07-14実測: Booking がリダイレクト途中の op_token 付きsign-in URLを掴まれ
-        // 「失効」誤報→1時間後のチェックで自然にOKへ戻った)。5秒置いて再訪問し、
-        // 2回連続で未ログインのときだけ失効と判定する。
-        await p.waitForTimeout(5000);
+      let url;
+      let out;
+      if (s.check) {
+        // 共通ログイン判定(取得と同一ロジック)。自前で遷移・バウンス待ち・スクショまで行う。
+        const state = await s.check(p);
+        out = state !== "ok";
+        url = p.url();
+      } else {
         await p.goto(s.url, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
-        await p.waitForTimeout(3500);
+        await p.waitForTimeout(3500); // リダイレクト確定待ち
         url = p.url();
         out = s.re.test(url);
-        if (!out) console.log(`${LOG_PREFIX} [session_check] ${s.name}: 初回の未ログイン判定は一過性(再訪問でOK)`);
+        if (out) {
+          // 誤検知対策(2026-07-14実測: リダイレクト途中の sign-in URL を掴む一過性がある)。
+          // 5秒置いて再訪問し、2回連続で未ログインのときだけ失効と判定する。
+          await p.waitForTimeout(5000);
+          await p.goto(s.url, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
+          await p.waitForTimeout(3500);
+          url = p.url();
+          out = s.re.test(url);
+          if (!out) console.log(`${LOG_PREFIX} [session_check] ${s.name}: 初回の未ログイン判定は一過性(再訪問でOK)`);
+        }
       }
       sessions[s.name] = out ? "logged_out" : "ok";
       if (out) loggedOut.push(s.name);
@@ -1929,6 +2074,7 @@ async function handleSessionCheck(ctx, jobId) {
     notices.push(
       `✅ **OTA/宿泊税: ${recovered.join(" / ")} 再ログイン確認** — 自動取得・キープアライブを再開しました。セッション持続日数はここから自動計測します。`
     );
+    clearOtaReloginPending_(); // 復帰したので stale な「はい」待ちを掃除
   }
 
   // 再ログインで Airbnb/Booking が復帰したら、失効で滞っていた OTA 実予約取得(calendar_audit)を即実行する。
@@ -1961,8 +2107,9 @@ async function handleSessionCheck(ctx, jobId) {
       }
     }
     const next = await getNextInfo();
-    lines.push(`次の月次取得は ${next.dateLabel}（あと${next.daysUntil}日）。その${EXPIRE_REMIND_BEFORE_DAYS}日前までは再通知しません。`);
-    lines.push(`再ログイン: このチャンネルに **「OTA再ログイン」** と送信（PC側の準備は全自動）→ 開いたブラウザでログイン → 閉じるだけ。PCから直接なら \`scripts\\yadozei-relogin.cmd\` でも可`);
+    lines.push(`次の月次取得は ${next.dateLabel}（あと${next.daysUntil}日）。`);
+    lines.push(...reloginPromptLines_());
+    writeOtaReloginPending_(newlyExpired); // 「はい」ワンタップ再ログインを有効化(どのタイミングの失効でも)
     notices.push(lines.join("\n"));
   }
   if (stillExpired.length) {
@@ -1977,9 +2124,11 @@ async function handleSessionCheck(ctx, jobId) {
       }
     }
     if (due.length) {
+      writeOtaReloginPending_(due); // 「はい」ワンタップ再ログインを有効化(pending を新鮮に保つ)
       notices.push(
         `⏰ **リマインド: ${due.join(" / ")} が未ログインのまま月次取得が迫っています**\n` +
-        `次の月次取得: ${next.dateLabel}（あと${next.daysUntil}日）。このチャンネルに **「OTA再ログイン」** と送信 → 開いたブラウザでログイン → 閉じるだけ（PCから直接なら \`scripts\\yadozei-relogin.cmd\`）`
+        `次の月次取得: ${next.dateLabel}（あと${next.daysUntil}日）。\n` +
+        reloginPromptLines_().join("\n")
       );
     } else {
       console.log(`${LOG_PREFIX} [session_check] 失効継続中(${stillExpired.join(",")}) — 再通知条件外のため抑制`);
