@@ -34,6 +34,8 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import https from "node:https";
+// OTA自動返信(名簿確認メッセージ)の隔離ハンドラ。CSV系コードには触れず、直列ドレインに相乗りする。
+import { handleOtaMessage } from "./ota-message.mjs";
 
 // ================== 定数 ==================
 const VERSION = "0.3.3"; // 0.3.3: 「復元しますか?」バブル抑止 + ログインモードは3サイトのタブのみ (about:blank を閉じる)
@@ -1762,6 +1764,41 @@ async function notifyDiscord_(content) {
   } catch (e) { console.warn(`${LOG_PREFIX} [session_check] Discord通知失敗: ${e.message}`); }
 }
 
+// Discord Webhook へ画像添付POST(multipart)。OTA自動返信のテストモードで「実際に入力された文面」の
+// スクショを owner に見せて確認できるようにするため。失敗時はテキストのみにフォールバック。
+async function notifyDiscordImage_(pngPath, caption) {
+  try {
+    const doc = await db.collection("settings").doc("notifications").get();
+    const url = doc.exists && doc.data()?.settings?.discordOwnerWebhookUrl;
+    if (!url || !pngPath || !fs.existsSync(pngPath)) { await notifyDiscord_(caption); return; }
+    const u = new URL(url);
+    const boundary = "----yzimg" + Date.now();
+    const fileBuf = fs.readFileSync(pngPath);
+    const pre = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="content"\r\n\r\n${String(caption || "").slice(0, 1900)}\r\n` +
+        `--${boundary}\r\nContent-Disposition: form-data; name="files[0]"; filename="preview.png"\r\nContent-Type: image/png\r\n\r\n`,
+      "utf8"
+    );
+    const post = Buffer.from(`\r\n--${boundary}--\r\n`, "utf8");
+    const body = Buffer.concat([pre, fileBuf, post]);
+    await new Promise((resolve) => {
+      const req = https.request(
+        {
+          hostname: u.hostname, path: u.pathname + u.search, method: "POST",
+          headers: { "Content-Type": `multipart/form-data; boundary=${boundary}`, "Content-Length": body.length, "User-Agent": "yadozei-listener" },
+        },
+        (res) => { res.on("data", () => {}); res.on("end", () => resolve()); }
+      );
+      req.on("error", () => resolve());
+      req.write(body); req.end();
+    });
+    console.log(`${LOG_PREFIX} Discord画像通知 送信`);
+  } catch (e) {
+    console.warn(`${LOG_PREFIX} Discord画像通知失敗: ${e.message}`);
+    try { await notifyDiscord_(caption); } catch (_) {}
+  }
+}
+
 // ---- セッション状態の永続化 (サイト別: sessionStartAt / lastOkAt / expiredSince / lastExpiredNotifyAt) ----
 function loadSessionState_() {
   try { return JSON.parse(fs.readFileSync(SESSION_STATE_FILE, "utf8")); } catch (_) { return {}; }
@@ -1893,6 +1930,24 @@ async function handleSessionCheck(ctx, jobId) {
       `✅ **OTA/宿泊税: ${recovered.join(" / ")} 再ログイン確認** — 自動取得・キープアライブを再開しました。セッション持続日数はここから自動計測します。`
     );
   }
+
+  // 再ログインで Airbnb/Booking が復帰したら、失効で滞っていた OTA 実予約取得(calendar_audit)を即実行する。
+  // 日付ベースID(calendar_audit_{ymd})は既存でスキップされうるので、ユニークIDで強制新規投入する
+  // (handleCalendarAudit が当日スナップショットを新鮮なデータで上書き→朝の突合が正しく回る)。
+  if (recovered.some((n) => /airbnb|booking/i.test(n))) {
+    try {
+      await db.collection("yadozeiQueue").doc(`calendar_audit_recovery_${Date.now()}`).create({
+        kind: "calendar_audit",
+        status: "pending",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        source: "listener_relogin_recovery",
+      });
+      console.log(`${LOG_PREFIX} [session_check] 再ログイン復帰(${recovered.join("/")}) → calendar_audit を即時投入`);
+      notices.push(`🔄 再ログイン復帰につき、OTA実予約の取得(カレンダー突合用)を今すぐ実行します。`);
+    } catch (e) {
+      console.warn(`${LOG_PREFIX} [session_check] 復帰時 calendar_audit 投入失敗: ${e.message}`);
+    }
+  }
   if (newlyExpired.length) {
     const lines = [
       `⚠️ **OTA/宿泊税 自動取得: セッション失効**`,
@@ -1988,6 +2043,9 @@ async function handleJob(docId, job) {
       result = await handleSessionCheck(ctx, docId);
     } else if (job.kind === "calendar_audit") {
       result = await handleCalendarAudit(job, ctx, docId);
+    } else if (job.kind === "ota_message") {
+      // OTA自動返信（名簿確認メッセージ）。隔離モジュールに委譲。ctx/ログイン資産を再利用。
+      result = await handleOtaMessage(job, ctx, docId, { db, admin, notifyDiscord_, notifyDiscordImage_, LOG_PREFIX, saveScreenshot });
     } else {
       throw new Error(`未知の kind: ${job.kind}`);
     }
@@ -1997,6 +2055,7 @@ async function handleJob(docId, job) {
     const isPdf = job.kind === "yadozei_pdf_fetch";
     const isSessionCheck = job.kind === "session_check";
     const isCalendarAudit = job.kind === "calendar_audit";
+    const isOtaMessage = job.kind === "ota_message";
 
     // queue ドキュメントの result を kind 別に整形
     const queueResult =
@@ -2004,9 +2063,11 @@ async function handleJob(docId, job) {
         ? { sessions: result.sessions, loggedOut: result.loggedOut }
         : isCalendarAudit
           ? { date: result.date, status: result.status, counts: result.counts, errors: result.errors, unassignedCount: result.unassignedCount }
-          : isFetch || isPdf
-            ? { fileName: result.fileName, driveFileId: result.fileId, driveLink: result.webViewLink, taxCopy: result.taxCopy || null }
-            : { uploaded: true };
+          : isOtaMessage
+            ? { sent: result.sent, verified: result.verified, ota: result.ota, dryRun: result.dryRun }
+            : isFetch || isPdf
+              ? { fileName: result.fileName, driveFileId: result.fileId, driveLink: result.webViewLink, taxCopy: result.taxCopy || null }
+              : { uploaded: true };
     await ref.update({
       status: "done",
       completedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -2146,8 +2207,19 @@ if (LOGIN_MODE) {
     console.log(`${LOG_PREFIX} ================================================`);
     console.log(`${LOG_PREFIX} 3サイトのタブを開きました。各タブでログインしてください:`);
     console.log(`${LOG_PREFIX}   1) Airbnb  2) Booking.com extranet  3) やどぜい`);
-    console.log(`${LOG_PREFIX} ログイン完了後、ブラウザを閉じれば自動で終了します (Ctrl+C でも可)`);
+    console.log(`${LOG_PREFIX} ログイン完了後、ブラウザを閉じれば自動で終了します (Ctrl+C でも可 / Discordに「閉じて」でも可)`);
     console.log(`${LOG_PREFIX} ================================================`);
+    // Discord「閉じて」コマンド用: シグナルファイルが現れたら行儀よく閉じる(ctx.close()=Cookie保存)。
+    // kill ではなく context.close() を使うことでログイン Cookie が確実に USER_DATA_DIR へ保存される。
+    const CLOSE_SIGNAL = path.join(USER_DATA_DIR, "close-login-signal");
+    try { fs.rmSync(CLOSE_SIGNAL, { force: true }); } catch (_) {} // 古い残骸を掃除(誤閉じ防止)
+    const closePoll = setInterval(async () => {
+      if (!fs.existsSync(CLOSE_SIGNAL)) return;
+      try { fs.rmSync(CLOSE_SIGNAL, { force: true }); } catch (_) {}
+      clearInterval(closePoll);
+      console.log(`${LOG_PREFIX} 「閉じて」シグナル受信 → ブラウザを閉じます(ログイン保存)。`);
+      try { await ctx.close(); } catch (_) { process.exit(0); } // close()→'close'ハンドラ経由で exit(0)
+    }, 2000);
     // プロセスを生かし続ける (Chromium を開いたまま)
     setInterval(() => {}, 1 << 30);
   })().catch((e) => {
