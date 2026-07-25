@@ -1,0 +1,148 @@
+/**
+ * OTA(Airbnb/Booking.com)ログイン点検 — Discord秘書の command型ルーチン（毎朝4:00）。
+ *
+ * 1. yadozeiQueue に session_check を1件投入し(最新状態＋キープアライブ)、完了を待って結果を読む。
+ * 2. Airbnb / Booking.com が失効(logged_out)していたら:
+ *    - 再ログイン待ちの pending ファイルを書く（handleOne が「はい/いいえ」で拾う）。
+ *    - NOTIFY: 行を出力 → 秘書が #民泊管理 へ「再ログインしますか？(はい/いいえ)」を投稿(Chromeリモートデスクトップ URL 付き)。
+ * 3. 全てログイン中なら無音(pending は掃除)。
+ *
+ * firebase-admin は使わない(常駐スクリプトの libuv assert 回避)。gcloud ADC + Firestore REST のみ。
+ * process.exit() も使わない(自然終了。exitCode のみ)。
+ */
+import { execSync } from "node:child_process";
+import { writeFileSync, existsSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+const PROJECT = "minpaku-v2";
+const FS_BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents`;
+const PENDING_FILE = join(homedir(), ".claude", "channels", "discord", "ota-relogin-pending.json");
+const MINPAKU_CHANNEL_ID = "1518754802572722306"; // channels.json: minpaku=民泊管理
+const CRD_URL = "https://remotedesktop.google.com/access";
+const WATCH = ["Airbnb", "Booking.com"]; // 点検対象(やどぜいは対象外)
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function token() {
+  return execSync("gcloud auth application-default print-access-token", { encoding: "utf8", windowsHide: true }).trim();
+}
+async function fsGet(path, tok) {
+  const r = await fetch(`${FS_BASE}/${path}`, { headers: { Authorization: `Bearer ${tok}` } });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(`GET ${path} ${r.status}: ${(await r.text()).slice(0, 160)}`);
+  return r.json();
+}
+// logged_out 配列を Firestore REST の doc から取り出す（session_check ジョブ result or settings）
+function extractLoggedOut(fields) {
+  try {
+    const sc = fields.result?.mapValue?.fields || fields.sessionCheck?.mapValue?.fields;
+    const arr = sc?.loggedOut?.arrayValue?.values || [];
+    return arr.map((v) => v.stringValue).filter(Boolean);
+  } catch (_) {
+    return null;
+  }
+}
+
+const TEST = process.argv.includes("--test"); // 実際の失効を待たずに NOTIFY+pending 経路を検証する
+
+(async () => {
+  // --test: session_check をスキップし、Booking 失効を強制して通知経路だけ確認する
+  if (TEST) {
+    const expired = ["Booking.com"];
+    try {
+      writeFileSync(
+        PENDING_FILE,
+        JSON.stringify({ pending: true, ts: new Date().toISOString(), sites: expired, channelId: MINPAKU_CHANNEL_ID }, null, 2)
+      );
+    } catch (e) {
+      console.error("pending 書込失敗:", e.message);
+    }
+    console.log(`NOTIFY: 🔑 OTAのログインが切れています（${expired.join(" / ")}）。`);
+    console.log(`NOTIFY: 再ログインしますか？ このチャンネルで「はい」と送るとメインPCにログイン画面を開きます（不要なら「いいえ」）。`);
+    console.log(`NOTIFY: 📱 外出先からは → Chromeリモートデスクトップ ${CRD_URL} でメインPCに接続してログインできます。`);
+    console.log("[ota-login-check] --test: pending を書き NOTIFY を出力しました(実際のログイン状態は未確認)。");
+    process.exitCode = 0;
+    return;
+  }
+
+  let tok;
+  try {
+    tok = token();
+  } catch (e) {
+    console.error("gcloud ADC token 取得失敗:", e.message);
+    process.exitCode = 1;
+    return;
+  }
+
+  // 1) session_check を新規投入(ユニークID=常に実行される)
+  const jobId = `session_check_otalogincheck_${Date.now()}`;
+  let loggedOut = null;
+  try {
+    const body = {
+      fields: {
+        kind: { stringValue: "session_check" },
+        status: { stringValue: "pending" },
+        source: { stringValue: "ota_login_check" },
+        createdAt: { timestampValue: new Date().toISOString() },
+      },
+    };
+    const r = await fetch(`${FS_BASE}/yadozeiQueue?documentId=${jobId}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok && r.status !== 409) console.error("session_check 投入失敗:", r.status, (await r.text()).slice(0, 160));
+
+    // 2) 完了までポーリング(最大 ~150s。4時は queue が空いているので通常30-60s)
+    for (let i = 0; i < 50; i++) {
+      await sleep(3000);
+      const doc = await fsGet(`yadozeiQueue/${jobId}`, tok);
+      const st = doc?.fields?.status?.stringValue;
+      if (st === "done" || st === "failed") {
+        loggedOut = extractLoggedOut(doc.fields);
+        break;
+      }
+    }
+  } catch (e) {
+    console.error("session_check 実行中エラー:", e.message);
+  }
+
+  // フォールバック: session_check の結果が読めなければ settings/yadozeiListener の最新状態を使う
+  if (loggedOut === null) {
+    try {
+      const s = await fsGet("settings/yadozeiListener", tok);
+      if (s?.fields) loggedOut = extractLoggedOut(s.fields);
+    } catch (_) {}
+  }
+  if (loggedOut === null) loggedOut = []; // 判定不能なら「切れていない」扱い(誤って毎朝催促しない)
+
+  const expired = WATCH.filter((name) => loggedOut.includes(name));
+
+  if (expired.length === 0) {
+    // 全てログイン中 → pending を掃除して無音終了
+    try {
+      if (existsSync(PENDING_FILE)) rmSync(PENDING_FILE);
+    } catch (_) {}
+    console.log(`[ota-login-check] 全てログイン中 (loggedOut=${JSON.stringify(loggedOut)})`);
+    process.exitCode = 0;
+    return;
+  }
+
+  // 3) 失効あり → pending を書いて NOTIFY 出力
+  try {
+    writeFileSync(
+      PENDING_FILE,
+      JSON.stringify({ pending: true, ts: new Date().toISOString(), sites: expired, channelId: MINPAKU_CHANNEL_ID }, null, 2)
+    );
+  } catch (e) {
+    console.error("pending ファイル書き込み失敗:", e.message);
+  }
+  const sitesLabel = expired.join(" / ");
+  console.log(`NOTIFY: 🔑 OTAのログインが切れています（${sitesLabel}）。`);
+  console.log(`NOTIFY: 再ログインしますか？ このチャンネルで「はい」と送るとメインPCにログイン画面を開きます（不要なら「いいえ」）。`);
+  console.log(`NOTIFY: 📱 外出先からは → Chromeリモートデスクトップ ${CRD_URL} でメインPCに接続してログインできます。`);
+  process.exitCode = 0;
+})().catch((e) => {
+  console.error("ota-login-check 例外:", e.message);
+  process.exitCode = 1;
+});

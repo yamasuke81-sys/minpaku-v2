@@ -488,6 +488,14 @@ exports.onGuestFormUpdate = onDocumentUpdated(
   require("./triggers/onGuestFormUpdate")
 );
 
+// キーボックス送信予約(keyboxConfirmedAt 無→有)→ OTA(Airbnb/Booking)ゲストへ名簿確認メッセージを
+// 自動送信するため otaMessageQueue に投入。実送信は PC 常駐ワーカーが担う。
+// マスタースイッチ settings/otaAutoReply.enabled が false の間は完全に不活性（既定OFF）。
+exports.onKeyboxConfirmed = onDocumentUpdated(
+  { document: "guestRegistrations/{guestId}", region: "asia-northeast1" },
+  require("./triggers/onKeyboxConfirmed")
+);
+
 // 宿泊者名簿 新規作成→GAS版スプシへ自動転記（リバース連携）
 exports.onGuestRegistrationToGas = onDocumentCreated(
   { document: "guestRegistrations/{guestId}", region: "asia-northeast1" },
