@@ -34,6 +34,11 @@ const FIXED_BASE = 5720;
 const OPEN_YM = "2026-05";                                // 開通月。これ未満は対象外
 
 const DRY = process.argv.includes("--dry");
+const OPEN_LOGIN = process.argv.includes("--open-login");   // Discordボタン用: ログイン画面を開いて終わる
+// 再ログイン催促は1日1回まで(毎朝07:42に🚨が飛び続けるのを防ぐ)
+const STATE_PATH = "C:/Users/yamas/.claude/channels/discord/docomo-hikari-state.json";
+const loadState = () => { try { return JSON.parse(readFileSync(STATE_PATH, "utf8")); } catch { return { promptedYmd: {} }; } };
+const saveState = (s) => { try { writeFileSync(STATE_PATH, JSON.stringify(s, null, 2)); } catch {} };
 const mi = process.argv.indexOf("--month");
 const nowJst = new Date(Date.now() + 9 * 3600 * 1000);
 const curYm = `${nowJst.getUTCFullYear()}-${String(nowJst.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -165,6 +170,17 @@ async function dumpDebug_(page, usageYm) {
 }
 
 (async () => {
+  // Discordの「🔑 ログイン画面を開く」ボタン用: debug Chrome に eビリングを開いて前面化し、そのまま残す
+  if (OPEN_LOGIN) {
+    const browser = await connectCdp();
+    const page = await browser.contexts()[0].newPage();
+    await page.goto(EBILL_URL, { waitUntil: "domcontentloaded", timeout: 40000 }).catch(() => {});
+    await page.bringToFront().catch(() => {});
+    await browser.close();   // CDP接続を切るだけ(ブラウザとタブは残る)
+    console.log("NOTIFY: 🖥️ PCに My docomo(dアカウント)のログイン画面を開きました。ログインが済んだら「⚡ ログインしたので取り込む」を押してください。");
+    process.exitCode = 0; return;
+  }
+
   console.log(`ドコモ光 取込: 使用月=${USAGE_YM} ${DRY ? "[dry]" : ""}`);
   if (USAGE_YM < OPEN_YM) { console.log(`開通(${OPEN_YM})前のため対象外。`); process.exitCode = 0; return; }
   const fixed = fixedFor(USAGE_YM);
@@ -181,6 +197,12 @@ async function dumpDebug_(page, usageYm) {
   } finally {
     await page.close().catch(() => {});
     await browser.close();
+  }
+
+  // 取得できた=ログインが生きている。次に切れたとき即催促できるよう催促フラグを畳む
+  if (actual != null) {
+    const st = loadState();
+    if (st.promptedYmd?.[USAGE_YM]) { delete st.promptedYmd[USAGE_YM]; saveState(st); }
   }
 
   const amount = actual != null ? actual : fixed;
@@ -206,11 +228,21 @@ async function dumpDebug_(page, usageYm) {
 
   // 3) 通知(要点だけ #経理 へ)
   if (actual == null) {
-    const needLogin = /未ログイン|ログイン画面|ログインフォーム/.test(fetchReason);
-    const tail = needLogin
-      ? "debug Chrome で My docomo(dアカウント)に再ログインしてください。"
-      : "My docomo で内訳をご確認ください。";
-    console.log(`NOTIFY: 🚨 ドコモ光 ${USAGE_YM} の実額をeビリングから取得できませんでした(${fetchReason})。固定額¥${fixed.toLocaleString()}で${changed ? "暫定計上" : "維持"}。${tail}`);
+    // dアカウントのログイン切れは「異常」ではなく「やますけの一手待ち」。ボタン付きで催促し、1日1回に絞る。
+    if (/未ログイン|ログイン画面|ログインフォーム/.test(fetchReason)) {
+      const st = loadState();
+      const ymd = `${nowJst.getUTCFullYear()}-${String(nowJst.getUTCMonth() + 1).padStart(2, "0")}-${String(nowJst.getUTCDate()).padStart(2, "0")}`;
+      if (st.promptedYmd?.[USAGE_YM] === ymd) {
+        console.log("(未ログイン: 本日は催促済みのため通知しない)");
+        process.exitCode = 0; return;
+      }
+      st.promptedYmd = { ...(st.promptedYmd || {}), [USAGE_YM]: ymd };
+      saveState(st);
+      console.log(`NOTIFY: 🔑 ドコモ光 ${USAGE_YM} の実額裏取りに **My docomo の再ログイン**が必要です(dアカウントのログインが切れています)。固定額¥${fixed.toLocaleString()}で${changed ? "暫定計上" : "維持"}済みなので急ぎではありません。下のボタンでPCにログイン画面を開けます。`);
+      console.log("BUTTONS: docomo_login");
+      process.exitCode = 0; return;   // 催促は正常系(非0だとルーチンがエラー通知を二重に出す)
+    }
+    console.log(`NOTIFY: 🚨 ドコモ光 ${USAGE_YM} の実額をeビリングから取得できませんでした(${fetchReason})。固定額¥${fixed.toLocaleString()}で${changed ? "暫定計上" : "維持"}。My docomo で内訳をご確認ください。`);
     process.exitCode = 1;
   } else if (actual !== fixed) {
     console.log(`NOTIFY: ⚠️ ドコモ光 ${USAGE_YM} の実額¥${actual.toLocaleString()}が固定想定¥${fixed.toLocaleString()}と異なります(割引/料金変動の可能性)。実額で${changed ? (prev ? "更新" : "計上") : "一致(変更なし)"}しました。`);

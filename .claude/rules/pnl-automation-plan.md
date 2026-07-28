@@ -418,6 +418,15 @@ Workflow audit(65エージェント/54 findings→adversarial verify通過27件)
 - **若草**の楽天でんき開通後は rakuten-denki-monthly.mjs の `CONTRACTS` に1行追加で同枠に乗る(pid=ZXW6wdpnBFk1azQ87KXQ)。
 - discord-secretary(PM2)再起動で新ルーチン+経理ペルソナ反映済(起動ログで `楽天でんき 月次計上…@08:00` ロード確認)。`--check` スモークテスト緑(未ログイン=session/upgrade を正しく検出)。**初回実戦=8/1〜7に2026-07使用分**(やますけが1回ログイン→「楽天取り込み」返信で計上)。
 
+## DONE(2026-07-29 ドコモ光 eビリング取得をBooking.com方式に統一+再ログイン催促のボタン化)
+「🚨ドコモ光 2026-06 の実額を取得できませんでした(表示検証NG(番号false/月false))」の**真因はdアカウントのログイン切れ**だった。表示検証の失敗ではない。
+- **誤報の構造(Bookingの「点検OKなのに取得0件」と同型)**: ログイン画面URLが `cfg.smt.docomo.ne.jp/aif/tra/flow/v1.0/auth` で、旧判定の `sso/|login.account|/sign_in` をすり抜け → login と判定できず pending 扱い → 固定waitの後の**単発判定**で「表示検証NG」と誤報。再ログインへ誘導できず毎朝🚨が飛び続ける状態だった。
+- **修正(scripts/docomo-hikari-import.mjs)**: 状態判定を `resolveEbillState_` に集約し **ready / login / pending** を返す。`waitEbillState_` が確定するまで1.5秒間隔でポーリング(遷移直後20秒→操作後30秒)、未確定は最大3周リトライ、失敗時のみスクショ+本文を `%TEMP%/claude/docomo-hikari/` にダンプ。ログイン判定はホスト単位(`cfg.smt.docomo.ne.jp`/`id.smt.docomo.ne.jp`/`/aif/tra/`)＋本文(`dアカウントID`/`ログインしたままにする`)の二段。
+- **★dアカウントのセッションは切れる(実測)**: 2026-07-14にログインして取得成功 → **2026-07-29には失効**(15日以内)。楽天でんき(1時間で失効)ほど短命ではないが、放置すると必ず止まる。→ **未ログインは異常ではなく「やますけの一手待ち」**として扱い、🚨ではなく🔑**催促(ボタン付き・1日1回・exitCode 0)**に変更。state=`~/.claude/channels/discord/docomo-hikari-state.json`(promptedYmd、取得成功で自動クリア)。
+- **ボタン導線(discord-secretary-resident.mjs)**: `BUTTONS: docomo_login` → 「🔑ログイン画面を開く」(`docomo:open`→`--open-login`でdebug Chromeにeビリングを開き `bringToFront`、CDPは切るがタブは残す)/「📱リモートデスクトップ」/「⚡ログインしたので取り込む」(`docomo:capture`→通常実行しNOTIFYを返す)。経理ペルソナに「ドコモ取り込み」「ドコモ再ログイン」のテキスト経路も追加。
+- **実証**: 再ログイン後に `--dry` で **実額¥6,636を取得**(固定額と一致=skip)。`--open-login` の実機起動も確認。→ 今回の一連の🚨に**金額の実害はなし**。
+- 台帳(AUTOMATION.md)+ダッシュボード更新済。
+
 ## NEXT
 1. **8/6 05:00 JST の月次自動バッチ(初回本番稼働)を見届ける(★時限性)**: pnlMonthlyImport が発火→7月分をfullloop→承認通知→やますけが承認画面で確認→approve→送付。エネパル(the Terrace 8月クレカ明細=SAISON_2608.pdf)の自動計上も同時。
 2. **Booking.com セッション再ログイン(★やますけPC作業、8/1深夜まで)**: 現在 Booking.com=`logged_out`(2026-07-12 実測、Airbnb/やどぜいは ok)。listener 自体は Hassac01 で lastSeenAt 生存中(PM2稼働中)。
