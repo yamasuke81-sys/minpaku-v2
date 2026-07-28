@@ -14,20 +14,23 @@ const { google } = require("googleapis");
 const admin = require("firebase-admin");
 const { getAppUrl, DEFAULT_APP_URL } = require("../utils/appUrl");
 
-// OAuth復旧などの運用通知 (LINE + メール)。oauthReminder.js の sendRecovery_ と同じ配信経路。
+// OAuth復旧などの運用通知 (Discord + メール)。oauthReminder.js の deliverOAuthNotice_ と同じ配信経路。
+// 2026-07-29 やますけ決定で LINE → Discord に変更(LINE送信は廃止・メールは継続)。
 // 通知失敗は warn のみ (呼び出し元の処理を止めない)。
 async function sendOAuthNotice_(db, email, text, mailSubject) {
   const nsDoc = await db.collection("settings").doc("notifications").get();
   const ns = nsDoc.exists ? nsDoc.data() : {};
-  const channelToken = ns.lineChannelToken || ns.lineToken;
-  const ownerUserId = ns.lineOwnerUserId || ns.lineOwnerId || ns.ownerUserId;
   const notifyEmails = Array.isArray(ns.notifyEmails) ? ns.notifyEmails : [];
-  if (channelToken && ownerUserId) {
-    try {
-      const { sendLineMessage } = require("../utils/lineNotify");
-      await sendLineMessage(channelToken, ownerUserId, text);
-    } catch (e) { console.warn("[gmail-auth] LINE通知失敗:", e.message); }
-  }
+  try {
+    const { sendDiscord_, resolveDiscordOwnerWebhookUrl_ } = require("../utils/lineNotify");
+    const url = resolveDiscordOwnerWebhookUrl_(ns);
+    if (url) {
+      const r = await sendDiscord_(url, `**${mailSubject}**\n${text}`);
+      if (!r.success) console.warn("[gmail-auth] Discord通知失敗:", r.error);
+    } else {
+      console.warn("[gmail-auth] Discord Webhook URL 未設定のため送信スキップ");
+    }
+  } catch (e) { console.warn("[gmail-auth] Discord通知失敗:", e.message); }
   for (const to of notifyEmails) {
     try {
       const { sendNotificationEmail_ } = require("../utils/lineNotify");

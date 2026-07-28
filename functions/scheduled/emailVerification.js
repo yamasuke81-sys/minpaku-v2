@@ -645,13 +645,12 @@ async function notifyBookingChangeEmail_(db, opts) {
 }
 
 /**
- * OAuth トークン失効を管理者の LINE に通知 (1日1回までの抑制付き)
+ * OAuth トークン失効を管理者の Discord に通知 (1日1回までの抑制付き)
  *   settings/oauthAlerts/{accountKey} に lastNotifiedAt を記録
  *   24h 以内なら通知スキップ (連続実行でループしないように)
  */
 async function notifyOAuthFailure_(db, accountEmail, errorMessage) {
   const admin = require("firebase-admin");
-  const { sendLineMessage } = require("../utils/lineNotify");
 
   const accountKey = (accountEmail || "unknown").replace(/[@.]/g, "_");
   const flagRef = db.collection("settings").doc("oauthAlerts").collection("byAccount").doc(accountKey);
@@ -666,14 +665,15 @@ async function notifyOAuthFailure_(db, accountEmail, errorMessage) {
     }
   }
 
-  // settings/notifications から LINE 送信先を取得
+  // settings/notifications から Discord 送信先を取得
+  // (2026-07-29 やますけ決定: OAuth失効通知の宛先は LINE → Discord。oauthReminder.js と同じ扱い)
   const nsDoc = await db.collection("settings").doc("notifications").get();
   if (!nsDoc.exists) return;
   const ns = nsDoc.data();
-  const channelToken = ns.lineChannelToken || ns.lineToken;
-  const ownerUserId = ns.lineOwnerUserId || ns.lineOwnerId || ns.ownerUserId;
-  if (!channelToken || !ownerUserId) {
-    console.warn("[notifyOAuthFailure_] LINE 設定なし。スキップ");
+  const { sendDiscord_, resolveDiscordOwnerWebhookUrl_ } = require("../utils/lineNotify");
+  const discordUrl = resolveDiscordOwnerWebhookUrl_(ns);
+  if (!discordUrl) {
+    console.warn("[notifyOAuthFailure_] Discord Webhook URL 未設定。スキップ");
     return;
   }
 
@@ -691,7 +691,8 @@ async function notifyOAuthFailure_(db, accountEmail, errorMessage) {
     "※ Google Cloud Console → OAuth 同意画面を「本番環境 (In production)」にしておくと、再失効を防げます。",
   ].join("\n");
 
-  await sendLineMessage(channelToken, ownerUserId, text);
+  const dr = await sendDiscord_(discordUrl, `**⚠️ メール照合 Gmail OAuth 失効**\n${text}`);
+  if (!dr.success) console.warn("[notifyOAuthFailure_] Discord送信失敗:", dr.error);
   await flagRef.set({
     lastNotifiedAt: admin.firestore.FieldValue.serverTimestamp(),
     lastError: errorMessage,

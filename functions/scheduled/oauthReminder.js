@@ -191,62 +191,40 @@ async function processCollection_(db, collectionPath, context, oauth2Client, ns,
   return { ok, failed, recovered, alerted };
 }
 
-// 通知送信ヘルパ (LINE + メール)
-async function sendAlert_(ns, email, context, errorMsg, daysSince) {
-  const channelToken = ns.lineChannelToken || ns.lineToken;
-  const ownerUserId = ns.lineOwnerUserId || ns.lineOwnerId || ns.ownerUserId;
+// 通知送信ヘルパ (Discord + メール)。
+// 2026-07-29 やますけ決定: OAuth切れ通知の宛先を LINE → Discord に変更(LINE送信は廃止・メールは継続)。
+// この通知は notifyByKey(設定画面の4択チェックボックス)を通らない直送経路なので、
+// 宛先を変えたいときは設定画面ではなくここを直す。
+async function deliverOAuthNotice_(ns, subject, text) {
+  try {
+    const { sendDiscord_, resolveDiscordOwnerWebhookUrl_ } = require("../utils/lineNotify");
+    const url = resolveDiscordOwnerWebhookUrl_(ns);
+    if (url) {
+      const r = await sendDiscord_(url, `**${subject}**\n${text}`);
+      if (!r.success) console.error("[oauthReminder] Discord 失敗:", r.error);
+    } else {
+      console.warn("[oauthReminder] Discord Webhook URL 未設定のため送信スキップ");
+    }
+  } catch (e) { console.error("[oauthReminder] Discord 失敗:", e.message); }
   const notifyEmails = Array.isArray(ns.notifyEmails) ? ns.notifyEmails : [];
-  const text = buildFailureMessage(email, context, errorMsg, daysSince);
-  if (channelToken && ownerUserId) {
-    try {
-      const { sendLineMessage } = require("../utils/lineNotify");
-      await sendLineMessage(channelToken, ownerUserId, text);
-    } catch (e) { console.error("[oauthReminder] LINE 失敗:", e.message); }
-  }
   for (const to of notifyEmails) {
     try {
       const { sendNotificationEmail_ } = require("../utils/lineNotify");
-      await sendNotificationEmail_(to, "Gmail OAuth 連携切れ アラート", text);
+      await sendNotificationEmail_(to, subject, text);
     } catch (e) { console.error(`[oauthReminder] メール失敗 (${to}):`, e.message); }
   }
+}
+
+async function sendAlert_(ns, email, context, errorMsg, daysSince) {
+  await deliverOAuthNotice_(ns, "Gmail OAuth 連携切れ アラート", buildFailureMessage(email, context, errorMsg, daysSince));
 }
 
 async function sendScopeAlert_(ns, email, context) {
-  const channelToken = ns.lineChannelToken || ns.lineToken;
-  const ownerUserId = ns.lineOwnerUserId || ns.lineOwnerId || ns.ownerUserId;
-  const notifyEmails = Array.isArray(ns.notifyEmails) ? ns.notifyEmails : [];
-  const text = buildScopeMissingMessage(email, context);
-  if (channelToken && ownerUserId) {
-    try {
-      const { sendLineMessage } = require("../utils/lineNotify");
-      await sendLineMessage(channelToken, ownerUserId, text);
-    } catch (e) { console.error("[oauthReminder] LINE 失敗:", e.message); }
-  }
-  for (const to of notifyEmails) {
-    try {
-      const { sendNotificationEmail_ } = require("../utils/lineNotify");
-      await sendNotificationEmail_(to, "Gmail連携にドライブ権限がありません", text);
-    } catch (e) { console.error(`[oauthReminder] メール失敗 (${to}):`, e.message); }
-  }
+  await deliverOAuthNotice_(ns, "Gmail連携にドライブ権限がありません", buildScopeMissingMessage(email, context));
 }
 
 async function sendRecovery_(ns, email, context) {
-  const channelToken = ns.lineChannelToken || ns.lineToken;
-  const ownerUserId = ns.lineOwnerUserId || ns.lineOwnerId || ns.ownerUserId;
-  const notifyEmails = Array.isArray(ns.notifyEmails) ? ns.notifyEmails : [];
-  const text = buildRecoveryMessage(email, context);
-  if (channelToken && ownerUserId) {
-    try {
-      const { sendLineMessage } = require("../utils/lineNotify");
-      await sendLineMessage(channelToken, ownerUserId, text);
-    } catch (e) { console.error("[oauthReminder] LINE 失敗:", e.message); }
-  }
-  for (const to of notifyEmails) {
-    try {
-      const { sendNotificationEmail_ } = require("../utils/lineNotify");
-      await sendNotificationEmail_(to, "Gmail OAuth 連携復旧", text);
-    } catch (e) { console.error(`[oauthReminder] メール失敗 (${to}):`, e.message); }
-  }
+  await deliverOAuthNotice_(ns, "Gmail OAuth 連携復旧", buildRecoveryMessage(email, context));
 }
 
 async function oauthReminderCore(db) {
