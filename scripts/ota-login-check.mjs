@@ -11,7 +11,7 @@
  * process.exit() も使わない(自然終了。exitCode のみ)。
  */
 import { execSync } from "node:child_process";
-import { writeFileSync, existsSync, rmSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -23,6 +23,35 @@ const CRD_URL = "https://remotedesktop.google.com/access";
 const WATCH = ["Airbnb", "Booking.com"]; // 点検対象(やどぜいは対象外)
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// 失効を検知したら pending を書く。message はボタン付き投稿の本文(常駐bunが使う)。
+// posted=true は「この経路が NOTIFY で本文を出すので、常駐bunの pending 監視は投稿しない」の意。
+function writePending(sites, message) {
+  try {
+    writeFileSync(
+      PENDING_FILE,
+      JSON.stringify(
+        { pending: true, ts: new Date().toISOString(), sites, channelId: MINPAKU_CHANNEL_ID, message, posted: true },
+        null, 2
+      )
+    );
+  } catch (e) {
+    console.error("pending ファイル書き込み失敗:", e.message);
+  }
+}
+// listener(yadozei-listener)が同じ失効をすでにボタン付きで通知していれば、朝の点検は無音にする。
+// 同じ用件が1日に何度も届くのを防ぐ(通知はボタン方式で常に1本)。
+// 窓は常駐bun側の pending TTL(12時間)と揃える = ボタンがまだ生きている間は再掲しない。
+const PENDING_TTL_MS = 12 * 3600 * 1000;
+function alreadyPrompted(sites) {
+  try {
+    const p = JSON.parse(readFileSync(PENDING_FILE, "utf8"));
+    if (!p || !p.pending || !p.ts) return false;
+    if (Date.now() - new Date(p.ts).getTime() > PENDING_TTL_MS) return false;
+    const a = [...(p.sites || [])].sort().join("|");
+    return a === [...sites].sort().join("|");
+  } catch { return false; }
+}
 function token() {
   return execSync("gcloud auth application-default print-access-token", { encoding: "utf8", windowsHide: true }).trim();
 }
@@ -49,17 +78,13 @@ const TEST = process.argv.includes("--test"); // 実際の失効を待たずに 
   // --test: session_check をスキップし、Booking 失効を強制して通知経路だけ確認する
   if (TEST) {
     const expired = ["Booking.com"];
-    try {
-      writeFileSync(
-        PENDING_FILE,
-        JSON.stringify({ pending: true, ts: new Date().toISOString(), sites: expired, channelId: MINPAKU_CHANNEL_ID }, null, 2)
-      );
-    } catch (e) {
-      console.error("pending 書込失敗:", e.message);
-    }
-    console.log(`NOTIFY: 🔑 OTAのログインが切れています（${expired.join(" / ")}）。`);
-    console.log(`NOTIFY: 再ログインしますか？ このチャンネルで「はい」と送るとメインPCにログイン画面を開きます（不要なら「いいえ」）。`);
-    console.log(`NOTIFY: 📱 外出先からは → Chromeリモートデスクトップ ${CRD_URL} でメインPCに接続してログインできます。`);
+    const body = [
+      `🔑 OTAのログインが切れています（${expired.join(" / ")}）。`,
+      `下の**「🔑 ログイン画面を開く」**を押すとメインPCにログイン画面を開きます（不要なら「🆗 あとで」）。`,
+    ];
+    writePending(expired, body.join("\n"));
+    for (const l of body) console.log(`NOTIFY: ${l}`);
+    console.log("BUTTONS: ota_relogin"); // 常駐bunがボタンを添える(この行は本文から除かれる)
     console.log("[ota-login-check] --test: pending を書き NOTIFY を出力しました(実際のログイン状態は未確認)。");
     process.exitCode = 0;
     return;
@@ -128,19 +153,21 @@ const TEST = process.argv.includes("--test"); // 実際の失効を待たずに 
     return;
   }
 
-  // 3) 失効あり → pending を書いて NOTIFY 出力
-  try {
-    writeFileSync(
-      PENDING_FILE,
-      JSON.stringify({ pending: true, ts: new Date().toISOString(), sites: expired, channelId: MINPAKU_CHANNEL_ID }, null, 2)
-    );
-  } catch (e) {
-    console.error("pending ファイル書き込み失敗:", e.message);
+  // 3) 失効あり → 直前に同じ失効をボタンで通知済みなら無音、そうでなければ pending 更新＋NOTIFY 出力
+  if (alreadyPrompted(expired)) {
+    console.log(`[ota-login-check] ${expired.join("/")} は通知済み(20時間以内・ボタン待ち)のため無音`);
+    process.exitCode = 0;
+    return;
   }
   const sitesLabel = expired.join(" / ");
-  console.log(`NOTIFY: 🔑 OTAのログインが切れています（${sitesLabel}）。`);
-  console.log(`NOTIFY: 再ログインしますか？ このチャンネルで「はい」と送るとメインPCにログイン画面を開きます（不要なら「いいえ」）。`);
-  console.log(`NOTIFY: 📱 外出先からは → Chromeリモートデスクトップ ${CRD_URL} でメインPCに接続してログインできます。`);
+  const body = [
+    `🔑 OTAのログインが切れています（${sitesLabel}）。`,
+    `下の**「🔑 ログイン画面を開く」**を押すとメインPCにログイン画面を開きます（不要なら「🆗 あとで」）。`,
+    `📱 外出先からは「リモートデスクトップ」ボタンでメインPCに接続して操作できます。`,
+  ];
+  writePending(expired, body.join("\n"));
+  for (const l of body) console.log(`NOTIFY: ${l}`);
+  console.log("BUTTONS: ota_relogin"); // 常駐bunがボタン(ログイン画面を開く/リモートデスクトップ/あとで)を添える
   process.exitCode = 0;
 })().catch((e) => {
   console.error("ota-login-check 例外:", e.message);
