@@ -38,7 +38,8 @@ import https from "node:https";
 import { handleOtaMessage } from "./ota-message.mjs";
 
 // ================== 定数 ==================
-const VERSION = "0.3.5"; // 0.3.5: 失効検知はどのタイミングでも「はい」ワンタップ再ログイン促し(pending書込+CRD URL)を出す
+const VERSION = "0.3.6"; // 0.3.6: 失効通知をボタン方式に一本化(webhookのテキスト通知を廃止し、pendingに本文を預けて秘書がボタン付きで1本投稿)
+// 0.3.5: 失効検知はどのタイミングでも「はい」ワンタップ再ログイン促し(pending書込+CRD URL)を出す
 // 0.3.4: Booking ログイン判定を session_check と取得で共通化(OAuthバウンス誤検出根絶)+DL段リトライ/途中失効検知
 // 0.3.3: 「復元しますか?」バブル抑止 + ログインモードは3サイトのタブのみ (about:blank を閉じる)
 const LOG_PREFIX = "[yadozei-listener]";
@@ -54,7 +55,7 @@ const EXPIRE_REMIND_MIN_INTERVAL_H = 20;
 // ota-login-check.mjs(朝4時)と同じ pending ファイル/チャンネルを使い、handleOne の「はい」が拾って runRelogin する。
 const MINPAKU_CHANNEL_ID = "1518754802572722306"; // #民泊管理 (channels.json minpaku。notifyDiscord_ の webhook も同チャンネル)
 const OTA_RELOGIN_PENDING_FILE = path.join(os.homedir(), ".claude", "channels", "discord", "ota-relogin-pending.json");
-const CRD_URL = "https://remotedesktop.google.com/access"; // Chromeリモートデスクトップ(外出先からPC操作)
+// ※リモートデスクトップの導線は秘書のボタン(📱 リモートデスクトップ)が持つので、ここでURLは持たない
 const TMP_DIR = path.join(os.tmpdir(), "yadozei-listener");
 const HEARTBEAT_INTERVAL_MS = 60_000;
 const MAX_RETRIES = 2;
@@ -1947,14 +1948,19 @@ async function nextMonthlyFetchInfo_() {
   };
 }
 
-// OTA失効検知時、秘書(#民泊管理)の「はい」ワンタップ再ログインを有効化する pending を書く。
+// OTA失効検知時、秘書(#民泊管理)のワンタップ再ログインを有効化する pending を書く。
 // ota-login-check.mjs(朝4時)と同一ファイル・スキーマ。これで「どのタイミングでも」失効検知→即プロンプトが成立する。
-function writeOtaReloginPending_(sites) {
+// message を渡すと、常駐bun(discord-secretary-resident.mjs)がその本文＋ボタンで #民泊管理 へ1本だけ投稿する。
+// listener 自身は webhook で失効通知を出さない(テキスト版とボタン版の二重通知をやめ、ボタン方式に統一)。
+function writeOtaReloginPending_(sites, message) {
   try {
     fs.mkdirSync(path.dirname(OTA_RELOGIN_PENDING_FILE), { recursive: true });
     fs.writeFileSync(
       OTA_RELOGIN_PENDING_FILE,
-      JSON.stringify({ pending: true, ts: new Date().toISOString(), sites, channelId: MINPAKU_CHANNEL_ID }, null, 2)
+      JSON.stringify(
+        { pending: true, ts: new Date().toISOString(), sites, channelId: MINPAKU_CHANNEL_ID, message: message || null },
+        null, 2
+      )
     );
     console.log(`${LOG_PREFIX} [session_check] OTA再ログイン pending 書込 (${sites.join("/")})`);
   } catch (e) {
@@ -1969,11 +1975,12 @@ function clearOtaReloginPending_() {
     }
   } catch (_) { /* ignore */ }
 }
-// 再ログイン導線(はい/閉じて + CRD URL)。newlyExpired/リマインド 双方で共通に使う。
+// 再ログイン導線(ボタン方式)。newlyExpired/リマインド 双方で共通に使う。
+// 実際のボタンは常駐bunが添える(🔑 ログイン画面を開く / 📱 リモートデスクトップ / 🆗 あとで)。
 function reloginPromptLines_() {
   return [
-    `▶ 再ログイン: このチャンネルに **「はい」** と送信 → PCでログイン画面が自動で開きます → ログイン後 **「閉じて」** と送信で完了(自動取得を再開)。`,
-    `📱 外出先からは Chromeリモートデスクトップ ${CRD_URL} でPCに接続してログインできます。（「OTA再ログイン」/PC直接の \`scripts\\yadozei-relogin.cmd\` でも可）`,
+    `下の **「🔑 ログイン画面を開く」** を押すとメインPCにログイン画面が開きます（不要なら「🆗 あとで」）。`,
+    `📱 外出先からは「リモートデスクトップ」ボタンでメインPCに接続して操作できます。`,
   ];
 }
 
@@ -2096,8 +2103,8 @@ async function handleSessionCheck(ctx, jobId) {
   }
   if (newlyExpired.length) {
     const lines = [
-      `⚠️ **OTA/宿泊税 自動取得: セッション失効**`,
-      `未ログイン: **${newlyExpired.join(" / ")}**`,
+      `🔑 **OTAのログインが切れています（${newlyExpired.join(" / ")}）**`,
+      `未ログインのままだと自動取得が空振りします。`,
     ];
     for (const name of newlyExpired) {
       const st = state[name];
@@ -2109,8 +2116,8 @@ async function handleSessionCheck(ctx, jobId) {
     const next = await getNextInfo();
     lines.push(`次の月次取得は ${next.dateLabel}（あと${next.daysUntil}日）。`);
     lines.push(...reloginPromptLines_());
-    writeOtaReloginPending_(newlyExpired); // 「はい」ワンタップ再ログインを有効化(どのタイミングの失効でも)
-    notices.push(lines.join("\n"));
+    // 本文は pending に預け、常駐bunがボタン付きで1本だけ投稿する(webhook のテキスト通知はしない)
+    writeOtaReloginPending_(newlyExpired, lines.join("\n"));
   }
   if (stillExpired.length) {
     const next = await getNextInfo();
@@ -2124,12 +2131,12 @@ async function handleSessionCheck(ctx, jobId) {
       }
     }
     if (due.length) {
-      writeOtaReloginPending_(due); // 「はい」ワンタップ再ログインを有効化(pending を新鮮に保つ)
-      notices.push(
-        `⏰ **リマインド: ${due.join(" / ")} が未ログインのまま月次取得が迫っています**\n` +
-        `次の月次取得: ${next.dateLabel}（あと${next.daysUntil}日）。\n` +
-        reloginPromptLines_().join("\n")
-      );
+      // リマインドもボタン方式で1本だけ(常駐bunが投稿)。webhook のテキスト通知はしない。
+      writeOtaReloginPending_(due, [
+        `⏰ **リマインド: ${due.join(" / ")} が未ログインのまま月次取得が迫っています**`,
+        `次の月次取得: ${next.dateLabel}（あと${next.daysUntil}日）。`,
+        ...reloginPromptLines_(),
+      ].join("\n"));
     } else {
       console.log(`${LOG_PREFIX} [session_check] 失効継続中(${stillExpired.join(",")}) — 再通知条件外のため抑制`);
     }
