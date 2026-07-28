@@ -14,9 +14,10 @@
 //     - 通知(#経理): 実額ズレ→⚠️割引検知 / 取得失敗→🚨要確認 / 固定通り新規→軽く報告 / 変化なし→無音
 //
 //   前提: debug Chrome(CDP:9222) に My docomo(dアカウント)ログイン済み。5/6月は手動計上済(このルーチンは前月裏取りで同額skip)。
+//   ★表示状態の判定は Booking.com方式(resolveEbillState_ に集約し、確定するまでポーリング)。単発判定は描画途中をNGと誤検出する。
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 const requireScripts = createRequire("C:/Users/yamas/.claude/scripts/node_modules/");
 const { chromium } = requireScripts("playwright-core");
 
@@ -76,19 +77,47 @@ async function connectCdp() {
   throw new Error("CDP接続不可(debug Chrome起動失敗)");
 }
 
-// eビリングから usageYm のドコモ光「◇合計」を取得。取れなければ null。
-async function fetchHikariActual(page, usageYm) {
-  const [y, m] = usageYm.split("-").map(Number);
-  await page.goto(EBILL_URL, { waitUntil: "domcontentloaded", timeout: 40000 });
-  await page.waitForTimeout(6000);
-  if (/dアカウント|sso\/|login\.account|\/sign_in/.test(page.url())) throw new Error("My docomo 未ログイン(dアカウント再ログインが必要)");
-  // 対象月タブ
+// ★Booking.com方式(2026-07-25の教訓): 単発判定は「読み込み途中」を「NG」と誤検出する。
+//   状態判定を1つの解決関数に集約し、確定するまでポーリングしてから取得する。
+//   戻り値 state: "ready"(光×該当月×合計が揃った) / "login"(dアカウント要ログイン) / "pending"(未確定=描画途中)
+async function resolveEbillState_(page, y, m) {
+  const url = page.url();
+  // ログイン画面のURLは複数系統ある(実測: cfg.smt.docomo.ne.jp/aif/tra/flow/v1.0/auth)。取りこぼすと pending 扱いになり
+  // 「表示検証NG」と誤報して再ログインへ誘導できないため、ホスト単位で広めに判定する。
+  if (/cfg\.smt\.docomo\.ne\.jp|id\.smt\.docomo\.ne\.jp|\/aif\/tra\/|sso\/|login\.account|\/sign_in|\/login/.test(url)) {
+    return { state: "login", detail: `ログイン画面(${url})` };
+  }
+  const text = await page.evaluate(() => document.body.innerText).catch(() => "");
+  const okLine = new RegExp(HIKARI_LINE).test(text);
+  const okMonth = new RegExp(`${y}年${m}月ご利用分`).test(text);
+  const total = text.match(/◇合計[\s　\t]*([0-9,]+)\s*円/);
+  if (okLine && okMonth && total) return { state: "ready", amount: parseInt(total[1].replace(/,/g, ""), 10), text };
+  // 本文側でも拾う(URLが素通りしてもログインフォームが出ていれば未ログイン)
+  if (/dアカウントID|ログインしたままにする|再度ログイン|セッション.*切れ/.test(text) && !okLine) {
+    return { state: "login", detail: "ログインフォーム表示" };
+  }
+  return { state: "pending", detail: `番号${okLine}/月${okMonth}/合計${!!total}`, text };
+}
+
+// state が ready か login に確定するまで待つ(pending のまま尽きたら pending を返す)
+async function waitEbillState_(page, y, m, ms) {
+  const deadline = Date.now() + ms;
+  let last = { state: "pending", detail: "未取得" };
+  for (;;) {
+    last = await resolveEbillState_(page, y, m);
+    if (last.state !== "pending") return last;
+    if (Date.now() >= deadline) return last;
+    await page.waitForTimeout(1500);
+  }
+}
+
+// 対象月タブ→光回線選択→「表示」の一連操作
+async function operateEbill_(page, m) {
   await page.evaluate((mm) => {
     const el = Array.from(document.querySelectorAll("a,button,li")).find((e) => (e.textContent || "").trim() === mm + "月" && e.offsetParent !== null);
     if (el) el.click();
   }, m);
-  await page.waitForTimeout(5000);
-  // 光回線を選択
+  await page.waitForTimeout(3000);
   const has = await page.$(PULLDOWN);
   if (has) await page.selectOption(PULLDOWN, HIKARI_OPT).catch(() => {});
   else await page.evaluate((line) => {
@@ -98,20 +127,41 @@ async function fetchHikariActual(page, usageYm) {
     }
   }, HIKARI_LINE);
   await page.waitForTimeout(2000);
-  // 「表示」
   await page.evaluate(() => {
     const btns = Array.from(document.querySelectorAll("a,button,input[type=button],input[type=submit]")).filter((e) => /^表示$/.test((e.textContent || e.value || "").trim()) && e.offsetParent !== null);
     if (btns.length) btns[btns.length - 1].click();
   });
-  await page.waitForTimeout(7000);
-  const text = await page.evaluate(() => document.body.innerText);
-  // 光×該当月の表示であることを確認してから ◇合計 を抽出
-  const okLine = new RegExp("表示中の電話番号[：:]\\s*" + HIKARI_LINE).test(text) || new RegExp(HIKARI_LINE).test(text);
-  const okMonth = new RegExp(`${y}年${m}月ご利用分`).test(text);
-  if (!okLine || !okMonth) return { actual: null, reason: `表示検証NG(番号${okLine}/月${okMonth})` };
-  const mm = text.match(/◇合計[\s　\t]*([0-9,]+)\s*円/);
-  if (!mm) return { actual: null, reason: "◇合計が読めない" };
-  return { actual: parseInt(mm[1].replace(/,/g, ""), 10), reason: "" };
+}
+
+// eビリングから usageYm のドコモ光「◇合計」を取得。取れなければ null。
+async function fetchHikariActual(page, usageYm) {
+  const [y, m] = usageYm.split("-").map(Number);
+  let last = { state: "pending", detail: "未実行" };
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    await page.goto(EBILL_URL, { waitUntil: "domcontentloaded", timeout: 40000 });
+    // 遷移直後の判定は必ず誤る(OAuthバウンス途中)ので、まずページが落ち着くのを待つ
+    last = await waitEbillState_(page, y, m, 20000);
+    if (last.state === "login") throw new Error("My docomo 未ログイン(dアカウント再ログインが必要)");
+    if (last.state === "ready") return { actual: last.amount, reason: "" };
+
+    await operateEbill_(page, m);
+    last = await waitEbillState_(page, y, m, 30000);
+    if (last.state === "login") throw new Error("My docomo 未ログイン(dアカウント再ログインが必要)");
+    if (last.state === "ready") return { actual: last.amount, reason: "" };
+    console.log(`  試行${attempt}: 表示未確定(${last.detail}) → リトライ`);
+  }
+  await dumpDebug_(page, usageYm).catch(() => {});
+  return { actual: null, reason: `表示確定せず(${last.detail})` };
+}
+
+// 失敗時だけ画面と本文を残す(原因究明用)
+async function dumpDebug_(page, usageYm) {
+  const dir = "C:/Users/yamas/AppData/Local/Temp/claude/docomo-hikari";
+  mkdirSync(dir, { recursive: true });
+  await page.screenshot({ path: `${dir}/${usageYm}.png`, fullPage: true }).catch(() => {});
+  const text = await page.evaluate(() => document.body.innerText).catch(() => "");
+  writeFileSync(`${dir}/${usageYm}.txt`, `url=${page.url()}\n\n${text}`, "utf8");
+  console.log(`  デバッグ出力: ${dir}/${usageYm}.png / .txt`);
 }
 
 (async () => {
@@ -156,7 +206,11 @@ async function fetchHikariActual(page, usageYm) {
 
   // 3) 通知(要点だけ #経理 へ)
   if (actual == null) {
-    console.log(`NOTIFY: 🚨 ドコモ光 ${USAGE_YM} の実額をeビリングから取得できませんでした(${fetchReason})。固定額¥${fixed.toLocaleString()}で${changed ? "暫定計上" : "維持"}。My docomo で内訳をご確認ください。`);
+    const needLogin = /未ログイン|ログイン画面|ログインフォーム/.test(fetchReason);
+    const tail = needLogin
+      ? "debug Chrome で My docomo(dアカウント)に再ログインしてください。"
+      : "My docomo で内訳をご確認ください。";
+    console.log(`NOTIFY: 🚨 ドコモ光 ${USAGE_YM} の実額をeビリングから取得できませんでした(${fetchReason})。固定額¥${fixed.toLocaleString()}で${changed ? "暫定計上" : "維持"}。${tail}`);
     process.exitCode = 1;
   } else if (actual !== fixed) {
     console.log(`NOTIFY: ⚠️ ドコモ光 ${USAGE_YM} の実額¥${actual.toLocaleString()}が固定想定¥${fixed.toLocaleString()}と異なります(割引/料金変動の可能性)。実額で${changed ? (prev ? "更新" : "計上") : "一致(変更なし)"}しました。`);
