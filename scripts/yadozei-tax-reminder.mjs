@@ -104,7 +104,7 @@ async function main() {
     lines.push(`📊 税額・月計表の確認: ${YADOZEI_REPORTS_URL} （月計表の添付が必須）`);
     lines.push("");
     lines.push(`▶ 下の **「🏛️ eLTAXで納入を進める」** でPCに必要ページを開き手順を案内します。`);
-    lines.push(`▶ 提出・納入が済んだら **「✅ 申告・納付済み」** を押すとこの月の通知が止まります。`);
+    lines.push(`▶ 提出・納入が済んだら **「✅ 申告・納付済み」**（この通知の下のボタン）でこの月の通知が止まります。`);
     lines.push(`BUTTONS: yadozei_tax`);
     notices.push(lines.join("\n"));
 

@@ -39,7 +39,7 @@ import { spawn } from "node:child_process";
 import { handleOtaMessage } from "./ota-message.mjs";
 
 // ================== 定数 ==================
-const VERSION = "0.3.9"; // 0.3.9: PDF自動印刷(Acrobat /t→Brother)+lastRunに月計表/申告書両リンク / 0.3.8: pdf_fetch厳格化 / 0.3.7: 失敗即時通知+audit自動リトライ
+const VERSION = "0.4.0"; // 0.4.0: 印刷を白黒強制+印刷完了をボタン付きで通知(秘書経由) / 0.3.9: PDF自動印刷+両リンク記録 / 0.3.8: pdf_fetch厳格化 / 0.3.7: 失敗即時通知+audit自動リトライ
 // 0.3.5: 失効検知はどのタイミングでも「はい」ワンタップ再ログイン促し(pending書込+CRD URL)を出す
 // 0.3.4: Booking ログイン判定を session_check と取得で共通化(OAuthバウンス誤検出根絶)+DL段リトライ/途中失効検知
 // 0.3.3: 「復元しますか?」バブル抑止 + ログインモードは3サイトのタブのみ (about:blank を閉じる)
@@ -1782,13 +1782,48 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
 // 注意: Acrobat が既に起動中だと /t は既存インスタンスに委譲され子プロセスは即終了する。
 // その場合ウィンドウが残ることがあるが印刷自体は行われる(こちらから既存Acrobatはkillしない)。
 const ACROBAT_EXE = "C:\\Program Files\\Adobe\\Acrobat DC\\Acrobat\\Acrobat.exe";
+const PS_EXE = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+const DEFAULT_PRINTER = "Brother DCP-J4140N Printer"; // やますけ指定(2026-07-29): 常にこのプリンター・白黒
 const sleep_ = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// 印刷前に白黒(Color=False)を強制する。Acrobat の /t はカラー指定ができないため、
+// プリンター既定を毎回そろえる方式にした(他アプリの印刷にも効くが、やますけ合意済み)。
+async function ensureMonochrome_(printer) {
+  return new Promise((resolve) => {
+    const ps = spawn(PS_EXE, ["-NoProfile", "-Command",
+      `$c = Get-PrintConfiguration -PrinterName '${printer}' -ErrorAction Stop; if ($c.Color) { Set-PrintConfiguration -PrinterName '${printer}' -Color $false; Write-Output 'fixed' } else { Write-Output 'already-mono' }`,
+    ], { windowsHide: true });
+    let out = "";
+    ps.stdout.on("data", (d) => (out += d));
+    ps.on("error", () => resolve("error"));
+    ps.on("close", () => resolve(out.trim() || "unknown"));
+  });
+}
+
+// 常駐bun(discord-secretary-resident.mjs)にボタン付き投稿を依頼する。
+// webhook ではボタンを出せないため、pending ファイル経由で bot に投げる(30秒以内に投稿される)。
+const BUTTONED_NOTICE_FILE = path.join(os.homedir(), ".claude", "channels", "discord", "buttoned-notice-pending.json");
+function queueButtonedNotice_(item) {
+  try {
+    let arr = [];
+    try { arr = JSON.parse(fs.readFileSync(BUTTONED_NOTICE_FILE, "utf8")); if (!Array.isArray(arr)) arr = [arr]; } catch (_) { arr = []; }
+    arr.push({ ...item, ts: new Date().toISOString() });
+    fs.mkdirSync(path.dirname(BUTTONED_NOTICE_FILE), { recursive: true });
+    fs.writeFileSync(BUTTONED_NOTICE_FILE, JSON.stringify(arr, null, 1));
+    console.log(`${LOG_PREFIX} [notice] ボタン付き投稿を秘書へ依頼 (${item.buttons || "no-buttons"})`);
+  } catch (e) {
+    console.warn(`${LOG_PREFIX} [notice] 依頼書き込み失敗: ${e.message}`);
+  }
+}
+
 async function printPdfsLocally(files, jobId) {
   try {
     const s = await db.collection("settings").doc("yadozeiListener").get();
     const cfg = s.exists ? s.data() : {};
     if (cfg.autoPrintPdf === false) return { printed: false, reason: "disabled" };
-    const printer = cfg.printerName || "Brother DCP-J4140N Printer";
+    const printer = cfg.printerName || DEFAULT_PRINTER;
+    const mono = await ensureMonochrome_(printer);
+    console.log(`${LOG_PREFIX} [print] 白黒設定: ${mono}`);
     if (!fs.existsSync(ACROBAT_EXE)) {
       console.warn(`${LOG_PREFIX} [print] Acrobat が見つからない — 自動印刷スキップ`);
       return { printed: false, reason: "acrobat_missing" };
@@ -1803,7 +1838,7 @@ async function printPdfsLocally(files, jobId) {
     await sleep_(25000); // スプール完了待ち
     for (const k of kids) { try { process.kill(k.pid); } catch (_) { /* 既に終了 */ } }
     console.log(`${LOG_PREFIX} [print] ${files.length}件を「${printer}」へ印刷投入 (${jobId})`);
-    return { printed: true, printer, count: files.length };
+    return { printed: true, printer, count: files.length, mono };
   } catch (e) {
     console.warn(`${LOG_PREFIX} [print] 自動印刷失敗(本体処理は継続): ${e.message}`);
     return { printed: false, reason: e.message };
@@ -1867,6 +1902,21 @@ async function handleYadozeiPdfFetch(job, ctx, jobId) {
     console.log(`${LOG_PREFIX} やどぜいPDF取得完了: ${results.map((r) => r.type).join("+")} ${yearMonth}`);
     // 自宅プリンターへ自動印刷 (tmp削除前に実行。失敗しても本体処理は done)
     const printResult = await printPdfsLocally(tmpFiles, jobId);
+    if (printResult.printed) {
+      // ボタン付きで秘書に投稿させる(webhookはボタン不可)。押せば申告・納付を完了記録できる
+      queueButtonedNotice_({
+        message: `🖨️ **宿泊税PDFを印刷しました（白黒）** — ${propertyName} ${yearMonth}分\n`
+          + `月計表+申告書の2枚 → ${printResult.printer}\n`
+          + results.map((r) => `・[${r.type}PDF](${r.webViewLink})`).join("\n")
+          + `\n✍️ 宛先の県税事務所名を記入し、月計表を添えて提出・納入してください。`,
+        buttons: "yadozei_tax",
+        channelPersona: "minpaku",
+      });
+    } else if (printResult.reason && printResult.reason !== "disabled") {
+      await notifyDiscord_(
+        `⚠️ 宿泊税PDFの自動印刷に失敗しました（${propertyName} ${yearMonth}分）: ${String(printResult.reason).slice(0, 120)}\nDrive保存は完了しています。`
+      ).catch(() => {});
+    }
     return { fileId: primary.fileId, fileName: primary.fileName, webViewLink: primary.webViewLink, taxCopy: primary.taxCopy || null, pdfs: results, printResult };
   } finally {
     for (const f of tmpFiles) safeUnlink(f);
