@@ -89,12 +89,14 @@ async function main() {
     lines.push(`期限: **${fmtDate(deadline)}**${left >= 0 ? ` — 残り${left}日` : ""}。期限徒過は延滞金＋不申告加算金の対象です。`);
     lines.push("");
 
-    // 物件ごとの申告書PDF (lastRun.yadozeiPdf が対象月のものか fileName で確認)
+    // 物件ごとの月計表+申告書PDF (lastRun.yadozeiPdf が対象月のものか fileName で確認)
     for (const t of targets) {
       const pdf = t.yadozei?.lastRun?.yadozeiPdf;
       const isThisMonth = pdf?.fileName?.includes(`_${ym}_`);
-      if (isThisMonth && pdf.driveLink) {
-        lines.push(`・${t.name}: [申告書PDF](${pdf.driveLink})`);
+      if (isThisMonth && Array.isArray(pdf.files) && pdf.files.length) {
+        lines.push(`・${t.name}: ` + pdf.files.map((f) => `[${f.type}PDF](${f.webViewLink})`).join(" / "));
+      } else if (isThisMonth && pdf.driveLink) {
+        lines.push(`・${t.name}: [申告書PDF](${pdf.driveLink})`); // 旧形式(filesなし)フォールバック
       } else {
         lines.push(`・${t.name}: ⚠️ ${Number(m)}月分の申告書PDFが未生成です（やどぜい自動化の異常。要確認）`);
       }

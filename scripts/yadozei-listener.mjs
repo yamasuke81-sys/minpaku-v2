@@ -34,11 +34,12 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import https from "node:https";
+import { spawn } from "node:child_process";
 // OTA自動返信(名簿確認メッセージ)の隔離ハンドラ。CSV系コードには触れず、直列ドレインに相乗りする。
 import { handleOtaMessage } from "./ota-message.mjs";
 
 // ================== 定数 ==================
-const VERSION = "0.3.7"; // 0.3.7: ジョブ失敗のDiscord即時通知 + calendar_audit当日自動リトライ(毎時・最大3回)
+const VERSION = "0.3.9"; // 0.3.9: PDF自動印刷(Acrobat /t→Brother)+lastRunに月計表/申告書両リンク / 0.3.8: pdf_fetch厳格化 / 0.3.7: 失敗即時通知+audit自動リトライ
 // 0.3.5: 失効検知はどのタイミングでも「はい」ワンタップ再ログイン促し(pending書込+CRD URL)を出す
 // 0.3.4: Booking ログイン判定を session_check と取得で共通化(OAuthバウンス誤検出根絶)+DL段リトライ/途中失効検知
 // 0.3.3: 「復元しますか?」バブル抑止 + ログインモードは3サイトのタブのみ (about:blank を閉じる)
@@ -1774,6 +1775,41 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
   }
 }
 
+// ================== 自動印刷 (v0.3.9) ==================
+// やどぜいPDF(月計表+申告書)を保存したら自宅プリンターへ自動印刷する。
+// Acrobat DC の /t (指定プリンターへサイレント印刷) を使う。設定=settings/yadozeiListener:
+//   autoPrintPdf=false で無効化 / printerName でプリンター指定(既定=Brother DCP-J4140N Printer)
+// 注意: Acrobat が既に起動中だと /t は既存インスタンスに委譲され子プロセスは即終了する。
+// その場合ウィンドウが残ることがあるが印刷自体は行われる(こちらから既存Acrobatはkillしない)。
+const ACROBAT_EXE = "C:\\Program Files\\Adobe\\Acrobat DC\\Acrobat\\Acrobat.exe";
+const sleep_ = (ms) => new Promise((r) => setTimeout(r, ms));
+async function printPdfsLocally(files, jobId) {
+  try {
+    const s = await db.collection("settings").doc("yadozeiListener").get();
+    const cfg = s.exists ? s.data() : {};
+    if (cfg.autoPrintPdf === false) return { printed: false, reason: "disabled" };
+    const printer = cfg.printerName || "Brother DCP-J4140N Printer";
+    if (!fs.existsSync(ACROBAT_EXE)) {
+      console.warn(`${LOG_PREFIX} [print] Acrobat が見つからない — 自動印刷スキップ`);
+      return { printed: false, reason: "acrobat_missing" };
+    }
+    const kids = [];
+    for (const f of files) {
+      const p = spawn(ACROBAT_EXE, ["/t", f, printer], { windowsHide: true });
+      p.on("error", (e) => console.warn(`${LOG_PREFIX} [print] spawn失敗: ${e.message}`));
+      kids.push(p);
+      await sleep_(3000); // 連続起動の競合回避
+    }
+    await sleep_(25000); // スプール完了待ち
+    for (const k of kids) { try { process.kill(k.pid); } catch (_) { /* 既に終了 */ } }
+    console.log(`${LOG_PREFIX} [print] ${files.length}件を「${printer}」へ印刷投入 (${jobId})`);
+    return { printed: true, printer, count: files.length };
+  } catch (e) {
+    console.warn(`${LOG_PREFIX} [print] 自動印刷失敗(本体処理は継続): ${e.message}`);
+    return { printed: false, reason: e.message };
+  }
+}
+
 // ================== F3: やどぜい 月計表/申告書 PDF 取得 ==================
 async function handleYadozeiPdfFetch(job, ctx, jobId) {
   const { propertyId, propertyName, yearMonth } = job;
@@ -1791,45 +1827,47 @@ async function handleYadozeiPdfFetch(job, ctx, jobId) {
 
     const results = [];
 
-    // 月計表プレビュータブ → 月計表をPDF出力
-    await clickByText(page, ["月計表プレビュー"], 3000).catch(() => {});
-    await page.waitForTimeout(800);
-    const geppyo = await downloadPdf(page, ['button:has-text("月計表をPDF出力")', 'button:has-text("月計表")'], jobId, "geppyo");
-    if (geppyo.disabled) {
-      throw new Error("PDF出力ボタンが無効 — やどぜいスタンダードプラン以上が必要");
-    }
-    if (geppyo.tmp) {
-      tmpFiles.push(geppyo.tmp);
-      const r = await uploadFileToDrive(
+    // 月計表/申告書とも「取れなければ失敗」にする (v0.3.8)。従来は申告書のDLが空振りしても
+    // 月計表だけ保存して done になり、欠落が無音だった(稀に申告書を再保存しない既知事象)。
+    // 空振り時はタブを開き直して1回リトライ→それでもダメなら throw (失敗は v0.3.7 でDiscord通知される)
+    const fetchPdfStrict = async (tabLabel, selectors, kindKey, typeLabel) => {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        await clickByText(page, [tabLabel], 3000).catch(() => {});
+        await page.waitForTimeout(800);
+        const dl = await downloadPdf(page, selectors, jobId, kindKey);
+        if (dl.disabled) throw new Error("PDF出力ボタンが無効 — やどぜいスタンダードプラン以上が必要");
+        if (dl.tmp) return dl;
+        console.warn(`${LOG_PREFIX} ${typeLabel}のPDFダウンロードが空振り (${attempt}/2)${attempt < 2 ? " → タブ開き直してリトライ" : ""}`);
+        await page.waitForTimeout(1500);
+      }
+      await saveScreenshot(page, jobId, `yadozei_pdf_${kindKey}_missing`);
+      throw new Error(`${typeLabel}のPDFを取得できなかった (2回試行・UI変更の可能性)`);
+    };
+
+    const geppyo = await fetchPdfStrict("月計表プレビュー", ['button:has-text("月計表をPDF出力")', 'button:has-text("月計表")'], "geppyo", "月計表");
+    tmpFiles.push(geppyo.tmp);
+    results.push({
+      type: "月計表",
+      ...(await uploadFileToDrive(
         propertyId, propertyName, yearMonth,
         `yadozei_月計表_${yearMonth}_${Date.now()}.pdf`, "application/pdf", geppyo.tmp
-      );
-      results.push({ type: "月計表", ...r });
-    }
+      )),
+    });
 
-    // 申告書プレビュータブ → 申告書をPDF出力
-    await clickByText(page, ["申告書プレビュー"], 3000).catch(() => {});
-    await page.waitForTimeout(800);
-    const shinkoku = await downloadPdf(page, ['button:has-text("申告書をPDF出力")', 'button:has-text("申告書")'], jobId, "shinkoku");
-    if (shinkoku.disabled) {
-      throw new Error("PDF出力ボタンが無効 — やどぜいスタンダードプラン以上が必要");
-    }
-    if (shinkoku.tmp) {
-      tmpFiles.push(shinkoku.tmp);
-      const r = await uploadFileToDrive(
+    const shinkoku = await fetchPdfStrict("申告書プレビュー", ['button:has-text("申告書をPDF出力")', 'button:has-text("申告書")'], "shinkoku", "申告書");
+    tmpFiles.push(shinkoku.tmp);
+    results.push({
+      type: "申告書",
+      ...(await uploadFileToDrive(
         propertyId, propertyName, yearMonth,
         `yadozei_申告書_${yearMonth}_${Date.now()}.pdf`, "application/pdf", shinkoku.tmp
-      );
-      results.push({ type: "申告書", ...r });
-    }
-
-    if (!results.length) {
-      await saveScreenshot(page, jobId, "yadozei_pdf_none");
-      throw new Error("PDF を1つも取得できなかった (UI 変更またはプラン制限の可能性)");
-    }
+      )),
+    });
     const primary = results.find((r) => r.type === "申告書") || results[0];
     console.log(`${LOG_PREFIX} やどぜいPDF取得完了: ${results.map((r) => r.type).join("+")} ${yearMonth}`);
-    return { fileId: primary.fileId, fileName: primary.fileName, webViewLink: primary.webViewLink, taxCopy: primary.taxCopy || null, pdfs: results };
+    // 自宅プリンターへ自動印刷 (tmp削除前に実行。失敗しても本体処理は done)
+    const printResult = await printPdfsLocally(tmpFiles, jobId);
+    return { fileId: primary.fileId, fileName: primary.fileName, webViewLink: primary.webViewLink, taxCopy: primary.taxCopy || null, pdfs: results, printResult };
   } finally {
     for (const f of tmpFiles) safeUnlink(f);
     try {
@@ -2251,6 +2289,8 @@ async function handleJob(docId, job) {
             runAt: now, status: "done",
             fileName: result.fileName, driveFileId: result.fileId, driveLink: result.webViewLink,
             pdfTypes: (result.pdfs || []).map((p) => p.type), error: null,
+            // 月計表・申告書 両方のDriveリンク (宿泊税リマインドが両方貼るため。v0.3.9)
+            files: (result.pdfs || []).map((p) => ({ type: p.type, fileId: p.fileId, webViewLink: p.webViewLink })),
           },
         };
       }
