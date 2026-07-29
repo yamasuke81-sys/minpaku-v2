@@ -38,7 +38,7 @@ import https from "node:https";
 import { handleOtaMessage } from "./ota-message.mjs";
 
 // ================== 定数 ==================
-const VERSION = "0.3.6"; // 0.3.6: 失効通知をボタン方式に一本化(webhookのテキスト通知を廃止し、pendingに本文を預けて秘書がボタン付きで1本投稿)
+const VERSION = "0.3.7"; // 0.3.7: ジョブ失敗のDiscord即時通知 + calendar_audit当日自動リトライ(毎時・最大3回)
 // 0.3.5: 失効検知はどのタイミングでも「はい」ワンタップ再ログイン促し(pending書込+CRD URL)を出す
 // 0.3.4: Booking ログイン判定を session_check と取得で共通化(OAuthバウンス誤検出根絶)+DL段リトライ/途中失効検知
 // 0.3.3: 「復元しますか?」バブル抑止 + ログインモードは3サイトのタブのみ (about:blank を閉じる)
@@ -2295,6 +2295,25 @@ async function handleJob(docId, job) {
       retries: Math.min(curRetries + 1, MAX_RETRIES + 1),
     });
 
+    // ジョブ失敗を Discord へ即時通知 (2026-07-29 新設。従来は Firestore に failed と書くだけで無音だった)。
+    // 例外: ①session_check は失効通知の専用フロー(pending+ボタン)があるので出さない
+    //       ②未ログイン起因の失敗も同フローが「🔑ログインが切れています」を出すので二重通知しない
+    try {
+      const isLoginIssue = /未ログイン|not_logged_in|ログインが切れ/.test(errMsg);
+      if (job.kind !== "session_check" && !isLoginIssue) {
+        await notifyDiscord_(
+          `🚨 **OTA/宿泊税 自動処理が失敗しました**\n` +
+          `ジョブ: \`${job.kind}\`${job.propertyName ? ` (${job.propertyName}${job.yearMonth ? " " + job.yearMonth : ""})` : ""}\n` +
+          `エラー: ${errMsg.slice(0, 300)}\n` +
+          (job.kind === "calendar_audit"
+            ? `→ 当日中に自動リトライします(毎時・最大3回)。続報がなければ復旧済みです。`
+            : `→ 自動リトライはありません。放置すると当月の処理が欠けます。`)
+        );
+      }
+    } catch (e3) {
+      console.warn(`${LOG_PREFIX} 失敗通知の送信に失敗: ${e3.message}`);
+    }
+
     try {
       const otaKey =
         job.kind === "airbnb_csv_fetch"
@@ -2424,6 +2443,35 @@ if (LOGIN_MODE) {
       console.log(`${LOG_PREFIX} calendar_audit enqueued: ${id}`);
     } catch (e) {
       if (!/already exists/i.test(e.message)) console.warn(`${LOG_PREFIX} calendar_audit enqueue: ${e.message}`);
+    }
+
+    // 当日リトライ (2026-07-29 新設): 当日スナップショットが failed/欠損のままなら毎時ティックで
+    // 再投入する(1日最大3回)。従来は再ログイン復帰(session_check)頼みで、失効が絡まない失敗だと
+    // 誰も拾わず丸1日欠測になる構造だった。両OTAとも失効中は成功見込みゼロなのでスキップ
+    // (失効はrelogin フローが復帰時に recovery を投入する)。
+    try {
+      const j2 = new Date(Date.now() + 9 * 3600 * 1000);
+      if (j2.getUTCHours() * 60 + j2.getUTCMinutes() < 180) return; // 3:00前は本走行に任せる
+      const dateStr = `${j2.getUTCFullYear()}-${String(j2.getUTCMonth() + 1).padStart(2, "0")}-${String(j2.getUTCDate()).padStart(2, "0")}`;
+      const ymd2 = dateStr.replace(/-/g, "");
+      const dailyRef = db.collection("yadozeiQueue").doc(`calendar_audit_${ymd2}`);
+      const dailySnap = await dailyRef.get();
+      if (!dailySnap.exists || dailySnap.data().status !== "failed") return;
+      const snap = await db.collection("otaCalendarSnapshots").doc(dateStr).get();
+      if (snap.exists && snap.data().status !== "failed") return; // recovery 等で既に復旧済み
+      const st2 = loadSessionState_();
+      const allExpired = ["Airbnb", "Booking.com"].every((k) => st2[k]?.expiredSince);
+      if (allExpired) return; // 全滅中のリトライは無意味 (relogin フローに任せる)
+      const tried = dailySnap.data().autoRetries || 0;
+      if (tried >= 3) return;
+      await dailyRef.update({ autoRetries: tried + 1 });
+      await db.collection("yadozeiQueue").doc(`calendar_audit_retry_${ymd2}_${tried + 1}`).create({
+        kind: "calendar_audit", status: "pending",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(), source: "listener_auto_retry",
+      });
+      console.log(`${LOG_PREFIX} calendar_audit 自動リトライ投入 (${tried + 1}/3)`);
+    } catch (e) {
+      if (!/already exists/i.test(e.message)) console.warn(`${LOG_PREFIX} calendar_audit retry: ${e.message}`);
     }
   }
   setTimeout(enqueueCalendarAudit, 40_000); // 起動40秒後に初回トライ (2:30前なら無視される)
