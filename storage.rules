@@ -77,6 +77,27 @@ service firebase.storage {
                                ).data.get('assignedPropertyIds', [])));
     }
 
+    // 請求書の添付レシート写真 — スタッフ本人 / オーナーのみ書き込み可、読み取りは認証済み全員
+    // パス: invoice-photos/{staffId}/{yearMonth}/{rowId}/{filename}
+    match /invoice-photos/{staffId}/{yearMonth}/{rowId}/{filename} {
+      allow read: if request.auth != null;
+      // 書き込み: オーナー/サブオーナー(代理作成あり) または本人の staffId 配下のみ
+      // 5MB 以下の画像ファイルのみ許可
+      allow write: if request.auth != null
+                   && request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*')
+                   && (request.auth.token.role == "owner"
+                       || request.auth.token.role == "sub_owner"
+                       || request.auth.token.staffId == staffId);
+      // 削除: オーナー/サブオーナー または アップロード者本人
+      allow delete: if request.auth != null
+                    && (request.auth.token.role == "owner"
+                        || request.auth.token.role == "sub_owner"
+                        || request.auth.token.staffId == staffId
+                        || (resource.metadata != null
+                            && resource.metadata.uploadedBy == request.auth.uid));
+    }
+
     // お知らせ写真 — 認証済みは閲覧・アップロード可能 (5MB以下の画像)
     match /announcements/{filename} {
       allow read: if request.auth != null;

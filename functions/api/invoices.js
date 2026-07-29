@@ -13,6 +13,9 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
+// 手入力明細1項目あたりの添付レシート写真の上限 (フロントの MAX_ROW_PHOTOS と揃える)
+const MAX_MANUAL_PHOTOS = 5;
+
 // バンドルフォント（第一候補）
 const BUNDLED_CJK_FONT = path.join(__dirname, "../fonts/NotoSansJP-Regular.ttf");
 
@@ -170,6 +173,72 @@ function applyExclusionsToDetails_(details, excludedRows, yearMonth) {
   };
 }
 
+/** Firebase Storage のダウンロードURLからオブジェクトパスを取り出す */
+function extractStoragePath_(url) {
+  if (!url) return "";
+  const m = String(url).match(/\/o\/([^?#]+)/);
+  return m ? decodeURIComponent(m[1]) : "";
+}
+
+/**
+ * 手入力明細に添付されたレシート写真を Storage から取得する。
+ * pdfkit の描画は同期処理なので、描画を始める前にバッファを揃えておく必要がある。
+ * 取得に失敗した写真は除外するだけで、PDF 生成自体は止めない。
+ */
+async function fetchManualPhotoBuffers_(manualItems) {
+  const targets = [];
+  for (const item of manualItems || []) {
+    for (const p of (item?.photos || [])) {
+      const objPath = p?.path || extractStoragePath_(p?.url);
+      if (objPath) targets.push({ path: objPath, label: item.label || "", date: item.date || "" });
+    }
+  }
+  if (!targets.length) return [];
+  const bucket = getStorage().bucket("minpaku-v2.firebasestorage.app");
+  const out = [];
+  for (const t of targets) {
+    try {
+      const [buffer] = await bucket.file(t.path).download();
+      out.push({ ...t, buffer });
+    } catch (e) {
+      console.warn("レシート写真の取得に失敗 (PDFから除外):", t.path, e.message);
+    }
+  }
+  return out;
+}
+
+/**
+ * PDF の末尾に「添付レシート」ページを追加する (1ページ2枚)
+ * 明細テーブルの描画が終わった後、pdfDoc.end() の直前に呼ぶ。
+ */
+function drawReceiptPhotoPages_(pdfDoc, setFont, photos) {
+  if (!photos || !photos.length) return;
+  const leftX = 40;
+  const pageWidth = 515;
+  const slotH = 320; // 写真1枚あたりの高さ
+  photos.forEach((ph, i) => {
+    if (i % 2 === 0) {
+      pdfDoc.addPage();
+      setFont(12);
+      pdfDoc.fillColor("#000");
+      pdfDoc.text(`添付レシート (${i + 1}〜${Math.min(i + 2, photos.length)} / ${photos.length})`, leftX, 40);
+    }
+    const top = 70 + (i % 2) * (slotH + 26);
+    setFont(9);
+    pdfDoc.fillColor("#555");
+    pdfDoc.text([ph.date, ph.label].filter(Boolean).join("  ") || "手入力明細", leftX, top, { width: pageWidth });
+    pdfDoc.fillColor("#000");
+    try {
+      pdfDoc.image(ph.buffer, leftX, top + 14, { fit: [pageWidth, slotH - 20], align: "center" });
+    } catch (e) {
+      setFont(9);
+      pdfDoc.fillColor("#c00");
+      pdfDoc.text("(この画像は表示できませんでした)", leftX, top + 14);
+      pdfDoc.fillColor("#000");
+    }
+  });
+}
+
 /**
  * 請求書データから PDF Buffer を生成する (Storage に保存しない)
  * プレビュー用途。generateInvoicePdf_ の描画ロジックを共有するが、tmp 書込・
@@ -184,6 +253,10 @@ function applyExclusionsToDetails_(details, excludedRows, yearMonth) {
  */
 async function renderInvoicePdfBuffer(invoice, staff, client, propertyMap) {
   const cjkFont = findCjkFont();
+  // 添付レシートは描画前にバッファを揃えておく (pdfkit の描画は同期)
+  const receiptPhotos = await fetchManualPhotoBuffers_(
+    invoice.details?.manualItems || invoice.manualItems || invoice.details?.manual || []
+  );
 
   return await new Promise((resolve, reject) => {
     const pdfOpts = { margin: 40, size: "A4" };
@@ -371,6 +444,9 @@ async function renderInvoicePdfBuffer(invoice, staff, client, propertyMap) {
     pdfDoc.text("備考:", leftX, pdfDoc.y);
     pdfDoc.text(invoice.remarks || "", leftX, pdfDoc.y + 14, { width: pageWidth });
 
+    // ── 添付レシート (末尾ページ) ──
+    drawReceiptPhotoPages_(pdfDoc, setFont, receiptPhotos);
+
     pdfDoc.end();
   });
 }
@@ -417,6 +493,12 @@ async function generateInvoicePdf_(db, invoiceId) {
 
   const cjkFont = findCjkFont();
   const tmpPath = path.join(os.tmpdir(), `${invoice.id}.pdf`);
+
+  // 添付レシートは描画前にバッファを揃えておく (除外された明細の写真は載せない)
+  const receiptPhotos = await fetchManualPhotoBuffers_(
+    applyExclusionsToDetails_(invoice.details || {}, invoice.excludedRows || [], invoice.yearMonth).manualItems
+      || invoice.manualItems || []
+  );
 
   await new Promise((resolve, reject) => {
     const pdfOpts = { margin: 40, size: "A4" };
@@ -620,6 +702,9 @@ async function generateInvoicePdf_(db, invoiceId) {
     // ── 備考 ──
     pdfDoc.text("備考：", leftX, pdfDoc.y);
     pdfDoc.text(invoice.remarks || "", leftX, pdfDoc.y + 14, { width: pageWidth });
+
+    // ── 添付レシート (末尾ページ) ──
+    drawReceiptPhotoPages_(pdfDoc, setFont, receiptPhotos);
 
     pdfDoc.end();
     stream.on("finish", resolve);
@@ -1350,11 +1435,20 @@ async function computeInvoiceDetails(db, staffId, yearMonth, manualItems = [], p
   }
 
   // 手動追加項目 (date フィールド対応 — 旧データは date 無しでも読める)
+  // photos = 添付レシート写真 (1項目 最大 MAX_MANUAL_PHOTOS 枚。旧データは undefined)
   const manual = (manualItems || []).map(i => ({
     date: i.date ? String(i.date) : "",
     label: String(i.label || ""),
     amount: Number(i.amount) || 0,
     memo: String(i.memo || ""),
+    photos: (Array.isArray(i.photos) ? i.photos : [])
+      .filter(p => p && p.url)
+      .slice(0, MAX_MANUAL_PHOTOS)
+      .map(p => ({
+        url: String(p.url),
+        path: String(p.path || extractStoragePath_(p.url) || ""),
+        uploadedAt: String(p.uploadedAt || ""),
+      })),
   }));
   const manualAmount = manual.reduce((s, i) => s + i.amount, 0);
 

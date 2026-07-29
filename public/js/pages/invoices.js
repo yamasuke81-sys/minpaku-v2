@@ -467,11 +467,16 @@ const InvoicesPage = {
       });
     });
     manualItems.forEach((item, idx) => {
+      // 添付レシート写真がある場合はラベル横に枚数バッジ、下にサムネイル行を表示（読み取り専用）
+      const photoCount = Array.isArray(item.photos) ? item.photos.length : 0;
+      const photoBadge = photoCount
+        ? ` <span class="badge bg-light text-dark border ms-1" style="font-size:0.7rem;"><i class="bi bi-paperclip"></i> ${photoCount}枚</span>`
+        : "";
       mergedRows.push({
         ms: dateMs(item.date),
         date: this.esc(fmtDate(item.date)),
         kind: '<span class="badge bg-warning text-dark">手動</span>',
-        content: `${this.esc(item.label)}${item.memo ? `<br><small class="text-muted">${this.esc(item.memo)}</small>` : ""}`,
+        content: `${this.esc(item.label)}${photoBadge}${item.memo ? `<br><small class="text-muted">${this.esc(item.memo)}</small>` : ""}${this._renderManualPhotos(item.photos)}`,
         amount: item.amount || 0,
         excluded: false,
         action: isOwner
@@ -681,6 +686,11 @@ const InvoicesPage = {
       });
     });
 
+    // 手動明細のレシート写真サムネイル: クリックで拡大表示
+    document.querySelectorAll("#invoiceDetailBody .manual-item-photo-thumb").forEach(img => {
+      img.addEventListener("click", () => this._openPhotoZoom(img.dataset.full));
+    });
+
     new bootstrap.Modal(modalEl).show();
   },
 
@@ -873,5 +883,58 @@ const InvoicesPage = {
     const div = document.createElement("div");
     div.textContent = str || "";
     return div.innerHTML;
+  },
+
+  // 手動明細に添付されたレシート写真のサムネイル行を生成（読み取り専用・最大5枚・クリックで拡大表示）
+  // 複数箇所（一覧・詳細モーダル・印刷用など）から使い回すための共通ヘルパー
+  _renderManualPhotos(photos) {
+    if (!Array.isArray(photos) || !photos.length) return "";
+    const thumbs = photos.slice(0, 5).map(p => {
+      const url = this.esc(p?.url || "");
+      if (!url) return "";
+      return `<img src="${url}" class="manual-item-photo-thumb" data-full="${url}"
+        style="width:56px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid #dee2e6;"
+        loading="lazy" alt="レシート写真">`;
+    }).join("");
+    if (!thumbs) return "";
+    return `<div class="d-flex flex-wrap gap-1 mt-1">${thumbs}</div>`;
+  },
+
+  // レシート写真の拡大表示モーダルを初回のみ生成し、全サムネイルで使い回す
+  _ensurePhotoZoomModal() {
+    let modalEl = document.getElementById("invoicePhotoZoomModal");
+    if (!modalEl) {
+      const div = document.createElement("div");
+      div.innerHTML = `
+        <div class="modal fade" id="invoicePhotoZoomModal" tabindex="-1">
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+              <div class="modal-header py-2">
+                <h6 class="modal-title mb-0"><i class="bi bi-image"></i> レシート写真</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+              </div>
+              <div class="modal-body text-center">
+                <img id="invoicePhotoZoomImg" src="" style="max-width:100%;max-height:70vh;object-fit:contain;" alt="レシート写真（拡大）">
+              </div>
+              <div class="modal-footer py-2">
+                <a id="invoicePhotoZoomOpenTab" href="#" target="_blank" rel="noopener" class="btn btn-outline-secondary btn-sm">
+                  <i class="bi bi-box-arrow-up-right"></i> 新しいタブで開く
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>`;
+      document.body.appendChild(div.firstElementChild);
+      modalEl = document.getElementById("invoicePhotoZoomModal");
+    }
+    return modalEl;
+  },
+
+  // サムネイルクリック時: 拡大モーダルを開く（表示専用、削除・追加操作はここから行わない）
+  _openPhotoZoom(url) {
+    const modalEl = this._ensurePhotoZoomModal();
+    document.getElementById("invoicePhotoZoomImg").src = url;
+    document.getElementById("invoicePhotoZoomOpenTab").href = url;
+    new bootstrap.Modal(modalEl).show();
   },
 };

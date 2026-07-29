@@ -131,13 +131,14 @@ const MyInvoiceCreatePage = {
         <div class="card-body">
           <h6 class="mb-2">追加明細</h6>
           <div class="table-responsive">
-            <table class="table table-sm align-middle" style="min-width:720px;">
+            <table class="table table-sm align-middle" style="min-width:900px;">
               <thead>
                 <tr>
                   <th style="width:150px;">日付</th>
                   <th style="min-width:200px;">項目</th>
                   <th style="width:140px;">金額(円)</th>
                   <th style="min-width:180px;">メモ</th>
+                  <th style="width:180px;">レシート写真</th>
                   <th style="width:60px;"></th>
                 </tr>
               </thead>
@@ -179,6 +180,47 @@ const MyInvoiceCreatePage = {
           <h6 class="mb-2"><i class="bi bi-clock-history"></i> 過去の請求書</h6>
           <div id="pastInvoicesList" class="small">
             <div class="text-muted"><span class="spinner-border spinner-border-sm"></span> 読込中...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- レシート写真の取得方法を選ぶモーダル (追加明細の「添付」ボタンから開く) -->
+      <div class="modal fade" id="photoSourceModal" tabindex="-1" aria-labelledby="photoSourceModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+          <div class="modal-content">
+            <div class="modal-header py-2">
+              <h6 class="modal-title" id="photoSourceModalLabel"><i class="bi bi-paperclip"></i> レシート写真を添付</h6>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="閉じる"></button>
+            </div>
+            <div class="modal-body d-grid gap-2">
+              <!-- label で input を包むと iOS/Android でも確実にネイティブの選択画面が開く -->
+              <label class="btn btn-primary btn-lg mb-0 text-start" style="cursor:pointer;">
+                <i class="bi bi-camera-fill me-2"></i> カメラで撮影する
+                <input type="file" accept="image/*" capture="environment" class="d-none" id="photoInputCamera">
+              </label>
+              <label class="btn btn-outline-secondary btn-lg mb-0 text-start" style="cursor:pointer;">
+                <i class="bi bi-images me-2"></i> カメラロールから選ぶ
+                <input type="file" accept="image/*" multiple class="d-none" id="photoInputGallery">
+              </label>
+              <div class="small text-muted mt-1">1項目あたり最大5枚まで。撮った写真は自動で縮小されます。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- レシート写真の拡大表示 -->
+      <div class="modal fade" id="photoLightboxModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+          <div class="modal-content bg-dark">
+            <div class="modal-header py-2 border-0">
+              <a class="btn btn-sm btn-outline-light" id="photoLightboxOpen" href="#" target="_blank" rel="noopener">
+                <i class="bi bi-box-arrow-up-right"></i> 新しいタブで開く
+              </a>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="閉じる"></button>
+            </div>
+            <div class="modal-body text-center p-0">
+              <img id="photoLightboxImg" src="" alt="レシート写真" style="max-width:100%;max-height:80vh;">
+            </div>
           </div>
         </div>
       </div>
@@ -658,9 +700,11 @@ const MyInvoiceCreatePage = {
     bindCaret();
   },
 
-  addManualRow(data = { date: "", key: "", label: "", amount: "", memo: "" }) {
+  addManualRow(data = { date: "", key: "", label: "", amount: "", memo: "", photos: [] }) {
     const tbody = document.getElementById("manualRows");
     const tr = document.createElement("tr");
+    // 写真の Storage パスに使う行ID (行ごとにユニーク)
+    tr.dataset.rowId = `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     // プルダウン (work item) + 「その他」: 選択中の物件の項目のみ表示
     const options = this.workItemOptions
       .filter(o => !this.propertyId || o.propertyId === this.propertyId)
@@ -682,9 +726,20 @@ const MyInvoiceCreatePage = {
       </td>
       <td><input type="number" class="form-control form-control-sm m-amount" min="0" value=""></td>
       <td><input type="text" class="form-control form-control-sm m-memo" placeholder="メモ"></td>
+      <td>
+        <button type="button" class="btn btn-sm btn-outline-primary m-photo-add">
+          <i class="bi bi-paperclip"></i> 添付
+        </button>
+        <div class="d-flex gap-1 flex-wrap mt-1 m-photo-thumbs"></div>
+      </td>
       <td class="text-end"><button class="btn btn-sm btn-outline-danger m-del"><i class="bi bi-x"></i></button></td>
     `;
     tbody.appendChild(tr);
+
+    // 添付済み写真は行オブジェクトに保持する (送信時に manualItems.photos として送る)
+    tr._photos = Array.isArray(data?.photos) ? data.photos.slice(0, this.MAX_ROW_PHOTOS) : [];
+    tr.querySelector(".m-photo-add").addEventListener("click", () => this._openPhotoPicker(tr));
+    this._renderRowPhotos(tr);
 
     const presetSel = tr.querySelector(".m-preset");
     const labelInput = tr.querySelector(".m-label");
@@ -715,7 +770,7 @@ const MyInvoiceCreatePage = {
 
     // 復元データがあれば値を流し込む (送信済み請求書の編集再送など)
     // ラベル表記ゆれを避けるため「その他(手入力)」として復元する
-    if (data && (data.label || (data.amount !== "" && data.amount != null) || data.memo)) {
+    if (data && (data.label || (data.amount !== "" && data.amount != null) || data.memo || tr._photos.length)) {
       presetSel.value = "__custom__";
       labelInput.classList.remove("d-none");
       labelInput.value = data.label || "";
@@ -723,6 +778,201 @@ const MyInvoiceCreatePage = {
       memoInput.value = data.memo || "";
       this.updateTotal();
     }
+  },
+
+  // ===== 追加明細のレシート写真 =====
+  MAX_ROW_PHOTOS: 5,
+  PHOTO_LONG_SIDE: 1920, // リサイズ時の長辺 px
+
+  // 添付モーダルの file input を初期化 (全行で使い回すので1度だけ)
+  _initPhotoModal() {
+    if (this._photoModalReady) return;
+    this._photoModalReady = true;
+    ["photoInputCamera", "photoInputGallery"].forEach(id => {
+      const inp = document.getElementById(id);
+      if (!inp) return;
+      inp.addEventListener("change", async (ev) => {
+        const files = Array.from(ev.target.files || []);
+        inp.value = ""; // 同じファイルを続けて選べるようにする
+        const tr = this._photoTargetRow;
+        bootstrap.Modal.getOrCreateInstance(document.getElementById("photoSourceModal")).hide();
+        if (!files.length || !tr || !tr.isConnected) return;
+        await this._handleRowPhotoFiles(tr, files);
+      });
+    });
+  },
+
+  // 「添付」ボタン → カメラ / カメラロールの選択モーダルを開く
+  _openPhotoPicker(tr) {
+    if ((tr._photos || []).length >= this.MAX_ROW_PHOTOS) {
+      showToast("上限に達しています", `1項目あたり最大${this.MAX_ROW_PHOTOS}枚です`, "error");
+      return;
+    }
+    this._initPhotoModal();
+    this._photoTargetRow = tr;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("photoSourceModal")).show();
+  },
+
+  // 選択されたファイルを順にリサイズ→アップロード
+  async _handleRowPhotoFiles(tr, files) {
+    if (!this.staffId) { showToast("エラー", "スタッフが特定できません", "error"); return; }
+    tr._photos = tr._photos || [];
+    const remaining = this.MAX_ROW_PHOTOS - tr._photos.length;
+    if (remaining <= 0) {
+      showToast("上限に達しています", `1項目あたり最大${this.MAX_ROW_PHOTOS}枚です`, "error");
+      return;
+    }
+    const targets = files.slice(0, remaining);
+    if (files.length > remaining) {
+      showToast("一部スキップ", `上限のため ${files.length - remaining} 枚はスキップしました`, "info");
+    }
+
+    const btn = tr.querySelector(".m-photo-add");
+    const orig = btn ? btn.innerHTML : "";
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 送信中'; }
+    let uploaded = 0;
+    for (const file of targets) {
+      try {
+        tr._photos.push(await this._uploadRowPhoto(tr, file));
+        this._renderRowPhotos(tr);
+        uploaded++;
+      } catch (e) {
+        console.error("レシート写真アップロードエラー:", e);
+        showToast("アップロード失敗", e.message || String(e), "error");
+      }
+    }
+    if (btn) { btn.innerHTML = orig; btn.disabled = false; }
+    this._renderRowPhotos(tr);
+    if (uploaded > 0) showToast("添付しました", `${uploaded} 枚のレシート写真を添付しました`, "success");
+  },
+
+  // 1枚アップロード: リサイズ → Storage → {url, path} を返す
+  async _uploadRowPhoto(tr, file) {
+    const blob = await this._resizeImage(file, this.PHOTO_LONG_SIDE);
+    const ym = document.getElementById("invMonth")?.value || "unknown";
+    const path = `invoice-photos/${this.staffId}/${ym}/${tr.dataset.rowId}/`
+      + `${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jpg`;
+    const ref = firebase.storage().ref(path);
+    const user = firebase.auth().currentUser;
+    await ref.put(blob, {
+      contentType: "image/jpeg",
+      customMetadata: {
+        uploadedBy: user?.uid || "",
+        uploadedAt: new Date().toISOString(),
+        staffId: this.staffId || "",
+      },
+    });
+    return { url: await ref.getDownloadURL(), path, uploadedAt: new Date().toISOString() };
+  },
+
+  // 行のサムネイル一覧を再描画
+  _renderRowPhotos(tr) {
+    const box = tr.querySelector(".m-photo-thumbs");
+    if (!box) return;
+    const photos = tr._photos || [];
+    box.innerHTML = photos.map((p, i) => `
+      <div style="position:relative;width:48px;height:48px;flex-shrink:0;">
+        <img src="${this._esc(p.url)}" alt="レシート写真" loading="lazy" class="m-photo-thumb" data-idx="${i}"
+             style="width:100%;height:100%;object-fit:cover;border-radius:6px;cursor:pointer;">
+        <button type="button" class="btn btn-sm btn-danger m-photo-del" data-idx="${i}" title="削除"
+                style="position:absolute;top:-5px;right:-5px;padding:0 5px;font-size:11px;line-height:1.5;border-radius:10px;">×</button>
+      </div>
+    `).join("");
+    box.querySelectorAll(".m-photo-thumb").forEach(img => {
+      img.addEventListener("click", () => this._openPhotoLightbox(photos[Number(img.dataset.idx)]?.url));
+    });
+    box.querySelectorAll(".m-photo-del").forEach(b => {
+      b.addEventListener("click", () => this._deleteRowPhoto(tr, Number(b.dataset.idx)));
+    });
+    const addBtn = tr.querySelector(".m-photo-add");
+    if (addBtn) {
+      addBtn.disabled = photos.length >= this.MAX_ROW_PHOTOS;
+      addBtn.innerHTML = photos.length
+        ? `<i class="bi bi-paperclip"></i> ${photos.length}/${this.MAX_ROW_PHOTOS}`
+        : `<i class="bi bi-paperclip"></i> 添付`;
+    }
+  },
+
+  // 写真を1枚削除 (明細から外す → Storage 実体も削除)
+  async _deleteRowPhoto(tr, idx) {
+    const photos = tr._photos || [];
+    const photo = photos[idx];
+    if (!photo) return;
+    const ok = await showConfirm(
+      "この写真を削除しますか？削除後は元に戻せません。",
+      { title: "写真の削除", okLabel: "削除する", okClass: "btn-danger" }
+    );
+    if (!ok) return;
+    photos.splice(idx, 1);
+    this._renderRowPhotos(tr);
+    try {
+      if (photo.path) await firebase.storage().ref(photo.path).delete();
+    } catch (e) {
+      console.warn("Storage 削除失敗 (無視):", e.message);
+    }
+  },
+
+  // 拡大表示
+  _openPhotoLightbox(url) {
+    if (!url) return;
+    const img = document.getElementById("photoLightboxImg");
+    const link = document.getElementById("photoLightboxOpen");
+    if (img) img.src = url;
+    if (link) link.href = url;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("photoLightboxModal")).show();
+  },
+
+  // HTML5 Canvas で長辺 maxPx にリサイズして JPEG Blob を返す
+  _resizeImage(file, maxPx) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        let w = img.naturalWidth;
+        let h = img.naturalHeight;
+        // 長辺が maxPx 以下ならリサイズせず品質圧縮のみ
+        if (w > maxPx || h > maxPx) {
+          if (w >= h) { h = Math.round(h * maxPx / w); w = maxPx; }
+          else { w = Math.round(w * maxPx / h); h = maxPx; }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        canvas.toBlob(blob => {
+          if (blob) resolve(blob);
+          else reject(new Error("画像の変換に失敗しました"));
+        }, "image/jpeg", 0.85);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("画像の読み込みに失敗しました")); };
+      img.src = url;
+    });
+  },
+
+  // 追加明細行から {date,label,amount,memo,photos} を収集 (submit / previewPdf 共通)
+  _collectManualItems() {
+    return [...document.querySelectorAll("#manualRows tr")].map(tr => {
+      const preset = tr.querySelector(".m-preset");
+      const v = preset?.value || "";
+      let label = "";
+      if (v === "__custom__") {
+        label = tr.querySelector(".m-label")?.value.trim() || "";
+      } else if (v) {
+        const opt = preset.options[preset.selectedIndex];
+        label = opt?.dataset?.label || opt?.text || "";
+      }
+      const photos = (tr._photos || [])
+        .filter(p => p && p.url)
+        .map(p => ({ url: p.url, path: p.path || "", uploadedAt: p.uploadedAt || "" }));
+      return {
+        date: tr.querySelector(".m-date")?.value || "",
+        label,
+        amount: Number(tr.querySelector(".m-amount")?.value) || 0,
+        memo: tr.querySelector(".m-memo")?.value || "",
+        photos,
+      };
+    }).filter(i => i.label || i.amount || i.photos.length);
   },
 
   async loadSummary() {
@@ -1017,24 +1267,8 @@ const MyInvoiceCreatePage = {
       return;
     }
 
-    // 行から date/label/amount/memo を収集
-    const manualItems = [...document.querySelectorAll("#manualRows tr")].map(tr => {
-      const preset = tr.querySelector(".m-preset");
-      const v = preset.value;
-      let label = "";
-      if (v === "__custom__") {
-        label = tr.querySelector(".m-label")?.value.trim() || "";
-      } else if (v) {
-        const opt = preset.options[preset.selectedIndex];
-        label = opt?.dataset?.label || opt?.text || "";
-      }
-      return {
-        date: tr.querySelector(".m-date")?.value || "",
-        label,
-        amount: Number(tr.querySelector(".m-amount")?.value) || 0,
-        memo: tr.querySelector(".m-memo")?.value || "",
-      };
-    }).filter(i => i.label || i.amount);
+    // 行から date/label/amount/memo/photos を収集
+    const manualItems = this._collectManualItems();
 
     const editing = !!this._editingInvoiceId;
     const ok = await showConfirm(
@@ -1149,6 +1383,7 @@ const MyInvoiceCreatePage = {
     const items = (inv.details && inv.details.manualItems) || inv.manualItems || [];
     items.forEach(mi => this.addManualRow({
       date: mi.date || "", label: mi.label || "", amount: mi.amount || "", memo: mi.memo || "",
+      photos: Array.isArray(mi.photos) ? mi.photos : [],
     }));
     // メモ復元
     const memoEl = document.getElementById("invoiceMemoText");
@@ -1237,24 +1472,8 @@ const MyInvoiceCreatePage = {
     if (!ym) { showToast("エラー", "対象年月を指定してください", "error"); return; }
     if (!this.propertyId) { showToast("エラー", "物件を選択してください", "warning"); return; }
 
-    // manual 行の収集 (submit() と同じロジック)
-    const manualItems = [...document.querySelectorAll("#manualRows tr")].map(tr => {
-      const preset = tr.querySelector(".m-preset");
-      const v = preset?.value || "";
-      let label = "";
-      if (v === "__custom__") {
-        label = tr.querySelector(".m-label")?.value.trim() || "";
-      } else if (v) {
-        const opt = preset.options[preset.selectedIndex];
-        label = opt?.dataset?.label || opt?.text || "";
-      }
-      return {
-        date: tr.querySelector(".m-date")?.value || "",
-        label,
-        amount: Number(tr.querySelector(".m-amount")?.value) || 0,
-        memo: tr.querySelector(".m-memo")?.value || "",
-      };
-    }).filter(i => i.label || i.amount);
+    // manual 行の収集 (submit() と共通)
+    const manualItems = this._collectManualItems();
 
     const btn = document.getElementById("btnPreviewPdf");
     const orig = btn.innerHTML;
