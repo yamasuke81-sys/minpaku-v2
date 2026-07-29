@@ -130,21 +130,8 @@ const MyInvoiceCreatePage = {
       <div class="card mb-3">
         <div class="card-body">
           <h6 class="mb-2">追加明細</h6>
-          <div class="table-responsive">
-            <table class="table table-sm align-middle" style="min-width:900px;">
-              <thead>
-                <tr>
-                  <th style="width:150px;">日付</th>
-                  <th style="min-width:200px;">項目</th>
-                  <th style="width:140px;">金額(円)</th>
-                  <th style="min-width:180px;">メモ</th>
-                  <th style="width:180px;">レシート写真</th>
-                  <th style="width:60px;"></th>
-                </tr>
-              </thead>
-              <tbody id="manualRows"></tbody>
-            </table>
-          </div>
+          <!-- 1行=1カード。横スクロールを出さず、スマホは縦積み / md 以上は1行に並ぶ -->
+          <div id="manualRows"></div>
           <button class="btn btn-sm btn-outline-secondary" id="btnAddRow"><i class="bi bi-plus"></i> 行を追加</button>
         </div>
       </div>
@@ -701,8 +688,9 @@ const MyInvoiceCreatePage = {
   },
 
   addManualRow(data = { date: "", key: "", label: "", amount: "", memo: "", photos: [] }) {
-    const tbody = document.getElementById("manualRows");
-    const tr = document.createElement("tr");
+    const box = document.getElementById("manualRows");
+    const tr = document.createElement("div");
+    tr.className = "manual-row border rounded p-2 mb-2";
     // 写真の Storage パスに使う行ID (行ごとにユニーク)
     tr.dataset.rowId = `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     // プルダウン (work item) + 「その他」: 選択中の物件の項目のみ表示
@@ -714,27 +702,45 @@ const MyInvoiceCreatePage = {
     // デフォルト日付は今月の 1 日
     const ym = document.getElementById("invMonth")?.value || "";
     const defaultDate = data.date || (ym ? `${ym}-01` : "");
+    // 見出しラベルは置かず、プレースホルダと ¥ 記号だけで分かるようにして高さを詰める。
+    // lg 未満(スマホ/タブレット)は縦積み3段、lg 以上は1行。md で1行にすると日付欄が
+    // 100px 前後まで潰れて日付が読めなくなるため、1行化は lg から。
     tr.innerHTML = `
-      <td><input type="date" class="form-control form-control-sm m-date" value="${this._esc(defaultDate)}"></td>
-      <td>
-        <select class="form-select form-select-sm m-preset">
-          <option value="">-- 選択 --</option>
-          ${options}
-          <option value="__custom__">その他 (手入力)</option>
-        </select>
-        <input type="text" class="form-control form-control-sm m-label mt-1 d-none" placeholder="項目名を入力">
-      </td>
-      <td><input type="number" class="form-control form-control-sm m-amount" min="0" value=""></td>
-      <td><input type="text" class="form-control form-control-sm m-memo" placeholder="メモ"></td>
-      <td>
-        <button type="button" class="btn btn-sm btn-outline-primary m-photo-add">
-          <i class="bi bi-paperclip"></i> 添付
-        </button>
-        <div class="d-flex gap-1 flex-wrap mt-1 m-photo-thumbs"></div>
-      </td>
-      <td class="text-end"><button class="btn btn-sm btn-outline-danger m-del"><i class="bi bi-x"></i></button></td>
+      <div class="row g-2">
+        <div class="col-7 col-lg-2">
+          <input type="date" class="form-control form-control-sm m-date" value="${this._esc(defaultDate)}">
+        </div>
+        <div class="col-5 col-lg-2">
+          <div class="input-group input-group-sm">
+            <span class="input-group-text px-2">¥</span>
+            <input type="number" class="form-control m-amount" min="0" inputmode="numeric" placeholder="金額">
+          </div>
+        </div>
+        <div class="col-12 col-lg-3">
+          <select class="form-select form-select-sm m-preset">
+            <option value="">項目を選択</option>
+            ${options}
+            <option value="__custom__">その他 (手入力)</option>
+          </select>
+          <input type="text" class="form-control form-control-sm m-label mt-1 d-none" placeholder="項目名を入力">
+        </div>
+        <div class="col-7 col-lg-3">
+          <input type="text" class="form-control form-control-sm m-memo" placeholder="メモ (任意)">
+        </div>
+        <div class="col-5 col-lg-2 d-flex gap-1">
+          <button type="button" class="btn btn-sm btn-outline-primary m-photo-add flex-grow-1 text-nowrap px-1">
+            <i class="bi bi-paperclip"></i> 添付
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-danger m-del px-2" title="この行を削除">
+            <i class="bi bi-trash"></i>
+          </button>
+        </div>
+        <div class="col-12 m-photo-wrap d-none">
+          <div class="d-flex gap-1 flex-wrap m-photo-thumbs"></div>
+        </div>
+      </div>
     `;
-    tbody.appendChild(tr);
+    box.appendChild(tr);
 
     // 添付済み写真は行オブジェクトに保持する (送信時に manualItems.photos として送る)
     tr._photos = Array.isArray(data?.photos) ? data.photos.slice(0, this.MAX_ROW_PHOTOS) : [];
@@ -870,6 +876,8 @@ const MyInvoiceCreatePage = {
     const box = tr.querySelector(".m-photo-thumbs");
     if (!box) return;
     const photos = tr._photos || [];
+    // 写真が無いときはサムネイル行そのものを畳んで高さを取らない
+    tr.querySelector(".m-photo-wrap")?.classList.toggle("d-none", photos.length === 0);
     box.innerHTML = photos.map((p, i) => `
       <div style="position:relative;width:48px;height:48px;flex-shrink:0;">
         <img src="${this._esc(p.url)}" alt="レシート写真" loading="lazy" class="m-photo-thumb" data-idx="${i}"
@@ -952,7 +960,7 @@ const MyInvoiceCreatePage = {
 
   // 追加明細行から {date,label,amount,memo,photos} を収集 (submit / previewPdf 共通)
   _collectManualItems() {
-    return [...document.querySelectorAll("#manualRows tr")].map(tr => {
+    return [...document.querySelectorAll("#manualRows .manual-row")].map(tr => {
       const preset = tr.querySelector(".m-preset");
       const v = preset?.value || "";
       let label = "";
@@ -1378,8 +1386,8 @@ const MyInvoiceCreatePage = {
     this.renderMyRates();
     await this.loadSummary();
     // 追加明細を復元
-    const tbody = document.getElementById("manualRows");
-    if (tbody) tbody.innerHTML = "";
+    const rowsBox = document.getElementById("manualRows");
+    if (rowsBox) rowsBox.innerHTML = "";
     const items = (inv.details && inv.details.manualItems) || inv.manualItems || [];
     items.forEach(mi => this.addManualRow({
       date: mi.date || "", label: mi.label || "", amount: mi.amount || "", memo: mi.memo || "",
@@ -1424,8 +1432,8 @@ const MyInvoiceCreatePage = {
     const banner = document.getElementById("editModeBanner");
     if (banner) { banner.className = "d-none"; banner.innerHTML = ""; }
     if (resetForm) {
-      const tbody = document.getElementById("manualRows");
-      if (tbody) tbody.innerHTML = "";
+      const rowsBox = document.getElementById("manualRows");
+      if (rowsBox) rowsBox.innerHTML = "";
       const memoEl = document.getElementById("invoiceMemoText");
       if (memoEl) memoEl.value = "";
       this.loadSummary();
