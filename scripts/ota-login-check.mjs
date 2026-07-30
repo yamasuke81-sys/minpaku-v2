@@ -74,14 +74,31 @@ function extractLoggedOut(fields) {
 
 const TEST = process.argv.includes("--test"); // 実際の失効を待たずに NOTIFY+pending 経路を検証する
 
+// 促しの本文。★Booking は数時間で切れるのが常態なので、促しはこの朝4:00 の1本だけに集約している
+//   (listener 側は失効を見つけても通知せず記録のみ。2026-07-31 やますけ決定)。
+//   そのぶん、この1本に「今日やらないと何が落ちるか」を全部載せる。
+function buildPromptBody(expired) {
+  const dom = new Date(Date.now() + 9 * 3600 * 1000).getUTCDate(); // JSTの日
+  return [
+    `🔑 OTAのログインが切れています（${expired.join(" / ")}）。`,
+    // 月次CSV取得は毎月2日(dispatcher)。宿泊税の申告と売上取込の元データなので当日・前日は強調する
+    ...(dom === 2
+      ? [`🚨 **今日は月次CSV取得日です**（宿泊税の申告と売上取込の元データ）。今日中に直してください。`]
+      : dom === 1
+        ? [`⚠️ **明日は月次CSV取得日です**（宿泊税・売上の元データ）。`]
+        : []),
+    `直すと、失効中に失敗していた処理（月次CSV・予約突合・OTA下書き）も自動でやり直します。`,
+    `下の**「🔑 ログイン画面を開く」**を押すとメインPCにログイン画面を開きます（不要なら「🆗 あとで」）。`,
+    `📱 外出先からは「リモートデスクトップ」ボタンでメインPCに接続して操作できます。`,
+  ];
+}
+
 (async () => {
   // --test: session_check をスキップし、Booking 失効を強制して通知経路だけ確認する
+  // ★本文は本番と同じ buildPromptBody() を使う(別文面だと検証の意味がない)
   if (TEST) {
     const expired = ["Booking.com"];
-    const body = [
-      `🔑 OTAのログインが切れています（${expired.join(" / ")}）。`,
-      `下の**「🔑 ログイン画面を開く」**を押すとメインPCにログイン画面を開きます（不要なら「🆗 あとで」）。`,
-    ];
+    const body = buildPromptBody(expired);
     writePending(expired, body.join("\n"));
     for (const l of body) console.log(`NOTIFY: ${l}`);
     console.log("BUTTONS: ota_relogin"); // 常駐bunがボタンを添える(この行は本文から除かれる)
@@ -159,12 +176,7 @@ const TEST = process.argv.includes("--test"); // 実際の失効を待たずに 
     process.exitCode = 0;
     return;
   }
-  const sitesLabel = expired.join(" / ");
-  const body = [
-    `🔑 OTAのログインが切れています（${sitesLabel}）。`,
-    `下の**「🔑 ログイン画面を開く」**を押すとメインPCにログイン画面を開きます（不要なら「🆗 あとで」）。`,
-    `📱 外出先からは「リモートデスクトップ」ボタンでメインPCに接続して操作できます。`,
-  ];
+  const body = buildPromptBody(expired);
   writePending(expired, body.join("\n"));
   for (const l of body) console.log(`NOTIFY: ${l}`);
   console.log("BUTTONS: ota_relogin"); // 常駐bunがボタン(ログイン画面を開く/リモートデスクトップ/あとで)を添える
