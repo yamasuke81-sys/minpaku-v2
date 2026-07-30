@@ -937,6 +937,8 @@ const GuestsPage = {
     // === キーボックス送信予約ステータス ===
     const kbConfirmedAt = g.keyboxConfirmedAt;
     const kbSentAt = g.keyboxSentAt;
+    // 予約キャンセル連動で名簿が cancelled 化されている場合、キーボックス送信は実行されない
+    const isCancelledReg = g.status === "cancelled";
     let kbStatusHtml;
     if (kbSentAt) {
       // 送信済み: 解除不可
@@ -944,13 +946,16 @@ const GuestsPage = {
       kbStatusHtml = `<span class="badge bg-secondary"><i class="bi bi-send-check"></i> 送信済み (${this.escapeHtml(sentStr)})</span>`;
     } else if (kbConfirmedAt) {
       // 予約済み: 再予約ボタン + 予約解除ボタンを表示
+      // ただし予約キャンセル済み (名簿 status=cancelled) の場合は送信自体が止まっているので、
+      // 再予約ボタンを出さず「送信されない」旨を明示する (バッジだけ見て送信されると誤解しないため)
       const confStr = (kbConfirmedAt.toDate ? kbConfirmedAt.toDate() : new Date(kbConfirmedAt)).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
       kbStatusHtml = `<span class="badge bg-success"><i class="bi bi-check-circle"></i> 予約済み (${this.escapeHtml(confStr)})</span>
-        <button class="btn btn-sm btn-outline-secondary ms-2" id="btnKeyboxReReserve">再予約</button>
-        <button class="btn btn-sm btn-outline-danger ms-1" id="btnKeyboxCancel"><i class="bi bi-x-circle"></i> 予約を解除</button>`;
+        ${isCancelledReg ? "" : `<button class="btn btn-sm btn-outline-secondary ms-2" id="btnKeyboxReReserve">再予約</button>`}
+        <button class="btn btn-sm btn-outline-danger ms-1" id="btnKeyboxCancel"><i class="bi bi-x-circle"></i> 予約を解除</button>
+        ${isCancelledReg ? `<div class="small text-danger mt-1"><i class="bi bi-exclamation-triangle-fill"></i> 予約がキャンセル済みのため、この送信予約は<strong>実行されません</strong>（キャンセルを取消せば送信予約は有効に戻ります）</div>` : ""}`;
     } else {
       // 未予約: 予約ボタンのみ
-      kbStatusHtml = `<button class="btn btn-primary" id="btnKeyboxReserve"><i class="bi bi-key"></i> キーボックス送信を予約する</button>
+      kbStatusHtml = `${isCancelledReg ? "" : `<button class="btn btn-primary" id="btnKeyboxReserve"><i class="bi bi-key"></i> キーボックス送信を予約する</button>`}
         <span class="badge bg-warning text-dark ms-2"><i class="bi bi-clock"></i> 未予約</span>`;
     }
 

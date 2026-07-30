@@ -51,6 +51,17 @@ const PLAYWRIGHT_HEADLESS = process.env.PLAYWRIGHT_HEADLESS === "1";
 
 // セッション失効アラートの状態ファイル (ログイン確認/失効/通知履歴を永続化)
 const SESSION_STATE_FILE = path.join(PLAYWRIGHT_USER_DATA_DIR, "session-state.json");
+// タイミー未ログインを Discord 秘書(常駐bun)に伝えるフラグ。秘書がこれを見て
+// 「🔑 ログイン画面を開く / 📱 リモートデスクトップ / 🆗 あとで」のボタンを投稿する。
+// (webhook経由の通知にはボタンを付けられないため。2026-07-28 やますけ要望のワンタップ化)
+const TIMEE_PENDING_FILE = path.join(os.homedir(), ".claude", "channels", "discord", "timee-relogin-pending.json");
+function writeTimeePending_(pending, reason) {
+  try {
+    fs.writeFileSync(TIMEE_PENDING_FILE, JSON.stringify(
+      pending ? { pending: true, ts: new Date().toISOString(), reason: reason || "" }
+              : { pending: false, clearedAt: new Date().toISOString() }, null, 2));
+  } catch (e) { console.warn(`${LOG_PREFIX} timee pending 書込失敗: ${e.message}`); }
+}
 const HEARTBEAT_INTERVAL_MS = 60_000;
 // 未ログインによるジョブ失敗の連続 Discord 通知は 6 時間抑制
 const JOB_FAIL_NOTIFY_SUPPRESS_H = 6;
@@ -216,8 +227,9 @@ async function notifyTimeeLoginFailure_(docId, err) {
     `⚠️ **タイミー自動投稿失敗: 未ログイン**`,
     `対象: ${c.propertyName || "物件不明"} / チェックアウト ${c.checkoutDate || "?"} / 予約 ${c.bookingId || "?"}`,
     `ジョブ ${docId} は failed にしました (予約への「募集中」書き込みは行っていません)。`,
-    `再ログイン: このチャンネルに **「タイミー再ログイン」** と送信（PC側の準備は全自動）→ 開いたブラウザでログイン → 閉じるだけ。PCから直接なら \`scripts\\dispatch-relogin.cmd\` でも可`,
+    `再ログイン: 直後に届く**ボタン**（🔑 ログイン画面を開く）を押すだけでOK。テキストで「タイミー再ログイン」でも同じ。PCから直接なら \`scripts\\dispatch-relogin.cmd\` でも可`,
   ].join("\n"));
+  writeTimeePending_(true, "job_failed_logged_out"); // 秘書がボタン付きメッセージを出す
 }
 
 // ================== タイミー URL 構築 (Cloud Functions の buildTimeeAutofillUrl_ と同等) ==================
@@ -533,6 +545,7 @@ async function handleSessionCheck(jobId) {
       st.expiredSince = null;
       st.lastExpiredNotifyAt = null;
       st.lastJobFailNotifyAt = null; // 次に失効した時のジョブ失敗通知を即時に戻す
+      writeTimeePending_(false); // 復旧したのでボタン催促を畳む
     } else if (!st.sessionStartAt) {
       st.sessionStartAt = nowIso; // 初回観測 (実ログインより遅い可能性あり=下限値)
     }
@@ -548,8 +561,9 @@ async function handleSessionCheck(jobId) {
         lines.push(`📏 持続実測: ${fmtJst_(st.sessionStartAt)} ログイン確認 〜 ${fmtJst_(st.lastOkAt)} 正常 (約${days}日)`);
       }
       lines.push(`失効中はタイミー求人の自動投稿が失敗します。リマインドは3日毎程度に送ります。`);
-      lines.push(`再ログイン: このチャンネルに **「タイミー再ログイン」** と送信（PC側の準備は全自動）→ 開いたブラウザでログイン → 閉じるだけ。PCから直接なら \`scripts\\dispatch-relogin.cmd\` でも可`);
+      lines.push(`再ログイン: 直後に届く**ボタン**（🔑 ログイン画面を開く）を押すだけでOK。テキストで「タイミー再ログイン」でも同じ。PCから直接なら \`scripts\\dispatch-relogin.cmd\` でも可`);
       notice = lines.join("\n");
+      writeTimeePending_(true, "session_expired"); // 秘書がボタン付きメッセージを出す
     } else {
       // 失効継続中 → 最低20時間間隔・3日毎程度にリマインド
       const hoursSince = (Date.now() - new Date(st.lastExpiredNotifyAt || 0).getTime()) / 3600000;
@@ -558,7 +572,8 @@ async function handleSessionCheck(jobId) {
         const days = ((Date.now() - new Date(st.expiredSince).getTime()) / 86400000).toFixed(1);
         notice =
           `⏰ **リマインド: タイミーが未ログインのままです** (失効から約${days}日)\n` +
-          `再ログイン: このチャンネルに **「タイミー再ログイン」** と送信（PC側の準備は全自動）→ 開いたブラウザでログイン → 閉じるだけ。PCから直接なら \`scripts\\dispatch-relogin.cmd\` でも可`;
+          `再ログイン: 直後に届く**ボタン**（🔑 ログイン画面を開く）を押すだけでOK。テキストで「タイミー再ログイン」でも同じ。PCから直接なら \`scripts\\dispatch-relogin.cmd\` でも可`;
+        writeTimeePending_(true, "expired_remind"); // 秘書がボタン付きメッセージを出す
       } else {
         console.log(`${LOG_PREFIX} [session_check] 失効継続中 — 再通知条件外のため抑制`);
       }

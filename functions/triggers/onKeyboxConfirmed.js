@@ -1,12 +1,16 @@
 /**
- * 宿泊者名簿「キーボックス送信予約」→ OTA(Airbnb/Booking)ゲストへ名簿確認メッセージを自動送信。
+ * 宿泊者名簿「キーボックス送信予約」→ OTA(Airbnb/Booking)ゲストへ送る名簿確認メッセージの【下書き】を用意する。
+ *
+ * ★2026-07-31 仕様変更（やますけ決定）: プログラムからの自動送信は廃止。
+ *   PC 常駐ワーカーは実スレッドに文面を入力して下書きのまま残し、Discord に
+ *   「スレッドを開くボタン＋文面＋スクショ」を投稿する。送信はやますけが手で押す。
  *
  * 発火: guestRegistrations onDocumentUpdated で keyboxConfirmedAt が「無→有」に変わった瞬間。
  *   （フロントの「キーボックス送信予約」ボタン=guests.js、およびメールの「OKボタン」経路=api/keybox.js、
  *     いずれも同じ keyboxConfirmedAt を立てるので、この遷移を捉えれば両経路を一律に拾える）
  *
- * 動作（このトリガーは「キュー投入」まで。実送信は PC 常駐ワーカー yadozei-listener が拾って行う）:
- *   1. 冪等ガード: keyboxConfirmedAt 遷移でない / 既に投入・送信済みならスキップ
+ * 動作（このトリガーは「キュー投入」まで。下書き作成は PC 常駐ワーカー yadozei-listener が拾って行う）:
+ *   1. 冪等ガード: keyboxConfirmedAt 遷移でない / 既に投入・下書き作成済みならスキップ
  *   2. マスタースイッチ settings/otaAutoReply.enabled が false の間は完全に不活性（既定OFF＝安全側）
  *   3. bookingId→bookings.source で権威ある OTA 種別を判定（direct はスキップ、判定不能は Discord 通知）
  *   4. Airbnb は確認コード(HM…)を予約ドキュメントから抽出
@@ -75,8 +79,8 @@ module.exports = async (event) => {
 
   // 1) keyboxConfirmedAt が「無→有」の遷移だけを拾う
   if (before.keyboxConfirmedAt || !after.keyboxConfirmedAt) return;
-  // 冪等: 既にキュー投入 or 送信済みなら何もしない
-  if (after.otaAckQueuedAt || after.otaAckSentAt) return;
+  // 冪等: 既にキュー投入 or 下書き作成済み（旧・送信済み）なら何もしない
+  if (after.otaAckQueuedAt || after.otaAckDraftedAt || after.otaAckSentAt) return;
 
   const db = admin.firestore();
 
@@ -157,7 +161,7 @@ module.exports = async (event) => {
       const g = await tx.get(guestRef);
       const gd = g.exists ? g.data() : {};
       // トランザクション内で冪等を再確認（同時発火・2回押し対策）
-      if (gd.otaAckQueuedAt || gd.otaAckSentAt) return;
+      if (gd.otaAckQueuedAt || gd.otaAckDraftedAt || gd.otaAckSentAt) return;
       tx.set(queueRef, {
         status: "pending",
         kind: "ota_message", // yadozei-listener の handleJob 分岐で処理される
@@ -173,9 +177,9 @@ module.exports = async (event) => {
         checkOut: after.checkOut || booking.checkOut || "",
         message,
         guideUrl,
-        // mode!=="live" の間はテストモード＝ワーカーは実際のスレッドに入力してスクショを Discord に送るが送信しない。
-        // 本番送信は settings/otaAutoReply.mode="live" にしてから。
-        params: { fillOnly: cfg.mode !== "live" },
+        // ★2026-07-31 仕様変更: 自動送信は廃止し、ワーカーは常に「下書きを作って残す」だけ。
+        //   送信はやますけが Discord のボタンからスレッドを開いて手で押す（誤送信リスクを構造的にゼロにする）。
+        params: { draft: true },
         attempts: 0,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });

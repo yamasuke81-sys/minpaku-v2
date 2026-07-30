@@ -187,11 +187,13 @@ async function postImport(pid, ym, items) {
       // ログインページを前面待機
       try { await activate(tab.id); } catch {}
       if (CAPTURE) {
-        console.log("NOTIFY: ⚠️ 楽天でんきにまだログインされていません。デバッグChromeで楽天でんきにログイン後、もう一度「楽天取り込み」と伝えてください。");
+        console.log("NOTIFY: ⚠️ 楽天でんきにまだログインされていません。デバッグChromeで楽天でんきにログイン後、もう一度**下のボタン**を押してください（テキストで「楽天取り込み」でも同じ）。");
+        console.log("BUTTONS: rakuten_denki");
       } else if (state.promptedYmd?.[tgt.ym] !== now.ymd) {
         state.promptedYmd = state.promptedYmd || {};
         state.promptedYmd[tgt.ym] = now.ymd; saveState(state);
-        console.log(`NOTIFY: 🔴 楽天でんき ${tgt.ym}分 の取り込み時期です。デバッグChromeで楽天でんきにログイン(ログイン画面を前面に用意済み)→ 済んだらこの#経理で「楽天取り込み」と返信してください。`);
+        console.log(`NOTIFY: 🔴 楽天でんき ${tgt.ym}分 の取り込み時期です。デバッグChromeで楽天でんきにログイン(ログイン画面を前面に用意済み)→ 済んだら**下のボタン**を押してください（テキストで「楽天取り込み」でも同じ）。`);
+        console.log("BUTTONS: rakuten_denki");
       }
       return;
     }

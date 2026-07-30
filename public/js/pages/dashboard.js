@@ -1109,12 +1109,17 @@ const DashboardPage = {
         kbBadge = `<span class="badge bg-warning text-dark"><i class="bi bi-clock"></i> 未予約</span>`;
       }
       const kbBtnLabel = kbConfirmedAt ? "再予約" : "キーボックス送信を予約";
-      const kbBtn = gid
+      // キャンセル済み予約は送信自体が止まっている (名簿 status=cancelled + 孤児ガード) ため
+      // 予約/再予約ボタンは出さない。バッジだけ残っていると「送られる」と誤解するので注意文を出す。
+      const kbBtn = (gid && !isCancelledBooking)
         ? `<button class="btn btn-sm btn-primary" id="calBtnKeyboxSend" data-guest-id="${this.esc(gid)}"><i class="bi bi-key"></i> ${kbBtnLabel}</button>`
         : "";
-      // 予約済みかつ未送信の場合のみ解除ボタンを表示
+      // 予約済みかつ未送信の場合のみ解除ボタンを表示 (キャンセル済みでもフラグ掃除のため出す)
       const kbCancelBtn = (gid && kbConfirmedAt && !kbSentAt)
         ? `<button class="btn btn-sm btn-outline-danger" id="calBtnKeyboxCancel" data-guest-id="${this.esc(gid)}"><i class="bi bi-x-circle"></i> 予約を解除</button>`
+        : "";
+      const kbCancelledNote = (isCancelledBooking && kbConfirmedAt && !kbSentAt)
+        ? `<div class="w-100 small text-danger mt-1"><i class="bi bi-exclamation-triangle-fill"></i> 予約がキャンセル済みのため、この送信予約は<strong>実行されません</strong>（キャンセルを取消せば送信予約は有効に戻ります）</div>`
         : "";
       return `<div class="d-flex flex-wrap align-items-center gap-2 mb-3 p-2 border rounded bg-light">
         <i class="bi bi-key-fill text-warning" style="font-size:1.2rem;"></i>
@@ -1122,6 +1127,7 @@ const DashboardPage = {
         ${kbBtn}
         ${kbCancelBtn}
         <span>${kbBadge}</span>
+        ${kbCancelledNote}
       </div>`;
     })();
 

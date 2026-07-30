@@ -7,34 +7,34 @@
    ここが色・フォントの唯一のソース。着せ替えはこのファイルだけで行う。
    ========================================================================= */
 :root {
-  /* ページ地＝入口サイトの夕暮れの海グラデ（残照グロー＋縦グラデ）。そのまま全面に敷く */
+  /* ページ地＝サンド・ベージュ（入口/公式サイトのクリームテーマに統一。淡い残照グロー＋縦グラデ） */
   --ss-page-bg:
-    radial-gradient(120% 70% at 50% 78%, rgba(230,168,96,.30) 0%, rgba(201,138,78,.10) 30%, rgba(20,52,61,0) 58%),
-    linear-gradient(180deg, #0b2028 0%, #14343d 46%, #1c4650 74%, #123039 100%);
+    radial-gradient(120% 70% at 50% 10%, rgba(230,168,96,.16) 0%, rgba(201,138,78,.06) 32%, rgba(245,239,227,0) 62%),
+    linear-gradient(180deg, #f7f2e8 0%, #f3ecdd 52%, #efe6d3 100%);
 
-  /* 文字（砂色系・濃い海に映える） */
-  --ss-text: #f1ece1;        /* 本文 = 温かな石灰白 */
-  --ss-muted: #b9ae9b;       /* 補足 = くすんだ砂 */
-  --ss-heading: #f4efe6;     /* 見出し = 砂（明朝） */
+  /* 文字（クリーム地に映える温かいダークブラウン） */
+  --ss-text: #3f382e;        /* 本文 */
+  --ss-muted: #766c5d;       /* 補足 */
+  --ss-heading: #2a241c;     /* 見出し（明朝） */
 
   /* ブランドカラー */
-  --ss-sea: #23566b;         /* 瀬戸内の深い海色（ボタン等の面） */
-  --ss-sea-deep: #0b2028;    /* 夕暮れの海 深部 */
-  --ss-hassaku: #e09242;     /* 八朔シトラス（アクセント・ホバー） */
-  --ss-gold: #c4a35c;        /* 細い金の罫 */
-  --ss-glow: #e6a860;        /* 残照の金 */
-  --ss-sand: #f4efe6;        /* 砂色 */
-  --ss-sand-soft: #d8cfc0;
+  --ss-sea: #3a7d6e;         /* 瀬戸内シーグリーン（ボタン等の面・濃いめで可読） */
+  --ss-sea-deep: #2c6153;    /* 深いグリーン */
+  --ss-hassaku: #cf7a33;     /* 八朔シトラス（アクセント・ホバー） */
+  --ss-gold: #b08a3e;        /* 細い金の罫 */
+  --ss-glow: #96702e;        /* 金（リンク・クリーム地で読める濃い金） */
+  --ss-sand: #2a241c;        /* 明地に載る本文相当（濃い文字）。緑面に載る文字は各所で #f4efe6 に個別指定 */
+  --ss-sand-soft: #4a4234;
 
-  /* 面（半透明ダーク＝入口のカード相当）と、ほぼ見えない罫 */
-  --ss-panel: linear-gradient(180deg, rgba(9,26,32,.40), rgba(9,26,32,.16));
-  --ss-panel-soft: rgba(255,255,255,.045);   /* 入力欄・小カードの微ガラス */
-  --ss-border: rgba(244,239,230,.14);        /* ほぼ見えない砂の罫（白い線にしない） */
-  --ss-border-strong: rgba(244,239,230,.24);
+  /* 面（明るいカード）と、うっすら濃い罫 */
+  --ss-panel: linear-gradient(180deg, rgba(255,255,255,.72), rgba(255,255,255,.5));
+  --ss-panel-soft: rgba(255,255,255,.6);     /* 入力欄・小カードの白めの面 */
+  --ss-border: rgba(42,36,28,.14);           /* うっすら濃い罫 */
+  --ss-border-strong: rgba(42,36,28,.26);
 
-  /* 旧・明るい面（内部tint用に残置） */
-  --ss-surface: rgba(255,255,255,.05);
-  --ss-bg: #0b2028;
+  /* 旧・面（内部tint用に残置） */
+  --ss-surface: rgba(255,255,255,.6);
+  --ss-bg: #f5efe3;
 
   /* 書体：見出しは明朝、本文はゴシック */
   --ss-serif: "Hiragino Mincho ProN","Yu Mincho","YuMincho","Noto Serif JP",serif;
@@ -47,6 +47,26 @@ body {
   color: var(--ss-text);
   -webkit-font-smoothing: antialiased;
 }
+
+/* ブランドロゴマーク（太陽＋水平線＋島。公式サイトと同一意匠）。
+   各ページのヘッダー/フッターの金ピルの直前に置く。ヘッダーは中央寄せ。 */
+.ss-sun-mark { display: block; width: 44px; height: auto; margin: 0 auto 10px; }
+
+/* ヘッダーのロゴ（太陽＋金ピル）を公式サイトへのリンクにする（中央寄せ維持） */
+.ss-brand-link { display: block; width: fit-content; margin: 0 auto; text-decoration: none; }
+
+/* 公式サイト（Setouchi Stay）への分かりやすいラベル付きCTAボタン */
+.ss-site-cta { text-align: center; margin: 28px 0 8px; }
+.ss-site-link {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 12px 24px; border-radius: 999px;
+  background: var(--ss-sea); color: #fff !important;
+  font-weight: 600; font-size: 14px; letter-spacing: .02em;
+  text-decoration: none; border: 1px solid var(--ss-sea);
+  box-shadow: 0 4px 14px rgba(58,125,110,.28);
+}
+.ss-site-link:hover { background: var(--ss-hassaku); border-color: var(--ss-hassaku); color: #fff !important; }
+.ss-site-link .ss-site-sun { width: 26px; height: auto; flex: none; }
 
 /* 見出しは明朝・砂色で品よく */
 h1, h2, h3, h4, h5, h6, .ss-serif {
@@ -68,16 +88,16 @@ label, .form-label, .form-check-label { color: var(--ss-text); }
   border-color: var(--ss-border-strong);
   color: var(--ss-text);
 }
-.form-control::placeholder { color: rgba(244,239,230,.42); }
-/* ネイティブのドロップダウン一覧はOS描画（明るい地）なので選択肢は濃色に戻す */
-.form-select option { color: #2b3a42; }
+.form-control::placeholder { color: rgba(42,36,28,.42); }
+/* ネイティブのドロップダウン一覧はOS描画（明るい地）なので選択肢は濃色 */
+.form-select option { color: #2a241c; }
 .form-control:focus, .form-select:focus {
-  background-color: rgba(255,255,255,.08);
+  background-color: rgba(255,255,255,.92);
   border-color: var(--ss-gold);
   color: var(--ss-text);
-  box-shadow: 0 0 0 .2rem rgba(196,163,92,.28);
+  box-shadow: 0 0 0 .2rem rgba(176,138,62,.28);
 }
-.form-control:disabled, .form-select:disabled { background-color: rgba(255,255,255,.03); color: var(--ss-muted); }
+.form-control:disabled, .form-select:disabled { background-color: rgba(42,36,28,.05); color: var(--ss-muted); }
 .form-check-input {
   background-color: var(--ss-panel-soft);
   border-color: var(--ss-border-strong);
@@ -110,7 +130,7 @@ label, .form-label, .form-check-label { color: var(--ss-text); }
   --bs-btn-disabled-border-color: var(--ss-sea);
 }
 .btn-outline-primary {
-  --bs-btn-color: var(--ss-sand);
+  --bs-btn-color: var(--ss-heading);
   --bs-btn-border-color: var(--ss-border-strong);
   --bs-btn-hover-bg: var(--ss-sea);
   --bs-btn-hover-border-color: var(--ss-sea);
@@ -119,11 +139,11 @@ label, .form-label, .form-check-label { color: var(--ss-text); }
   --bs-btn-active-border-color: var(--ss-sea);
 }
 .btn-outline-dark {
-  --bs-btn-color: var(--ss-sand);
+  --bs-btn-color: var(--ss-heading);
   --bs-btn-border-color: var(--ss-border-strong);
-  --bs-btn-hover-bg: rgba(255,255,255,.10);
+  --bs-btn-hover-bg: rgba(42,36,28,.06);
   --bs-btn-hover-border-color: var(--ss-gold);
-  --bs-btn-hover-color: var(--ss-sand);
+  --bs-btn-hover-color: var(--ss-heading);
 }
 
 /* カードは透明化（白い面・境界線を排して背景と一体に）
@@ -134,9 +154,9 @@ label, .form-label, .form-check-label { color: var(--ss-text); }
 /* Bootstrap アラート → 半透明パネル（意味の色みは薄く残す・文字は砂） */
 .alert { border-radius: 12px; color: var(--ss-text); }
 .alert-secondary { background: var(--ss-panel); border-color: var(--ss-border); }
-.alert-info { background: rgba(35,86,107,.30); border-color: rgba(35,86,107,.55); }
-.alert-warning { background: rgba(224,146,66,.15); border-color: rgba(224,146,66,.50); }
-.alert-danger { background: rgba(214,64,69,.18); border-color: rgba(214,64,69,.55); }
+.alert-info { background: rgba(58,125,110,.14); border-color: rgba(58,125,110,.45); }
+.alert-warning { background: rgba(207,122,51,.14); border-color: rgba(207,122,51,.5); }
+.alert-danger { background: rgba(184,80,63,.14); border-color: rgba(184,80,63,.5); }
 .alert-link { color: var(--ss-glow); }
 
 /* Bootstrap アコーディオン → ダーク */
@@ -144,15 +164,16 @@ label, .form-label, .form-check-label { color: var(--ss-text); }
   --bs-accordion-bg: transparent;
   --bs-accordion-color: var(--ss-text);
   --bs-accordion-border-color: var(--ss-border);
-  --bs-accordion-btn-color: var(--ss-sand);
+  --bs-accordion-btn-color: var(--ss-heading);
   --bs-accordion-btn-bg: var(--ss-panel-soft);
-  --bs-accordion-active-color: var(--ss-sand);
-  --bs-accordion-active-bg: rgba(35,86,107,.30);
+  --bs-accordion-active-color: var(--ss-heading);
+  --bs-accordion-active-bg: rgba(58,125,110,.16);
   --bs-accordion-btn-focus-border-color: var(--ss-gold);
-  --bs-accordion-btn-focus-box-shadow: 0 0 0 .2rem rgba(196,163,92,.28);
+  --bs-accordion-btn-focus-box-shadow: 0 0 0 .2rem rgba(176,138,62,.28);
 }
-.accordion-button { color: var(--ss-sand); }
-.accordion-button::after { filter: invert(1) grayscale(1) brightness(1.7); }
+.accordion-button { color: var(--ss-heading); }
+/* 明地なので既定の濃いシェブロンをそのまま使う（ダーク用の白反転はしない） */
+.accordion-button::after { filter: none; }
 .accordion-body { color: var(--ss-text); }
 
 /* Bootstrap テーブル → ダーク */
@@ -160,17 +181,17 @@ label, .form-label, .form-check-label { color: var(--ss-text); }
   --bs-table-bg: transparent;
   --bs-table-color: var(--ss-text);
   --bs-table-border-color: var(--ss-border);
-  --bs-table-striped-bg: rgba(255,255,255,.04);
+  --bs-table-striped-bg: rgba(42,36,28,.04);
   --bs-table-striped-color: var(--ss-text);
   color: var(--ss-text);
 }
 
-/* 危険色・成功色は暗地で読める明るめに調整 */
-.text-danger { color: #ff9a8f !important; }
-.text-success { color: #7fd6a2 !important; }
+/* 危険色・成功色は明地で読める濃さに調整 */
+.text-danger { color: #b8503f !important; }
+.text-success { color: #2e7d55 !important; }
 
 /* ユーティリティ */
-.text-brand { color: var(--ss-sand) !important; }
+.text-brand { color: var(--ss-heading) !important; }
 .bg-brand { background: var(--ss-sea) !important; color: #fff !important; }
 
 /* 半透明ダークパネル（各ページのカード/カラムに付与して使う） */
@@ -195,7 +216,7 @@ label, .form-label, .form-check-label { color: var(--ss-text); }
   border-radius: 14px;
   padding: 4px;
   max-width: calc(100vw - 28px);
-  box-shadow: 0 4px 16px rgba(0,0,0,.3);
+  box-shadow: 0 4px 16px rgba(42,36,28,.16);
 }
 .lang-switch button, .lang-switch .btn {
   border: none; background: transparent;
@@ -203,9 +224,9 @@ label, .form-label, .form-check-label { color: var(--ss-text); }
   font-family: var(--ss-sans);
   font-size: 11px; font-weight: 600; line-height: 1;
   letter-spacing: .02em;
-  color: var(--ss-sand-soft); cursor: pointer; white-space: nowrap;
+  color: var(--ss-muted); cursor: pointer; white-space: nowrap;
 }
-.lang-switch button:hover, .lang-switch .btn:hover { color: var(--ss-sand); }
+.lang-switch button:hover, .lang-switch .btn:hover { color: var(--ss-heading); }
 .lang-switch button.active, .lang-switch .btn.active {
-  background: var(--ss-sea); color: var(--ss-sand);
+  background: var(--ss-sea); color: #fff;
 }

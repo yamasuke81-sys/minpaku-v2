@@ -505,6 +505,35 @@ module.exports = async function onBookingChange(event) {
     if (nowCancelled) return;
   }
 
+  // ========== キャンセル取消 (復活) 時: guestRegistrations の status を元に戻す ==========
+  // cancelled 化のときに previousStatus へ退避した値を復元する。
+  // これがないと名簿が cancelled のまま残り、sendKeyboxScheduled の
+  // status フィルタ ("submitted"/"confirmed") から外れてキーボックスメールが
+  // 二度と送られない (keyboxConfirmedAt が立っていても送信されない) 状態になる。
+  if (wasCancelled && after && !nowCancelled) {
+    try {
+      const bid = event.params.bookingId;
+      const grSnap = await db.collection("guestRegistrations")
+        .where("bookingId", "==", bid).get();
+      let restored = 0;
+      for (const g of grSnap.docs) {
+        const d = g.data();
+        if (d.status !== "cancelled") continue;
+        await g.ref.update({
+          status: d.previousStatus || "submitted",
+          cancelledAt: admin.firestore.FieldValue.delete(),
+          previousStatus: admin.firestore.FieldValue.delete(),
+        });
+        restored++;
+      }
+      if (restored > 0) {
+        console.log(`[onBookingChange] guestRegistrations を復元: ${restored}件 (bookingId=${bid})`);
+      }
+    } catch (e) {
+      console.error("[onBookingChange] guestRegistrations restore 更新エラー:", e);
+    }
+  }
+
   // ========== 重要ガード: cancelled 予約には後続処理 (募集生成等) を一切しない ==========
   // before/after どちらも cancelled の状態でも、emailVerification によるメタ更新
   // (emailVerifiedAt / emailMessageId 等) でこのトリガーは再発火する。

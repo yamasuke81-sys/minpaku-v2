@@ -2,20 +2,20 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <script src="/js/api-relay.js?v=v0730a"></script>
+  <script src="/js/api-relay.js?v=v0731a"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>宿泊者名簿 / Guest Registration</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0730a" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0731a" rel="stylesheet">
   <style>
     /* テーマカラー デフォルト（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css）
        物件別上書きが必要な場合のみ下の早期テーマスクリプトで差し替える */
     :root {
       /* ヘッダーは背景と地続きにするため透明。ページ地＝入口の夕暮れの海グラデ */
       --theme-header-bg: transparent;
-      --theme-header-text: var(--ss-sand);
+      --theme-header-text: var(--ss-heading);
       --theme-page-bg: var(--ss-page-bg);
     }
     /* 和文フォントはゲスト案内と揃えて Noto Sans JP に統一 */
@@ -31,16 +31,16 @@
     .form-header h1 { font-family: "Playfair Display", var(--ss-serif); font-weight: 400; font-size: clamp(30px, 7vw, 46px); letter-spacing: .04em; line-height: 1.08; margin: 0; color: var(--ss-heading); }
     .form-header p { margin: 0.7rem 0 0; opacity: 0.82; font-size: 0.9rem; color: var(--ss-muted); }
     .form-header::after { content: ""; display: block; width: 34px; height: 1px; background: var(--ss-gold); opacity: .85; margin: 0.9rem auto 0; }
-    .form-property-name { font-size: 16px; line-height: 1.4; letter-spacing: 0.22em; color: var(--ss-sand-soft); margin: 12px 0 0; font-weight: 600; }
+    .form-property-name { font-size: 16px; line-height: 1.4; letter-spacing: 0.22em; color: var(--ss-muted); margin: 12px 0 0; font-weight: 600; }
     /* ブランドフッター（ガイドと同じ海の深部色） */
-    .form-footer { background: var(--ss-sea-deep); text-align: center; padding: 1.75rem 1rem; border-radius: 18px; margin-top: 16px; }
-    .form-footer .ff-brand { font-family: "Playfair Display", var(--ss-serif); font-size: 1.1rem; letter-spacing: .06em; color: var(--ss-sand); }
+    .form-footer { background: var(--ss-panel); border: 1px solid var(--ss-border); text-align: center; padding: 1.75rem 1rem; border-radius: 18px; margin-top: 16px; }
+    .form-footer .ff-brand { font-family: "Playfair Display", var(--ss-serif); font-size: 1.1rem; letter-spacing: .06em; color: var(--ss-heading); }
     .form-footer .ff-note { font-size: 11px; letter-spacing: .28em; color: var(--ss-muted); margin-top: 5px; }
     /* 言語切替は共有CSS(setouchi-brand.css)の .lang-switch に一本化（右上ガラスピル） */
     .section-title { font-family: var(--ss-serif); font-size: 1.1rem; font-weight: 600; color: var(--ss-heading); border-left: 4px solid var(--ss-gold); padding-left: 0.75rem; margin: 1.75rem 0 1rem; }
     /* セクション見出しをガイドと同じアイコン枠付きに統一 */
     .section-head { display: flex; align-items: center; gap: 12px; margin: 1.9rem 0 1.1rem; padding-bottom: 14px; border-bottom: 2px solid var(--ss-border); }
-    .section-head .icon { width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg, var(--ss-sea) 0%, var(--ss-sea-deep) 100%); display: grid; place-items: center; color: var(--ss-sand); font-size: 20px; flex-shrink: 0; }
+    .section-head .icon { width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg, var(--ss-sea) 0%, var(--ss-sea-deep) 100%); display: grid; place-items: center; color: #f4efe6; font-size: 20px; flex-shrink: 0; }
     .section-head .section-title { border: none; padding: 0; margin: 0; font-family: var(--ss-sans); font-size: 20px; font-weight: 700; color: var(--ss-heading); }
     .section-head .en { font-size: 12px; color: var(--ss-muted); letter-spacing: 0.12em; margin-top: 2px; }
     .guest-block { background: var(--ss-panel-soft); border: 1px solid var(--ss-border); border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; }
@@ -48,14 +48,14 @@
     .success-view { text-align: center; padding: 3rem 1rem; }
     .success-view i { font-size: 4rem; color: #34c77b; }
     .success-check-circle { width: 64px; height: 64px; border-radius: 50%; background: #2e9e63; color: white; display: inline-flex; align-items: center; justify-content: center; font-size: 2rem; margin-bottom: 0.5rem; box-shadow: 0 2px 12px rgba(46,158,99,0.45); }
-    .required-mark { color: #ff9a8f; }
+    .required-mark { color: #b8503f; }
     .other-input { display: none; margin-top: 0.5rem; }
     .other-input.show { display: block; }
     .info-box { background: rgba(224,146,66,0.14); border: 1px solid rgba(224,146,66,0.45); border-radius: 8px; padding: 0.75rem; font-size: 0.85rem; }
     .warning-box { background: rgba(214,64,69,0.16); border: 1px solid rgba(214,64,69,0.5); border-radius: 8px; padding: 0.75rem; font-size: 0.85rem; }
     .parking-info { background: var(--ss-panel-soft); border: 1px solid var(--ss-border); border-radius: 8px; padding: 0.75rem; font-size: 0.85rem; }
-    .error-box { background: rgba(214,64,69,0.18); border: 1px solid rgba(214,64,69,0.5); border-radius: 8px; padding: 0.75rem; font-size: 0.9rem; color: #ffb3a8; font-weight: 600; }
-    .noise-cancel-msg { background: rgba(214,64,69,0.14); border: 1px solid rgba(214,64,69,0.5); border-radius: 8px; padding: 0.75rem 1rem; font-size: 0.85rem; margin-top: 0.5rem; color: #ffb3a8; }
+    .error-box { background: rgba(184,80,63,0.12); border: 1px solid rgba(184,80,63,0.5); border-radius: 8px; padding: 0.75rem; font-size: 0.9rem; color: #b8503f; font-weight: 600; }
+    .noise-cancel-msg { background: rgba(184,80,63,0.1); border: 1px solid rgba(184,80,63,0.5); border-radius: 8px; padding: 0.75rem 1rem; font-size: 0.85rem; margin-top: 0.5rem; color: #b8503f; }
     .alloc-item { display: flex; align-items: baseline; gap: 0; padding: 0.35rem 0; }
     .alloc-spot { min-width: 8em; flex-shrink: 0; }
     .alloc-arrow { color: var(--ss-hassaku); font-weight: 700; }
@@ -94,7 +94,10 @@
         <button data-lang="zh">中文</button>
         <button data-lang="tw">繁體中文</button>
       </div>
-      <span class="hero-brand-mark" id="formBrand">Setouchi Stay</span>
+      <a class="ss-brand-link" href="https://setouchi-stay.com/" target="_blank" rel="noopener" aria-label="Setouchi Stay 公式サイト">
+        <svg class="ss-sun-mark" viewBox="0 0 64 34" fill="none" aria-hidden="true"><circle cx="32" cy="15" r="8" fill="#e6a860"/><line x1="6" y1="24" x2="58" y2="24" stroke="#c4a35c" stroke-width="1.3"/><path d="M18 24 q7 -7 14 0 Z" fill="#c4a35c" opacity="0.85"/></svg>
+        <span class="hero-brand-mark" id="formBrand">Setouchi Stay</span>
+      </a>
       <h1 class="form-hero-name" id="formPropertyName" style="display:none;"></h1>
       <div class="form-property-name" id="formTitle">宿泊者名簿</div>
       <p id="formSubtitle">ご宿泊に必要な情報をご記入ください</p>
@@ -486,6 +489,12 @@
         </div><!-- /formBody -->
       </form>
     </div>
+    <div class="ss-site-cta">
+      <a class="ss-site-link" href="https://setouchi-stay.com/" target="_blank" rel="noopener">
+        <svg class="ss-site-sun" viewBox="0 0 64 34" fill="none" aria-hidden="true"><circle cx="32" cy="15" r="8" fill="#e6a860"/><line x1="6" y1="24" x2="58" y2="24" stroke="#f4efe6" stroke-width="1.3"/><path d="M18 24 q7 -7 14 0 Z" fill="#f4efe6" opacity="0.9"/></svg>
+        Setouchi Stay 公式サイト・Official Site →
+      </a>
+    </div>
     <footer class="form-footer">
       <div class="ff-brand">Setouchi Stay</div>
     </footer>
@@ -542,8 +551,8 @@
     </div>
   </div>
 
-  <script src="/js/shared/form-schema.js?v=v0730a"></script>
-  <script src="/js/guide-map.js?v=v0730a"></script>
+  <script src="/js/shared/form-schema.js?v=v0731a"></script>
+  <script src="/js/guide-map.js?v=v0731a"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-storage-compat.js"></script>
