@@ -18,8 +18,10 @@
  * dryRun=true のときは「遷移＋メッセージ入力欄の検出＋スクショ」までで入力もしない（選択子検証用）。
  */
 
-/** 下書きの自動保存（デバウンス）が効くのを待つ時間。短いとページを閉じた瞬間に下書きが消える。 */
+/** 下書きの自動保存（デバウンス）が効くのを待つ時間。 */
 const DRAFT_SETTLE_MS = 4000;
+/** 未送信の下書きページを開いたまま保持する上限。これを過ぎたら掃除して閉じる。 */
+const DRAFT_PAGE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 /**
  * メッセージ入力欄を探す（ElementHandle を返す）。
@@ -285,6 +287,39 @@ function otaLabelOf(ota) {
 }
 
 /**
+ * 開いたまま保持している下書きページを掃除する。
+ * ★スマホのブラウザで開いても下書きは同期されない（2026-07-31 実機で確認）ため、
+ *   やますけは Chrome リモートデスクトップでこの PC の画面に繋いで送信ボタンを押す。
+ *   そのため下書きページは「送信されるまで開いたまま」にしておく必要がある。
+ * 閉じる条件: ①ページが既に閉じている ②入力欄が空＝送信済み/破棄済み ③保持上限を超えた。
+ * @param {Set} draftPages  {page, jobId, guestName, ota, at} の集合（listener が保持）
+ */
+export async function pruneDraftPages(draftPages, { LOG_PREFIX = "[yadozei]" } = {}) {
+  for (const d of [...draftPages]) {
+    let reason = null;
+    if (!d.page || d.page.isClosed()) {
+      reason = "既に閉じられている";
+    } else if (Date.now() - d.at > DRAFT_PAGE_MAX_AGE_MS) {
+      reason = "24時間経過";
+    } else {
+      // 入力欄が空になっていれば送信済み（または手で消した）とみなす
+      const composer = await findComposer(d.page).catch(() => null);
+      if (!composer) {
+        reason = "入力欄が見つからない(画面が変わった)";
+      } else {
+        const text = await readComposerText(composer);
+        if (!text.trim()) reason = "送信済み(入力欄が空)";
+      }
+    }
+    if (!reason) continue;
+    draftPages.delete(d);
+    if (d.page && !d.page.isClosed()) await d.page.close().catch(() => {});
+    console.log(`${LOG_PREFIX} [ota_message] 下書きページを閉じました（${d.guestName || "?"} / ${reason}）`);
+  }
+  return draftPages.size;
+}
+
+/**
  * OTA メッセージ「下書き作成」ジョブの本体。
  * @param {object} job    yadozeiQueue の ota_message ジョブ
  * @param {object} ctx    Playwright BrowserContext（yadozei-listener が用意・ログイン済み）
@@ -292,7 +327,7 @@ function otaLabelOf(ota) {
  * @param {object} deps   { db, admin, notifyDiscord_, queueButtonedNotice_, LOG_PREFIX, saveScreenshot }
  */
 export async function handleOtaMessage(job, ctx, jobId, deps) {
-  const { db, admin, notifyDiscord_, queueButtonedNotice_, LOG_PREFIX = "[yadozei]", saveScreenshot } = deps;
+  const { db, admin, notifyDiscord_, queueButtonedNotice_, LOG_PREFIX = "[yadozei]", saveScreenshot, draftPages } = deps;
   const dryRun = !!(job.params && job.params.dryRun);
   const { ota, reservationCode, guestName, checkIn, message, guestId, propertyName } = job;
   if (!message) throw new Error("ota_message: message(本文) が空です");
@@ -306,6 +341,7 @@ export async function handleOtaMessage(job, ctx, jobId, deps) {
   );
 
   const page = await ctx.newPage();
+  let keepPageOpen = false; // 下書きが出来たら true（送信されるまで画面を残す）
   try {
     let outcome;
     if (ota === "airbnb") {
@@ -340,11 +376,13 @@ export async function handleOtaMessage(job, ctx, jobId, deps) {
     }
 
     // Discord へ「文面＋開くボタン＋スクショ」を1本投稿（ボタンは webhook で出せないので秘書bot経由）
+    // ★導線の主役はリモートデスクトップ。スマホのブラウザで OTA を開いても下書きは同期されない
+    //   （2026-07-31 実機確認）が、この PC には下書きが入った画面が開いたまま残っている。
     const head =
       `📝 **${otaLabel} の下書きを用意しました** — ${guestName || "?"} 様` +
       `（${propertyName || ""}${checkIn ? " / " + checkIn + " IN" : ""}）\n` +
-      `下のボタンでスレッドを開き、**送信ボタンを押すだけ**で送れます。\n` +
-      `※下書きが表示されない場合は、下の文面をコピーして貼り付けてください。\n` +
+      `**🖥️ PCの画面を開く** を押すと、この下書きが入った画面がそのまま出ます。**送信ボタンを押すだけ**です。\n` +
+      `※スマホのブラウザで「${otaLabel} を開く」から入ると下書きは表示されません（文面をコピーして貼ってください）。\n` +
       "```\n" +
       String(message).slice(0, 1200) +
       "\n```";
@@ -352,15 +390,24 @@ export async function handleOtaMessage(job, ctx, jobId, deps) {
       queueButtonedNotice_({
         message: head,
         channelPersona: "minpaku",
-        links: [{ label: `📱 ${otaLabel} を開く`, url: outcome.threadUrl }],
+        links: [
+          { label: "🖥️ PCの画面を開く", url: "https://remotedesktop.google.com/access" },
+          { label: `📱 ${otaLabel} を開く`, url: outcome.threadUrl },
+        ],
         files: outcome.shotPath ? [outcome.shotPath] : [],
       });
     } else {
       await notifyDiscord_(`${head}\n${outcome.threadUrl || ""}`);
     }
 
+    // ★このページは閉じない。リモートデスクトップで繋いだときに「送信を押すだけ」の状態で見せるため、
+    //   下書きが入った画面を前面に出したまま保持する（掃除は pruneDraftPages）。
+    keepPageOpen = true;
+    await page.bringToFront().catch(() => {});
+    if (draftPages) draftPages.add({ page, jobId, guestName, ota, at: Date.now() });
+
     console.log(
-      `${LOG_PREFIX} [ota_message] 下書き完了 url=${outcome.threadUrl} 入力欄に残存=${outcome.composerHasText}`
+      `${LOG_PREFIX} [ota_message] 下書き完了 url=${outcome.threadUrl} 入力欄に残存=${outcome.composerHasText} — 画面は開いたまま保持`
     );
     return { drafted: true, ota, threadUrl: outcome.threadUrl, composerHasText: !!outcome.composerHasText };
   } catch (e) {
@@ -374,6 +421,6 @@ export async function handleOtaMessage(job, ctx, jobId, deps) {
     );
     throw e; // handleJob が queue を failed にする
   } finally {
-    await page.close().catch(() => {});
+    if (!keepPageOpen) await page.close().catch(() => {});
   }
 }

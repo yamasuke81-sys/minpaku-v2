@@ -36,7 +36,12 @@ import os from "node:os";
 import https from "node:https";
 import { spawn } from "node:child_process";
 // OTA自動返信(名簿確認メッセージ)の隔離ハンドラ。CSV系コードには触れず、直列ドレインに相乗りする。
-import { handleOtaMessage } from "./ota-message.mjs";
+import { handleOtaMessage, pruneDraftPages } from "./ota-message.mjs";
+
+// 未送信の OTA 下書きページ（送信されるまで画面を開いたまま保持する。要素= {page,jobId,guestName,ota,at}）。
+// ★スマホのブラウザには下書きが同期されないので、やますけは Chrome リモートデスクトップでこの PC の
+//   画面に繋いで送信ボタンを押す。そのため下書きがある間はブラウザを閉じられない。
+const _draftPages = new Set();
 
 // ================== 定数 ==================
 const VERSION = "0.4.0"; // 0.4.0: 印刷を白黒強制+印刷完了をボタン付きで通知(秘書経由) / 0.3.9: PDF自動印刷+両リンク記録 / 0.3.8: pdf_fetch厳格化 / 0.3.7: 失敗即時通知+audit自動リトライ
@@ -2304,7 +2309,7 @@ async function handleJob(docId, job) {
     } else if (job.kind === "ota_message") {
       // OTAメッセージの【下書き作成】（名簿確認メッセージ）。隔離モジュールに委譲。ctx/ログイン資産を再利用。
       // 送信はしない（2026-07-31 仕様変更）。通知はボタン付きにしたいので秘書bot経由の依頼関数を渡す。
-      result = await handleOtaMessage(job, ctx, docId, { db, admin, notifyDiscord_, queueButtonedNotice_, LOG_PREFIX, saveScreenshot });
+      result = await handleOtaMessage(job, ctx, docId, { db, admin, notifyDiscord_, queueButtonedNotice_, LOG_PREFIX, saveScreenshot, draftPages: _draftPages });
     } else {
       throw new Error(`未知の kind: ${job.kind}`);
     }
@@ -2624,14 +2629,40 @@ if (LOGIN_MODE) {
     }
     // キューが空になったらブラウザを閉じる(headed窓を画面に残さない+pm2再起動時の孤児化防止)。
     // ログイン Cookie は user-data-dir に永続化済みなので閉じても失われない。
+    // ★ただし未送信の OTA 下書きが開いている間は閉じない。閉じると下書きが消え、
+    //   リモートデスクトップで繋いだときに「送信を押すだけ」の画面が無くなるため。
     if (_persistentCtx) {
-      try { await _persistentCtx.close(); } catch (_) { /* ignore */ }
-      _persistentCtx = null;
-      console.log(`${LOG_PREFIX} キュー空 — ブラウザを閉じました`);
+      let remaining = 0;
+      try { remaining = await pruneDraftPages(_draftPages, { LOG_PREFIX }); } catch (e) {
+        console.warn(`${LOG_PREFIX} 下書きページ掃除で例外: ${e.message}`);
+      }
+      if (remaining > 0) {
+        console.log(`${LOG_PREFIX} キュー空 — ただし未送信の下書き ${remaining}件 のためブラウザは開いたまま`);
+      } else {
+        try { await _persistentCtx.close(); } catch (_) { /* ignore */ }
+        _persistentCtx = null;
+        console.log(`${LOG_PREFIX} キュー空 — ブラウザを閉じました`);
+      }
     }
     _draining = false;
     if (_queue.length) drainQueue(); // close 中に到着したジョブを取りこぼさない
   }
+
+  // 下書きページの定期掃除。送信されたら(入力欄が空になったら)ページを閉じ、
+  // 全部無くなったらブラウザも閉じる。これが無いと送信後もずっと窓が残る。
+  setInterval(async () => {
+    if (_draining || !_persistentCtx || !_draftPages.size) return;
+    try {
+      const remaining = await pruneDraftPages(_draftPages, { LOG_PREFIX });
+      if (remaining === 0 && !_draining && !_queue.length && _persistentCtx) {
+        await _persistentCtx.close().catch(() => {});
+        _persistentCtx = null;
+        console.log(`${LOG_PREFIX} 下書きが全て片付いたのでブラウザを閉じました`);
+      }
+    } catch (e) {
+      console.warn(`${LOG_PREFIX} 下書きページ定期掃除で例外: ${e.message}`);
+    }
+  }, 10 * 60 * 1000); // 10分毎
 
   unsubscribe = db
     .collection("yadozeiQueue")
