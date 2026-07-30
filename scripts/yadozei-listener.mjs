@@ -52,6 +52,11 @@ const SESSION_STATE_FILE = path.join(USER_DATA_DIR, "session-state.json");
 // 失効中の再通知は「次の月次取得 N 日前」から、最低 H 時間間隔でのみ行う
 const EXPIRE_REMIND_BEFORE_DAYS = 3;
 const EXPIRE_REMIND_MIN_INTERVAL_H = 20;
+// 同一サイトの「ログインが切れています」促しは、復帰を跨いでも最短この間隔でしか出さない。
+// Booking は extranet のアイドルタイムアウトで数時間ごとに切れるため、これが無いと促しが鳴り続ける。
+const EXPIRE_NOTIFY_COOLDOWN_H = 24;
+// セッション点検(キープアライブ兼)の間隔[時間]。Booking のアイドルタイムアウト対策で 8→2 に短縮(2026-07-31)。
+const SESSION_CHECK_BUCKET_H = 2;
 // OTA失効を検知したら「どのタイミングでも」秘書(#民泊管理)経由でワンタップ再ログインを促すための連携先。
 // ota-login-check.mjs(朝4時)と同じ pending ファイル/チャンネルを使い、handleOne の「はい」が拾って runRelogin する。
 const MINPAKU_CHANNEL_ID = "1518754802572722306"; // #民泊管理 (channels.json minpaku。notifyDiscord_ の webhook も同チャンネル)
@@ -2144,7 +2149,8 @@ async function handleSessionCheck(ctx, jobId) {
         recovered.push(s.name);
         st.sessionStartAt = nowIso; // 新セッションの計測開始
         st.expiredSince = null;
-        st.lastExpiredNotifyAt = null;
+        // ★lastExpiredNotifyAt は復帰でもリセットしない。ここを消すと「再ログイン→数時間で失効→即通知」の
+        //   ループが復活する(Booking で実際に1日3〜4本出ていた)。24h クールダウンは復帰を跨いで効かせる。
       } else if (!st.sessionStartAt) {
         st.sessionStartAt = nowIso; // 初回観測 (実ログインより遅い可能性あり=下限値)
       }
@@ -2152,8 +2158,16 @@ async function handleSessionCheck(ctx, jobId) {
     } else if (status === "logged_out") {
       if (!st.expiredSince) {
         st.expiredSince = nowIso;
-        st.lastExpiredNotifyAt = nowIso;
-        newlyExpired.push(s.name);
+        // ★2026-07-31: 「再ログイン→数時間で失効」を繰り返すサイト(Booking)だと、失効のたびに
+        //   これが初回検知になり促し通知が1日に何本も出ていた。同一サイトの促しは 24h に1回までに抑える
+        //   (通知しなかった場合も expiredSince は立てるので、リマインド経路の判定は従来どおり働く)。
+        const lastNotify = st.lastExpiredNotifyAt ? new Date(st.lastExpiredNotifyAt).getTime() : 0;
+        if (Date.now() - lastNotify >= EXPIRE_NOTIFY_COOLDOWN_H * 3600 * 1000) {
+          st.lastExpiredNotifyAt = nowIso;
+          newlyExpired.push(s.name);
+        } else {
+          console.log(`${LOG_PREFIX} [session_check] ${s.name} 失効を検知したが ${EXPIRE_NOTIFY_COOLDOWN_H}h 以内に通知済み → 促しを抑制`);
+        }
       } else {
         stillExpired.push(s.name);
       }
@@ -2288,8 +2302,9 @@ async function handleJob(docId, job) {
     } else if (job.kind === "calendar_audit") {
       result = await handleCalendarAudit(job, ctx, docId);
     } else if (job.kind === "ota_message") {
-      // OTA自動返信（名簿確認メッセージ）。隔離モジュールに委譲。ctx/ログイン資産を再利用。
-      result = await handleOtaMessage(job, ctx, docId, { db, admin, notifyDiscord_, notifyDiscordImage_, LOG_PREFIX, saveScreenshot });
+      // OTAメッセージの【下書き作成】（名簿確認メッセージ）。隔離モジュールに委譲。ctx/ログイン資産を再利用。
+      // 送信はしない（2026-07-31 仕様変更）。通知はボタン付きにしたいので秘書bot経由の依頼関数を渡す。
+      result = await handleOtaMessage(job, ctx, docId, { db, admin, notifyDiscord_, queueButtonedNotice_, LOG_PREFIX, saveScreenshot });
     } else {
       throw new Error(`未知の kind: ${job.kind}`);
     }
@@ -2308,7 +2323,7 @@ async function handleJob(docId, job) {
         : isCalendarAudit
           ? { date: result.date, status: result.status, counts: result.counts, errors: result.errors, unassignedCount: result.unassignedCount }
           : isOtaMessage
-            ? { sent: result.sent, verified: result.verified, ota: result.ota, dryRun: result.dryRun }
+            ? { drafted: result.drafted, ota: result.ota, threadUrl: result.threadUrl || null, composerHasText: result.composerHasText ?? null, dryRun: !!result.dryRun }
             : isFetch || isPdf
               ? { fileName: result.fileName, driveFileId: result.fileId, driveLink: result.webViewLink, taxCopy: result.taxCopy || null }
               : { uploaded: true };
@@ -2496,14 +2511,17 @@ if (LOGIN_MODE) {
   updateHeartbeat();
   heartbeatTimer = setInterval(updateHeartbeat, HEARTBEAT_INTERVAL_MS);
 
-  // セッション健全性チェック(キープアライブ兼)を定期 enqueue。docId を JST の 8時間バケット固定で冪等化
-  // (同一バケット内は create() が失敗しスキップ → 実質1日3回、日付/バケット跨ぎで新規)。実処理は handleSessionCheck。
+  // セッション健全性チェック(キープアライブ兼)を定期 enqueue。docId を JST の時間バケット固定で冪等化
+  // (同一バケット内は create() が失敗しスキップ、日付/バケット跨ぎで新規)。実処理は handleSessionCheck。
+  // ★2026-07-31: 8時間毎(1日3回)だと Booking.com の extranet アイドルタイムアウトに間に合わず、
+  //   点検のたびに必ず未ログインだった(Cookie自体は400日有効=切れているのはサーバ側セッション)。
+  //   キープアライブを 2時間毎(1日12回)に上げて、アイドルで落とされるのを防げるか実測する。
   async function enqueueSessionCheck() {
     try {
       const j = new Date(Date.now() + 9 * 3600 * 1000); // JST
       const ymd = `${j.getUTCFullYear()}${String(j.getUTCMonth() + 1).padStart(2, "0")}${String(j.getUTCDate()).padStart(2, "0")}`;
-      const bucket = Math.floor(j.getUTCHours() / 8); // 0/1/2 (8時間毎)
-      const id = `session_check_${ymd}_${bucket}`;
+      const bucket = Math.floor(j.getUTCHours() / SESSION_CHECK_BUCKET_H);
+      const id = `session_check_${ymd}_h${bucket}`;
       await db.collection("yadozeiQueue").doc(id).create({
         kind: "session_check", status: "pending",
         createdAt: admin.firestore.FieldValue.serverTimestamp(), source: "listener_periodic",
@@ -2514,7 +2532,7 @@ if (LOGIN_MODE) {
     }
   }
   setTimeout(enqueueSessionCheck, 20_000); // 起動20秒後に初回
-  setInterval(enqueueSessionCheck, 60 * 60 * 1000); // 毎時トライ(8hバケットで冪等 → 実質1日3回)
+  setInterval(enqueueSessionCheck, 30 * 60 * 1000); // 30分毎トライ(バケットで冪等 → 実質 24/SESSION_CHECK_BUCKET_H 回/日)
 
   // 夜間カレンダー監査 (OTA実予約とv2の突合用スナップショット取得) を毎日1回 enqueue。
   // docId=日付で冪等 (同日2回目以降は create() が already exists で自動スキップ)。

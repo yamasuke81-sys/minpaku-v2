@@ -1,21 +1,25 @@
 /**
- * OTA(Airbnb / Booking.com)ゲストへの「名簿確認取れました」定型メッセージ送信ハンドラ。
+ * OTA(Airbnb / Booking.com)ゲストへの「名簿確認取れました」定型メッセージの【下書き作成】ハンドラ。
+ *
+ * ★2026-07-31 仕様変更（やますけ決定）: プログラムからの自動送信は廃止した。
+ *   このワーカーがやるのは「実スレッドを開いて文面を入力し、下書きのまま残す」ところまで。
+ *   そのうえで Discord に ①文面（コピー用）②スレッドを開くボタン ③入力後のスクショ を1本投稿し、
+ *   やますけが開いて【送信ボタンを押すだけ】で完了する。送信ボタンを押すコードはこのファイルに存在しない。
  *
  * yadozei-listener の直列ドレインに相乗りする隔離モジュール（CSV系コードには一切触れない）。
  * handleJob が kind==="ota_message" のジョブでこの handleOtaMessage を呼ぶ。
  * ブラウザ context / ログイン資産（Airbnb・Booking extranet）は yadozei-listener のものを再利用。
  *
  * ジョブ形状（Cloud Function onKeyboxConfirmed が投入）:
- *   { kind:"ota_message", ota:"airbnb"|"booking", reservationCode(HM|null),
+ *   { kind:"ota_message", ota:"airbnb"|"booking", reservationCode(HM|予約番号|null),
  *     guestName, checkIn, checkOut, message(完成本文), guideUrl, guestId, propertyId, propertyName,
  *     params?: { dryRun?: boolean } }
  *
- * dryRun=true のときは「遷移＋メッセージ入力欄の検出＋スクショ」までで送信しない（実ゲストへ送らずに
- * 選択子・ナビを安全に検証するため）。本番投入前の live 検証で使う。
- *
- * ★live-tune: OTA の実UIはハッシュ化クラス名で不安定なため、テキスト/role/placeholder ベースの
- *   複数フォールバックで組んでいる。実ログイン画面での初回検証時にセレクタを詰める前提。
+ * dryRun=true のときは「遷移＋メッセージ入力欄の検出＋スクショ」までで入力もしない（選択子検証用）。
  */
+
+/** 下書きの自動保存（デバウンス）が効くのを待つ時間。短いとページを閉じた瞬間に下書きが消える。 */
+const DRAFT_SETTLE_MS = 4000;
 
 /**
  * メッセージ入力欄を探す（ElementHandle を返す）。
@@ -62,13 +66,16 @@ async function waitForComposer(page, timeoutMs = 20_000) {
   return null;
 }
 
-/** 入力欄(ElementHandle)に本文をセットする。Enter=送信のUIが多く改行で誤送信しうるので fill で直接値を入れる */
+/**
+ * 入力欄(ElementHandle)に本文をセットする。
+ * ★Enter=送信のUIなので改行キーは絶対に押さない（誤送信になる）。fill で直接値を入れ、
+ *   fill 不可な contenteditable のみ Shift+Enter で改行する。
+ */
 async function fillComposer(page, composer, message) {
   try {
     await composer.fill(message);
     return true;
   } catch (_) {
-    // contenteditable 等 fill 不可なら、改行を Shift+Enter でタイプ（Enter単独=送信を避ける）
     await composer.click().catch(() => {});
     const parts = message.split("\n");
     for (let i = 0; i < parts.length; i++) {
@@ -79,53 +86,19 @@ async function fillComposer(page, composer, message) {
   }
 }
 
-/** 入力欄を空にする（fillOnly 検証で下書きを残さないため） */
-async function clearComposer(page, composer) {
+/** 入力欄に本文が残っているか（＝下書きが成立しているか）を確認する */
+async function readComposerText(composer) {
   try {
-    await composer.fill("");
-  } catch (_) {}
-  try {
-    await composer.click().catch(() => {});
-    await page.keyboard.press("Control+A").catch(() => {});
-    await page.keyboard.press("Delete").catch(() => {});
-  } catch (_) {}
-}
-
-/** 送信ボタンを押す。★Airbnb確認済み: 送信ボタンは aria-label が正確に「送信」
- *  （「クイック返信を送信」とは別物なので厳密一致で誤爆を防ぐ）。 */
-async function clickSend(page) {
-  const cands = [
-    page.getByRole("button", { name: "送信", exact: true }), // Airbnb実UIで確定
-    page.locator('button[aria-label="送信"]'),
-    page.getByRole("button", { name: /^Send$|Send message/ }),
-    page.locator('button[data-testid*="send"]'),
-    page.locator('button[type="submit"]'),
-  ];
-  for (const c of cands) {
-    const loc = c.first();
-    if ((await loc.count().catch(() => 0)) && (await loc.isEnabled().catch(() => false))) {
-      await loc.click().catch(() => {});
-      return true;
-    }
-  }
-  return false;
-}
-
-/** 送信後、本文の冒頭がスレッドに現れたかで成否を推定（確認できなくても失敗扱いにはしない） */
-async function verifyMessageSent(page, message) {
-  const head = (message.split("\n").find((l) => l.trim()) || "").slice(0, 12);
-  if (!head) return false;
-  try {
-    await page.waitForTimeout(1500);
-    const n = await page.getByText(head, { exact: false }).count().catch(() => 0);
-    return n > 0;
+    return await composer.evaluate((el) =>
+      el.tagName === "TEXTAREA" || el.tagName === "INPUT" ? el.value || "" : el.innerText || el.textContent || ""
+    );
   } catch (_) {
-    return false;
+    return "";
   }
 }
 
-/** ---- Airbnb: 予約詳細ページ(HMコード)からメッセージを送る ---- */
-async function sendAirbnb(page, { reservationCode, message, jobId, dryRun, fillOnly, saveScreenshot }) {
+/** ---- Airbnb: 予約詳細ページ(HMコード)のスレッドに下書きを入れる ---- */
+async function sendAirbnb(page, { reservationCode, message, jobId, dryRun, saveScreenshot }) {
   if (!reservationCode) throw new Error("Airbnb: 確認コード(HM…)が無く予約を特定できません");
   await page.goto(`https://www.airbnb.com/hosting/reservations/details/${reservationCode}`, {
     waitUntil: "domcontentloaded",
@@ -172,52 +145,21 @@ async function sendAirbnb(page, { reservationCode, message, jobId, dryRun, fillO
 
   if (dryRun) {
     await saveScreenshot(page, jobId, "airbnb_msg_dryrun_composer");
-    // 送信ボタンの候補をログに出す（入力欄が空なので送信ボタンは disabled のはずだが、
-    // aria-label/テキストで選択子を特定できる＝clickSend を go-live 前に確定するため）
-    try {
-      const btns = await page.evaluate(() =>
-        [...document.querySelectorAll("button")]
-          .filter((b) => {
-            const r = b.getBoundingClientRect();
-            return r.width > 0 && r.height > 0;
-          })
-          .map((b) => ({ al: b.getAttribute("aria-label"), t: (b.textContent || "").trim().slice(0, 12), dis: b.disabled }))
-          .filter((x) => x.al || x.t)
-          .slice(-18)
-      );
-      console.log("[ota_message] Airbnb dryRun 下部ボタン群 =", JSON.stringify(btns));
-    } catch (_) {}
-    return { sent: false, verified: false };
+    return { drafted: false, threadUrl: page.url() };
   }
 
   await fillComposer(page, composer, message);
-  await page.waitForTimeout(800);
-
-  if (fillOnly) {
-    // 送信直前まで（入力済み・送信ボタン診断）を検証し、送信しない。下書きは必ず消す。
-    const shotPath = await saveScreenshot(page, jobId, "airbnb_msg_filled_nosend");
-    try {
-      const btns = await page.evaluate(() =>
-        [...document.querySelectorAll("button")]
-          .filter((b) => {
-            const r = b.getBoundingClientRect();
-            return r.width > 0 && r.height > 0;
-          })
-          .map((b) => ({ al: b.getAttribute("aria-label"), t: (b.textContent || "").trim().slice(0, 12), dis: b.disabled }))
-          .filter((x) => x.al || x.t)
-          .slice(-16)
-      );
-      console.log("[ota_message] Airbnb 下部ボタン群 =", JSON.stringify(btns));
-    } catch (_) {}
-    await clearComposer(page, composer);
-    return { sent: false, verified: false, filledOnly: true, shotPath };
-  }
-
-  await page.waitForTimeout(300);
-  const clicked = await clickSend(page);
-  const verified = await verifyMessageSent(page, message);
-  await saveScreenshot(page, jobId, "airbnb_msg_after_send");
-  return { sent: clicked, verified };
+  // 下書きの自動保存（デバウンス）が走るのを待ってから閉じる
+  await page.waitForTimeout(DRAFT_SETTLE_MS);
+  const left = await readComposerText(composer);
+  const shotPath = await saveScreenshot(page, jobId, "airbnb_msg_drafted");
+  return {
+    drafted: true,
+    // 入力済みスレッドの実URL（Discordの「開く」ボタンはこれを使う。着地パターンによって details/… とは限らない）
+    threadUrl: page.url(),
+    composerHasText: left.trim().length > 0,
+    shotPath,
+  };
 }
 
 /** 開いている Booking スレッドの右パネル「予約番号」を読む（誤送信防止の検証用） */
@@ -243,8 +185,8 @@ async function readBookingReservationNo(page) {
   }
 }
 
-/** ---- Booking.com: extranet で該当予約のメッセージスレッドを開いて送る ---- */
-async function sendBooking(page, { message, guestName, reservationCode, checkIn, jobId, dryRun, fillOnly, saveScreenshot }) {
+/** ---- Booking.com: extranet で該当予約のメッセージスレッドを開いて下書きを入れる ---- */
+async function sendBooking(page, { message, guestName, reservationCode, checkIn, jobId, dryRun, saveScreenshot }) {
   // lang=ja を明示（アカウント言語が英語だと日本語セレクタが一致しないため。CSV取得と同方針）
   await page.goto("https://admin.booking.com/?lang=ja", { waitUntil: "domcontentloaded", timeout: 60_000 });
   await page.waitForTimeout(2500);
@@ -309,16 +251,16 @@ async function sendBooking(page, { message, guestName, reservationCode, checkIn,
     }
   }
 
-  // ★安全検証: 開いたスレッドの右パネル「予約番号」が目標と一致するか。不一致/不明なら誤送信防止で中止。
+  // ★安全検証: 開いたスレッドの右パネル「予約番号」が目標と一致するか。不一致/不明なら誤爆防止で中止。
   const openedNo = await readBookingReservationNo(page);
   console.log(`[ota_message] Booking 開いたスレッドの予約番号=${openedNo || "不明"} 目標=${reservationCode || "なし"}`);
   if (!reservationCode) {
     await saveScreenshot(page, jobId, "booking_msg_no_resno");
-    throw new Error("Booking 予約番号が取得できずスレッドを安全に特定できないため中止（手動送信してください）");
+    throw new Error("Booking 予約番号が取得できずスレッドを安全に特定できないため中止（手動で送ってください）");
   }
   if (openedNo !== reservationCode) {
     await saveScreenshot(page, jobId, "booking_msg_wrong_thread");
-    throw new Error(`Booking スレッド不一致（開いた予約番号「${openedNo || "不明"}」／目標「${reservationCode}」）— 誤送信防止で中止`);
+    throw new Error(`Booking スレッド不一致（開いた予約番号「${openedNo || "不明"}」／目標「${reservationCode}」）— 誤爆防止で中止`);
   }
 
   let composer = await findComposer(page);
@@ -328,98 +270,105 @@ async function sendBooking(page, { message, guestName, reservationCode, checkIn,
   }
   if (dryRun) {
     await saveScreenshot(page, jobId, "booking_msg_dryrun_composer");
-    return { sent: false, verified: false };
+    return { drafted: false, threadUrl: page.url() };
   }
   await fillComposer(page, composer, message);
-  await page.waitForTimeout(800);
-  if (fillOnly) {
-    const shotPath = await saveScreenshot(page, jobId, "booking_msg_filled_nosend");
-    await clearComposer(page, composer);
-    return { sent: false, verified: false, filledOnly: true, shotPath };
-  }
-  await page.waitForTimeout(300);
-  const clicked = await clickSend(page);
-  const verified = await verifyMessageSent(page, message);
-  await saveScreenshot(page, jobId, "booking_msg_after_send");
-  return { sent: clicked, verified };
+  await page.waitForTimeout(DRAFT_SETTLE_MS);
+  const left = await readComposerText(composer);
+  const shotPath = await saveScreenshot(page, jobId, "booking_msg_drafted");
+  return { drafted: true, threadUrl: page.url(), composerHasText: left.trim().length > 0, shotPath };
+}
+
+/** OTA表示名 */
+function otaLabelOf(ota) {
+  return ota === "airbnb" ? "Airbnb" : "Booking.com";
 }
 
 /**
- * OTA メッセージ送信ジョブの本体。
+ * OTA メッセージ「下書き作成」ジョブの本体。
  * @param {object} job    yadozeiQueue の ota_message ジョブ
  * @param {object} ctx    Playwright BrowserContext（yadozei-listener が用意・ログイン済み）
  * @param {string} jobId  queue docId
- * @param {object} deps   { db, admin, notifyDiscord_, LOG_PREFIX, saveScreenshot }
+ * @param {object} deps   { db, admin, notifyDiscord_, queueButtonedNotice_, LOG_PREFIX, saveScreenshot }
  */
 export async function handleOtaMessage(job, ctx, jobId, deps) {
-  const { db, admin, notifyDiscord_, notifyDiscordImage_, LOG_PREFIX = "[yadozei]", saveScreenshot } = deps;
+  const { db, admin, notifyDiscord_, queueButtonedNotice_, LOG_PREFIX = "[yadozei]", saveScreenshot } = deps;
   const dryRun = !!(job.params && job.params.dryRun);
-  const fillOnly = !!(job.params && job.params.fillOnly);
   const { ota, reservationCode, guestName, checkIn, message, guestId, propertyName } = job;
   if (!message) throw new Error("ota_message: message(本文) が空です");
   if (!ota) throw new Error("ota_message: ota が未指定です");
 
-  const modeLabel = dryRun ? " ドライラン" : fillOnly ? " 入力のみ(送信なし)" : "";
+  const otaLabel = otaLabelOf(ota);
   console.log(
-    `${LOG_PREFIX} [ota_message] ${ota} → ${guestName || "?"} (${propertyName || ""} / ${checkIn || ""})${modeLabel}`
+    `${LOG_PREFIX} [ota_message] ${otaLabel} 下書き作成 → ${guestName || "?"} (${propertyName || ""} / ${checkIn || ""})${
+      dryRun ? " ドライラン" : ""
+    }`
   );
 
   const page = await ctx.newPage();
   try {
     let outcome;
     if (ota === "airbnb") {
-      outcome = await sendAirbnb(page, { reservationCode, message, jobId, dryRun, fillOnly, saveScreenshot });
+      outcome = await sendAirbnb(page, { reservationCode, message, jobId, dryRun, saveScreenshot });
     } else if (ota === "booking") {
-      outcome = await sendBooking(page, { message, guestName, reservationCode, checkIn, jobId, dryRun, fillOnly, saveScreenshot });
+      outcome = await sendBooking(page, { message, guestName, reservationCode, checkIn, jobId, dryRun, saveScreenshot });
     } else {
       throw new Error(`ota_message: 未知の ota=${ota}`);
     }
 
-    // 成功時: 名簿に送信済みマーカー（dryRun / fillOnly は実送信していないので書き戻さない）
-    if (!dryRun && !fillOnly && guestId) {
+    if (dryRun) {
+      await notifyDiscord_(`🧪 OTA下書き ドライラン（${otaLabel} / ${guestName || "?"}）— 入力欄の検出まで確認`);
+      return { drafted: false, ota, dryRun: true };
+    }
+
+    // 下書き作成を名簿に記録（冪等・再実行検知用。実送信はしていないので otaAckSentAt は書かない）
+    if (guestId) {
       await db
         .collection("guestRegistrations")
         .doc(guestId)
         .set(
           {
-            otaAckSentAt: admin.firestore.FieldValue.serverTimestamp(),
-            otaAckResult: { ota, sent: !!outcome.sent, verified: !!outcome.verified },
+            otaAckDraftedAt: admin.firestore.FieldValue.serverTimestamp(),
+            otaAckDraft: {
+              ota,
+              threadUrl: outcome.threadUrl || "",
+              composerHasText: !!outcome.composerHasText,
+            },
           },
           { merge: true }
         );
     }
 
-    // Discord 監査
-    const otaLabel = ota === "airbnb" ? "Airbnb" : "Booking";
-    // テストモード(fillOnly)は「実際に入力された文面」のスクショを添付して owner が確認できるようにする
-    if (fillOnly && outcome.shotPath && typeof notifyDiscordImage_ === "function") {
-      const caption =
-        `🧪 【OTA自動返信テスト】${otaLabel} → ${guestName || "?"}（${propertyName || ""} / ${checkIn || ""}）\n` +
-        `実際のスレッドに下記の文面を入力しました（送信はしていません／下書きも消去済み）。\n` +
-        `内容が良ければ、本番の自動送信をオンにします。`;
-      await notifyDiscordImage_(outcome.shotPath, caption);
-      return { sent: false, verified: false, ota, dryRun, fillOnly };
+    // Discord へ「文面＋開くボタン＋スクショ」を1本投稿（ボタンは webhook で出せないので秘書bot経由）
+    const head =
+      `📝 **${otaLabel} の下書きを用意しました** — ${guestName || "?"} 様` +
+      `（${propertyName || ""}${checkIn ? " / " + checkIn + " IN" : ""}）\n` +
+      `下のボタンでスレッドを開き、**送信ボタンを押すだけ**で送れます。\n` +
+      `※下書きが表示されない場合は、下の文面をコピーして貼り付けてください。\n` +
+      "```\n" +
+      String(message).slice(0, 1200) +
+      "\n```";
+    if (typeof queueButtonedNotice_ === "function") {
+      queueButtonedNotice_({
+        message: head,
+        channelPersona: "minpaku",
+        links: [{ label: `📱 ${otaLabel} を開く`, url: outcome.threadUrl }],
+        files: outcome.shotPath ? [outcome.shotPath] : [],
+      });
+    } else {
+      await notifyDiscord_(`${head}\n${outcome.threadUrl || ""}`);
     }
-    const status = dryRun
-      ? "🧪 ドライラン（送信せず・入力欄検出OK）"
-      : fillOnly
-      ? "🧪 入力のみ検証（送信せず・下書きは消去）"
-      : outcome.verified
-      ? "✅ 送信・確認OK"
-      : outcome.sent
-      ? "✅ 送信（スレッド反映は未確認）"
-      : "⚠️ 送信ボタン未検出";
-    await notifyDiscord_(
-      `📩 OTA自動返信 ${otaLabel} → ${guestName || "?"}（${propertyName || ""} / ${checkIn || ""}）\n${status}`
-    );
 
-    return { sent: !!outcome.sent, verified: !!outcome.verified, ota, dryRun, fillOnly };
+    console.log(
+      `${LOG_PREFIX} [ota_message] 下書き完了 url=${outcome.threadUrl} 入力欄に残存=${outcome.composerHasText}`
+    );
+    return { drafted: true, ota, threadUrl: outcome.threadUrl, composerHasText: !!outcome.composerHasText };
   } catch (e) {
     try {
       await saveScreenshot(page, jobId, `ota_message_${ota}_error`);
     } catch (_) {}
     await notifyDiscord_(
-      `🚨 OTA自動返信 失敗（${ota}）→ ${guestName || "?"}（${propertyName || ""} / ${checkIn || ""}）\n${String(
+      `🚨 OTA下書き 失敗（${otaLabel}）→ ${guestName || "?"}（${propertyName || ""} / ${checkIn || ""}）\n${String(
         e.message || e
       ).slice(0, 300)}\n→ 手動でOTAメッセージを送ってください。`
     );
