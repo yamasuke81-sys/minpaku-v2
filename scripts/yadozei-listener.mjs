@@ -2207,6 +2207,39 @@ async function handleSessionCheck(ctx, jobId) {
     } catch (e) {
       console.warn(`${LOG_PREFIX} [session_check] 復帰時 calendar_audit 投入失敗: ${e.message}`);
     }
+    // ★失効中に落ちた仕事を拾い直す(2026-07-31)。calendar_audit は上で作り直せるが、
+    //   月次CSV取得(毎月2日・宿泊税申告と売上取込の源泉)と OTA下書きは失敗したまま放置され、
+    //   誰も再投入しなかった。復帰したこの瞬間に retry として作り直す。
+    try {
+      const retryKinds = ["booking_csv_fetch", "airbnb_csv_fetch", "ota_message"];
+      const since = Date.now() - 7 * 24 * 3600 * 1000; // 7日以内の失敗だけ(古い失敗は蒸し返さない)
+      const failed = await db.collection("yadozeiQueue").where("status", "==", "failed").limit(50).get();
+      let requeued = 0;
+      for (const doc of failed.docs) {
+        const j = doc.data() || {};
+        if (!retryKinds.includes(j.kind)) continue;
+        if (j.retriedAt) continue; // 再投入は1回だけ(無限リトライにしない)
+        const created = j.createdAt?.toMillis ? j.createdAt.toMillis() : 0;
+        if (created && created < since) continue;
+        // 未ログインが原因で落ちたものだけを拾う(UI変更等の恒久エラーを蒸し返さない)
+        if (!/未ログイン|logged.?out|再ログイン/i.test(String(j.error || ""))) continue;
+        const { status, error, retriedAt, ...rest } = j;
+        await db.collection("yadozeiQueue").doc(`${doc.id}_retry_${Date.now()}`).create({
+          ...rest,
+          status: "pending",
+          attempts: 0,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          source: "listener_relogin_retry",
+          retriedFrom: doc.id,
+        });
+        await doc.ref.set({ retriedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        requeued++;
+        console.log(`${LOG_PREFIX} [session_check] 失効中に落ちた ${j.kind} を再投入 (${doc.id})`);
+      }
+      if (requeued) notices.push(`🔁 失効中に失敗していた処理 ${requeued}件（月次CSV取得/OTA下書き等）を今すぐやり直します。`);
+    } catch (e) {
+      console.warn(`${LOG_PREFIX} [session_check] 失敗ジョブの再投入でエラー: ${e.message}`);
+    }
   }
   if (newlyExpired.length) {
     const lines = [
@@ -2216,15 +2249,22 @@ async function handleSessionCheck(ctx, jobId) {
     for (const name of newlyExpired) {
       const st = state[name];
       if (st.sessionStartAt && st.lastOkAt) {
-        const days = ((new Date(st.lastOkAt) - new Date(st.sessionStartAt)) / 86400000).toFixed(1);
-        lines.push(`📏 持続実測: ${fmtJst_(st.sessionStartAt)} ログイン確認 〜 ${fmtJst_(st.lastOkAt)} 正常 (約${days}日)`);
+        // ★持続時間は「日」だと Booking のような短命セッションで 0.2日 のように読めない。
+        //   1日未満は時間・分で出す。誤差は点検間隔(SESSION_CHECK_BUCKET_H)ぶん。
+        const ms = new Date(st.lastOkAt) - new Date(st.sessionStartAt);
+        const h = ms / 3600000;
+        const span = h >= 24 ? `約${(h / 24).toFixed(1)}日` : h >= 1 ? `約${h.toFixed(1)}時間` : `約${Math.round(ms / 60000)}分`;
+        lines.push(
+          `📏 持続実測: ${fmtJst_(st.sessionStartAt)} ログイン確認 〜 ${fmtJst_(st.lastOkAt)} 正常 (${span}／点検は${SESSION_CHECK_BUCKET_H}時間毎なので誤差あり)`
+        );
       }
     }
-    const next = await getNextInfo();
-    lines.push(`次の月次取得は ${next.dateLabel}（あと${next.daysUntil}日）。`);
-    lines.push(...reloginPromptLines_());
-    // 本文は pending に預け、常駐bunがボタン付きで1本だけ投稿する(webhook のテキスト通知はしない)
-    writeOtaReloginPending_(newlyExpired, lines.join("\n"));
+    // ★2026-07-31 やますけ決定「延命は無理でいい / 通知は1日1回・定時に」:
+    //   Booking は数時間で切れるのが常態なので、見つけるたびに促しても意味がない。
+    //   促しは朝4:00 の点検ルーチン(ota-login-check.mjs)1本に集約し、ここでは実測をログに残すだけにする。
+    //   ※「今まさに必要」なケース(OTA下書きの失敗)だけは promptReloginNow_ が即座に促す。
+    for (const l of lines) console.log(`${LOG_PREFIX} [session_check] ${l.replace(/\*\*/g, "")}`);
+    console.log(`${LOG_PREFIX} [session_check] 促しは朝4:00の点検に任せます(即時通知はしない)`);
   }
   if (stillExpired.length) {
     const next = await getNextInfo();
@@ -2237,15 +2277,12 @@ async function handleSessionCheck(ctx, jobId) {
         due.push(name);
       }
     }
+    // ★リマインドも朝4:00 の点検に集約(2026-07-31)。ここでは出さずログのみ。
+    //   月次取得が迫っている旨は ota-login-check.mjs 側の本文が強調する。
     if (due.length) {
-      // リマインドもボタン方式で1本だけ(常駐bunが投稿)。webhook のテキスト通知はしない。
-      writeOtaReloginPending_(due, [
-        `⏰ **リマインド: ${due.join(" / ")} が未ログインのまま月次取得が迫っています**`,
-        `次の月次取得: ${next.dateLabel}（あと${next.daysUntil}日）。`,
-        ...reloginPromptLines_(),
-      ].join("\n"));
+      console.log(`${LOG_PREFIX} [session_check] 失効継続中(${due.join(",")}) 月次取得まで${next.daysUntil}日 — 促しは朝4:00の点検に任せます`);
     } else {
-      console.log(`${LOG_PREFIX} [session_check] 失効継続中(${stillExpired.join(",")}) — 再通知条件外のため抑制`);
+      console.log(`${LOG_PREFIX} [session_check] 失効継続中(${stillExpired.join(",")}) — 促しは朝4:00の点検に任せます`);
     }
   }
 
@@ -2309,7 +2346,12 @@ async function handleJob(docId, job) {
     } else if (job.kind === "ota_message") {
       // OTAメッセージの【下書き作成】（名簿確認メッセージ）。隔離モジュールに委譲。ctx/ログイン資産を再利用。
       // 送信はしない（2026-07-31 仕様変更）。通知はボタン付きにしたいので秘書bot経由の依頼関数を渡す。
-      result = await handleOtaMessage(job, ctx, docId, { db, admin, notifyDiscord_, queueButtonedNotice_, LOG_PREFIX, saveScreenshot, draftPages: _draftPages });
+      result = await handleOtaMessage(job, ctx, docId, {
+        db, admin, notifyDiscord_, queueButtonedNotice_, LOG_PREFIX, saveScreenshot,
+        draftPages: _draftPages,
+        // 未ログインで下書きが作れなかったときだけ、定時(朝4:00)を待たずその場で促す
+        promptReloginNow_: (sites, message) => writeOtaReloginPending_(sites, message),
+      });
     } else {
       throw new Error(`未知の kind: ${job.kind}`);
     }

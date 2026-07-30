@@ -414,11 +414,27 @@ export async function handleOtaMessage(job, ctx, jobId, deps) {
     try {
       await saveScreenshot(page, jobId, `ota_message_${ota}_error`);
     } catch (_) {}
-    await notifyDiscord_(
-      `🚨 OTA下書き 失敗（${otaLabel}）→ ${guestName || "?"}（${propertyName || ""} / ${checkIn || ""}）\n${String(
-        e.message || e
-      ).slice(0, 300)}\n→ 手動でOTAメッセージを送ってください。`
-    );
+    const msg = String(e.message || e);
+    // ★未ログインで落ちた場合だけは「今まさにやりたい作業が止まっている」ので、
+    //   1日1回の定時促し(朝4:00)を待たずにその場で再ログインを促す(2026-07-31)。
+    //   直せば失効中に失敗したこのジョブも復帰時に自動でやり直される。
+    if (/未ログイン|logged.?out|再ログイン/i.test(msg) && typeof deps.promptReloginNow_ === "function") {
+      deps.promptReloginNow_(
+        [otaLabel],
+        [
+          `🔑 **${otaLabel} のログインが切れていて、下書きを作れませんでした**`,
+          `${guestName || "?"} 様（${propertyName || ""}${checkIn ? " / " + checkIn + " IN" : ""}）に送る予定のメッセージです。`,
+          `ログインし直すと**この下書きは自動でやり直します**（手で送らなくて大丈夫です）。`,
+        ].join("\n")
+      );
+    } else {
+      await notifyDiscord_(
+        `🚨 OTA下書き 失敗（${otaLabel}）→ ${guestName || "?"}（${propertyName || ""} / ${checkIn || ""}）\n${msg.slice(
+          0,
+          300
+        )}\n→ 手動でOTAメッセージを送ってください。`
+      );
+    }
     throw e; // handleJob が queue を failed にする
   } finally {
     if (!keepPageOpen) await page.close().catch(() => {});
