@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         タイミー 民泊清掃募集 自動入力
 // @namespace    https://v2-5-relay.web.app/
-// @version      0.2.0
+// @version      0.3.0
 // @description  v2 通知から開かれた募集作成フォームを、URL ハッシュパラメータで自動入力する
 // @author       minpaku-v2
 // @match        https://app-new.taimee.co.jp/clients/*/offers/*/offerings/new*
@@ -42,6 +42,37 @@
     } else {
       el.click();
     }
+    return true;
+  }
+
+  // 公開設定ラジオを選択。2026-08 の UI 変更で id 直付け (id="group_limited" 等) が廃止され、
+  // name="publishScopeKind" の value 指定になった (旧 UI の id 方式にもフォールバック)
+  function clickVisibility(value) {
+    const radio = document.querySelector(`input[type="radio"][name="publishScopeKind"][value="${value}"]`);
+    if (radio) {
+      if (!radio.checked) radio.click();
+      return true;
+    }
+    return clickById(value);
+  }
+
+  // react-select 型コンボ (role=combobox の dummyInput) の選択。
+  // control 相当の祖先に mousedown してメニューを開き、テキスト一致する option を選ぶ
+  async function pickComboOption(inputId, matchRe) {
+    const dummy = document.getElementById(inputId);
+    if (!dummy) return false;
+    const control = dummy.closest('[class*=control]') || dummy.parentElement;
+    if (!control) return false;
+    control.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    await sleep(400);
+    const opt = Array.from(document.querySelectorAll('[role="option"]')).find((o) => matchRe.test((o.textContent || '').trim()));
+    if (!opt) {
+      control.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); // 開いたメニューを畳む
+      return false;
+    }
+    opt.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    opt.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await sleep(250);
     return true;
   }
 
@@ -135,7 +166,7 @@
 
     // 公開設定 (published / group_limited / new_worker_for_client_limited / url_limited)
     if (params.visibility) {
-      clickById(params.visibility);
+      clickVisibility(params.visibility);
       if (params.visibility === 'group_limited' && params.groupIds) {
         await sleep(350);
         for (const gid of params.groupIds.split(',')) {
@@ -164,6 +195,11 @@
       );
       if (r && !r.checked) r.click();
     }
+
+    // 「働く前の質問」の回答期限 (2026-08 に追加された項目)。既定の「開始時刻の16時間前」は
+    // 求人締切 (既定=開始時刻と同時) より前になり矛盾エラーで確認ボタンが disabled のままになるため、
+    // どの締切設定とも矛盾しない「開始時刻と同時」を選ぶ
+    await pickComboOption('onboarding.deadlineOffsetHours', /^開始時刻と同時$/);
 
     showBanner('民泊v2: 募集項目を自動入力しました。内容を確認のうえ「求人を作成」を押してください。');
   }

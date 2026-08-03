@@ -35,7 +35,7 @@ const https = require("https");
 const { chromium } = require("playwright");
 
 // ================== 定数 ==================
-const VERSION = "0.2.0"; // 0.2.0: 未ログイン偽成功修正+Discord通知+session_check状態機械+heartbeat+--login
+const VERSION = "0.3.0"; // 0.3.0: 自動入力をTampermonkeyスクリプト注入方式に統一+入力/投稿成立の検証+失敗時は failed+Discord通知(偽posted根絶)+snapshot error で自己再起動
 const LOG_PREFIX = "[listener]";
 
 if (!admin.apps.length) {
@@ -72,6 +72,9 @@ const EXPIRE_REMIND_EVERY_H = 72;
 const TIMEE_SITE = "タイミー";
 // timeeAutofill.baseUrl が1件も見つからない場合のフォールバック判定URL (要ログインのアカウントページ)
 const TIMEE_ACCOUNT_URL = "https://app-new.taimee.co.jp/account";
+// 自動入力ロジックは Tampermonkey ユーザースクリプト (手動フローで実績あり) を実物のまま注入して使う。
+// ここに別実装を持つとタイミー UI 変更のたびに二重メンテになるため、入力ロジックはこの1ファイルが SSOT。
+const AUTOFILL_USERSCRIPT_PATH = path.join(__dirname, "..", "public", "userscripts", "timee-autofill.user.js");
 
 try {
   fs.mkdirSync(PLAYWRIGHT_USER_DATA_DIR, { recursive: true });
@@ -102,6 +105,7 @@ async function launchCtx() {
     headless: PLAYWRIGHT_HEADLESS,
     viewport: null, // フルウィンドウ
     args: ["--start-maximized"],
+    bypassCSP: true, // ユーザースクリプト注入 (addScriptTag) をページ CSP に阻まれないため
   });
   // コンテキストが閉じたら参照をクリア (次ジョブで作り直す)
   ctx.on("close", () => {
@@ -232,6 +236,18 @@ async function notifyTimeeLoginFailure_(docId, err) {
   writeTimeePending_(true, "job_failed_logged_out"); // 秘書がボタン付きメッセージを出す
 }
 
+// 自動投稿が (未ログイン以外の理由で) 失敗し、既定ブラウザにフォールバックしたときの Discord 通知
+async function notifyTimeeAutoPostFailure_(docId, err) {
+  const c = err.jobContext || {};
+  await notifyDiscord_([
+    `⚠️ **タイミー自動投稿失敗 → 手動投稿が必要**`,
+    `対象: ${c.propertyName || "物件不明"} / チェックアウト ${c.checkoutDate || "?"}`,
+    `理由: ${String(err.message || err).slice(0, 200)}`,
+    `PCの既定ブラウザに自動入力フォームを開きました。内容を確認して「求人を作成」を押してください。`,
+    `※求人はまだ作成されていません (予約への「募集中」書き込みもしていません)。投稿前に求人一覧で重複がないか確認: ${c.offeringsUrl || "https://app-new.taimee.co.jp/"}`,
+  ].join("\n"));
+}
+
 // ================== タイミー URL 構築 (Cloud Functions の buildTimeeAutofillUrl_ と同等) ==================
 function buildTimeeAutofillUrl(tf, checkOut, visibility) {
   if (!tf || !tf.baseUrl || !checkOut) return null;
@@ -315,6 +331,9 @@ async function handleJob(docId, data) {
     // タイミー未ログインによる失敗は Discord へ即時通知 (6時間抑制付き)
     if (e && e.timeeNotLoggedIn) {
       await notifyTimeeLoginFailure_(docId, e).catch((e2) => console.warn(`${LOG_PREFIX} 未ログイン通知失敗: ${e2.message}`));
+    } else if (e && e.timeeFallbackOpened) {
+      // 自動投稿失敗 → 既定ブラウザ fallback は必ず通知 (無通知だと「見かけは動いた・実は未投稿」になる)
+      await notifyTimeeAutoPostFailure_(docId, e).catch((e2) => console.warn(`${LOG_PREFIX} 投稿失敗通知失敗: ${e2.message}`));
     }
   }
 }
@@ -351,24 +370,29 @@ async function handleTimeePost(data) {
     createdUrl = await autoSubmitTimeeJob(url);
     console.log(`${LOG_PREFIX} timee 求人作成完了: ${createdUrl}`);
   } catch (e) {
-    if (e && e.timeeNotLoggedIn) {
-      // 通知用の予約/物件情報を添えて上へ投げる → handleJob が failed + Discord 通知。
-      // 以降の bookings への「posted」書き込みには絶対到達しない (偽成功の根絶)。
-      e.jobContext = {
-        bookingId,
-        propertyName: pDoc.data().name || params?.propertyName || propertyId,
-        checkoutDate,
-        visibility,
-      };
-      throw e;
+    // 通知用の予約/物件情報を添えて上へ投げる → handleJob が failed + Discord 通知。
+    // 以降の bookings への「posted」書き込みには絶対到達しない (偽成功の根絶)。
+    e.jobContext = {
+      bookingId,
+      propertyName: pDoc.data().name || params?.propertyName || propertyId,
+      checkoutDate,
+      visibility,
+      formUrl: url,
+      offeringsUrl: url.replace(/\/offers\/.*$/, "/offerings"), // 手動確認用の求人一覧 URL
+    };
+    if (!e.timeeNotLoggedIn) {
+      // 未ログイン以外の失敗は、自動入力フォームを既定ブラウザで開いて手動続行できるようにする。
+      // 旧実装はここで done + timeeStatus="posted" にしていたが、実投稿が確認できていないのに
+      // 「投稿済み」記録になる無通知の偽成功だったため、v0.3.0 から failed + Discord 通知に変更。
+      console.error(`${LOG_PREFIX} Playwright 自動投稿失敗 (${e.message}) → 既定ブラウザで開いてフォールバック (要手動投稿)`);
+      openInBrowser(url);
+      e.timeeFallbackOpened = true;
     }
-    console.error(`${LOG_PREFIX} Playwright 自動投稿失敗 (${e.message}) → 既定ブラウザで開いてフォールバック`);
-    openInBrowser(url);
-    createdUrl = url;
+    throw e;
   }
 
-  // bookings に「タイミー募集中」状態 + 開いた URL を保存 (UI のバッジから再アクセス用)
-  // ※ ここに来るのは 自動投稿成功 or 既定ブラウザフォールバック (手動続行) のときだけ
+  // bookings に「タイミー募集中」状態 + 投稿後の URL を保存 (UI のバッジから再アクセス用)
+  // ※ ここに来るのは自動投稿の成立を検証できたときだけ
   try {
     await db.collection("bookings").doc(bookingId).update({
       timeeStatus: "posted",
@@ -382,96 +406,136 @@ async function handleTimeePost(data) {
 }
 
 /**
- * Playwright で Chromium を起動し、Tampermonkey 相当の自動入力 + 「求人を作成」ボタン押下まで自動化
- * 戻り値: 求人作成後のページ URL (公開された求人ページの URL になる想定)
+ * Playwright で Chromium を起動し、Tampermonkey ユーザースクリプト (実物) を注入して自動入力
+ * → 入力結果を検証 → 「求人を作成」ボタン押下 → 求人一覧への出現で投稿成立を検証する。
+ * 戻り値: 投稿成立を確認した後のページ URL
  * 注意:
  *   - 初回は専用 user-data-dir にタイミー手動ログインが必要
  *   - 未ログイン検出時は throw する (偽成功防止。ブラウザはログイン画面のまま残る)
- *   - タイミー側 UI が変わると DOM セレクタが壊れるため、その場合は手動で開く方が安全
+ *   - 入力検証 NG / 投稿未成立も throw → 呼び出し元が既定ブラウザ fallback + Discord 通知
  */
 async function autoSubmitTimeeJob(url) {
   const ctx = await getContext();
   const page = await ctx.newPage();
-  try {
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
 
-    // タイミー未ログインなら "/sign_in" 等にリダイレクトされる想定
-    await page.waitForTimeout(2000); // 自動入力スクリプト相当の値反映を待つ猶予
-    if (/sign_in|login/i.test(page.url())) {
-      // 偽成功の根絶: ログインURLを正常 return せず必ず throw → job は failed になる。
-      // ブラウザはログイン画面のまま残すので、その場で手動ログインしてもよい
-      // (正規の再ログイン手順は scripts\dispatch-relogin.cmd)
-      const err = new Error("タイミー未ログイン (再ログイン要: scripts\\dispatch-relogin.cmd)");
-      err.timeeNotLoggedIn = true;
-      throw err;
-    }
-
-    // hash params から値を読み取り、フォームに入力 (Tampermonkey と同等処理)
-    await applyTimeeHashParams(page, url);
-
-    // 「求人を作成」ボタンを探してクリック
-    // セレクタ候補 (タイミー側 UI 変更で要メンテ):
-    //   1. テキストが「求人を作成」「保存」「投稿」「公開」を含むボタン
-    //   2. type=submit
-    const submitBtn = await page.locator(
-      'button:has-text("求人を作成"), button:has-text("作成する"), button:has-text("保存"), button[type="submit"]'
-    ).first();
-    if (!(await submitBtn.count())) {
-      throw new Error("「求人を作成」ボタンが見つからない (タイミー UI 変更の可能性)");
-    }
-    await submitBtn.waitFor({ state: "visible", timeout: 10000 });
-    await submitBtn.click();
-
-    // 確認ダイアログ or 公開完了画面への遷移を待つ
-    // 確認モーダルが出る場合は「OK」「公開」ボタンを再度押す
-    await page.waitForTimeout(2000);
-    const confirmBtn = page.locator(
-      'button:has-text("公開"), button:has-text("確定"), button:has-text("OK"), [role="dialog"] button:has-text("はい")'
-    ).first();
-    if (await confirmBtn.count()) {
-      try { await confirmBtn.click({ timeout: 3000 }); } catch (_) {}
-    }
-
-    // 求人作成完了後の URL を取得
-    await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
-    const finalUrl = page.url();
-    // ウィンドウは閉じずに残す (yamasuke が結果を確認できるよう)
-    return finalUrl;
-  } finally {
-    // ctx.close() は呼ばない — yamasuke が画面確認できるよう放置 (次ジョブ開始時に getContext が閉じる)
+  // React SPA は domcontentloaded 後も描画が続く。ログインリダイレクト or フォーム描画 (#hourlyWage)
+  // のどちらかが確定するまで待つ (旧実装は固定2秒待ちで描画前に諦めて常にフォールバックしていた)
+  await Promise.race([
+    page.waitForURL(/sign_in|login/i, { timeout: 45000 }).catch(() => {}),
+    page.waitForFunction(() => !!document.getElementById("hourlyWage"), null, { timeout: 45000 }).catch(() => {}),
+  ]);
+  if (/sign_in|login/i.test(page.url())) {
+    const err = new Error("タイミー未ログイン (再ログイン要: scripts\\dispatch-relogin.cmd)");
+    err.timeeNotLoggedIn = true;
+    throw err;
   }
+  if (!(await page.evaluate(() => !!document.getElementById("hourlyWage")))) {
+    throw new Error("投稿フォームが45秒以内に描画されない (タイミー UI 変更の可能性)");
+  }
+
+  // 自動入力: Tampermonkey スクリプトを注入 (完了合図 = スクリプトが出す画面バナー .__minpaku-timee-banner)
+  const userscript = fs.readFileSync(AUTOFILL_USERSCRIPT_PATH, "utf8");
+  await page.addScriptTag({ content: userscript });
+  await page.waitForSelector(".__minpaku-timee-banner", { timeout: 25000 });
+
+  // 入力結果の検証 (setNative の silent fail 対策): 日付/時給/開始/終了/公開設定が期待値どおりか
+  const expected = parseHashParams_(url);
+  const applied = await page.evaluate(() => {
+    const v = (id) => document.getElementById(id)?.value ?? null;
+    // タイミーの投稿フォームは複数日選択カレンダーで、選択済みセルは --highlighted が付く (--selected も念のため許容)
+    const sel = document.querySelector(
+      ".react-datepicker__day--highlighted:not(.react-datepicker__day--outside-month), .react-datepicker__day--selected:not(.react-datepicker__day--outside-month)"
+    );
+    const mSel = document.querySelector(".react-datepicker__month-select");
+    const ySel = document.querySelector(".react-datepicker__year-select");
+    return {
+      wage: v("hourlyWage"),
+      start: v("workTimeStart"),
+      end: v("workTimeEnd"),
+      selectedDate: sel && mSel && ySel
+        ? `${ySel.value}-${String(Number(mSel.value) + 1).padStart(2, "0")}-${String(Number(sel.textContent.trim())).padStart(2, "0")}`
+        : null,
+    };
+  });
+  const visibilityOk = expected.visibility
+    ? await page.evaluate((vis) =>
+        !!(document.querySelector(`input[type="radio"][name="publishScopeKind"][value="${vis}"]`)?.checked
+          || document.getElementById(vis)?.checked), expected.visibility)
+    : true;
+  const t5 = (s) => String(s ?? "").slice(0, 5); // "10:00:00" 等の表記ゆれ吸収
+  const mismatch = [];
+  if (expected.date && applied.selectedDate !== expected.date) mismatch.push(`日付 ${applied.selectedDate || "未選択"}≠${expected.date}`);
+  if (expected.wage && Number(applied.wage) !== Number(expected.wage)) mismatch.push(`時給 ${applied.wage}≠${expected.wage}`);
+  if (expected.start && t5(applied.start) !== t5(expected.start)) mismatch.push(`開始 ${applied.start}≠${expected.start}`);
+  if (expected.end && t5(applied.end) !== t5(expected.end)) mismatch.push(`終了 ${applied.end}≠${expected.end}`);
+  if (!visibilityOk) mismatch.push(`公開設定 ${expected.visibility} が未選択`);
+  if (mismatch.length) throw new Error(`自動入力の検証NG: ${mismatch.join(" / ")}`);
+
+  // ---- 2026-08 の現行 UI は2段階: 「入力した求人内容を確認」→ 確認画面で「求人を公開」 ----
+  // 1) 確認ボタン (旧「求人を作成」系にもフォールバック)。未入力/矛盾があると disabled のまま
+  const submitBtn = page.locator(
+    'button:has-text("入力した求人内容を確認"), button:has-text("求人を作成"), button:has-text("作成する"), button[type="submit"]'
+  ).first();
+  if (!(await submitBtn.count())) {
+    throw new Error("確認ボタンが見つからない (タイミー UI 変更の可能性)");
+  }
+  try {
+    await page.waitForFunction(() => {
+      const b = Array.from(document.querySelectorAll("button")).find((x) => /入力した求人内容を確認|求人を作成/.test(x.textContent || ""));
+      return b && !b.disabled;
+    }, null, { timeout: 15000 });
+  } catch (_) {
+    const errText = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[class*=error], [class*=Error]'))
+        .map((e) => (e.textContent || "").trim()).filter(Boolean).slice(0, 3).join(" / "));
+    throw new Error(`確認ボタンが有効にならない (未入力/矛盾の可能性${errText ? ": " + errText : ""})`);
+  }
+  await submitBtn.click();
+
+  // 2) 確認画面: 「休業手当に関する事項を確認しました。」チェック (必須) → 「求人を公開」
+  await page.waitForFunction(
+    () => Array.from(document.querySelectorAll("button")).some((b) => /求人を公開/.test(b.textContent || "")),
+    null, { timeout: 20000 }
+  );
+  await page.waitForTimeout(1500);
+  await page.evaluate(() => {
+    const cb = Array.from(document.querySelectorAll('input[type=checkbox]'))
+      .find((c) => /休業手当/.test(c.closest("label")?.textContent || c.parentElement?.textContent || ""));
+    if (cb && !cb.checked) cb.click();
+  });
+  try {
+    await page.waitForFunction(() => {
+      const b = Array.from(document.querySelectorAll("button")).find((x) => /求人を公開/.test(x.textContent || ""));
+      return b && !b.disabled;
+    }, null, { timeout: 10000 });
+  } catch (_) {
+    throw new Error("「求人を公開」が有効にならない (確認画面の必須チェック漏れ/タイミー UI 変更の可能性)");
+  }
+  await page.locator('button:has-text("求人を公開")').first().click();
+  await page.waitForTimeout(3000);
+
+  // 投稿成立の最終検証: 求人一覧に対象日の求人が実在するか (これが真の成立確認)
+  const [yy, mo, dd] = (expected.date || "").split("-").map(Number);
+  if (yy) {
+    const dateLabel = `${yy}年${mo}月${dd}日`; // 一覧の表記は「2026年8月6日（木）」のようにゼロ埋めなし
+    const listUrl = url.replace(/\/offers\/.*$/, "/offerings");
+    await page.goto(listUrl, { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
+    let found = false;
+    for (let i = 0; i < 10 && !found; i++) {
+      await page.waitForTimeout(1500);
+      found = await page.evaluate((label) => document.body.innerText.includes(label), dateLabel);
+    }
+    if (!found) throw new Error(`投稿後の求人一覧に ${dateLabel} の求人が見つからない (投稿未成立の可能性)`);
+  }
+  return page.url();
 }
 
-/** Tampermonkey ユーザースクリプトと同等の hash params → フォーム入力ロジック */
-async function applyTimeeHashParams(page, fullUrl) {
-  // hash 部分を取り出して page.evaluate に渡す
-  const hashIdx = fullUrl.indexOf("#");
-  if (hashIdx < 0) return;
-  const hashStr = fullUrl.slice(hashIdx + 1);
-  await page.evaluate((hs) => {
-    const params = new URLSearchParams(hs);
-    const set = (sel, value) => {
-      if (value == null || value === "") return;
-      const el = document.querySelector(sel);
-      if (!el) return false;
-      el.focus();
-      const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set
-        || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
-      if (nativeSetter) nativeSetter.call(el, String(value));
-      else el.value = String(value);
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-      el.blur();
-      return true;
-    };
-    // 主な候補セレクタ (Tampermonkey と同じ箇所、UI 変更で要メンテ)
-    set('input[name="date"], input[type="date"]', params.get("date"));
-    set('input[name="start_at"], input[name="start"]', params.get("start"));
-    set('input[name="end_at"], input[name="end"]', params.get("end"));
-    set('input[name="rest_minute"], input[name="restMin"]', params.get("restMin"));
-    set('input[name="workers"], input[name="recruit_count"]', params.get("workers"));
-    set('input[name="hourly_wage"], input[name="wage"]', params.get("wage"));
-  }, hashStr);
+/** フォーム URL の hash 部分 → パラメータ object */
+function parseHashParams_(fullUrl) {
+  const i = fullUrl.indexOf("#");
+  if (i < 0) return {};
+  return Object.fromEntries(new URLSearchParams(fullUrl.slice(i + 1)));
 }
 
 // ================== セッション健全性チェック (キープアライブ兼) ==================
@@ -710,7 +774,11 @@ if (LOGIN_MODE) {
         drainQueue();
       },
       (err) => {
-        console.error(`${LOG_PREFIX} snapshot error:`, err.message);
+        // onSnapshot の error は終端 (SDK 内のリトライ上限超過後は再購読しない限り復帰しない)。
+        // heartbeat だけ生きて監視が死ぬ「静かな停止」(2026-08-03 に snapshot error 710行の実績) を防ぐため、
+        // プロセスごと終了して PM2 の自動再起動→再購読に任せる。pending は再購読の初回スナップショットで拾い直される。
+        console.error(`${LOG_PREFIX} snapshot error: ${err.message} — 監視停止を避けるため終了します (PM2 が再起動)`);
+        setTimeout(() => process.exit(1), 1500);
       }
     );
 }
