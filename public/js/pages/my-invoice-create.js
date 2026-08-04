@@ -114,6 +114,8 @@ const MyInvoiceCreatePage = {
 
       <!-- 編集モードバナー (送信済み請求書の編集再送時に表示) -->
       <div id="editModeBanner" class="d-none"></div>
+      <!-- 選択中の月・物件に提出済みの請求書があるときの案内 (重複発行の防止) -->
+      <div id="existingInvoiceNotice" class="d-none"></div>
 
       <!-- あなたの報酬単価 (本人個別単価のみ表示、お盆/正月の特別加算も併記) -->
       <div id="myRatesPanel"></div>
@@ -274,11 +276,15 @@ const MyInvoiceCreatePage = {
       await this.loadWorkItemOptions();
       this.renderMyRates();
       this.loadSummary();
+      this._renderExistingInvoiceNotice();
+      this._restoreLocalDraft();
     });
     document.getElementById("invPropertySel").addEventListener("change", (e) => {
       this.propertyId = e.target.value || null;
       this.renderMyRates();
       this.loadSummary();
+      this._renderExistingInvoiceNotice();
+      this._restoreLocalDraft();
     });
     document.getElementById("btnSubmitInvoice").addEventListener("click", () => this.submit());
     document.getElementById("btnPreviewPdf").addEventListener("click", () => this.previewPdf());
@@ -323,6 +329,11 @@ const MyInvoiceCreatePage = {
     this.renderMyRates(); // propertyId 確定後に描画
     await this.loadSummary();
     await this.loadPastInvoices();
+    // 写真選択モーダルは再描画のたびに作り直されるので、ここで必ず再バインドする
+    this._initPhotoModal();
+    // 未送信のまま画面を離れた入力 (添付写真を含む) を復元する
+    this._restoreLocalDraft();
+    this._pruneLocalDrafts();
   },
 
   // 物件プルダウンを担当物件のみで再構築
@@ -790,13 +801,15 @@ const MyInvoiceCreatePage = {
   MAX_ROW_PHOTOS: 5,
   PHOTO_LONG_SIDE: 1920, // リサイズ時の長辺 px
 
-  // 添付モーダルの file input を初期化 (全行で使い回すので1度だけ)
+  // 添付モーダルの file input を初期化 (全行で使い回す)
+  // ページ再描画のたびに file input は作り直されるため、ページ単位のフラグで
+  // 「1度だけ」にすると 2 回目以降は新しい input にリスナーが付かず、写真を選んでも
+  // 無反応になる (= 見た目だけ添付できる状態)。要素自身にバインド済み印を付ける。
   _initPhotoModal() {
-    if (this._photoModalReady) return;
-    this._photoModalReady = true;
     ["photoInputCamera", "photoInputGallery"].forEach(id => {
       const inp = document.getElementById(id);
-      if (!inp) return;
+      if (!inp || inp.dataset.bound === "1") return;
+      inp.dataset.bound = "1";
       inp.addEventListener("change", async (ev) => {
         const files = Array.from(ev.target.files || []);
         inp.value = ""; // 同じファイルを続けて選べるようにする
@@ -899,6 +912,8 @@ const MyInvoiceCreatePage = {
         ? `<i class="bi bi-paperclip"></i> ${photos.length}/${this.MAX_ROW_PHOTOS}`
         : `<i class="bi bi-paperclip"></i> 添付`;
     }
+    // 写真の増減も端末内の下書きへ反映する (画面を離れても添付が消えないように)
+    this._scheduleSaveLocalDraft();
   },
 
   // 写真を1枚削除 (明細から外す → Storage 実体も削除)
@@ -981,6 +996,126 @@ const MyInvoiceCreatePage = {
         photos,
       };
     }).filter(i => i.label || i.amount || i.photos.length);
+  },
+
+  // ===== 未送信入力の端末内下書き =====
+  // 添付写真は行の DOM (tr._photos) にしか無いため、画面を離れると入力ごと消える。
+  // Storage には写真の実体が残るので「アップロードしたのに請求書に載らない」事故になる。
+  DRAFT_PREFIX: "invDraft:",
+  DRAFT_TTL_MS: 30 * 24 * 60 * 60 * 1000, // 30日で失効
+
+  _draftKey() {
+    const ym = document.getElementById("invMonth")?.value || "";
+    return `${this.DRAFT_PREFIX}${this.staffId || ""}:${ym}:${this.propertyId || ""}:${this._editingInvoiceId || "new"}`;
+  },
+
+  // 入力のたびに呼ぶ (連打をまとめる)
+  _scheduleSaveLocalDraft() {
+    clearTimeout(this._draftTimer);
+    this._draftTimer = setTimeout(() => this._saveLocalDraft(), 400);
+  },
+
+  _saveLocalDraft() {
+    if (!this.staffId) return;
+    try {
+      const items = this._collectManualItems();
+      const memo = document.getElementById("invoiceMemoText")?.value || "";
+      if (!items.length && !memo) { localStorage.removeItem(this._draftKey()); return; }
+      localStorage.setItem(this._draftKey(), JSON.stringify({ items, memo, savedAt: Date.now() }));
+    } catch (e) {
+      console.warn("下書き保存に失敗 (無視):", e.message);
+    }
+  },
+
+  _clearLocalDraft() {
+    clearTimeout(this._draftTimer);
+    try { localStorage.removeItem(this._draftKey()); } catch (_) { /* ignore */ }
+  },
+
+  // 追加明細が 1 行も無いときだけ復元する (入力中の内容は壊さない)
+  _restoreLocalDraft() {
+    if (!this.staffId) return;
+    const box = document.getElementById("manualRows");
+    if (!box || box.querySelector(".manual-row")) return;
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(this._draftKey()) || "null"); } catch (_) { /* ignore */ }
+    if (!saved || !Array.isArray(saved.items) || !saved.items.length) return;
+    saved.items.forEach(mi => this.addManualRow({
+      date: mi.date || "",
+      label: mi.label || "",
+      amount: mi.amount || "", // 0 は未入力扱いに戻す
+      memo: mi.memo || "",
+      photos: Array.isArray(mi.photos) ? mi.photos : [],
+    }));
+    const memoEl = document.getElementById("invoiceMemoText");
+    if (memoEl && saved.memo && !memoEl.value) memoEl.value = saved.memo;
+    this.updateTotal();
+    const photoCount = saved.items.reduce((n, i) => n + ((i.photos || []).length), 0);
+    if (typeof showToast === "function") {
+      showToast("入力を復元しました",
+        `未送信の追加明細 ${saved.items.length} 件${photoCount ? ` (写真 ${photoCount} 枚)` : ""} を復元しました`, "info");
+    }
+  },
+
+  // 期限切れの下書きを掃除 (端末に溜め続けない)
+  _pruneLocalDrafts() {
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (!k || !k.startsWith(this.DRAFT_PREFIX)) continue;
+        const v = JSON.parse(localStorage.getItem(k) || "null");
+        if (!v || !v.savedAt || Date.now() - v.savedAt > this.DRAFT_TTL_MS) localStorage.removeItem(k);
+      }
+    } catch (_) { /* ignore */ }
+  },
+
+  // 追加明細・メモを空に戻して自動集計だけの状態にする (送信完了 / 編集中止)
+  _resetForm() {
+    this._clearLocalDraft();
+    const rowsBox = document.getElementById("manualRows");
+    if (rowsBox) rowsBox.innerHTML = "";
+    const memoEl = document.getElementById("invoiceMemoText");
+    if (memoEl) memoEl.value = "";
+    this.loadSummary();
+  },
+
+  // 選択中の「月 × 物件」に提出済みの請求書があれば案内を出す。
+  // これが無いと、送信後に同じ月を開き直したとき自動集計だけの新規作成画面に見えてしまい、
+  // 追加明細を入れ直して送る → 重複発行、という事故になる。
+  _renderExistingInvoiceNotice() {
+    const el = document.getElementById("existingInvoiceNotice");
+    if (!el) return;
+    const hide = () => { el.className = "d-none"; el.innerHTML = ""; };
+    if (this._editingInvoiceId) return hide(); // 編集中は編集バナーが出ているので不要
+    const ym = document.getElementById("invMonth")?.value || "";
+    if (!ym || !this.propertyId) return hide();
+    const list = (this._pastInvoicesCache || []).filter(inv =>
+      inv.yearMonth === ym
+      && inv.propertyId === this.propertyId
+      && inv.staffId === this.staffId
+      && !inv.voided
+      && ["submitted", "confirmed", "paid"].includes(inv.status));
+    if (!list.length) return hide();
+    // 同月同物件に複数あれば最新リビジョンを代表にする
+    const inv = list.slice().sort((a, b) => (b.revision || 0) - (a.revision || 0))[0];
+    const editable = inv.status === "submitted";
+    const statusLabel = { submitted: "送信済み", confirmed: "確認済み", paid: "支払済み" }[inv.status] || inv.status;
+    el.className = "alert alert-info d-flex justify-content-between align-items-center flex-wrap gap-2";
+    el.innerHTML = `
+      <div>
+        <i class="bi bi-info-circle"></i> <strong>${this._esc(ym)} の請求書は${this._esc(statusLabel)}です</strong>
+        <span class="small">（合計 ¥${Number(inv.total || 0).toLocaleString()}）</span>
+        <div class="small text-muted mt-1">
+          ${editable
+    ? "内容を直すときは「読み込んで編集」を押してください。下の入力欄からそのまま送信すると、別の請求書がもう1通発行されます。"
+    : "確認済み・支払済みのため編集できません。修正が必要なときはWebアプリ管理者へ連絡してください。"}
+        </div>
+      </div>
+      ${editable ? `<button class="btn btn-sm btn-primary text-nowrap" id="btnLoadExisting"><i class="bi bi-pencil-square"></i> 読み込んで編集</button>` : ""}
+    `;
+    if (editable) {
+      document.getElementById("btnLoadExisting")?.addEventListener("click", () => this._editInvoice(inv));
+    }
   },
 
   async loadSummary() {
@@ -1231,6 +1366,8 @@ const MyInvoiceCreatePage = {
       .reduce((s, i) => s + (Number(i.value) || 0), 0);
     const total = apiBase + manualTotal;
     document.getElementById("invTotal").textContent = "¥" + total.toLocaleString();
+    // 追加明細の変更はすべてここを通るので、端末内の下書きもここで更新する
+    this._scheduleSaveLocalDraft();
   },
 
   // 必須項目チェック。未入力があれば true を返し、該当欄を赤枠にする
@@ -1317,8 +1454,10 @@ const MyInvoiceCreatePage = {
         </div>
       `;
       showToast(editing ? "再送完了" : "送信完了", editing ? "請求書を上書きして再送しました" : "Webアプリ管理者へ請求書を送信しました", "success");
-      // 編集モードを解除して通常状態に戻す
+      // 送信できた内容は端末内の下書きから破棄し、入力欄を自動集計だけの状態に戻す
+      // (残したままだと、次に開いたとき送信済みの内容が復元されて二重入力に見える)
       if (editing) this._exitEditMode(true);
+      else this._resetForm();
       // 送信成功後は折りたたみを閉じる
       this.toggleStaffInfo(false);
       // 過去一覧をリフレッシュ
@@ -1401,6 +1540,7 @@ const MyInvoiceCreatePage = {
     const btn = document.getElementById("btnSubmitInvoice");
     if (btn) btn.innerHTML = '<i class="bi bi-pencil-square"></i> 編集を保存して再送';
     this._renderEditBanner(inv);
+    this._renderExistingInvoiceNotice(); // 編集中は「提出済み」案内を隠す
     window.scrollTo({ top: 0, behavior: "smooth" });
     if (typeof showToast === "function") showToast("編集モード", `${inv.yearMonth} の請求書を編集しています`, "info");
   },
@@ -1422,6 +1562,8 @@ const MyInvoiceCreatePage = {
 
   // 編集モードを解除して通常作成状態に戻す
   _exitEditMode(resetForm) {
+    // 下書きキーは _editingInvoiceId を含むので、解除する前に破棄する
+    this._clearLocalDraft();
     this._editingInvoiceId = null;
     const monthEl = document.getElementById("invMonth");
     const propSel = document.getElementById("invPropertySel");
@@ -1431,13 +1573,9 @@ const MyInvoiceCreatePage = {
     if (btn) btn.innerHTML = '<i class="bi bi-send"></i> Webアプリ管理者へ送信';
     const banner = document.getElementById("editModeBanner");
     if (banner) { banner.className = "d-none"; banner.innerHTML = ""; }
-    if (resetForm) {
-      const rowsBox = document.getElementById("manualRows");
-      if (rowsBox) rowsBox.innerHTML = "";
-      const memoEl = document.getElementById("invoiceMemoText");
-      if (memoEl) memoEl.value = "";
-      this.loadSummary();
-    }
+    if (resetForm) this._resetForm();
+    // 編集をやめたら「提出済み」案内を出し直す
+    this._renderExistingInvoiceNotice();
   },
 
   // Firestore タイムスタンプ / 文字列を YYYY-MM-DD に整形 (NaN 回避)
@@ -1566,8 +1704,11 @@ const MyInvoiceCreatePage = {
           return false;
         });
       }
+      // 提出済み判定 (重複発行の防止バナー) に使うのでキャッシュしておく
+      this._pastInvoicesCache = invoices;
       if (!invoices.length) {
         listEl.innerHTML = `<div class="text-muted small">過去の請求書はまだありません。</div>`;
+        this._renderExistingInvoiceNotice();
         return;
       }
       // yearMonth 降順 → 同月内は propertyName 昇順で並べる (同月複数物件があれば並ぶ)
@@ -1602,6 +1743,7 @@ const MyInvoiceCreatePage = {
         const inv = invoices.find(i => i.id === btn.dataset.id);
         btn.addEventListener("click", () => this._editInvoice(inv));
       });
+      this._renderExistingInvoiceNotice();
     } catch (e) {
       listEl.innerHTML = `<div class="alert alert-danger mb-0 small"><i class="bi bi-exclamation-triangle"></i> 読み込みエラー: ${this._esc(e.message)}</div>`;
     }

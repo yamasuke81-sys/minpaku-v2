@@ -2120,6 +2120,25 @@ module.exports = function invoicesApi(db) {
 
       await collection.doc(invoiceId).set(invoiceData, { merge: true });
 
+      // 同じスタッフ・同じ月に残っている「自動生成の下書き」を掃除する。
+      // 月次バッチ generateInvoices が毎月1日に旧形式ID (INV-{ym}-{staffId6}) で下書きを作るため、
+      // 月初までに未提出だった人は提出後も下書きが一覧に残り「提出済みなのに下書き」に見えていた。
+      // 消すのは status=draft のみ (提出済み・確認済み・支払済みには触れない)。
+      try {
+        const staleSnap = await collection
+          .where("staffId", "==", staffDoc.id)
+          .where("yearMonth", "==", yearMonth)
+          .get();
+        for (const d of staleSnap.docs) {
+          if (d.id === invoiceId) continue;
+          if (d.data().status !== "draft") continue;
+          await d.ref.delete();
+          console.log(`[my-submit] 自動生成の下書きを削除: ${d.id} (提出=${invoiceId})`);
+        }
+      } catch (e) {
+        console.warn("下書き掃除に失敗 (無視):", e.message);
+      }
+
       // PDF生成 (invoiceId と同じ PDF を生成してStorageに保存、signed URLを取得)
       let pdfSignedUrl = "";
       try {
