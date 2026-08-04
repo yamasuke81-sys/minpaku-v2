@@ -28,8 +28,11 @@ const EBILL_URL = "https://payment2.smt.docomo.ne.jp/spguide/ebilling/gkfap001.s
 const HIKARI_LINE = "F5392930898";                       // ドコモ光の回線番号
 const PULLDOWN = 'select[name="root_GKFAGS001_DENWABANGOPULLDOWN"]';
 const HIKARI_OPT = "3";                                   // プルダウンの光回線 option value
-const FIXED_UNTIL = "2028-04";                            // この使用月まで工事分割込み¥6,636、以降¥5,720
-const FIXED_WITH_KOJI = 6636;
+const FIXED_UNTIL = "2028-04";                            // この使用月まで工事分割込み、以降 FIXED_BASE
+// ★2026-08-04 更新(夜間監査の指摘): 2026-07使用分から割引適用で実額¥5,528(旧定価¥6,636との差¥1,108)。
+//   静的な想定額はあくまで初期値で、実額が2か月連続で同額なら state の expectedOverride に自動追随する
+//   (下の警告分岐参照)。想定と違う月だけ警告が鳴る状態を保つ。
+const FIXED_WITH_KOJI = 5528;
 const FIXED_BASE = 5720;
 const OPEN_YM = "2026-05";                                // 開通月。これ未満は対象外
 
@@ -183,7 +186,9 @@ async function dumpDebug_(page, usageYm) {
 
   console.log(`ドコモ光 取込: 使用月=${USAGE_YM} ${DRY ? "[dry]" : ""}`);
   if (USAGE_YM < OPEN_YM) { console.log(`開通(${OPEN_YM})前のため対象外。`); process.exitCode = 0; return; }
-  const fixed = fixedFor(USAGE_YM);
+  // 想定額: 実績に自動追随した値(expectedOverride) > 契約ベースの固定額。
+  // 割引や料金改定で実額が恒常的に変わったとき、静的な定数を書き換えなくても警告が止まる。
+  const fixed = loadState().expectedOverride?.amount ?? fixedFor(USAGE_YM);
 
   // 1) eビリング実額の裏取り
   let actual = null, fetchReason = "";
@@ -199,10 +204,14 @@ async function dumpDebug_(page, usageYm) {
     await browser.close();
   }
 
-  // 取得できた=ログインが生きている。次に切れたとき即催促できるよう催促フラグを畳む
+  // 取得できた=ログインが生きている。次に切れたとき即催促できるよう催促フラグを畳む。
+  // あわせて使用月ごとの実額を履歴に残す(直近2か月同額の判定材料。6か月分だけ保持)。
   if (actual != null) {
     const st = loadState();
-    if (st.promptedYmd?.[USAGE_YM]) { delete st.promptedYmd[USAGE_YM]; saveState(st); }
+    if (st.promptedYmd?.[USAGE_YM]) delete st.promptedYmd[USAGE_YM];
+    const hist = { ...(st.actualHistory || {}), [USAGE_YM]: actual };
+    st.actualHistory = Object.fromEntries(Object.entries(hist).sort().slice(-6));
+    saveState(st);
   }
 
   const amount = actual != null ? actual : fixed;
@@ -245,7 +254,22 @@ async function dumpDebug_(page, usageYm) {
     console.log(`NOTIFY: 🚨 ドコモ光 ${USAGE_YM} の実額をeビリングから取得できませんでした(${fetchReason})。固定額¥${fixed.toLocaleString()}で${changed ? "暫定計上" : "維持"}。My docomo で内訳をご確認ください。`);
     process.exitCode = 1;
   } else if (actual !== fixed) {
-    console.log(`NOTIFY: ⚠️ ドコモ光 ${USAGE_YM} の実額¥${actual.toLocaleString()}が固定想定¥${fixed.toLocaleString()}と異なります(割引/料金変動の可能性)。実額で${changed ? (prev ? "更新" : "計上") : "一致(変更なし)"}しました。`);
+    const st = loadState();
+    if (st.actualHistory?.[prevOf(USAGE_YM)] === actual) {
+      // 直近2か月の実額が同額 = 割引/改定による恒常変化。想定額を実績に自動追随し、以後は
+      // この額と異なる月だけ警告する(毎月同じ⚠️が鳴り続けて本物の異常が埋もれるのを防ぐ)。
+      st.expectedOverride = { amount: actual, sinceYm: USAGE_YM };
+      delete st.warnedFor;
+      saveState(st);
+      console.log(`NOTIFY: 📶 ドコモ光の想定額を実績¥${actual.toLocaleString()}に自動追随しました(${prevOf(USAGE_YM)}・${USAGE_YM}の2か月連続同額。旧想定¥${fixed.toLocaleString()})。以後はこの額と異なる月だけ警告します。`);
+    } else if (st.warnedFor === `${USAGE_YM}:${actual}`) {
+      // 毎日実行のため、同じ月×同じ額のズレは初回だけ警告する(2回目以降は無音)
+      console.log(`(想定額ズレは警告済み: ${USAGE_YM} ¥${actual.toLocaleString()})`);
+    } else {
+      st.warnedFor = `${USAGE_YM}:${actual}`;
+      saveState(st);
+      console.log(`NOTIFY: ⚠️ ドコモ光 ${USAGE_YM} の実額¥${actual.toLocaleString()}が固定想定¥${fixed.toLocaleString()}と異なります(割引/料金変動の可能性)。実額で${changed ? (prev ? "更新" : "計上") : "一致(変更なし)"}しました。来月も同額なら想定額を自動追随して警告を止めます。`);
+    }
   } else if (changed) {
     console.log(`NOTIFY: 📶 ドコモ光 ${USAGE_YM} ¥${amount.toLocaleString()}を計上しました(実額=固定額で一致)。`);
   } else {

@@ -35,7 +35,7 @@ const https = require("https");
 const { chromium } = require("playwright");
 
 // ================== 定数 ==================
-const VERSION = "0.3.0"; // 0.3.0: 自動入力をTampermonkeyスクリプト注入方式に統一+入力/投稿成立の検証+失敗時は failed+Discord通知(偽posted根絶)+snapshot error で自己再起動
+const VERSION = "0.3.1"; // 0.3.1: snapshot error を指数バックオフ再購読(2/8/32秒×3回)化+launchCtx を実Chrome→bundled Chromium フォールバック化 / 0.3.0: userscript注入統一+偽posted根絶+snapshot error 自己再起動
 const LOG_PREFIX = "[listener]";
 
 if (!admin.apps.length) {
@@ -101,12 +101,25 @@ process.on("unhandledRejection", (e) => logCrash("unhandledRejection", e));
 // 並行起動するとプロファイルロック競合で "context has been closed" になる (直列処理+毎回作り直しで防ぐ)。
 let _persistentCtx = null;
 async function launchCtx() {
-  const ctx = await chromium.launchPersistentContext(PLAYWRIGHT_USER_DATA_DIR, {
+  const baseOpts = {
     headless: PLAYWRIGHT_HEADLESS,
     viewport: null, // フルウィンドウ
     args: ["--start-maximized"],
     bypassCSP: true, // ユーザースクリプト注入 (addScriptTag) をページ CSP に阻まれないため
-  });
+  };
+  // Playwright の bundled Chromium 実体が無い環境 (パッケージ更新後の playwright install 忘れ、
+  // 2026-08-03 に chromium-1223 不在で4件失敗の実績) でも止まらないよう、
+  // まずインストール済みの実 Chrome (channel: "chrome") で起動を試し、
+  // 失敗したら channel を外して bundled Chromium で再試行する (yadozei-listener.mjs と同型のフォールバック)。
+  let ctx;
+  try {
+    ctx = await chromium.launchPersistentContext(PLAYWRIGHT_USER_DATA_DIR, { ...baseOpts, channel: "chrome" });
+    console.log(`${LOG_PREFIX} 実 Chrome (channel=chrome) で起動しました`);
+  } catch (e) {
+    console.warn(`${LOG_PREFIX} 実 Chrome での起動失敗 (${String(e.message).split("\n")[0]}) — bundled Chromium で再試行します`);
+    ctx = await chromium.launchPersistentContext(PLAYWRIGHT_USER_DATA_DIR, baseOpts);
+    console.log(`${LOG_PREFIX} bundled Chromium で起動しました`);
+  }
   // コンテキストが閉じたら参照をクリア (次ジョブで作り直す)
   ctx.on("close", () => {
     if (_persistentCtx === ctx) _persistentCtx = null;
@@ -759,28 +772,54 @@ if (LOGIN_MODE) {
   }
 
   console.log(`${LOG_PREFIX} starting — watching dispatchQueue (status=pending)`);
-  unsubscribe = db
-    .collection("dispatchQueue")
-    .where("status", "==", "pending")
-    .onSnapshot(
-      (snap) => {
-        for (const change of snap.docChanges()) {
-          if (change.type !== "added") continue;
-          const id = change.doc.id;
-          if (_seen.has(id)) continue; // 同じジョブの二重投入を防ぐ
-          _seen.add(id);
-          _queue.push({ id, data: change.doc.data() });
+  // onSnapshot の error は終端 (SDK 内のリトライ上限超過後は再購読しない限り復帰しない)。
+  // heartbeat だけ生きて監視が死ぬ「静かな停止」(2026-08-03 に snapshot error 710行の実績) を防ぐため再購読する。
+  // ただし即 process.exit すると Firestore が数分不通のとき「起動→即エラー→終了」を最速で繰り返し、
+  // PM2 の max_restarts(既定15) に達して errored で恒久停止するため、プロセス内で指数バックオフ
+  // (2秒/8秒/32秒・最大3回) の再購読を先に試み、全滅したときのみ終了して PM2 の再起動に任せる。
+  // pending ジョブは再購読の初回スナップショットで拾い直される。
+  const WATCH_RETRY_DELAYS_MS = [2_000, 8_000, 32_000];
+  let watchRetryCount = 0;
+  function startWatch() {
+    unsubscribe = db
+      .collection("dispatchQueue")
+      .where("status", "==", "pending")
+      .onSnapshot(
+        (snap) => {
+          watchRetryCount = 0; // 再購読が成功した (スナップショットが届いた) ので失敗カウンタをリセット
+          for (const change of snap.docChanges()) {
+            if (change.type !== "added") continue;
+            const id = change.doc.id;
+            if (_seen.has(id)) continue; // 同じジョブの二重投入を防ぐ
+            _seen.add(id);
+            _queue.push({ id, data: change.doc.data() });
+          }
+          drainQueue();
+        },
+        (err) => {
+          try {
+            if (unsubscribe) unsubscribe();
+          } catch (_) {
+            /* ignore */
+          }
+          unsubscribe = null;
+          if (watchRetryCount >= WATCH_RETRY_DELAYS_MS.length) {
+            console.error(
+              `${LOG_PREFIX} snapshot error: ${err.message} — 再購読${WATCH_RETRY_DELAYS_MS.length}回全て失敗のため終了します (PM2 が再起動)`
+            );
+            setTimeout(() => process.exit(1), 1500);
+            return;
+          }
+          const delayMs = WATCH_RETRY_DELAYS_MS[watchRetryCount];
+          watchRetryCount++;
+          console.error(
+            `${LOG_PREFIX} snapshot error: ${err.message} — ${delayMs / 1000}秒後に再購読します (試行${watchRetryCount}/${WATCH_RETRY_DELAYS_MS.length})`
+          );
+          setTimeout(startWatch, delayMs);
         }
-        drainQueue();
-      },
-      (err) => {
-        // onSnapshot の error は終端 (SDK 内のリトライ上限超過後は再購読しない限り復帰しない)。
-        // heartbeat だけ生きて監視が死ぬ「静かな停止」(2026-08-03 に snapshot error 710行の実績) を防ぐため、
-        // プロセスごと終了して PM2 の自動再起動→再購読に任せる。pending は再購読の初回スナップショットで拾い直される。
-        console.error(`${LOG_PREFIX} snapshot error: ${err.message} — 監視停止を避けるため終了します (PM2 が再起動)`);
-        setTimeout(() => process.exit(1), 1500);
-      }
-    );
+      );
+  }
+  startWatch();
 }
 
 // ================== graceful shutdown ==================
