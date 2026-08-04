@@ -812,6 +812,7 @@ async function uploadInvoiceToDrive_(db, filePath, invoice, staff, fromEmail) {
 
   const yearMonth = invoice.yearMonth || "";
   const fileName = `${invoice.id}_${invoice.staffName || "unknown"}_${yearMonth}.pdf`;
+  let savedFileId = ""; // 物件フォルダ側の fileId (税理士共有履歴に記録する原本)
   try {
     // ★同名ファイルが既にあれば中身を差し替える (新規作成しない)。
     //   従来は毎回 files.create していたため、請求書のPDFを開くたびに Drive へコピーが増えた
@@ -835,14 +836,16 @@ async function uploadInvoiceToDrive_(db, filePath, invoice, staff, fromEmail) {
         fields: "id",
         supportsAllDrives: true,
       });
+      savedFileId = hitId;
       console.log(`Drive 上書き成功: ${fileName} (fileId=${hitId})`);
     } else {
-      await drive.files.create({
+      const created = await drive.files.create({
         requestBody: { name: fileName, parents: [driveInvoiceFolderId] },
         media: { mimeType: "application/pdf", body: fs.createReadStream(filePath) },
         fields: "id",
         supportsAllDrives: true,
       });
+      savedFileId = created.data.id;
       console.log(`Drive アップロード成功: ${fileName} → folderId=${driveInvoiceFolderId}`);
     }
   } catch (e) {
@@ -853,17 +856,55 @@ async function uploadInvoiceToDrive_(db, filePath, invoice, staff, fromEmail) {
   //   紙の書類は pdf-rename-tool が同じ場所へ振り分けているが、v2 発行の請求書は
   //   物件フォルダにしか保存されておらず、税理士側に1件も渡っていなかった(2026-08-05 実測)。
   //   ここが失敗しても物件フォルダへの保存は成功しているので、警告だけ出して止めない。
-  const taxFolderId = (propDoc.exists && propDoc.data().driveTaxFolderId)
-    || (await dbRef.collection("settings").doc("driveInvoice").get()
-      .then(d => (d.exists ? d.data().taxFolderId || "" : "")).catch(() => ""));
+  const settingsDoc = await dbRef.collection("settings").doc("driveInvoice").get().catch(() => null);
+  const settings = settingsDoc && settingsDoc.exists ? settingsDoc.data() : {};
+  const taxFolderId = (propDoc.exists && propDoc.data().driveTaxFolderId) || settings.taxFolderId || "";
   if (taxFolderId) {
     try {
       const to = await copyInvoiceToTaxFolder_(drive, filePath, fileName, taxFolderId, yearMonth);
       console.log(`税理士フォルダへ保存: ${fileName} → ${to}`);
+      // ★税理士目録は「税理士共有履歴」シートに載っているものだけを対象にするため、
+      //   フォルダへ置くだけでは目録に出てこない (pdf-rename-tool の設計)。ここで1行足す。
+      await appendTaxShareHistory_(oauth2Client, {
+        spreadsheetId: settings.taxCatalogSpreadsheetId || "",
+        fileName,
+        sourceFileId: savedFileId,
+        taxFolderId,
+        taxFolderLabel: settings.taxFolderLabel || "法人用(八朔)",
+        yearMonth,
+      });
     } catch (e) {
       console.warn(`税理士フォルダへの保存に失敗 (物件フォルダへの保存は成功): ${e.message}`);
     }
   }
+}
+
+/**
+ * pdf-rename-tool の「税理士共有履歴」シートへ1行足す。
+ * 税理士目録(法人目録/個人目録)はこのシートに記録されたものだけを対象に作られるため、
+ * 税理士フォルダへコピーしただけでは目録に載らない。
+ * 同名が既にあれば足さない (PDFを開き直すたびに履歴が伸びるのを防ぐ)。
+ */
+async function appendTaxShareHistory_(auth, opts) {
+  const { spreadsheetId, fileName, sourceFileId, taxFolderId, taxFolderLabel, yearMonth } = opts;
+  if (!spreadsheetId || !sourceFileId) return;
+  const { google } = require("googleapis");
+  const sheets = google.sheets({ version: "v4", auth });
+  const sheetName = "税理士共有履歴";
+  const cur = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${sheetName}!A:A` });
+  const names = (cur.data.values || []).map(r => String(r[0] || ""));
+  if (names.includes(fileName)) return;
+  const today = new Date().toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" });
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `${sheetName}!A:F`,
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: {
+      values: [[fileName, sourceFileId, taxFolderLabel, taxFolderId, String(yearMonth).replace("-", "."), today]],
+    },
+  });
+  console.log(`税理士共有履歴に追記: ${fileName}`);
 }
 
 /**
