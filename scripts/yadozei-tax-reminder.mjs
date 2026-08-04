@@ -49,6 +49,27 @@ function fmtDate(ymd) {
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()}(${WEEKDAYS[d.getUTCDay()]})`;
 }
 
+// ★申告書PDFの有無だけでは「準備OK」と言えない(2026-08-04 実測)。
+//   the Terrace 長浜の 2026-07分は Booking のCSVが**やどぜいへ取り込めないまま**で、
+//   申告書PDFは Airbnb 分だけで生成済み。それでも fileName に対象月が入っているので
+//   このリマインドは緑で「準備OK」と表示していた＝**過少申告に気づけない**。
+//   CSV取得が成功したOTAは、やどぜいへの取込も成功していなければならない。そこを突き合わせる。
+async function uploadGaps(db, propertyId, ym) {
+  const snap = await db.collection("yadozeiQueue")
+    .where("yearMonth", "==", ym).where("propertyId", "==", propertyId).get();
+  const fetchTried = new Set(), fetchedOk = new Set(), uploadedOk = new Set();
+  snap.forEach((d) => {
+    const j = d.data();
+    const m = /^([a-z]+)_csv_fetch$/.exec(String(j.kind || ""));
+    if (m) { fetchTried.add(m[1]); if (j.status === "done") fetchedOk.add(m[1]); }
+    if (j.kind === "yadozei_csv_upload" && j.status === "done" && j.params?.ota) uploadedOk.add(j.params.ota);
+  });
+  return {
+    notUploaded: [...fetchedOk].filter((o) => !uploadedOk.has(o)), // CSVは取れたのに取り込めていない
+    notFetched: [...fetchTried].filter((o) => !fetchedOk.has(o)),  // そもそもCSVが取れていない
+  };
+}
+
 async function main() {
   if (!admin.apps.length) admin.initializeApp({ projectId: "minpaku-v2" });
   const db = admin.firestore();
@@ -99,6 +120,15 @@ async function main() {
         lines.push(`・${t.name}: [申告書PDF](${pdf.driveLink})`); // 旧形式(filesなし)フォールバック
       } else {
         lines.push(`・${t.name}: ⚠️ ${Number(m)}月分の申告書PDFが未生成です（やどぜい自動化の異常。要確認）`);
+      }
+      // PDFが出ていても、取り込めていないOTAがあれば税額が過少になっている
+      let gaps = { notUploaded: [], notFetched: [] };
+      try { gaps = await uploadGaps(db, t.id, ym); } catch (e) { lines.push(`　（取込状況の確認に失敗: ${String(e.message).slice(0, 60)}）`); }
+      if (gaps.notUploaded.length) {
+        lines.push(`　🚨 **${gaps.notUploaded.join("・")} の予約がやどぜいに取り込めていません** — 上のPDFはこの分を含まない金額です。**そのまま申告しないでください**`);
+      }
+      if (gaps.notFetched.length) {
+        lines.push(`　⚠️ ${gaps.notFetched.join("・")} のCSVがそもそも取得できていません（要確認）`);
       }
     }
     lines.push(`📊 税額・月計表の確認: ${YADOZEI_REPORTS_URL} （月計表の添付が必須）`);
