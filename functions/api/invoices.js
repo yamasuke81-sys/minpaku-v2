@@ -848,6 +848,77 @@ async function uploadInvoiceToDrive_(db, filePath, invoice, staff, fromEmail) {
   } catch (e) {
     throw new Error(`請求書PDFの Drive 保存に失敗 (folderId=${driveInvoiceFolderId}, 原因=${e.message})`);
   }
+
+  // ★税理士フォルダ(IU_八朔 等)の年月サブフォルダにも同じPDFを置く。
+  //   紙の書類は pdf-rename-tool が同じ場所へ振り分けているが、v2 発行の請求書は
+  //   物件フォルダにしか保存されておらず、税理士側に1件も渡っていなかった(2026-08-05 実測)。
+  //   ここが失敗しても物件フォルダへの保存は成功しているので、警告だけ出して止めない。
+  const taxFolderId = (propDoc.exists && propDoc.data().driveTaxFolderId)
+    || (await dbRef.collection("settings").doc("driveInvoice").get()
+      .then(d => (d.exists ? d.data().taxFolderId || "" : "")).catch(() => ""));
+  if (taxFolderId) {
+    try {
+      const to = await copyInvoiceToTaxFolder_(drive, filePath, fileName, taxFolderId, yearMonth);
+      console.log(`税理士フォルダへ保存: ${fileName} → ${to}`);
+    } catch (e) {
+      console.warn(`税理士フォルダへの保存に失敗 (物件フォルダへの保存は成功): ${e.message}`);
+    }
+  }
+}
+
+/**
+ * 税理士フォルダ配下の年月サブフォルダ (YYYY.MM) へ請求書PDFを置く。
+ * サブフォルダ名は pdf-rename-tool の copyToTaxFolders_ と同じ規則に揃える。
+ * 同名ファイルがあれば中身を差し替え、サブフォルダが無ければ作る。
+ */
+async function copyInvoiceToTaxFolder_(drive, filePath, fileName, taxFolderId, yearMonth) {
+  const sub = String(yearMonth || "").replace(/-/g, "."); // 2026-07 → 2026.07
+  if (!/^\d{4}\.\d{2}$/.test(sub)) throw new Error(`年月が不正です: ${yearMonth}`);
+
+  // 手作業で同名の年月フォルダが二重にできている箇所があるため、最初に作られた方に寄せる
+  const folders = await drive.files.list({
+    q: `name = '${sub}' and '${taxFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    fields: "files(id,createdTime)",
+    orderBy: "createdTime",
+    pageSize: 5,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+  });
+  let folderId = folders.data.files?.[0]?.id;
+  if (!folderId) {
+    const created = await drive.files.create({
+      requestBody: { name: sub, mimeType: "application/vnd.google-apps.folder", parents: [taxFolderId] },
+      fields: "id",
+      supportsAllDrives: true,
+    });
+    folderId = created.data.id;
+  }
+
+  const escaped = fileName.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const existing = await drive.files.list({
+    q: `name = '${escaped}' and '${folderId}' in parents and trashed = false`,
+    fields: "files(id)",
+    pageSize: 1,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+  }).catch(() => null);
+  const hitId = existing?.data?.files?.[0]?.id;
+  if (hitId) {
+    await drive.files.update({
+      fileId: hitId,
+      media: { mimeType: "application/pdf", body: fs.createReadStream(filePath) },
+      fields: "id",
+      supportsAllDrives: true,
+    });
+  } else {
+    await drive.files.create({
+      requestBody: { name: fileName, parents: [folderId] },
+      media: { mimeType: "application/pdf", body: fs.createReadStream(filePath) },
+      fields: "id",
+      supportsAllDrives: true,
+    });
+  }
+  return `${sub}/${fileName}`;
 }
 
 /**
