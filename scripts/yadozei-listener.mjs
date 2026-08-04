@@ -60,8 +60,10 @@ const EXPIRE_REMIND_MIN_INTERVAL_H = 20;
 // 同一サイトの「ログインが切れています」促しは、復帰を跨いでも最短この間隔でしか出さない。
 // Booking は extranet のアイドルタイムアウトで数時間ごとに切れるため、これが無いと促しが鳴り続ける。
 const EXPIRE_NOTIFY_COOLDOWN_H = 24;
-// セッション点検(キープアライブ兼)の間隔[時間]。Booking のアイドルタイムアウト対策で 8→2 に短縮(2026-07-31)。
-const SESSION_CHECK_BUCKET_H = 2;
+// セッション点検(キープアライブ兼)の間隔[分]。8h→2h(2026-07-31)でも Booking は3日連続で毎日失効した
+// (トップを開くだけでは延命されない疑い)。30分毎に短縮し、あわせて handleSessionCheck が
+// 「前回OKからの経過時間」を毎回ログに残すので、実際に何時間で切れるかは当て推量でなく実測で判断する(2026-08-04)。
+const SESSION_CHECK_BUCKET_MIN = 30;
 // OTA失効を検知したら「どのタイミングでも」秘書(#民泊管理)経由でワンタップ再ログインを促すための連携先。
 // ota-login-check.mjs(朝4時)と同じ pending ファイル/チャンネルを使い、handleOne の「はい」が拾って runRelogin する。
 const MINPAKU_CHANNEL_ID = "1518754802572722306"; // #民泊管理 (channels.json minpaku。notifyDiscord_ の webhook も同チャンネル)
@@ -1348,8 +1350,22 @@ async function handleCalendarAudit(job, ctx, jobId) {
   let unassignedCount = 0;
   let attempted = 0;
 
+  // ★失効中のOTAはこの回の監査から個別に外す(2026-08-04)。失効が分かっているのに取得を試みて
+  //   失敗させない(全サイト一律スキップにはせず、生きているOTAの取得は続行する)。
+  //   復帰時は handleSessionCheck が calendar_audit を強制再投入して追いつく。
+  const auditSessSt = loadSessionState_();
+  const skippedOtaKeys = [];
+  if (airbnbProps.length && auditSessSt["Airbnb"]?.expiredSince) {
+    skippedOtaKeys.push("airbnb");
+    console.log(`${LOG_PREFIX} [calendar_audit] Airbnb は失効のため保留 (失効 ${fmtJst_(auditSessSt["Airbnb"].expiredSince)}〜)`);
+  }
+  if (bookingProps.length && auditSessSt["Booking.com"]?.expiredSince) {
+    skippedOtaKeys.push("booking");
+    console.log(`${LOG_PREFIX} [calendar_audit] Booking は失効のため保留 (失効 ${fmtJst_(auditSessSt["Booking.com"].expiredSince)}〜)`);
+  }
+
   // Airbnb: 1回の取得で全リスティング分を取り、リスティング名で物件へ振り分け
-  if (airbnbProps.length) {
+  if (airbnbProps.length && !skippedOtaKeys.includes("airbnb")) {
     attempted++;
     try {
       const raw = await fetchAirbnbCsvRange(ctx, jobId, ymdParts_(fromStr), ymdParts_(toStr));
@@ -1377,7 +1393,7 @@ async function handleCalendarAudit(job, ctx, jobId) {
   }
 
   // Booking: アカウント一括の予約一覧を取得し、施設列があれば物件へ振り分け (単一物件なら全行その物件)
-  if (bookingProps.length) {
+  if (bookingProps.length && !skippedOtaKeys.includes("booking")) {
     attempted++;
     try {
       const csv = await fetchBookingCsvRange(ctx, jobId, fromStr, toStr);
@@ -1418,8 +1434,8 @@ async function handleCalendarAudit(job, ctx, jobId) {
 
   // 監査対象 (物件×OTA) の一覧。逆方向チェック (v2→OTA) はこのペアに限定する
   // (別アカウント運用の物件=おのみちホテル/Hotel Zen 等を誤って「OTAに無い」と検知しないため)。
-  // 取得失敗した OTA のペアは除外する (失敗時の誤検知防止)。
-  const failedOtaKeys = errors.map((e) => e.ota);
+  // 取得失敗した OTA と、失効で保留した OTA のペアは除外する (失敗・未取得時の誤検知防止)。
+  const failedOtaKeys = [...errors.map((e) => e.ota), ...skippedOtaKeys];
   const auditedTargets = [
     ...airbnbProps.filter(() => !failedOtaKeys.includes("airbnb")).map((p) => ({ propertyId: p.id, ota: "airbnb" })),
     ...bookingProps.filter(() => !failedOtaKeys.includes("booking")).map((p) => ({ propertyId: p.id, ota: "booking" })),
@@ -1646,6 +1662,51 @@ async function isWizardOpen(page) {
   );
 }
 
+// ウィザードのバリデーションエラー(赤文字)を拾う。
+// ★2026-08-02: やどぜいがステップ1に必須項目「Airbnbの手数料形態」を追加し、未選択のまま
+//   「次へ」を押すと赤字で弾かれてステップ2へ進めなくなった。そのとき出るエラーは
+//   「file input が12秒出ない」という無関係なタイムアウトで、原因がログから分からなかった。
+//   → 進めなかったときは画面の赤字を回収して、原因そのものをエラーメッセージにする。
+async function wizardValidationErrors(page) {
+  return await page
+    .evaluate(() => {
+      const out = [];
+      for (const e of document.querySelectorAll("p,div,span,small,label,li")) {
+        if (e.children.length) continue; // 末端テキストのみ
+        const t = (e.textContent || "").trim();
+        if (!t || t.length > 80) continue;
+        const m = getComputedStyle(e).color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (!m) continue;
+        const [r, g, b] = [+m[1], +m[2], +m[3]];
+        if (r > 150 && g < 110 && b < 110) out.push(t); // 赤系
+      }
+      return [...new Set(out)];
+    })
+    .catch(() => []);
+}
+
+// 「Airbnbの手数料形態」ラジオ (2026-08 やどぜい追加)。
+// 選択を誤ると宿泊料金(=入金額から手数料を戻した額)が変わり、免税点の判定＝宿泊税額が変わる。
+// そのため既定値は持たせず、物件設定 or listener設定に明示されていなければ中断する。
+const AIRBNB_FEE_LABEL = { hostOnly: "ホストのみ手数料", split: "スプリット手数料" };
+async function selectAirbnbFeeMode(page, mode) {
+  const needle = AIRBNB_FEE_LABEL[mode];
+  if (!needle) return false;
+  return await page
+    .evaluate((n) => {
+      for (const r of document.querySelectorAll('input[type="radio"]')) {
+        const row = r.closest("label") || r.parentElement?.closest("div");
+        if (!row) continue;
+        if ((row.textContent || "").replace(/\s+/g, "").includes(n)) {
+          r.click(); // ネイティブclick = React の onChange が確実に発火する
+          return r.checked;
+        }
+      }
+      return false;
+    }, needle.replace(/\s+/g, ""))
+    .catch(() => false);
+}
+
 async function handleYadozeiCsvUpload(job, ctx, jobId) {
   const { propertyId, propertyName, yearMonth, params } = job;
   const ota = params?.ota;
@@ -1702,11 +1763,55 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
       }
     }
     console.log(`${LOG_PREFIX} ステップ1選択: OTA=${otaVal} 対象月=${monthVal}`);
+
+    // ステップ1の追加必須項目: Airbnbの手数料形態 (2026-08-02 やどぜいが新設)
+    // 物件ごとに properties/{id}.yadozei.airbnbFeeMode、無ければ settings/yadozeiListener.airbnbFeeMode。
+    // どちらも未設定なら「推測で選ばない」= 中断して通知する(宿泊税額が変わるため)。
+    if (ota === "airbnb") {
+      const hasFeeChoice = await page
+        .evaluate(() => /手数料形態/.test(document.body.innerText))
+        .catch(() => false);
+      if (hasFeeChoice) {
+        const lsSnap = await db.collection("settings").doc("yadozeiListener").get();
+        // 優先順: ジョブ params > 物件設定 > listener共通設定。
+        // params 指定は「同じ月に2形態が混在するとき、CSVを分けて2回に分けて取り込む」ために要る。
+        const feeMode =
+          job.params?.airbnbFeeMode ||
+          propData?.yadozei?.airbnbFeeMode ||
+          (lsSnap.exists ? lsSnap.data()?.airbnbFeeMode : null);
+        if (!feeMode) {
+          await saveScreenshot(page, jobId, "yadozei_fee_mode_unset");
+          throw new Error(
+            "やどぜいに必須項目「Airbnbの手数料形態」が追加されました。設定が未指定のため中断しました" +
+              "(推測で選ぶと宿泊料金・宿泊税額が変わるため)。properties/{id}.yadozei.airbnbFeeMode に " +
+              "hostOnly(ホストのみ15.5%) か split(スプリット3%) を設定してください"
+          );
+        }
+        const picked = await selectAirbnbFeeMode(page, feeMode);
+        if (!picked) {
+          await saveScreenshot(page, jobId, "yadozei_fee_mode_not_found");
+          throw new Error(`Airbnbの手数料形態(${AIRBNB_FEE_LABEL[feeMode] || feeMode})のラジオを選択できない (UI変更の可能性)`);
+        }
+        console.log(`${LOG_PREFIX} 手数料形態を選択: ${AIRBNB_FEE_LABEL[feeMode]}`);
+        await page.waitForTimeout(400);
+      }
+    }
+
     await page.waitForTimeout(600);
     await debugShot(page, jobId, "yadozei_step1_filled");
     await clickWizardButton(page, ["次へ"]);
     await page.waitForTimeout(2000);
     await debugShot(page, jobId, "yadozei_after_next1");
+
+    // ステップ1で止まっていないか(=未対応の必須項目が増えていないか)を、file input を
+    // 待つ前に判定する。ここを飛ばすと原因不明の「12秒タイムアウト」になる。
+    if (!(await page.locator('input[type="file"]').count())) {
+      const errs = await wizardValidationErrors(page);
+      if (errs.length) {
+        await saveScreenshot(page, jobId, "yadozei_step1_blocked");
+        throw new Error(`やどぜいウィザードのステップ1で止まりました(必須項目が増えた可能性): ${errs.join(" / ")}`);
+      }
+    }
 
     // ステップ2: CSV ファイルアップロード (file input が現れるまでリトライ。
     // 次への反映が遅れると step2 に進めていないことがあるので、その場合はもう一度 次へ を押す)
@@ -2088,7 +2193,25 @@ async function handleSessionCheck(ctx, jobId) {
     { name: "Airbnb", url: "https://www.airbnb.com/hosting/reservations", re: /\/login|signin|sign_in|authwall/i },
     // Booking は取得(fetchBookingCsvRange)と全く同じ共通判定を使う。点検OKなのに取得は未ログイン、という
     // 食い違いを構造的に無くすため、URL正規表現ではなく resolveBookingLoginState_ で判定する。
-    { name: "Booking.com", url: BOOKING_ADMIN_URL, check: (p) => resolveBookingLoginState_(p, jobId, { tag: "session_booking" }) },
+    {
+      name: "Booking.com",
+      url: BOOKING_ADMIN_URL,
+      check: (p) => resolveBookingLoginState_(p, jobId, { tag: "session_booking" }),
+      // ★キープアライブ強化(2026-08-04): extranetトップ(home.htm)を開くだけでは 2h毎でも毎日失効した。
+      //   OK確認後に「予約」一覧まで実際に開き、認証済みの実操作を1回発生させて延命を狙う
+      //   (fetchBookingCsvRange と同じナビ候補。失敗しても点検結果には影響させない)。
+      keepalive: async (p) => {
+        const navCandidates = ['a:has-text("予約")', 'button:has-text("予約")', 'a:has-text("Reservations")', '[data-testid*="reservation"]'];
+        for (const sel of navCandidates) {
+          const loc = p.locator(sel).first();
+          if (!(await loc.count().catch(() => 0))) continue;
+          await loc.click({ timeout: 10_000 }).catch(() => {});
+          await p.waitForTimeout(3000);
+          break;
+        }
+        console.log(`${LOG_PREFIX} [session_check] Booking キープアライブ: 予約一覧へアクセス (${p.url().slice(0, 70)})`);
+      },
+    },
     { name: "やどぜい", url: "https://app.yadozei.com/", re: /\/login/i },
   ];
   const sessions = {};
@@ -2103,6 +2226,14 @@ async function handleSessionCheck(ctx, jobId) {
         const state = await s.check(p);
         out = state !== "ok";
         url = p.url();
+        // OK のときだけ追いキープアライブ(実ページへのアクセス)。失敗は無視して判定は変えない。
+        if (!out && s.keepalive) {
+          try {
+            await s.keepalive(p);
+          } catch (e) {
+            console.log(`${LOG_PREFIX} [session_check] ${s.name} キープアライブ追い操作失敗(無視): ${e.message}`);
+          }
+        }
       } else {
         await p.goto(s.url, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
         await p.waitForTimeout(3500); // リダイレクト確定待ち
@@ -2149,7 +2280,14 @@ async function handleSessionCheck(ctx, jobId) {
   for (const s of sites) {
     const st = state[s.name] || (state[s.name] = {});
     const status = sessions[s.name];
+    // ★失効実測ログ(2026-08-04): 「前回OK時刻」からの経過を毎回必ず数値で残す。
+    //   Booking が実際に何時間でアイドル失効するのかをログで読めるようにし、
+    //   当て推量の間隔短縮(8h→2h→…)を繰り返さないための一次データにする。
+    const prevOkAt = st.lastOkAt || null;
+    const sinceH = prevOkAt ? (Date.now() - new Date(prevOkAt).getTime()) / 3600000 : null;
+    const sinceLabel = prevOkAt ? `${sinceH.toFixed(2)}時間前 (${fmtJst_(prevOkAt)})` : "記録なし";
     if (status === "ok") {
+      console.log(`${LOG_PREFIX} [session_check] 📏 ${s.name}: OK / 前回OK=${sinceLabel}${prevOkAt ? "" : " → 今回を lastOkAt として初記録"}`);
       if (st.expiredSince) {
         recovered.push(s.name);
         st.sessionStartAt = nowIso; // 新セッションの計測開始
@@ -2159,8 +2297,13 @@ async function handleSessionCheck(ctx, jobId) {
       } else if (!st.sessionStartAt) {
         st.sessionStartAt = nowIso; // 初回観測 (実ログインより遅い可能性あり=下限値)
       }
+      // 前回OK時刻が未記録でもここで必ず記録する(次回以降の差分計測の基準点)
       st.lastOkAt = nowIso;
     } else if (status === "logged_out") {
+      console.log(
+        `${LOG_PREFIX} [session_check] 📏 ${s.name}: 失効 / 前回OK=${sinceLabel}` +
+          (prevOkAt ? ` → 前回OKから ${sinceH.toFixed(2)}時間以内に切れた` : " (OK実績が無いため失効までの時間は不明)")
+      );
       if (!st.expiredSince) {
         st.expiredSince = nowIso;
         // ★2026-07-31: 「再ログイン→数時間で失効」を繰り返すサイト(Booking)だと、失効のたびに
@@ -2250,12 +2393,12 @@ async function handleSessionCheck(ctx, jobId) {
       const st = state[name];
       if (st.sessionStartAt && st.lastOkAt) {
         // ★持続時間は「日」だと Booking のような短命セッションで 0.2日 のように読めない。
-        //   1日未満は時間・分で出す。誤差は点検間隔(SESSION_CHECK_BUCKET_H)ぶん。
+        //   1日未満は時間・分で出す。誤差は点検間隔(SESSION_CHECK_BUCKET_MIN)ぶん。
         const ms = new Date(st.lastOkAt) - new Date(st.sessionStartAt);
         const h = ms / 3600000;
         const span = h >= 24 ? `約${(h / 24).toFixed(1)}日` : h >= 1 ? `約${h.toFixed(1)}時間` : `約${Math.round(ms / 60000)}分`;
         lines.push(
-          `📏 持続実測: ${fmtJst_(st.sessionStartAt)} ログイン確認 〜 ${fmtJst_(st.lastOkAt)} 正常 (${span}／点検は${SESSION_CHECK_BUCKET_H}時間毎なので誤差あり)`
+          `📏 持続実測: ${fmtJst_(st.sessionStartAt)} ログイン確認 〜 ${fmtJst_(st.lastOkAt)} 正常 (${span}／点検は${SESSION_CHECK_BUCKET_MIN}分毎なので誤差あり)`
         );
       }
     }
@@ -2311,6 +2454,28 @@ async function handleJob(docId, job) {
   } catch (e) {
     console.log(`${LOG_PREFIX} ロック取得失敗 (skip) ${docId}: ${e.message}`);
     return;
+  }
+
+  // ★失効中の月次CSV取得は実行前に保留する(2026-08-04)。月次CSVの投入元は Cloud Functions の
+  //   dispatcher 側なのでここ(実行直前)が listener で止められる最初の地点。失効が分かっているのに
+  //   ブラウザを起動→ログイン画面に飛ばされ「🚨失敗」を鳴らすのをやめる。
+  //   「未ログイン」を含む failed として残すことで、①失敗通知は既存の isLoginIssue 判定で抑制され、
+  //   ②再ログイン復帰時は handleSessionCheck の強制再投入(/未ログイン/ マッチ)が拾って追いつく。
+  //   対象サイトが失効していない側の取得は従来どおり実行する(全サイト一律スキップにしない)。
+  const csvFetchSite = { airbnb_csv_fetch: "Airbnb", booking_csv_fetch: "Booking.com" }[job.kind];
+  if (csvFetchSite) {
+    const siteState = loadSessionState_()[csvFetchSite];
+    if (siteState?.expiredSince) {
+      console.log(
+        `${LOG_PREFIX} ${docId} (${job.kind}) は ${csvFetchSite} 失効のため保留 (失効 ${fmtJst_(siteState.expiredSince)}〜) → 復帰時の再投入に任せる`
+      );
+      await ref.update({
+        status: "failed",
+        error: `未ログイン(${csvFetchSite} 失効中のため実行せず保留)`,
+        completedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }).catch((e) => console.warn(`${LOG_PREFIX} 保留マーク失敗 ${docId}: ${e.message}`));
+      return;
+    }
   }
 
   // ジョブごとに新規コンテキストを起動する (共有すると死んだ context を再利用して
@@ -2373,7 +2538,9 @@ async function handleJob(docId, job) {
             ? { drafted: result.drafted, ota: result.ota, threadUrl: result.threadUrl || null, composerHasText: result.composerHasText ?? null, dryRun: !!result.dryRun }
             : isFetch || isPdf
               ? { fileName: result.fileName, driveFileId: result.fileId, driveLink: result.webViewLink, taxCopy: result.taxCopy || null }
-              : { uploaded: true };
+              // ★dryRun でも uploaded:true と書いていた(2026-08-02 修正)。実際には取り込んで
+              //   いないのに「取込済み」と読める記録が残るため、実際の戻り値をそのまま残す。
+              : { uploaded: !!result.uploaded, dryRun: !!result.dryRun, ota: result.ota || null, yearMonth: result.yearMonth || null };
     await ref.update({
       status: "done",
       completedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -2453,14 +2620,53 @@ async function handleJob(docId, job) {
     try {
       const isLoginIssue = /未ログイン|not_logged_in|ログインが切れ/.test(errMsg);
       if (job.kind !== "session_check" && !isLoginIssue) {
-        await notifyDiscord_(
+        // ★2026-08-02: 失敗を「一過性」と「恒久(UI変更・設定不足)」に分ける。
+        //   一過性 = もう一度走らせれば直る類 → その場で自動リトライ(最大2回)
+        //   恒久   = 何度やっても同じ → リトライせず、Discordに「やり直す」ボタン付きで通知
+        //   やますけは出先から見ることが多いので、手動実行は必ずワンタップで足りる形にする。
+        const permanent = /必須項目|ステップ1で止まりました|UI ?変更|UI変更の可能性|未対応の ota|未指定|見つからない/.test(errMsg);
+        const transient = !permanent && /Timeout|timeout|ECONN|ETIMEDOUT|net::|socket hang up|context has been closed|Target closed|Navigation/.test(errMsg);
+        const autoRetries = (curSnap && curSnap.exists ? curSnap.data().autoRetries : 0) || 0;
+        const willRetry = (transient && autoRetries < 2) || job.kind === "calendar_audit";
+
+        if (transient && autoRetries < 2 && job.kind !== "calendar_audit") {
+          // 同じ内容のジョブを新しい docId で再投入する(元ジョブは failed のまま履歴に残す)
+          await db.collection("yadozeiQueue").add({
+            kind: job.kind, propertyId: job.propertyId || null, propertyName: job.propertyName || null,
+            yearMonth: job.yearMonth || null, params: job.params || {},
+            status: "pending", result: null, createdBy: "listener_auto_retry",
+            autoRetries: autoRetries + 1, retriedFrom: docId,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            startedAt: null, completedAt: null, error: null, retries: 0,
+          });
+          console.log(`${LOG_PREFIX} 一過性エラーとみなし自動リトライ投入 (${autoRetries + 1}/2) ${docId}`);
+        }
+
+        const head =
           `🚨 **OTA/宿泊税 自動処理が失敗しました**\n` +
           `ジョブ: \`${job.kind}\`${job.propertyName ? ` (${job.propertyName}${job.yearMonth ? " " + job.yearMonth : ""})` : ""}\n` +
-          `エラー: ${errMsg.slice(0, 300)}\n` +
-          (job.kind === "calendar_audit"
-            ? `→ 当日中に自動リトライします(毎時・最大3回)。続報がなければ復旧済みです。`
-            : `→ 自動リトライはありません。放置すると当月の処理が欠けます。`)
-        );
+          `エラー: ${errMsg.slice(0, 300)}\n`;
+
+        if (willRetry) {
+          await notifyDiscord_(
+            head +
+              (job.kind === "calendar_audit"
+                ? `→ 当日中に自動リトライします(毎時・最大3回)。続報がなければ復旧済みです。`
+                : `→ 一過性エラーとみなして自動リトライします(${autoRetries + 1}/2)。続報がなければ復旧済みです。`)
+          );
+        } else {
+          // ボタン付き(常駐bun経由)。押すと同じジョブをそのまま再投入する。
+          queueButtonedNotice_({
+            message:
+              head +
+              (permanent
+                ? `→ **やり直しても同じ結果になる種類の失敗**です(やどぜい側のUI変更か設定不足)。中身を直す必要があります。`
+                : `→ 自動リトライは打ち切りました。放置すると当月の処理が欠けます。`) +
+              `\n下のボタンでいつでも同じ処理をやり直せます。`,
+            buttons: `yadozei_retry ${docId}`,
+            channelPersona: "minpaku",
+          });
+        }
       }
     } catch (e3) {
       console.warn(`${LOG_PREFIX} 失敗通知の送信に失敗: ${e3.message}`);
@@ -2558,17 +2764,17 @@ if (LOGIN_MODE) {
   updateHeartbeat();
   heartbeatTimer = setInterval(updateHeartbeat, HEARTBEAT_INTERVAL_MS);
 
-  // セッション健全性チェック(キープアライブ兼)を定期 enqueue。docId を JST の時間バケット固定で冪等化
+  // セッション健全性チェック(キープアライブ兼)を定期 enqueue。docId を JST の分バケット固定で冪等化
   // (同一バケット内は create() が失敗しスキップ、日付/バケット跨ぎで新規)。実処理は handleSessionCheck。
-  // ★2026-07-31: 8時間毎(1日3回)だと Booking.com の extranet アイドルタイムアウトに間に合わず、
-  //   点検のたびに必ず未ログインだった(Cookie自体は400日有効=切れているのはサーバ側セッション)。
-  //   キープアライブを 2時間毎(1日12回)に上げて、アイドルで落とされるのを防げるか実測する。
+  // ★2026-07-31: 8時間毎(1日3回)だと Booking.com の extranet アイドルタイムアウトに間に合わず毎回未ログインだった。
+  // ★2026-08-04: 2時間毎でも3日連続で毎日失効した(実測)。バケットを分単位(SESSION_CHECK_BUCKET_MIN=30分)に
+  //   短縮し、handleSessionCheck の「前回OKからの経過」ログで実際の失効までの時間を数値で取る。
   async function enqueueSessionCheck() {
     try {
       const j = new Date(Date.now() + 9 * 3600 * 1000); // JST
       const ymd = `${j.getUTCFullYear()}${String(j.getUTCMonth() + 1).padStart(2, "0")}${String(j.getUTCDate()).padStart(2, "0")}`;
-      const bucket = Math.floor(j.getUTCHours() / SESSION_CHECK_BUCKET_H);
-      const id = `session_check_${ymd}_h${bucket}`;
+      const bucket = Math.floor((j.getUTCHours() * 60 + j.getUTCMinutes()) / SESSION_CHECK_BUCKET_MIN);
+      const id = `session_check_${ymd}_m${bucket}`;
       await db.collection("yadozeiQueue").doc(id).create({
         kind: "session_check", status: "pending",
         createdAt: admin.firestore.FieldValue.serverTimestamp(), source: "listener_periodic",
@@ -2579,7 +2785,9 @@ if (LOGIN_MODE) {
     }
   }
   setTimeout(enqueueSessionCheck, 20_000); // 起動20秒後に初回
-  setInterval(enqueueSessionCheck, 30 * 60 * 1000); // 30分毎トライ(バケットで冪等 → 実質 24/SESSION_CHECK_BUCKET_H 回/日)
+  // 10分毎トライ(バケットで冪等)。バケット幅(30分)と同じ間隔だとタイマーのズレでバケットを取りこぼすため
+  // 短めに刻む → 実質 1440/SESSION_CHECK_BUCKET_MIN 回/日
+  setInterval(enqueueSessionCheck, 10 * 60 * 1000);
 
   // 夜間カレンダー監査 (OTA実予約とv2の突合用スナップショット取得) を毎日1回 enqueue。
   // docId=日付で冪等 (同日2回目以降は create() が already exists で自動スキップ)。
@@ -2589,6 +2797,19 @@ if (LOGIN_MODE) {
     try {
       const j = new Date(Date.now() + 9 * 3600 * 1000); // JST
       if (j.getUTCHours() * 60 + j.getUTCMinutes() < 150) return; // 2:30 前は投入しない
+      // ★失効中は投入しない(2026-08-04): 両OTAとも失効なら成功見込みゼロのまま起動して
+      //   「🚨失敗」を鳴らすだけなので投入自体を保留する。復帰時は handleSessionCheck が
+      //   calendar_audit_recovery を強制投入するので追いつきはそちらに任せる。
+      //   片方だけ失効なら投入は続行(失効サイトの分は handleCalendarAudit が個別にスキップする)。
+      const sessSt = loadSessionState_();
+      const expiredOta = ["Airbnb", "Booking.com"].filter((k) => sessSt[k]?.expiredSince);
+      if (expiredOta.length === 2) {
+        console.log(`${LOG_PREFIX} calendar_audit は ${expiredOta.join("/")} 失効のため保留 → 復帰時の強制再投入に任せる`);
+        return;
+      }
+      if (expiredOta.length) {
+        console.log(`${LOG_PREFIX} calendar_audit: ${expiredOta.join("/")} は失効のため保留(取得は残りのサイトのみ実行)`);
+      }
       const ymd = `${j.getUTCFullYear()}${String(j.getUTCMonth() + 1).padStart(2, "0")}${String(j.getUTCDate()).padStart(2, "0")}`;
       const id = `calendar_audit_${ymd}`;
       await db.collection("yadozeiQueue").doc(id).create({
@@ -2632,7 +2853,7 @@ if (LOGIN_MODE) {
   setTimeout(enqueueCalendarAudit, 40_000); // 起動40秒後に初回トライ (2:30前なら無視される)
   setInterval(enqueueCalendarAudit, 60 * 60 * 1000); // 毎時トライ(日付IDで冪等 → 実質1日1回)
 
-  // 失効検知中のまま再起動された場合 (=再ログイン直後の可能性が高い) は、8hバケットを
+  // 失効検知中のまま再起動された場合 (=再ログイン直後の可能性が高い) は、次の点検バケットを
   // 待たずユニークIDで即チェックを投入し、「✅ 再ログイン確認」を早く返す。
   try {
     const st = loadSessionState_();
