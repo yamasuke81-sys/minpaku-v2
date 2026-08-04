@@ -11,8 +11,12 @@ const InvoicesPage = {
   detailModal: null,
 
   async render(container, pathParams) {
-    const now = new Date();
-    this.selectedMonth = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+    // ★選択中の月は画面をまたいでも保つ。render のたびに当月へ戻していたため、
+    //   先月分を確認している途中で他の画面に寄り道しただけで当月に飛ばされていた。
+    if (!this.selectedMonth) {
+      const now = new Date();
+      this.selectedMonth = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+    }
     // URL パスから invoiceId を取得 (#/invoices/{id} 形式対応)
     // 通知メール/LINE からの直リンク時に該当請求書の詳細モーダルを自動表示する
     this._pendingOpenId = (pathParams && pathParams[0]) ? pathParams[0] : null;
@@ -213,9 +217,6 @@ const InvoicesPage = {
               <th>スタッフ</th>
               <th>対象物件</th>
               <th class="text-end">清掃回数</th>
-              <th class="text-end">基本報酬</th>
-              <th class="text-end">ランドリー</th>
-              <th class="text-end">交通費</th>
               <th class="text-end fw-bold">合計</th>
               <th>ステータス</th>
               <th></th>
@@ -229,9 +230,6 @@ const InvoicesPage = {
               <th>合計<span class="text-muted small fw-normal">（間違い除く）</span></th>
               <th></th>
               <th class="text-end">${filteredInvoices.filter(i => !i.voided).reduce((s, i) => s + (i.details?.shiftCount || 0), 0)}回</th>
-              <th class="text-end">${formatCurrency(filteredInvoices.filter(i => !i.voided).reduce((s, i) => s + (i.basePayment || 0), 0))}</th>
-              <th class="text-end">${formatCurrency(filteredInvoices.filter(i => !i.voided).reduce((s, i) => s + (i.laundryFee || 0), 0))}</th>
-              <th class="text-end">${formatCurrency(filteredInvoices.filter(i => !i.voided).reduce((s, i) => s + (i.transportationFee || 0), 0))}</th>
               <th class="text-end fw-bold">${formatCurrency(filteredInvoices.filter(i => !i.voided).reduce((s, i) => s + (i.total || 0), 0))}</th>
               <th></th>
               <th></th>
@@ -321,9 +319,6 @@ const InvoicesPage = {
         </td>
         <td>${propBadges}</td>
         <td class="text-end">${shiftCount}回</td>
-        <td class="text-end">${formatCurrency(inv.basePayment || 0)}</td>
-        <td class="text-end">${formatCurrency(inv.laundryFee || 0)}</td>
-        <td class="text-end">${formatCurrency(inv.transportationFee || 0)}</td>
         <td class="text-end fw-bold">${formatCurrency(inv.total || 0)}</td>
         <td>${statusBadge}${voidBadge}</td>
         <td>
