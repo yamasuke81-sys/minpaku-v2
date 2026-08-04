@@ -813,13 +813,38 @@ async function uploadInvoiceToDrive_(db, filePath, invoice, staff, fromEmail) {
   const yearMonth = invoice.yearMonth || "";
   const fileName = `${invoice.id}_${invoice.staffName || "unknown"}_${yearMonth}.pdf`;
   try {
-    await drive.files.create({
-      requestBody: { name: fileName, parents: [driveInvoiceFolderId] },
-      media: { mimeType: "application/pdf", body: fs.createReadStream(filePath) },
-      fields: "id",
+    // ★同名ファイルが既にあれば中身を差し替える (新規作成しない)。
+    //   従来は毎回 files.create していたため、請求書のPDFを開くたびに Drive へコピーが増えた
+    //   (2026-08-05 実測: 1件の請求書に対し同名PDFが5個並び、うち1個は古い内容のままだった)。
+    //   drive.file スコープでは「このアプリが作成/オープンしたファイル」しか検索できないので、
+    //   見つからなければ従来どおり新規作成する。
+    const escaped = fileName.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    const existing = await drive.files.list({
+      q: `name = '${escaped}' and '${driveInvoiceFolderId}' in parents and trashed = false`,
+      fields: "files(id)",
+      pageSize: 1,
       supportsAllDrives: true,
-    });
-    console.log(`Drive アップロード成功: ${fileName} → folderId=${driveInvoiceFolderId}`);
+      includeItemsFromAllDrives: true,
+    }).catch(() => null);
+    const hitId = existing?.data?.files?.[0]?.id;
+    if (hitId) {
+      // media の body は使い捨てのストリームなので、分岐ごとに作り直す
+      await drive.files.update({
+        fileId: hitId,
+        media: { mimeType: "application/pdf", body: fs.createReadStream(filePath) },
+        fields: "id",
+        supportsAllDrives: true,
+      });
+      console.log(`Drive 上書き成功: ${fileName} (fileId=${hitId})`);
+    } else {
+      await drive.files.create({
+        requestBody: { name: fileName, parents: [driveInvoiceFolderId] },
+        media: { mimeType: "application/pdf", body: fs.createReadStream(filePath) },
+        fields: "id",
+        supportsAllDrives: true,
+      });
+      console.log(`Drive アップロード成功: ${fileName} → folderId=${driveInvoiceFolderId}`);
+    }
   } catch (e) {
     throw new Error(`請求書PDFの Drive 保存に失敗 (folderId=${driveInvoiceFolderId}, 原因=${e.message})`);
   }
