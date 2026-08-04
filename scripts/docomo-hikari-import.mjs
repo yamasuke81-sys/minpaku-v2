@@ -42,6 +42,10 @@ const OPEN_LOGIN = process.argv.includes("--open-login");   // Discordボタン�
 const STATE_PATH = "C:/Users/yamas/.claude/channels/discord/docomo-hikari-state.json";
 const loadState = () => { try { return JSON.parse(readFileSync(STATE_PATH, "utf8")); } catch { return { promptedYmd: {} }; } };
 const saveState = (s) => { try { writeFileSync(STATE_PATH, JSON.stringify(s, null, 2)); } catch {} };
+// ★状態は必ず「読み直してから」書く(2026-08-04)。
+//   以前は各所が load した古いスナップショットをそのまま書き戻していたため、
+//   先に書いた通知済みフラグを後の書き戻しが消し、同じ⚠️が毎回鳴っていた。
+const updateState = (fn) => { const s = loadState(); fn(s); saveState(s); };
 const mi = process.argv.indexOf("--month");
 const nowJst = new Date(Date.now() + 9 * 3600 * 1000);
 const curYm = `${nowJst.getUTCFullYear()}-${String(nowJst.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -207,11 +211,11 @@ async function dumpDebug_(page, usageYm) {
   // 取得できた=ログインが生きている。次に切れたとき即催促できるよう催促フラグを畳む。
   // あわせて使用月ごとの実額を履歴に残す(直近2か月同額の判定材料。6か月分だけ保持)。
   if (actual != null) {
-    const st = loadState();
-    if (st.promptedYmd?.[USAGE_YM]) delete st.promptedYmd[USAGE_YM];
-    const hist = { ...(st.actualHistory || {}), [USAGE_YM]: actual };
-    st.actualHistory = Object.fromEntries(Object.entries(hist).sort().slice(-6));
-    saveState(st);
+    updateState((st) => {
+      if (st.promptedYmd?.[USAGE_YM]) delete st.promptedYmd[USAGE_YM];
+      const hist = { ...(st.actualHistory || {}), [USAGE_YM]: actual };
+      st.actualHistory = Object.fromEntries(Object.entries(hist).sort().slice(-6));
+    });
   }
 
   const amount = actual != null ? actual : fixed;
@@ -245,8 +249,7 @@ async function dumpDebug_(page, usageYm) {
         console.log("(未ログイン: 本日は催促済みのため通知しない)");
         process.exitCode = 0; return;
       }
-      st.promptedYmd = { ...(st.promptedYmd || {}), [USAGE_YM]: ymd };
-      saveState(st);
+      updateState((s) => { s.promptedYmd = { ...(s.promptedYmd || {}), [USAGE_YM]: ymd }; });
       console.log(`NOTIFY: 🔑 ドコモ光 ${USAGE_YM} の実額裏取りに **My docomo の再ログイン**が必要です(dアカウントのログインが切れています)。固定額¥${fixed.toLocaleString()}で${changed ? "暫定計上" : "維持"}済みなので急ぎではありません。下のボタンでPCにログイン画面を開けます。`);
       console.log("BUTTONS: docomo_login");
       process.exitCode = 0; return;   // 催促は正常系(非0だとルーチンがエラー通知を二重に出す)
@@ -255,19 +258,29 @@ async function dumpDebug_(page, usageYm) {
     process.exitCode = 1;
   } else if (actual !== fixed) {
     const st = loadState();
+    // 「この月・この額はもう知らせた」を月ごとに持つ。単一の warnedFor 文字列だと
+    // 別の書き込みに巻き戻された瞬間に同じ警告がぶり返す(実測: 8/1と8/3に二度鳴った)。
+    const notified = { ...(st.notifiedFor || {}) };
+    if (!st.notifiedFor && typeof st.warnedFor === "string") {   // 旧形式からの移行
+      const [ym, amt] = st.warnedFor.split(":");
+      if (ym) notified[ym] = Number(amt);
+    }
     if (st.actualHistory?.[prevOf(USAGE_YM)] === actual) {
       // 直近2か月の実額が同額 = 割引/改定による恒常変化。想定額を実績に自動追随し、以後は
       // この額と異なる月だけ警告する(毎月同じ⚠️が鳴り続けて本物の異常が埋もれるのを防ぐ)。
-      st.expectedOverride = { amount: actual, sinceYm: USAGE_YM };
-      delete st.warnedFor;
-      saveState(st);
+      updateState((s) => {
+        s.expectedOverride = { amount: actual, sinceYm: USAGE_YM };
+        delete s.warnedFor; delete s.notifiedFor;
+      });
       console.log(`NOTIFY: 📶 ドコモ光の想定額を実績¥${actual.toLocaleString()}に自動追随しました(${prevOf(USAGE_YM)}・${USAGE_YM}の2か月連続同額。旧想定¥${fixed.toLocaleString()})。以後はこの額と異なる月だけ警告します。`);
-    } else if (st.warnedFor === `${USAGE_YM}:${actual}`) {
+    } else if (notified[USAGE_YM] === actual) {
       // 毎日実行のため、同じ月×同じ額のズレは初回だけ警告する(2回目以降は無音)
       console.log(`(想定額ズレは警告済み: ${USAGE_YM} ¥${actual.toLocaleString()})`);
     } else {
-      st.warnedFor = `${USAGE_YM}:${actual}`;
-      saveState(st);
+      updateState((s) => {
+        s.notifiedFor = { ...(s.notifiedFor || {}), ...notified, [USAGE_YM]: actual };
+        delete s.warnedFor;
+      });
       console.log(`NOTIFY: ⚠️ ドコモ光 ${USAGE_YM} の実額¥${actual.toLocaleString()}が固定想定¥${fixed.toLocaleString()}と異なります(割引/料金変動の可能性)。実額で${changed ? (prev ? "更新" : "計上") : "一致(変更なし)"}しました。来月も同額なら想定額を自動追随して警告を止めます。`);
     }
   } else if (changed) {

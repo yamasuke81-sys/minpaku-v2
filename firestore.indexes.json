@@ -250,6 +250,14 @@
       ]
     },
     {
+      "collectionGroup": "parse_errors",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "errorType", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "guestRegistrations",
       "queryScope": "COLLECTION",
       "fields": [
