@@ -44,7 +44,7 @@ import { handleOtaMessage, pruneDraftPages } from "./ota-message.mjs";
 const _draftPages = new Set();
 
 // ================== 定数 ==================
-const VERSION = "0.4.0"; // 0.4.0: 印刷を白黒強制+印刷完了をボタン付きで通知(秘書経由) / 0.3.9: PDF自動印刷+両リンク記録 / 0.3.8: pdf_fetch厳格化 / 0.3.7: 失敗即時通知+audit自動リトライ
+const VERSION = "0.5.0"; // 0.5.0: 直販料金のAirbnb同期(pricing_sync。5%OFF・日別ミラー) / 0.4.0: 印刷を白黒強制+印刷完了をボタン付きで通知(秘書経由) / 0.3.9: PDF自動印刷+両リンク記録 / 0.3.8: pdf_fetch厳格化 / 0.3.7: 失敗即時通知+audit自動リトライ
 // 0.3.5: 失効検知はどのタイミングでも「はい」ワンタップ再ログイン促し(pending書込+CRD URL)を出す
 // 0.3.4: Booking ログイン判定を session_check と取得で共通化(OAuthバウンス誤検出根絶)+DL段リトライ/途中失効検知
 // 0.3.3: 「復元しますか?」バブル抑止 + ログインモードは3サイトのタブのみ (about:blank を閉じる)
@@ -54,6 +54,8 @@ const USER_DATA_DIR = path.join(os.homedir(), ".yadozei-playwright-chrome");
 const FAILURE_DIR = path.join(USER_DATA_DIR, "failures");
 // セッション失効アラートの状態ファイル (サイト別のログイン確認/失効/通知履歴を永続化)
 const SESSION_STATE_FILE = path.join(USER_DATA_DIR, "session-state.json");
+// 直販料金同期の物件別ステータス (成否が変わったときだけ通知するため。継続失敗で毎晩鳴らさない)
+const PRICING_SYNC_STATE_FILE = path.join(USER_DATA_DIR, "pricing-sync-state.json");
 // 失効中の再通知は「次の月次取得 N 日前」から、最低 H 時間間隔でのみ行う
 const EXPIRE_REMIND_BEFORE_DAYS = 3;
 const EXPIRE_REMIND_MIN_INTERVAL_H = 20;
@@ -1457,6 +1459,443 @@ async function handleCalendarAudit(job, ctx, jobId) {
   return { date: fromStr, from: fromStr, to: toStr, status, counts, errors, unassignedCount };
 }
 
+// ================== 直販料金の Airbnb 同期 (pricing_sync) ==================
+// Airbnb の各リスティング料金を取得し、5%OFF・100円切り下げで minpaku-v2 の propertyRates
+// (+ 日別 overrides) に反映する。直販サイト(setouchi-stay.com)は /public/quote 経由でこの値を
+// 読むので、サイト側の再ビルド・再デプロイは不要。
+//
+// ★Airbnb は「基本料金」だけでなく日ごとに違う料金(季節料金)を持つ。基本料金だけを写すと
+//   繁忙日に大幅な安売りになるため、日別料金を overrides に1日ずつミラーするのが本体。
+//   基本料金/週末料金は取得範囲(365日)より先の日付のフォールバックとして併せて保存する。
+const PRICING_DISCOUNT_PERCENT = 5; // 直販は常にAirbnbよりこの%以上安くする
+const PRICING_SYNC_WINDOW_DAYS = 365; // 日別料金をミラーする範囲
+const PRICING_OVERRIDE_SOURCE = "airbnb-sync"; // overrides の管理主体マーカー(手動設定と区別する)
+const PRICING_SANE_MIN = 1000; // これ未満/超は取得ミスとみなす
+const PRICING_SANE_MAX = 1_000_000;
+const PRICING_MAX_DELTA_RATIO = 0.4; // 前回のAirbnb原値からこれ以上動いたら書かずに警告(force で突破)
+const AIRBNB_BASE = "https://www.airbnb.jp";
+
+// 5%OFF して100円単位に切り下げる。端数を常に下へ倒すので「5%以上お得」が必ず成立する。
+function discountedPrice_(airbnbPrice) {
+  const n = Number(airbnbPrice);
+  if (!Number.isFinite(n)) return null;
+  return Math.floor((n * (100 - PRICING_DISCOUNT_PERCENT)) / 100 / 100) * 100;
+}
+
+function loadPricingSyncState_() {
+  try { return JSON.parse(fs.readFileSync(PRICING_SYNC_STATE_FILE, "utf8")); } catch (_) { return {}; }
+}
+function savePricingSyncState_(state) {
+  try { fs.writeFileSync(PRICING_SYNC_STATE_FILE, JSON.stringify(state, null, 2)); }
+  catch (e) { console.warn(`${LOG_PREFIX} pricing-sync-state 保存失敗: ${e.message}`); }
+}
+
+// 右パネル(リスティング編集ツールの右側)のテキストだけを取り出す。左側は宿の概要で紛らわしいため。
+async function airbnbPanelText_(page) {
+  const t = await page.evaluate(() => document.body.innerText).catch(() => "");
+  const i = t.lastIndexOf("プレビュー");
+  return i >= 0 ? t.slice(i + 5).trim() : t;
+}
+
+// 右パネルに期待する文字列が出るまで待つ(固定 sleep より速く・確実)
+async function waitAirbnbPanel_(page, re, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = "";
+  while (Date.now() < deadline) {
+    last = await airbnbPanelText_(page);
+    if (re.test(last)) return last;
+    await page.waitForTimeout(1000);
+  }
+  return last;
+}
+
+const parseYen_ = (s) => {
+  const m = String(s || "").replace(/[,\s　]/g, "").match(/(\d{3,})/);
+  return m ? parseInt(m[1], 10) : null;
+};
+
+/**
+ * Airbnb ホスト画面から1リスティングの料金を取得する。
+ * 返り値: { title, basePrice, weekendPrice, smartPricing, discounts:[{minNights,percent}], days:[{day,price}], currency }
+ * ★取得の柱は「日別料金(getDLSHostCalendar)」。基本料金/週末料金は編集パネルのテキストから読む。
+ */
+async function fetchAirbnbPricing_(page, listingId, jobId) {
+  const out = {
+    listingId, title: null, basePrice: null, weekendPrice: null,
+    smartPricing: false, discounts: [], days: [], currency: "JPY", notes: [],
+  };
+  const assertLoggedIn = (tag) => {
+    if (/\/login|signin|sign_in|authwall/i.test(page.url())) {
+      throw new Error(`Airbnb 未ログイン (${tag})`);
+    }
+  };
+
+  // --- 1) 料金設定パネル: 基本料金 / 週末料金 / スマートプライシング ---
+  await page.goto(`${AIRBNB_BASE}/hosting/listings/editor/${listingId}/details/pricing`,
+    { waitUntil: "domcontentloaded", timeout: 60_000 });
+  assertLoggedIn("料金設定ページ");
+  const pPricing = await waitAirbnbPanel_(page, /基本料金|1泊あたり|Base price|Per night/);
+  assertLoggedIn("料金設定ページ");
+  const fullText = await page.evaluate(() => document.body.innerText).catch(() => "");
+  const mTitle = fullText.match(/タイトル\s*\n(.+)/);
+  out.title = mTitle ? mTitle[1].trim() : null;
+
+  // 「基本料金 ¥45,917」型と「1泊あたり ¥34,438」型の2種類がある(リスティングにより表記が違う)
+  const mBase = pPricing.match(/(?:基本料金|1泊あたり)\s*\n\s*¥?\s*([\d,]+)/);
+  out.basePrice = mBase ? parseYen_(mBase[1]) : null;
+  // 週末も「カスタム週末料金 ¥57,396」型と「週末料金の調整 +24%」型がある
+  const mWkAbs = pPricing.match(/(?:カスタム週末料金|週末料金)\s*\n\s*¥\s*([\d,]+)/);
+  const mWkPct = pPricing.match(/週末料金の調整\s*\n\s*\+?\s*(\d+)\s*%/);
+  if (mWkAbs) out.weekendPrice = parseYen_(mWkAbs[1]);
+  else if (mWkPct && out.basePrice) out.weekendPrice = Math.round(out.basePrice * (1 + parseInt(mWkPct[1], 10) / 100));
+  out.smartPricing = await page.evaluate(() => {
+    const el = document.querySelector('[role="switch"]');
+    return el ? el.getAttribute("aria-checked") === "true" || el.checked === true : false;
+  }).catch(() => false);
+
+  // --- 2) 割引パネル: 週割(7泊以上)/月割(28泊以上) ---
+  await page.goto(`${AIRBNB_BASE}/hosting/listings/editor/${listingId}/details/discounts`,
+    { waitUntil: "domcontentloaded", timeout: 60_000 });
+  assertLoggedIn("割引ページ");
+  const pDisc = await waitAirbnbPanel_(page, /泊以上|Weekly|Monthly|割引/);
+  // 「週割 / 、 / · 7泊以上 / 22%」の並び。ラベル表記の揺れに耐えるため「N泊以上→直後の%」で拾う。
+  // このパネルには長期滞在割引しか出ない(早割・直前割はカレンダー側)ので誤検出の恐れは小さい。
+  const dre = /(\d+)\s*泊以上[\s\S]{0,80}?(\d+)\s*%/g;
+  let dm;
+  while ((dm = dre.exec(pDisc)) && out.discounts.length < 10) {
+    out.discounts.push({ minNights: parseInt(dm[1], 10), percent: parseInt(dm[2], 10) });
+  }
+
+  // --- 3) 日別料金: マルチカレンダーが叩く getDLSHostCalendar を借りて期間だけ差し替える ---
+  // ★永続クエリのハッシュ(sha256Hash)は Airbnb のデプロイで変わるので、値を埋め込まず
+  //   実ページが送ったリクエストをそのまま流用する。APIキー等のヘッダーも引き継ぐ必要がある。
+  let calReq = null;
+  const onReq = (req) => { if (!calReq && /getDLSHostCalendar/.test(req.url())) calReq = { url: req.url(), headers: req.headers() }; };
+  page.on("request", onReq);
+  try {
+    await page.goto(`${AIRBNB_BASE}/multicalendar/${listingId}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    for (let i = 0; i < 40 && !calReq; i++) await page.waitForTimeout(1000);
+  } finally {
+    page.off("request", onReq);
+  }
+  assertLoggedIn("マルチカレンダー");
+  if (!calReq) {
+    await saveScreenshot(page, jobId, `pricing_calendar_miss_${listingId}`);
+    throw new Error("Airbnb カレンダーAPIのリクエストを捕捉できなかった (UI変更の可能性)");
+  }
+  const u = new URL(calReq.url);
+  let vars;
+  try { vars = JSON.parse(u.searchParams.get("variables")); }
+  catch (e) { throw new Error(`Airbnb カレンダーAPIの variables 解析に失敗 (UI変更の可能性): ${e.message}`); }
+  const today = jstTodayStr();
+  vars.startDate = today;
+  vars.endDate = addDaysStr_(today, PRICING_SYNC_WINDOW_DAYS);
+  vars.listingId = Buffer.from(`StayListing:${listingId}`).toString("base64");
+  u.searchParams.set("variables", JSON.stringify(vars));
+  const hdrs = {};
+  for (const [k, v] of Object.entries(calReq.headers)) {
+    if (/^(x-|content-type)/i.test(k) && !/^x-forwarded/i.test(k)) hdrs[k] = v;
+  }
+  const res = await page.evaluate(async ({ url, hdrs }) => {
+    const r = await fetch(url, { credentials: "include", headers: hdrs });
+    return { status: r.status, text: await r.text() };
+  }, { url: u.toString(), hdrs });
+  if (res.status !== 200) throw new Error(`Airbnb カレンダーAPI が ${res.status} を返した`);
+  let cal;
+  try { cal = JSON.parse(res.text); }
+  catch (e) { throw new Error(`Airbnb カレンダーAPI の応答が JSON でない: ${e.message}`); }
+  if (cal?.errors?.length) {
+    throw new Error(`Airbnb カレンダーAPI エラー: ${String(cal.errors[0]?.message || "").slice(0, 160)}`);
+  }
+  const rawDays = cal?.data?.presentation?.hostCalendar?.sections?.calendarGridViewSection?.days || [];
+  for (const d of rawDays) {
+    const price = Number(d?.priceData?.price);
+    if (!d?.day || !Number.isFinite(price)) continue;
+    if (d.day < today) continue; // 過去日は同期しない
+    out.days.push({ day: d.day, price });
+    if (d.priceData.currency && d.priceData.currency !== "JPY") out.currency = d.priceData.currency;
+    if (d.priceData.listingSmartPricingEnabled) out.smartPricing = true;
+  }
+  return out;
+}
+
+/** 取得値の健全性チェック。問題があれば理由(日本語)を返す。無ければ null。 */
+function validateAirbnbPricing_(fetched, prevSync, force) {
+  if (fetched.currency !== "JPY") return `通貨が JPY でない (${fetched.currency})`;
+  if (fetched.days.length < 30) return `日別料金が ${fetched.days.length} 日分しか取れなかった (取得不完全の疑い)`;
+  const bad = fetched.days.find((d) => d.price < PRICING_SANE_MIN || d.price > PRICING_SANE_MAX);
+  if (bad) return `日別料金に異常値 (${bad.day} = ${bad.price}円)`;
+  if (fetched.basePrice != null && (fetched.basePrice < PRICING_SANE_MIN || fetched.basePrice > PRICING_SANE_MAX)) {
+    return `基本料金が異常値 (${fetched.basePrice}円)`;
+  }
+  for (const d of fetched.discounts) {
+    // percent=0 は「その割引を使っていない」状態(Airbnbは月割0%等をそのまま表示する)。
+    // 異常値ではないので弾かず、採用側(applyPricingSync_)で 0% を落とす。
+    if (!(d.minNights >= 2) || !(d.percent >= 0 && d.percent <= 60)) {
+      return `連泊割引の値が想定外 (${d.minNights}泊以上 ${d.percent}%)`;
+    }
+  }
+  // 前回のAirbnb原値からの急変を止める(取得ミス・別リスティングを掴んだ等の事故防止)
+  const prevBase = Number(prevSync?.airbnb?.basePrice);
+  const nowBase = Number(fetched.basePrice ?? fetched.days[0]?.price);
+  if (!force && Number.isFinite(prevBase) && prevBase > 0 && Number.isFinite(nowBase)) {
+    const ratio = Math.abs(nowBase - prevBase) / prevBase;
+    if (ratio > PRICING_MAX_DELTA_RATIO) {
+      return `Airbnb料金が前回から ${Math.round(ratio * 100)}% 変動 (${prevBase}→${nowBase}円)。意図した変更なら force=true で実行`;
+    }
+  }
+  return null;
+}
+
+/**
+ * 取得結果を propertyRates(+overrides) に反映する。
+ * 触るのは basePrice / weekendPrice / lengthOfStayDiscounts / source / sync と overrides のみ。
+ * seasons・planModifiers・minNights・maxNights・weekendDays・guestSurcharge は既存値を保護する
+ * (guestSurcharge の追加ゲスト料金は Airbnb 側に到達できる設定画面が無いため手動管理のまま)。
+ */
+async function applyPricingSync_(prop, fetched, opts) {
+  const { dryRun } = opts;
+  const pid = prop.id;
+  const today = jstTodayStr();
+  const ratesRef = db.collection("propertyRates").doc(pid);
+  const ratesSnap = await ratesRef.get();
+  const cur = ratesSnap.exists ? ratesSnap.data() : null;
+  const changes = [];
+
+  const newBase = discountedPrice_(fetched.basePrice ?? fetched.days[0]?.price);
+  const newWeekend = fetched.weekendPrice != null ? discountedPrice_(fetched.weekendPrice) : null;
+  const newDiscounts = fetched.discounts
+    .filter((d) => d.percent > 0)
+    .map((d) => ({ minNights: d.minNights, discountPercent: d.percent }))
+    .sort((a, b) => a.minNights - b.minNights);
+
+  if (!Number.isFinite(newBase) || newBase < PRICING_SANE_MIN) {
+    throw new Error(`基本料金を決定できなかった (Airbnb=${fetched.basePrice})`);
+  }
+
+  // --- propertyRates 本体 ---
+  const patch = {
+    basePrice: newBase,
+    lengthOfStayDiscounts: newDiscounts,
+    source: `airbnb:${fetched.listingId}`,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    sync: {
+      provider: "airbnb",
+      listingId: fetched.listingId,
+      listingTitle: fetched.title || null,
+      fetchedAt: admin.firestore.FieldValue.serverTimestamp(),
+      discountPercent: PRICING_DISCOUNT_PERCENT,
+      rounding: "floor100",
+      windowDays: PRICING_SYNC_WINDOW_DAYS,
+      smartPricing: !!fetched.smartPricing,
+      // 次回の急変ガードと監査のため、Airbnb 側の原値をそのまま残す
+      airbnb: {
+        basePrice: fetched.basePrice ?? null,
+        weekendPrice: fetched.weekendPrice ?? null,
+        discounts: fetched.discounts,
+        dayCount: fetched.days.length,
+      },
+      written: { basePrice: newBase, weekendPrice: newWeekend },
+    },
+  };
+  // ★weekendPrice に null を書いてはいけない。pricing-logic の finite 判定を Number(null)=0 が
+  //   通ってしまい「週末が¥0」になる。無いときはフィールドごと消して basePrice にフォールバックさせる。
+  patch.weekendPrice = newWeekend != null ? newWeekend : admin.firestore.FieldValue.delete();
+
+  let created = false;
+  if (!cur) {
+    created = true;
+    Object.assign(patch, {
+      currency: "JPY", weekendDays: [5, 6], seasons: [],
+      planModifiers: { standard: 0, nonrefundable: -10 },
+      minNights: 1, maxNights: 365, guestSurcharge: null,
+    });
+    if (newWeekend == null) delete patch.weekendPrice; // 新規作成時は delete センチネルを入れない
+    changes.push(`🆕 直販料金を新規作成`);
+  } else {
+    // 管理画面で手編集されたか(sync.written と現在値の食い違い)を検出して、上書きした旨を伝える
+    const wroteBefore = cur.sync?.written;
+    if (wroteBefore && Number(cur.basePrice) !== Number(wroteBefore.basePrice)) {
+      changes.push(`⚠️ 管理画面での手動変更(基本 ${cur.basePrice}円)を検出 → Airbnb同期値で上書き`);
+    }
+    if (Number(cur.basePrice) !== newBase) {
+      changes.push(`基本 ${fmtYen_(cur.basePrice)} → ${fmtYen_(newBase)}（Airbnb ${fmtYen_(fetched.basePrice)}）`);
+    }
+    const curWeekend = Number.isFinite(Number(cur.weekendPrice)) ? Number(cur.weekendPrice) : null;
+    if (curWeekend !== newWeekend) {
+      changes.push(`週末 ${curWeekend == null ? "なし" : fmtYen_(curWeekend)} → ${newWeekend == null ? "なし" : fmtYen_(newWeekend)}（Airbnb ${fetched.weekendPrice == null ? "なし" : fmtYen_(fetched.weekendPrice)}）`);
+    }
+    const curDisc = JSON.stringify((cur.lengthOfStayDiscounts || []).map((d) => [Number(d.minNights), Number(d.discountPercent)]).sort());
+    const newDisc = JSON.stringify(newDiscounts.map((d) => [d.minNights, d.discountPercent]).sort());
+    if (curDisc !== newDisc) {
+      const fmt = (l) => (l.length ? l.map((d) => `${d.minNights}泊${d.discountPercent}%`).join("・") : "なし");
+      changes.push(`連泊割 ${fmt(cur.lengthOfStayDiscounts || [])} → ${fmt(newDiscounts)}`);
+    }
+  }
+
+  // --- 日別 overrides の差分反映 ---
+  const desired = new Map();
+  for (const d of fetched.days) {
+    const p = discountedPrice_(d.price);
+    if (Number.isFinite(p) && p >= PRICING_SANE_MIN) desired.set(d.day, { price: p, airbnbPrice: d.price });
+  }
+  const ovCol = ratesRef.collection("overrides");
+  const existing = new Map();
+  const ovSnap = await ovCol.get();
+  ovSnap.forEach((d) => existing.set(d.id, d.data() || {}));
+
+  const writes = [];   // {ref, data}
+  const deletes = [];  // ref
+  let manualKept = 0;
+  for (const [day, want] of desired) {
+    const ex = existing.get(day);
+    if (ex && ex.source !== PRICING_OVERRIDE_SOURCE) { manualKept++; continue; } // 手動設定は尊重する
+    if (ex && Number(ex.price) === want.price && Number(ex.airbnbPrice) === want.airbnbPrice) continue;
+    writes.push({ ref: ovCol.doc(day), data: { price: want.price, airbnbPrice: want.airbnbPrice, source: PRICING_OVERRIDE_SOURCE, syncedAt: admin.firestore.FieldValue.serverTimestamp() } });
+  }
+  for (const [day, ex] of existing) {
+    if (ex.source !== PRICING_OVERRIDE_SOURCE) continue; // 手動設定は消さない
+    if (desired.has(day)) continue;
+    if (day >= today && day <= addDaysStr_(today, PRICING_SYNC_WINDOW_DAYS)) continue; // 窓内なのに取れなかった日は残す
+    deletes.push(ovCol.doc(day));
+  }
+
+  if (!dryRun) {
+    await ratesRef.set(patch, { merge: true });
+    // Firestore のバッチ上限は 500 件
+    const ops = [...writes.map((w) => ({ type: "set", ...w })), ...deletes.map((ref) => ({ type: "delete", ref }))];
+    for (let i = 0; i < ops.length; i += 400) {
+      const batch = db.batch();
+      for (const op of ops.slice(i, i + 400)) {
+        if (op.type === "set") batch.set(op.ref, op.data, { merge: true });
+        else batch.delete(op.ref);
+      }
+      await batch.commit();
+    }
+  }
+
+  return {
+    propertyId: pid, propertyName: prop.name, created,
+    changes, dayWrites: writes.length, dayDeletes: deletes.length,
+    manualKept, dayTotal: desired.size,
+    base: newBase, weekend: newWeekend, airbnbBase: fetched.basePrice ?? null,
+  };
+}
+
+function fmtYen_(n) {
+  const v = Number(n);
+  return Number.isFinite(v) ? v.toLocaleString("ja-JP") : String(n);
+}
+
+/** pricing_sync ジョブ本体。ロスター(properties.yadozei.airbnb.pricingSync)の物件を順に同期する。 */
+async function handlePricingSync(job, ctx, jobId) {
+  const dryRun = job.params?.dryRun === true || job.params?.dryRun === "true";
+  const force = job.params?.force === true || job.params?.force === "true";
+
+  // ロスター列挙 (yadozei.airbnb.enabled とは独立。料金同期だけ先行/後行できるようにする)
+  const propsSnap = await db.collection("properties").where("active", "==", true).get();
+  const targets = [];
+  propsSnap.forEach((d) => {
+    const p = d.data() || {};
+    const ps = p.yadozei?.airbnb?.pricingSync;
+    if (ps?.enabled !== true || !ps.listingId) return;
+    if (job.propertyId && job.propertyId !== d.id) return; // 単宿指定
+    targets.push({ id: d.id, name: p.name || d.id, listingId: String(ps.listingId) });
+  });
+  if (!targets.length) {
+    console.log(`${LOG_PREFIX} [pricing_sync] 対象物件なし (properties.yadozei.airbnb.pricingSync.enabled が true の物件が無い)`);
+    return { updated: 0, unchanged: 0, skipped: 0, errors: [], results: [], dryRun };
+  }
+
+  const state = loadPricingSyncState_();
+  const prevState = JSON.parse(JSON.stringify(state)); // 通知は「状態が変わったときだけ」出すため実行前を控える
+  const results = [];
+  const skipped = [];
+  const errors = [];
+  const page = await ctx.newPage();
+  try {
+    for (const t of targets) {
+      const prev = state[t.id] || {};
+      try {
+        console.log(`${LOG_PREFIX} [pricing_sync] ${t.name} (listing ${t.listingId}) 取得中…`);
+        const fetched = await fetchAirbnbPricing_(page, t.listingId, jobId);
+        const ratesSnap = await db.collection("propertyRates").doc(t.id).get();
+        const reason = validateAirbnbPricing_(fetched, ratesSnap.exists ? ratesSnap.data()?.sync : null, force);
+        if (reason) {
+          skipped.push({ ...t, reason });
+          console.warn(`${LOG_PREFIX} [pricing_sync] ${t.name} をスキップ: ${reason}`);
+          state[t.id] = { status: "skipped", reason, at: new Date().toISOString() };
+          continue;
+        }
+        const r = await applyPricingSync_(t, fetched, { dryRun });
+        r.smartPricing = fetched.smartPricing;
+        results.push(r);
+        state[t.id] = { status: "ok", at: new Date().toISOString(), base: r.base };
+        console.log(
+          `${LOG_PREFIX} [pricing_sync] ${t.name}: 基本 ${r.base}円 / 日別 ${r.dayWrites}件更新・${r.dayDeletes}件削除・手動${r.manualKept}件保持${dryRun ? " (dryRun)" : ""}`
+        );
+      } catch (e) {
+        const msg = String(e.message || e).slice(0, 300);
+        errors.push({ ...t, message: msg });
+        console.warn(`${LOG_PREFIX} [pricing_sync] ${t.name} 失敗: ${msg}`);
+        state[t.id] = { status: "error", reason: msg, at: new Date().toISOString() };
+        if (/未ログイン/.test(msg)) throw e; // ログイン切れは全物件で同じ → 打ち切って専用フローに任せる
+      }
+    }
+  } finally {
+    savePricingSyncState_(state);
+    try { await page.close(); } catch (_) { /* ignore */ }
+  }
+
+  // --- 通知: 変わったときだけ。継続中の失敗は状態が変わった初回だけ鳴らす ---
+  const changedResults = results.filter((r) => r.changes.length || r.dayWrites || r.dayDeletes);
+  const lines = [];
+  if (changedResults.length) {
+    lines.push(`💴 **直販サイトの料金をAirbnbに追随させました**（${PRICING_DISCOUNT_PERCENT}%OFF・100円単位で切り下げ）${dryRun ? "／これは下書きです（未反映）" : ""}`);
+    for (const r of changedResults) {
+      const detail = [...r.changes];
+      if (r.dayWrites) detail.push(`日別料金 ${r.dayWrites}日分を更新（全${r.dayTotal}日）`);
+      if (r.dayDeletes) detail.push(`古い日別料金 ${r.dayDeletes}日分を削除`);
+      if (r.manualKept) detail.push(`手動で設定済みの ${r.manualKept}日分はそのまま残しました`);
+      if (r.smartPricing) detail.push(`※Airbnb側でスマートプライシングが有効です（当日の変動には翌朝追随します）`);
+      lines.push(`### ${r.propertyName}\n` + detail.map((d) => `・${d}`).join("\n"));
+    }
+  }
+  // スキップ・失敗は「前回と理由が同じ」なら黙る。毎晩同じ警告を鳴らさないため。
+  const troubles = [
+    ...skipped.map((s) => ({ ...s, reason: s.reason })),
+    ...errors.map((e) => ({ ...e, reason: e.message })),
+  ].filter((x) => (prevState[x.id]?.reason || "") !== x.reason);
+  if (troubles.length) {
+    lines.push(`⚠️ **直販料金を更新できなかった宿があります**`);
+    lines.push(troubles.map((t) => `・${t.name}: ${t.reason}`).join("\n"));
+  }
+  // 直っときは復帰も伝える(前回が ok でなく今回 ok になった宿)
+  const recovered = results.filter((r) => prevState[r.propertyId] && prevState[r.propertyId].status !== "ok");
+  if (recovered.length) {
+    lines.push(`✅ **料金同期が復帰しました**\n` + recovered.map((r) => `・${r.propertyName}（基本 ${fmtYen_(r.base)}円）`).join("\n"));
+  }
+  if (lines.length) {
+    await notifyDiscord_(lines.join("\n\n")).catch(() => {});
+  }
+
+  const status = errors.length && errors.length === targets.length ? "failed" : "done";
+  if (status === "failed") {
+    throw new Error(`直販料金の同期が全滅: ${errors.map((e) => `${e.name}: ${e.message}`).join(" / ")}`);
+  }
+  return {
+    updated: changedResults.length,
+    unchanged: results.length - changedResults.length,
+    skipped: skipped.length,
+    errors,
+    dryRun,
+    results: results.map((r) => ({
+      propertyId: r.propertyId, propertyName: r.propertyName, base: r.base, weekend: r.weekend,
+      airbnbBase: r.airbnbBase, dayWrites: r.dayWrites, dayDeletes: r.dayDeletes, manualKept: r.manualKept, created: r.created,
+    })),
+  };
+}
+
 // ================== やどぜい操作ヘルパー (F3) ==================
 // やどぜいへ遷移しログイン状態を確認
 async function gotoYadozei(page, route, jobId, tag) {
@@ -2354,7 +2793,7 @@ async function handleSessionCheck(ctx, jobId) {
     //   月次CSV取得(毎月2日・宿泊税申告と売上取込の源泉)と OTA下書きは失敗したまま放置され、
     //   誰も再投入しなかった。復帰したこの瞬間に retry として作り直す。
     try {
-      const retryKinds = ["booking_csv_fetch", "airbnb_csv_fetch", "ota_message"];
+      const retryKinds = ["booking_csv_fetch", "airbnb_csv_fetch", "ota_message", "pricing_sync"];
       const since = Date.now() - 7 * 24 * 3600 * 1000; // 7日以内の失敗だけ(古い失敗は蒸し返さない)
       const failed = await db.collection("yadozeiQueue").where("status", "==", "failed").limit(50).get();
       let requeued = 0;
@@ -2508,6 +2947,8 @@ async function handleJob(docId, job) {
       result = await handleSessionCheck(ctx, docId);
     } else if (job.kind === "calendar_audit") {
       result = await handleCalendarAudit(job, ctx, docId);
+    } else if (job.kind === "pricing_sync") {
+      result = await handlePricingSync(job, ctx, docId);
     } else if (job.kind === "ota_message") {
       // OTAメッセージの【下書き作成】（名簿確認メッセージ）。隔離モジュールに委譲。ctx/ログイン資産を再利用。
       // 送信はしない（2026-07-31 仕様変更）。通知はボタン付きにしたいので秘書bot経由の依頼関数を渡す。
@@ -2527,6 +2968,7 @@ async function handleJob(docId, job) {
     const isSessionCheck = job.kind === "session_check";
     const isCalendarAudit = job.kind === "calendar_audit";
     const isOtaMessage = job.kind === "ota_message";
+    const isPricingSync = job.kind === "pricing_sync";
 
     // queue ドキュメントの result を kind 別に整形
     const queueResult =
@@ -2534,6 +2976,8 @@ async function handleJob(docId, job) {
         ? { sessions: result.sessions, loggedOut: result.loggedOut }
         : isCalendarAudit
           ? { date: result.date, status: result.status, counts: result.counts, errors: result.errors, unassignedCount: result.unassignedCount }
+        : isPricingSync
+          ? { updated: result.updated, unchanged: result.unchanged, skipped: result.skipped, errors: result.errors, dryRun: result.dryRun, results: result.results }
           : isOtaMessage
             ? { drafted: result.drafted, ota: result.ota, threadUrl: result.threadUrl || null, composerHasText: result.composerHasText ?? null, dryRun: !!result.dryRun }
             : isFetch || isPdf
@@ -2627,9 +3071,12 @@ async function handleJob(docId, job) {
         const permanent = /必須項目|ステップ1で止まりました|UI ?変更|UI変更の可能性|未対応の ota|未指定|見つからない/.test(errMsg);
         const transient = !permanent && /Timeout|timeout|ECONN|ETIMEDOUT|net::|socket hang up|context has been closed|Target closed|Navigation/.test(errMsg);
         const autoRetries = (curSnap && curSnap.exists ? curSnap.data().autoRetries : 0) || 0;
-        const willRetry = (transient && autoRetries < 2) || job.kind === "calendar_audit";
+        // calendar_audit と pricing_sync は「当日中の毎時リトライ」を enqueue 側が持つので、
+        // ここでの即時再投入はせず(二重投入になる)、通知の文言だけリトライ前提にする。
+        const dailyRetryKind = job.kind === "calendar_audit" || job.kind === "pricing_sync";
+        const willRetry = (transient && autoRetries < 2) || dailyRetryKind;
 
-        if (transient && autoRetries < 2 && job.kind !== "calendar_audit") {
+        if (transient && autoRetries < 2 && !dailyRetryKind) {
           // 同じ内容のジョブを新しい docId で再投入する(元ジョブは failed のまま履歴に残す)
           await db.collection("yadozeiQueue").add({
             kind: job.kind, propertyId: job.propertyId || null, propertyName: job.propertyName || null,
@@ -2650,7 +3097,7 @@ async function handleJob(docId, job) {
         if (willRetry) {
           await notifyDiscord_(
             head +
-              (job.kind === "calendar_audit"
+              (dailyRetryKind
                 ? `→ 当日中に自動リトライします(毎時・最大3回)。続報がなければ復旧済みです。`
                 : `→ 一過性エラーとみなして自動リトライします(${autoRetries + 1}/2)。続報がなければ復旧済みです。`)
           );
@@ -2852,6 +3299,51 @@ if (LOGIN_MODE) {
   }
   setTimeout(enqueueCalendarAudit, 40_000); // 起動40秒後に初回トライ (2:30前なら無視される)
   setInterval(enqueueCalendarAudit, 60 * 60 * 1000); // 毎時トライ(日付IDで冪等 → 実質1日1回)
+
+  // 直販料金のAirbnb同期を毎日1回 enqueue。docId=日付で冪等。
+  // JST 3:00 以降に投入する (2:30 の calendar_audit を先に通す。ジョブは直列ドレインなので衝突はしない)。
+  // Airbnb が失効中なら投入しない → 復帰時に handleSessionCheck の再投入(retryKinds)が拾う。
+  async function enqueuePricingSync() {
+    try {
+      const j = new Date(Date.now() + 9 * 3600 * 1000); // JST
+      if (j.getUTCHours() * 60 + j.getUTCMinutes() < 180) return; // 3:00 前は投入しない
+      if (loadSessionState_()["Airbnb"]?.expiredSince) {
+        console.log(`${LOG_PREFIX} pricing_sync は Airbnb 失効のため保留 → 復帰時の再投入に任せる`);
+        return;
+      }
+      const ymd = `${j.getUTCFullYear()}${String(j.getUTCMonth() + 1).padStart(2, "0")}${String(j.getUTCDate()).padStart(2, "0")}`;
+      await db.collection("yadozeiQueue").doc(`pricing_sync_${ymd}`).create({
+        kind: "pricing_sync", status: "pending",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(), source: "listener_daily",
+      });
+      console.log(`${LOG_PREFIX} pricing_sync enqueued: pricing_sync_${ymd}`);
+    } catch (e) {
+      if (!/already exists/i.test(e.message)) console.warn(`${LOG_PREFIX} pricing_sync enqueue: ${e.message}`);
+    }
+
+    // 当日リトライ (calendar_audit と同型)。当日分が failed のままなら毎時ティックで再投入(最大3回)。
+    try {
+      const j2 = new Date(Date.now() + 9 * 3600 * 1000);
+      if (j2.getUTCHours() * 60 + j2.getUTCMinutes() < 210) return; // 3:30 前は本走行に任せる
+      if (loadSessionState_()["Airbnb"]?.expiredSince) return;
+      const ymd2 = `${j2.getUTCFullYear()}${String(j2.getUTCMonth() + 1).padStart(2, "0")}${String(j2.getUTCDate()).padStart(2, "0")}`;
+      const dailyRef = db.collection("yadozeiQueue").doc(`pricing_sync_${ymd2}`);
+      const dailySnap = await dailyRef.get();
+      if (!dailySnap.exists || dailySnap.data().status !== "failed") return;
+      const tried = dailySnap.data().autoRetries || 0;
+      if (tried >= 3) return;
+      await dailyRef.update({ autoRetries: tried + 1 });
+      await db.collection("yadozeiQueue").doc(`pricing_sync_retry_${ymd2}_${tried + 1}`).create({
+        kind: "pricing_sync", status: "pending",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(), source: "listener_auto_retry",
+      });
+      console.log(`${LOG_PREFIX} pricing_sync 自動リトライ投入 (${tried + 1}/3)`);
+    } catch (e) {
+      if (!/already exists/i.test(e.message)) console.warn(`${LOG_PREFIX} pricing_sync retry: ${e.message}`);
+    }
+  }
+  setTimeout(enqueuePricingSync, 70_000); // 起動70秒後に初回トライ (3:00前なら無視される)
+  setInterval(enqueuePricingSync, 60 * 60 * 1000); // 毎時トライ(日付IDで冪等 → 実質1日1回)
 
   // 失効検知中のまま再起動された場合 (=再ログイン直後の可能性が高い) は、次の点検バケットを
   // 待たずユニークIDで即チェックを投入し、「✅ 再ログイン確認」を早く返す。

@@ -9,6 +9,7 @@
  *        例: enqueue airbnb_csv_fetch <pid> 2026-05 listingId=12345678
  *            enqueue booking_csv_fetch <pid> 2026-05 bookingPropertyId=14868587
  *            enqueue yadozei_pdf_fetch <pid> 2026-05
+ *   node yadozei-admin.mjs requeue <docId>              失敗ジョブを同じ内容で再投入(Discordの再実行ボタンの実体)
  *   node yadozei-admin.mjs prop <pid>                   物件の yadozei 設定を表示
  *   node yadozei-admin.mjs clean-pending               pending/processing の滞留ジョブを failed 化
  */
@@ -110,6 +111,94 @@ async function main() {
     return;
   }
 
+  if (cmd === "pricing-sync") {
+    // pricing-sync [pid|all] [dryRun=true] [force=true]
+    //   直販サイトの料金を Airbnb に追随させるジョブを即時投入する(通常は毎晩3:00に自動実行)。
+    //   dryRun=true は計算とプレビュー通知だけで Firestore を書き換えない。
+    //   force=true は「前回から±40%超の変動」ガードを突破する(意図した大幅改定のとき)。
+    const [pidArg, ...kvs] = args;
+    const params = {};
+    for (const kv of kvs) {
+      const i = kv.indexOf("=");
+      if (i > 0) params[kv.slice(0, i)] = kv.slice(i + 1) === "false" ? false : kv.slice(i + 1) === "true" ? true : kv.slice(i + 1);
+    }
+    const pid = pidArg && pidArg !== "all" ? pidArg : null;
+    let propName = null;
+    if (pid) {
+      const p = await db.collection("properties").doc(pid).get();
+      if (!p.exists) { console.log("物件が見つかりません"); process.exitCode = 1; return; }
+      propName = p.data().name || pid;
+    }
+    const ref = await db.collection("yadozeiQueue").add({
+      kind: "pricing_sync", propertyId: pid, propertyName: propName,
+      yearMonth: null, params, status: "pending", result: null, createdBy: "admin-tool",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      startedAt: null, completedAt: null, error: null, retries: 0,
+    });
+    console.log(`投入: ${ref.id} kind=pricing_sync 対象=${propName || "全宿"} params=${JSON.stringify(params)}`);
+    return;
+  }
+
+  if (cmd === "pricing-roster") {
+    // pricing-roster                          現在のロスター(料金同期の対象)を一覧
+    // pricing-roster <pid> <listingId> [on|off]   対象を登録/更新する
+    const [pid, listingId, onoff] = args;
+    if (!pid) {
+      const snap = await db.collection("properties").where("active", "==", true).get();
+      console.log("直販料金 Airbnb同期のロスター:");
+      snap.forEach((doc) => {
+        const p = doc.data() || {};
+        const ps = p.yadozei?.airbnb?.pricingSync;
+        if (!ps) return;
+        console.log(`  [${ps.enabled ? "ON " : "off"}] ${p.name} (${doc.id}) listing=${ps.listingId || "-"}`);
+      });
+      return;
+    }
+    if (!listingId) { console.log("usage: pricing-roster <pid> <listingId> [on|off]"); process.exitCode = 1; return; }
+    const enabled = onoff !== "off";
+    await db.collection("properties").doc(pid).set(
+      { yadozei: { airbnb: { pricingSync: { enabled, listingId: String(listingId) } } } },
+      { merge: true }
+    );
+    const p = await db.collection("properties").doc(pid).get();
+    console.log(`設定: ${p.data()?.name || pid} → listing=${listingId} enabled=${enabled}`);
+    return;
+  }
+
+  if (cmd === "rates") {
+    // rates <pid> [n]  — 直販料金マスタと日別上書きの先頭n件を表示(同期結果の検算用)
+    const [pid, nArg] = args;
+    const d = await db.collection("propertyRates").doc(pid).get();
+    if (!d.exists) { console.log("propertyRates が存在しません"); return; }
+    console.log(JSON.stringify(d.data(), null, 2));
+    const n = parseInt(nArg || "10", 10);
+    const ov = await db.collection("propertyRates").doc(pid).collection("overrides").orderBy(admin.firestore.FieldPath.documentId()).limit(n).get();
+    console.log(`\n日別上書き (先頭${ov.size}件 / 全${(await db.collection("propertyRates").doc(pid).collection("overrides").count().get()).data().count}件):`);
+    ov.forEach((o) => console.log(`  ${o.id}: ${JSON.stringify(o.data())}`));
+    return;
+  }
+
+  if (cmd === "requeue") {
+    // requeue <docId> — 失敗ジョブを同じ内容でもう一度投入する。
+    // Discord の「🔁 もう一度やる」ボタン(常駐bunが叩く)の実体。出先からワンタップで再実行できるようにするため。
+    const src = await db.collection("yadozeiQueue").doc(args[0]).get();
+    if (!src.exists) {
+      console.log("ジョブが見つかりません");
+      process.exitCode = 1;
+      return;
+    }
+    const j = src.data();
+    const ref = await db.collection("yadozeiQueue").add({
+      kind: j.kind, propertyId: j.propertyId || null, propertyName: j.propertyName || null,
+      yearMonth: j.yearMonth || null, params: j.params || {},
+      status: "pending", result: null, createdBy: "discord-retry", retriedFrom: args[0],
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      startedAt: null, completedAt: null, error: null, retries: 0,
+    });
+    console.log(`再投入: ${ref.id} kind=${j.kind} property=${j.propertyName || "-"} ym=${j.yearMonth || "-"}`);
+    return;
+  }
+
   if (cmd === "clean-pending") {
     const snap = await db.collection("yadozeiQueue").where("status", "in", ["pending", "processing"]).get();
     const batch = db.batch();
@@ -150,7 +239,7 @@ async function main() {
     return;
   }
 
-  console.log("unknown cmd. state|jobs|job|prop|enqueue|clean-pending|catfile");
+  console.log("unknown cmd. state|jobs|job|prop|enqueue|requeue|clean-pending|catfile");
 }
 
 main().then(() => process.exit(0)).catch((e) => { console.error("ERROR:", e.message); process.exit(1); });
