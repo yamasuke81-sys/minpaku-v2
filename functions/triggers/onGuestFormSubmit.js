@@ -415,6 +415,30 @@ module.exports = async function onGuestFormSubmit(event) {
   }
   console.log(`[roster_received] sent=${JSON.stringify(notifyResult?.sent || {})} errors=${(notifyResult?.errors || []).length}`);
 
+  // === 3.6 名簿受信の追加メール宛先 (物件別・任意メールへ直送。アプリ権限は付与しない) ===
+  // properties/{pid}.rosterExtraEmails = ["foo@example.com", ...] に入れた宛先へ
+  // roster_received と同じ本文を直接メールする。他物件・他通知には一切波及しない。
+  try {
+    const pSnap = await db.collection("properties").doc(data.propertyId).get();
+    const raw = pSnap.exists && Array.isArray(pSnap.data().rosterExtraEmails)
+      ? pSnap.data().rosterExtraEmails : [];
+    const extraEmails = raw
+      .map((e) => String(e || "").trim())
+      .filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+    if (extraEmails.length) {
+      const subject = `名簿受信: ${guestName}`;
+      const bodyText = lineText + guestPageBlock;
+      let ok = 0;
+      for (const to of extraEmails) {
+        try {
+          await sendNotificationEmail_(to, subject, bodyText, senderEmail || null, { preferFromHeader: true });
+          ok++;
+        } catch (e) { console.warn(`[roster_extra_email] 送信失敗 ${to}:`, e.message); }
+      }
+      console.log(`[roster_extra_email] sent=${ok}/${extraEmails.length}`);
+    }
+  } catch (e) { console.warn("[roster_extra_email] 失敗:", e.message); }
+
   // === 3.5 有料駐車場 利用通知 (1台/2台のとき。石井様へ転送用) ===
   try {
     const ppResult = await notifyPaidParking(db, data, data.propertyId);
