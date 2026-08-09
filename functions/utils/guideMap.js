@@ -10,6 +10,8 @@ const GUIDE_MAP = {
   "RZV9IwtQgMAsvrdM3j8J": { slug: "yado-komachi-hiroshima" },
   // UJINA Pocket House
   "ncUKeD4yQo0kfAoznITu": { slug: "ujina-pocket-house" },
+  // Pocket House WAKA-KUSA
+  "ZXW6wdpnBFk1azQ87KXQ": { slug: "pocket-house-waka-kusa" },
 };
 
 // 独自ドメイン設定後は app.<domain> 配下、未設定時は relay 配下のガイドを指す

@@ -10,6 +10,8 @@
     "RZV9IwtQgMAsvrdM3j8J": { slug: "yado-komachi-hiroshima" },
     // UJINA Pocket House
     "ncUKeD4yQo0kfAoznITu": { slug: "ujina-pocket-house" },
+    // Pocket House WAKA-KUSA
+    "ZXW6wdpnBFk1azQ87KXQ": { slug: "pocket-house-waka-kusa" },
   };
 
   // 独自ドメイン (window.V2_CUSTOM_DOMAIN、firebase-config.js で定義) 設定後は
