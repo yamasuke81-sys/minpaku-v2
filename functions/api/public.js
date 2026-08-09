@@ -50,6 +50,8 @@ router.get("/guest-form-config/:propertyId", async (req, res) => {
     res.json({
       propertyId: pid,
       name: d.name || "",
+      // 物件定員（正の数のときのみ返す。未設定なら省略→フォームは上限20にフォールバック）
+      capacity: Number(d.capacity) > 0 ? Number(d.capacity) : undefined,
       miniGameEnabled: d.miniGameEnabled !== false,       // デフォルト true
       showNoiseAgreement: d.showNoiseAgreement !== false, // デフォルト true
       customFormEnabled: d.customFormEnabled === true,    // デフォルト false
