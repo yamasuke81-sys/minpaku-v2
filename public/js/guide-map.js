@@ -8,6 +8,8 @@
     "tsZybhDMcPrxqgcRy7wp": { slug: "the-terrace-nagahama" },
     // YADO KOMACHI Hiroshima
     "RZV9IwtQgMAsvrdM3j8J": { slug: "yado-komachi-hiroshima" },
+    // UJINA Pocket House
+    "ncUKeD4yQo0kfAoznITu": { slug: "ujina-pocket-house" },
   };
 
   // 独自ドメイン (window.V2_CUSTOM_DOMAIN、firebase-config.js で定義) 設定後は
