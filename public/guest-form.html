@@ -1607,7 +1607,7 @@
         html += `<div class="guest-block"><div class="guest-block-title">${title}</div><div class="row g-2">
           <div class="col-md-6"><label class="form-label small">${t.g_name} <span class="required-mark">*</span></label><input type="text" class="form-control form-control-sm g-name" required value="${esc(s.name || "")}"></div>
           <div class="col-md-6"><label class="form-label small">${t.g_nationality} <span class="required-mark">*</span></label><input type="text" class="form-control form-control-sm g-nationality" required value="${esc(natVal)}"></div>
-          <div class="col-12 mt-1"><label class="form-label small">${t.g_address}${isRep ? ' <span class="required-mark">*</span>' : ''}</label><input type="text" class="form-control form-control-sm g-address" ${isRep ? 'required' : ''} value="${esc(s.address || "")}"></div>
+          <div class="col-12 mt-1"><label class="form-label small">${t.g_address} <span class="required-mark">*</span></label><input type="text" class="form-control form-control-sm g-address" required value="${esc(s.address || "")}"></div>
           <div class="col-md-3 mt-1"><label class="form-label small">${t.g_age} <span class="required-mark">*</span></label><input type="number" class="form-control form-control-sm g-age" min="0" max="120" required value="${esc(s.age || "")}"></div>`;
         if (isRep) {
           html += `<div class="col-md-5 mt-1"><label class="form-label small">${t.g_phone} <span class="required-mark">*</span></label><input type="tel" class="form-control form-control-sm g-phone" required value="${esc(s.phone || "")}"></div>
