@@ -8,10 +8,17 @@
 //      一致=無音(件数が多いため) / 不一致=🚨通知(予約エクスポート欠落・金額相違・他物件入金の可能性)。
 //      口座と物件の対応が違う期間があるため、割当物件で不一致なら他物件でも照合してから通知。
 //      CSV未着(月次取得前)の場合は保留し翌日以降に再試行(stateに載せない)。
+//      【2026-08-10修正】まず apply:false の下見で missingCsvMonths を確認し、対象CI窓のCSVが
+//      揃っている(=空)場合のみ一致(exact/residual問わず)を採用する。揃っていなければ副物件も
+//      照合せず保留に徹する(不完全データでのクロス物件フォールバック誤解釈を根絶。詳細は下の
+//      Airbnbループ直前のコメント参照)。
 //
-//   使い方: node scripts/mf-booking-monitor.mjs [--month 2026-07] [--replay]
-//     --month:  走査する MF家計簿月を1ヶ月だけ指定。省略時は前月+当月。
-//     --replay: 処理済みでも再突合(検算やり直し用)。
+//   使い方: node scripts/mf-booking-monitor.mjs [--month 2026-07] [--replay] [--dry] [--reverify 2026-07]
+//     --month:    走査する MF家計簿月を1ヶ月だけ指定。省略時は前月+当月。
+//     --replay:   処理済みでも再突合(検算やり直し用)。
+//     --dry:      Airbnb突合をapply:falseで行い、state保存もしない(検証用。Firestore書込・state書込なし)。
+//     --reverify 2026-07: MF走査(Playwright)を行わず、指定月をCI窓に含む既存stateエントリだけを
+//                 dryで再検証する。ラベルが変わる場合のみ state を書き換え(Firestoreへのapplyはしない)。
 //
 //   state=~/.claude/channels/discord/mf-booking-monitor-state.json (MF取引IDで冪等)
 //   実証: Booking=2025-11〜2026-07 の全9入金一致 / Airbnb=3月ペイオニア9件合計¥631,664=帳簿3月売上と一致
@@ -33,10 +40,22 @@ const HIT = /ブッキング|BOOKING|Booking|ﾌﾞﾂｷﾝｸﾞ|ﾌﾞｯｷ�
 const PAYONEER = /ペイオニア|ﾍﾟｲｵﾆｱ|PAYONEER/i;
 
 const REPLAY = process.argv.includes("--replay");
+const DRY = process.argv.includes("--dry"); // Airbnb突合をapply:falseに固定+state保存なし(検証用)
 const mi = process.argv.indexOf("--month");
+const ri = process.argv.indexOf("--reverify");
+const REVERIFY_YM = ri >= 0 ? process.argv[ri + 1] : null;
+if (REVERIFY_YM && !/^\d{4}-\d{2}$/.test(REVERIFY_YM)) { console.error("--reverify は YYYY-MM"); process.exit(2); }
 const nowJst = new Date(Date.now() + 9 * 3600 * 1000);
 const curYm = `${nowJst.getUTCFullYear()}-${String(nowJst.getUTCMonth() + 1).padStart(2, "0")}`;
 const prevOf = (ym) => { const [y, m] = ym.split("-").map(Number); return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`; };
+// verify-airbnb-payout が照会する2ヶ月窓([入金月, 入金月の前月])。サーバ側(functions/api/pnl.js)と同じ規則
+const airbnbWindowMonths = (dateStr) => {
+  const m = String(dateStr || "").match(/^(\d{4})-(\d{2})/);
+  if (!m) return [];
+  const y = Number(m[1]), mo = Number(m[2]);
+  const t = new Date(Date.UTC(y, mo - 2, 1));
+  return [`${y}-${String(mo).padStart(2, "0")}`, `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}`];
+};
 let SCAN;
 if (mi >= 0) {
   const m = process.argv[mi + 1];
@@ -97,6 +116,50 @@ function parseCsv(text) {
 function loadState() { try { return JSON.parse(readFileSync(STATE, "utf8")); } catch { return { processed: {} }; } }
 function saveState(s) { try { writeFileSync(STATE, JSON.stringify({ ...s, at: new Date().toISOString() }, null, 2)); } catch {} }
 
+// --reverify YYYY-MM: MF走査(Playwright)を行わず、指定月をCI窓に含む既存stateエントリだけを
+// dry(apply:false)で再検証する。TERRACE/KOMACHI 両方を独立に照合し「CSVが揃っている場合のみ」
+// 結果を採用する点はメインループと同じ。Firestoreへのapplyは一切行わない(金額が動く訂正候補が
+// 見つかった場合はNOTIFYで警告するだけに留め、実際の反映は通常運用のapply経路 or 手動対応に委ねる
+// =過去に遡って金額が動く訂正を無人で自動確定させない設計)。
+async function reverifyMonth(ym) {
+  console.log(`MF OTA入金監視: --reverify ${ym} (既存stateの再検証、Firestore書込なし)`);
+  const state = loadState();
+  const secret = readFileSync("C:/Users/yamas/.claude/channels/discord/v2-gas-secret.txt", "utf8").trim();
+  const H = { "authorization": `Bearer gas-${secret}`, "content-type": "application/json" };
+  const verify = async (pid, amount, date) => {
+    const r = await fetch(`${API}/pnl/${pid}/verify-airbnb-payout`, { method: "POST", headers: H, body: JSON.stringify({ amount, date, apply: false }) });
+    return { status: r.status, j: await r.json().catch(() => ({})) };
+  };
+  let checked = 0, changed = 0;
+  for (const [mfId, ent] of Object.entries(state.processed)) {
+    if (ent.kind !== "airbnb" || !airbnbWindowMonths(ent.date).includes(ym)) continue;
+    checked++;
+    const r = { [TERRACE]: await verify(TERRACE, ent.amount, ent.date), [KOMACHI]: await verify(KOMACHI, ent.amount, ent.date) };
+    const ok = [TERRACE, KOMACHI].filter((pid) => r[pid].status === 200 && (r[pid].j.missingCsvMonths || []).length === 0 && r[pid].j.match);
+    if (ok.length > 1) { console.log(`NOTIFY: ⚠️ 再検証 ${ent.date} ¥${ent.amount.toLocaleString()}(mfId=${mfId}) が Terrace/小町 の両方に一致しました。手動確認してください。`); continue; }
+    const newMatch = ok[0] || null;
+    if (!newMatch) {
+      const stillMissing = [TERRACE, KOMACHI].some((pid) => (r[pid].j?.missingCsvMonths || []).length > 0);
+      console.log(`  ${ent.date} ¥${ent.amount.toLocaleString()}(mfId=${mfId}): ${stillMissing ? "まだCSV未着の物件がありのため再検証できません" : "変化なし(一致なし)"}`);
+      continue;
+    }
+    const j = r[newMatch].j;
+    const newCancelled = !!j.cancelledFeeInvolved;
+    if (ent.matched === newMatch && !!ent.cancelledFeeInvolved === newCancelled) { console.log(`  ${ent.date} ¥${ent.amount.toLocaleString()}(mfId=${mfId}): 変化なし(既存ラベルのまま)`); continue; }
+    const propName = newMatch === TERRACE ? "the Terrace" : "宿小町";
+    if (j.interpretation?.delta) {
+      console.log(`NOTIFY: ⚠️ 再検証 ${ent.date} ¥${ent.amount.toLocaleString()}(mfId=${mfId}) の一致先が ${propName}(${j.mode}) に変わり、キャンセル料調整候補(¥${j.interpretation.delta.toLocaleString()})があります。state未書換・Firestore反映は手動で確認してください。`);
+      continue; // 金額が動く訂正は無人で自動確定させない
+    }
+    state.processed[mfId] = { ...ent, matched: newMatch, cancelledFeeInvolved: newCancelled, autoAdjust: "no_adjustment_needed", reverifiedAt: new Date().toISOString(), reverifiedFrom: { matched: ent.matched || null, cancelledFeeInvolved: !!ent.cancelledFeeInvolved } };
+    changed++;
+    console.log(`NOTIFY: 🔧 再検証 ${ent.date} ¥${ent.amount.toLocaleString()}(mfId=${mfId}) のラベルを訂正: ${ent.matched || "null"}→${newMatch}(${propName}/${j.mode})`);
+  }
+  if (changed) saveState(state);
+  console.log(`--reverify ${ym} 完了: 対象${checked}件 / 訂正${changed}件`);
+  process.exitCode = 0;
+}
+
 async function fetchAccountRows(page, hash, ym) {
   const [Y, M] = ym.split("-").map(Number);
   const url = `https://moneyforward.com/cf/csv?account_id_hash=${hash}&from=${Y}%2F${String(M).padStart(2, "0")}%2F01&month=${M}&service_id=${RAKUTEN3_SERVICE}&year=${Y}`;
@@ -119,7 +182,8 @@ async function fetchAccountRows(page, hash, ym) {
 }
 
 (async () => {
-  console.log(`MF OTA入金監視(Booking+Airbnb): 走査月=${SCAN.join(", ")}${REPLAY ? " [replay]" : ""}`);
+  if (REVERIFY_YM) { await reverifyMonth(REVERIFY_YM); return; }
+  console.log(`MF OTA入金監視(Booking+Airbnb): 走査月=${SCAN.join(", ")}${REPLAY ? " [replay]" : ""}${DRY ? " [dry]" : ""}`);
   const browser = await connectCdp();
   const ctx = browser.contexts()[0];
   const page = await ctx.newPage();
@@ -177,28 +241,50 @@ async function fetchAccountRows(page, hash, ym) {
   // ---- B) Airbnb(ペイオニア) ----
   // apply:true = キャンセル料入金・返金調整の一意解釈が得られたら、該当CI月の売上へ自動調整まで行う
   // (全自動運用・2026-07-20やますけ決定。手修正保護月/解釈が割れる場合はAPI側が適用せず reason を返す)
-  const verifyAirbnb = async (pid, d) => {
-    const r = await fetch(`${API}/pnl/${pid}/verify-airbnb-payout`, { method: "POST", headers: H, body: JSON.stringify({ amount: d.amount, date: d.date, apply: true, mfId: d.mfId }) });
+  //
+  // 【2026-08-10修正】まず apply:false の下見(dry)で missingCsvMonths と match を確認し、
+  // 「対象物件のCI窓CSVが揃っている(missingCsvMonths=[])」場合のみ一致(exact/residual問わず)を採用、
+  // 揃っていなければ副物件も照合せず保留(state未登録=翌日再試行)に徹する。
+  // 理由: API側はCSVが不完全でも残っている隣接月データだけで機械的に一致を見つけてしまうことがあり
+  // (match:true と missingCsvMonths非空が両立し得る)、これをそのまま信用すると「CSV未着の主物件→
+  // 副物件の残骸データでのクロス物件フォールバック解釈」を誤ってmatch扱いしてしまう。
+  // 実例(2026-07-20): 宿小町7月CSV未着のreplayで、テラス6月CSVのキャンセル行を使ったresidual解釈が
+  // 誤ってmatch扱いになりstateに焼き付いた(mfId=do8dGsrgqRFo4i3g6bZtO30adPTRyfeVaUaKw1QfRQA 他2件)。
+  // 当該月が手修正保護中で帳簿実害はゼロだったが、保護されていない月なら誤adjustmentがFirestoreへ
+  // 自動適用され得た(state.processedへの誤ラベル書込だけの問題ではない)。
+  const verifyAirbnb = async (pid, d, apply) => {
+    const r = await fetch(`${API}/pnl/${pid}/verify-airbnb-payout`, { method: "POST", headers: H, body: JSON.stringify({ amount: d.amount, date: d.date, apply: !!apply, mfId: d.mfId }) });
     return { status: r.status, j: await r.json().catch(() => ({})) };
   };
   for (const d of freshAb) {
     console.log(`\n▼ Airbnb入金 ${d.date} ¥${d.amount.toLocaleString()} (${d.acct})`);
-    const p1 = await verifyAirbnb(d.primary, d);
+    // 1) 主口座をdry(apply:false)で下見
+    const p1 = await verifyAirbnb(d.primary, d, false);
     if (p1.status !== 200) { hadError = true; console.log("error:", p1.j.error || p1.status); continue; }
-    let matched = p1.j.match ? d.primary : null;
-    let matchedJson = matched ? p1.j : null;
-    let missing = p1.j.missingCsvMonths || [];
-    let p2j = null;
-    if (!matched) {
-      const p2 = await verifyAirbnb(d.secondary, d);
-      p2j = p2.status === 200 ? p2.j : null;
-      if (p2j?.match) { matched = d.secondary; matchedJson = p2j; }
-      missing = [...new Set([...missing, ...(p2j?.missingCsvMonths || [])])];
+    const p1Missing = p1.j.missingCsvMonths || [];
+    let matchProp = (p1Missing.length === 0 && p1.j.match) ? d.primary : null;
+    let missing = [...p1Missing];
+    let p2 = null;
+    if (!matchProp && p1Missing.length === 0) {
+      // 主口座のCSVは揃っているのに不一致 → 副物件(口座と物件の対応が逆の期間)をdryで照合。
+      // 副物件側もCSVが揃っている場合のみ一致を採用する(主口座のCSVが未着なら副物件は照合しない)。
+      p2 = await verifyAirbnb(d.secondary, d, false);
+      const p2Missing = p2.status === 200 ? (p2.j.missingCsvMonths || []) : [];
+      missing = [...new Set([...missing, ...p2Missing])];
+      if (p2.status === 200 && p2Missing.length === 0 && p2.j.match) matchProp = d.secondary;
+    }
+    // 2) CSV完備での一致が確認できた物件だけに対して確定照合(apply:true。--dry指定時はapply:false)
+    let matched = null, matchedJson = null;
+    if (matchProp) {
+      const confirm = await verifyAirbnb(matchProp, d, !DRY);
+      if (confirm.status !== 200) { hadError = true; console.log("error:", confirm.j.error || confirm.status); continue; }
+      matched = matchProp; matchedJson = confirm.j;
     }
     if (matched) {
       const propName = matched === TERRACE ? "the Terrace" : "宿小町";
       const aa = matchedJson.autoAdjust || {};
       console.log(`  ✅ 一致(${propName}/${matchedJson.mode})${matched !== d.primary ? " ※口座と物件の対応が通常と逆" : ""}`);
+      if (DRY) console.log(`  [dry] delta=${matchedJson.interpretation?.delta ?? 0} ciYm=${matchedJson.interpretation?.ciYm ?? "-"} (applyしていません)`);
       if (aa.applied) {
         const sign = aa.delta >= 0 ? "+" : "";
         console.log(`NOTIFY: ✅💴 Airbnb入金 ¥${d.amount.toLocaleString()}(${d.date}、${propName}) にキャンセル料入金が含まれていたため、**${aa.ciYm} の売上を ${sign}¥${aa.delta.toLocaleString()} 自動調整**しました(キャンセル料 ¥${(aa.feeSum || 0).toLocaleString()} − 返金調整 ¥${(aa.clawback || 0).toLocaleString()})。調整後Airbnb売上=¥${(aa.newGross || 0).toLocaleString()}。出典・取消は収支画面から。`);
@@ -209,8 +295,8 @@ async function fetchAccountRows(page, hash, ym) {
       }
       state.processed[d.mfId] = { kind: "airbnb", date: d.date, amount: d.amount, matched, cancelledFeeInvolved: !!matchedJson.cancelledFeeInvolved, autoAdjust: aa.applied ? { ciYm: aa.ciYm, delta: aa.delta } : (aa.reason || null), verifiedAt: new Date().toISOString() };
     } else if (missing.length) {
-      console.log(`  → CSV未着(${missing.join(",")})のため保留(翌日再試行)`);
-    } else if (p1.j.interpretation?.ambiguous || p2j?.interpretation?.ambiguous) {
+      console.log(`  → CSV未着(${missing.join(",")})のため保留(翌日再試行、フォールバック解釈はスキップ)`);
+    } else if (p1.j.interpretation?.ambiguous || p2?.j?.interpretation?.ambiguous) {
       console.log(`NOTIFY: ⚠️ Airbnb入金 ¥${d.amount.toLocaleString()}(${d.date}、${d.acct}) はキャンセル料入金を含む解釈が**複数あり**自動調整できません。Airbnb取引履歴(支払い済み)で内訳を確認し、収支画面で売上を手修正してください。`);
       state.processed[d.mfId] = { kind: "airbnb", date: d.date, amount: d.amount, matched: null, ambiguous: true, verifiedAt: new Date().toISOString() };
     } else {
@@ -218,6 +304,6 @@ async function fetchAccountRows(page, hash, ym) {
       state.processed[d.mfId] = { kind: "airbnb", date: d.date, amount: d.amount, matched: null, verifiedAt: new Date().toISOString() };
     }
   }
-  saveState(state);
+  if (!DRY) saveState(state); else console.log("\n[dry] state保存はスキップしました。");
   process.exitCode = hadError ? 1 : 0;
 })().catch((e) => { console.error("ERROR:", e.message); process.exitCode = 1; });
