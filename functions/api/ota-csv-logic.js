@@ -78,6 +78,16 @@ function headerIndex(header) {
 }
 
 /**
+ * 日付文字列から "YYYY-MM" を取り出す。"2026/6/27"(Airbnb) / "2026-05-03"(Booking) 両対応。
+ * 解釈できなければ null(呼び出し側はフィルタせず行を保持する=fail-open)。
+ */
+function yearMonthOf(v) {
+  const m = String(v || "").trim().match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
+  if (!m) return null;
+  return `${m[1]}-${String(Number(m[2])).padStart(2, "0")}`;
+}
+
+/**
  * Airbnb 予約CSV(yadozei保存形式)を集計する。
  * 列: 確認コード,ステータス,ゲスト名,...,開始日,終了日,宿泊日数,予約済み,リスティング,収入
  * - ステータスに「キャンセル」を含む行は売上から除外(収入も¥0が通常)
@@ -85,13 +95,17 @@ function headerIndex(header) {
  *   予約CSVには現れないため、売上へは自動計上せず cancelledPayoutTotal/Rows で検知情報として返す
  *   (月次バッチ通知と入金監視が⚠️を出し、人が実入金と照合して手修正する運用。実例: the Terrace 2026-06 Zhang ¥102,335)
  * - listingName 指定時はリスティング列を曖昧一致で絞る(保存CSVは既に絞り込み済だが二重の安全弁)
+ * - ★targetYearMonth("YYYY-MM") 指定時はチェックイン(開始日)がその月の行だけ集計する。
+ *   Airbnbの期間フィルタは「滞在が対象月にかかる予約」を返すため、月跨ぎ予約が前月・当月の
+ *   両方のCSVに載り二重計上になる(実例: the Terrace Zhang ¥153,260 が2026-06と2026-07に重複)。
+ *   除外した行は outOfMonthCount/outOfMonthTotal(非キャンセル行の収入計) で返す。
  * - 収入(入金額=ホスト受取)を合算 → grossRevenue
  *
- * @returns {{grossRevenue:number, nights:number, reservationCount:number, canceledCount:number, cancelledPayoutTotal:number, cancelledPayoutRows:Array<{code:string,guest:string,income:number}>}}
+ * @returns {{grossRevenue:number, nights:number, reservationCount:number, canceledCount:number, cancelledPayoutTotal:number, cancelledPayoutRows:Array<{code:string,guest:string,income:number}>, outOfMonthCount:number, outOfMonthTotal:number}}
  */
 function sumAirbnbCsv(text, opts = {}) {
   const rows = parseCsv(text);
-  if (rows.length < 2) return { grossRevenue: 0, nights: 0, reservationCount: 0, canceledCount: 0, cancelledPayoutTotal: 0, cancelledPayoutRows: [] };
+  if (rows.length < 2) return { grossRevenue: 0, nights: 0, reservationCount: 0, canceledCount: 0, cancelledPayoutTotal: 0, cancelledPayoutRows: [], outOfMonthCount: 0, outOfMonthTotal: 0 };
   const h = headerIndex(rows[0]);
   const iStatus = h["ステータス"];
   const iIncome = h["収入"];
@@ -99,9 +113,12 @@ function sumAirbnbCsv(text, opts = {}) {
   const iListing = h["リスティング"];
   const iCode = h["確認コード"];
   const iGuest = h["ゲスト名"];
+  const iStart = h["開始日"];
   const wantListing = opts.listingName ? normLoose(opts.listingName) : "";
+  const wantYm = opts.targetYearMonth || "";
 
   let grossRevenue = 0, nights = 0, reservationCount = 0, canceledCount = 0, cancelledPayoutTotal = 0;
+  let outOfMonthCount = 0, outOfMonthTotal = 0;
   const cancelledPayoutRows = [];
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
@@ -109,6 +126,14 @@ function sumAirbnbCsv(text, opts = {}) {
     if (wantListing && iListing != null) {
       const ln = normLoose(row[iListing]);
       if (ln && !(ln === wantListing || ln.includes(wantListing) || wantListing.includes(ln))) continue;
+    }
+    if (wantYm && iStart != null) {
+      const ym = yearMonthOf(row[iStart]);
+      if (ym && ym !== wantYm) {
+        outOfMonthCount++;
+        if (!String(row[iStatus] || "").includes("キャンセル")) outOfMonthTotal += parseYen(row[iIncome]);
+        continue;
+      }
     }
     const status = String(row[iStatus] || "");
     const income = parseYen(row[iIncome]);
@@ -129,7 +154,7 @@ function sumAirbnbCsv(text, opts = {}) {
     nights += parseYen(row[iNights]);
     reservationCount++;
   }
-  return { grossRevenue, nights, reservationCount, canceledCount, cancelledPayoutTotal, cancelledPayoutRows };
+  return { grossRevenue, nights, reservationCount, canceledCount, cancelledPayoutTotal, cancelledPayoutRows, outOfMonthCount, outOfMonthTotal };
 }
 
 // Booking決済手数料率(Payments by Booking)。2025-10〜2026-06 の全滞在で
@@ -144,24 +169,37 @@ const BOOKING_PAYMENT_FEE_RATE = 0.023;
  *   実例: 2026-04 ¥46,800 guest cancel → net38,704 が銀行入金と一致)。泊数は実宿泊なしのため加算しない。
  * - paymentFee = round(料金×2.3%)(滞在ごと) — Payments by Booking の決済サービス手数料
  * - netRevenue = 料金 − コミッション額 − paymentFee (=実際の銀行入金額)
+ * - targetYearMonth("YYYY-MM") 指定時はチェックイン列がその月の行だけ集計(安全弁。
+ *   取得は date_type=arrival でCI月フィルタ済のはずだが、月ズレCSV混入の実害が過去にあった)
  *
- * @returns {{grossRevenue:number, commission:number, paymentFee:number, netRevenue:number, reservationCount:number, nights:number, canceledCount:number, chargedCancelCount:number}}
+ * @returns {{grossRevenue:number, commission:number, paymentFee:number, netRevenue:number, reservationCount:number, nights:number, canceledCount:number, chargedCancelCount:number, outOfMonthCount:number, outOfMonthTotal:number}}
  */
-function sumBookingCsv(text) {
+function sumBookingCsv(text, opts = {}) {
   const rows = parseCsv(text);
-  if (rows.length < 2) return { grossRevenue: 0, commission: 0, paymentFee: 0, netRevenue: 0, reservationCount: 0, nights: 0, canceledCount: 0, chargedCancelCount: 0 };
+  if (rows.length < 2) return { grossRevenue: 0, commission: 0, paymentFee: 0, netRevenue: 0, reservationCount: 0, nights: 0, canceledCount: 0, chargedCancelCount: 0, outOfMonthCount: 0, outOfMonthTotal: 0 };
   const h = headerIndex(rows[0]);
   const iStatus = h["ステータス"];
   const iAmount = h["料金"];
   const iComm = h["コミッション額"];
+  const iCi = h["チェックイン"];
+  const wantYm = opts.targetYearMonth || "";
   // 泊数列は「滞在期間（泊数）」。全半角括弧の揺れに対応
   let iNights = h["滞在期間（泊数）"];
   if (iNights == null) iNights = h["滞在期間(泊数)"];
 
   let grossRevenue = 0, commission = 0, paymentFee = 0, reservationCount = 0, nights = 0, canceledCount = 0, chargedCancelCount = 0;
+  let outOfMonthCount = 0, outOfMonthTotal = 0;
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
     if (!row || row.length < 2) continue;
+    if (wantYm && iCi != null) {
+      const ym = yearMonthOf(row[iCi]);
+      if (ym && ym !== wantYm) {
+        outOfMonthCount++;
+        outOfMonthTotal += parseYen(row[iAmount]);
+        continue;
+      }
+    }
     const status = String(row[iStatus] || "").trim().toLowerCase();
     const gross = parseYen(row[iAmount]);
     const comm = parseYen(row[iComm]);
@@ -183,7 +221,7 @@ function sumBookingCsv(text) {
     if (iNights != null) nights += parseYen(row[iNights]);
     reservationCount++;
   }
-  return { grossRevenue, commission, paymentFee, netRevenue: grossRevenue - commission - paymentFee, reservationCount, nights, canceledCount, chargedCancelCount };
+  return { grossRevenue, commission, paymentFee, netRevenue: grossRevenue - commission - paymentFee, reservationCount, nights, canceledCount, chargedCancelCount, outOfMonthCount, outOfMonthTotal };
 }
 
 /**
@@ -293,6 +331,7 @@ function computeDepositAmount(revenue) {
  * Airbnb 予約CSVを予約単位で抽出する(宿泊税計算などのため)。
  * 各予約: { nights, adult, child, infant, income, name }
  * キャンセルは除外。listingName 指定時は絞り込み。
+ * targetYearMonth 指定時はチェックイン(開始日)がその月の予約のみ(月跨ぎの宿泊税二重計算防止)。
  */
 function extractAirbnbReservations(text, opts = {}) {
   const rows = parseCsv(text);
@@ -301,7 +340,9 @@ function extractAirbnbReservations(text, opts = {}) {
   const iStatus = h["ステータス"], iName = h["ゲスト名"];
   const iAdult = h["大人の人数"], iChild = h["子どもの人数"], iInfant = h["乳幼児の人数"];
   const iNights = h["宿泊日数"], iIncome = h["収入"], iListing = h["リスティング"];
+  const iStart = h["開始日"];
   const wantListing = opts.listingName ? normLoose(opts.listingName) : "";
+  const wantYm = opts.targetYearMonth || "";
   const out = [];
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
@@ -311,6 +352,10 @@ function extractAirbnbReservations(text, opts = {}) {
     if (wantListing && iListing != null) {
       const ln = normLoose(row[iListing]);
       if (ln && !(ln === wantListing || ln.includes(wantListing) || wantListing.includes(ln))) continue;
+    }
+    if (wantYm && iStart != null) {
+      const ym = yearMonthOf(row[iStart]);
+      if (ym && ym !== wantYm) continue;
     }
     const income = parseYen(row[iIncome]);
     if (income <= 0) continue;
@@ -330,15 +375,17 @@ function extractAirbnbReservations(text, opts = {}) {
  * Booking.com 予約CSVを予約単位で抽出する(宿泊税計算などのため)。
  * 各予約: { nights, adult, child, infant, income, name }
  * 「子供の年齢」から乳幼児(0-5歳)を判別して child/infant に分ける(6歳以上は子ども扱い、0-5歳は乳幼児扱い)。
- * status "ok" 以外は除外。
+ * status "ok" 以外は除外。targetYearMonth 指定時はチェックインがその月の予約のみ。
  */
-function extractBookingReservations(text) {
+function extractBookingReservations(text, opts = {}) {
   const rows = parseCsv(text);
   if (rows.length < 2) return [];
   const h = headerIndex(rows[0]);
   const iStatus = h["ステータス"], iName = h["宿泊者氏名"] != null ? h["宿泊者氏名"] : h["予約者名"];
   const iAdult = h["大人"], iChild = h["子供"], iChildAges = h["子供の年齢"];
   const iAmount = h["料金"];
+  const iCi = h["チェックイン"];
+  const wantYm = opts.targetYearMonth || "";
   let iNights = h["滞在期間（泊数）"];
   if (iNights == null) iNights = h["滞在期間(泊数)"];
 
@@ -348,6 +395,10 @@ function extractBookingReservations(text) {
     if (!row || row.length < 2) continue;
     const status = String(row[iStatus] || "").trim().toLowerCase();
     if (status !== "ok") continue;
+    if (wantYm && iCi != null) {
+      const ym = yearMonthOf(row[iCi]);
+      if (ym && ym !== wantYm) continue;
+    }
     const income = parseYen(row[iAmount]);
     if (income <= 0) continue;
     const adult = parseYen(row[iAdult]);
@@ -458,6 +509,7 @@ module.exports = {
   parseCsv,
   parseYen,
   normLoose,
+  yearMonthOf,
   sumAirbnbCsv,
   interpretAirbnbPayout,
   sumBookingCsv,

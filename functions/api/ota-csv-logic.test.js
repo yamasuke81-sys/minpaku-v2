@@ -3,7 +3,7 @@ const assert = require("node:assert");
 const {
   parseCsv, parseYen, sumAirbnbCsv, sumBookingCsv, computeSettlement,
   resolveOperationMode, isAgencyMode, effectiveFeeRatePct, computeDepositAmount,
-  extractAirbnbReservations, extractBookingReservations, interpretAirbnbPayout,
+  extractAirbnbReservations, extractBookingReservations, interpretAirbnbPayout, yearMonthOf,
 } = require("./ota-csv-logic");
 const { computeAccommodationTax } = require("./pnl-logic");
 
@@ -130,6 +130,70 @@ test("sumAirbnbCsv: listingName フィルタ(不一致→0)", () => {
   const r = sumAirbnbCsv(AIRBNB_KOMACHI_MAY, { listingName: "瀬戸内海ビュー大テラス" });
   assert.strictEqual(r.grossRevenue, 0);
   assert.strictEqual(r.reservationCount, 0);
+});
+
+// 実データ(the Terrace 2026-07 CSV 抜粋)。AirbnbのCSV期間フィルタは「滞在が対象月にかかる予約」を
+// 返すため、6/27チェックインのZhang予約(＋同キャンセル料行)が6月CSVと7月CSVの両方に載る。
+// 2026-07帳簿が¥153,260二重計上になった実例(2026-08-10発見)。
+const AIRBNB_TERRACE_JULY_STRADDLE = `"確認コード","ステータス","ゲスト名","連絡先","大人の人数","子どもの人数","乳幼児の人数","開始日","終了日","宿泊日数","予約済み","リスティング","収入"
+"HMSAZKDQEH","過去のゲスト","Rin Hashimoto","","2","0","0","2026/7/1","2026/7/2","1","2026-06-20","瀬戸内海ビュー大テラス｜10名OK・BBQ可・駐車3台","¥25,350"
+"HMKJSHXTQX","過去のゲスト","Zhang Jingyu","","4","1","0","2026/6/27","2026/7/1","4","2026-06-25","瀬戸内海ビュー大テラス｜10名OK・BBQ可・駐車3台","¥153,260"
+"HMKFRRCJTK","ゲストによりキャンセル済み","Zhang","","4","1","0","2026/6/27","2026/7/1","4","2026-06-24","瀬戸内海ビュー大テラス｜10名OK・BBQ可・駐車3台","¥102,335"
+`;
+
+test("yearMonthOf: Airbnb形式/Booking形式/解釈不能", () => {
+  assert.strictEqual(yearMonthOf("2026/6/27"), "2026-06");
+  assert.strictEqual(yearMonthOf("2026-05-03"), "2026-05");
+  assert.strictEqual(yearMonthOf(""), null);
+  assert.strictEqual(yearMonthOf("不明"), null);
+});
+
+test("sumAirbnbCsv: targetYearMonth=2026-07 → 月跨ぎ(6月CI)の予約・キャンセル行を除外", () => {
+  const r = sumAirbnbCsv(AIRBNB_TERRACE_JULY_STRADDLE, { targetYearMonth: "2026-07" });
+  assert.strictEqual(r.grossRevenue, 25350); // Zhang ¥153,260 は6月CI=6月帳簿の分
+  assert.strictEqual(r.reservationCount, 1);
+  assert.strictEqual(r.nights, 1);
+  assert.strictEqual(r.canceledCount, 0);
+  assert.strictEqual(r.cancelledPayoutTotal, 0); // 6月CIのキャンセル料行も7月では検知しない
+  assert.strictEqual(r.outOfMonthCount, 2);
+  assert.strictEqual(r.outOfMonthTotal, 153260); // 除外した非キャンセル行の収入計
+});
+
+test("sumAirbnbCsv: targetYearMonth未指定は従来どおり全行集計(後方互換)", () => {
+  const r = sumAirbnbCsv(AIRBNB_TERRACE_JULY_STRADDLE);
+  assert.strictEqual(r.grossRevenue, 25350 + 153260);
+  assert.strictEqual(r.reservationCount, 2);
+  assert.strictEqual(r.cancelledPayoutTotal, 102335);
+  assert.strictEqual(r.outOfMonthCount, 0);
+});
+
+test("sumAirbnbCsv: targetYearMonth=2026-06 → 6月CI分のみ(キャンセル料検知も6月側で拾う)", () => {
+  const r = sumAirbnbCsv(AIRBNB_TERRACE_JULY_STRADDLE, { targetYearMonth: "2026-06" });
+  assert.strictEqual(r.grossRevenue, 153260);
+  assert.strictEqual(r.reservationCount, 1);
+  assert.strictEqual(r.nights, 4);
+  assert.strictEqual(r.cancelledPayoutTotal, 102335);
+  assert.strictEqual(r.outOfMonthCount, 1);
+  assert.strictEqual(r.outOfMonthTotal, 25350);
+});
+
+test("extractAirbnbReservations: targetYearMonth で月跨ぎ予約を除外(宿泊税の二重計算防止)", () => {
+  const rs = extractAirbnbReservations(AIRBNB_TERRACE_JULY_STRADDLE, { targetYearMonth: "2026-07" });
+  assert.strictEqual(rs.length, 1);
+  assert.strictEqual(rs[0].income, 25350);
+});
+
+test("sumBookingCsv: targetYearMonth 一致月は集計値が従来と不変・不一致月は除外", () => {
+  const same = sumBookingCsv(BOOKING_TERRACE_MAY, { targetYearMonth: "2026-05" });
+  assert.strictEqual(same.grossRevenue, 335600);
+  assert.strictEqual(same.netRevenue, 277541);
+  assert.strictEqual(same.reservationCount, 3);
+  assert.strictEqual(same.outOfMonthCount, 0);
+  const other = sumBookingCsv(BOOKING_TERRACE_MAY, { targetYearMonth: "2026-06" });
+  assert.strictEqual(other.grossRevenue, 0);
+  assert.strictEqual(other.reservationCount, 0);
+  assert.strictEqual(other.outOfMonthCount, 4);
+  assert.strictEqual(other.outOfMonthTotal, 36125 + 190000 + 73600 + 72000);
 });
 
 test("sumBookingCsv: the Terrace5月 = gross335,600 / comm50,340 / fee7,719 / net277,541(銀行入金6/4と一致)", () => {

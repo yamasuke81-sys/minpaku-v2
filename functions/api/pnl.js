@@ -626,7 +626,8 @@ module.exports = function pnlApi(db) {
         else if (srcFolder) file = await findLatestOtaCsv_(drive, srcFolder, "airbnb", yearMonth);
         if (file) {
           const text = await downloadDriveText_(drive, file.id);
-          const a = sumAirbnbCsv(text, { listingName });
+          // targetYearMonth: AirbnbのCSVは「滞在が対象月にかかる予約」を含むため、CI月の行だけ集計(月跨ぎ二重計上防止)
+          const a = sumAirbnbCsv(text, { listingName, targetYearMonth: yearMonth });
           // 入金監視の自動売上調整(autoAdjustments)は CSV 再取込でも維持する(合計に再適用)
           const prevAb = (cur.exists && cur.data().revenue && cur.data().revenue.airbnb) || {};
           const autoAdjSum = (Array.isArray(prevAb.autoAdjustments) ? prevAb.autoAdjustments : [])
@@ -637,6 +638,8 @@ module.exports = function pnlApi(db) {
             // キャンセル料入金の検知情報(売上には自動計上しない。入金確認時に verify-airbnb-payout の自動調整が反映)
             cancelledPayoutTotal: a.cancelledPayoutTotal || 0,
             cancelledPayoutRows: a.cancelledPayoutRows || [],
+            outOfMonthExcludedCount: a.outOfMonthCount || 0,
+            outOfMonthExcludedTotal: a.outOfMonthTotal || 0,
             source: "ota_csv", sourceFileId: file.id, sourceFileName: file.name,
             parsedAt: FieldValue.serverTimestamp(),
           };
@@ -657,11 +660,13 @@ module.exports = function pnlApi(db) {
         else if (srcFolder) file = await findLatestOtaCsv_(drive, srcFolder, "booking", yearMonth);
         if (file) {
           const text = await downloadDriveText_(drive, file.id);
-          const b = sumBookingCsv(text);
+          const b = sumBookingCsv(text, { targetYearMonth: yearMonth });
           patch.revenue.booking = {
             grossRevenue: b.grossRevenue, commission: b.commission, paymentFee: b.paymentFee || 0,
             netRevenue: b.netRevenue, reservationCount: b.reservationCount, nights: b.nights,
             chargedCancelCount: b.chargedCancelCount || 0,
+            outOfMonthExcludedCount: b.outOfMonthCount || 0,
+            outOfMonthExcludedTotal: b.outOfMonthTotal || 0,
             source: "ota_csv", sourceFileId: file.id, sourceFileName: file.name,
             parsedAt: FieldValue.serverTimestamp(),
           };

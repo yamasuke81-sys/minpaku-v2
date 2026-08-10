@@ -451,12 +451,12 @@ module.exports = function settlementApi(db) {
         const items = [];
         if (found.airbnb) {
           const text = Buffer.from((await drive.files.get({ fileId: found.airbnb.id, alt: "media", supportsAllDrives: true }, { responseType: "arraybuffer" })).data).toString("utf8");
-          const rs = extractAirbnbReservations(text, { listingName });
+          const rs = extractAirbnbReservations(text, { listingName, targetYearMonth: yearMonth });
           items.push({ source: "airbnb", fileName: found.airbnb.name, fileId: found.airbnb.id, reservations: rs });
         }
         if (found.booking) {
           const text = Buffer.from((await drive.files.get({ fileId: found.booking.id, alt: "media", supportsAllDrives: true }, { responseType: "arraybuffer" })).data).toString("utf8");
-          const rs = extractBookingReservations(text);
+          const rs = extractBookingReservations(text, { targetYearMonth: yearMonth });
           items.push({ source: "booking", fileName: found.booking.name, fileId: found.booking.id, reservations: rs });
         }
         const allReservations = items.flatMap((it) => it.reservations);
