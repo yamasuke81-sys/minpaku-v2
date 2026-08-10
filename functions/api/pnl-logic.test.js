@@ -464,19 +464,17 @@ describe("cleaningAmountForProperty", () => {
 });
 
 describe("hiroshimaTaxPerPersonPerNight", () => {
-  test("10,000円未満は非課税", () => {
+  test("6,000円未満は非課税", () => {
     assert.strictEqual(hiroshimaTaxPerPersonPerNight(0), 0);
-    assert.strictEqual(hiroshimaTaxPerPersonPerNight(9999), 0);
+    assert.strictEqual(hiroshimaTaxPerPersonPerNight(5999), 0);
     assert.strictEqual(hiroshimaTaxPerPersonPerNight(3017), 0);
   });
-  test("10,000〜19,999円は200円", () => {
-    assert.strictEqual(hiroshimaTaxPerPersonPerNight(10000), 200);
+  test("6,000円以上は一律200円(段階なし)", () => {
+    assert.strictEqual(hiroshimaTaxPerPersonPerNight(6000), 200);
     assert.strictEqual(hiroshimaTaxPerPersonPerNight(11466), 200);
     assert.strictEqual(hiroshimaTaxPerPersonPerNight(19999), 200);
-  });
-  test("20,000円以上は500円", () => {
-    assert.strictEqual(hiroshimaTaxPerPersonPerNight(20000), 500);
-    assert.strictEqual(hiroshimaTaxPerPersonPerNight(50000), 500);
+    assert.strictEqual(hiroshimaTaxPerPersonPerNight(20000), 200);
+    assert.strictEqual(hiroshimaTaxPerPersonPerNight(50000), 200);
   });
   test("null/undefined/NaNは0扱い(非課税)", () => {
     assert.strictEqual(hiroshimaTaxPerPersonPerNight(null), 0);
@@ -495,13 +493,14 @@ describe("computeAccommodationTax", () => {
     assert.strictEqual(r.taxablePersonNights, 3);
   });
 
-  test("実データ検算: the Terrace 2026-06 Booking Thaler 大人2+子ども2 泊1 28,586 → 非課税(乳幼児無)", () => {
+  test("実データ検算: the Terrace 2026-06 Booking Thaler 大人2+子ども2 泊1 28,586 → /人/泊7,147=課税(800円)", () => {
+    // 28586/1/4=7,146.5 → 6,000円以上なので課税(乳幼児はいないので4人全員参入)
     const r = computeAccommodationTax([
       { nights: 1, adult: 2, child: 2, infant: 0, income: 28586 },
     ]);
-    assert.strictEqual(r.totalTax, 0);
+    assert.strictEqual(r.totalTax, 800);
     assert.strictEqual(r.totalPersonNights, 4);
-    assert.strictEqual(r.taxablePersonNights, 0);
+    assert.strictEqual(r.taxablePersonNights, 4);
   });
 
   test("乳幼児は課税対象外(大人+子どものみで人数計算)", () => {
@@ -516,24 +515,24 @@ describe("computeAccommodationTax", () => {
 
   test("複数予約の合計", () => {
     const r = computeAccommodationTax([
-      { nights: 1, adult: 3, child: 0, infant: 0, income: 34400 }, // Siu: 600円
-      { nights: 1, adult: 2, child: 2, infant: 0, income: 28586 }, // Thaler: 0円
-      { nights: 4, adult: 5, child: 1, infant: 0, income: 153260 }, // Zhang: /人/泊=6386 → 0円
+      { nights: 1, adult: 3, child: 0, infant: 0, income: 34400 }, // Siu: /人/泊11467→3人泊×200=600円
+      { nights: 1, adult: 2, child: 2, infant: 0, income: 28586 }, // Thaler: /人/泊7147→4人泊×200=800円
+      { nights: 4, adult: 5, child: 1, infant: 0, income: 153260 }, // Zhang: /人/泊=6386→24人泊×200=4,800円
     ]);
-    assert.strictEqual(r.totalTax, 600);
+    assert.strictEqual(r.totalTax, 600 + 800 + 4800);
   });
 
-  test("実データ検算: 宿小町 2026-06 全予約(9件のうちキャンセル2件除外) → 全て非課税 = 0円", () => {
+  test("実データ検算: 宿小町 2026-06 全予約(9件のうちキャンセル2件除外) → 1件のみ課税(600円)", () => {
     const r = computeAccommodationTax([
       { nights: 4, adult: 3, income: 37856 },   // /人/泊 = 3155
       { nights: 2, adult: 3, income: 27040 },   // /人/泊 = 4507
       { nights: 4, adult: 2, income: 24336 },   // /人/泊 = 3042
-      { nights: 3, adult: 1, income: 19773 },   // /人/泊 = 6591
+      { nights: 3, adult: 1, income: 19773 },   // /人/泊 = 6591 → 6,000円以上=課税(3人泊×200=600円)
       { nights: 4, adult: 2, income: 25857 },   // /人/泊 = 3232
       { nights: 3, adult: 2, infant: 1, income: 18100 }, // /人/泊 = 3017 (乳幼児除外)
       { nights: 3, adult: 2, income: 18100 },   // /人/泊 = 3017
     ]);
-    assert.strictEqual(r.totalTax, 0);
+    assert.strictEqual(r.totalTax, 600);
   });
 
   test("空配列 → 全ゼロ", () => {

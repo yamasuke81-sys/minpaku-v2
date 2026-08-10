@@ -467,7 +467,7 @@ module.exports = function settlementApi(db) {
           taxWithholdingSource: `予約CSVから自動計算(${items.map((it) => it.source).join("+")})`,
           taxWithholdingBreakdown: {
             method: "computed_from_reservations",
-            formula: "広島県宿泊税: /人/泊<10000=非課税, 10000〜20000=200円, 20000〜=500円",
+            formula: "広島県宿泊税: /人/泊<6000=非課税, 6000以上=200円(一律)",
             byOta: items.map((it) => ({
               source: it.source, fileName: it.fileName, fileId: it.fileId,
               reservationCount: it.reservations.length,

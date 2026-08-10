@@ -333,11 +333,14 @@ test("extractAirbnbReservations: 宿小町5月CSV → 8件(キャンセル1除�
     { adult: 2, child: 0, infant: 0, nights: 2, income: 40560 });
 });
 
-test("extractAirbnbReservations + computeAccommodationTax: 宿小町5月 → 800円(plan.md実証値)", () => {
+test("extractAirbnbReservations + computeAccommodationTax: 宿小町5月 → 2,400円(6,000円閾値・一律200円で再計算)", () => {
   const rs = extractAirbnbReservations(AIRBNB_KOMACHI_MAY);
   const r = computeAccommodationTax(rs);
-  assert.strictEqual(r.totalTax, 800);
-  // Marcel Leirer 2人×2泊×200 = 800円 のみ課税、他は全て /人/泊<10000
+  assert.strictEqual(r.totalTax, 2400);
+  // 松本和樹 /人/泊6,338→2人泊×200=400円、河津雄介 /人/泊6,197→6人泊×200=1,200円、
+  // Marcel Leirer /人/泊10,140→4人泊×200=800円 の3件が課税(計12人泊×200=2,400円)。他は全て/人/泊<6,000。
+  // ※実際の申告書(様式第3号)は800円(Marcel分のみ)で提出されていたが、2026-08-10 の検証で
+  //   広島県公式(6,000円閾値・一律200円、段階なし)と食い違うことが判明。申告時点の計算誤りと推定。
 });
 
 test("extractBookingReservations: the Terrace 5月抜粋CSV → 3件(cancelled 1除外)", () => {
