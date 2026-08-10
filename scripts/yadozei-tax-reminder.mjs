@@ -112,6 +112,10 @@ async function main() {
 
     // 物件ごとの月計表+申告書PDF (lastRun.yadozeiPdf が対象月のものか fileName で確認)
     for (const t of targets) {
+      // yadozei.startYm(この物件の申告開始月) より前の月はこの物件を出さない
+      // (2026-08-10: 宇品を対象に加えた際、運用開始前の月に「PDF未生成=自動化の異常」と誤警報しないため)
+      const startYm = t.yadozei?.startYm;
+      if (startYm && ym < startYm) continue;
       const pdf = t.yadozei?.lastRun?.yadozeiPdf;
       const isThisMonth = pdf?.fileName?.includes(`_${ym}_`);
       if (isThisMonth && Array.isArray(pdf.files) && pdf.files.length) {
