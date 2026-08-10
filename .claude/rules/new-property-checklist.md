@@ -74,5 +74,5 @@
 
 ## 進捗（2026-08-10 時点）
 
-- **宇品**: フェーズ0〜2 配線済み。残 = ①keyboxCode 設定→keyboxSend 有効化 ②LINE Messaging API化 ③timeeAutofill ④宿泊税8月分の0申告要否（やますけ判断待ち）
+- **宇品**: フェーズ0〜2 配線済み。keyboxCode=設定済（private/secrets）・keyboxSend 有効化済・宿泊税は 2026-08 分から0申告（startYm=2026-08）。残 = ①LINE Messaging API化＋lineBotInfo ②timeeAutofill（Timee側の求人テンプレ待ち）
 - **若草・安芸津・竹原**: フェーズ0 完了（2026-08-10 一括投入: メールテンプレ・keyboxSendテンプレ・direct_request・yadozei骨組み）。リスティング開設時にフェーズ1へ
