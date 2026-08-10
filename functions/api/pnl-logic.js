@@ -148,8 +148,8 @@ function applyExpenses(data, categories, propertyId) {
 /**
  * 月ドキュメントから収支を計算する。
  *
- * 売上 = Airbnb総収入 + Booking総収入
- * OTA手数料 = Airbnbサービス料 + Bookingコミッション + Booking決済手数料
+ * 売上 = Airbnb総収入 + Booking総収入 + 直販(自社サイト→Stripe)総収入
+ * OTA手数料 = Airbnbサービス料 + Bookingコミッション + Booking決済手数料 + 直販Stripe手数料
  * 清掃費 = 除外フラグなしの cleaningCosts 合計
  * 利益 = 売上 - OTA手数料 - 清掃費 - 費目合計
  * 利益率 = 利益 / 売上 (小数第一位、売上0なら0)
@@ -158,10 +158,12 @@ function computePnl(data, categories) {
   const rev = (data && data.revenue) || {};
   const ab = rev.airbnb || {};
   const bk = rev.booking || {};
+  const dr = rev.direct || {};
   const revenueAirbnb = toInt(ab.grossRevenue);
   const revenueBooking = toInt(bk.grossRevenue);
-  const revenueGross = revenueAirbnb + revenueBooking;
-  const otaFees = toInt(ab.serviceFee) + toInt(bk.commission) + toInt(bk.paymentFee);
+  const revenueDirect = toInt(dr.grossRevenue);
+  const revenueGross = revenueAirbnb + revenueBooking + revenueDirect;
+  const otaFees = toInt(ab.serviceFee) + toInt(bk.commission) + toInt(bk.paymentFee) + toInt(dr.stripeFee);
   const cleaningRows = ((data && data.cleaningCosts) || []).filter((c) => !c.excluded);
   const cleaningTotal = cleaningRows.reduce((s, c) => s + toInt(c.amount), 0);
   const exp = applyExpenses(data, categories, data && data.propertyId);
@@ -169,6 +171,7 @@ function computePnl(data, categories) {
   return {
     revenueAirbnb,
     revenueBooking,
+    revenueDirect,
     revenueGross,
     otaFees,
     cleaningTotal,
@@ -177,6 +180,61 @@ function computePnl(data, categories) {
     profit,
     profitRate: revenueGross > 0 ? Math.round((profit / revenueGross) * 1000) / 10 : 0,
   };
+}
+
+/**
+ * 直販(自社サイト→Stripe)予約から月間売上を集計する(pure)。
+ *
+ * - bookings コレクションのドキュメント配列を受け取り、内部で syncSource/source==="direct" のみに絞る
+ *   (呼び出し側で事前フィルタしていなくても安全に動く)。
+ * - チェックイン月基準: checkIn の先頭10文字を "YYYY-MM" に正規化して targetYearMonth と一致する行のみ集計
+ *   (OTA CSV集計(sumAirbnbCsv/sumBookingCsv)と同じ基準。月跨ぎ予約の二重計上を避ける)。
+ * - 支払済みのみ計上:
+ *   - paymentStatus==="paid" → 全額
+ *   - paymentStatus==="partially_refunded" → (amountPaid − amountRefunded) の実受領純額
+ *   - "refunded"(全額返金)/pending/expired/payment_failed/unconfigured/未設定 は対象外(実収0のため)
+ * - 金額は Stripe Webhook が記録した実決済額 paymentSession.amountPaid を優先(駐車場込みの実際の決済総額)。
+ *   未設定時は priceBreakdown.grandTotal → (priceBreakdown.total + parkingFee) → paymentSession.amount の順でフォールバック。
+ *
+ * @param {Array<object>} bookings bookings コレクションのドキュメント配列
+ * @param {string} targetYearMonth "YYYY-MM"
+ * @returns {{grossRevenue:number, nights:number, reservationCount:number}}
+ */
+function sumDirectBookings(bookings, targetYearMonth) {
+  const list = Array.isArray(bookings) ? bookings : [];
+  let grossRevenue = 0, nights = 0, reservationCount = 0;
+  for (const b of list) {
+    if (!b) continue;
+    if (b.syncSource !== "direct" && b.source !== "direct") continue;
+    const ci = String(b.checkIn == null ? "" : b.checkIn).slice(0, 10);
+    if (ci.slice(0, 7) !== targetYearMonth) continue;
+    const status = b.paymentStatus;
+    if (status !== "paid" && status !== "partially_refunded") continue;
+
+    const ps = b.paymentSession || {};
+    let amount = toInt(ps.amountPaid);
+    if (!amount) {
+      const pb = b.priceBreakdown || {};
+      if (pb.grandTotal != null) amount = toInt(pb.grandTotal);
+      else if (pb.total != null) amount = toInt(pb.total) + toInt(b.parkingFee);
+      else amount = toInt(ps.amount);
+    }
+    if (status === "partially_refunded") {
+      amount = Math.max(0, amount - toInt(ps.amountRefunded));
+    }
+    if (amount <= 0) continue;
+
+    grossRevenue += amount;
+    reservationCount++;
+
+    const co = String(b.checkOut == null ? "" : b.checkOut).slice(0, 10);
+    const ciDate = /^\d{4}-\d{2}-\d{2}$/.test(ci) ? new Date(`${ci}T00:00:00Z`) : null;
+    const coDate = /^\d{4}-\d{2}-\d{2}$/.test(co) ? new Date(`${co}T00:00:00Z`) : null;
+    if (ciDate && coDate && coDate > ciDate) {
+      nights += Math.round((coDate - ciDate) / 86400000);
+    }
+  }
+  return { grossRevenue, nights, reservationCount };
 }
 
 /**
@@ -381,6 +439,7 @@ module.exports = {
   resolvePropertyForDoc,
   applyExpenses,
   computePnl,
+  sumDirectBookings,
   cleaningAmountForProperty,
   classifyExpenseByName_,
   filterElectricPaymentsForProperty,

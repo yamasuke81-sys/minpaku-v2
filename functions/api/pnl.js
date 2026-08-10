@@ -22,6 +22,7 @@ const {
   resolvePropertyForDoc,
   applyExpenses,
   computePnl,
+  sumDirectBookings,
   cleaningAmountForProperty,
   classifyExpenseByName_,
   parseBillMonths,
@@ -31,6 +32,8 @@ const {
   sumAirbnbCsv, sumBookingCsv,
   computeSettlement, computeDepositAmount, effectiveFeeRatePct, resolveOperationMode,
 } = require("./ota-csv-logic");
+// 直販(自社サイト→Stripe)予約の手数料実額取得に使う(booking-requests.js/stripeWebhook.js と同じ2アカウント振り分け)
+const { getStripeForProperty, getStripeForKind } = require("../utils/stripe");
 
 // OTA原本フォルダ(既定の取込元。settings/pnlImport.sourceFolderId で上書き可)
 const DEFAULT_SOURCE_FOLDER_ID = "10N_wTI-cftdJvVxYGXftXJoxNpsRDRux";
@@ -690,6 +693,118 @@ module.exports = function pnlApi(db) {
     } catch (e) {
       console.error("OTA CSV取込エラー:", e);
       res.status(500).json({ error: "OTA CSV取り込みに失敗しました: " + e.message });
+    }
+  });
+
+  // ========================================================
+  // 直販(自社サイト→Stripe)予約 取込 → 月次収支の売上
+  // ========================================================
+
+  /**
+   * 直販予約1件のStripe決済手数料を実額取得する(balance_transaction.fee)。
+   * - paymentSession.accountKind があればそれで Stripe クライアントを選ぶ(corporate/individual 2アカウント対応)。
+   *   無ければ propertyId から解決(旧データ互換)。
+   * - PaymentIntent → latest_charge → balance_transaction を expand して手数料(円, JPYは0桁通貨なのでそのまま円)を取得。
+   * - 取得できない場合(未設定/API失敗/該当データなし)は null を返す。呼び出し側は推測計上せず0のまま note に明示する
+   *   (CLAUDE.md 絶対ルール: わからないことは推測しない)。
+   */
+  async function fetchStripeFeeForBooking_(booking) {
+    const ps = booking && booking.paymentSession;
+    const paymentIntentId = ps && ps.paymentIntentId;
+    if (!paymentIntentId) return null;
+    try {
+      const stripe = ps.accountKind ? getStripeForKind(ps.accountKind) : getStripeForProperty(booking.propertyId || "");
+      if (!stripe.isEnabled) return null;
+      const pi = await stripe.client.paymentIntents.retrieve(paymentIntentId, {
+        expand: ["latest_charge.balance_transaction"],
+      });
+      const bt = pi && pi.latest_charge && pi.latest_charge.balance_transaction;
+      if (!bt || typeof bt.fee !== "number") return null;
+      return bt.fee;
+    } catch (e) {
+      console.warn(`[import-direct] Stripe手数料取得失敗 (booking=${booking.id || "?"}):`, e.message);
+      return null;
+    }
+  }
+
+  // POST /:propertyId/:yearMonth/import-direct
+  // 宿公式サイト(setouchi-stay-sites)からの直接予約(bookings, syncSource="direct")のうち
+  // 支払済み(paymentStatus=paid/partially_refunded)をチェックイン月基準で集計し revenue.direct へ反映する。
+  // 手動修正(manualOverrides["revenue.direct"])された月は上書きしない(import-ota-csv と同じ保護方式)。
+  router.post("/:propertyId/:yearMonth/import-direct", router.cores.importDirect = async (req, res) => {
+    try {
+      const { propertyId, yearMonth } = req.params;
+      if (!/^\d{4}-\d{2}$/.test(yearMonth)) return res.status(400).json({ error: "yearMonth は YYYY-MM 形式" });
+
+      const propSnap = await db.collection("properties").doc(propertyId).get();
+      if (!propSnap.exists) return res.status(404).json({ error: "物件が見つかりません" });
+
+      const ref = pnlCol.doc(docId_(propertyId, yearMonth));
+      const cur = await ref.get();
+      const overrides = (cur.exists && cur.data().manualOverrides) || {};
+      if (overrides["revenue.direct"]) {
+        return res.json({ ok: true, propertyId, yearMonth, skipped: "direct(手動修正保護)" });
+      }
+
+      // bookings は propertyId の単一 where のみで取得し、syncSource/checkIn 月の絞り込みは JS側で行う
+      // (複合インデックス不要。invoices/import-cleaning と同じ方式。firestore_index ルール参照)
+      const bkSnap = await db.collection("bookings").where("propertyId", "==", propertyId).get();
+      const bookings = bkSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const directBookings = bookings.filter((b) => b.syncSource === "direct" || b.source === "direct");
+
+      const sum = sumDirectBookings(directBookings, yearMonth);
+
+      if (sum.reservationCount === 0) {
+        // 直販未開通/対象月に予約なしは正常(0件=エラーではない。月次バッチから毎回呼ばれるため)
+        return res.json({ ok: true, propertyId, yearMonth, direct: sum, stripeFee: 0, netRevenue: 0, feeUnavailableCount: 0 });
+      }
+
+      // Stripe手数料: 対象月・支払済みの予約それぞれについて balance_transaction から実額を取得して合算する。
+      // 保存済みデータには手数料そのものは無い(webhookはamountPaidのみ記録)ため、実額はStripe APIでのみ取得可能。
+      // 取得できなかった件は推測計上せず、feeUnavailableCount としてカウントし note で明示する。
+      const targets = directBookings.filter((b) => {
+        const ci = String(b.checkIn == null ? "" : b.checkIn).slice(0, 10);
+        return ci.slice(0, 7) === yearMonth && (b.paymentStatus === "paid" || b.paymentStatus === "partially_refunded");
+      });
+      let stripeFee = 0, feeUnavailableCount = 0;
+      for (const b of targets) {
+        const fee = await fetchStripeFeeForBooking_(b);
+        if (fee == null) feeUnavailableCount++;
+        else stripeFee += fee;
+      }
+      const netRevenue = sum.grossRevenue - stripeFee;
+      const note = feeUnavailableCount > 0
+        ? `Stripe手数料 ${feeUnavailableCount}/${targets.length}件分は取得できず未計上(要確認)`
+        : "";
+
+      const patch = {
+        propertyId, yearMonth,
+        revenue: {
+          direct: {
+            grossRevenue: sum.grossRevenue,
+            stripeFee,
+            netRevenue,
+            reservationCount: sum.reservationCount,
+            nights: sum.nights,
+            source: "direct_bookings",
+            note,
+            parsedAt: FieldValue.serverTimestamp(),
+          },
+        },
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      await ref.set(patch, { merge: true });
+
+      const categories = await loadCategories_();
+      const after = (await ref.get()).data();
+      res.json({
+        ok: true, propertyId, yearMonth,
+        direct: sum, stripeFee, netRevenue, feeUnavailableCount,
+        computed: computePnl(after, categories),
+      });
+    } catch (e) {
+      console.error("直販予約取込エラー:", e);
+      res.status(500).json({ error: "直販予約の取込に失敗しました: " + e.message });
     }
   });
 

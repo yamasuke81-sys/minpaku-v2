@@ -337,6 +337,10 @@ const ReportsPage = {
       natCounts[nat] = (natCounts[nat] || 0) + gc;
     }
 
+    // 宿泊者数 = 期間中の実人数（国籍別内訳の合計と必ず一致させる）
+    // ※ month1/month2 の合算（totalJapanese+totalForeign）は月跨ぎ予約を両月で数えるため使わない
+    const totalGuests = Object.values(natCounts).reduce((a, b) => a + b, 0);
+
     // 延べ人数 = 各宿泊者の泊数の合計
     let totalPersonNights = 0;
     for (const row of d.details) {
@@ -391,7 +395,7 @@ const ReportsPage = {
           <tbody class="text-center fs-5">
             <tr>
               <td><strong>${stayDates.size}</strong></td>
-              <td><strong>${d.totalJapanese + d.totalForeign}</strong></td>
+              <td><strong>${totalGuests}</strong></td>
               <td><strong>${totalPersonNights}</strong></td>
             </tr>
           </tbody>
@@ -507,23 +511,36 @@ const ReportsPage = {
     const n = nat.trim();
     const lower = n.toLowerCase();
     // 日本判定
-    if (n.includes("日本") || lower === "japan") return "日本";
-    // 英語→日本語マッピング
+    if (n.includes("日本") || lower === "japan" || lower === "japanese") return "日本";
+    // 英語→日本語マッピング（国名形・形容詞形の両方を持つ。例: Germany / German）
     const map = {
-      "taiwan": "台湾", "korea": "韓国", "china": "中国",
-      "hong kong": "香港", "thailand": "タイ", "singapore": "シンガポール",
-      "malaysia": "マレーシア", "indonesia": "インドネシア", "philippines": "フィリピン",
-      "vietnam": "ベトナム", "india": "インド", "uk": "英国", "united kingdom": "英国",
-      "germany": "ドイツ", "france": "フランス", "italy": "イタリア",
-      "spain": "スペイン", "russia": "ロシア", "usa": "米国", "united states": "米国",
-      "america": "米国", "canada": "カナダ", "australia": "オーストラリア",
+      "taiwan": "台湾", "taiwanese": "台湾",
+      "korea": "韓国", "korean": "韓国", "south korea": "韓国",
+      "china": "中国", "chinese": "中国",
+      "hong kong": "香港", "hongkong": "香港",
+      "thailand": "タイ", "thai": "タイ",
+      "singapore": "シンガポール", "singaporean": "シンガポール",
+      "malaysia": "マレーシア", "malaysian": "マレーシア",
+      "indonesia": "インドネシア", "indonesian": "インドネシア",
+      "philippines": "フィリピン", "philippine": "フィリピン", "filipino": "フィリピン",
+      "vietnam": "ベトナム", "vietnamese": "ベトナム",
+      "india": "インド", "indian": "インド",
+      "uk": "英国", "united kingdom": "英国", "british": "英国", "england": "英国", "english": "英国",
+      "germany": "ドイツ", "german": "ドイツ",
+      "france": "フランス", "french": "フランス",
+      "italy": "イタリア", "italian": "イタリア",
+      "spain": "スペイン", "spanish": "スペイン",
+      "russia": "ロシア", "russian": "ロシア",
+      "usa": "米国", "united states": "米国", "america": "米国", "american": "米国",
+      "canada": "カナダ", "canadian": "カナダ",
+      "australia": "オーストラリア", "australian": "オーストラリア",
     };
     if (map[lower]) return map[lower];
     // 日本語名がグリッドにあればそのまま
     if (this.NATIONALITY_GRID.includes(n)) return n;
-    // 部分一致チェック（TAIWAN→台湾 等）
+    // 部分一致チェック（TAIWAN→台湾 等）。短いキー(uk等)は誤爆するので除外
     for (const [eng, jpn] of Object.entries(map)) {
-      if (lower.includes(eng)) return jpn;
+      if (eng.length >= 4 && lower.includes(eng)) return jpn;
     }
     return "その他";
   },

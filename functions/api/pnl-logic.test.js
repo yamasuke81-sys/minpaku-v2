@@ -13,6 +13,7 @@ const {
   resolvePropertyForDoc,
   applyExpenses,
   computePnl,
+  sumDirectBookings,
   cleaningAmountForProperty,
   classifyExpenseByName_,
   filterElectricPaymentsForProperty,
@@ -242,6 +243,159 @@ describe("computePnl", () => {
     const r = computePnl(data, []);
     assert.strictEqual(r.otaFees, 12613);
     assert.strictEqual(r.profit, 88200 - 12613);
+  });
+
+  test("直販(revenue.direct)を売上に加算し、Stripe手数料をOTA手数料に積む", () => {
+    const data = {
+      propertyId: "p1",
+      revenue: {
+        airbnb: { grossRevenue: 260000, serviceFee: 7800 },
+        direct: { grossRevenue: 80000, stripeFee: 2400, netRevenue: 77600, reservationCount: 2, nights: 3 },
+      },
+      cleaningCosts: [],
+      expenses: {},
+    };
+    const r = computePnl(data, []);
+    assert.strictEqual(r.revenueDirect, 80000);
+    assert.strictEqual(r.revenueGross, 260000 + 80000);
+    assert.strictEqual(r.otaFees, 7800 + 2400);
+    assert.strictEqual(r.profit, 340000 - 10200);
+  });
+
+  test("Airbnb + Booking + 直販 の3系統を合算", () => {
+    const data = {
+      propertyId: "p1",
+      revenue: {
+        airbnb: { grossRevenue: 100000, serviceFee: 3000 },
+        booking: { grossRevenue: 50000, commission: 6000, paymentFee: 1000 },
+        direct: { grossRevenue: 30000, stripeFee: 900 },
+      },
+      cleaningCosts: [],
+      expenses: {},
+    };
+    const r = computePnl(data, []);
+    assert.strictEqual(r.revenueGross, 180000);
+    assert.strictEqual(r.otaFees, 3000 + 6000 + 1000 + 900);
+  });
+
+  test("revenue.direct が無い月は revenueDirect=0(後方互換)", () => {
+    const data = {
+      propertyId: "p1",
+      revenue: { airbnb: { grossRevenue: 100000, serviceFee: 0 } },
+      cleaningCosts: [],
+      expenses: {},
+    };
+    const r = computePnl(data, []);
+    assert.strictEqual(r.revenueDirect, 0);
+    assert.strictEqual(r.revenueGross, 100000);
+  });
+});
+
+describe("sumDirectBookings", () => {
+  test("paymentStatus=paid のみ集計し、他ステータスは除外", () => {
+    const bookings = [
+      { syncSource: "direct", checkIn: "2026-06-10", checkOut: "2026-06-12", paymentStatus: "paid",
+        paymentSession: { amountPaid: 30000 } },
+      { syncSource: "direct", checkIn: "2026-06-15", checkOut: "2026-06-16", paymentStatus: "pending",
+        paymentSession: { amount: 15000 } },
+      { syncSource: "direct", checkIn: "2026-06-20", checkOut: "2026-06-21", paymentStatus: "expired",
+        paymentSession: { amount: 15000 } },
+      { syncSource: "direct", checkIn: "2026-06-22", checkOut: "2026-06-23", paymentStatus: "unconfigured" },
+    ];
+    const r = sumDirectBookings(bookings, "2026-06");
+    assert.strictEqual(r.grossRevenue, 30000);
+    assert.strictEqual(r.reservationCount, 1);
+    assert.strictEqual(r.nights, 2);
+  });
+
+  test("チェックイン月基準(先頭10文字で正規化)で対象月だけ集計", () => {
+    const bookings = [
+      { syncSource: "direct", checkIn: "2026-06-28", checkOut: "2026-07-02", paymentStatus: "paid",
+        paymentSession: { amountPaid: 40000 } },
+      { syncSource: "direct", checkIn: "2026-07-01T00:00:00.000Z", checkOut: "2026-07-03", paymentStatus: "paid",
+        paymentSession: { amountPaid: 20000 } },
+    ];
+    const r6 = sumDirectBookings(bookings, "2026-06");
+    assert.strictEqual(r6.grossRevenue, 40000);
+    assert.strictEqual(r6.reservationCount, 1);
+    const r7 = sumDirectBookings(bookings, "2026-07");
+    assert.strictEqual(r7.grossRevenue, 20000);
+    assert.strictEqual(r7.reservationCount, 1);
+  });
+
+  test("partially_refunded は (amountPaid − amountRefunded) の純額で計上", () => {
+    const bookings = [
+      { syncSource: "direct", checkIn: "2026-06-05", checkOut: "2026-06-07", paymentStatus: "partially_refunded",
+        paymentSession: { amountPaid: 50000, amountRefunded: 10000 } },
+    ];
+    const r = sumDirectBookings(bookings, "2026-06");
+    assert.strictEqual(r.grossRevenue, 40000);
+    assert.strictEqual(r.reservationCount, 1);
+  });
+
+  test("refunded(全額返金)は実収0のため対象外", () => {
+    const bookings = [
+      { syncSource: "direct", checkIn: "2026-06-05", checkOut: "2026-06-07", paymentStatus: "refunded",
+        paymentSession: { amountPaid: 50000, amountRefunded: 50000 } },
+    ];
+    const r = sumDirectBookings(bookings, "2026-06");
+    assert.strictEqual(r.grossRevenue, 0);
+    assert.strictEqual(r.reservationCount, 0);
+  });
+
+  test("金額フォールバック: amountPaid 無ければ priceBreakdown.grandTotal → total+parkingFee → paymentSession.amount", () => {
+    const withGrandTotal = sumDirectBookings([
+      { syncSource: "direct", checkIn: "2026-06-01", checkOut: "2026-06-02", paymentStatus: "paid",
+        paymentSession: {}, priceBreakdown: { total: 18000, grandTotal: 21000, parkingFee: 3000 } },
+    ], "2026-06");
+    assert.strictEqual(withGrandTotal.grossRevenue, 21000);
+
+    const withTotalPlusParking = sumDirectBookings([
+      { syncSource: "direct", checkIn: "2026-06-01", checkOut: "2026-06-02", paymentStatus: "paid",
+        paymentSession: {}, priceBreakdown: { total: 18000 }, parkingFee: 1000 },
+    ], "2026-06");
+    assert.strictEqual(withTotalPlusParking.grossRevenue, 19000);
+
+    const withSessionAmount = sumDirectBookings([
+      { syncSource: "direct", checkIn: "2026-06-01", checkOut: "2026-06-02", paymentStatus: "paid",
+        paymentSession: { amount: 12000 } },
+    ], "2026-06");
+    assert.strictEqual(withSessionAmount.grossRevenue, 12000);
+  });
+
+  test("source==='direct'(syncSource未設定の旧データ)も対象に含める", () => {
+    const r = sumDirectBookings([
+      { source: "direct", checkIn: "2026-06-01", checkOut: "2026-06-03", paymentStatus: "paid",
+        paymentSession: { amountPaid: 25000 } },
+    ], "2026-06");
+    assert.strictEqual(r.grossRevenue, 25000);
+  });
+
+  test("syncSource/source が direct でない予約(Airbnb/Booking取込等)は無視", () => {
+    const r = sumDirectBookings([
+      { syncSource: "airbnb", checkIn: "2026-06-01", checkOut: "2026-06-03", paymentStatus: "paid",
+        paymentSession: { amountPaid: 99999 } },
+    ], "2026-06");
+    assert.strictEqual(r.grossRevenue, 0);
+    assert.strictEqual(r.reservationCount, 0);
+  });
+
+  test("空配列/null は 0 を返す", () => {
+    assert.deepStrictEqual(sumDirectBookings([], "2026-06"), { grossRevenue: 0, nights: 0, reservationCount: 0 });
+    assert.deepStrictEqual(sumDirectBookings(null, "2026-06"), { grossRevenue: 0, nights: 0, reservationCount: 0 });
+  });
+
+  test("複数予約を合算(泊数・件数も積み上げ)", () => {
+    const bookings = [
+      { syncSource: "direct", checkIn: "2026-06-03", checkOut: "2026-06-05", paymentStatus: "paid",
+        paymentSession: { amountPaid: 30000 } },
+      { syncSource: "direct", checkIn: "2026-06-10", checkOut: "2026-06-14", paymentStatus: "paid",
+        paymentSession: { amountPaid: 60000 } },
+    ];
+    const r = sumDirectBookings(bookings, "2026-06");
+    assert.strictEqual(r.grossRevenue, 90000);
+    assert.strictEqual(r.reservationCount, 2);
+    assert.strictEqual(r.nights, 2 + 4);
   });
 });
 

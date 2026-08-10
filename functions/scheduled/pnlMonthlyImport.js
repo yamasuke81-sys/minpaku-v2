@@ -73,6 +73,15 @@ async function run(db, yearMonth, opts = {}) {
         r.cancelledPayout = { total: cxlTotal, rows: ota.payload.airbnb.cancelledPayoutRows || [] };
       }
 
+      // 直販(自社サイト→Stripe)予約。直販未開通の物件は reservationCount=0 で返る(正常・エラーではない)。
+      const direct = await invoke(pnl.cores.importDirect, params, {});
+      r.steps.direct = direct.payload?.ok
+        ? { 売上: direct.payload.direct?.grossRevenue ?? 0, 件数: direct.payload.direct?.reservationCount ?? 0 }
+        : { error: direct.payload?.error || `HTTP${direct.code}` };
+      if (direct.payload?.feeUnavailableCount > 0) {
+        r.steps.direct.手数料未取得件数 = direct.payload.feeUnavailableCount;
+      }
+
       const tax = await invoke(settlement.cores.importTax, params, {});
       r.steps.tax = tax.payload?.ok ? { 宿泊税: tax.payload.taxWithholding } : { error: tax.payload?.error || `HTTP${tax.code}` };
 
