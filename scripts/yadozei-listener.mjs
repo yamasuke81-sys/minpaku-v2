@@ -44,7 +44,7 @@ import { handleOtaMessage, pruneDraftPages } from "./ota-message.mjs";
 const _draftPages = new Set();
 
 // ================== 定数 ==================
-const VERSION = "0.5.0"; // 0.5.0: 直販料金のAirbnb同期(pricing_sync。5%OFF・日別ミラー) / 0.4.0: 印刷を白黒強制+印刷完了をボタン付きで通知(秘書経由) / 0.3.9: PDF自動印刷+両リンク記録 / 0.3.8: pdf_fetch厳格化 / 0.3.7: 失敗即時通知+audit自動リトライ
+const VERSION = "0.6.0"; // 0.6.0: 5%OFFの基準を「ゲストがAirbnbで見る価格」に変更(連泊割引・新規リスティング割引を実測して反映) / 0.5.0: 直販料金のAirbnb同期(pricing_sync。5%OFF・日別ミラー) / 0.4.0: 印刷を白黒強制+印刷完了をボタン付きで通知(秘書経由) / 0.3.9: PDF自動印刷+両リンク記録 / 0.3.8: pdf_fetch厳格化 / 0.3.7: 失敗即時通知+audit自動リトライ
 // 0.3.5: 失効検知はどのタイミングでも「はい」ワンタップ再ログイン促し(pending書込+CRD URL)を出す
 // 0.3.4: Booking ログイン判定を session_check と取得で共通化(OAuthバウンス誤検出根絶)+DL段リトライ/途中失効検知
 // 0.3.3: 「復元しますか?」バブル抑止 + ログインモードは3サイトのタブのみ (about:blank を閉じる)
@@ -1523,6 +1523,7 @@ async function fetchAirbnbPricing_(page, listingId, jobId) {
   const out = {
     listingId, title: null, basePrice: null, weekendPrice: null,
     smartPricing: false, discounts: [], days: [], currency: "JPY", notes: [],
+    promotionTypes: new Set(), guest: null,
   };
   const assertLoggedIn = (tag) => {
     if (/\/login|signin|sign_in|authwall/i.test(page.url())) {
@@ -1612,11 +1613,132 @@ async function fetchAirbnbPricing_(page, listingId, jobId) {
     const price = Number(d?.priceData?.price);
     if (!d?.day || !Number.isFinite(price)) continue;
     if (d.day < today) continue; // 過去日は同期しない
-    out.days.push({ day: d.day, price });
+    // available はゲスト側の試算日を選ぶのに使う(埋まっている日は価格が出ないため)
+    out.days.push({ day: d.day, price, available: d.available === true });
     if (d.priceData.currency && d.priceData.currency !== "JPY") out.currency = d.priceData.currency;
     if (d.priceData.listingSmartPricingEnabled) out.smartPricing = true;
+    if (d.priceData.promotionType) out.promotionTypes.add(d.priceData.promotionType);
   }
+  out.promotionTypes = [...out.promotionTypes];
   return out;
+}
+
+// ================== ゲストが実際に見る価格の実測 ==================
+// ★ホスト管理画面の「1泊料金」とゲストが見る価格は一致しない。Airbnb には週割/月割とは別に
+//   「連泊割引(2泊○%・3泊○%…)」があり、さらに「新規リスティング割引(泊数不問で一律20%)」等の
+//   プロモーションが乗る。どちらもホスト側APIからは率が取れないので、公開ページで実測する。
+//   実測値: テラス=2泊5%/3泊10% / 小町=2泊14%/3泊20% / 宇品=一律20%(new_hosting_promotion)。
+const GUEST_PROBE_NIGHTS = [1, 2, 3, 4, 5]; // 1泊=一律割引の判定、2泊以降=連泊割引のティア
+const GUEST_PROBE_MIN_LEAD_DAYS = 30; // 直前割の影響を避けるため十分先の日程で測る
+
+/** 予約フォームの価格欄から {full, guest} を読む。割引がある日は取り消し線価格(full)も出る。 */
+async function readGuestPricePanel_(page, nights) {
+  for (let i = 0; i < 18; i++) {
+    const txt = await page.evaluate(() => document.body.innerText).catch(() => "");
+    if (new RegExp(`（${nights}泊）`).test(txt)) {
+      const lines = txt.split("\n").map((s) => s.trim()).filter(Boolean);
+      const k = lines.findIndex((l) => l === "料金の内訳を表示");
+      if (k > 0) {
+        const nums = lines.slice(Math.max(0, k - 2), k)
+          .map((s) => parseInt(String(s).replace(/[^\d]/g, ""), 10))
+          .filter((n) => Number.isFinite(n) && n > 1000);
+        if (nums.length) return { full: nums.length > 1 ? nums[0] : nums[nums.length - 1], guest: nums[nums.length - 1] };
+      }
+    }
+    await page.waitForTimeout(2000);
+  }
+  return null;
+}
+
+/**
+ * 公開(ゲスト)ページで 1〜5泊の表示価格を実測し、
+ * 「泊数によらない一律割引(flatPercent)」と「連泊割引のティア(bundles)」に分解する。
+ * ホストとしてログイン済みのプロファイルは使わず、毎回まっさらな匿名ブラウザで見る。
+ */
+async function fetchAirbnbGuestDiscounts_(listingId, days, jobId) {
+  // 空室が5日続く、十分先の開始日を選ぶ(埋まっている日は価格が出ない)
+  const from = addDaysStr_(jstTodayStr(), GUEST_PROBE_MIN_LEAD_DAYS);
+  const idx = days.findIndex((d, i) =>
+    d.day >= from && days.slice(i, i + 6).length >= 6 && days.slice(i, i + 6).every((x) => x.available));
+  if (idx < 0) throw new Error("ゲスト価格を試算できる空室5日が見つからない");
+  const start = days[idx].day;
+
+  const browser = await chromium.launch({
+    headless: PLAYWRIGHT_HEADLESS,
+    args: ["--disable-blink-features=AutomationControlled", "--hide-crash-restore-bubble"],
+    ignoreDefaultArgs: ["--enable-automation"],
+  });
+  try {
+    const gctx = await browser.newContext({ locale: "ja-JP", viewport: { width: 1400, height: 1000 } });
+    await gctx.addInitScript(() => { Object.defineProperty(navigator, "webdriver", { get: () => undefined }); });
+    const gp = await gctx.newPage();
+    // ★ウォームアップ必須。Cookie を持たない状態だと check_in/check_out が無視されて価格が出ない
+    await gp.goto("https://www.airbnb.jp/", { waitUntil: "domcontentloaded", timeout: 90_000 }).catch(() => {});
+    await gp.waitForTimeout(6000);
+
+    const samples = {};
+    for (const n of GUEST_PROBE_NIGHTS) {
+      const co = addDaysStr_(start, n);
+      const url = `${AIRBNB_BASE}/rooms/${listingId}?check_in=${start}&check_out=${co}&adults=2`;
+      let panel = null;
+      for (let a = 1; a <= 3 && !panel; a++) {
+        await gp.goto(url, { waitUntil: "domcontentloaded", timeout: 90_000 }).catch(() => {});
+        panel = await readGuestPricePanel_(gp, n);
+        if (!panel) await gp.waitForTimeout(3000);
+      }
+      if (!panel) {
+        await saveScreenshot(gp, jobId, `guest_probe_${listingId}_${n}n`);
+        throw new Error(`ゲスト価格を読めなかった (${n}泊 / ${start}〜${co})`);
+      }
+      samples[n] = panel;
+      await gp.waitForTimeout(1500);
+    }
+
+    // ★割引率の分母は「こちらが持っているホスト日別価格の合計」を使う。
+    //   ページの取り消し線価格は当てにならない（1泊のときだけ Airbnb が参考価格 anchorPrice を
+    //   取り消し線で出すことがあり、それを定価と誤読すると存在しない割引を検出してしまう。
+    //   実測: テラス1泊は 定価34,438 なのに 38,215 の取り消し線が出て「9.9%引き」に見えた）。
+    const hostByDay = new Map(days.map((d) => [d.day, Number(d.price)]));
+    const hostSum = (n) => {
+      let s = 0;
+      for (let i = 0; i < n; i++) {
+        const v = hostByDay.get(addDaysStr_(start, i));
+        if (!Number.isFinite(v)) return null;
+        s += v;
+      }
+      return s;
+    };
+
+    const oneHost = hostSum(1);
+    if (!oneHost) throw new Error("試算日のホスト設定額が取れない");
+    const flat = 1 - samples[1].guest / oneHost;
+    // 2泊以降は「一律割引を除いた残り」が連泊割引
+    const bundles = [];
+    for (const n of GUEST_PROBE_NIGHTS.filter((x) => x >= 2)) {
+      const h = hostSum(n);
+      if (!h) continue;
+      const total = 1 - samples[n].guest / h;
+      const bundle = 1 - (1 - total) / (1 - flat);
+      const pct = Math.round(bundle * 1000) / 10; // 小数1桁
+      if (pct > 0.4) bundles.push({ minNights: n, percent: pct });
+    }
+    // 同率が続くティアは下位だけ残す (2泊5%・3泊5% → 2泊5% のみ)
+    const tiers = [];
+    for (const b of bundles) {
+      const prev = tiers[tiers.length - 1];
+      if (!prev || Math.abs(prev.percent - b.percent) > 0.4) tiers.push(b);
+    }
+    return {
+      flatPercent: Math.round(flat * 1000) / 10,
+      bundles: tiers,
+      probedFrom: start,
+      samples: Object.fromEntries(
+        Object.entries(samples).map(([k, v]) => [k, { guest: v.guest, pageFull: v.full, hostSum: hostSum(Number(k)) }])
+      ),
+    };
+  } finally {
+    try { await browser.close(); } catch (_) { /* ignore */ }
+  }
 }
 
 /** 取得値の健全性チェック。問題があれば理由(日本語)を返す。無ければ null。 */
@@ -1633,6 +1755,16 @@ function validateAirbnbPricing_(fetched, prevSync, force) {
     // 異常値ではないので弾かず、採用側(applyPricingSync_)で 0% を落とす。
     if (!(d.minNights >= 2) || !(d.percent >= 0 && d.percent <= 60)) {
       return `連泊割引の値が想定外 (${d.minNights}泊以上 ${d.percent}%)`;
+    }
+  }
+  // ゲスト実測値の妥当性(壊れた測定でいきなり半額にしない)
+  const flat = Number(fetched.guest?.flatPercent);
+  if (fetched.guest && (!Number.isFinite(flat) || flat < 0 || flat > 50)) {
+    return `ゲスト側の一律割引が想定外 (${flat}%)`;
+  }
+  for (const b of fetched.guest?.bundles || []) {
+    if (!(b.minNights >= 2) || !(b.percent > 0 && b.percent <= 60)) {
+      return `ゲスト側の連泊割引が想定外 (${b.minNights}泊 ${b.percent}%)`;
     }
   }
   // 前回のAirbnb原値からの急変を止める(取得ミス・別リスティングを掴んだ等の事故防止)
@@ -1662,11 +1794,25 @@ async function applyPricingSync_(prop, fetched, opts) {
   const cur = ratesSnap.exists ? ratesSnap.data() : null;
   const changes = [];
 
-  const newBase = discountedPrice_(fetched.basePrice ?? fetched.days[0]?.price);
-  const newWeekend = fetched.weekendPrice != null ? discountedPrice_(fetched.weekendPrice) : null;
-  const newDiscounts = fetched.discounts
-    .filter((d) => d.percent > 0)
-    .map((d) => ({ minNights: d.minNights, discountPercent: d.percent }))
+  // ★ゲストが実際に見る価格を基準にする。ホスト設定額には
+  //   ①泊数によらない一律割引(新規リスティング割引等) ②連泊割引(2泊○%・3泊○%)
+  //   が乗ってからゲストに表示されるため、①は1泊単価に織り込み、②は連泊割引として持たせる。
+  const flatPct = Number(fetched.guest?.flatPercent) || 0;
+  const flatFactor = 1 - flatPct / 100;
+  const guestPrice = (hostPrice) => discountedPrice_(Number(hostPrice) * flatFactor);
+
+  const newBase = guestPrice(fetched.basePrice ?? fetched.days[0]?.price);
+  const newWeekend = fetched.weekendPrice != null ? guestPrice(fetched.weekendPrice) : null;
+  // 週割・月割(ホスト設定から取得) と 連泊割引(ゲスト側で実測) を統合。
+  // 同じ minNights が両方にある場合は率の大きい方を採用する。
+  const discMap = new Map();
+  for (const d of fetched.discounts) if (d.percent > 0) discMap.set(d.minNights, d.percent);
+  for (const b of fetched.guest?.bundles || []) {
+    const cur = discMap.get(b.minNights);
+    if (cur == null || b.percent > cur) discMap.set(b.minNights, b.percent);
+  }
+  const newDiscounts = [...discMap.entries()]
+    .map(([minNights, discountPercent]) => ({ minNights, discountPercent }))
     .sort((a, b) => a.minNights - b.minNights);
 
   if (!Number.isFinite(newBase) || newBase < PRICING_SANE_MIN) {
@@ -1688,12 +1834,26 @@ async function applyPricingSync_(prop, fetched, opts) {
       rounding: "floor100",
       windowDays: PRICING_SYNC_WINDOW_DAYS,
       smartPricing: !!fetched.smartPricing,
+      promotionTypes: fetched.promotionTypes || [],
+      // ゲスト側で実測した割引(これを基準に5%OFFしている)
+      guest: fetched.guest
+        ? {
+            flatPercent: fetched.guest.flatPercent,
+            bundles: fetched.guest.bundles,
+            probedFrom: fetched.guest.probedFrom,
+            samples: fetched.guest.samples,
+            measuredAt: fetched.guest.measuredAt || null,
+            reused: !!fetched.guest.reused,
+          }
+        : null,
       // 次回の急変ガードと監査のため、Airbnb 側の原値をそのまま残す
       airbnb: {
         basePrice: fetched.basePrice ?? null,
         weekendPrice: fetched.weekendPrice ?? null,
         discounts: fetched.discounts,
         dayCount: fetched.days.length,
+        // ゲストが実際に見る1泊料金(一律割引込み)。5%OFFの基準はこちら
+        guestBasePrice: fetched.basePrice != null ? Math.round(fetched.basePrice * flatFactor) : null,
       },
       written: { basePrice: newBase, weekendPrice: newWeekend },
     },
@@ -1718,12 +1878,17 @@ async function applyPricingSync_(prop, fetched, opts) {
     if (wroteBefore && Number(cur.basePrice) !== Number(wroteBefore.basePrice)) {
       changes.push(`⚠️ 管理画面での手動変更(基本 ${cur.basePrice}円)を検出 → Airbnb同期値で上書き`);
     }
+    // Airbnb 側の表示額は「ホスト設定 × (1-一律割引)」＝ゲストが実際に見る額で書く
+    const shown = (v) => (v == null ? "なし" : fmtYen_(Math.round(Number(v) * flatFactor)));
     if (Number(cur.basePrice) !== newBase) {
-      changes.push(`基本 ${fmtYen_(cur.basePrice)} → ${fmtYen_(newBase)}（Airbnb ${fmtYen_(fetched.basePrice)}）`);
+      changes.push(`基本 ${fmtYen_(cur.basePrice)} → ${fmtYen_(newBase)}（Airbnb表示 ${shown(fetched.basePrice)}）`);
     }
     const curWeekend = Number.isFinite(Number(cur.weekendPrice)) ? Number(cur.weekendPrice) : null;
     if (curWeekend !== newWeekend) {
-      changes.push(`週末 ${curWeekend == null ? "なし" : fmtYen_(curWeekend)} → ${newWeekend == null ? "なし" : fmtYen_(newWeekend)}（Airbnb ${fetched.weekendPrice == null ? "なし" : fmtYen_(fetched.weekendPrice)}）`);
+      changes.push(`週末 ${curWeekend == null ? "なし" : fmtYen_(curWeekend)} → ${newWeekend == null ? "なし" : fmtYen_(newWeekend)}（Airbnb表示 ${shown(fetched.weekendPrice)}）`);
+    }
+    if (flatPct > 0) {
+      changes.push(`Airbnb側の一律割引 ${flatPct}% を織り込み済み（${(fetched.promotionTypes || []).includes("new_hosting_promotion") ? "新規リスティング割引" : "プロモーション"}）`);
     }
     const curDisc = JSON.stringify((cur.lengthOfStayDiscounts || []).map((d) => [Number(d.minNights), Number(d.discountPercent)]).sort());
     const newDisc = JSON.stringify(newDiscounts.map((d) => [d.minNights, d.discountPercent]).sort());
@@ -1736,8 +1901,10 @@ async function applyPricingSync_(prop, fetched, opts) {
   // --- 日別 overrides の差分反映 ---
   const desired = new Map();
   for (const d of fetched.days) {
-    const p = discountedPrice_(d.price);
-    if (Number.isFinite(p) && p >= PRICING_SANE_MIN) desired.set(d.day, { price: p, airbnbPrice: d.price });
+    const p = guestPrice(d.price); // 一律割引を織り込んだうえで5%OFF
+    // airbnbPrice には「ゲストが実際に見る1泊料金」を残す(監査・急変ガードの基準)
+    const guestShown = Math.round(Number(d.price) * flatFactor);
+    if (Number.isFinite(p) && p >= PRICING_SANE_MIN) desired.set(d.day, { price: p, airbnbPrice: guestShown, hostPrice: Number(d.price) });
   }
   const ovCol = ratesRef.collection("overrides");
   const existing = new Map();
@@ -1751,7 +1918,7 @@ async function applyPricingSync_(prop, fetched, opts) {
     const ex = existing.get(day);
     if (ex && ex.source !== PRICING_OVERRIDE_SOURCE) { manualKept++; continue; } // 手動設定は尊重する
     if (ex && Number(ex.price) === want.price && Number(ex.airbnbPrice) === want.airbnbPrice) continue;
-    writes.push({ ref: ovCol.doc(day), data: { price: want.price, airbnbPrice: want.airbnbPrice, source: PRICING_OVERRIDE_SOURCE, syncedAt: admin.firestore.FieldValue.serverTimestamp() } });
+    writes.push({ ref: ovCol.doc(day), data: { price: want.price, airbnbPrice: want.airbnbPrice, hostPrice: want.hostPrice, source: PRICING_OVERRIDE_SOURCE, syncedAt: admin.firestore.FieldValue.serverTimestamp() } });
   }
   for (const [day, ex] of existing) {
     if (ex.source !== PRICING_OVERRIDE_SOURCE) continue; // 手動設定は消さない
@@ -1812,6 +1979,7 @@ async function handlePricingSync(job, ctx, jobId) {
   const results = [];
   const skipped = [];
   const errors = [];
+  const guestWarn = []; // ゲスト価格の実測に失敗して前回値を流用した宿
   const page = await ctx.newPage();
   try {
     for (const t of targets) {
@@ -1820,7 +1988,29 @@ async function handlePricingSync(job, ctx, jobId) {
         console.log(`${LOG_PREFIX} [pricing_sync] ${t.name} (listing ${t.listingId}) 取得中…`);
         const fetched = await fetchAirbnbPricing_(page, t.listingId, jobId);
         const ratesSnap = await db.collection("propertyRates").doc(t.id).get();
-        const reason = validateAirbnbPricing_(fetched, ratesSnap.exists ? ratesSnap.data()?.sync : null, force);
+        const prevSync = ratesSnap.exists ? ratesSnap.data()?.sync : null;
+
+        // ★ゲストが実際に見る価格を実測する(連泊割引・一律プロモーションはホスト側APIから取れない)。
+        //   失敗したら前回の実測値を使い回す。ここで諦めて割引ゼロにすると直販が一気に高くなるため。
+        try {
+          const g = await fetchAirbnbGuestDiscounts_(t.listingId, fetched.days, jobId);
+          fetched.guest = { ...g, measuredAt: new Date().toISOString(), reused: false };
+          console.log(
+            `${LOG_PREFIX} [pricing_sync] ${t.name} ゲスト実測: 一律 ${g.flatPercent}% / 連泊割 ${g.bundles.map((b) => `${b.minNights}泊${b.percent}%`).join("・") || "なし"}` +
+              ` / 試算開始日 ${g.probedFrom} / 実測値 ${Object.entries(g.samples).map(([n, s]) => `${n}泊:${s.guest}(ホスト計${s.hostSum})`).join(" ")}`
+          );
+        } catch (ge) {
+          const prevG = prevSync?.guest;
+          if (prevG && Number.isFinite(Number(prevG.flatPercent))) {
+            fetched.guest = { ...prevG, reused: true };
+            console.warn(`${LOG_PREFIX} [pricing_sync] ${t.name} ゲスト実測に失敗 → 前回値を流用: ${ge.message}`);
+            guestWarn.push({ name: t.name, message: ge.message, reused: true });
+          } else {
+            throw new Error(`ゲスト価格の実測に失敗し、流用できる前回値もない: ${ge.message}`);
+          }
+        }
+
+        const reason = validateAirbnbPricing_(fetched, prevSync, force);
         if (reason) {
           skipped.push({ ...t, reason });
           console.warn(`${LOG_PREFIX} [pricing_sync] ${t.name} をスキップ: ${reason}`);
@@ -1862,6 +2052,12 @@ async function handlePricingSync(job, ctx, jobId) {
     }
   }
   // スキップ・失敗は「前回と理由が同じ」なら黙る。毎晩同じ警告を鳴らさないため。
+  if (guestWarn.length) {
+    lines.push(
+      `⚠️ **Airbnbのゲスト表示価格を測れなかった宿があります**（前回の割引率で計算しています）\n` +
+        guestWarn.map((g) => `・${g.name}: ${g.message}`).join("\n")
+    );
+  }
   const troubles = [
     ...skipped.map((s) => ({ ...s, reason: s.reason })),
     ...errors.map((e) => ({ ...e, reason: e.message })),
