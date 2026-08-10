@@ -28,3 +28,4 @@ CLAUDE.local.md
 
 # scratchpad（実データ含む調査/検証スクリプト置き場・個人情報混入可能性あり）
 scratchpad/
+_inv*.json
