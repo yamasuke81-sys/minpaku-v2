@@ -3,7 +3,7 @@
 //   A) Booking.com 入金(ドイツギンコウ BOOKING.COMブン、楽天第三):
 //      /pnl/:pid/verify-booking-payout — 前月チェックアウト分バッチの期待値と突合。
 //      一致=💰✅通知 / 残差=🚨通知(キャンセル料 or 予約エクスポート欠落の可能性)。
-//   B) Airbnb 入金(ペイオニア ジヤパン、楽天第三=the Terrace / 楽天ハープ=宿小町):
+//   B) Airbnb 入金(ペイオニア ジヤパン、楽天第三=the Terrace / 楽天ハープ=宿小町。宇品は第3候補):
 //      /pnl/:pid/verify-airbnb-payout — 予約CSVの「収入」との単独/2件合算一致を確認。
 //      一致=無音(件数が多いため) / 不一致=🚨通知(予約エクスポート欠落・金額相違・他物件入金の可能性)。
 //      口座と物件の対応が違う期間があるため、割当物件で不一致なら他物件でも照合してから通知。
@@ -30,6 +30,8 @@ const { chromium } = requireScripts("playwright-core");
 
 const TERRACE = "tsZybhDMcPrxqgcRy7wp";
 const KOMACHI = "RZV9IwtQgMAsvrdM3j8J";
+const UJINA = "ncUKeD4yQo0kfAoznITu"; // 2026-08-10追加: 宇品のAirbnb入金が両口座のどちらに来ても照合できるよう第3候補に置く
+const PROP_NAMES = { [TERRACE]: "the Terrace", [KOMACHI]: "宿小町", [UJINA]: "宇品" };
 const RAKUTEN3_HASH = "64SwijL8nXXCHReKyZpAbA"; // MF ㊇楽天第3(八朔) → Booking + Airbnb(the Terrace)
 const HARP_HASH = "tXfU3weteHfPaOksh_Kf_g";      // MF ㉂楽天ハープ    → Airbnb(宿小町)
 const RAKUTEN3_SERVICE = "1331";
@@ -146,7 +148,7 @@ async function reverifyMonth(ym) {
     const j = r[newMatch].j;
     const newCancelled = !!j.cancelledFeeInvolved;
     if (ent.matched === newMatch && !!ent.cancelledFeeInvolved === newCancelled) { console.log(`  ${ent.date} ¥${ent.amount.toLocaleString()}(mfId=${mfId}): 変化なし(既存ラベルのまま)`); continue; }
-    const propName = newMatch === TERRACE ? "the Terrace" : "宿小町";
+    const propName = PROP_NAMES[newMatch] || newMatch;
     if (j.interpretation?.delta) {
       console.log(`NOTIFY: ⚠️ 再検証 ${ent.date} ¥${ent.amount.toLocaleString()}(mfId=${mfId}) の一致先が ${propName}(${j.mode}) に変わり、キャンセル料調整候補(¥${j.interpretation.delta.toLocaleString()})があります。state未書換・Firestore反映は手動で確認してください。`);
       continue; // 金額が動く訂正は無人で自動確定させない
@@ -197,8 +199,11 @@ async function fetchAccountRows(page, hash, ym) {
       const r3 = await fetchAccountRows(page, RAKUTEN3_HASH, ym);
       const harp = await fetchAccountRows(page, HARP_HASH, ym);
       const bk = r3.filter((d) => HIT.test(d.desc) && d.amount > 0);
-      const abT = r3.filter((d) => PAYONEER.test(d.desc) && d.amount > 0).map((d) => ({ ...d, primary: TERRACE, secondary: KOMACHI, acct: "楽天第三" }));
-      const abK = harp.filter((d) => PAYONEER.test(d.desc) && d.amount > 0).map((d) => ({ ...d, primary: KOMACHI, secondary: TERRACE, acct: "楽天ハープ" }));
+      // fallbacks: 主物件で不一致のときに順に照合する候補。countMissing=true の候補(従来のsecondary)は
+      // CSV未着を「保留」理由に数えるが、宇品は運用開始前の月のCSVが構造的に存在しないため数えない
+      // (数えると宇品CSVが無いだけでテラス/小町の本物の不一致まで永久保留になる)。
+      const abT = r3.filter((d) => PAYONEER.test(d.desc) && d.amount > 0).map((d) => ({ ...d, primary: TERRACE, fallbacks: [{ pid: KOMACHI, countMissing: true }, { pid: UJINA, countMissing: false }], acct: "楽天第三" }));
+      const abK = harp.filter((d) => PAYONEER.test(d.desc) && d.amount > 0).map((d) => ({ ...d, primary: KOMACHI, fallbacks: [{ pid: TERRACE, countMissing: true }, { pid: UJINA, countMissing: false }], acct: "楽天ハープ" }));
       console.log(`[${ym}] Booking入金 ${bk.length}件 / Airbnb入金 第三${abT.length}+ハープ${abK.length}件`);
       bookingDeposits.push(...bk);
       airbnbDeposits.push(...abT, ...abK);
@@ -264,14 +269,17 @@ async function fetchAccountRows(page, hash, ym) {
     const p1Missing = p1.j.missingCsvMonths || [];
     let matchProp = (p1Missing.length === 0 && p1.j.match) ? d.primary : null;
     let missing = [...p1Missing];
-    let p2 = null;
+    let fbAmbiguous = false;
     if (!matchProp && p1Missing.length === 0) {
-      // 主口座のCSVは揃っているのに不一致 → 副物件(口座と物件の対応が逆の期間)をdryで照合。
-      // 副物件側もCSVが揃っている場合のみ一致を採用する(主口座のCSVが未着なら副物件は照合しない)。
-      p2 = await verifyAirbnb(d.secondary, d, false);
-      const p2Missing = p2.status === 200 ? (p2.j.missingCsvMonths || []) : [];
-      missing = [...new Set([...missing, ...p2Missing])];
-      if (p2.status === 200 && p2Missing.length === 0 && p2.j.match) matchProp = d.secondary;
+      // 主口座のCSVは揃っているのに不一致 → 副物件(口座と物件の対応が逆の期間)→宇品 の順にdryで照合。
+      // 各候補ともCSVが揃っている場合のみ一致を採用する(主口座のCSVが未着なら候補は照合しない)。
+      for (const fb of d.fallbacks) {
+        const p2 = await verifyAirbnb(fb.pid, d, false);
+        const p2Missing = p2.status === 200 ? (p2.j.missingCsvMonths || []) : [];
+        if (fb.countMissing) missing = [...new Set([...missing, ...p2Missing])];
+        if (p2.status === 200 && p2.j.interpretation?.ambiguous) fbAmbiguous = true;
+        if (p2.status === 200 && p2Missing.length === 0 && p2.j.match) { matchProp = fb.pid; break; }
+      }
     }
     // 2) CSV完備での一致が確認できた物件だけに対して確定照合(apply:true。--dry指定時はapply:false)
     let matched = null, matchedJson = null;
@@ -281,7 +289,7 @@ async function fetchAccountRows(page, hash, ym) {
       matched = matchProp; matchedJson = confirm.j;
     }
     if (matched) {
-      const propName = matched === TERRACE ? "the Terrace" : "宿小町";
+      const propName = PROP_NAMES[matched] || matched;
       const aa = matchedJson.autoAdjust || {};
       console.log(`  ✅ 一致(${propName}/${matchedJson.mode})${matched !== d.primary ? " ※口座と物件の対応が通常と逆" : ""}`);
       if (DRY) console.log(`  [dry] delta=${matchedJson.interpretation?.delta ?? 0} ciYm=${matchedJson.interpretation?.ciYm ?? "-"} (applyしていません)`);
@@ -296,11 +304,11 @@ async function fetchAccountRows(page, hash, ym) {
       state.processed[d.mfId] = { kind: "airbnb", date: d.date, amount: d.amount, matched, cancelledFeeInvolved: !!matchedJson.cancelledFeeInvolved, autoAdjust: aa.applied ? { ciYm: aa.ciYm, delta: aa.delta } : (aa.reason || null), verifiedAt: new Date().toISOString() };
     } else if (missing.length) {
       console.log(`  → CSV未着(${missing.join(",")})のため保留(翌日再試行、フォールバック解釈はスキップ)`);
-    } else if (p1.j.interpretation?.ambiguous || p2?.j?.interpretation?.ambiguous) {
+    } else if (p1.j.interpretation?.ambiguous || fbAmbiguous) {
       console.log(`NOTIFY: ⚠️ Airbnb入金 ¥${d.amount.toLocaleString()}(${d.date}、${d.acct}) はキャンセル料入金を含む解釈が**複数あり**自動調整できません。Airbnb取引履歴(支払い済み)で内訳を確認し、収支画面で売上を手修正してください。`);
       state.processed[d.mfId] = { kind: "airbnb", date: d.date, amount: d.amount, matched: null, ambiguous: true, verifiedAt: new Date().toISOString() };
     } else {
-      console.log(`NOTIFY: 🚨 Airbnb入金 ¥${d.amount.toLocaleString()}(${d.date}、${d.acct}) に一致する予約が Terrace/小町 の予約CSVに見つかりません。予約エクスポート欠落・金額相違・対象外物件の入金の可能性 → Airbnb 管理画面の取引履歴で確認してください。`);
+      console.log(`NOTIFY: 🚨 Airbnb入金 ¥${d.amount.toLocaleString()}(${d.date}、${d.acct}) に一致する予約が Terrace/小町/宇品 の予約CSVに見つかりません。予約エクスポート欠落・金額相違・対象外物件の入金の可能性 → Airbnb 管理画面の取引履歴で確認してください。`);
       state.processed[d.mfId] = { kind: "airbnb", date: d.date, amount: d.amount, matched: null, verifiedAt: new Date().toISOString() };
     }
   }
