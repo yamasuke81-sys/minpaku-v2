@@ -307,6 +307,12 @@ async function openLogin() {
   // --- 投入 ---
   if (DRY) { notify(`[dry] ${data.period.label} のCSVを作成しました（投入なし）: ${csv.path}`); return }
 
+  // ★報告期間が終わる前に登録しない。登録は取り消せないので、期間途中の数字で確定させると事故になる。
+  if (todayYmd() <= data.period.periodEnd) {
+    notify(`🛑 ${data.period.label} はまだ期間中です（${data.period.periodEnd} まで）。期間が終わってから登録します`)
+    return
+  }
+
   const r = await uploadToPortal(csv.path, data.period.portalLabel)
   if (r.alreadyReported) {
     // ポータルに同じ報告期間が既にある。登録は取り消せないので絶対に上書きしない。
