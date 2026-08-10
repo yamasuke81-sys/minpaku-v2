@@ -146,10 +146,24 @@
 - **`businessLicense` 未設定**: 若草／宇品／YADO KOMACHI／おのみちホテル／Hotel Zen／十日市ムラタク
   → **若草は民泊新法なので `minpaku_act` を設定すべき**。**YADO KOMACHI・宇品は旅館業なので `hotel_business` を設定すべき**（未設定＝民泊新法扱いのため、定期報告タブにも出てしまう）
 
+## DONE(2026-08-10) 自動化本体の完成（commit 96383ee / 912c350、.claude は 38b6be7）
+- **`minpaku-v2/scripts/jisseki-report.mjs`（新・command型ルーチン）**: API集計 → Shift_JIS CSV生成 → 提示 → ボタン押下でポータル投入 → 正常件数で判定 → v2に報告済み記録＋証跡スクショ
+  - フラグ: 既定=提示のみ／`--upload` 投入／`--check` 点検／`--csv-only`／`--open-login`／`--period YYYY-MM`／`--force`／`--dry`
+  - **Shift_JIS(cp932)変換は外部依存ゼロ**。`TextDecoder('shift_jis')` の逆引き表を起動時に作る（9397文字）。**Pythonのcp932出力とバイト完全一致を検証済み**（波ダッシュ U+FF5E → 0x8160）。変換できない文字は例外にして黙って化けさせない
+- **`routines.json` に `jisseki-report`（毎日08:40・persona=minpaku）**。偶数月1〜15日だけスクリプト側のゲートで発火、それ以外は無音。提示は1日1回
+- **Discord導線（`discord-secretary-resident.mjs`）**: `BUTTONS: jisseki_report`（✅登録する／⏸あとで／📱リモートデスクトップ）、`jisseki_login`（🔑開く／⚡登録する）。`handleChoiceButton` に `jisseki` 名前空間を追加
+- **フロントもサーバ側と同じ数え方に統一**（`public/js/api.js` の日付をUTC/ローカル混在から文字列日付へ、`reports.js` の宿泊日・延べ人数を報告期間でクリップ）。v0810c でデプロイ済
+- **物件マスタの `businessLicense` を実態に修正**: 若草→`minpaku_act`／YADO KOMACHI・UJINA→`hotel_business`
+- AUTOMATION.md＋ダッシュボード更新済
+
+### ★事故防止のガード3段（すべて実機で動作確認済み）
+1. **v2の報告済み記録**（`reports/{periodId}__{pid}.submittedAt`）があれば提示しない
+2. **ポータルの『事業実績一覧』に同じ報告期間があれば投入しない**（登録は取り消せないので、v2の記録だけを信じず実体で確認する。波ダッシュ U+FF5E/U+301C の字種ゆれを吸収して比較）
+3. **報告期間の末日を過ぎるまで投入しない**（期間途中の数字で確定させない）
+→ 2026-08-10 に「提出済みの6・7月分を `--upload` してみる」実地テストで②が作動し投入せず終了することを確認。③も8・9月分で確認済み
+
 ## NEXT
-1. **PC側スクリプト `scripts/jisseki-report.mjs`**: API取得 →**Shift_JIS(cp932)・BOMなし**でCSV保存 → debug Chrome で `/jigyo/jissekicsv` へ投入 → 「登録」→ confirm承認 → 「正常件数」を読んで判定。既定はドライラン、`--upload` で実投入
-2. **Discord導線**: 偶数月1日08:30に数字を提示＋「✅登録する」ボタン。期限15日まで未完了なら毎朝催促。セッション切れは🔑ボタン（ドコモ光と同型）
-3. 証跡（登録完了画面スクショ）をDriveへ保存し、`POST /reports/submit` に `portalResult` を記録
-4. フロント `public/js/api.js` の集計を `/reports/portal-report` に置換（画面とCSVの数字が必ず一致するように）
-5. 物件マスタの `businessLicense` 整備＋若草の届出番号登録（届出受理後）
-6. AUTOMATION.md（SSOT）＋ダッシュボード生成器の更新
+1. **初回の本番稼働＝2026-10-01〜15の8・9月分**。10/1の朝に #民泊管理 へ提示が出るので「✅登録する」を押す
+2. 若草の届出が受理されたら **`settings/owner.todokideNumbers[ZXW6wdpnBFk1azQ87KXQ]` に届出番号を登録**する。登録した時点で自動的に報告対象に入る（実績0でも0で報告される）
+3. `businessLicense` が未設定のまま残っている3件（おのみちホテル／Hotel Zen Hiroshima／十日市ムラタク）は判断材料が無いので未着手。民泊新法扱いのままなので定期報告タブに出る
+4. 竹原・安芸津も `minpaku_act` だが届出番号が未登録のため対象外。開業時に登録する
