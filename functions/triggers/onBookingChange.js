@@ -119,7 +119,10 @@ async function detectDoubleBooking(db, bookingId, after) {
   // 当該予約に conflictWithIds をセット（変化がある場合のみ更新してカスケードを抑制）
   const currentDoc = await db.collection("bookings").doc(bookingId).get();
   const currentIds = currentDoc.exists ? (currentDoc.data().conflictWithIds || []) : [];
-  if (!sameIds(currentIds, conflictIds)) {
+  // 通知は「この予約で新たに衝突を検知したとき」だけ出す。相手側予約への conflictWithIds 書込で
+  // トリガーが連鎖発火しても、ids が変わらなければ再通知しない（同一重複で2〜3通出るのを防ぐ）
+  const newlyDetected = !sameIds(currentIds, conflictIds);
+  if (newlyDetected) {
     await db.collection("bookings").doc(bookingId).update({
       conflictWithIds: conflictIds,
       conflictDetectedAt: admin_module.firestore.FieldValue.serverTimestamp(),
@@ -172,13 +175,20 @@ async function detectDoubleBooking(db, bookingId, after) {
   }
 
   // ダブルブッキング通知: 手動予約が絡む場合のみ通知抑制 (ユーザー指示 2026-04-22)
-  // 両方 iCal 由来の重複は従来通り LINE 通知する
-  const isManualLike = (x) => (x && x.manualOverride === true) || (x && /manual/i.test(String(x.source || "")));
+  // 両方 iCal 由来の重複は従来通り通知する
+  // ★manualOverride を判定に使ってはいけない (2026-08-10 修正)。これは「画面で編集した予約を
+  //   iCal同期に上書きさせない」ための編集保護フラグで、OTA予約にも付く。実際に 2026-07-19 と
+  //   2026-08-06 の Airbnb×Booking の実ダブルブッキング (テラス10/11・10/25) が、Booking側の
+  //   予約に manualOverride が付いていたせいで「手動絡み」と誤判定され、通知が握りつぶされた。
+  //   抑制してよいのは source が本当に手動 ("manual") の予約だけ。
+  const isManualLike = (x) => x && /manual/i.test(String(x.source || ""));
   const afterIsManual = isManualLike(after);
   const anyConflictIsManual = conflicts.some(c => isManualLike(c.data()));
 
   if (afterIsManual || anyConflictIsManual) {
     console.log(`[onBookingChange] ダブルブッキング検出 (手動絡みのため通知抑制): ${bookingId} と ${conflictIds.join(", ")}`);
+  } else if (!newlyDetected) {
+    console.log(`[onBookingChange] ダブルブッキング継続中 (既通知のため再通知せず): ${bookingId} と ${conflictIds.join(", ")}`);
   } else {
     // 通知設定を参照して送信先を判定（物件別オーバーライド適用）
     try {
