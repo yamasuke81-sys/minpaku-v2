@@ -318,13 +318,15 @@ const ReportsPage = {
     const contentEl = document.getElementById("reportContent");
     const tm1 = d.month1, tm2 = d.month2;
 
-    // 宿泊日セットを構築（CI〜CO-1の各日を宿泊日とする）
+    // 宿泊日セットを構築（CI〜CO-1の各日を宿泊日とする）。
+    // ★報告期間でクリップする。期間をまたぐ予約の期間外の日まで数えると宿泊日数・延べ人数が過大になる。
+    //   日付は文字列のまま扱う（Date経由だとUTC/ローカルが混ざって月跨ぎが1日ズレる）。
+    const pStart = (d.period && d.period.start) || `${tm1.year}-${String(tm1.month).padStart(2, "0")}-01`;
+    const pEnd = (d.period && d.period.end) || "9999-12-31";
     const stayDates = new Set();
     for (const row of d.details) {
-      const ci = new Date(row.checkIn);
-      const co = new Date(row.checkOut);
-      for (let dt = new Date(ci); dt < co; dt.setDate(dt.getDate() + 1)) {
-        stayDates.add(this.fmtDate(dt));
+      for (const day of this.stayDatesOf(row.checkIn, row.checkOut)) {
+        if (day >= pStart && day <= pEnd) stayDates.add(day);
       }
     }
 
@@ -341,10 +343,11 @@ const ReportsPage = {
     // ※ month1/month2 の合算（totalJapanese+totalForeign）は月跨ぎ予約を両月で数えるため使わない
     const totalGuests = Object.values(natCounts).reduce((a, b) => a + b, 0);
 
-    // 延べ人数 = 各宿泊者の泊数の合計
+    // 延べ人数 = 各日の全宿泊者数の合計 = Σ(人数 × 報告期間内の泊数)
+    // ★ totalNights（滞在全体の泊数）ではなく nights1+nights2（期間内の泊数）を使う
     let totalPersonNights = 0;
     for (const row of d.details) {
-      totalPersonNights += (row.guestCount || 1) * (row.totalNights || 0);
+      totalPersonNights += (row.guestCount || 1) * ((row.nights1 || 0) + (row.nights2 || 0));
     }
 
     contentEl.innerHTML = `
@@ -503,6 +506,24 @@ const ReportsPage = {
     }
     html += "</table>";
     return html;
+  },
+
+  // 宿泊日の配列。CIを含みCOを含まない（=泊数と一致）。
+  // 文字列日付のまま数えるのでタイムゾーンの影響を受けない。
+  // サーバ側 functions/api/reports-logic.js の stayDatesOf と同じ数え方。
+  stayDatesOf(checkIn, checkOut) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(checkIn || "") || !/^\d{4}-\d{2}-\d{2}$/.test(checkOut || "")) return [];
+    if (checkOut <= checkIn) return [];
+    const out = [];
+    let d = checkIn;
+    while (d < checkOut) {
+      out.push(d);
+      const [y, m, dd] = d.split("-").map(Number);
+      const nx = new Date(Date.UTC(y, m - 1, dd) + 86400000);
+      d = `${nx.getUTCFullYear()}-${String(nx.getUTCMonth() + 1).padStart(2, "0")}-${String(nx.getUTCDate()).padStart(2, "0")}`;
+      if (out.length > 400) break;
+    }
+    return out;
   },
 
   // 国籍名を政府フォームの国名にマッピング

@@ -126,9 +126,30 @@
 - `reports/{periodId}__{propertyId}` の `overrides`（キー=checkIn）で手動補正を上書き
 - 国籍別は**同行者情報があれば1人ずつ**、無ければ代表者の国籍×人数
 
+## DONE(2026-08-10) サーバ側集計＋ポータル用CSV生成（commit 1c6b67a・デプロイ済）
+- **`functions/api/reports-logic.js`（新・純粋関数）**: 国籍22区分／報告期間／宿泊日数・宿泊者数・延べ人数の集計／CSV生成。日付は**文字列のまま**扱いTZ非依存
+- **`GET /reports/portal-report?periodId=2026-10[&propertyIds=]`**: 届出番号が登録された民泊新法の全物件分をまとめて返す。`csv` はそのまま投入できる本文、`unknownNationalities` に「その他」の内訳、`warnings` に人数不整合。実績0の物件も0で出せる
+- 旧 `/aggregate` は未使用かつ期限計算が誤っていたので置き換え
+- **テスト26件追加（全484緑）**。2026年6・7月の実データで **27/85/136＋国籍8区分** の再現を固定（`reports-logic.test.js` のフィクスチャが実データそのもの）
+- **本番APIで検証済み**: 6・7月分＝実提出値と完全一致／8・9月分＝生成できることを確認
+
+### この実装で直したバグ
+1. 報告期限が1ヶ月遅かった（翌月15日→**偶数月の15日**）
+2. 日付のUTC/ローカル混在で月跨ぎ予約が1泊多く出ていた → 文字列日付に統一
+3. 国籍変換表の不足（KOREA/Hong Kong 等）。22区分に無い国は国名を残して通知できるように
+4. **物件ごとに guestRegistrations を全件読み直していた**（物件数だけフルスキャン）→ 1回読みに集約
+5. 物件フィルタが緩く賃貸物件27件が対象に入っていた → `type==="minpaku"` かつ旅館業でない9件に
+
+### 物件マスタの状態（2026-08-10 実測・要整備）
+`type==="minpaku"` は9件。**届出番号が登録されているのは the Terrace 長浜のみ**（`settings/owner.todokideNumber` の旧グローバル値 `第M340055098号`。`todokideNumbers` マップは空）。
+- `businessLicense="minpaku_act"`: the Terrace 長浜／安芸津小松原／竹原市下野
+- **`businessLicense` 未設定**: 若草／宇品／YADO KOMACHI／おのみちホテル／Hotel Zen／十日市ムラタク
+  → **若草は民泊新法なので `minpaku_act` を設定すべき**。**YADO KOMACHI・宇品は旅館業なので `hotel_business` を設定すべき**（未設定＝民泊新法扱いのため、定期報告タブにも出てしまう）
+
 ## NEXT
-1. ~~実機確認~~ **完了（2026-08-10）**。debug Chrome はログイン済みだった（西山 恭介）。上記「実機で確定した仕様」参照
-2. サーバ側 `functions/api/reports-logic.js`（純関数＋テスト）に集計を集約し、`GET /reports/portal-report` を新設。フロントもこれを使うよう置換
-3. CSV生成＋Discordボタン＋常駐ルーチン（偶数月1日08:30／期限まで催促）
-4. 証跡（登録完了画面スクショ）をDriveへ保存、v2 `reports` に報告済みを記録
-5. AUTOMATION.md（SSOT）＋ダッシュボード生成器の更新
+1. **PC側スクリプト `scripts/jisseki-report.mjs`**: API取得 →**Shift_JIS(cp932)・BOMなし**でCSV保存 → debug Chrome で `/jigyo/jissekicsv` へ投入 → 「登録」→ confirm承認 → 「正常件数」を読んで判定。既定はドライラン、`--upload` で実投入
+2. **Discord導線**: 偶数月1日08:30に数字を提示＋「✅登録する」ボタン。期限15日まで未完了なら毎朝催促。セッション切れは🔑ボタン（ドコモ光と同型）
+3. 証跡（登録完了画面スクショ）をDriveへ保存し、`POST /reports/submit` に `portalResult` を記録
+4. フロント `public/js/api.js` の集計を `/reports/portal-report` に置換（画面とCSVの数字が必ず一致するように）
+5. 物件マスタの `businessLicense` 整備＋若草の届出番号登録（届出受理後）
+6. AUTOMATION.md（SSOT）＋ダッシュボード生成器の更新

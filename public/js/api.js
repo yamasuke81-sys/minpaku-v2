@@ -1238,22 +1238,32 @@ const API = {
       const month2Data = { year: y2, month: m2, totalNights: 0, japanese: 0, foreign: 0, byNationality: {} };
       const details = [];
 
-      function calcNightsInMonth(checkIn, checkOut, year, month) {
-        const ci = new Date(checkIn), co = new Date(checkOut);
-        if (isNaN(ci) || isNaN(co) || co <= ci) return 0;
-        const monthStart = new Date(year, month - 1, 1);
-        const monthEnd = new Date(year, month, 1);
-        const overlapStart = ci > monthStart ? ci : monthStart;
-        const overlapEnd = co < monthEnd ? co : monthEnd;
-        const nights = Math.ceil((overlapEnd - overlapStart) / (1000 * 60 * 60 * 24));
-        return nights > 0 ? nights : 0;
+      // 日付は YYYY-MM-DD の文字列のまま扱う。
+      // ★ new Date("2026-07-01") は UTC、new Date(2026,6,1) はローカル(JST)なので、
+      //   両者を混ぜると月をまたぐ予約の泊数が1日多く出る(2026-08-10 に実データで確認)。
+      //   サーバ側 functions/api/reports-logic.js と同じ数え方に揃えてある。
+      function addDaysStr(dateStr, n) {
+        const [y, m, d] = dateStr.split("-").map(Number);
+        const dt = new Date(Date.UTC(y, m - 1, d) + n * 86400000);
+        return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
       }
-
+      // 宿泊日の配列。チェックイン日を含み、チェックアウト日は含まない(=泊数と一致)
+      function stayDatesOf(checkIn, checkOut) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(checkIn || "") || !/^\d{4}-\d{2}-\d{2}$/.test(checkOut || "")) return [];
+        if (checkOut <= checkIn) return [];
+        const out = [];
+        for (let d = checkIn; d < checkOut; d = addDaysStr(d, 1)) {
+          out.push(d);
+          if (out.length > 400) break;
+        }
+        return out;
+      }
+      function calcNightsInMonth(checkIn, checkOut, year, month) {
+        const pre = `${year}-${String(month).padStart(2, "0")}-`;
+        return stayDatesOf(checkIn, checkOut).filter((d) => d.startsWith(pre)).length;
+      }
       function calcStayNights(checkIn, checkOut) {
-        const ci = new Date(checkIn), co = new Date(checkOut);
-        if (isNaN(ci) || isNaN(co)) return 0;
-        const diff = Math.ceil((co - ci) / (1000 * 60 * 60 * 24));
-        return diff > 0 ? diff : 0;
+        return stayDatesOf(checkIn, checkOut).length;
       }
 
       // 日本人判定: "日本", "Japan", "日本 / Japan", "日本/Japan" 等すべて日本人
