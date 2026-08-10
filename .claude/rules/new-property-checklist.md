@@ -53,6 +53,18 @@
 | 直販サイト予約開通 | setouchi-stay-sites（published/Stripe） | 直販予約 | |
 | 楽天でんき（該当時） | `minpaku-v2/scripts/rakuten-denki-monthly.mjs` の CONTRACTS + startYm | 電気代の月次計上 | |
 
+## フェーズ3: 公開・集客（予約受付開始と同時〜直後）
+
+| 項目 | 場所/方法 | 備考 |
+|---|---|---|
+| 直販サイト公開・予約開通 | setouchi-stay-sites（`bookingEnabled` / site.json `published`・`comingSoon`・`dnsUnreadySlugs`）＋DNS | 公開後に実機で「空室カレンダー→リクエストフォーム→プラン・キャンセルポリシー表示」を確認 |
+| **Googleビジネスプロフィール（Googleマップ）** | business.google.com（既存宿と同じGoogleアカウントで作成） | カテゴリ=旅館/ホテル・住所・**電話**・直販URL・写真・チェックイン時刻。**オーナー確認（電話/ハガキ/動画）が必要**。※テラスは電話番号未登録のまま（2026-08-10発見）。登録後はクチコミ導線（ガイド/現地QR）も検討 |
+| Instagram（@setouchistay.jp） | 新宿の紹介投稿＋ハイライト | 投稿は3の倍数ずつ（プロフィールグリッド維持） |
+| Booking.com 出品の要否 | 経営判断 | テラスのみ出品中。出品するなら yadozei.booking／iCal双方向／mf-booking-monitor のBooking側も配線 |
+| タイミー チェックインQR | Timee店舗管理→`properties.timeeQrImageUrl` | E2Eの残タスクになりがち |
+| Google Search Console | サイトのインデックス登録状況 | published切替（noindex解除）後に確認 |
+| 施設賠償・旅館賠償責任保険 | 運営主体ごと | 運営者が八朔以外（宇品=tomi企画）の場合は特に要確認 |
+
 ## 二層構造の罠（2026-08-10 実測で確定）
 
 - **通知系**（direct_request / roster_remind / urgent_remind / ical_sync 等）: ゲートは **`channelOverrides[key].enabled`**。`reservationFlow.{key}.enabled` は propertyField を持たないステップ用の表示トグルで、通知の実体判定には使われない

@@ -69,5 +69,11 @@ description: 新物件の開業前E2Eテスト。テスト予約→清掃募集�
 5. 消えないもの（許容）: Storage の請求書PDF孤児 / タイミーの取り消し済み求人履歴
 6. LINE/メールの実着弾をやますけに確認してもらう
 
-### 8. 報告
+### 8. 公開・集客の点検（フェーズ3）
+配線テストとは別軸で、以下も実物で確認する（詳細は new-property-checklist.md フェーズ3）:
+- **直販サイト**: `https://{slug}.setouchi-stay.com` を実際に開き、空室カレンダー→予約リクエストフォーム→プラン/キャンセルポリシーが出ること
+- **Googleマップ**: `google.com/maps/search/{宿名}+{住所}` で登録有無を確認。未登録なら business.google.com で作成（既存宿と同じアカウント・オーナー確認が必要=やますけ同席）。既存宿も電話番号・URL・写真の欠けを見る
+- Instagram紹介投稿／Booking.com出品の要否／タイミーチェックインQR（timeeQrImageUrl）／Search Console／賠償保険
+
+### 9. 報告
 各工程の ✅/❌ と、発見した配線漏れ（→ new-property-checklist.md と memory に追記）を報告。
