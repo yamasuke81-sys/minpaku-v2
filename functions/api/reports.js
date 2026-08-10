@@ -1,312 +1,272 @@
 /**
  * 定期報告 API
- * 住宅宿泊事業法14条 — 2ヶ月ごとの定期報告データ集計・記録
+ * 住宅宿泊事業法14条 — 2ヶ月ごとの事業実績報告
+ *
+ * 集計の実体は reports-logic.js（純粋関数・テスト済み）に置く。
+ * 民泊制度運営システムへ投入する値をサーバ側で作るのが目的で、
+ * PC常駐ルーチンがブラウザ無しで叩けるようにしてある（gas- Bearer 認証）。
+ *
+ * 旧 `/aggregate` は誰からも呼ばれておらず、期限計算にも誤りがあったため
+ * `/portal-report` に置き換えた（2026-08-10）。
  */
 const { Router } = require("express");
 const { FieldValue } = require("firebase-admin/firestore");
+const {
+  getReportPeriods,
+  buildJissekiReport,
+  toCsvRow,
+  toPortalCsv,
+} = require("./reports-logic");
+
+// the Terrace 長浜。propertyId 未設定の旧データはこの物件とみなす
+const TERRACE_PID = "tsZybhDMcPrxqgcRy7wp";
+// the Terrace 専用の旧GASデータ（名簿に無い予約の補完に使う）
+const MIGRATED_COLLECTION = "migrated_民泊メイン_フォームの回答_1";
 
 module.exports = function reportsApi(db) {
   const router = Router();
 
-  /**
-   * 報告期間の定義
-   * 偶数月1日にメール受信 → 翌月15日が期限
-   * 例: 4月1日受信 → 2月・3月分を → 5月15日までに報告
-   */
-  function getReportPeriods() {
-    const now = new Date();
-    const year = now.getFullYear();
-    const periods = [];
-
-    for (let m = 2; m <= 12; m += 2) {
-      const targetMonth1 = m - 2 || 12;
-      const targetMonth2 = m - 1 || 1;
-      const targetYear1 = m === 2 ? year - 1 : year;
-      const targetYear2 = m === 2 ? year : year;
-      const deadlineMonth = m + 1 > 12 ? 1 : m + 1;
-      const deadlineYear = m + 1 > 12 ? year + 1 : year;
-
-      periods.push({
-        id: `${year}-${String(m).padStart(2, "0")}`,
-        notifyMonth: m,
-        notifyYear: year,
-        targetMonths: [
-          { year: targetYear1, month: targetMonth1 },
-          { year: targetYear2, month: targetMonth2 },
-        ],
-        deadline: `${deadlineYear}-${String(deadlineMonth).padStart(2, "0")}-15`,
-        label: `${targetYear1}年${targetMonth1}月・${targetYear2}年${targetMonth2}月`,
-      });
-    }
-    return periods;
-  }
-
-  /**
-   * 日本人判定: "日本", "Japan", "日本 / Japan", "日本/Japan" 等すべて日本人
-   */
-  function isJapanese(nat) {
-    const n = (nat || "日本").trim().toLowerCase();
-    return n === "日本" || n === "japan" || n.includes("日本") || /^japan\b/i.test(n);
-  }
-
-  /**
-   * プレースホルダ名判定（iCal同期で自動生成された仮名）
-   */
+  /** iCal同期で自動生成された仮名かどうか */
   function isPlaceholderName(name) {
     if (!name) return true;
-    const n = name.trim().toLowerCase();
+    const n = String(name).trim().toLowerCase();
     return !n || n === "-" ||
       n.includes("airbnb") || n.includes("booking.com") ||
       n.includes("not available") || n.includes("closed") ||
       n.includes("予約") || n.includes("blocked");
   }
 
+  /** Firestore の日付値を YYYY-MM-DD に正規化（先頭10文字ルール） */
+  function toDateStr(v) {
+    if (!v) return null;
+    if (typeof v.toDate === "function") {
+      const d = v.toDate();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    }
+    const s = String(v).slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+  }
+
+  function reportDocId(periodId, propertyId) {
+    return propertyId ? `${periodId}__${propertyId}` : periodId;
+  }
+
+  /** 物件別レポートドキュメント。the Terrace は旧 bare ID からフォールバック */
+  async function getReportDoc(periodId, propertyId) {
+    const scoped = await db.collection("reports").doc(reportDocId(periodId, propertyId)).get();
+    if (scoped.exists) return scoped.data();
+    if (propertyId === TERRACE_PID) {
+      const legacy = await db.collection("reports").doc(periodId).get();
+      if (legacy.exists) return legacy.data();
+    }
+    return null;
+  }
+
   /**
-   * 指定月に滞在日数が重なる泊数を計算
+   * 報告対象の物件を返す。
+   * 「届出番号が登録されている民泊新法の物件」＝報告義務がある物件。
+   * 宿泊実績が0でも報告が必要なので、実績の有無では絞らない。
    */
-  function calcNightsInMonth(checkIn, checkOut, year, month) {
-    if (!checkIn || !checkOut) return 0;
-    const ci = new Date(checkIn);
-    const co = new Date(checkOut);
-    if (isNaN(ci) || isNaN(co) || co <= ci) return 0;
+  async function listReportableProperties(filterIds) {
+    const [propSnap, ownerDoc] = await Promise.all([
+      db.collection("properties").get(),
+      db.collection("settings").doc("owner").get(),
+    ]);
+    const ownerData = ownerDoc.exists ? ownerDoc.data() : {};
+    const numbers = ownerData.todokideNumbers || {};
 
-    const monthStart = new Date(year, month - 1, 1);
-    const monthEnd = new Date(year, month, 1);
-    const overlapStart = ci > monthStart ? ci : monthStart;
-    const overlapEnd = co < monthEnd ? co : monthEnd;
-    const nights = Math.ceil((overlapEnd - overlapStart) / (1000 * 60 * 60 * 24));
-    return nights > 0 ? nights : 0;
+    const out = [];
+    for (const doc of propSnap.docs) {
+      const p = doc.data();
+      // 宿泊事業の物件だけを見る（賃貸物件などを除外）
+      if (p.type !== "minpaku") continue;
+      // 旅館業の物件は住宅宿泊事業法14条の定期報告の対象外
+      if (p.businessLicense === "hotel_business") continue;
+      if (filterIds && filterIds.length && !filterIds.includes(doc.id)) continue;
+      let todokideNumber = numbers[doc.id] || "";
+      if (!todokideNumber && doc.id === TERRACE_PID) todokideNumber = ownerData.todokideNumber || "";
+      out.push({ propertyId: doc.id, name: p.name || "", todokideNumber: String(todokideNumber).trim() });
+    }
+    return out;
   }
 
-  function calcStayNights(checkIn, checkOut) {
-    if (!checkIn || !checkOut) return 0;
-    const ci = new Date(checkIn);
-    const co = new Date(checkOut);
-    if (isNaN(ci) || isNaN(co)) return 0;
-    const diff = Math.ceil((co - ci) / (1000 * 60 * 60 * 24));
-    return diff > 0 ? diff : 0;
+  /**
+   * 全物件分の予約明細を**コレクション1回読み**で集めて物件ごとに束ねる。
+   * 物件ごとに guestRegistrations を読み直すと物件数だけフルスキャンが走るので必ずここでまとめる。
+   */
+  async function loadRowsByProperty(periodStart, periodEnd, needMigrated) {
+    const guestSnap = await db.collection("guestRegistrations").get();
+
+    // 物件ごとに 同一 CI|CO を1件へ寄せる。実名をプレースホルダ名より優先
+    // （例: 同じ日程に iCal 由来の「Booking.com予約」ダミーが並ぶことがある）
+    const dedup = new Map(); // propertyId → Map("CI|CO" → row)
+    for (const doc of guestSnap.docs) {
+      const g = doc.data();
+      const ci = toDateStr(g.checkIn), co = toDateStr(g.checkOut);
+      if (!ci || !co) continue;
+      if (co < periodStart || ci > periodEnd) continue;
+      // propertyId 未設定の旧データは the Terrace とみなす
+      const pid = g.propertyId || TERRACE_PID;
+      if (!dedup.has(pid)) dedup.set(pid, new Map());
+      const m = dedup.get(pid);
+      const key = `${ci}|${co}`;
+      const ex = m.get(key);
+      const row = {
+        source: "guestRegistrations",
+        guestName: g.guestName || "-",
+        checkIn: ci, checkOut: co,
+        guestCount: Number(g.guestCount) || 1,
+        nationality: (g.nationality || "日本").toString().trim(),
+        companions: Array.isArray(g.guests) ? g.guests : [],
+      };
+      if (!ex) m.set(key, row);
+      else if (isPlaceholderName(ex.guestName) && !isPlaceholderName(row.guestName)) m.set(key, row);
+    }
+
+    const byProperty = new Map();
+    for (const [pid, m] of dedup) byProperty.set(pid, Array.from(m.values()));
+
+    // 名簿に無い予約を旧GASデータで補完（the Terrace のみ）
+    if (needMigrated) {
+      const rows = byProperty.get(TERRACE_PID) || [];
+      const ciSet = new Set(rows.map((r) => r.checkIn));
+      try {
+        const mSnap = await db.collection(MIGRATED_COLLECTION).get();
+        for (const doc of mSnap.docs) {
+          const d = doc.data();
+          const ci = toDateStr(d["チェックイン"] || d["チェックイン / Check-in"] || d.checkIn);
+          const co = toDateStr(d["チェックアウト"] || d["チェックアウト / Check-out"] || d.checkOut);
+          if (!ci || !co) continue;
+          if (co < periodStart || ci > periodEnd) continue;
+          if (ciSet.has(ci)) continue;
+          rows.push({ source: "migrated", guestName: "-（名簿未登録）",
+            checkIn: ci, checkOut: co, guestCount: 1, nationality: "日本", companions: [] });
+          ciSet.add(ci);
+        }
+      } catch (e) { /* コレクションが無ければ無視 */ }
+      byProperty.set(TERRACE_PID, rows);
+    }
+    return byProperty;
   }
 
-  // === 報告期間一覧取得 ===
+  /** レポート専用の手動補正（キー = checkIn）を当てる */
+  function applyOverrides(rows, overrides) {
+    for (const r of rows) {
+      const ov = overrides[r.checkIn];
+      if (!ov) continue;
+      if (ov.guestCount !== undefined) r.guestCount = Number(ov.guestCount) || 1;
+      if (ov.nationality !== undefined) {
+        r.nationality = String(ov.nationality).trim();
+        r.companions = []; // 補正した国籍を全員に適用する
+      }
+      if (ov.guestName !== undefined) r.guestName = ov.guestName;
+      r.overridden = true;
+    }
+    rows.sort((a, b) => a.checkIn.localeCompare(b.checkIn));
+    return rows;
+  }
+
+  // === 報告期間一覧 ===
   router.get("/periods", async (req, res) => {
     try {
-      const periods = getReportPeriods();
-      const reportsSnap = await db.collection("reports").get();
-      const reportMap = {};
-      reportsSnap.docs.forEach((doc) => {
-        reportMap[doc.id] = doc.data();
-      });
-
-      const result = periods.map((p) => ({
+      const propertyId = req.query.propertyId || null;
+      const periods = getReportPeriods(new Date().getFullYear());
+      const recs = await Promise.all(periods.map((p) => getReportDoc(p.id, propertyId)));
+      res.json(periods.map((p, i) => ({
         ...p,
-        submitted: !!reportMap[p.id]?.submittedAt,
-        submittedAt: reportMap[p.id]?.submittedAt || null,
-        memo: reportMap[p.id]?.memo || "",
-      }));
-
-      res.json(result);
+        submitted: !!(recs[i] && recs[i].submittedAt),
+        submittedAt: (recs[i] && recs[i].submittedAt) || null,
+        memo: (recs[i] && recs[i].memo) || "",
+      })));
     } catch (e) {
       console.error("報告期間一覧取得エラー:", e);
       res.status(500).json({ error: "報告期間の取得に失敗しました" });
     }
   });
 
-  // === 指定期間の集計データ取得 ===
-  router.get("/aggregate", async (req, res) => {
+  /**
+   * === 民泊制度運営システムへ投入する報告データ ===
+   * GET /reports/portal-report?periodId=2026-10[&propertyIds=a,b]
+   *
+   * 届出番号が登録されている民泊新法の全物件分をまとめて返す。
+   * csv はそのままアップロードできる本文（保存時に **Shift_JIS・BOMなし** にすること）。
+   */
+  router.get("/portal-report", async (req, res) => {
     try {
-      const { year1, month1, year2, month2 } = req.query;
-      if (!year1 || !month1 || !year2 || !month2) {
-        return res.status(400).json({ error: "year1, month1, year2, month2 は必須です" });
+      const periods = getReportPeriods(new Date().getFullYear());
+      const periodId = req.query.periodId;
+      const period = periodId
+        ? periods.find((p) => p.id === periodId)
+        : null;
+      if (!period) {
+        return res.status(400).json({
+          error: "periodId が不正です",
+          available: periods.map((p) => ({ id: p.id, label: p.label, deadline: p.deadline })),
+        });
       }
 
-      const y1 = Number(year1), m1 = Number(month1);
-      const y2 = Number(year2), m2 = Number(month2);
+      const filterIds = req.query.propertyIds
+        ? String(req.query.propertyIds).split(",").map((s) => s.trim()).filter(Boolean)
+        : null;
+      const props = await listReportableProperties(filterIds);
+      const needMigrated = props.some((p) => p.propertyId === TERRACE_PID);
+      const [rowsByProperty, reportDocs] = await Promise.all([
+        loadRowsByProperty(period.periodStart, period.periodEnd, needMigrated),
+        Promise.all(props.map((p) => getReportDoc(period.id, p.propertyId))),
+      ]);
 
-      const periodStart = `${y1}-${String(m1).padStart(2, "0")}-01`;
-      const periodEndDate = new Date(y2, m2, 0);
-      const periodEnd = `${y2}-${String(m2).padStart(2, "0")}-${String(periodEndDate.getDate()).padStart(2, "0")}`;
-
-      // guestRegistrations 取得
-      const guestSnap = await db.collection("guestRegistrations").get();
-      const rawGuests = guestSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-
-      // bookings 取得
-      const bookingSnap = await db.collection("bookings").get();
-      const bookings = bookingSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-
-      // guestRegistrations 内の重複排除（同一CI+COで実名優先）
-      const ciCoMap = new Map();
-      for (const g of rawGuests) {
-        const ci = g.checkIn, co = g.checkOut;
-        if (!ci || !co) continue;
-        const key = `${ci}|${co}`;
-        const existing = ciCoMap.get(key);
-        if (!existing) {
-          ciCoMap.set(key, g);
-        } else {
-          const existingIsPlaceholder = isPlaceholderName(existing.guestName);
-          const newIsPlaceholder = isPlaceholderName(g.guestName);
-          if (existingIsPlaceholder && !newIsPlaceholder) {
-            ciCoMap.set(key, g);
-          }
-        }
-      }
-      const guests = Array.from(ciCoMap.values());
-
-      // 集計結果
-      const month1Data = { year: y1, month: m1, totalNights: 0, japanese: 0, foreign: 0, byNationality: {} };
-      const month2Data = { year: y2, month: m2, totalNights: 0, japanese: 0, foreign: 0, byNationality: {} };
-      const details = [];
-
-      // guestRegistrations 集計
-      // 人数: 名簿のguestCount（宿泊人数）を採用
-      // 国籍別: 同行者情報があればそこから、なければ代表者の国籍×人数で計算
-      for (const g of guests) {
-        const ci = g.checkIn;
-        const co = g.checkOut;
-        if (!ci || !co) continue;
-        if (co < periodStart || ci > periodEnd) continue;
-
-        const guestCount = g.guestCount || 1;
-        const nationality = (g.nationality || "日本").trim();
-        const companions = g.guests || [];
-
-        // 国籍別人数の計算
-        let jpCount = 0, foreignCount = 0;
-        const foreignByNat = {};
-
-        if (companions.length > 0) {
-          // 同行者情報あり → 代表者 + 同行者それぞれの国籍で集計
-          const allPeople = [
-            { nationality },
-            ...companions.map((c) => ({ nationality: (c.nationality || "日本").trim() })),
-          ];
-          for (const p of allPeople) {
-            if (isJapanese(p.nationality)) { jpCount++; }
-            else { foreignCount++; foreignByNat[p.nationality] = (foreignByNat[p.nationality] || 0) + 1; }
-          }
-        } else {
-          // 同行者情報なし → 代表者の国籍で全員カウント
-          if (isJapanese(nationality)) { jpCount = guestCount; }
-          else { foreignCount = guestCount; foreignByNat[nationality] = guestCount; }
-        }
-
-        const nights1 = calcNightsInMonth(ci, co, y1, m1);
-        if (nights1 > 0) {
-          month1Data.totalNights += nights1;
-          month1Data.japanese += jpCount;
-          month1Data.foreign += foreignCount;
-          for (const [nat, cnt] of Object.entries(foreignByNat)) {
-            month1Data.byNationality[nat] = (month1Data.byNationality[nat] || 0) + cnt;
-          }
-        }
-
-        const nights2 = calcNightsInMonth(ci, co, y2, m2);
-        if (nights2 > 0) {
-          month2Data.totalNights += nights2;
-          month2Data.japanese += jpCount;
-          month2Data.foreign += foreignCount;
-          for (const [nat, cnt] of Object.entries(foreignByNat)) {
-            month2Data.byNationality[nat] = (month2Data.byNationality[nat] || 0) + cnt;
-          }
-        }
-
-        if (nights1 > 0 || nights2 > 0) {
-          details.push({
-            id: g.id,
-            source: "guestRegistrations",
-            guestName: g.guestName || "-",
-            nationality,
-            checkIn: ci,
-            checkOut: co,
-            guestCount,
-            nights1,
-            nights2,
-            totalNights: calcStayNights(ci, co),
-          });
-        }
+      const results = [];
+      for (let i = 0; i < props.length; i++) {
+        const p = props[i];
+        const rec = reportDocs[i];
+        const rows = applyOverrides(rowsByProperty.get(p.propertyId) || [], (rec && rec.overrides) || {});
+        const submitted = !!(rec && rec.submittedAt);
+        const report = buildJissekiReport(rows, period.periodStart, period.periodEnd);
+        results.push({
+          propertyId: p.propertyId,
+          name: p.name,
+          todokideNumber: p.todokideNumber,
+          // 届出番号が無い＝まだ届出が受理されていない物件。報告対象から外す
+          reportable: !!p.todokideNumber,
+          submitted,
+          ...report,
+          csvRow: p.todokideNumber ? toCsvRow(p.todokideNumber, period.portalLabel, report) : null,
+        });
       }
 
-      // 重複チェック用: guestRegistrationsに存在するCI日のセット
-      const guestCiSet = new Set(details.map((d) => d.checkIn));
-
-      // bookings 補完（guestRegistrationsにCI一致するものは除外）
-      for (const b of bookings) {
-        const ci = b.checkIn;
-        const co = b.checkOut;
-        if (!ci || !co) continue;
-
-        const ciStr = ci.toDate ? ci.toDate().toISOString().slice(0, 10) : String(ci).slice(0, 10);
-        const coStr = co.toDate ? co.toDate().toISOString().slice(0, 10) : String(co).slice(0, 10);
-        if (coStr < periodStart || ciStr > periodEnd) continue;
-        if (guestCiSet.has(ciStr)) continue;
-
-        const guestCount = b.guestCount || 1;
-        const nights1 = calcNightsInMonth(ciStr, coStr, y1, m1);
-        const nights2 = calcNightsInMonth(ciStr, coStr, y2, m2);
-
-        if (nights1 > 0) {
-          month1Data.totalNights += nights1;
-          month1Data.japanese += guestCount;
-        }
-        if (nights2 > 0) {
-          month2Data.totalNights += nights2;
-          month2Data.japanese += guestCount;
-        }
-
-        if (nights1 > 0 || nights2 > 0) {
-          details.push({
-            id: b.id,
-            source: "bookings",
-            guestName: b.guestName || "-",
-            nationality: "（名簿未登録）",
-            checkIn: ciStr,
-            checkOut: coStr,
-            guestCount,
-            nights1,
-            nights2,
-            totalNights: calcStayNights(ciStr, coStr),
-          });
-        }
-      }
-
-      details.sort((a, b) => (a.checkIn || "").localeCompare(b.checkIn || ""));
-
+      const csvRows = results.filter((r) => r.csvRow).map((r) => r.csvRow);
       res.json({
-        period: { start: periodStart, end: periodEnd },
-        month1: month1Data,
-        month2: month2Data,
-        details,
-        totalNights: month1Data.totalNights + month2Data.totalNights,
-        totalJapanese: month1Data.japanese + month2Data.japanese,
-        totalForeign: month1Data.foreign + month2Data.foreign,
+        period: {
+          id: period.id, label: period.label, portalLabel: period.portalLabel,
+          periodStart: period.periodStart, periodEnd: period.periodEnd, deadline: period.deadline,
+        },
+        properties: results,
+        skipped: results.filter((r) => !r.reportable).map((r) => ({ propertyId: r.propertyId, name: r.name, reason: "届出番号が未登録" })),
+        csv: csvRows.length ? toPortalCsv(csvRows) : null,
       });
     } catch (e) {
-      console.error("定期報告集計エラー:", e);
-      res.status(500).json({ error: "集計に失敗しました" });
+      console.error("定期報告データ生成エラー:", e);
+      res.status(500).json({ error: "定期報告データの生成に失敗しました" });
     }
   });
 
   // === 報告済みとして記録 ===
   router.post("/submit", async (req, res) => {
     try {
-      const { periodId, memo } = req.body;
-      if (!periodId) {
-        return res.status(400).json({ error: "periodId は必須です" });
-      }
+      const { periodId, propertyId, memo, portalResult } = req.body;
+      if (!periodId) return res.status(400).json({ error: "periodId は必須です" });
 
-      await db.collection("reports").doc(periodId).set(
-        {
-          periodId,
-          submittedAt: FieldValue.serverTimestamp(),
-          submittedBy: req.user.email || req.user.uid,
-          memo: memo || "",
-          updatedAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
+      await db.collection("reports").doc(reportDocId(periodId, propertyId)).set({
+        periodId,
+        propertyId: propertyId || null,
+        submittedAt: FieldValue.serverTimestamp(),
+        submittedBy: req.user.email || req.user.uid,
+        memo: memo || "",
+        portalResult: portalResult || null, // 「正常件数：N」等の登録結果を証跡として残す
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
 
-      res.json({ message: "報告済みとして記録しました", periodId });
+      res.json({ message: "報告済みとして記録しました", periodId, propertyId: propertyId || null });
     } catch (e) {
       console.error("報告記録エラー:", e);
       res.status(500).json({ error: "報告記録に失敗しました" });
@@ -316,20 +276,15 @@ module.exports = function reportsApi(db) {
   // === 報告済みを取消 ===
   router.post("/unsubmit", async (req, res) => {
     try {
-      const { periodId } = req.body;
-      if (!periodId) {
-        return res.status(400).json({ error: "periodId は必須です" });
-      }
+      const { periodId, propertyId } = req.body;
+      if (!periodId) return res.status(400).json({ error: "periodId は必須です" });
 
-      await db.collection("reports").doc(periodId).set(
-        {
-          periodId,
-          submittedAt: null,
-          submittedBy: null,
-          updatedAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
+      await db.collection("reports").doc(reportDocId(periodId, propertyId)).set({
+        periodId,
+        submittedAt: null,
+        submittedBy: null,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
 
       res.json({ message: "報告済みを取消しました", periodId });
     } catch (e) {
