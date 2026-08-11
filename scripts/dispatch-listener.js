@@ -35,7 +35,7 @@ const https = require("https");
 const { chromium } = require("playwright");
 
 // ================== 定数 ==================
-const VERSION = "0.3.1"; // 0.3.1: snapshot error を指数バックオフ再購読(2/8/32秒×3回)化+launchCtx を実Chrome→bundled Chromium フォールバック化 / 0.3.0: userscript注入統一+偽posted根絶+snapshot error 自己再起動
+const VERSION = "0.4.0"; // 0.4.0: 一般公開への自動切替オフ+マッチング時メッセージ送信を機械検証 (userscript v0.4.0 と対) / 0.3.2: group_limited×groupIds空を投稿前に弾く+確認画面へ進めない時に画面のエラー文言を拾う / 0.3.1: snapshot error を指数バックオフ再購読(2/8/32秒×3回)化+launchCtx を実Chrome→bundled Chromium フォールバック化 / 0.3.0: userscript注入統一+偽posted根絶+snapshot error 自己再起動
 const LOG_PREFIX = "[listener]";
 
 if (!admin.apps.length) {
@@ -369,7 +369,6 @@ async function handleTimeePost(data) {
   if (!tf || !tf.baseUrl) {
     throw new Error("property.timeeAutofill 未設定 (タイミー求人テンプレ URL がない)");
   }
-
   const url = buildTimeeAutofillUrl(tf, checkoutDate, visibility);
   if (!url) throw new Error("buildTimeeAutofillUrl が null を返した");
   console.log(`${LOG_PREFIX} opening with Playwright: ${url.slice(0, 80)}...`);
@@ -380,6 +379,16 @@ async function handleTimeePost(data) {
   //   (以前は console.warn + ログインURLの正常 return で timeeStatus="posted" になる偽成功だった)
   let createdUrl;
   try {
+    // グループ限定は groupIds が無いと成立しない。userscript はグループ限定ラジオだけ選び、
+    // タイミーは確認ボタンを押した後に「限定公開グループを入力してください」で遷移を止めるため、
+    // 事前に弾かないと「求人を公開ボタンが出ない」タイムアウトという読めない失敗になる (2026-08-11 実例)。
+    // ここで throw すると下の catch が拾い、既定ブラウザで開く+Discord 通知まで乗る (人手ならグループを選べる)。
+    if (visibility === "group_limited" && !String(tf.groupIds || "").trim()) {
+      throw new Error(
+        "timeeAutofill.groupIds が未設定のため「グループ限定」では投稿できません " +
+        "(物件マスタにグループIDを設定するか、初回ワーカー限定で投稿してください)"
+      );
+    }
     createdUrl = await autoSubmitTimeeJob(url);
     console.log(`${LOG_PREFIX} timee 求人作成完了: ${createdUrl}`);
   } catch (e) {
@@ -476,6 +485,17 @@ async function autoSubmitTimeeJob(url) {
         !!(document.querySelector(`input[type="radio"][name="publishScopeKind"][value="${vis}"]`)?.checked
           || document.getElementById(vis)?.checked), expected.visibility)
     : true;
+  // 一般公開への自動切り替えは行わない方針 (2026-08-11 やますけ決定)。タイミーは限定公開を選ぶと
+  // 「おまかせタイミングで切り替える」を初期選択するため、userscript が消せたかを必ず確認する。
+  // マッチング時メッセージは送信する設定であることも併せて確認 (どちらも黙って既定に戻ると気づけない)。
+  const policy = await page.evaluate(() => {
+    const dummy = document.getElementById("autoPublishEnabledSelect");
+    const control = dummy ? (dummy.closest("[class*=control]") || dummy.parentElement) : null;
+    return {
+      autoPublish: control ? (control.innerText || "").replace(/\s+/g, " ").trim() : null, // null=コンボ自体が無い(一般公開時)
+      autoMsg: document.querySelector('input[type="radio"][name="matchingAutoChatMessage.enabled"][value="true"]')?.checked ?? null,
+    };
+  });
   const t5 = (s) => String(s ?? "").slice(0, 5); // "10:00:00" 等の表記ゆれ吸収
   const mismatch = [];
   if (expected.date && applied.selectedDate !== expected.date) mismatch.push(`日付 ${applied.selectedDate || "未選択"}≠${expected.date}`);
@@ -483,6 +503,10 @@ async function autoSubmitTimeeJob(url) {
   if (expected.start && t5(applied.start) !== t5(expected.start)) mismatch.push(`開始 ${applied.start}≠${expected.start}`);
   if (expected.end && t5(applied.end) !== t5(expected.end)) mismatch.push(`終了 ${applied.end}≠${expected.end}`);
   if (!visibilityOk) mismatch.push(`公開設定 ${expected.visibility} が未選択`);
+  if (policy.autoPublish !== null && !/自動切り替えをしない/.test(policy.autoPublish)) {
+    mismatch.push(`一般公開への自動切替が「${policy.autoPublish}」のまま (「自動切り替えをしない」が必要)`);
+  }
+  if (policy.autoMsg === false) mismatch.push("マッチング時メッセージが「送信しない」になっている");
   if (mismatch.length) throw new Error(`自動入力の検証NG: ${mismatch.join(" / ")}`);
 
   // ---- 2026-08 の現行 UI は2段階: 「入力した求人内容を確認」→ 確認画面で「求人を公開」 ----
@@ -507,10 +531,25 @@ async function autoSubmitTimeeJob(url) {
   await submitBtn.click();
 
   // 2) 確認画面: 「休業手当に関する事項を確認しました。」チェック (必須) → 「求人を公開」
-  await page.waitForFunction(
-    () => Array.from(document.querySelectorAll("button")).some((b) => /求人を公開/.test(b.textContent || "")),
-    null, { timeout: 20000 }
-  );
+  //    遷移しないときは画面のエラー文言を拾う。素の Timeout メッセージだけだと原因が読めず、
+  //    Discord 通知を見ても何が悪いのか分からない (2026-08-11 のグループ未選択が実例)。
+  try {
+    await page.waitForFunction(
+      () => Array.from(document.querySelectorAll("button")).some((b) => /求人を公開/.test(b.textContent || "")),
+      null, { timeout: 20000 }
+    );
+  } catch (_) {
+    const errText = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[class*=error], [class*=Error], [role=alert]'))
+        .map((e) => (e.innerText || "").replace(/\s+/g, " ").trim())
+        .filter((t) => t && !/^https?:|^\//.test(t)) // URL だけの要素は原因ではないので除く
+        // 先頭語は Material Symbols のアイコン名 (error/info)。実エラーを先に並べ、通知の 200 字制限で
+        // 肝心の1行が押し出されないようにする (info の注意書きが長く先に来る画面がある)
+        .sort((a, b) => (/^error\b/.test(b) ? 1 : 0) - (/^error\b/.test(a) ? 1 : 0))
+        .map((t) => t.replace(/^(error|info|warning)\s+/, ""))
+        .slice(0, 3).join(" / ")).catch(() => "");
+    throw new Error(`確認画面へ進めない (入力内容の不備/タイミー UI 変更の可能性${errText ? ": " + errText : ""})`);
+  }
   await page.waitForTimeout(1500);
   await page.evaluate(() => {
     const cb = Array.from(document.querySelectorAll('input[type=checkbox]'))

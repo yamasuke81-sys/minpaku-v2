@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         タイミー 民泊清掃募集 自動入力
 // @namespace    https://v2-5-relay.web.app/
-// @version      0.3.0
+// @version      0.4.0
 // @description  v2 通知から開かれた募集作成フォームを、URL ハッシュパラメータで自動入力する
 // @author       minpaku-v2
 // @match        https://app-new.taimee.co.jp/clients/*/offers/*/offerings/new*
@@ -200,6 +200,11 @@
     // 求人締切 (既定=開始時刻と同時) より前になり矛盾エラーで確認ボタンが disabled のままになるため、
     // どの締切設定とも矛盾しない「開始時刻と同時」を選ぶ
     await pickComboOption('onboarding.deadlineOffsetHours', /^開始時刻と同時$/);
+
+    // 自動で「一般公開」に切り替え: 限定公開を選ぶとタイミーが「おまかせタイミングで切り替える」を
+    // 勝手に初期選択する。意図しない一般公開は行わない方針 (2026-08-11 やますけ決定) のため必ず
+    // 「自動切り替えをしない」にする。一般公開時はこのコンボ自体が無く、false が返るだけで無害。
+    await pickComboOption('autoPublishEnabledSelect', /^自動切り替えをしない$/);
 
     showBanner('民泊v2: 募集項目を自動入力しました。内容を確認のうえ「求人を作成」を押してください。');
   }
