@@ -411,14 +411,18 @@ const MyRecruitmentPage = {
         n.includes("not available") || n.includes("blocked") || n.includes("closed") || n.includes("reserved");
     };
 
-    const bookingMap = new Map(); // key: "CI|CO" → merged
-    const addBooking = (b, sourceType) => {
+    const bookingMap = new Map(); // key → merged
+    // 物件+CI+CO の日付キー (名簿を実予約へ寄せるときの照合に使う)
+    const dateKeyOf = (b) =>
+      `${b.propertyId || "_nopid_"}|${toDateStr(b.checkIn)}|${toDateStr(b.checkOut)}`;
+    // mapKey を明示的に渡せる。実予約 (bookings) は doc ごとに独立キーを与え、
+    // 同一物件・同一 CI/CO の別予約 (=ダブルブッキング) が 1 件へ合成されるのを防ぐ。
+    // 合成されると色・人数・氏名が2予約から混ざった存在しない予約バーになり、重複が画面から消える。
+    const addBooking = (b, sourceType, mapKey) => {
       const ci = toDateStr(b.checkIn);
       const co = toDateStr(b.checkOut);
       if (!ci) return;
-      // propertyId を key に含めて物件別に独立保持 (同日 CI/CO の異なる物件が 1件にマージされる問題を修正)
-      const pid = b.propertyId || "_nopid_";
-      const key = `${pid}|${ci}|${co}`;
+      const key = mapKey || dateKeyOf(b);
       const existing = bookingMap.get(key);
       if (!existing) {
         bookingMap.set(key, { ...b, checkIn: ci, checkOut: co, _sourceType: sourceType, _sources: [sourceType] });
@@ -440,8 +444,18 @@ const MyRecruitmentPage = {
       });
     };
 
-    // 1) bookings コレクション - 最優先
-    rawBookings.forEach(b => addBooking(b, "bookings"));
+    // 1) bookings コレクション - 最優先。
+    //    doc ID をキーに含めて必ず独立エントリにする (ダブルブッキングを合成しない)。
+    const keyByBookingId = new Map(); // booking docId → mapKey
+    const keysByDateKey = new Map();  // "pid|ci|co" → [mapKey]
+    rawBookings.forEach(b => {
+      const dk = dateKeyOf(b);
+      const key = `${dk}|#${b.id}`;
+      keyByBookingId.set(b.id, key);
+      if (!keysByDateKey.has(dk)) keysByDateKey.set(dk, []);
+      keysByDateKey.get(dk).push(key);
+      addBooking(b, "bookings", key);
+    });
     // 2) guestRegistrations - 補完 (bookings 側に無い予約を拾う)
     //    判定優先順位:
     //      a) g.bookingId あり → 紐付け先 booking が cancelled or 削除済なら常にスキップ
@@ -460,7 +474,7 @@ const MyRecruitmentPage = {
         if (isCancelledStatus(linked.status)) return; // 紐付け先 booking がキャンセル済 → スキップ
         if (linked.pendingApproval === true) return;  // 紐付け先 booking が保留中 → スキップ
       }
-      addBooking({
+      const payload = {
         id: "g_" + g.id,
         guestName: g.guestName || "",
         checkIn: g.checkIn, checkOut: g.checkOut,
@@ -470,7 +484,16 @@ const MyRecruitmentPage = {
         nationality: g.nationality || "",
         bbq: g.bbq || "", parking: g.parking || "",
         memo: g.memo || "",
-      }, "guestRegistrations");
+      };
+      // マージ先の解決: ①bookingId が指す実予約へ直結 (同日に別予約があっても取り違えない)
+      //                ②bookingId なしは日付一致の実予約へ (複数該当なら先頭=従来動作)
+      //                ③該当なしは名簿単独エントリ
+      let mapKey = g.bookingId ? keyByBookingId.get(g.bookingId) : null;
+      if (!mapKey) {
+        const cands = keysByDateKey.get(dateKeyOf(payload)) || [];
+        mapKey = cands.length ? cands[0] : null;
+      }
+      addBooking(payload, "guestRegistrations", mapKey);
     });
 
     this.bookings = Array.from(bookingMap.values());
@@ -1171,15 +1194,25 @@ const MyRecruitmentPage = {
           };
           // 1パス目: 非キャンセル予約(確定/保留)でこのセルの左右半分を確定
           //   ending=左半分 / starting=右半分 / middle=両方 を占有
+          // ★ダブルブッキング (同じ半分を奪い合う確定予約が複数) は下段レーンへ退避し、
+          //   このセルだけ上下 2 段の細いバーで両方を描く。
+          //   CO 日と別予約の CI 日が重なるだけのケースは左右半分で棲み分くので重複ではない。
           let aStart = null, aEnd = null, aMid = null;
+          let dualStart = null, dualEnd = null, dualMid = null;
           for (const b of propBookings) {
             if (isCancelled(b)) continue;
-            if (b.checkIn === d) aStart = b;
-            else if (b.checkOut === d) aEnd = b;
-            else if (b.checkIn < d && d < b.checkOut) aMid = b;
+            if (b.checkIn === d) { if (aStart) dualStart = b; else aStart = b; }
+            else if (b.checkOut === d) { if (aEnd) dualEnd = b; else aEnd = b; }
+            else if (b.checkIn < d && d < b.checkOut) { if (aMid) dualMid = b; else aMid = b; }
           }
-          const leftOcc = !!aEnd || !!aMid;   // 左半分を確定予約が占有
-          const rightOcc = !!aStart || !!aMid; // 右半分を確定予約が占有
+          // middle は左右両方を占有するので、同セルの starting/ending とは必ず衝突する。
+          // その場合は middle を上段に残し、starting/ending を下段へ落とす。
+          if (aMid && aEnd && !dualEnd) { dualEnd = aEnd; aEnd = null; }
+          if (aMid && aStart && !dualStart) { dualStart = aStart; aStart = null; }
+          const hasDual = !!(dualStart || dualEnd || dualMid);
+          // 下段へ退避した分も「確定予約が占有している」に数える (キャンセルを割り込ませない)
+          const leftOcc = !!aEnd || !!aMid || !!dualEnd || !!dualMid;   // 左半分を確定予約が占有
+          const rightOcc = !!aStart || !!aMid || !!dualStart || !!dualMid; // 右半分を確定予約が占有
           // 2パス目: キャンセル予約は確定予約が占有していない半分にだけ描画
           //   (キャンセルバーが日程の重なる新規予約の上に被って汚く見える問題への対処。
           //    同日CI/CO一致だけでなく、中日が重なるケースでも確定予約を常に優先する)
@@ -1199,52 +1232,85 @@ const MyRecruitmentPage = {
           // セグメント描画 (バー高さ = 清掃pillと同じ 20px 固定、上下中央)
           // z-index:2 でセル罫線より前面に表示
           // pointer-events:none で内部要素のタップを td 全体に確実にバブルさせる
-          const barTopStyle = "top:50%;transform:translateY(-50%);height:20px;pointer-events:none;";
+          // 通常は中央に太いバー1本。重複日 (hasDual) だけ上下2段の細いバーにして両方見せる。
+          // 重複時はバー自身をタップ対象にし、上下どちらの予約を開くか選べるようにする
+          // (通常時は pointer-events:none のままセル全体でタップを受ける)。
+          const barTopStyle = hasDual
+            ? "top:calc(50% - 10px);height:9px;pointer-events:auto;cursor:pointer;"
+            : "top:50%;transform:translateY(-50%);height:20px;pointer-events:none;";
+          const barTopStyle2 = "top:calc(50% + 1px);height:9px;pointer-events:auto;cursor:pointer;";
+          const barAttr = (b) => hasDual && b ? ` class="cal-date-hd" data-cal-date="${b.checkIn}" data-booking-id="${this.esc(b.id)}"` : "";
           let segs = "";
           if (ending) {
             const c = bookingDisplayColor(ending, fallbackColor);
             const dec = bookingBarDecor(ending);
-            segs += `<div style="position:absolute;left:0;right:50%;${barTopStyle}background:${c};${dec}border-top-right-radius:999px;border-bottom-right-radius:999px;z-index:2;"></div>`;
+            segs += `<div${barAttr(ending)} style="position:absolute;left:0;right:50%;${barTopStyle}background:${c};${dec}border-top-right-radius:999px;border-bottom-right-radius:999px;z-index:2;"></div>`;
           }
           if (middle) {
             const c = bookingDisplayColor(middle, fallbackColor);
             const dec = bookingBarDecor(middle);
-            segs += `<div style="position:absolute;left:0;right:0;${barTopStyle}background:${c};${dec}z-index:2;"></div>`;
+            segs += `<div${barAttr(middle)} style="position:absolute;left:0;right:0;${barTopStyle}background:${c};${dec}z-index:2;"></div>`;
           }
-          if (starting) {
-            const c = bookingDisplayColor(starting, fallbackColor);
-            const dec = bookingBarDecor(starting);
-            segs += `<div style="position:absolute;left:50%;right:0;${barTopStyle}background:${c};${dec}border-top-left-radius:999px;border-bottom-left-radius:999px;z-index:2;"></div>`;
-            // 名簿ドット判定 — placeholder予約と他物件名簿の誤マッチを防ぐ
+          // 下段レーン (重複日のみ)。人数ラベル・決済バッジは幅が無いので出さない
+          if (dualEnd) {
+            const c = bookingDisplayColor(dualEnd, fallbackColor);
+            const dec = bookingBarDecor(dualEnd);
+            segs += `<div${barAttr(dualEnd)} style="position:absolute;left:0;right:50%;${barTopStyle2}background:${c};${dec}border-top-right-radius:999px;border-bottom-right-radius:999px;z-index:2;"></div>`;
+          }
+          if (dualMid) {
+            const c = bookingDisplayColor(dualMid, fallbackColor);
+            const dec = bookingBarDecor(dualMid);
+            segs += `<div${barAttr(dualMid)} style="position:absolute;left:0;right:0;${barTopStyle2}background:${c};${dec}z-index:2;"></div>`;
+          }
+          // 名簿ドット — placeholder予約と他物件名簿の誤マッチを防ぐ
+          // (1) 予約自体がプレースホルダー名 (Reserved 等) なら名簿未記入扱い
+          // (2) 物件IDがあれば propertyId+CI の複合キーで照合、無ければ CI 単独
+          // (3) guestRegistration 側もプレースホルダー名なら未記入扱い
+          // (4) 名簿の bookingId が予約バーの id と一致しない場合は別予約の名簿とみなして未記入扱い
+          //     (キャンセル予約やダブルブッキング相手の名簿を自分のものと誤認しないため)
+          const rosterDot = (bk, lane) => {
+            if (!bk) return "";
             const isPlaceholder = (n) => {
               const s = String(n || "").toLowerCase().trim();
               return !s || /^(reserved|not available|airbnb|booking|airbnb予約|booking\.com予約|\(no name\))/i.test(s);
             };
-            // (1) 予約自体がプレースホルダー名 (Reserved 等) なら名簿未記入扱い
-            // (2) 物件IDがあれば propertyId+CI の複合キーで照合、無ければ CI 単独
-            // (3) guestRegistration 側もプレースホルダー名なら未記入扱い
-            // (4) 名簿の bookingId が予約バーの id と一致しない場合は別予約の名簿とみなして未記入扱い
-            //     (キャンセル予約の名簿が同日新規予約の名簿に誤認されるのを防ぐ)
             let hasGuest = false;
-            if (!isPlaceholder(starting.guestName)) {
-              const key = starting.propertyId
-                ? `${starting.propertyId}_${starting.checkIn}`
-                : starting.checkIn;
+            if (!isPlaceholder(bk.guestName)) {
+              const key = bk.propertyId ? `${bk.propertyId}_${bk.checkIn}` : bk.checkIn;
               const g = this.guestMap[key];
               if (g && !isPlaceholder(g.guestName)) {
                 // bookingId が登録されている名簿は、対応する booking と一致する場合のみ「あり」
                 // bookingId が無い名簿 (手入力等) は従来通り日付一致で「あり」
-                if (!g.bookingId || g.bookingId === starting.id) hasGuest = true;
+                if (!g.bookingId || g.bookingId === bk.id) hasGuest = true;
               }
             }
             const dotColor = hasGuest ? "#198754" : "#dc3545";
             const dotTitle = hasGuest ? "名簿提出済み" : "名簿未提出";
-            segs += `<span style="position:absolute;left:calc(50% + 4px);top:50%;transform:translateY(-50%);width:9px;height:9px;border-radius:50%;background:${dotColor};border:1.5px solid #fff;z-index:4;pointer-events:none;" title="${dotTitle}"></span>`;
+            // 重複日は細バーの中心に合わせて小さめに置く (上段/下段)
+            const pos = !hasDual ? "top:50%;" : (lane === 0 ? "top:calc(50% - 5.5px);" : "top:calc(50% + 5.5px);");
+            const size = hasDual ? 7 : 9;
+            const bw = hasDual ? 1 : 1.5;
+            return `<span style="position:absolute;left:calc(50% + 4px);${pos}transform:translateY(-50%);width:${size}px;height:${size}px;border-radius:50%;background:${dotColor};border:${bw}px solid #fff;z-index:4;pointer-events:none;" title="${dotTitle}"></span>`;
+          };
+          if (dualStart) {
+            const c = bookingDisplayColor(dualStart, fallbackColor);
+            const dec = bookingBarDecor(dualStart);
+            segs += `<div${barAttr(dualStart)} style="position:absolute;left:50%;right:0;${barTopStyle2}background:${c};${dec}border-top-left-radius:999px;border-bottom-left-radius:999px;z-index:2;"></div>`;
+            segs += rosterDot(dualStart, 1);
+          }
+          if (starting) {
+            const c = bookingDisplayColor(starting, fallbackColor);
+            const dec = bookingBarDecor(starting);
+            segs += `<div${barAttr(starting)} style="position:absolute;left:50%;right:0;${barTopStyle}background:${c};${dec}border-top-left-radius:999px;border-bottom-left-radius:999px;z-index:2;"></div>`;
+            segs += rosterDot(starting, 0);
           }
 
           // ラベル (宿泊人数) 表示: 連泊なら CI+1 日 (中間セル中央)、1泊なら CI+CO 境界を跨いで中央
+          // 重複日 (上下2段の細バー) は文字を置く高さが無いので人数・決済バッジとも出さない
           let labelTarget = null;
-          if (middle) {
+          if (hasDual) {
+            labelTarget = null;
+          } else if (middle) {
             const ciNext = new Date(middle.checkIn + "T00:00:00");
             ciNext.setDate(ciNext.getDate() + 1);
             if (d === ciNext.toLocaleDateString("sv-SE")) labelTarget = middle;
@@ -1929,11 +1995,14 @@ const MyRecruitmentPage = {
     // 日付ヘッダー (th) には data-booking-id が無いので従来通り bookingsByDate の先頭を使う
     const isOwnerView = this.isOwnerView;
     container.querySelectorAll(".cal-date-hd").forEach(el => {
-      el.addEventListener("click", () => {
+      el.addEventListener("click", (ev) => {
         // 物件行セル由来 (data-booking-id あり) のみ反応。
         // 日付ヘッダー (th) 由来 = bookingId なし → 複数施設で曖昧なため無反応にする。
         const bookingId = el.dataset.bookingId;
         if (!bookingId) return;
+        // 重複日はバー自身にもこのハンドラが付く。親セルへ伝播させると
+        // 上段の予約が続けて開いてしまうので、タップしたバーの予約だけを開く。
+        ev.stopPropagation();
         const targetBooking = this.bookings.find(x => x.id === bookingId)
           || (this._rawBookings && this._rawBookings.find(x => x.id === bookingId))
           || null;
