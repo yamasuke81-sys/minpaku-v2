@@ -170,14 +170,18 @@ const DashboardPage = {
           n.includes("not available") || n.includes("blocked") || n.includes("closed") || n.includes("reserved");
       };
 
-      // 予約をマップに追加（既存があればマージ）
-      const addBooking = (b, sourceType) => {
+      // 物件+CI+CO の日付キー (名簿を実予約へ寄せるときの照合に使う)
+      const dateKeyOf = (b) =>
+        `${b.propertyId || "_nopid_"}|${this.toDateStr(b.checkIn)}|${this.toDateStr(b.checkOut)}`;
+      // 予約をマップに追加（既存があればマージ）。
+      // mapKey を明示指定できる: 実予約 (bookings) は doc ごとに独立キーを与え、
+      // 同一物件・同一 CI/CO の別予約 (=ダブルブッキング) が 1 件へ合成されるのを防ぐ。
+      // 合成されると色・人数・氏名が2予約から混ざった存在しない予約になり、重複が画面から消える。
+      const addBooking = (b, sourceType, mapKey) => {
         const ci = this.toDateStr(b.checkIn);
         const co = this.toDateStr(b.checkOut);
         if (!ci) return;
-        // propertyId を key に含めて物件別に独立保持 (異なる物件の同日予約がマージされる問題を修正)
-        const pid = b.propertyId || "_nopid_";
-        const key = `${pid}|${ci}|${co}`;
+        const key = mapKey || dateKeyOf(b);
         const existing = bookingMap.get(key);
 
         if (!existing) {
@@ -216,7 +220,9 @@ const DashboardPage = {
       const allBookingsById = new Map(allBookingDocs.map(b => [b.id, b]));
       const rawBookings = allBookingDocs
         .filter(b => !isCancelledStatus(b.status) && b.pendingApproval !== true);
-      rawBookings.forEach(b => addBooking(b, "bookings"));
+      // doc ID をキーに含めて必ず独立エントリにする (ダブルブッキングを合成しない)。
+      // 名簿側は従来どおり日付キーのままにして既存の紐付け挙動を変えない。
+      rawBookings.forEach(b => addBooking(b, "bookings", `${dateKeyOf(b)}|#${b.id}`));
 
       // 2) guestRegistrations/（名簿フォーム）— 補完
       // bookingId が cancelled / 削除済 / 保留中 booking を指す名簿はスキップ
@@ -565,6 +571,10 @@ const DashboardPage = {
       if (cand && !cand.propertyId) g = cand;
     }
     if (!g) return false;
+    // 名簿が別予約に紐付いているならこの予約の名簿ではない。
+    // (同日ダブルブッキングで相手ゲストの名簿を自分のものと誤認しないため。
+    //  bookingId を持たない古い名簿は従来どおり日付一致で採用する)
+    if (g.bookingId && booking.id && g.bookingId !== booking.id) return false;
     // guestRegistrations 側の名前もプレースホルダーなら未記入扱い
     if (this._isPlaceholderName(g.guestName)) return false;
     return true;
@@ -898,9 +908,13 @@ const DashboardPage = {
 
     // 名簿データ取得: 物件IDあれば複合キーのみ (異物件混入防止のため CI単独キーへのフォールバックは廃止)
     const guestKey1 = b.propertyId && ci ? `${b.propertyId}_${ci}` : null;
-    const guestData = guestKey1
+    let guestData = guestKey1
       ? (guestMap[guestKey1] || {})
       : (ci ? (guestMap[ci] || {}) : {});
+    // 名簿が別予約に紐付いているならこの予約のものではない。
+    // これを見ないと同日ダブルブッキングで相手ゲストの氏名・電話・メール・緊急連絡先が
+    // この予約の詳細として表示されてしまう (2026-08-12 テラス 10/11 で実際に発生)。
+    if (guestData.bookingId && b.id && guestData.bookingId !== b.id) guestData = {};
     // 値表示ヘルパ: 空なら "-"
     const v = (val) => {
       if (val === null || val === undefined || val === "") return "-";
