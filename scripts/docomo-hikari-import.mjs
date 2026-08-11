@@ -190,6 +190,16 @@ async function dumpDebug_(page, usageYm) {
 
   console.log(`ドコモ光 取込: 使用月=${USAGE_YM} ${DRY ? "[dry]" : ""}`);
   if (USAGE_YM < OPEN_YM) { console.log(`開通(${OPEN_YM})前のため対象外。`); process.exitCode = 0; return; }
+  // 実額確定済みの月は再取得しない(2026-08-12 夜間監査の指摘への対処)。
+  // actualHistory は eビリングから実額が取れたときだけ書かれる=確定の証拠。
+  // My docomo の合計欄は描画が遅く日によって取り逃すため、確定済みの月まで毎日
+  // 取り直しては失敗の🚨誤警報が出ていた(実害ゼロなのに最上位絵文字)。
+  const FORCE = process.argv.includes("--force");
+  const confirmedActual = loadState().actualHistory?.[USAGE_YM];
+  if (confirmedActual != null && !FORCE) {
+    console.log(`(実額確定済み: ${USAGE_YM} ¥${confirmedActual.toLocaleString()} → 再取得しません。取り直すなら --force)`);
+    process.exitCode = 0; return;
+  }
   // 想定額: 実績に自動追随した値(expectedOverride) > 契約ベースの固定額。
   // 割引や料金改定で実額が恒常的に変わったとき、静的な定数を書き換えなくても警告が止まる。
   const fixed = loadState().expectedOverride?.amount ?? fixedFor(USAGE_YM);
@@ -254,8 +264,21 @@ async function dumpDebug_(page, usageYm) {
       console.log("BUTTONS: docomo_login");
       process.exitCode = 0; return;   // 催促は正常系(非0だとルーチンがエラー通知を二重に出す)
     }
-    console.log(`NOTIFY: 🚨 ドコモ光 ${USAGE_YM} の実額をeビリングから取得できませんでした(${fetchReason})。固定額¥${fixed.toLocaleString()}で${changed ? "暫定計上" : "維持"}。My docomo で内訳をご確認ください。`);
-    process.exitCode = 1;
+    // 合計欄の描画取り逃しは異常ではなく翌日リトライで拾う(固定額で計上済みのため実害なし)。
+    // 請求は翌月中旬に確定するので、翌月20日を過ぎても取れないときだけ1回通知する。
+    const notifyDeadline = (() => {
+      const [y, m] = USAGE_YM.split("-").map(Number);
+      return m === 12 ? `${y + 1}-01-20` : `${y}-${String(m + 1).padStart(2, "0")}-20`;
+    })();
+    const todayYmd = `${nowJst.getUTCFullYear()}-${String(nowJst.getUTCMonth() + 1).padStart(2, "0")}-${String(nowJst.getUTCDate()).padStart(2, "0")}`;
+    const st = loadState();
+    if (todayYmd > notifyDeadline && !st.fetchFailNotified?.[USAGE_YM]) {
+      updateState((s) => { s.fetchFailNotified = { ...(s.fetchFailNotified || {}), [USAGE_YM]: todayYmd }; });
+      console.log(`NOTIFY: ⚠️ ドコモ光 ${USAGE_YM} の実額が${notifyDeadline}を過ぎても取得できていません(${fetchReason})。固定額¥${fixed.toLocaleString()}で${changed ? "暫定計上" : "維持"}中。My docomo で内訳をご確認ください。`);
+    } else {
+      console.log(`(取得失敗: ${fetchReason} → 通知せず翌日リトライ。${notifyDeadline}以降も未取得なら1回通知)`);
+    }
+    process.exitCode = 0;
   } else if (actual !== fixed) {
     const st = loadState();
     // 「この月・この額はもう知らせた」を月ごとに持つ。単一の warnedFor 文字列だと
