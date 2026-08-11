@@ -192,7 +192,9 @@ router.get("/upcoming-bookings/:propertyId", async (req, res) => {
       .where("status", "==", "confirmed")
       .where("checkIn", ">=", today)
       .orderBy("checkIn", "asc")
-      .limit(10)
+      // 10 件だと予約が混み合う物件で数ヶ月先のゲストが候補に出ず「自分の予約が選べない」
+      // 事故が起きた (2026-08-12 YADO KOMACHI・11月予約のゲストから報告)。
+      .limit(60)
       .get();
     const items = snap.docs.map(d => {
       const x = d.data();

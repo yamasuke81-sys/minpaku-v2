@@ -2,13 +2,13 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <script src="/js/api-relay.js?v=v0811a"></script>
+  <script src="/js/api-relay.js?v=v0812a"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>宿泊者名簿 / Guest Registration</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0811a" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0812a" rel="stylesheet">
   <style>
     /* テーマカラー デフォルト（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css）
        物件別上書きが必要な場合のみ下の早期テーマスクリプトで差し替える */
@@ -545,8 +545,8 @@
     </div>
   </div>
 
-  <script src="/js/shared/form-schema.js?v=v0811a"></script>
-  <script src="/js/guide-map.js?v=v0811a"></script>
+  <script src="/js/shared/form-schema.js?v=v0812a"></script>
+  <script src="/js/guide-map.js?v=v0812a"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-storage-compat.js"></script>
@@ -1547,6 +1547,12 @@
       optIds.forEach(id => { const el = document.getElementById(id); if (el && t[id]) el.textContent = t[id]; });
       document.querySelectorAll(".lang-switch button").forEach(btn => btn.classList.toggle("active", btn.dataset.lang === currentLang));
       try { renderGuestInputs(); } catch (e) { console.warn("renderGuestInputs failed:", e); }
+      // 予約ピッカーは fetch 時に文言を焼き込むため、言語切替では再描画しないと日本語が残る
+      try {
+        if (document.getElementById("bookingPickerWrap") && Array.isArray(window._bookingCandidates)) {
+          renderBookingPicker(window._bookingCandidates, { keepSelection: true });
+        }
+      } catch (e) { console.warn("renderBookingPicker failed:", e); }
       try { renderVehicleTypes(); } catch (_) {} // carSection 差し替え時などで要素が無い場合があるので無視
       try { runParkingAllocation(); } catch (_) {}
       // 固定セクション設定 (駐車場案内カード/タクシー警告/旅の目的プルダウン) も言語切替に合わせて再適用
@@ -2245,7 +2251,11 @@
         validateCheckInAgainstCandidates();
       }
     }
-    function renderBookingPicker(items) {
+    // opts.keepSelection=true: 言語切替による再描画。選択状態を保ったまま文言だけ差し替える
+    // (日付の自動入力・クリアはやり直さない)
+    function renderBookingPicker(items, opts) {
+      const keepSelection = !!(opts && opts.keepSelection);
+      const prevValue = keepSelection ? (document.getElementById("f_bookingPicker")?.value ?? null) : null;
       const ja = currentLang === "ja";
       const ciInput = document.getElementById("f_checkIn");
       if (!ciInput) return;
@@ -2281,6 +2291,15 @@
         else if (v === "") { /* 未選択 */ }
         else { _setManualBookingEntry(false); _applyBookingCandidate(items[Number(v)]); }
       });
+      if (keepSelection) {
+        // 言語切替: 選択と手入力モードの表示だけ復元 (入力済みの日付は触らない)
+        if (prevValue != null) sel.value = prevValue;
+        if (prevValue === "__manual__") {
+          const note = document.getElementById("bookingPickerManualNote");
+          if (note) note.classList.remove("d-none");
+        }
+        return;
+      }
       if (items.length === 0) {
         _setManualBookingEntry(true);       // 候補なし = 手入力しかない
       } else if (single) {
@@ -2323,7 +2342,9 @@
       const w = document.getElementById("ciMismatchWarn");
       if (!ok) {
         const candList = cands.map(c => `${c.checkIn}〜${c.checkOut}`).join(" / ");
-        w.innerHTML = `⚠️ 入力されたチェックイン日 (${v}) はこの物件の予約日と一致していません。<br>該当する予約: ${candList}`;
+        w.innerHTML = currentLang === "ja"
+          ? `⚠️ 入力されたチェックイン日 (${v}) はこの物件の予約日と一致していません。<br>該当する予約: ${candList}`
+          : `⚠️ The check-in date you entered (${v}) does not match a reservation for this property.<br>Reservations found: ${candList}`;
         w.classList.remove("d-none");
       } else {
         w.classList.add("d-none");
