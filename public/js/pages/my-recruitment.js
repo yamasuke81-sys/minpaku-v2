@@ -1164,6 +1164,35 @@ const MyRecruitmentPage = {
         );
         const fallbackColor = p._color || "#0d6efd";
 
+        // ---- ダブルブッキングのレーンを「物件行単位」で固定する ----
+        // セルごとに上下を決めると、同じ予約が日によって上段/下段を行き来してバーが分断される
+        // (10/25-27 の Booking が 25日だけ上段・26日から下段、のような崩れ方をする)。
+        const isCancelledB = (b) => {
+          const s = String(b.status || "").toLowerCase();
+          return s.includes("cancel") || b.status === "キャンセル" || b.status === "キャンセル済み";
+        };
+        const activeBookings = propBookings.filter(b => !isCancelledB(b));
+        const propLanes = computeBookingLanes(activeBookings);
+        const laneOf = new Map();
+        propLanes.forEach((lane, i) => lane.forEach(b => laneOf.set(b.id, i)));
+        // 細い2段表示にする期間。重複した予約とその相手の「全期間」を巻き込むことで、
+        // 連泊バーの高さが途中で変わらないようにする (重複が解消する日だけ太くならない)。
+        const dualRanges = [];
+        if (propLanes.length > 1) {
+          for (let i = 1; i < propLanes.length; i++) {
+            for (const b of propLanes[i]) {
+              dualRanges.push([b.checkIn, b.checkOut]);
+              for (const a of activeBookings) {
+                if (a.id === b.id) continue;
+                // 半開区間で重なり判定 (CO日=別予約のCI日は重複ではない)
+                if (a.checkIn < b.checkOut && b.checkIn < a.checkOut) dualRanges.push([a.checkIn, a.checkOut]);
+              }
+            }
+          }
+        }
+        // CO 日もバーの左半分が残るので範囲に含める
+        const isDualDate = (ds) => dualRanges.some(([s, e]) => s <= ds && ds <= e);
+
         // ---- 1段目: 宿泊バー (1物件1行固定) ----
         // 同日重複対応はバー描画時の取捨選択で行う (lane 拡張なし)
         html += `<tr data-prop-row="${p.id}" data-row-type="stay" style="${visible ? "" : "opacity:0.35;"}">`;
@@ -1194,22 +1223,19 @@ const MyRecruitmentPage = {
           };
           // 1パス目: 非キャンセル予約(確定/保留)でこのセルの左右半分を確定
           //   ending=左半分 / starting=右半分 / middle=両方 を占有
-          // ★ダブルブッキング (同じ半分を奪い合う確定予約が複数) は下段レーンへ退避し、
-          //   このセルだけ上下 2 段の細いバーで両方を描く。
-          //   CO 日と別予約の CI 日が重なるだけのケースは左右半分で棲み分くので重複ではない。
+          // ★ダブルブッキングは行単位で固定したレーン (laneOf) に従って上下へ振り分ける。
+          //   同じレーン内の予約は互いに重ならないので、上段/下段それぞれ最大1本ずつになる。
           let aStart = null, aEnd = null, aMid = null;
           let dualStart = null, dualEnd = null, dualMid = null;
           for (const b of propBookings) {
             if (isCancelled(b)) continue;
-            if (b.checkIn === d) { if (aStart) dualStart = b; else aStart = b; }
-            else if (b.checkOut === d) { if (aEnd) dualEnd = b; else aEnd = b; }
-            else if (b.checkIn < d && d < b.checkOut) { if (aMid) dualMid = b; else aMid = b; }
+            const lower = (laneOf.get(b.id) || 0) > 0;
+            if (b.checkIn === d) { if (lower) dualStart = b; else aStart = b; }
+            else if (b.checkOut === d) { if (lower) dualEnd = b; else aEnd = b; }
+            else if (b.checkIn < d && d < b.checkOut) { if (lower) dualMid = b; else aMid = b; }
           }
-          // middle は左右両方を占有するので、同セルの starting/ending とは必ず衝突する。
-          // その場合は middle を上段に残し、starting/ending を下段へ落とす。
-          if (aMid && aEnd && !dualEnd) { dualEnd = aEnd; aEnd = null; }
-          if (aMid && aStart && !dualStart) { dualStart = aStart; aStart = null; }
-          const hasDual = !!(dualStart || dualEnd || dualMid);
+          // 重複クラスタの期間中はずっと細い2段表示 (相手が居ない日も高さを揃える)
+          const hasDual = isDualDate(d);
           // 下段へ退避した分も「確定予約が占有している」に数える (キャンセルを割り込ませない)
           const leftOcc = !!aEnd || !!aMid || !!dualEnd || !!dualMid;   // 左半分を確定予約が占有
           const rightOcc = !!aStart || !!aMid || !!dualStart || !!dualMid; // 右半分を確定予約が占有
