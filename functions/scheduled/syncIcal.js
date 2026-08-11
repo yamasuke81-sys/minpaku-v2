@@ -45,6 +45,39 @@ function isBlockEvent(summary) {
   );
 }
 
+// 取込時にゲスト名へ入れる表示用プレースホルダ・曖昧名 (実名ではない)
+// "Booking.com予約" は本ファイルの匿名取込プレースホルダ、
+// "Airbnb (Not available)" 等のブロック名は isBlockEvent で拾う
+const PLACEHOLDER_NAME_RE = /^(booking\.com予約|airbnb|booking(\.com)?|予約)$/i;
+
+/**
+ * 「ブロックイベント残骸」かどうかを判定する純粋関数。
+ * Booking.com 書き出しフィードの CLOSED イベント (先行ブロック等) は UID が日々変わるため、
+ * 「新doc作成→旧docフィード消失で cancelled 化」が毎日起き、プレースホルダ名の
+ * cancelled ドキュメントが 1日1件ずつ蓄積する。実予約の痕跡が一切なく、
+ * ゲスト名がプレースホルダのものは履歴価値がないため物理削除の対象とする。
+ *
+ * 実予約のキャンセル履歴 (実名・メール照合・名簿リンク・手動確定があるもの) は
+ * 絶対に true を返さない。
+ */
+function isPlaceholderBlockResidue(data) {
+  if (!data) return false;
+  // iCal 由来のみ対象 (手動作成・直販予約は対象外)
+  if (data.syncSource !== "ical") return false;
+  // 実予約の痕跡が1つでもあれば絶対に消さない
+  if (data.guestFormId) return false; // 名簿リンクあり
+  if (data.emailVerifiedAt || data.emailMessageId || data.emailMatchedBy) return false; // メール照合済み
+  if (data.guestEmail) return false; // メールアドレスあり
+  if (data.manualOverride) return false; // 手動で confirmed に復元された予約
+  if (Number(data.guestCount) > 0) return false; // 人数入力あり = 手動編集された予約
+  // Airbnb 実予約 (Reserved + Reservation URL) は保護
+  if (data.notes && /reservation url:/i.test(String(data.notes))) return false;
+  // ゲスト名がプレースホルダか (空 / ブロックイベント名 / 取込時の表示用プレースホルダ)
+  const name = String(data.guestName || "").trim();
+  if (!name) return true;
+  return isBlockEvent(name) || PLACEHOLDER_NAME_RE.test(name);
+}
+
 /**
  * 保留中・予約リクエスト状態かどうかを判定
  * 確定していない予約はスキップ (確定後に再取得されたタイミングで登録)
@@ -521,6 +554,7 @@ async function syncIcal() {
       .get();
 
     let cancelled = 0;
+    let residueDeleted = 0;
     for (const doc of futureBookingsSnap.docs) {
       const data = doc.data();
       // 過去の予約はスキップ
@@ -571,6 +605,15 @@ async function syncIcal() {
       }
 
       // 猶予を超えて消え続けている → キャンセル扱い
+      // ただしブロックイベント残骸 (プレースホルダ名 + 実予約の痕跡なし) は
+      // cancelled 化せず物理削除する (Booking.com の CLOSED は UID が日々変わり、
+      // cancelled のゴミが毎日蓄積するため。実予約のキャンセル履歴は上の判定で保護)
+      if (isPlaceholderBlockResidue(data)) {
+        await doc.ref.delete();
+        residueDeleted++;
+        console.log(`[syncIcal] ブロック残骸を物理削除(24h猶予超過): ${data.source || ""} "${data.guestName || ""}" ${data.checkIn}〜${data.checkOut} (${doc.id})`);
+        continue;
+      }
       await doc.ref.update({
         status: "cancelled",
         cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -582,10 +625,14 @@ async function syncIcal() {
     if (cancelled > 0) {
       console.log(`[syncIcal] ${cancelled}件の予約を自動キャンセル（iCalから削除済み）`);
     }
+    if (residueDeleted > 0) {
+      console.log(`[syncIcal] ${residueDeleted}件のブロック残骸を物理削除（cancelled化せず）`);
+    }
 
     // ===== クリーンアップ: 同じCI+COで確定済みと重複するキャンセル済みを削除 =====
     // キャンセル→再予約のケースで古いドキュメントがゴミとして残るのを防ぐ
     let cleaned = 0;
+    let residueCleaned = 0;
     const cancelledSnap = await db.collection("bookings")
       .where("syncSource", "==", "ical")
       .where("status", "==", "cancelled")
@@ -595,6 +642,14 @@ async function syncIcal() {
 
     for (const cDoc of cancelledSnap.docs) {
       const cData = cDoc.data();
+      // ブロックイベント残骸なら重複チェック不要で即削除
+      // (本修正以前に cancelled 化されて蓄積した分と、Reserved修正フェーズ経由の分を回収)
+      if (isPlaceholderBlockResidue(cData)) {
+        await cDoc.ref.delete();
+        residueCleaned++;
+        console.log(`[syncIcal] ブロック残骸を物理削除(クリーンアップ): ${cData.source || ""} "${cData.guestName || ""}" ${cData.checkIn}〜${cData.checkOut} (${cDoc.id})`);
+        continue;
+      }
       if (!cData.checkIn || !cData.checkOut) continue;
       // 同じCI+COの確定済み予約があれば、このキャンセル済みは不要
       const dupSnap = await db.collection("bookings")
@@ -610,6 +665,9 @@ async function syncIcal() {
     }
     if (cleaned > 0) {
       console.log(`[syncIcal] ${cleaned}件のキャンセル済み重複を削除`);
+    }
+    if (residueCleaned > 0) {
+      console.log(`[syncIcal] ${residueCleaned}件のブロック残骸(cancelled済み)をクリーンアップ削除`);
     }
 
     // ===== 既存の Reserved ブロック予約を cancelled に修正 =====
@@ -852,3 +910,12 @@ async function autoArchivePendingRequests(db) {
 }
 
 module.exports = syncIcal;
+// 単体テスト用の純粋関数 (index.js は関数として require するため、プロパティで公開)
+module.exports._pure = {
+  detectPlatform,
+  isBlockEvent,
+  isPendingEvent,
+  isPlaceholderBlockResidue,
+  extractGuestName,
+  toDateStr,
+};
