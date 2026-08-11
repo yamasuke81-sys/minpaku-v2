@@ -187,6 +187,7 @@ router.get("/upcoming-bookings/:propertyId", async (req, res) => {
     }
     // 今日 (JST) 以降の未来 booking
     const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    const LIMIT = 300;
     const snap = await admin.firestore().collection("bookings")
       .where("propertyId", "==", pid)
       .where("status", "==", "confirmed")
@@ -194,7 +195,8 @@ router.get("/upcoming-bookings/:propertyId", async (req, res) => {
       .orderBy("checkIn", "asc")
       // 10 件だと予約が混み合う物件で数ヶ月先のゲストが候補に出ず「自分の予約が選べない」
       // 事故が起きた (2026-08-12 YADO KOMACHI・11月予約のゲストから報告)。
-      .limit(60)
+      // 60 でもおのみち(客室数が多く予約が厚い)が上限に張り付いたため 300 まで拡大。
+      .limit(LIMIT)
       .get();
     const items = snap.docs.map(d => {
       const x = d.data();
@@ -205,7 +207,9 @@ router.get("/upcoming-bookings/:propertyId", async (req, res) => {
         source: x.source || "",
       };
     });
-    res.json({ propertyId: pid, items });
+    // 上限に張り付いたら「候補が切れているゲストがいる」サイン (再発検知用)
+    if (items.length >= LIMIT) console.warn("[public/upcoming-bookings] 候補が上限に到達", pid, items.length);
+    res.json({ propertyId: pid, items, truncated: items.length >= LIMIT });
   } catch (e) {
     console.error("[public/upcoming-bookings]", e);
     res.status(500).json({ error: e.message });
