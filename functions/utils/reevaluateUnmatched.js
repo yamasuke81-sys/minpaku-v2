@@ -20,6 +20,12 @@
  */
 const { findBookingMatch, decideBookingUpdate } = require("./emailMatcher");
 
+// buildRematchPatch へ渡す FieldValue/Timestamp ラッパ (テストでは差し替え可能にするため注入する)
+const FV_ = (admin) => ({
+  serverTimestamp: () => admin.firestore.FieldValue.serverTimestamp(),
+  timestampFromMillis: (ms) => admin.firestore.Timestamp.fromMillis(ms),
+});
+
 const SCAN_LIMIT = 50; // 1 回の再評価で見る unmatched 上限 (物件スコープ)
 const GLOBAL_SCAN_LIMIT = 300; // global 再評価の上限。ノイズを ignored 化した上で本物の未照合を取りこぼさないよう広めに設定
 
@@ -145,40 +151,18 @@ async function applyRematchTransaction_(db, evRef, bookingId, evDataAtScan, pars
       evDataAtScan.threadId || null,
       evDataAtScan.subject || null
     );
-    if (!decision || !decision.updates) return false;
+    // decision.updates が null でも打ち切らない (buildRematchPatch のコメント参照)
+    const bookingPatch = buildRematchPatch(booking, decision, parsedInfo, "reevaluate", FV_(admin));
 
-    // placeholder を実 FieldValue に置換 (emailVerification.js と同じロジック)
-    const bookingPatch = {};
-    for (const k of Object.keys(decision.updates)) {
-      const v = decision.updates[k];
-      if (v && typeof v === "object" && v.__placeholder === "serverTimestamp") {
-        bookingPatch[k] = admin.firestore.FieldValue.serverTimestamp();
-      } else if (v && typeof v === "object" && v.__placeholder === "timestampFromMs") {
-        bookingPatch[k] = admin.firestore.Timestamp.fromMillis(v.ms);
-      } else if (v !== undefined) {
-        bookingPatch[k] = v;
-      }
-    }
-    bookingPatch.emailMatchedBy = "reevaluate";
-
-    // emailVerification.js と同等: confirmed 受信で pendingApproval / unverified を降下
-    if (parsedInfo && parsedInfo.kind === "confirmed") {
-      if (booking.pendingApproval === true) {
-        bookingPatch.pendingApproval = false;
-        bookingPatch.pendingApprovalResolvedAt = admin.firestore.FieldValue.serverTimestamp();
-      }
-      if (booking.unverified === true) {
-        bookingPatch.unverified = false;
-        bookingPatch.unverifiedResolvedAt = admin.firestore.FieldValue.serverTimestamp();
-      }
-    }
-
-    tx.update(bookingRef, bookingPatch);
+    if (Object.keys(bookingPatch).length > 0) tx.update(bookingRef, bookingPatch);
+    // booking 側に変更が無くても ev は matched にして未照合プールから外す
+    // (でないと同じメールを毎サイクル拾い続け、本物の未照合が枠を食われる)
     tx.update(evRef, {
       matchStatus: "matched",
       matchedBookingId: bookingId,
       matchedAt: admin.firestore.FieldValue.serverTimestamp(),
       rematched: true,
+      ...(decision && decision.skippedReason ? { rematchNote: decision.skippedReason } : {}),
     });
     return true;
   });
@@ -318,35 +302,11 @@ async function applyGlobalRematchTransaction_(db, evRef, match, evDataAtScan, pa
       evDataAtScan.threadId || null,
       evDataAtScan.subject || null
     );
-    if (!decision || !decision.updates) return false;
+    // decision.updates が null でも打ち切らない (buildRematchPatch のコメント参照)
+    const bookingPatch = buildRematchPatch(booking, decision, parsedInfo, "auto-rematch-global", FV_(admin));
 
-    const bookingPatch = {};
-    for (const k of Object.keys(decision.updates)) {
-      const v = decision.updates[k];
-      if (v && typeof v === "object" && v.__placeholder === "serverTimestamp") {
-        bookingPatch[k] = admin.firestore.FieldValue.serverTimestamp();
-      } else if (v && typeof v === "object" && v.__placeholder === "timestampFromMs") {
-        bookingPatch[k] = admin.firestore.Timestamp.fromMillis(v.ms);
-      } else if (v !== undefined) {
-        bookingPatch[k] = v;
-      }
-    }
-    bookingPatch.emailMatchedBy = "auto-rematch-global";
-
-    // emailVerification.js と同等: confirmed 受信で pendingApproval / unverified を降下
-    // (これがないと縞々/未照合点線枠が残ったままになる)
-    if (parsedInfo && parsedInfo.kind === "confirmed") {
-      if (booking.pendingApproval === true) {
-        bookingPatch.pendingApproval = false;
-        bookingPatch.pendingApprovalResolvedAt = admin.firestore.FieldValue.serverTimestamp();
-      }
-      if (booking.unverified === true) {
-        bookingPatch.unverified = false;
-        bookingPatch.unverifiedResolvedAt = admin.firestore.FieldValue.serverTimestamp();
-      }
-    }
-
-    tx.update(bookingRef, bookingPatch);
+    if (Object.keys(bookingPatch).length > 0) tx.update(bookingRef, bookingPatch);
+    // booking 側に変更が無くても ev は matched にして未照合プールから外す
     tx.update(evRef, {
       matchStatus: "matched",
       matchedBookingId: match.id,
@@ -355,12 +315,59 @@ async function applyGlobalRematchTransaction_(db, evRef, match, evDataAtScan, pa
       matchedAt: admin.firestore.FieldValue.serverTimestamp(),
       matchReason: match.matchReason || "rematch-global",
       rematched: true,
+      ...(decision && decision.skippedReason ? { rematchNote: decision.skippedReason } : {}),
     });
     return true;
   });
 }
 
+/**
+ * 再マッチ時に booking へ当てるパッチを組み立てる (純粋関数・テスト対象)
+ *
+ * ★ decision.updates が null (「古いメール」ガード等でフィールド更新が不要) でも、
+ *   confirmed が届いた事実は有効なので pendingApproval / unverified の降下は必ず行う。
+ *   ここを decision と一体にすると、後から届いた別メールで booking.emailVerifiedAt が
+ *   進んだ予約では確定メールが永久にスキップされ、承認待ちの縞々が残り続ける
+ *   (清掃募集も生成されない)。2026-08-12 宿小町 10/27 予約で実際に発生。
+ *
+ * @param {object} booking     現在の booking データ
+ * @param {object|null} decision  decideBookingUpdate の戻り値
+ * @param {object} parsedInfo  メールの抽出結果
+ * @param {string} matchedBy   emailMatchedBy に入れる値
+ * @param {object} fv          { serverTimestamp(), timestampFromMillis(ms) } (admin 依存を注入)
+ * @returns {object} booking に当てるパッチ (空オブジェクトなら更新不要)
+ */
+function buildRematchPatch(booking, decision, parsedInfo, matchedBy, fv) {
+  const patch = {};
+  const b = booking || {};
+  if (decision && decision.updates) {
+    for (const k of Object.keys(decision.updates)) {
+      const v = decision.updates[k];
+      if (v && typeof v === "object" && v.__placeholder === "serverTimestamp") {
+        patch[k] = fv.serverTimestamp();
+      } else if (v && typeof v === "object" && v.__placeholder === "timestampFromMs") {
+        patch[k] = fv.timestampFromMillis(v.ms);
+      } else if (v !== undefined) {
+        patch[k] = v;
+      }
+    }
+    patch.emailMatchedBy = matchedBy;
+  }
+  if (parsedInfo && parsedInfo.kind === "confirmed") {
+    if (b.pendingApproval === true) {
+      patch.pendingApproval = false;
+      patch.pendingApprovalResolvedAt = fv.serverTimestamp();
+    }
+    if (b.unverified === true) {
+      patch.unverified = false;
+      patch.unverifiedResolvedAt = fv.serverTimestamp();
+    }
+  }
+  return patch;
+}
+
 module.exports = {
   reevaluateUnmatched,
+  buildRematchPatch,
   SCAN_LIMIT,
 };
