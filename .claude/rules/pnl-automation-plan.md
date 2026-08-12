@@ -446,6 +446,15 @@ Workflow audit(65エージェント/54 findings→adversarial verify通過27件)
 - **楽天でんき全契約を実測で棚卸し(マイページ `GET api.energy.rakuten.co.jp/mypage/v1/contracts`)**: 8070379292=宿小町(in_service・2026-07=200kWh/¥8,576) / 8076857892=呉市清水2-3-13 DJD・**合同会社八朔**(in_service・26kWh/¥1,114) / 8087608092=音戸町鰯浜(in_service・2025-05-23供給開始・84kWh/¥3,601) / **8071429292=西川原石(terminating=解約受付済)** / **8089375892=若草(applying=申込中・供給開始日まだ空)**。→ 若草の番号は実在確認済(monthly APIは供給開始前のため404が正常)。**PnL計上対象は引き続き宿小町のみ**(呉市清水は民泊物件でない、音戸・若草は開業前)。
 - 検証: `--check`(宿小町=2026-07まで取得済/若草=開業前で対象外)、`--check --force --month 2026-08`(若草=API status=404 同年実績0件)まで実機確認。2026-07分は今朝(8/1)取得済みのため state 変化なし。
 
+## DONE(2026-08-13 直販予約が宿泊税から丸ごと抜けていたのを修正 — commit add5cde・デプロイ済)
+v2 **初の実データ直販予約**(the Terrace 2026-09-12・北崎様5名1泊・56,250円)の点検で発覚。やどぜいへ送るのは Airbnb/Booking の予約CSVだけなので、直販は月計表にも申告書PDFにも入らない。
+- **`pnl-logic.extractDirectReservations(bookings, {targetYearMonth})` を新設**。返す形は extract{Airbnb,Booking}Reservations と同一なので `computeAccommodationTax` にそのまま渡せる。`/settlement/:pid/:ym/import-tax` の**予約CSVフォールバック経路に合流**(CSVが1本も無くても直販があれば404にしない)
+- **申告書PDFがある月は金額を変えない**。実際に申告した額と帳簿が乖離するため、`warning` と `taxWithholdingDirectMissing{tax,personNights,reservationCount}` で「申告書に含まれていない分」を返すだけにした。**やどぜいへの手入力はやますけの作業**
+- 対象条件は売上集計(`sumDirectBookings`)と意図的に別。売上=入金済みのみ／宿泊税=**キャンセルと決済不成立(expired/payment_failed/refunded)以外は未決済でも対象**(宿泊は発生しうるため)
+- **課税標準は宿泊料金のみ=駐車場代を含めない**。`priceBreakdown.total` を最優先し、無ければ実決済額から `parkingFee` を引く。宿泊税はゲストへ別途請求せず料金に込み込み(やますけ決定2026-08-13)なので税相当額は差し引かない(6,000円の閾値付近でしか効かない)
+- 本番E2E: **2026-07(申告書PDFあり)=15,000円のまま・directMissingTax 0** ／ **2026-09(直販のみ)=5人泊1,000円をcomputedで算出**(検証後にテスト用pnl docは削除済)。テスト8件追加(全525緑)
+- 同commitで直販の別バグ2件も修正: 却下メールが理由に関わらず「満室のため」と断言していた／ゲスト申告の `carCount`・`carSizes` が bookings に引き継がれず承認画面でしか見えなかった
+
 ## NEXT
 1. **8/6 05:00 JST の月次自動バッチ(初回本番稼働)を見届ける(★時限性)**: pnlMonthlyImport が発火→7月分をfullloop→承認通知→やますけが承認画面で確認→approve→送付。エネパル(the Terrace 8月クレカ明細=SAISON_2608.pdf)の自動計上も同時。
 2. **Booking.com セッション再ログイン(★やますけPC作業、8/1深夜まで)**: 現在 Booking.com=`logged_out`(2026-07-12 実測、Airbnb/やどぜいは ok)。listener 自体は Hassac01 で lastSeenAt 生存中(PM2稼働中)。
