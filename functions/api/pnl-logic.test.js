@@ -14,6 +14,7 @@ const {
   applyExpenses,
   computePnl,
   sumDirectBookings,
+  extractDirectReservations,
   cleaningAmountForProperty,
   classifyExpenseByName_,
   filterElectricPaymentsForProperty,
@@ -363,6 +364,16 @@ describe("sumDirectBookings", () => {
     assert.strictEqual(withSessionAmount.grossRevenue, 12000);
   });
 
+  test("【参考】extractDirectReservations と対象条件が違う(売上=実収のみ / 宿泊税=宿泊の有無)", () => {
+    const pending = [
+      { syncSource: "direct", checkIn: "2026-09-12", checkOut: "2026-09-13", paymentStatus: "pending",
+        adults: 5, priceBreakdown: { total: 56250 } },
+    ];
+    // 売上は未入金なので0、宿泊税は宿泊が発生しうるので計上対象
+    assert.strictEqual(sumDirectBookings(pending, "2026-09").grossRevenue, 0);
+    assert.strictEqual(extractDirectReservations(pending, { targetYearMonth: "2026-09" }).length, 1);
+  });
+
   test("source==='direct'(syncSource未設定の旧データ)も対象に含める", () => {
     const r = sumDirectBookings([
       { source: "direct", checkIn: "2026-06-01", checkOut: "2026-06-03", paymentStatus: "paid",
@@ -396,6 +407,77 @@ describe("sumDirectBookings", () => {
     assert.strictEqual(r.grossRevenue, 90000);
     assert.strictEqual(r.reservationCount, 2);
     assert.strictEqual(r.nights, 2 + 4);
+  });
+});
+
+describe("extractDirectReservations", () => {
+  // the Terrace 2026-09-12 の実予約 (北崎様・5名1泊・返金不可プラン)
+  const realBooking = {
+    source: "direct", syncSource: "direct", status: "confirmed", paymentStatus: "pending",
+    checkIn: "2026-09-12", checkOut: "2026-09-13",
+    guestName: "北崎　徹", guestCount: 5, adults: 5, children: 0, infants: 0,
+    parkingCars: 0, parkingFee: 0,
+    priceBreakdown: { total: 56250, subtotal: 54500, guestSurcharge: 8000 },
+    paymentSession: { amount: 56250 },
+  };
+
+  test("実予約1件から広島県宿泊税 5人泊×200円=1,000円 を算出できる", () => {
+    const rs = extractDirectReservations([realBooking], { targetYearMonth: "2026-09" });
+    assert.deepStrictEqual(rs, [{ name: "北崎　徹", nights: 1, adult: 5, child: 0, infant: 0, income: 56250 }]);
+    const tax = computeAccommodationTax(rs);
+    assert.strictEqual(tax.totalTax, 1000);
+    assert.strictEqual(tax.totalPersonNights, 5);
+    assert.strictEqual(tax.taxablePersonNights, 5);
+  });
+
+  test("チェックイン月でフィルタする", () => {
+    assert.strictEqual(extractDirectReservations([realBooking], { targetYearMonth: "2026-08" }).length, 0);
+    assert.strictEqual(extractDirectReservations([realBooking], {}).length, 1); // 指定なしは全件
+  });
+
+  test("キャンセル・決済不成立(expired/payment_failed/refunded)は宿泊が発生しないので除外", () => {
+    const cases = [
+      { ...realBooking, status: "cancelled" },
+      { ...realBooking, paymentStatus: "expired" },
+      { ...realBooking, paymentStatus: "payment_failed" },
+      { ...realBooking, paymentStatus: "refunded" },
+    ];
+    assert.strictEqual(extractDirectReservations(cases, { targetYearMonth: "2026-09" }).length, 0);
+  });
+
+  test("課税標準は宿泊料金のみ(駐車場代は含めない)", () => {
+    // priceBreakdown.total を最優先
+    const withParking = { ...realBooking, parkingFee: 4000, paymentSession: { amountPaid: 60250 } };
+    assert.strictEqual(extractDirectReservations([withParking], {})[0].income, 56250);
+    // total が無ければ実決済額から駐車場代を引く
+    const noBreakdown = { ...realBooking, priceBreakdown: undefined, parkingFee: 4000, paymentSession: { amountPaid: 60250 } };
+    assert.strictEqual(extractDirectReservations([noBreakdown], {})[0].income, 56250);
+  });
+
+  test("乳幼児は人数に数えない(computeAccommodationTax 側で adult+child)", () => {
+    const withInfant = { ...realBooking, adults: 2, children: 1, infants: 2, priceBreakdown: { total: 30000 } };
+    const rs = extractDirectReservations([withInfant], {});
+    assert.deepStrictEqual([rs[0].adult, rs[0].child, rs[0].infant], [2, 1, 2]);
+    const tax = computeAccommodationTax(rs);
+    assert.strictEqual(tax.totalPersonNights, 3); // 乳幼児2名は含まれない
+    assert.strictEqual(tax.totalTax, 600); // 30000/1泊/3名=10,000円 ≥ 6,000 → 200円×3
+  });
+
+  test("1人1泊6,000円未満は非課税(人泊は数えるが税額0)", () => {
+    const cheap = { ...realBooking, adults: 5, checkOut: "2026-09-14", priceBreakdown: { total: 50000 } };
+    const tax = computeAccommodationTax(extractDirectReservations([cheap], {}));
+    assert.strictEqual(tax.totalPersonNights, 10); // 5名×2泊
+    assert.strictEqual(tax.taxablePersonNights, 0); // 50000/2泊/5名=5,000円 < 6,000
+    assert.strictEqual(tax.totalTax, 0);
+  });
+
+  test("OTA取込予約・不正な日付・金額0は無視、空/nullは空配列", () => {
+    assert.strictEqual(extractDirectReservations([{ ...realBooking, syncSource: "airbnb", source: "airbnb" }], {}).length, 0);
+    assert.strictEqual(extractDirectReservations([{ ...realBooking, checkOut: "" }], {}).length, 0);
+    assert.strictEqual(extractDirectReservations([{ ...realBooking, checkOut: "2026-09-12" }], {}).length, 0); // 0泊
+    assert.strictEqual(extractDirectReservations([{ ...realBooking, priceBreakdown: {}, paymentSession: {} }], {}).length, 0);
+    assert.deepStrictEqual(extractDirectReservations([], {}), []);
+    assert.deepStrictEqual(extractDirectReservations(null, {}), []);
   });
 });
 

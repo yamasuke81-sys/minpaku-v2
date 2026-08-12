@@ -18,7 +18,7 @@ const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { computePnl, computeAccommodationTax } = require("./pnl-logic");
+const { computePnl, computeAccommodationTax, extractDirectReservations } = require("./pnl-logic");
 const {
   computeSettlement, computeDepositAmount, effectiveFeeRatePct, resolveOperationMode, isAgencyMode,
   extractAirbnbReservations, extractBookingReservations,
@@ -441,14 +441,21 @@ module.exports = function settlementApi(db) {
         const pdfs = (r.data.files || []).filter((f) => /\.pdf$/i.test(f.name));
         if (pdfs.length) { file = pdfs[0]; break; }
       }
+      // 直販(自社サイト→Stripe)予約は OTA CSV にもやどぜいにも載らないので、常に別途集計する
+      const directReservations = await loadDirectReservations_(propertyId, yearMonth);
+      const directTax = computeAccommodationTax(directReservations);
+
       if (!file) {
-        // フォールバック: 予約CSV(Airbnb/Booking)から広島県宿泊税を自動計算
+        // フォールバック: 予約CSV(Airbnb/Booking) + 直販予約 から広島県宿泊税を自動計算
         const listingName = (propSnap.data().yadozei?.airbnb?.listingName || propSnap.data().airbnbListingName || "");
         const found = await findOtaCsvsForMonth_(drive, folderId, yearMonth);
-        if (!found.airbnb && !found.booking) {
-          return res.status(404).json({ error: `${yearMonth} のやどぜい申告書PDFも予約CSVも見つかりません` });
+        if (!found.airbnb && !found.booking && !directReservations.length) {
+          return res.status(404).json({ error: `${yearMonth} のやどぜい申告書PDFも予約CSVも直販予約も見つかりません` });
         }
         const items = [];
+        if (directReservations.length) {
+          items.push({ source: "direct", fileName: "直販予約(bookings)", fileId: null, reservations: directReservations });
+        }
         if (found.airbnb) {
           const text = Buffer.from((await drive.files.get({ fileId: found.airbnb.id, alt: "media", supportsAllDrives: true }, { responseType: "arraybuffer" })).data).toString("utf8");
           const rs = extractAirbnbReservations(text, { listingName, targetYearMonth: yearMonth });
@@ -492,16 +499,41 @@ module.exports = function settlementApi(db) {
       const parsed = await geminiExtractTax_(pdfBase64, apiKey, yearMonth);
       const taxAmount = Math.max(0, Math.round(Number(parsed.taxAmount) || 0));
 
+      // やどぜいへ送るのは OTA の予約CSVだけなので、直販予約があると申告書PDF自体に含まれていない。
+      // 金額は申告書(=実際に申告した額)のまま保存し、抜けている分を警告として返す(勝手に足すと申告額と帳簿が乖離する)。
+      const directWarning = directTax.totalTax > 0
+        ? `直販予約 ${directReservations.length}件・${directTax.taxablePersonNights}人泊(¥${directTax.totalTax.toLocaleString("ja-JP")})は申告書PDFに含まれていません。やどぜいへ手入力してください`
+        : null;
+
       await pnlCol.doc(`${propertyId}_${yearMonth}`).set(
-        { propertyId, yearMonth, taxWithholding: taxAmount, taxWithholdingSource: file.name, taxWithholdingFileId: file.id, updatedAt: FieldValue.serverTimestamp() },
+        {
+          propertyId, yearMonth, taxWithholding: taxAmount, taxWithholdingSource: file.name, taxWithholdingFileId: file.id,
+          taxWithholdingDirectMissing: directTax.totalTax > 0
+            ? { tax: directTax.totalTax, personNights: directTax.taxablePersonNights, reservationCount: directReservations.length }
+            : FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
         { merge: true });
 
-      res.json({ ok: true, source: "pdf", taxWithholding: taxAmount, confidence: parsed.confidence, sourceFile: file.name, link: `https://drive.google.com/file/d/${file.id}/view` });
+      res.json({
+        ok: true, source: "pdf", taxWithholding: taxAmount, confidence: parsed.confidence,
+        sourceFile: file.name, link: `https://drive.google.com/file/d/${file.id}/view`,
+        directMissingTax: directTax.totalTax, warning: directWarning,
+      });
     } catch (e) {
       console.error("宿泊税取込エラー:", e);
       res.status(400).json({ error: "宿泊税の取込に失敗しました: " + e.message });
     }
   });
+
+  /**
+   * 指定物件・指定月(チェックイン月)の直販予約を宿泊税用の予約リストへ変換する。
+   * where は propertyId の1本だけにして残りは JS 側で絞る(複合indexを増やさない既存方針)。
+   */
+  async function loadDirectReservations_(propertyId, yearMonth) {
+    const snap = await db.collection("bookings").where("propertyId", "==", propertyId).get();
+    return extractDirectReservations(snap.docs.map((d) => d.data()), { targetYearMonth: yearMonth });
+  }
 
   /** OTAcsvフォルダ配下から指定月の Airbnb/Booking 予約CSVを最新1件ずつ探す */
   async function findOtaCsvsForMonth_(drive, folderId, yearMonth) {

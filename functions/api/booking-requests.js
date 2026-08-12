@@ -154,6 +154,10 @@ module.exports = function bookingRequestsApi(db) {
         // 有料駐車場 (承認時確定の台数。0=利用なし)
         parkingCars: parkingCharge.cars,
         parkingFee: parkingCharge.fee,
+        // ゲスト申告の総台数・車種 (有料駐車場の希望とは別。宿の駐車場の割当や当日受入に要る情報なので
+        // リクエスト側だけに残さず予約へも引き継ぐ)
+        carCount: reqData.carCount != null ? reqData.carCount : null,
+        carSizes: Array.isArray(reqData.carSizes) ? reqData.carSizes : [],
         cancellationPlan: reqData.plan || "standard",
         propertyId: reqData.propertyId,
         propertyName: reqData.propertyName || "",
@@ -635,14 +639,16 @@ module.exports = function bookingRequestsApi(db) {
         const { sendNotificationEmail_, resolveSenderGmail_ } = require("../utils/lineNotify");
         const senderGmail = await resolveSenderGmail_(db, reqData.propertyId);
         const subject = `【${reqData.propertyName || "ご予約"}】予約リクエストについて / About your booking request`;
+        // 却下理由は満室とは限らない(人数の訂正依頼など)。理由が入力されていればそれを本文にし、
+        // 空欄のときだけ従来の「満室のため」を使う。理由と食い違う文面をゲストへ送らないための分岐。
         const bodyText = [
           `${reqData.guestName || "ゲスト"} 様`,
           ``,
           `この度は${reqData.propertyName || "当施設"}へのご予約リクエストをいただき、誠にありがとうございました。`,
           ``,
-          `大変恐れ入りますが、ご希望の日程（${reqData.checkIn} 〜 ${reqData.checkOut}）は`,
-          `満室のためご用意することができませんでした。`,
-          reason ? `\n${reason}\n` : "",
+          reason
+            ? `大変恐れ入りますが、ご希望の日程（${reqData.checkIn} 〜 ${reqData.checkOut}）でのご予約は\n下記の理由によりお受けすることができませんでした。\n\n${reason}\n`
+            : `大変恐れ入りますが、ご希望の日程（${reqData.checkIn} 〜 ${reqData.checkOut}）は\n満室のためご用意することができませんでした。`,
           `またの機会がございましたら、ぜひご検討いただけますと幸いです。`,
           `ご期待に沿えず申し訳ございません。`,
           ``,
@@ -652,9 +658,9 @@ module.exports = function bookingRequestsApi(db) {
           ``,
           `Thank you very much for your booking request at ${reqData.propertyName || "our property"}.`,
           ``,
-          `We regret to inform you that we are unable to accommodate your requested dates`,
-          `(${reqData.checkIn} to ${reqData.checkOut}) as we are fully booked.`,
-          reason ? `\n${reason}\n` : "",
+          reason
+            ? `We regret to inform you that we are unable to accept your booking for the requested dates\n(${reqData.checkIn} to ${reqData.checkOut}) for the following reason.\n\n${reason}\n`
+            : `We regret to inform you that we are unable to accommodate your requested dates\n(${reqData.checkIn} to ${reqData.checkOut}) as we are fully booked.`,
           `We hope to have the opportunity to welcome you at another time.`,
           `We apologize for not being able to meet your request.`,
         ].join("\n");

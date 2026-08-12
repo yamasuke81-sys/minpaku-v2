@@ -1262,6 +1262,10 @@ ${ppCo}9:30
           }
           ${guestData.guestCountInfants ? `<small class="text-muted">乳幼児${this.esc(String(guestData.guestCountInfants))}名</small>` : ""}
         </td></tr>
+        ${b.carCount != null ? `<tr><th class="text-muted">お車</th><td>
+          <i class="bi bi-car-front"></i> ${Number(b.carCount) === 0 ? "車なし" : `${this.esc(String(b.carCount))}台`}
+          ${Array.isArray(b.carSizes) && b.carSizes.length ? `<span class="text-muted small">（${this.esc(b.carSizes.join(" / "))}）</span>` : ""}
+        </td></tr>` : ""}
         ${this._paymentRow(b, isStaffView)}
       </table>
 

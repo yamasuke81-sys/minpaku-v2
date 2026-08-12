@@ -238,6 +238,61 @@ function sumDirectBookings(bookings, targetYearMonth) {
 }
 
 /**
+ * 直販(自社サイト→Stripe)予約を、宿泊税計算用の予約リストへ変換する(pure)。
+ * 返す形は extractAirbnbReservations / extractBookingReservations と同一
+ * ({name, nights, adult, child, infant, income}) なので computeAccommodationTax にそのまま渡せる。
+ *
+ * OTA予約CSVには直販分が一切載らないため、この関数を通さないと直販の人泊が申告から丸ごと抜ける。
+ *
+ * - 対象: source/syncSource==="direct" かつ status!=="cancelled"。
+ *   決済が成立しなかった予約 (expired / payment_failed / refunded=全額返金) は宿泊自体が発生しないので除外する。
+ *   未決済(pending)は期限内なら宿泊しうるので含める(期限切れは webhook が expired + cancelled にする)。
+ * - チェックイン月基準で targetYearMonth に絞る (OTA CSV集計と同じ基準)。
+ * - 課税標準は「宿泊料金」なので **駐車場代は含めない**。
+ *   priceBreakdown.total (宿泊のみの合計) を最優先し、無ければ実決済額から parkingFee を引く。
+ *   宿泊税は宿泊料金に含める運用(ゲストへ別途請求しない)のため、税相当額は差し引かずに判定する
+ *   (6,000円の閾値付近でしか効かず、実務上の差は出ない)。
+ * - 乳幼児は課税対象外。computeAccommodationTax 側が adult+child で人数を数える。
+ *
+ * @param {Array<object>} bookings bookings コレクションのドキュメント配列
+ * @param {{targetYearMonth?: string}} opts
+ * @returns {Array<{name:string, nights:number, adult:number, child:number, infant:number, income:number}>}
+ */
+function extractDirectReservations(bookings, opts = {}) {
+  const wantYm = opts.targetYearMonth || "";
+  const out = [];
+  for (const b of (Array.isArray(bookings) ? bookings : [])) {
+    if (!b) continue;
+    if (b.syncSource !== "direct" && b.source !== "direct") continue;
+    if (b.status === "cancelled") continue;
+    if (["expired", "payment_failed", "refunded"].includes(b.paymentStatus)) continue;
+
+    const ci = String(b.checkIn == null ? "" : b.checkIn).slice(0, 10);
+    const co = String(b.checkOut == null ? "" : b.checkOut).slice(0, 10);
+    if (wantYm && ci.slice(0, 7) !== wantYm) continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ci) || !/^\d{4}-\d{2}-\d{2}$/.test(co)) continue;
+    const nights = Math.round((new Date(`${co}T00:00:00Z`) - new Date(`${ci}T00:00:00Z`)) / 86400000);
+    if (nights <= 0) continue;
+
+    const adult = toInt(b.adults != null ? b.adults : b.guestCount);
+    const child = toInt(b.children);
+    const infant = toInt(b.infants);
+    if (adult + child <= 0) continue;
+
+    const pb = b.priceBreakdown || {};
+    const ps = b.paymentSession || {};
+    const parkingFee = toInt(b.parkingFee);
+    let income = toInt(pb.total);
+    if (!income) income = Math.max(0, toInt(ps.amountPaid) - parkingFee);
+    if (!income) income = Math.max(0, toInt(ps.amount) - parkingFee);
+    if (income <= 0) continue;
+
+    out.push({ name: String(b.guestName || ""), nights, adult, child, infant, income });
+  }
+  return out;
+}
+
+/**
  * 清掃請求(invoice)から、指定物件に帰属する清掃費を算出する。
  * - 単一物件(or byProperty無し)の請求は total(基本給・交通費等の共通手当込み)を全額計上。
  * - 複数物件をまとめた請求は、当該物件の byProperty.total + 共通手当(基本給等)を shiftCount 比で按分。
@@ -448,6 +503,7 @@ module.exports = {
   applyExpenses,
   computePnl,
   sumDirectBookings,
+  extractDirectReservations,
   cleaningAmountForProperty,
   classifyExpenseByName_,
   filterElectricPaymentsForProperty,
