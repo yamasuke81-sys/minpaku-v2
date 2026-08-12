@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0812e" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0812f" rel="stylesheet">
   <style>
     /* === 共通トークン（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css） === */
     /* 和文フォントは KOMACHI と揃えて Noto Sans JP に統一 */
@@ -72,46 +72,47 @@
 
     /* 言語切替は共有CSS(setouchi-brand.css)の .lang-switch に一本化（右上ガラスピル） */
 
-    /* ===== 目次（toc） ===== */
+    /* ===== 目次（toc・UJINA ガイドとテーマ統一） ===== */
     .quick-nav {
-      background: var(--ss-panel); backdrop-filter: blur(10px);
-      border: 1px solid var(--ss-border); border-radius: 14px;
-      padding: 14px 18px; margin: 8px 0 28px;
+      background: var(--ss-panel-soft);
+      border: 1px solid var(--ss-border); border-radius: 12px;
+      padding: 16px 18px; margin: 8px 0 28px;
     }
-    .toc-title { font-size: 11px; letter-spacing: 0.2em; color: var(--ss-gold); margin-bottom: 10px; }
+    .toc-title { font-size: 12px; letter-spacing: .28em; color: var(--ss-muted); margin-bottom: 10px; }
     .quick-nav .toc-list {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 4px 14px;
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 6px 14px;
     }
     .quick-nav .toc-list a {
-      color: var(--ss-text); text-decoration: none;
-      display: flex; align-items: center; gap: 6px;
-      padding: 5px 4px; border-radius: 8px;
-      font-size: 13px; white-space: nowrap;
+      color: var(--ss-sand); text-decoration: none;
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 0;
+      font-size: 15px; white-space: nowrap;
     }
-    .quick-nav .toc-list a:hover { color: var(--ss-gold); background: rgba(255,255,255,0.05); }
+    .quick-nav .toc-list a:hover { color: var(--ss-hassaku); }
+    .quick-nav .toc-list a i { color: var(--ss-gold); }
 
-    /* ===== セクション（角丸ダークパネル） ===== */
-    section {
-      background: var(--ss-panel); backdrop-filter: blur(8px);
-      border: 1px solid var(--ss-border); border-radius: 18px;
-      padding: 28px 26px; margin-bottom: 24px;
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.28);
+    /* ===== セクション（UJINA ガイドと同じフラットな区切り線スタイル） ===== */
+    section:not(.contact) {
+      background: transparent;
+      border: none; border-top: 1px solid var(--ss-border); border-radius: 0;
+      padding: 28px 2px 10px; margin-bottom: 0;
+      box-shadow: none;
     }
     .section-head {
-      display: flex; align-items: center; gap: 12px;
-      margin-bottom: 20px; padding-bottom: 14px;
-      border-bottom: 2px solid var(--ss-border);
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 14px; padding-bottom: 0;
+      border-bottom: none;
     }
     .section-head .icon {
-      width: 40px; height: 40px; border-radius: 12px;
-      background: linear-gradient(135deg, var(--ss-sea) 0%, var(--ss-sea-deep) 100%);
-      display: grid; place-items: center; color: #f4efe6;
+      width: auto; height: auto; border-radius: 0;
+      background: none;
+      display: grid; place-items: center; color: var(--ss-gold);
       font-size: 20px; flex-shrink: 0;
     }
     .section-head h2 {
-      margin: 0; font-size: 20px; font-weight: 700;
-      color: var(--ss-heading); font-family: var(--ss-sans, inherit);
+      margin: 0; font-size: 22px; font-weight: 600; letter-spacing: .03em;
+      color: var(--ss-heading); font-family: "Playfair Display", var(--ss-serif);
     }
     .section-head .en { font-size: 12px; color: var(--ss-muted); letter-spacing: 0.12em; margin-top: 2px; }
 
@@ -281,7 +282,6 @@
     /* スマホ全幅 */
     @media (max-width: 640px) {
       .guide-card { margin: 0; border-radius: 0; border-left: none; border-right: none; padding: 0 14px 60px; }
-      section { padding: 20px 16px; }
       .guide-header { padding: 64px 12px 30px; }
     }
   </style>
@@ -313,14 +313,14 @@
   <nav class="quick-nav" id="quickNav">
     <div class="toc-title">CONTENTS</div>
     <div class="toc-list">
-      <a href="#checkin">🔑 入室</a>
-      <a href="#rule-checkout">👋 退室</a>
-      <a href="#wifi">📶 Wi-Fi</a>
-      <a href="#videos">▶ 動画</a>
-      <a href="#parking">🚗 駐車場</a>
-      <a href="#rule-bbq">🍖 BBQ</a>
-      <a href="#rules">📌 ルール</a>
-      <a href="#hours">🕐 時間</a>
+      <a href="#checkin"><i class="bi bi-key"></i>入室</a>
+      <a href="#rule-checkout"><i class="bi bi-box-arrow-right"></i>退室</a>
+      <a href="#wifi"><i class="bi bi-wifi"></i>Wi-Fi</a>
+      <a href="#videos"><i class="bi bi-play-btn"></i>動画</a>
+      <a href="#parking"><i class="bi bi-p-square"></i>駐車場</a>
+      <a href="#rule-bbq"><i class="bi bi-fire"></i>BBQ</a>
+      <a href="#rules"><i class="bi bi-list-check"></i>ルール</a>
+      <a href="#hours"><i class="bi bi-clock"></i>時間</a>
     </div>
   </nav>
 
@@ -358,7 +358,7 @@
       <div class="section-head">
         <div class="icon"><i class="bi bi-key-fill"></i></div>
         <div>
-          <h2 class="section-title">🔑 チェックイン方法</h2>
+          <h2 class="section-title">チェックイン方法</h2>
           <div class="en">CHECK-IN</div>
         </div>
       </div>
@@ -398,7 +398,7 @@
       <div class="section-head">
         <div class="icon"><i class="bi bi-clock-fill"></i></div>
         <div>
-          <h2 class="section-title">🕐 時間</h2>
+          <h2 class="section-title">時間</h2>
           <div class="en">HOURS</div>
         </div>
       </div>
@@ -431,7 +431,7 @@
       <div class="section-head">
         <div class="icon"><i class="bi bi-wifi"></i></div>
         <div>
-          <h2 class="section-title">📶 Wi-Fi</h2>
+          <h2 class="section-title">Wi-Fi</h2>
           <div class="en">WI-FI</div>
         </div>
       </div>
@@ -464,7 +464,7 @@
       <div class="section-head">
         <div class="icon"><i class="bi bi-play-circle-fill"></i></div>
         <div>
-          <h2 class="section-title">▶ 案内動画</h2>
+          <h2 class="section-title">案内動画</h2>
           <div class="en">GUIDE VIDEOS</div>
         </div>
       </div>
@@ -535,7 +535,7 @@
       <div class="section-head">
         <div class="icon"><i class="bi bi-p-square-fill"></i></div>
         <div>
-          <h2 class="section-title">🚗 駐車場</h2>
+          <h2 class="section-title">駐車場</h2>
           <div class="en">PARKING</div>
         </div>
       </div>
@@ -624,7 +624,7 @@
       <div class="section-head">
         <div class="icon"><i class="bi bi-card-checklist"></i></div>
         <div>
-          <h2 class="section-title">📌 その他のルール</h2>
+          <h2 class="section-title">その他のルール</h2>
           <div class="en">HOUSE RULES</div>
         </div>
       </div>
@@ -964,14 +964,14 @@
   const translations = [
     ["#heroBrand", "Setouchi Stay", "Setouchi Stay", "Setouchi Stay", "Setouchi Stay", "Setouchi Stay"],
     ["#heroEyebrow", "ご宿泊者様へ", "Guest Information", "숙박객 여러분께", "致各位住客", "致各位住客"],
-    ['#quickNav a[href="#checkin"]', "🔑 入室", "🔑 Check-in", "🔑 입실", "🔑 入住", "🔑 入住"],
-    ['#quickNav a[href="#rule-checkout"]', "👋 退室", "👋 Check-out", "👋 퇴실", "👋 退房", "👋 退房"],
-    ['#quickNav a[href="#wifi"]', "📶 Wi-Fi", "📶 Wi-Fi", "📶 Wi-Fi", "📶 Wi-Fi", "📶 Wi-Fi"],
-    ['#quickNav a[href="#videos"]', "▶ 動画", "▶ Videos", "▶ 동영상", "▶ 视频", "▶ 影片"],
-    ['#quickNav a[href="#parking"]', "🚗 駐車場", "🚗 Parking", "🚗 주차장", "🚗 停车场", "🚗 停車場"],
-    ['#quickNav a[href="#rule-bbq"]', "🍖 BBQ", "🍖 BBQ", "🍖 BBQ", "🍖 BBQ", "🍖 BBQ"],
-    ['#quickNav a[href="#rules"]', "📌 ルール", "📌 Rules", "📌 규칙", "📌 规则", "📌 規則"],
-    ['#quickNav a[href="#hours"]', "🕐 時間", "🕐 Hours", "🕐 시간", "🕐 时间", "🕐 時間"],
+    ['#quickNav a[href="#checkin"]', '<i class="bi bi-key"></i>入室', '<i class="bi bi-key"></i>Check-in', '<i class="bi bi-key"></i>입실', '<i class="bi bi-key"></i>入住', '<i class="bi bi-key"></i>入住'],
+    ['#quickNav a[href="#rule-checkout"]', '<i class="bi bi-box-arrow-right"></i>退室', '<i class="bi bi-box-arrow-right"></i>Check-out', '<i class="bi bi-box-arrow-right"></i>퇴실', '<i class="bi bi-box-arrow-right"></i>退房', '<i class="bi bi-box-arrow-right"></i>退房'],
+    ['#quickNav a[href="#wifi"]', '<i class="bi bi-wifi"></i>Wi-Fi', '<i class="bi bi-wifi"></i>Wi-Fi', '<i class="bi bi-wifi"></i>Wi-Fi', '<i class="bi bi-wifi"></i>Wi-Fi', '<i class="bi bi-wifi"></i>Wi-Fi'],
+    ['#quickNav a[href="#videos"]', '<i class="bi bi-play-btn"></i>動画', '<i class="bi bi-play-btn"></i>Videos', '<i class="bi bi-play-btn"></i>동영상', '<i class="bi bi-play-btn"></i>视频', '<i class="bi bi-play-btn"></i>影片'],
+    ['#quickNav a[href="#parking"]', '<i class="bi bi-p-square"></i>駐車場', '<i class="bi bi-p-square"></i>Parking', '<i class="bi bi-p-square"></i>주차장', '<i class="bi bi-p-square"></i>停车场', '<i class="bi bi-p-square"></i>停車場'],
+    ['#quickNav a[href="#rule-bbq"]', '<i class="bi bi-fire"></i>BBQ', '<i class="bi bi-fire"></i>BBQ', '<i class="bi bi-fire"></i>BBQ', '<i class="bi bi-fire"></i>BBQ', '<i class="bi bi-fire"></i>BBQ'],
+    ['#quickNav a[href="#rules"]', '<i class="bi bi-list-check"></i>ルール', '<i class="bi bi-list-check"></i>Rules', '<i class="bi bi-list-check"></i>규칙', '<i class="bi bi-list-check"></i>规则', '<i class="bi bi-list-check"></i>規則'],
+    ['#quickNav a[href="#hours"]', '<i class="bi bi-clock"></i>時間', '<i class="bi bi-clock"></i>Hours', '<i class="bi bi-clock"></i>시간', '<i class="bi bi-clock"></i>时间', '<i class="bi bi-clock"></i>時間'],
     ["#noiseInfo h6", "⚠ 宴会について — 非常に重要なお願い", "⚠ About Parties — Very Important Notice", "⚠ 연회에 관하여 — 매우 중요한 요청", "⚠ 关于宴会 — 非常重要的请求", "⚠ 關於宴會 — 非常重要的請求"],
     ["#noiseInfo p", "夜遅くまでにぎやかに過ごされたい場合は、トラブル防止のため他施設をご検討ください。<br>※一般的な音量の会話であれば、夜間でも問題なくご利用いただけます。", "If you plan to have a lively gathering late at night, please consider other facilities to avoid trouble.<br>* Normal-volume conversations are fine even at night.", "늦은 밤까지 시끄럽게 보내고 싶으신 경우, 문제 방지를 위해 다른 시설을 고려해 주십시오.<br>※일반적인 음량의 대화는 야간에도 문제없이 이용하실 수 있습니다.", "如果您想熬夜狂欢，请考虑其他住宿，以避免不必要的麻烦。<br>※如果是一般音量的对话，即使在夜间也可以正常使用。", "如果您希望玩樂到深夜，為避免糾紛，請考慮其他住宿設施。<br>※若為一般音量的交談，即使在夜間也能正常使用。"],
     ["#noiseInfo strong", "騒音禁止　21:00 〜 翌8:00", "Quiet Hours: 21:00 – 8:00", "소음 금지 21:00 ~ 익일 8:00", "禁止噪音 21:00 至次日8:00", "禁止喧嘩 21:00 〜 翌日8:00"],
@@ -980,12 +980,12 @@
     ["#noiseInfo li:nth-child(3)", "テレビ・音楽の音量にもご注意ください", "Please keep TV and music at a low volume", "TV/음악 볼륨에도 주의해 주십시오", "请注意电视和音乐的音量", "請注意電視和音樂的音量"],
     ["#noiseInfo li:nth-child(4)", "宴会・イベント・パーティー　不可", "No banquets, events, or parties", "연회/이벤트/파티 불가", "禁止举办宴会、活动、派对", "禁止舉辦宴會、活動、派對"],
     ["#noiseInfo .text-danger", "⚠ 近隣や警察から苦情が入った場合、時間帯を問わず即時退去（返金なし）", "⚠ If complaints are received from neighbors or police, immediate eviction applies regardless of time (no refund)", "⚠ 이웃이나 경찰로부터 불만이 접수될 경우, 시간대에 관계없이 즉시 퇴실 (환불 없음)", "⚠ 如果收到邻居或警察的投诉，无论时间段，都将立即退房（不退款）", "⚠ 若收到鄰居或警方的投訴，無論時間，將立即要求退房（不予退款）"],
-    ["#checkin h2", "🔑 チェックイン方法", "🔑 How to Check In", "🔑 체크인 방법", "🔑 入住方式", "🔑 入住方式"],
+    ["#checkin h2", "チェックイン方法", "How to Check In", "체크인 방법", "入住方式", "入住方式"],
     ["#checkin li:nth-child(1)", "現地にはスタッフはおりません。", "There is no staff on-site.", "현장에는 직원이 없습니다.", "现场没有工作人员。", "現場沒有工作人員。"],
     ["#checkin li:nth-child(2)", "カギは現地のキーボックスに入れております。ご自身で取り出してから入室してください。", "The key is in a key box on-site. Please retrieve it yourself.", "열쇠는 현지 키박스에 넣어두었습니다. 직접 꺼내서 입실해 주십시오.", "钥匙放在现场的钥匙盒中。请自行取出钥匙后进入房间。", "鑰匙放在現場的鑰匙盒中。請自行取出後再進入。"],
     ["#checkin li:nth-child(3)", "キーボックスの解錠番号は、<strong>チェックイン当日の早朝</strong>にお送りします。<br><span class=\"text-danger small\">※宿泊者名簿の記入が必須です。</span>", "The key box code will be sent on the <strong>morning of check-in</strong>.<br><span class=\"text-danger small\">* Guest registration is required.</span>", "키박스 해제 번호는 <strong>체크인 당일 이른 아침</strong>에 보내드립니다.<br><span class=\"text-danger small\">※숙박객 명부 작성이 필수입니다.</span>", "钥匙盒的解锁密码将在<strong>入住当天清晨</strong>发送给您。<br><span class=\"text-danger small\">※必须填写住宿者名单。</span>", "鑰匙盒的解鎖密碼將在<strong>入住當天清晨</strong>發送給您。<br><span class=\"text-danger small\">※必須填寫住宿者名冊。</span>"],
     ["#checkin li:nth-child(4)", "送付方法：<span class=\"badge bg-secondary me-1\">SMS</span>または<span class=\"badge bg-secondary\">予約サイトのメッセージ機能</span>", "Sent via: <span class=\"badge bg-secondary me-1\">SMS</span> or <span class=\"badge bg-secondary\">Booking platform message</span>", "발송 방법: <span class=\"badge bg-secondary me-1\">SMS</span> 또는 <span class=\"badge bg-secondary\">예약 사이트 메시지 기능</span>", "发送方式：<span class=\"badge bg-secondary me-1\">短信</span>或<span class=\"badge bg-secondary\">预订网站的消息功能</span>", "發送方式：<span class=\"badge bg-secondary me-1\">簡訊</span>或<span class=\"badge bg-secondary\">預訂網站的訊息功能</span>"],
-    ["#hours h2", "🕐 時間", "🕐 Hours", "🕐 시간", "🕐 时间", "🕐 時間"],
+    ["#hours h2", "時間", "Hours", "시간", "时间", "時間"],
     ["#hours tr:nth-child(1) td:nth-child(1)", "チェックイン", "Check-in", "체크인", "入住", "入住"],
     ["#hours tr:nth-child(1) td:nth-child(2)", "15:00 〜 20:00<br><span class=\"text-muted small\">（有料駐車場は17:00以降）</span>", "15:00 – 20:00<br><span class=\"text-muted small\">(Paid parking from 17:00)</span>", "15:00 ~ 20:00<br><span class=\"text-muted small\"> (유료 주차장은 17:00 이후)</span>", "15:00 至 20:00<br><span class=\"text-muted small\">（收费停车场17:00以后）</span>", "15:00 〜 20:00<br><span class=\"text-muted small\">（付費停車場為17:00後）</span>"],
     ["#hours tr:nth-child(2) td:nth-child(1)", "チェックアウト", "Check-out", "체크아웃", "退房", "退房"],
@@ -993,16 +993,16 @@
     ["#hours tr:nth-child(3) td:nth-child(1)", "スタッフ対応", "Staff Availability", "직원 응대", "工作人员对应", "工作人員服務"],
     ["#hours tr:nth-child(4) td:nth-child(1)", "騒音禁止時間", "Quiet Hours", "소음 금지 시간", "禁止噪音时间", "禁止喧嘩時間"],
     ["#hours tr:nth-child(4) td:nth-child(2)", "<span class=\"text-danger fw-bold\">21:00 〜 翌8:00</span>", "<span class=\"text-danger fw-bold\">21:00 – 8:00</span>", "<span class=\"text-danger fw-bold\">21:00 ~ 익일 8:00</span>", "<span class=\"text-danger fw-bold\">21:00 至 次日8:00</span>", "<span class=\"text-danger fw-bold\">21:00 〜 翌日8:00</span>"],
-    ["#wifi h2", "📶 Wi-Fi", "📶 Wi-Fi", "📶 Wi-Fi", "📶 Wi-Fi", "📶 Wi-Fi"],
+    ["#wifi h2", "Wi-Fi", "Wi-Fi", "Wi-Fi", "Wi-Fi", "Wi-Fi"],
     ["#wifi .wifi-label:nth-of-type(1)", "SSID", "SSID", "SSID", "SSID", "SSID"],
     ["#wifi .info-box", "<i class=\"bi bi-exclamation-triangle me-1 text-warning\"></i>現在ネット回線の速度が遅くなっております。ご迷惑おかけしますが何卒ご了承ください。", "<i class=\"bi bi-exclamation-triangle me-1 text-warning\"></i>Internet speed is currently slow. We apologize for the inconvenience.", "<i class=\"bi bi-exclamation-triangle me-1 text-warning\"></i>현재 인터넷 회선 속도가 느립니다. 불편을 드려 죄송하지만 양해 부탁드립니다.", "<i class=\"bi bi-exclamation-triangle me-1 text-warning\"></i>目前网络速度较慢。给您带来不便，敬请谅解。", "<i class=\"bi bi-exclamation-triangle me-1 text-warning\"></i>目前網路速度較慢。造成您的不便，敬請諒解。"],
-    ["#videos h2", "▶ 案内動画", "▶ Guide Videos", "▶ 안내 동영상", "▶ 指导视频", "▶ 導覽影片"],
+    ["#videos h2", "案内動画", "Guide Videos", "안내 동영상", "指导视频", "導覽影片"],
     ["[data-bs-target=\"#video1\"]", "① 駐車場までのルート", "① Route to Parking", "① 주차장까지의 경로", "① 到停车场的路线", "① 前往停車場的路線"],
     ["[data-bs-target=\"#video2\"]", "② 駐車場から宿まで", "② From Parking to the House", "② 주차장에서 숙소까지", "② 从停车场到住宿处", "② 從停車場到住宿處"],
     ["[data-bs-target=\"#video3\"]", "③ キーボックスからカギを取り出す", "③ Retrieving the Key", "③ 키박스에서 열쇠 꺼내기", "③ 从钥匙盒取出钥匙", "③ 從鑰匙盒取出鑰匙"],
     ["[data-bs-target=\"#video4\"]", "④ 玄関のカギを開ける", "④ Unlocking the Door", "④ 현관문 열기", "④ 打开玄关门锁", "④ 打開玄關的門鎖"],
     ["[data-bs-target=\"#video5\"]", "⑤ 玄関のカギを閉める", "⑤ Locking the Door", "⑤ 현관문 닫기", "⑤ 锁上玄关门", "⑤ 關閉玄關的門鎖"],
-    ["#parking h2", "🚗 駐車場", "🚗 Parking", "🚗 주차장", "🚗 停车场", "🚗 停車場"],
+    ["#parking h2", "駐車場", "Parking", "주차장", "停车场", "停車場"],
     ["#addrLabel", "住所:", "Address:", "주소:", "地址:", "地址:"],
     ["#mapLink", '<i class="bi bi-map me-1"></i> Google MAP で開く', '<i class="bi bi-map me-1"></i> Open in Google Maps', '<i class="bi bi-map me-1"></i> Google 지도에서 열기', '<i class="bi bi-map me-1"></i> 用 Google 地图打开', '<i class="bi bi-map me-1"></i> 用 Google 地圖開啟'],
     ["#freeParkingHeading", "無料駐車場", "Free Parking", "무료 주차장", "免费停车场", "免費停車場"],
@@ -1038,7 +1038,7 @@
     ["#paidParkingDetails .info-box li:nth-child(6)", "カフェ主催のイベントなどにより、ご利用できない場合がございます。", "The lot may be unavailable during café events.", "카페 주최 이벤트 등으로 인해 이용할 수 없는 경우가 있습니다.", "由于咖啡厅举办活动等原因，可能无法使用。", "可能因咖啡廳舉辦的活動等原因而無法使用。"],
     ["#paidParkingDetails .info-box li:nth-child(7)", "時間外や無断駐車は発見次第レッカー移動いたします。", "Unauthorized or after-hours parking will be towed immediately.", "시간 외 또는 무단 주차는 발견 즉시 견인 조치됩니다.", "非营业时间或未经许可停车，一经发现将立即拖走。", "若在規定時間外或未經允許停車，一經發現將立即拖吊。"],
     ["#paidParkingDetails .info-box li:nth-child(8)", "ご利用いただけない日は、宿から徒歩約30分の<a href=\"https://maps.app.goo.gl/gs6z1JnYPcKD8ALx8\" target=\"_blank\" rel=\"noopener\">コインパーキング（Googleマップ）</a>のご利用をお願いする場合があります。あらかじめご了承ください。", "On days when this lot is unavailable, you may need to use a <a href=\"https://maps.app.goo.gl/gs6z1JnYPcKD8ALx8\" target=\"_blank\" rel=\"noopener\">coin parking lot (Google Maps)</a> about a 30-minute walk from the property. Thank you for your understanding.", "이용할 수 없는 날에는 숙소에서 도보 약 30분 거리의 <a href=\"https://maps.app.goo.gl/gs6z1JnYPcKD8ALx8\" target=\"_blank\" rel=\"noopener\">코인 주차장 (Google 지도)</a>을 이용하시게 될 수 있습니다. 미리 양해 부탁드립니다.", "无法使用的日子，您可能需要使用距住宿步行约30分钟的<a href=\"https://maps.app.goo.gl/gs6z1JnYPcKD8ALx8\" target=\"_blank\" rel=\"noopener\">投币停车场（Google地图）</a>。敬请谅解。", "無法使用的日子，您可能需要使用距民宿步行約30分鐘的<a href=\"https://maps.app.goo.gl/gs6z1JnYPcKD8ALx8\" target=\"_blank\" rel=\"noopener\">投幣停車場（Google 地圖）</a>。敬請見諒。"],
-    ["#rules h2", "📌 その他のルール", "📌 Other Rules", "📌 기타 규칙", "📌 其他规则", "📌 其他規則"],
+    ["#rules h2", "その他のルール", "Other Rules", "기타 규칙", "其他规则", "其他規則"],
     ["#rules > p", "いろいろ細かいルールをもうけてしまっておりますが、一般的な内容がほとんどです、、、ご協力いただけますと幸いです！", "We have several rules, but most are common sense. Thank you for your cooperation!", "여러 가지 세부 규칙을 정해두었지만, 대부분 일반적인 내용입니다... 협조해 주시면 감사하겠습니다!", "我们制定了许多细致的规则，但大部分都是常见内容……感谢您的合作！", "我們制定了許多詳細的規則，但大部分都是一般性的內容...感謝您的合作！"],
     ["#rules .rule-group-title:nth-of-type(2)", "禁止事項", "Prohibited", "금지 사항", "禁止事项", "禁止事項"],
     ["#rules .rule-group-title:nth-of-type(3)", "時間に関するルール", "Time-Related Rules", "시간에 관한 규칙", "关于时间的规则", "時間相關規則"],
