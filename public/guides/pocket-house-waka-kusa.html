@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0812f" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0812g" rel="stylesheet">
   <style>
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; }
@@ -29,7 +29,6 @@
     .hero { text-align: center; padding: 56px 16px 38px; line-height: 1.5; }
     .hero .brand-mark { display: block; width: fit-content; font-size: 11px; line-height: 1; letter-spacing: 0.32em; color: var(--ss-gold); padding: 7px 15px; border: 1px solid var(--ss-gold); border-radius: 999px; margin: 0 auto 18px; }
     .hero h1 { font-family: "Playfair Display", var(--ss-serif); color: var(--ss-heading); font-size: clamp(28px, 6.5vw, 44px); margin: 0; letter-spacing: 0.04em; line-height: 1.1; }
-    .hero .sub { margin-top: 8px; font-size: 15px; color: var(--ss-muted); letter-spacing: 0.04em; }
     .hero .hero-eyebrow { font-size: 16px; line-height: 1.4; letter-spacing: 0.22em; color: var(--ss-sand-soft); margin-top: 14px; }
     .hero::after { content: ""; display: block; width: 34px; height: 1px; background: var(--ss-gold); opacity: .85; margin: 0.9rem auto 0; }
     .hero .catch { margin-top: 16px; font-family: "Playfair Display", var(--ss-serif); color: var(--ss-sand-soft); font-size: 15px; letter-spacing: .04em; }
@@ -105,8 +104,7 @@
         <svg class="ss-sun-mark" viewBox="0 0 64 34" fill="none" aria-hidden="true"><circle cx="32" cy="15" r="8" fill="#e6a860"/><line x1="6" y1="24" x2="58" y2="24" stroke="#c4a35c" stroke-width="1.3"/><path d="M18 24 q7 -7 14 0 Z" fill="#c4a35c" opacity="0.85"/></svg>
         <span class="brand-mark">Setouchi Stay</span>
       </a>
-      <h1>Pocket House</h1>
-      <div class="sub">WAKA-KUSA</div>
+      <h1>Pocket House WAKA-KUSA</h1>
       <div class="hero-eyebrow"><span class="jp">ご宿泊者様へ</span><span class="en">Guest Information</span></div>
       <div class="catch"><span class="jp">広島駅から歩いて、わが家に帰るように。</span><span class="en">Just a walk from Hiroshima Station — come home to a place of your own.</span></div>
     </header>
@@ -119,6 +117,7 @@
         <li><a href="#checkin"><i class="bi bi-key"></i><span class="jp">チェックイン</span><span class="en">Check-in</span></a></li>
         <li><a href="#wifi"><i class="bi bi-wifi"></i>Wi-Fi</a></li>
         <li><a href="#parking"><i class="bi bi-p-square"></i><span class="jp">駐車場</span><span class="en">Parking</span></a></li>
+        <li><a href="#amenities"><i class="bi bi-house-gear"></i><span class="jp">設備・洗濯</span><span class="en">Amenities</span></a></li>
         <li><a href="#checkout"><i class="bi bi-box-arrow-right"></i><span class="jp">チェックアウト</span><span class="en">Check-out</span></a></li>
         <li><a href="#trash"><i class="bi bi-trash3"></i><span class="jp">ゴミ</span><span class="en">Trash</span></a></li>
         <li><a href="#rules"><i class="bi bi-list-check"></i><span class="jp">ハウスルール</span><span class="en">House Rules</span></a></li>
@@ -143,32 +142,44 @@
       <h2><i class="bi bi-key"></i><span class="jp">チェックイン</span><span class="en">Check-in</span></h2>
       <div class="kv">
         <div class="row"><span class="k"><span class="jp">チェックイン</span><span class="en">Check-in</span></span><span class="v">16:00 –</span></div>
+        <div class="row"><span class="k"><span class="jp">キーボックス</span><span class="en">Key box</span></span><span class="v"><span class="jp">玄関のドアノブ</span><span class="en">On the front door handle</span></span></div>
         <div class="row"><span class="k"><span class="jp">解錠番号</span><span class="en">Key box code</span></span><span class="v"><span class="jp">当日朝にご連絡</span><span class="en">Sent on the morning of arrival</span></span></div>
       </div>
       <ol class="steps">
-        <li><span class="jp">玄関のキーボックスで解錠します。<span class="soon">キーボックスの場所はチェックイン前にご案内します。</span></span><span class="en">Unlock the key box at the entrance. <span class="soon">The key box location will be shared before check-in.</span></span></li>
+        <li><span class="jp"><b>玄関のドアノブ</b>にキーボックスを掛けています。</span><span class="en">You will find the key box hanging on the <b>front door handle</b>.</span></li>
         <li><span class="jp">当日朝にお送りする<b>解錠番号</b>を入力し、鍵を取り出してください。</span><span class="en">Enter the <b>code</b> we send on the morning of your arrival and take out the key.</span></li>
         <li><span class="jp">玄関を解錠してご入室ください。ごゆっくりどうぞ。</span><span class="en">Unlock the front door and come on in. Make yourself at home.</span></li>
       </ol>
-      <!-- TODO(wakakusa): キーボックスの正確な場所・写真・解錠GIFを追加 -->
+      <div class="note"><span class="jp">当宿は法令に基づき、ご宿泊されるみなさま全員のお名前などのご登録が必要です。ご到着前に、お送りするフォームからご入力をお願いします。</span><span class="en">As a licensed lodging facility, we are required to register the name of every guest staying with us. Please complete the form we send you before you arrive.</span></div>
+      <p><span class="jp">20:00以降のご到着になりそうなときは、事前にご連絡ください。スタッフの対応時間は 6:00〜20:00 です。アーリーチェックイン・レイトチェックアウトは承っておりません。</span><span class="en">If you expect to arrive after 20:00, please let us know in advance. Our staff are available from 6:00 to 20:00. Early check-in and late check-out are not available.</span></p>
     </section>
 
     <!-- Wi-Fi -->
     <section class="sec" id="wifi">
       <h2><i class="bi bi-wifi"></i>Wi-Fi</h2>
       <div class="kv">
-        <div class="row"><span class="k">SSID</span><span class="v"><span class="soon"><span class="jp">チェックイン前にご案内します</span><span class="en">Provided before check-in</span></span></span></div>
-        <div class="row"><span class="k"><span class="jp">パスワード</span><span class="en">Password</span></span><span class="v"><span class="soon"><span class="jp">チェックイン前にご案内します</span><span class="en">Provided before check-in</span></span></span></div>
+        <div class="row"><span class="k">SSID</span><span class="v">D821DA420E65-5G</span></div>
+        <div class="row"><span class="k"><span class="jp">パスワード</span><span class="en">Password</span></span><span class="v">tnc6b79gyefp3f</span></div>
       </div>
-      <p><span class="jp">Wi-Fi は室内に掲示、またはチェックイン前のご連絡でお知らせします。</span><span class="en">Wi-Fi details are posted inside the house and shared before check-in.</span></p>
-      <!-- TODO(wakakusa): Wi-Fi の SSID / パスワードを記入 -->
+      <p><span class="jp">全室でご利用いただけます。つながりにくいときは <b>D821DA420E65-2G</b> をお試しください。パスワードは同じです。</span><span class="en">Available throughout the house. If the connection is unstable, try <b>D821DA420E65-2G</b> — the password is the same.</span></p>
     </section>
 
     <!-- 駐車場 -->
     <section class="sec" id="parking">
       <h2><i class="bi bi-p-square"></i><span class="jp">駐車場</span><span class="en">Parking</span></h2>
-      <p><span class="jp">お車でお越しの方は、駐車場の有無・場所をチェックイン前にご案内します。<span class="soon">詳細は準備中です。</span></span><span class="en">If you are arriving by car, we will share parking details before check-in. <span class="soon">Details coming soon.</span></span></p>
-      <!-- TODO(wakakusa): 専用駐車場の有無・場所、または近隣コインパーキング案内を追加 -->
+      <p class="lead"><span class="jp"><b>専用の駐車場はございません。</b>お車でお越しの場合は、近隣のコインパーキングをご利用ください。</span><span class="en"><b>There is no parking at the house.</b> If you are coming by car, please use one of the coin parking lots nearby.</span></p>
+      <div class="note"><span class="jp">玄関前・敷地内への駐車はできません。近隣の私有地や路上への駐車も、近隣の方のご迷惑になりますのでご遠慮ください。</span><span class="en">Please do not park by the entrance or anywhere on the property. Parking on private land or on the street nearby also causes problems for our neighbours.</span></div>
+    </section>
+
+    <!-- 設備・洗濯 -->
+    <section class="sec" id="amenities">
+      <h2><i class="bi bi-house-gear"></i><span class="jp">設備・洗濯</span><span class="en">Amenities &amp; Laundry</span></h2>
+      <div class="kv">
+        <div class="row"><span class="k"><span class="jp">洗濯機</span><span class="en">Washing machine</span></span><span class="v"><span class="jp">洗面スペースにあります（無料）</span><span class="en">In the washroom (free)</span></span></div>
+        <div class="row"><span class="k"><span class="jp">キッチン</span><span class="en">Kitchen</span></span><span class="v"><span class="jp">IH・調理器具・食器一式</span><span class="en">Induction cooktop &amp; cookware</span></span></div>
+        <div class="row"><span class="k"><span class="jp">浴室</span><span class="en">Bathroom</span></span><span class="v"><span class="jp">浴槽付き</span><span class="en">With soaking tub</span></span></div>
+      </div>
+      <p><span class="jp">キッチンにはIHクッキングヒーター・電気ケトル・調理器具・食器一式をご用意しています。テレビはリビングにあります。洗濯機は洗面スペースのものをご自由にお使いください。</span><span class="en">The kitchen has an induction cooktop, electric kettle, cookware and a full set of tableware. There is a TV in the living room. You are welcome to use the washing machine in the washroom.</span></p>
     </section>
 
     <!-- チェックアウト -->
@@ -178,28 +189,44 @@
         <div class="row"><span class="k"><span class="jp">チェックアウト</span><span class="en">Check-out</span></span><span class="v">– 10:00</span></div>
       </div>
       <ol class="steps">
-        <li><span class="jp">窓の施錠・電気・エアコンをお切りください。</span><span class="en">Please close and lock the windows and turn off lights and the air conditioner.</span></li>
-        <li><span class="jp">ゴミは下記「ゴミについて」に従ってお願いします。</span><span class="en">Please handle trash as described in "Trash" below.</span></li>
-        <li><span class="jp">鍵はキーボックスに戻し、施錠をご確認ください。</span><span class="en">Return the key to the key box and make sure the door is locked.</span></li>
+        <li><span class="jp">ゴミは分別のうえ、<b>室内のゴミ箱に置いたままで結構です</b>（清掃時に回収します）。</span><span class="en">Sort your rubbish and <b>simply leave it in the bins inside</b> — we collect it when we clean.</span></li>
+        <li><span class="jp">ご使用になった食器・調理器具は、洗ってお戻しください。</span><span class="en">Please wash the dishes and cookware you used and put them back.</span></li>
+        <li><span class="jp">窓を施錠し、照明とエアコンをお切りください。</span><span class="en">Lock the windows and turn off the lights and air conditioning.</span></li>
+        <li><span class="jp">玄関を施錠し、鍵は<b>玄関ドアノブのキーボックス</b>に戻して、施錠をご確認ください。</span><span class="en">Lock the front door, return the key to the <b>key box on the door handle</b>, and check that it is locked.</span></li>
       </ol>
     </section>
 
     <!-- ゴミ -->
     <section class="sec" id="trash">
       <h2><i class="bi bi-trash3"></i><span class="jp">ゴミについて</span><span class="en">Trash</span></h2>
-      <p><span class="jp">ゴミは分別のうえ、指定の場所へお願いします。<span class="soon">分別・出し方の詳細はチェックイン案内でお知らせします。</span></span><span class="en">Please sort your trash and place it in the designated spot. <span class="soon">Sorting and disposal details are provided in the check-in information.</span></span></p>
-      <!-- TODO(wakakusa): ゴミの分別・置き場所・回収曜日 or スタッフ回収を記入 -->
+      <p class="lead"><span class="jp"><b>ゴミ出しは不要です。</b>分別のうえ、室内の指定のゴミ箱にお捨てください。回収は清掃スタッフが行いますので、チェックアウトの際もそのまま室内に置いてお帰りいただいて結構です。</span><span class="en"><b>You do not need to take the rubbish out.</b> Just sort it into the bins provided inside the house. Our cleaning staff collect it, so you can leave everything indoors when you check out.</span></p>
+      <p><span class="jp">分別は次の4種類でお願いします。</span><span class="en">Please sort into these four categories.</span></p>
+      <ul class="rules">
+        <li><span class="jp"><b>燃えるゴミ</b> — 生ゴミ、紙くず、食べ残し、ティッシュなど。生ゴミは水気を切ってください。</span><span class="en"><b>Burnable</b> — food waste, paper, leftovers, tissues. Please drain food waste before binning it.</span></li>
+        <li><span class="jp"><b>プラスチック</b> — 食品トレー、レジ袋、お菓子やパンの袋、カップ麺の容器など。</span><span class="en"><b>Plastic</b> — food trays, shopping bags, snack and bread wrappers, instant noodle cups.</span></li>
+        <li><span class="jp"><b>ペットボトル</b> — キャップとラベルを外し、軽くすすいでください。キャップとラベルはプラスチックへ。</span><span class="en"><b>PET bottles</b> — remove the cap and label and rinse lightly. Caps and labels go with the plastics.</span></li>
+        <li><span class="jp"><b>カン・ビン</b> — 中身を空にして軽くすすいでください。</span><span class="en"><b>Cans &amp; glass bottles</b> — empty and rinse lightly.</span></li>
+      </ul>
+      <div class="note"><span class="jp">ゴミを屋外（玄関前・道路・近隣のゴミ置き場）に出すことはご遠慮ください。回収日が決まっており、宿のゴミを出すと近隣の方のご迷惑になります。<br>また、ご家庭のゴミの持ち込みと、スーツケースなど大型ゴミの置き残しはご遠慮ください（大型ゴミが残されていた場合は、処分費として10,000円を申し受けます）。</span><span class="en">Please do not put rubbish outside — not by the entrance, on the street, or at a neighbourhood collection point. Collection days are fixed, and rubbish from the house causes problems for our neighbours.<br>Please also do not bring household waste with you or leave large items such as suitcases behind (a disposal fee of ¥10,000 applies for large items left at the house).</span></div>
     </section>
 
     <!-- ハウスルール -->
     <section class="sec" id="rules">
       <h2><i class="bi bi-list-check"></i><span class="jp">ハウスルール</span><span class="en">House Rules</span></h2>
       <ul class="rules">
-        <li><span class="jp">室内は禁煙です。</span><span class="en">Smoking is not permitted indoors.</span></li>
-        <li><span class="jp">住宅街のため、夜間（22時以降）の屋外での会話・騒音にご配慮ください。</span><span class="en">As this is a residential area, please keep noise down outdoors at night (after 10 PM).</span></li>
-        <li><span class="jp">定員（6名）を超えるご宿泊・宿泊者名簿にない方のご宿泊はできません。</span><span class="en">Occupancy may not exceed the maximum of 6 guests; only registered guests may stay.</span></li>
-        <li><span class="jp">パーティー・イベント目的でのご利用はご遠慮ください。</span><span class="en">Parties and events are not permitted.</span></li>
-        <li><span class="jp">ゴミは分別のうえ、チェックイン案内に記載の方法でお出しください。</span><span class="en">Please sort and dispose of trash as described in the check-in information.</span></li>
+        <li><span class="jp"><b>敷地内はすべて禁煙です</b>（玄関前を含みます。電子タバコも同様です）。</span><span class="en"><b>The entire property is non-smoking</b>, including the entrance area. This applies to e-cigarettes as well.</span></li>
+        <li><span class="jp">室内は土足厳禁です。玄関でお履き物をお脱ぎください。</span><span class="en">Please take your shoes off at the entrance.</span></li>
+        <li><span class="jp">住宅街の一軒家です。22時以降は特にお静かにお願いします。屋外でのご会話はお控えいただき、玄関扉の開け閉めも静かにお願いします。</span><span class="en">This is a house in a residential neighbourhood. Please be especially quiet after 22:00, avoid conversation outdoors, and close the front door gently.</span></li>
+        <li><span class="jp">室内での楽器の演奏はご遠慮ください。</span><span class="en">Please do not play musical instruments in the house.</span></li>
+        <li><span class="jp">玄関前・敷地内でのBBQ・花火・焚き火は禁止です。</span><span class="en">Barbecues, fireworks and open fires are not permitted anywhere on the property.</span></li>
+        <li><span class="jp">パーティー・イベント目的でのご利用はできません。</span><span class="en">Parties and events are not permitted.</span></li>
+        <li><span class="jp">定員（6名）を超えるご宿泊、および宿泊者名簿にご登録のない方のご宿泊・館内へのお立ち入りはできません。</span><span class="en">Occupancy may not exceed 6 guests. Only guests listed in the register may stay or enter the house.</span></li>
+        <li><span class="jp">ペットの同伴・持ち込みは禁止です。</span><span class="en">Pets are not allowed.</span></li>
+        <li><span class="jp">浴室・洗面スペースの床は、濡れると滑りやすくなっています。お気をつけください。</span><span class="en">The bathroom and washroom floors become slippery when wet. Please take care.</span></li>
+        <li><span class="jp">外出時・ご就寝時は、窓を閉め、玄関を施錠してください。</span><span class="en">Please close the windows and lock the front door when you go out and before you sleep.</span></li>
+        <li><span class="jp">連泊のお客様も、滞在中の清掃・タオル／シーツの交換はございません。洗濯機をご自由にお使いください。</span><span class="en">There is no mid-stay cleaning or change of towels and linen, including for longer stays. You are welcome to use the washing machine.</span></li>
+        <li><span class="jp">設備・備品は大切にお使いください。破損・紛失の際は、速やかにご連絡ください。</span><span class="en">Please treat the fixtures and fittings with care, and let us know straight away if anything is damaged or missing.</span></li>
+        <li><span class="jp">20歳未満の飲酒は法律で禁止されています。</span><span class="en">Drinking under the age of 20 is prohibited by law in Japan.</span></li>
       </ul>
     </section>
 
@@ -214,8 +241,9 @@
 
     <section class="contact" id="contact">
       <div class="label">CONTACT / お問合せ</div>
-      <div class="msg"><span class="jp">ご質問・ご相談等ございましたら、お気軽にご連絡ください。</span><span class="en">If you have any questions, please feel free to contact us.</span></div>
+      <div class="msg"><span class="jp">ご質問・ご相談等ございましたら、お気軽にご連絡ください。対応時間 6:00〜20:00</span><span class="en">If you have any questions, please feel free to contact us. Available 6:00–20:00.</span></div>
       <a class="tel" href="tel:09075009595">090-7500-9595</a>
+      <div class="msg" style="margin-top:10px;"><span class="jp">緊急の場合 — 警察 110 ／ 救急・消防 119</span><span class="en">In an emergency — Police 110 / Fire &amp; Ambulance 119</span></div>
     </section>
 
     <div class="foot">Pocket House WAKA-KUSA · Thank you for your stay</div>
