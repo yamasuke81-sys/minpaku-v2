@@ -2,13 +2,13 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <script src="/js/api-relay.js?v=v0812h"></script>
+  <script src="/js/api-relay.js?v=v0812i"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>宿泊者名簿 / Guest Registration</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0812h" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0812i" rel="stylesheet">
   <style>
     /* テーマカラー デフォルト（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css）
        物件別上書きが必要な場合のみ下の早期テーマスクリプトで差し替える */
@@ -545,8 +545,8 @@
     </div>
   </div>
 
-  <script src="/js/shared/form-schema.js?v=v0812h"></script>
-  <script src="/js/guide-map.js?v=v0812h"></script>
+  <script src="/js/shared/form-schema.js?v=v0812i"></script>
+  <script src="/js/guide-map.js?v=v0812i"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-storage-compat.js"></script>
@@ -609,7 +609,10 @@
       const xls = vehicles.filter(v => v.type === "xl"); // 全長5m超 → 有料のみ
       const rest = vehicles.filter(v => v.type !== "xl");
       const compacts = rest.filter(v => v.type === "compact");
-      const nonCompacts = rest.filter(v => v.type !== "compact");
+      // 全長5mまでの大型が無料枠を使えるのは1台まで（やますけ決定2026-08-12: 2台目以降は5m超と同じ有料直行）
+      const larges = rest.filter(v => v.type === "large");
+      const largeOverflow = larges.splice(1);
+      const nonCompacts = larges.concat(rest.filter(v => v.type === "minivan")); // 大型(1台)は5番を優先
       const result = [];
       const unallocated = [];
 
@@ -632,15 +635,17 @@
         result.push({ ...nonCompacts.shift(), spot: "unpaved" });
       }
 
-      // 残り = 有料駐車場行き（5m超を先頭に）
-      unallocated.push(...xls, ...compacts, ...nonCompacts);
+      // 残り = 有料駐車場行き（5m超・大型2台目以降を先頭に）
+      unallocated.push(...xls, ...largeOverflow, ...compacts, ...nonCompacts);
       return { result, unallocated };
     }
 
     // 台数ベースで収容可能か判定（順番に依存しない）
-    function canAllocate(numCompact, numNonCompact, numXl) {
-      let c = numCompact, nc = numNonCompact;
-      const xl = numXl || 0; // 全長5m超は無料枠を使えず有料直行
+    function canAllocate(numCompact, numMinivan, numLarge, numXl) {
+      let c = numCompact;
+      // 全長5mまでの大型は無料枠1台まで。2台目以降は5m超と同じ有料直行
+      let nc = numMinivan + Math.min(numLarge || 0, 1);
+      const paidDirect = (numXl || 0) + Math.max(0, (numLarge || 0) - 1);
       // 5番: 非軽優先
       if (nc > 0) nc--; else if (c > 0) c--;
       // 1番: 軽のみ（閉鎖中はスキップ）
@@ -648,8 +653,8 @@
       // 未舗装: 1台のみ（軽優先）※軽2台詰めは廃止（2026-07-23）
       if (c > 0) c--;
       else if (nc > 0) nc--;
-      // 残り = 有料（最大2台、5m超も同じ枠を消費）
-      return (c + nc + xl) <= 2;
+      // 残り = 有料（最大2台、5m超・大型2台目以降も同じ枠を消費）
+      return (c + nc + paidDirect) <= 2;
     }
 
     // 車種値 → allocation用のtype
@@ -720,6 +725,7 @@
         spotPaid: "有料駐車場（2,000円/泊）",
         spot1ClosedNote: "⚠️ 2026年7月の大雨の影響により、1番駐車場（軽・小型車専用）は当面ご利用いただけません。",
         spot1CompNote: "お車3台以上のため有料駐車場のご利用が必要ですが、有料駐車場1台分の料金は当宿が負担いたします。",
+        largeSecondNote: "※全長5mまでの大きなお車（アルファード等）の無料駐車場のご利用は1台までのため、2台目以降は有料駐車場のご利用となります。",
         allocAllFree: "✅ すべて無料駐車場に収まります",
         allocPaidSummary: "💰 有料駐車場: {n}台 × 2,000円 = {total}円",
         allocError: "❌ この車両構成では駐車場が不足します。台数や車種をご調整ください。",
@@ -857,6 +863,7 @@
         spotPaid: "Paid parking (¥2,000/night)",
         spot1ClosedNote: "⚠️ Due to the heavy rain in July 2026, parking space No. 1 (compact cars only) is temporarily unavailable.",
         spot1CompNote: "As you have 3 or more cars, paid parking is required; we will cover the fee for one car.",
+        largeSecondNote: "※ Only one large vehicle (up to 5 m, e.g. Alphard) can use the free parking; the second and subsequent large vehicles will use the paid parking.",
         allocAllFree: "✅ All cars fit in free parking",
         allocPaidSummary: "💰 Paid parking: {n} car(s) × ¥2,000 = ¥{total}",
         allocError: "❌ Cannot accommodate this vehicle combination. Please adjust.",
@@ -1006,6 +1013,7 @@
         spotPaid: "유료 주차장 (2,000엔/박)",
         spot1ClosedNote: "⚠️ 2026년 7월 폭우의 영향으로 1번 주차장(경차·소형차 전용)을 당분간 이용하실 수 없습니다.",
         spot1CompNote: "차량 3대 이상인 경우 유료 주차장 이용이 필요하며, 유료 주차장 1대분 요금은 숙소가 부담합니다.",
+        largeSecondNote: "※ 전장 5m까지의 대형 차량(알파드 등)은 무료 주차장을 1대까지만 이용하실 수 있어, 2대째부터는 유료 주차장 이용이 필요합니다.",
         allocAllFree: "✅ 모두 무료 주차장에 수용 가능합니다",
         allocPaidSummary: "💰 유료 주차장: {n}대 × 2,000엔 = {total}엔",
         allocError: "❌ 이 차량 구성으로는 주차장이 부족합니다. 대수나 차종을 조정해 주십시오.",
@@ -1179,6 +1187,7 @@
         spotPaid: "收费停车场（2,000日元/晚）",
         spot1ClosedNote: "⚠️ 受2026年7月暴雨影响，1号停车位（仅限轻型车/小型车）暂时无法使用。",
         spot1CompNote: "因您驾车3辆及以上，需使用收费停车场，其中1辆的费用由民宿承担。",
+        largeSecondNote: "※ 车长5米以内的大型车辆（阿尔法等）仅限1辆使用免费停车场，第2辆起需使用收费停车场。",
         allocAllFree: "✅ 所有车辆都可停放在免费停车场",
         allocPaidSummary: "💰 收费停车场: {n}辆 × 2,000日元 = {total}日元",
         allocError: "❌ 这种车辆配置会导致停车位不足。请调整车辆数量或车型。",
@@ -1352,6 +1361,7 @@
         spotPaid: "付費停車場（2,000日圓/晚）",
         spot1ClosedNote: "⚠️ 受2026年7月豪雨影響，1號停車位（僅限輕型車/小型車）暫時無法使用。",
         spot1CompNote: "因您開車3輛及以上，需使用付費停車場，其中1輛的費用由民宿負擔。",
+        largeSecondNote: "※ 車長5公尺以內的大型車輛（Alphard等）僅限1輛使用免費停車場，第2輛起需使用付費停車場。",
         allocAllFree: "✅ 所有車輛都可停在免費停車場",
         allocPaidSummary: "💰 付費停車場: {n}輛 × 2,000日圓 = {total}日圓",
         allocError: "❌ 這種車輛配置會導致停車位不足。請調整車輛數量或車種。",
@@ -1842,32 +1852,34 @@
       document.querySelectorAll(".vt-allgrey-warn").forEach(el => el.remove());
 
       // 全スロットの現在の選択を集計
-      let totalC = 0, totalNC = 0, totalXL = 0;
+      let totalC = 0, totalM = 0, totalL = 0, totalXL = 0;
       selects.forEach(sel => {
         if (sel.value) {
           const ty = vtToType(sel.value);
           if (ty === "compact") totalC++;
           else if (ty === "xl") totalXL++;
-          else totalNC++;
+          else if (ty === "large") totalL++;
+          else totalM++;
         }
       });
 
       selects.forEach(sel => {
         // このスロットの選択を除いた集計
-        let baseC = totalC, baseNC = totalNC, baseXL = totalXL;
+        let baseC = totalC, baseM = totalM, baseL = totalL, baseXL = totalXL;
         if (sel.value) {
           const ty = vtToType(sel.value);
           if (ty === "compact") baseC--;
           else if (ty === "xl") baseXL--;
-          else baseNC--;
+          else if (ty === "large") baseL--;
+          else baseM--;
         }
 
-        // 各車種を追加した場合に収容可能か（全体の台数構成で判定）
+        // 各車種を追加した場合に収容可能か（全体の台数構成で判定。大型(5mまで)は無料枠1台まで）
         const avail = {
-          compact: canAllocate(baseC + 1, baseNC, baseXL),
-          minivan: canAllocate(baseC, baseNC + 1, baseXL),
-          large: canAllocate(baseC, baseNC + 1, baseXL),
-          xl: canAllocate(baseC, baseNC, baseXL + 1),
+          compact: canAllocate(baseC + 1, baseM, baseL, baseXL),
+          minivan: canAllocate(baseC, baseM + 1, baseL, baseXL),
+          large: canAllocate(baseC, baseM, baseL + 1, baseXL),
+          xl: canAllocate(baseC, baseM, baseL, baseXL + 1),
         };
 
         const typeMap = {
@@ -1974,6 +1986,10 @@
       if (SPOT1_CLOSED) {
         const compApplies = vehicles.length >= SPOT1_COMP_MIN_CARS && paidRequired > 0;
         html += `<div class="alert alert-warning py-2 px-3 small mb-2">${t.spot1ClosedNote}${compApplies ? "<br>" + t.spot1CompNote : ""}</div>`;
+      }
+      // 全長5mまでの大型2台目以降は有料直行（2026-08-12 ルール改定）の理由表示
+      if (vehicles.filter(v => v.type === "large").length >= 2) {
+        html += `<div class="alert alert-warning py-2 px-3 small mb-2">${t.largeSecondNote}</div>`;
       }
 
       // 未舗装駐車場（同じ車種をまとめて表示）

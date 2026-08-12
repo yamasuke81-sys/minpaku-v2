@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0812h" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0812i" rel="stylesheet">
   <style>
     /* === 共通トークン（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css） === */
     /* 和文フォントは KOMACHI と揃えて Noto Sans JP に統一 */
@@ -570,6 +570,8 @@
 
       <!-- 全長5m超は無料駐車場不可（2026-07 ルール改定） -->
       <p class="small text-danger fw-bold" id="xlParkingWarn">※ 全長5mを超えるお車（ハイエースロング・キャンピングカー等）は、無料駐車場をご利用いただけません。有料駐車場をご利用ください。</p>
+      <!-- 全長5mまでの大型は無料枠1台まで（2026-08-12 ルール改定） -->
+      <p class="small text-danger fw-bold" id="largeParkingWarn">※ 全長5mまでの大きなお車（アルファード等）の無料駐車場のご利用は1台までです。2台目以降は有料駐車場をご利用ください。</p>
 
       <h3 class="h6 fw-bold mb-2">有料駐車場（カフェ駐車場）</h3>
 
@@ -1023,6 +1025,7 @@
     ["#parking .parking-table:nth-of-type(1) tr:nth-child(4) td:nth-child(1)", "No.５", "No.5", "No.5", "No.５", "No.５"],
     ["#parking .parking-table:nth-of-type(1) tr:nth-child(4) td:nth-child(2)", "大型車 1台（全長5m以下）", "Large vehicle ×1 (up to 5 m long)", "대형차 1대 (전장 5m 이하)", "大型车 1辆（全长5米以下）", "大型車 1輛（全長5米以下）"],
     ["#xlParkingWarn", "※ 全長5mを超えるお車（ハイエースロング・キャンピングカー等）は、無料駐車場をご利用いただけません。有料駐車場をご利用ください。", "* Vehicles over 5 m long (extended vans, campers, etc.) cannot use the free parking. Please use the paid parking lot.", "※ 전장 5m를 초과하는 차량 (하이에이스 롱, 캠핑카 등)은 무료 주차장을 이용할 수 없습니다. 유료 주차장을 이용해 주십시오.", "※ 全长超过5米的车辆（如Hiace长轴、房车等）无法使用免费停车场。请使用收费停车场。", "※ 全長超過5米的車輛（如Hiace長軸、露營車等）無法使用免費停車場。請使用付費停車場。"],
+    ["#largeParkingWarn", "※ 全長5mまでの大きなお車（アルファード等）の無料駐車場のご利用は1台までです。2台目以降は有料駐車場をご利用ください。", "* Only one large vehicle up to 5 m long (e.g. Alphard) can use the free parking. From the second such vehicle onward, please use the paid parking lot.", "※ 전장 5m까지의 대형 차량(알파드 등)은 무료 주차장을 1대까지만 이용하실 수 있습니다. 2대째부터는 유료 주차장을 이용해 주십시오.", "※ 车长5米以内的大型车辆（阿尔法等）仅限1辆使用免费停车场。第2辆起请使用收费停车场。", "※ 車長5公尺以內的大型車輛（Alphard等）僅限1輛使用免費停車場。第2輛起請使用付費停車場。"],
     ["#parking h3:nth-of-type(2)", "有料駐車場（カフェ駐車場）", "Paid Parking (Café Lot)", "유료 주차장 (카페 주차장)", "收费停车场（咖啡厅停车场）", "付費停車場（咖啡廳停車場）"],
     ["#paidParkingLabel", "事前予約が必須です。宿泊者名簿記入時に予約していない方はご利用になれません", "Advance reservation is required. Guests who did not reserve when filling out the guest registration form cannot use this lot.", "사전 예약이 필수입니다. 숙박객 명부 작성 시 예약하지 않은 분은 이용하실 수 없습니다", "必须提前预约。未在填写住宿者名单时预约的客人无法使用", "必須事先預約。未在填寫住宿者名冊時預約者無法使用"],
     ["#paidParkingDetails > p.small.text-muted", "宿までの道が細く、駐車しにくい場合がございます。運転に自信がない方や大型車の方は、有料駐車場のご利用をおすすめします。徒歩15分と離れた場所ですが、大通り沿いで駐車がとても楽です。", "The road to our property is narrow and parking can be difficult. We recommend the paid lot for large vehicles or less confident drivers. It's a 15-min walk away but on a main road with easy access.", "숙소까지의 길이 좁고 주차하기 어려울 수 있습니다. 운전에 자신이 없거나 대형차를 이용하시는 분은 유료 주차장을 이용하시는 것을 권장합니다. 도보 15분 거리에 떨어져 있지만, 큰 길가에 있어 주차가 매우 편리합니다.", "通往住宿的道路狭窄，停车可能不便。不擅长驾驶或驾驶大型车的客人，建议使用收费停车场。虽然距离住宿有15分钟的步行路程，但位于主干道旁，停车非常方便。", "前往住宿地點的道路狹窄，可能難以停車。建議不擅長駕駛或駕駛大型車輛的客人使用付費停車場。雖然距離住宿地點步行15分鐘，但位於主要道路旁，停車非常方便。"],
