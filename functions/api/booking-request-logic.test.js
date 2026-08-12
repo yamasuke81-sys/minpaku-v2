@@ -275,7 +275,7 @@ describe("computeParkingCharge (有料駐車場の追加料金)", () => {
 
   test("1台×2泊 = 4,000円", () => {
     const r = computeParkingCharge(cfg, "2026-08-01", "2026-08-03", 1);
-    assert.deepStrictEqual(r, { cars: 1, fee: 4000, nights: 2, pricePerNightPerCar: 2000 });
+    assert.deepStrictEqual(r, { cars: 1, fee: 4000, nights: 2, pricePerNightPerCar: 2000, coveredCars: 0 });
   });
   test("2台×3泊 = 12,000円", () => {
     const r = computeParkingCharge(cfg, "2026-08-01", "2026-08-04", 2);
@@ -316,6 +316,39 @@ describe("computeParkingCharge (有料駐車場の追加料金)", () => {
   test("泊数0 (日付不正/同日) なら0", () => {
     assert.strictEqual(computeParkingCharge(cfg, "2026-08-03", "2026-08-01", 1).fee, 0);
     assert.strictEqual(computeParkingCharge(cfg, "bad", "2026-08-01", 1).fee, 0);
+  });
+
+  // 【期間限定】宿負担 (hostCoveredCars): 1番駐車場閉鎖の補償 (2026-07 大雨)
+  describe("hostCoveredCars (宿負担・期間限定)", () => {
+    const covCfg = { enabled: true, pricePerNightPerCar: 2000, maxCars: 2, hostCoveredCars: 1, hostCoveredMinCarCount: 3 };
+
+    test("車3台・有料1台 → 全額宿負担 (fee=0, cars=1 は実台数のまま)", () => {
+      const r = computeParkingCharge(covCfg, "2026-08-01", "2026-08-02", 1, 3);
+      assert.deepStrictEqual(r, { cars: 1, fee: 0, nights: 1, pricePerNightPerCar: 2000, coveredCars: 1 });
+    });
+    test("車4台・有料2台×2泊 → 1台分負担で fee=4,000", () => {
+      const r = computeParkingCharge(covCfg, "2026-08-01", "2026-08-03", 2, 4);
+      assert.deepStrictEqual(r, { cars: 2, fee: 4000, nights: 2, pricePerNightPerCar: 2000, coveredCars: 1 });
+    });
+    test("車2台 (min未満) → 負担なし", () => {
+      const r = computeParkingCharge(covCfg, "2026-08-01", "2026-08-02", 1, 2);
+      assert.strictEqual(r.fee, 2000);
+      assert.strictEqual(r.coveredCars, 0);
+    });
+    test("carCount 未申告 → 負担なし (安全側=通常料金)", () => {
+      const r = computeParkingCharge(covCfg, "2026-08-01", "2026-08-02", 1);
+      assert.strictEqual(r.fee, 2000);
+      assert.strictEqual(r.coveredCars, 0);
+    });
+    test("hostCoveredCars 未設定の物件は従来どおり", () => {
+      const r = computeParkingCharge(cfg, "2026-08-01", "2026-08-02", 2, 3);
+      assert.strictEqual(r.fee, 4000);
+      assert.strictEqual(r.coveredCars, 0);
+    });
+    test("負担台数は有料台数を超えない (hostCoveredCars=3 でも有料1台なら負担1)", () => {
+      const r = computeParkingCharge({ ...covCfg, hostCoveredCars: 3 }, "2026-08-01", "2026-08-02", 1, 3);
+      assert.deepStrictEqual(r, { cars: 1, fee: 0, nights: 1, pricePerNightPerCar: 2000, coveredCars: 1 });
+    });
   });
   test("maxCars 未設定は既定2", () => {
     const r = computeParkingCharge({ enabled: true, pricePerNightPerCar: 2000 }, "2026-08-01", "2026-08-02", 3);

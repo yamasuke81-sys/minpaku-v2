@@ -2,13 +2,13 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <script src="/js/api-relay.js?v=v0812g"></script>
+  <script src="/js/api-relay.js?v=v0812h"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>宿泊者名簿 / Guest Registration</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0812g" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0812h" rel="stylesheet">
   <style>
     /* テーマカラー デフォルト（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css）
        物件別上書きが必要な場合のみ下の早期テーマスクリプトで差し替える */
@@ -545,8 +545,8 @@
     </div>
   </div>
 
-  <script src="/js/shared/form-schema.js?v=v0812g"></script>
-  <script src="/js/guide-map.js?v=v0812g"></script>
+  <script src="/js/shared/form-schema.js?v=v0812h"></script>
+  <script src="/js/guide-map.js?v=v0812h"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.4.0/firebase-storage-compat.js"></script>
@@ -599,6 +599,12 @@
          - 非軽は5番を優先利用
          - 軽は1番→未舗装→5番の順（5番を非軽に空けるため）
     */
+    // 【期間限定】1番駐車場は2026年7月の大雨の影響で閉鎖中。復旧したら false に戻す
+    // (宿サイト booking-form.js の lot1Closed / v2 properties.paidParking.hostCoveredCars と対で運用)
+    const SPOT1_CLOSED = true;
+    // 閉鎖の補償: お車がこの台数以上なら有料駐車場1台分を宿負担にする
+    const SPOT1_COMP_MIN_CARS = 3;
+
     function allocateParking(vehicles) {
       const xls = vehicles.filter(v => v.type === "xl"); // 全長5m超 → 有料のみ
       const rest = vehicles.filter(v => v.type !== "xl");
@@ -614,8 +620,8 @@
         result.push({ ...compacts.shift(), spot: "spot5" });
       }
 
-      // 1番: 軽のみ
-      if (compacts.length > 0) {
+      // 1番: 軽のみ（閉鎖中はスキップ）
+      if (!SPOT1_CLOSED && compacts.length > 0) {
         result.push({ ...compacts.shift(), spot: "spot1" });
       }
 
@@ -637,8 +643,8 @@
       const xl = numXl || 0; // 全長5m超は無料枠を使えず有料直行
       // 5番: 非軽優先
       if (nc > 0) nc--; else if (c > 0) c--;
-      // 1番: 軽のみ
-      if (c > 0) c--;
+      // 1番: 軽のみ（閉鎖中はスキップ）
+      if (!SPOT1_CLOSED && c > 0) c--;
       // 未舗装: 1台のみ（軽優先）※軽2台詰めは廃止（2026-07-23）
       if (c > 0) c--;
       else if (nc > 0) nc--;
@@ -712,6 +718,8 @@
         allocTitle: "🅿️ 駐車場の割り当て",
         spotUnpaved: "未舗装駐車場", spotOne: "1番", spotFive: "5番",
         spotPaid: "有料駐車場（2,000円/泊）",
+        spot1ClosedNote: "⚠️ 2026年7月の大雨の影響により、1番駐車場（軽・小型車専用）は当面ご利用いただけません。",
+        spot1CompNote: "お車3台以上のため有料駐車場のご利用が必要ですが、有料駐車場1台分の料金は当宿が負担いたします。",
         allocAllFree: "✅ すべて無料駐車場に収まります",
         allocPaidSummary: "💰 有料駐車場: {n}台 × 2,000円 = {total}円",
         allocError: "❌ この車両構成では駐車場が不足します。台数や車種をご調整ください。",
@@ -847,6 +855,8 @@
         allocTitle: "🅿️ Parking Allocation",
         spotUnpaved: "Unpaved lot", spotOne: "Spot 1", spotFive: "Spot 5",
         spotPaid: "Paid parking (¥2,000/night)",
+        spot1ClosedNote: "⚠️ Due to the heavy rain in July 2026, parking space No. 1 (compact cars only) is temporarily unavailable.",
+        spot1CompNote: "As you have 3 or more cars, paid parking is required; we will cover the fee for one car.",
         allocAllFree: "✅ All cars fit in free parking",
         allocPaidSummary: "💰 Paid parking: {n} car(s) × ¥2,000 = ¥{total}",
         allocError: "❌ Cannot accommodate this vehicle combination. Please adjust.",
@@ -994,6 +1004,8 @@
         spotOne: "1번",
         spotFive: "5번",
         spotPaid: "유료 주차장 (2,000엔/박)",
+        spot1ClosedNote: "⚠️ 2026년 7월 폭우의 영향으로 1번 주차장(경차·소형차 전용)을 당분간 이용하실 수 없습니다.",
+        spot1CompNote: "차량 3대 이상인 경우 유료 주차장 이용이 필요하며, 유료 주차장 1대분 요금은 숙소가 부담합니다.",
         allocAllFree: "✅ 모두 무료 주차장에 수용 가능합니다",
         allocPaidSummary: "💰 유료 주차장: {n}대 × 2,000엔 = {total}엔",
         allocError: "❌ 이 차량 구성으로는 주차장이 부족합니다. 대수나 차종을 조정해 주십시오.",
@@ -1165,6 +1177,8 @@
         spotOne: "1号",
         spotFive: "5号",
         spotPaid: "收费停车场（2,000日元/晚）",
+        spot1ClosedNote: "⚠️ 受2026年7月暴雨影响，1号停车位（仅限轻型车/小型车）暂时无法使用。",
+        spot1CompNote: "因您驾车3辆及以上，需使用收费停车场，其中1辆的费用由民宿承担。",
         allocAllFree: "✅ 所有车辆都可停放在免费停车场",
         allocPaidSummary: "💰 收费停车场: {n}辆 × 2,000日元 = {total}日元",
         allocError: "❌ 这种车辆配置会导致停车位不足。请调整车辆数量或车型。",
@@ -1336,6 +1350,8 @@
         spotOne: "1號",
         spotFive: "5號",
         spotPaid: "付費停車場（2,000日圓/晚）",
+        spot1ClosedNote: "⚠️ 受2026年7月豪雨影響，1號停車位（僅限輕型車/小型車）暫時無法使用。",
+        spot1CompNote: "因您開車3輛及以上，需使用付費停車場，其中1輛的費用由民宿負擔。",
         allocAllFree: "✅ 所有車輛都可停在免費停車場",
         allocPaidSummary: "💰 付費停車場: {n}輛 × 2,000日圓 = {total}日圓",
         allocError: "❌ 這種車輛配置會導致停車位不足。請調整車輛數量或車種。",
@@ -1954,6 +1970,12 @@
 
       let html = `<div class="parking-info"><p class="fw-bold mb-2">${t.allocTitle}</p>`;
 
+      // 【期間限定】1番駐車場閉鎖のお知らせ＋宿負担の案内（3台以上で有料が必要なとき）
+      if (SPOT1_CLOSED) {
+        const compApplies = vehicles.length >= SPOT1_COMP_MIN_CARS && paidRequired > 0;
+        html += `<div class="alert alert-warning py-2 px-3 small mb-2">${t.spot1ClosedNote}${compApplies ? "<br>" + t.spot1CompNote : ""}</div>`;
+      }
+
       // 未舗装駐車場（同じ車種をまとめて表示）
       if (spotData.unpaved.length > 0) {
         const typeCount = {};
@@ -1974,14 +1996,19 @@
         html += `<div class="alloc-item"><span class="alloc-spot fw-bold">${t.spotFive}</span>
           <span class="text-muted ms-2">${types}</span></div>`;
       }
-      // 有料駐車場
+      // 有料駐車場（1番閉鎖の補償: 3台以上なら1台分は宿負担=①を無料表示）
       const paidNums = currentLang === "ja" ? ["①","②"] : ["#1","#2"];
       const priceTag = currentLang === "ja" ? "2,000円/泊" : "¥2,000/night";
+      const compCars = (SPOT1_CLOSED && vehicles.length >= SPOT1_COMP_MIN_CARS) ? 1 : 0;
       for (let i = 0; i < paidRequired; i++) {
         const label = unallocated[i] ? vtDisplay(unallocated[i].label) : "";
+        const covered = i < compCars;
+        const tag = covered
+          ? (currentLang === "ja" ? "当宿負担・無料" : "covered by us / free")
+          : priceTag;
         html += `<div class="alloc-item"><span class="alloc-spot alloc-paid fw-bold">${currentLang === "ja"
           ? `有料駐車場${paidNums[i]}` : `Paid ${paidNums[i]}`}</span>
-          <span class="text-muted ms-2">${label}${label ? " " : ""}<span class="text-danger fw-bold">${priceTag}</span></span></div>`;
+          <span class="text-muted ms-2">${label}${label ? " " : ""}<span class="${covered ? "text-success" : "text-danger"} fw-bold">${tag}</span></span></div>`;
       }
 
       // 有料駐車場がある場合、詳細カードへのリンク

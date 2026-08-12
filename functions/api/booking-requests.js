@@ -103,7 +103,7 @@ module.exports = function bookingRequestsApi(db) {
         const o = parseInt(req.body.parkingCars, 10);
         if (Number.isFinite(o) && o >= 0) requestedCars = o;
       }
-      let parkingCharge = { cars: 0, fee: 0, nights: 0, pricePerNightPerCar: 0 };
+      let parkingCharge = { cars: 0, fee: 0, nights: 0, pricePerNightPerCar: 0, coveredCars: 0 };
       if (requestedCars > 0) {
         try {
           const propSnap = await db.collection("properties").doc(reqData.propertyId).get();
@@ -266,7 +266,7 @@ module.exports = function bookingRequestsApi(db) {
                     unit_amount: parkingCharge.fee,
                     product_data: {
                       name: `【${reqData.propertyName || "宿泊予約"}】有料駐車場（カフェ駐車場）`,
-                      description: `${parkingCharge.cars}台 × ${parkingCharge.nights}泊（1台1泊 ¥${parkingCharge.pricePerNightPerCar.toLocaleString("ja-JP")}）`.slice(0, 200),
+                      description: `${parkingCharge.cars}台 × ${parkingCharge.nights}泊（1台1泊 ¥${parkingCharge.pricePerNightPerCar.toLocaleString("ja-JP")}${parkingCharge.coveredCars > 0 ? `・うち${parkingCharge.coveredCars}台分は当宿負担` : ""}）`.slice(0, 200),
                     },
                   },
                 });
@@ -290,6 +290,7 @@ module.exports = function bookingRequestsApi(db) {
                   quoteTotal: String(total),
                   parkingCars: String(parkingCharge.cars),
                   parkingFee: String(parkingCharge.fee),
+                  parkingCoveredCars: String(parkingCharge.coveredCars || 0),
                   grandTotal: String(grandTotal),
                   // どちらの Stripe アカウントで作られたセッションかを webhook 側で照合するため付与
                   accountKind: stripe.accountKind,
@@ -313,6 +314,7 @@ module.exports = function bookingRequestsApi(db) {
                 parkingFee: parkingCharge.fee,
                 parkingCars: parkingCharge.cars,
                 parkingNights: parkingCharge.nights,
+                parkingCoveredCars: parkingCharge.coveredCars || 0,
                 expiresAt: expiresAtSec,
                 sessionId: session.id,
               };
@@ -331,8 +333,9 @@ module.exports = function bookingRequestsApi(db) {
                 },
                 priceBreakdown: {
                   ...quoteResult.quote,
-                  ...(parkingCharge.fee > 0
-                    ? { parkingCars: parkingCharge.cars, parkingFee: parkingCharge.fee, parkingNights: parkingCharge.nights, grandTotal }
+                  // 宿負担で fee=0 でも実利用台数は内訳に残す (期間限定 hostCoveredCars 対応)
+                  ...(parkingCharge.cars > 0
+                    ? { parkingCars: parkingCharge.cars, parkingFee: parkingCharge.fee, parkingNights: parkingCharge.nights, parkingCoveredCars: parkingCharge.coveredCars || 0, grandTotal }
                     : {}),
                 },
               });
@@ -390,7 +393,13 @@ module.exports = function bookingRequestsApi(db) {
         ];
         if (reqData.nationality) bodyLines.push(`国籍: ${reqData.nationality}`);
         if (reqData.memberComposition) bodyLines.push(`メンバー構成: ${reqData.memberComposition}`);
-        if (parkingCharge.cars > 0) bodyLines.push(`有料駐車場（カフェ駐車場）: ${parkingCharge.cars}台（ご利用時間 17:00〜翌9:30）`);
+        if (parkingCharge.cars > 0) {
+          // 宿負担分 (期間限定・1番駐車場閉鎖の補償) があれば明記する
+          const covJa = parkingCharge.coveredCars > 0
+            ? (parkingCharge.coveredCars >= parkingCharge.cars ? "・料金は当宿負担" : `・うち${parkingCharge.coveredCars}台分は当宿負担`)
+            : "";
+          bodyLines.push(`有料駐車場（カフェ駐車場）: ${parkingCharge.cars}台（ご利用時間 17:00〜翌9:30${covJa}）`);
+        }
         bodyLines.push(
           `キャンセルポリシー: ${planText}`,
           ``,
@@ -402,9 +411,10 @@ module.exports = function bookingRequestsApi(db) {
           const jst = new Date(expDate.getTime() + 9 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 16);
           bodyLines.push(`■お支払いのご案内`);
           if (payment.parkingFee > 0) {
+            const covBd = Number(payment.parkingCoveredCars) > 0 ? `・うち${payment.parkingCoveredCars}台分は当宿負担` : "";
             bodyLines.push(
               `宿泊料金: ¥${Number(payment.lodgingAmount).toLocaleString("ja-JP")}`,
-              `有料駐車場: ¥${Number(payment.parkingFee).toLocaleString("ja-JP")}（${payment.parkingCars}台 × ${payment.parkingNights}泊）`,
+              `有料駐車場: ¥${Number(payment.parkingFee).toLocaleString("ja-JP")}（${payment.parkingCars}台 × ${payment.parkingNights}泊${covBd}）`,
             );
           }
           bodyLines.push(
@@ -451,7 +461,12 @@ module.exports = function bookingRequestsApi(db) {
         );
         if (reqData.nationality) bodyLines.push(`Nationality: ${reqData.nationality}`);
         if (reqData.memberComposition) bodyLines.push(`Group composition: ${reqData.memberComposition}`);
-        if (parkingCharge.cars > 0) bodyLines.push(`Paid parking (cafe parking lot): ${parkingCharge.cars} car${parkingCharge.cars === 1 ? "" : "s"} (available 5:00 pm - 9:30 am)`);
+        if (parkingCharge.cars > 0) {
+          const covEn = parkingCharge.coveredCars > 0
+            ? (parkingCharge.coveredCars >= parkingCharge.cars ? "; fee covered by us" : `; fee for ${parkingCharge.coveredCars} car${parkingCharge.coveredCars === 1 ? "" : "s"} covered by us`)
+            : "";
+          bodyLines.push(`Paid parking (cafe parking lot): ${parkingCharge.cars} car${parkingCharge.cars === 1 ? "" : "s"} (available 5:00 pm - 9:30 am${covEn})`);
+        }
         bodyLines.push(`Cancellation policy: ${planTextEn}`, ``);
 
         if (payment.status === "pending" && payment.url) {
@@ -459,9 +474,10 @@ module.exports = function bookingRequestsApi(db) {
           const jst = new Date(expDate.getTime() + 9 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 16);
           bodyLines.push(`Payment information`);
           if (payment.parkingFee > 0) {
+            const covBdEn = Number(payment.parkingCoveredCars) > 0 ? `; fee for ${payment.parkingCoveredCars} car${Number(payment.parkingCoveredCars) === 1 ? "" : "s"} covered by us` : "";
             bodyLines.push(
               `Accommodation fee: JPY ${Number(payment.lodgingAmount).toLocaleString("en-US")}`,
-              `Paid parking: JPY ${Number(payment.parkingFee).toLocaleString("en-US")} (${payment.parkingCars} car${payment.parkingCars === 1 ? "" : "s"} x ${payment.parkingNights} night${payment.parkingNights === 1 ? "" : "s"})`,
+              `Paid parking: JPY ${Number(payment.parkingFee).toLocaleString("en-US")} (${payment.parkingCars} car${payment.parkingCars === 1 ? "" : "s"} x ${payment.parkingNights} night${payment.parkingNights === 1 ? "" : "s"}${covBdEn})`,
             );
           }
           bodyLines.push(

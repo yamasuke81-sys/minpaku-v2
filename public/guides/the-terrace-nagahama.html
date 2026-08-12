@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0812g" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0812h" rel="stylesheet">
   <style>
     /* === 共通トークン（瀬戸内ステイ 明るいブランド版・トークンは setouchi-brand.css） === */
     /* 和文フォントは KOMACHI と揃えて Noto Sans JP に統一 */
@@ -549,10 +549,17 @@
       </div>
 
       <h3 class="h6 fw-bold mb-2" id="freeParkingHeading">無料駐車場</h3>
+
+      <!-- 【期間限定】1番駐車場 閉鎖のお知らせ（2026年7月大雨。復旧したらこの div と下の No.１ 行の閉鎖表示を元に戻す） -->
+      <div class="alert alert-warning py-2 px-3 small mb-2" id="spot1ClosedNotice">⚠️ 2026年7月の大雨の影響により、1番駐車場（軽自動車専用）は当面ご利用いただけません。無料駐車場は2台分となります。お車3台以上でお越しの場合は有料駐車場のご利用が必要ですが、有料駐車場1台分の料金は当宿が負担いたします。</div>
+
       <table class="parking-table table table-sm table-bordered mb-3">
         <tbody>
           <tr><td>未舗装スペース</td><td>全サイズ 1台（全長5m以下）</td></tr>
-          <tr><td>No.１</td><td>軽自動車 1台</td></tr>
+          <tr class="table-secondary">
+            <td><span class="disabled-slot">No.１</span></td>
+            <td><span class="disabled-slot">当面使用不可（大雨の影響）</span></td>
+          </tr>
           <tr class="table-secondary">
             <td><span class="disabled-slot">No.３</span></td>
             <td><span class="disabled-slot">使用禁止</span></td>
@@ -1008,8 +1015,9 @@
     ["#freeParkingHeading", "無料駐車場", "Free Parking", "무료 주차장", "免费停车场", "免費停車場"],
     ["#parking .parking-table:nth-of-type(1) tr:nth-child(1) td:nth-child(1)", "未舗装スペース", "Unpaved space", "비포장 공간", "未铺装车位", "未鋪裝車位"],
     ["#parking .parking-table:nth-of-type(1) tr:nth-child(1) td:nth-child(2)", "全サイズ 1台（全長5m以下）", "1 vehicle of any size (up to 5 m)", "전 차종 1대(전장 5m 이하)", "任意车型 1辆（车长5米以下）", "任意車型 1輛（車長5公尺以下）"],
-    ["#parking .parking-table:nth-of-type(1) tr:nth-child(2) td:nth-child(1)", "No.１", "No.1", "No.1", "No.１", "No.１"],
-    ["#parking .parking-table:nth-of-type(1) tr:nth-child(2) td:nth-child(2)", "軽自動車 1台", "Compact car ×1", "경차 1대", "轻型车 1辆", "輕型車 1輛"],
+    ["#spot1ClosedNotice", "⚠️ 2026年7月の大雨の影響により、1番駐車場（軽自動車専用）は当面ご利用いただけません。無料駐車場は2台分となります。お車3台以上でお越しの場合は有料駐車場のご利用が必要ですが、有料駐車場1台分の料金は当宿が負担いたします。", "⚠️ Due to the heavy rain in July 2026, parking space No. 1 (compact cars only) is temporarily unavailable, leaving 2 free spaces. If you come with 3 or more cars, paid parking is required — we will cover the fee for one car.", "⚠️ 2026년 7월 폭우의 영향으로 1번 주차장(경차 전용)을 당분간 이용하실 수 없습니다. 무료 주차장은 2대분입니다. 차량 3대 이상으로 오시는 경우 유료 주차장 이용이 필요하며, 유료 주차장 1대분 요금은 숙소가 부담합니다.", "⚠️ 受2026年7月暴雨影响，1号停车位（仅限轻型车）暂时无法使用，免费停车位为2辆。驾车3辆及以上到访时需使用收费停车场，其中1辆的费用由民宿承担。", "⚠️ 受2026年7月豪雨影響，1號停車位（僅限輕型車）暫時無法使用，免費停車位為2輛。開車3輛及以上到訪時需使用付費停車場，其中1輛的費用由民宿負擔。"],
+    ["#parking .parking-table:nth-of-type(1) tr:nth-child(2) td:nth-child(1) .disabled-slot", "No.１", "No.1", "No.1", "No.１", "No.１"],
+    ["#parking .parking-table:nth-of-type(1) tr:nth-child(2) td:nth-child(2) .disabled-slot", "当面使用不可（大雨の影響）", "Temporarily unavailable (rain damage)", "당분간 사용 불가 (폭우의 영향)", "暂时无法使用（暴雨影响）", "暫時無法使用（豪雨影響）"],
     ["#parking .parking-table:nth-of-type(1) tr:nth-child(3) td:nth-child(1) .disabled-slot", "No.３", "No.3", "No.3", "No.３", "No.３"],
     ["#parking .parking-table:nth-of-type(1) tr:nth-child(3) td:nth-child(2) .disabled-slot", "使用禁止", "Not Available", "사용 금지", "禁止使用", "禁止使用"],
     ["#parking .parking-table:nth-of-type(1) tr:nth-child(4) td:nth-child(1)", "No.５", "No.5", "No.5", "No.５", "No.５"],
@@ -1252,11 +1260,14 @@
       li.querySelector('.spot-label').textContent = ALLOC_I18N.noCar[lang];
       list.appendChild(li);
     } else {
+      // 【期間限定】1番は2026年7月大雨で閉鎖中。閉鎖前に送信された旧割当に spot1 が残っている場合は使用不可を明示
+      const SPOT1_CLOSED_LABEL = { ja: '（使用不可・大雨の影響）', en: ' (unavailable — rain damage)', ko: '(사용 불가·폭우 영향)', zh: '（暂时无法使用·暴雨影响）', tw: '（暫時無法使用·豪雨影響）' };
       merged.forEach(a => {
         const li = document.createElement('li');
         const nameSpan = document.createElement('span');
         nameSpan.className = 'spot-name';
-        nameSpan.textContent = (SPOT_NAMES[a.spot] && SPOT_NAMES[a.spot][lang]) || a.spot;
+        nameSpan.textContent = ((SPOT_NAMES[a.spot] && SPOT_NAMES[a.spot][lang]) || a.spot) + (a.spot === 'spot1' ? SPOT1_CLOSED_LABEL[lang] : '');
+        if (a.spot === 'spot1') nameSpan.classList.add('text-danger');
         const labelSpan = document.createElement('span');
         labelSpan.className = 'spot-label';
         // 車種・サイズを表示 (vehicleType を優先、無ければ label をフォールバック)

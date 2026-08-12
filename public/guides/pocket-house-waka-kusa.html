@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="/css/setouchi-brand.css?v=v0812g" rel="stylesheet">
+  <link href="/css/setouchi-brand.css?v=v0812h" rel="stylesheet">
   <style>
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; }
@@ -58,6 +58,12 @@
 
     /* 案内予定（未確定の運用情報をゲスト向けに自然表現） */
     .soon { display: inline-block; color: var(--ss-glow); font-weight: 500; }
+
+    /* チェックイン動画（the Terrace ガイドと同じ YouTube 埋め込み。縦動画は 9:16 で中央寄せ） */
+    .video-label { font-weight: 700; margin: 14px 0 8px; }
+    .video-container { position: relative; width: 100%; margin: 0 0 14px; }
+    .video-container iframe { display: block; border: none; border-radius: 8px; width: 100%; height: 250px; }
+    .video-container.vertical iframe { max-width: 280px; height: 498px; margin: 0 auto; }
 
     .note { border-left: 3px solid var(--ss-gold); background: rgba(196,163,92,.10); border-radius: 4px; padding: 10px 14px; margin: 8px 0 14px; font-size: 15px; color: var(--ss-sand-soft); }
 
@@ -141,7 +147,7 @@
     <section class="sec" id="checkin">
       <h2><i class="bi bi-key"></i><span class="jp">チェックイン</span><span class="en">Check-in</span></h2>
       <div class="kv">
-        <div class="row"><span class="k"><span class="jp">チェックイン</span><span class="en">Check-in</span></span><span class="v">16:00 –</span></div>
+        <div class="row"><span class="k"><span class="jp">チェックイン</span><span class="en">Check-in</span></span><span class="v">16:00 – 20:00</span></div>
         <div class="row"><span class="k"><span class="jp">キーボックス</span><span class="en">Key box</span></span><span class="v"><span class="jp">玄関のドアノブ</span><span class="en">On the front door handle</span></span></div>
         <div class="row"><span class="k"><span class="jp">解錠番号</span><span class="en">Key box code</span></span><span class="v"><span class="jp">当日朝にご連絡</span><span class="en">Sent on the morning of arrival</span></span></div>
       </div>
@@ -150,6 +156,12 @@
         <li><span class="jp">当日朝にお送りする<b>解錠番号</b>を入力し、鍵を取り出してください。</span><span class="en">Enter the <b>code</b> we send on the morning of your arrival and take out the key.</span></li>
         <li><span class="jp">玄関を解錠してご入室ください。ごゆっくりどうぞ。</span><span class="en">Unlock the front door and come on in. Make yourself at home.</span></li>
       </ol>
+      <div class="video-label"><span class="jp">キーボックスの開け方（動画）</span><span class="en">How to open the key box (video)</span></div>
+      <div class="video-container vertical">
+        <iframe src="https://www.youtube.com/embed/Eu8s-RS6qXs" loading="lazy" title="キーボックスの解錠方法 / How to open the key box"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowfullscreen></iframe>
+      </div>
       <div class="note"><span class="jp">当宿は法令に基づき、ご宿泊されるみなさま全員のお名前などのご登録が必要です。ご到着前に、お送りするフォームからご入力をお願いします。</span><span class="en">As a licensed lodging facility, we are required to register the name of every guest staying with us. Please complete the form we send you before you arrive.</span></div>
       <p><span class="jp">20:00以降のご到着になりそうなときは、事前にご連絡ください。スタッフの対応時間は 6:00〜20:00 です。アーリーチェックイン・レイトチェックアウトは承っておりません。</span><span class="en">If you expect to arrive after 20:00, please let us know in advance. Our staff are available from 6:00 to 20:00. Early check-in and late check-out are not available.</span></p>
     </section>
@@ -176,10 +188,12 @@
       <h2><i class="bi bi-house-gear"></i><span class="jp">設備・洗濯</span><span class="en">Amenities &amp; Laundry</span></h2>
       <div class="kv">
         <div class="row"><span class="k"><span class="jp">洗濯機</span><span class="en">Washing machine</span></span><span class="v"><span class="jp">洗面スペースにあります（無料）</span><span class="en">In the washroom (free)</span></span></div>
-        <div class="row"><span class="k"><span class="jp">キッチン</span><span class="en">Kitchen</span></span><span class="v"><span class="jp">IH・調理器具・食器一式</span><span class="en">Induction cooktop &amp; cookware</span></span></div>
-        <div class="row"><span class="k"><span class="jp">浴室</span><span class="en">Bathroom</span></span><span class="v"><span class="jp">浴槽付き</span><span class="en">With soaking tub</span></span></div>
+        <div class="row"><span class="k"><span class="jp">乾燥機</span><span class="en">Dryer</span></span><span class="v"><span class="jp">ございません</span><span class="en">Not available</span></span></div>
+        <div class="row"><span class="k"><span class="jp">テレビ</span><span class="en">TV</span></span><span class="v">Android TV</span></div>
+        <div class="row"><span class="k"><span class="jp">消火器</span><span class="en">Fire extinguisher</span></span><span class="v"><span class="jp">玄関まわりに設置</span><span class="en">Near the entrance</span></span></div>
       </div>
-      <p><span class="jp">キッチンにはIHクッキングヒーター・電気ケトル・調理器具・食器一式をご用意しています。テレビはリビングにあります。洗濯機は洗面スペースのものをご自由にお使いください。</span><span class="en">The kitchen has an induction cooktop, electric kettle, cookware and a full set of tableware. There is a TV in the living room. You are welcome to use the washing machine in the washroom.</span></p>
+      <p><span class="jp">キッチンにはIHクッキングヒーター・冷蔵庫・電子レンジ・電気ケトル・調理器具・食器一式をご用意しています。浴室は浴槽付き、洗面スペースにドライヤーがあります。テレビは Android TV です。Netflix などの動画配信をご自身のアカウントでご視聴いただけますが、<b>ご退室時のログアウトをお願いします</b>。</span><span class="en">The kitchen has an induction cooktop, refrigerator, microwave, electric kettle, cookware and a full set of tableware. The bathroom has a soaking tub, and there is a hairdryer in the washroom. The TV is an Android TV — you are welcome to sign in to Netflix and other services with your own account, but <b>please sign out before you leave</b>.</span></p>
+      <p><span class="jp"><b>乾燥機はございません。</b>洗濯機は洗面スペースのものをご自由にお使いください。</span><span class="en"><b>There is no clothes dryer.</b> You are welcome to use the washing machine in the washroom.</span></p>
     </section>
 
     <!-- チェックアウト -->
@@ -192,6 +206,7 @@
         <li><span class="jp">ゴミは分別のうえ、<b>室内のゴミ箱に置いたままで結構です</b>（清掃時に回収します）。</span><span class="en">Sort your rubbish and <b>simply leave it in the bins inside</b> — we collect it when we clean.</span></li>
         <li><span class="jp">ご使用になった食器・調理器具は、洗ってお戻しください。</span><span class="en">Please wash the dishes and cookware you used and put them back.</span></li>
         <li><span class="jp">窓を施錠し、照明とエアコンをお切りください。</span><span class="en">Lock the windows and turn off the lights and air conditioning.</span></li>
+        <li><span class="jp">テレビで動画配信サービスにログインされた場合は、ログアウトをお願いします。</span><span class="en">If you signed in to any streaming service on the TV, please sign out.</span></li>
         <li><span class="jp">玄関を施錠し、鍵は<b>玄関ドアノブのキーボックス</b>に戻して、施錠をご確認ください。</span><span class="en">Lock the front door, return the key to the <b>key box on the door handle</b>, and check that it is locked.</span></li>
       </ol>
     </section>

@@ -805,7 +805,8 @@ router.get("/quote/:propertyId", async (req, res) => {
       try {
         const propSnap = await db.collection("properties").doc(pid).get();
         const paidParking = propSnap.exists ? propSnap.data().paidParking : null;
-        const charge = computeParkingCharge(paidParking, checkIn, checkOut, parkingCarsReq);
+        // carCount (来場総台数) は宿負担分 (期間限定 hostCoveredCars) の適用判定に使う
+        const charge = computeParkingCharge(paidParking, checkIn, checkOut, parkingCarsReq, req.query.carCount);
         if (charge.cars > 0) parking = charge;
       } catch (pErr) {
         console.warn("[public/quote] paidParking 取得失敗:", pErr.message);
@@ -817,7 +818,12 @@ router.get("/quote/:propertyId", async (req, res) => {
       propertyId: pid,
       hasRates: true,
       ...result.quote,
-      ...(parking ? { parkingCars: parking.cars, parkingFee: parking.fee, parkingNights: parking.nights } : {}),
+      ...(parking ? {
+        parkingCars: parking.cars,
+        parkingFee: parking.fee,
+        parkingNights: parking.nights,
+        ...(parking.coveredCars > 0 ? { parkingCoveredCars: parking.coveredCars } : {}),
+      } : {}),
     });
   } catch (e) {
     console.error("[public/quote]", e);
@@ -1073,11 +1079,22 @@ router.post("/booking-request", express.json(), async (req, res) => {
       const carLineEn = carCount !== null
         ? [`Cars: ${carCount === 0 ? "not driving" : String(carCount)}`]
         : [];
+      // 宿負担分 (期間限定・1番駐車場閉鎖の補償) があれば受付時点から明記する
+      const covJa = parkingCharge.coveredCars > 0
+        ? (parkingCharge.coveredCars >= parkingCars
+          ? "・料金は当宿が負担いたします"
+          : `・うち${parkingCharge.coveredCars}台分の料金は当宿が負担いたします`)
+        : "";
+      const covEn = parkingCharge.coveredCars > 0
+        ? (parkingCharge.coveredCars >= parkingCars
+          ? "; the fee will be covered by us"
+          : `; we will cover the fee for ${parkingCharge.coveredCars} car${parkingCharge.coveredCars === 1 ? "" : "s"}`)
+        : "";
       const parkingLineJa = parkingCars > 0
-        ? [`有料駐車場: ${parkingCars}台希望（1台1泊 ¥${parkingCharge.pricePerNightPerCar.toLocaleString("ja-JP")}・空き確認のうえ承認時に確定します）`]
+        ? [`有料駐車場: ${parkingCars}台希望（1台1泊 ¥${parkingCharge.pricePerNightPerCar.toLocaleString("ja-JP")}・空き確認のうえ承認時に確定します${covJa}）`]
         : [];
       const parkingLineEn = parkingCars > 0
-        ? [`Paid parking: ${parkingCars} car${parkingCars === 1 ? "" : "s"} requested (JPY ${parkingCharge.pricePerNightPerCar.toLocaleString("en-US")} per car per night, confirmed upon approval)`]
+        ? [`Paid parking: ${parkingCars} car${parkingCars === 1 ? "" : "s"} requested (JPY ${parkingCharge.pricePerNightPerCar.toLocaleString("en-US")} per car per night, confirmed upon approval${covEn})`]
         : [];
       const bodyText = [
         `${name} 様`,
