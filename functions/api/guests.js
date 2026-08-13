@@ -273,6 +273,33 @@ module.exports = function guestsApi(db) {
     }
   });
 
+  // POST /guests/roster-request/:bookingId — 名簿の記入依頼メールをゲストへ手動送信
+  // 定期リマインド (rosterRemind) や支払完了時の自動送信を待たずに、その場で1通送りたいとき用。
+  // 重複防止キーは manual_<YYYY-MM-DD> なので、同じ日に二度押しても1通しか飛ばない。
+  router.post("/roster-request/:bookingId", requireOwnerOrSubOwner_, async (req, res) => {
+    try {
+      const { bookingId } = req.params;
+      const snap = await db.collection("bookings").doc(bookingId).get();
+      if (!snap.exists) return res.status(404).json({ error: "予約が見つかりません" });
+      const b = snap.data();
+      if (!subOwnerCanAccessProperty_(req, b.propertyId)) {
+        return res.status(403).json({ error: "権限がありません" });
+      }
+      if (!b.email) return res.status(400).json({ error: "この予約にはゲストのメールアドレスがありません" });
+      if (b.rosterStatus === "submitted") return res.status(409).json({ error: "名簿は提出済みです" });
+
+      const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); // JST
+      const { sendRosterRequestMail_ } = require("../utils/rosterMail");
+      const sent = await sendRosterRequestMail_(db, bookingId, b, { key: `manual_${today}` });
+      if (!sent) return res.status(409).json({ error: "本日分は送信済みです (または送信対象外の予約です)" });
+
+      res.json({ success: true, to: b.email, message: "名簿の記入依頼メールを送信しました" });
+    } catch (e) {
+      console.error("roster-request エラー:", e);
+      res.status(500).json({ error: e.message || "記入依頼メールの送信に失敗しました" });
+    }
+  });
+
   return router;
 };
 
