@@ -1252,6 +1252,14 @@ ${ppCo}9:30
               </div>`
           }
           ${guestData.guestCountInfants ? `<small class="text-muted">乳幼児${this.esc(String(guestData.guestCountInfants))}名</small>` : ""}
+          ${b.guestInfoStale ? `
+            <div class="alert alert-warning py-1 px-2 mt-2 mb-0 small">
+              <i class="bi bi-exclamation-triangle-fill"></i>
+              <strong>人数・氏名が古い可能性があります</strong><br>
+              ${this.esc(b.guestInfoStaleReason || "予約が別予約に差し替わりました")}<br>
+              OTAの管理画面で実際の人数を確認し、上の欄を修正してください。
+              ${isStaffView ? "" : `<button class="btn btn-sm btn-outline-secondary mt-1 py-0" id="btnClearGuestInfoStale" data-booking-id="${b.id}">確認済みにする</button>`}
+            </div>` : ""}
         </td></tr>
         ${b.carCount != null ? `<tr><th class="text-muted">お車</th><td>
           <i class="bi bi-car-front"></i> ${Number(b.carCount) === 0 ? "車なし" : `${this.esc(String(b.carCount))}台`}
@@ -2004,6 +2012,34 @@ ${ppCo}9:30
           }
           onGuestCountSaved(newCount, bookingId);
           showToast("完了", "人数を更新しました", "success");
+        } catch (e) {
+          showToast("エラー", e.message, "error");
+        }
+      });
+    }
+
+    // 「人数・氏名が古い可能性」警告を消す (オーナーが実数を確認したあと)
+    const btnClearStale = document.getElementById("btnClearGuestInfoStale");
+    if (btnClearStale) {
+      btnClearStale.addEventListener("click", async () => {
+        const bookingId = btnClearStale.dataset.bookingId;
+        if (!bookingId) return;
+        const ok = await showConfirm("実際の人数を確認しましたか？ この警告を消します。", { okLabel: "確認済みにする" });
+        if (!ok) return;
+        try {
+          const db = firebase.firestore();
+          await db.collection("bookings").doc(bookingId).update({
+            guestInfoStale: false,
+            guestInfoStaleResolvedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+          const idx = bookings.findIndex(bk => bk.id === bookingId);
+          if (idx !== -1) bookings[idx].guestInfoStale = false;
+          if (this.bookings && this.bookings !== bookings) {
+            const idx2 = this.bookings.findIndex(bk => bk.id === bookingId);
+            if (idx2 !== -1) this.bookings[idx2].guestInfoStale = false;
+          }
+          btnClearStale.closest(".alert").remove();
+          showToast("完了", "警告を消しました", "success");
         } catch (e) {
           showToast("エラー", e.message, "error");
         }

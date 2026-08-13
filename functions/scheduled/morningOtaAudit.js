@@ -203,6 +203,32 @@ module.exports = async function morningOtaAudit() {
         lines.push(`ℹ️ Airbnb予約 ${snapshot.unassignedCount}件がどの物件にも紐づきませんでした(要確認)。`);
       }
 
+      // 11) 「人数・氏名が古い可能性」が付いたままの予約 (差し替え検知の積み残し)
+      //     差し替え時にリアルタイム通知も出すが、通知は落ちることがある。
+      //     フラグは booking に永続化されるので、消されるまで毎朝ここで催促する。
+      try {
+        const staleSnap = await db.collection("bookings")
+          .where("guestInfoStale", "==", true)
+          .get();
+        const staleRows = staleSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .filter((b) => String(b.status || "").toLowerCase() !== "cancelled")
+          .filter((b) => String(b.checkIn || "") >= todayStr)   // 未来の滞在のみ
+          .sort((a, b) => String(a.checkIn).localeCompare(String(b.checkIn)));
+        if (staleRows.length > 0) {
+          lines.push("");
+          lines.push(`⚠️ 人数・氏名が古い可能性のある予約 ${staleRows.length}件(OTAで実数を確認して修正してください)`);
+          for (const b of staleRows) {
+            lines.push(`・${b.propertyName || b.propertyId} ${b.checkIn}〜${b.checkOut} ` +
+              `${b.guestName || "(不明)"} ${b.guestCount != null ? `${b.guestCount}名` : "人数未設定"}` +
+              `${b.guestInfoStaleReason ? ` — ${b.guestInfoStaleReason}` : ""}`);
+          }
+          lines.push("→ 予約詳細で人数を直し「確認済みにする」を押すとこの催促は消えます。");
+        }
+      } catch (e) {
+        console.warn("[morningOtaAudit] guestInfoStale 集計エラー:", e.message);
+      }
+
       const r = await sendDiscord_(discordUrl, lines.join("\n"));
       if (!r.success) console.warn("[morningOtaAudit] 全体サマリDiscord送信失敗:", r.error);
     }
