@@ -549,5 +549,11 @@ service cloud.firestore {
       allow read: if isOwner();
       allow write: if false;
     }
+
+    // 通知の二重送信防止クレーム (create() の原子性で at-most-once を担保)
+    // Cloud Functions 専用。クライアントは読み書きとも不要。
+    match /notifyClaims/{claimId} {
+      allow read, write: if false;
+    }
   }
 }

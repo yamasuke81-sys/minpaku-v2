@@ -61,31 +61,56 @@ function isWorthArchiving(kind, data) {
 
 /**
  * ドキュメントを退避してから削除する。
- * 退避に失敗しても削除は続行する (退避は保険であって、本来の後片付けを止めない)。
+ *
+ * ★退避が必要なのに退避できなかったときは削除しない。
+ *   ここで削除してしまうと「退避機能が必要なまさにその場面で回答が消える」ため、
+ *   データを守る側に倒す。残ったドキュメントは後続のトリガー発火時に
+ *   孤児として再度この関数に入るので、退避が復旧すれば自然に解消する
+ *   (＝消えるより残るほうが安全で、かつ自己修復する)。
  *
  * @param {FirebaseFirestore.Firestore} db
  * @param {FirebaseFirestore.QueryDocumentSnapshot} doc - 削除対象
  * @param {"recruitment"|"shift"} kind
  * @param {{reason?:string, bookingId?:string, propertyId?:string}} ctx
+ * @returns {Promise<boolean>} 削除したら true / 退避失敗で削除を見送ったら false
  */
 async function archiveAndDelete(db, doc, kind, ctx) {
   const admin = require("firebase-admin");
-  try {
-    const data = doc.data() || {};
-    if (isWorthArchiving(kind, data)) {
-      const entry = buildArchiveEntry(kind, doc.id, data, ctx);
-      entry.deletedAt = admin.firestore.FieldValue.serverTimestamp();
-      await db.collection("recruitmentArchives").doc(`${kind}__${doc.id}`).set(entry);
+  const data = doc.data() || {};
+
+  // 人の入力が無いものは退避不要 → そのまま削除
+  if (!isWorthArchiving(kind, data)) {
+    await doc.ref.delete();
+    return true;
+  }
+
+  const entry = buildArchiveEntry(kind, doc.id, data, ctx);
+  entry.deletedAt = admin.firestore.FieldValue.serverTimestamp();
+  const ref = db.collection("recruitmentArchives").doc(`${kind}__${doc.id}`);
+
+  // 一過性の失敗に備えて1回だけ再試行する
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      await ref.set(entry);
       console.log(
         `[recruitmentArchive] 退避: ${kind} ${doc.id} ` +
         `(回答${entry.responseCount}件, 確定${entry.selectedStaffIds.length}名, reason=${entry.reason})`
       );
+      await doc.ref.delete();
+      return true;
+    } catch (e) {
+      lastErr = e;
+      console.error(`[recruitmentArchive] 退避失敗(${attempt}/2) ${kind} ${doc.id}:`, e.message);
     }
-  } catch (e) {
-    // 退避に失敗しても削除は止めない
-    console.error(`[recruitmentArchive] 退避失敗 ${kind} ${doc.id}:`, e.message);
   }
-  await doc.ref.delete();
+
+  // 退避できなかった → 削除しない (回答を失わないことを最優先)
+  console.error(
+    `[recruitmentArchive] ★退避できなかったため削除を中止: ${kind} ${doc.id} ` +
+    `(回答${entry.responseCount}件, reason=${entry.reason}) — ${lastErr && lastErr.message}`
+  );
+  return false;
 }
 
 module.exports = { archiveAndDelete, buildArchiveEntry, isWorthArchiving };

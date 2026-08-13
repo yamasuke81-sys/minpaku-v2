@@ -1,6 +1,7 @@
 // 毎日深夜 2時 (JST) に走らせて孤児データを掃除
 const admin = require("firebase-admin");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { archiveAndDelete } = require("../utils/recruitmentArchive");
 
 exports.orphanCleanup = onSchedule({
   schedule: "0 2 * * *",  // JST 2:00
@@ -10,7 +11,7 @@ exports.orphanCleanup = onSchedule({
   memory: "512MiB",  // OOM対策: 全 shifts/checklists を読むため
 }, async (event) => {
   const db = admin.firestore();
-  const stats = { orphanChecklists: 0, orphanShifts: 0, orphanRecs: 0, fixedPending: 0 };
+  const stats = { orphanChecklists: 0, orphanShifts: 0, orphanRecs: 0, fixedPending: 0, archiveFailed: 0 };
 
   // 1. 孤児 checklist 削除
   const shSnap = await db.collection("shifts").get();
@@ -36,8 +37,15 @@ exports.orphanCleanup = onSchedule({
       // 対応 checklist も削除
       const cls = await db.collection("checklists").where("shiftId", "==", d.id).get();
       for (const c of cls.docs) await c.ref.delete();
-      await d.ref.delete();
-      stats.orphanShifts++;
+      // ★スタッフが入っているシフトは退避してから消す。
+      //   ここを素の delete にしていると、onBookingChange 側の退避をすり抜けたもの
+      //   (および退避失敗で意図的に残したもの) を毎晩2時に無言で失う。
+      if (await archiveAndDelete(db, d, "shift", { reason: "orphan_cleanup", bookingId: s.bookingId, propertyId: s.propertyId })) {
+        stats.orphanShifts++;
+      } else {
+        stats.archiveFailed++;
+        console.error(`[orphanCleanup] シフト ${d.id} を退避できず削除を見送りました`);
+      }
     }
   }
 
@@ -48,8 +56,13 @@ exports.orphanCleanup = onSchedule({
     if (!r.bookingId) continue;
     const b = bMap.get(r.bookingId);
     if (!b || isCancelled(b.status)) {
-      await d.ref.delete();
-      stats.orphanRecs++;
+      // ★回答(responses)が入っている募集は退避してから消す (同上)
+      if (await archiveAndDelete(db, d, "recruitment", { reason: "orphan_cleanup", bookingId: r.bookingId, propertyId: r.propertyId })) {
+        stats.orphanRecs++;
+      } else {
+        stats.archiveFailed++;
+        console.error(`[orphanCleanup] 募集 ${d.id} を退避できず削除を見送りました`);
+      }
     }
   }
 

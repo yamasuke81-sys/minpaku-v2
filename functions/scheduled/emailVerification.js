@@ -369,12 +369,17 @@ async function emailVerificationCore(db, opts = {}) {
                   // confirmed の pendingApproval/unverified 降下を同じ update にまとめる。
                   // (別 update に分けると bookings への書き込みが 1 通のメールで 2 回になり、
                   //  onBookingChange が並列発火して募集が重複生成される。2026-08-12 の事故要因)
+                  let mergedResolve = false;
                   if (extractedInfo && extractedInfo.kind === "confirmed") {
                     Object.assign(bookingPatch, buildConfirmedResolvePatch_(bookingMatch.data));
-                    confirmedResolveMerged = true;
+                    mergedResolve = true;
                   }
 
                   await db.collection("bookings").doc(bookingMatch.id).update(bookingPatch);
+                  // ★update が成功してから統合済みフラグを立てる。
+                  //   先に立てると、update が失敗したときに後段のフォールバックも
+                  //   スキップされ、承認待ちのまま募集が生成されない状態で固定される。
+                  confirmedResolveMerged = mergedResolve;
                   bookingUpdates = Object.keys(bookingPatch);
                   if (bookingPatch.guestInfoStale === true) {
                     replacedBooking = { id: bookingMatch.id, data: bookingMatch.data, updates: decision.updates };
@@ -474,11 +479,7 @@ async function emailVerificationCore(db, opts = {}) {
           // Booking.com の確定メールには人数・氏名が載らないため機械的に直せない。
           // 気づけないまま古い人数で清掃準備が進むのを防ぐため必ず知らせる。
           if (replacedBooking) {
-            try {
-              await notifyBookingReplaced_(db, replacedBooking, extractedInfo);
-            } catch (e) {
-              console.error(`[emailVerification] 差し替え通知エラー:`, e.message);
-            }
+            await notifyBookingReplaced_(db, replacedBooking, extractedInfo, evRef, msg.id);
           }
 
           // ===== 保留中メール検出時: bookings.pendingApproval=true をセット =====
@@ -624,10 +625,46 @@ function buildConfirmedResolvePatch_(bookingData) {
 /**
  * 予約が別予約に差し替わったことをオーナーへ通知
  * (キャンセル → 同日程で別予約番号の再予約が同一 booking ドキュメントに着地したケース)
+ *
+ * 冪等・再試行:
+ *   - emailVerifications/{messageId}.replacedNotifiedAt があれば送らない (並列実行時の二重通知を防ぐ)
+ *   - 送信に失敗したら error_logs に残す (onErrorLogCreated がオーナーへ知らせる)。
+ *     処理済みガードで次回スキップされるため、握り潰すと「必ず知らせる」が破れる
  */
-async function notifyBookingReplaced_(db, replaced, parsedInfo) {
+async function notifyBookingReplaced_(db, replaced, parsedInfo, evRef, messageId) {
+  const admin = require("firebase-admin");
   const { notifyByKey } = require("../utils/lineNotify");
   const b = replaced.data || {};
+
+  // ★冪等ガードは create() の原子性で取る。
+  //   evRef を read→write する方式だと (a) 並列実行が両方とも「未通知」と読んで二重送信し、
+  //   (b) 後続の evRef.set() (マージ無し) がマークを上書きしてしまう。
+  //   専用の claim ドキュメントなら create() が ALREADY_EXISTS で確実に1回に絞れる。
+  //   claim の status は結果の記録用 ("sending" → "sent"/"failed")。
+  //   claim 作成後・送信前にプロセスが落ちると、この通知は送られないまま終わる。
+  //   ただし差し替えの事実は booking の guestInfoStale / guestInfoStaleReason として
+  //   永続化されており、通知はあくまで気づきを早めるための二次的な手段である。
+  //   (メールは emailVerifications の存在で処理済み判定されるため、そもそも
+  //    通知だけを後から再送する経路は存在しない。無理に再送機構を足すより
+  //    失敗を error_logs で人に上げるほうが確実)
+  const claimRef = db.collection("notifyClaims").doc(`booking_replaced__${messageId || replaced.id}`);
+  try {
+    await claimRef.create({
+      kind: "booking_replaced",
+      status: "sending",
+      messageId: messageId || null,
+      bookingId: replaced.id,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (e) {
+    if (e && (e.code === 6 || /already exists/i.test(String(e.message || "")))) {
+      console.log(`[emailVerification] 差し替え通知は送信済/送信中 msg=${messageId}`);
+      return;
+    }
+    // claim を作れない = Firestore 異常。通知を止めるより送る側に倒す(重複のほうが軽い)
+    console.error(`[emailVerification] 差し替え通知の claim 作成失敗 (続行):`, e.message);
+  }
+
   const propertyName = b.propertyName || "";
   const newCode = (parsedInfo && parsedInfo.reservationCode) || "";
   const reason = (replaced.updates && replaced.updates.guestInfoStaleReason) || "";
@@ -647,19 +684,72 @@ async function notifyBookingReplaced_(db, replaced, parsedInfo) {
     "→ OTAの管理画面で実際の人数を確認し、予約詳細から修正してください。",
   ].join("\n");
 
-  await notifyByKey(db, "booking_change", {
-    title: `🔁 予約差し替え: ${propertyName || b.checkIn || ""}`,
-    body,
-    vars: {
-      property: propertyName,
-      checkin: b.checkIn || "",
-      date: b.checkOut || "",
-      guest: b.guestName || "",
-      code: newCode,
-    },
-    propertyId: b.propertyId || null,
-  });
-  console.log(`[emailVerification] 予約差し替えを通知: booking=${replaced.id} newCode=${newCode}`);
+  // ★notifyByKey はチャネル送信失敗を throw せず { sent, errors } で返すため、
+  //   戻り値の errors を見ないと「失敗したのに成功扱い」になる。
+  // ★リトライはしない。notifyByKey はチャネル単位の部分失敗でも全体を再送するため、
+  //   再試行すると成功済みチャネルへ二重送信になる。失敗は error_logs で人に上げる。
+  let lastErr = null;
+  let sentSummary = "";
+  try {
+    const res = await notifyByKey(db, "booking_change", {
+      title: `🔁 予約差し替え: ${propertyName || b.checkIn || ""}`,
+      body,
+      vars: {
+        property: propertyName,
+        checkin: b.checkIn || "",
+        date: b.checkOut || "",
+        guest: b.guestName || "",
+        code: newCode,
+      },
+      propertyId: b.propertyId || null,
+    });
+    const errs = (res && Array.isArray(res.errors)) ? res.errors : [];
+    const sent = (res && res.sent) || {};
+    sentSummary = JSON.stringify(sent);
+    if (errs.length > 0) {
+      lastErr = new Error(errs.map((x) => (x && (x.error || x.message)) || String(x)).join(" / "));
+      console.error(`[emailVerification] 差し替え通知が一部/全部失敗:`, lastErr.message);
+    } else {
+      // errors が空でも「どのチャネルにも出ていない」ことがある
+      // (通知キーが無効 / 宛先0件)。無効設定なら正常なので警告に留める。
+      if (!res || !res.queued) {
+        const anySent = Object.values(sent).some((v) => v === true || (typeof v === "number" && v > 0));
+        if (!anySent) {
+          console.warn(`[emailVerification] 差し替え通知はどのチャネルにも送られませんでした ` +
+            `(booking_change が無効か宛先0件の可能性) booking=${replaced.id} sent=${sentSummary}`);
+        }
+      }
+      console.log(`[emailVerification] 予約差し替えを通知: booking=${replaced.id} newCode=${newCode} sent=${sentSummary}`);
+      try { await claimRef.update({ status: "sent", sentAt: admin.firestore.FieldValue.serverTimestamp() }); } catch (_e) { /* noop */ }
+      if (evRef) {
+        try {
+          await evRef.update({ replacedNotifiedAt: admin.firestore.FieldValue.serverTimestamp() });
+        } catch (_e) { /* マーク失敗は通知済みの事実を変えない */ }
+      }
+      return;
+    }
+  } catch (e) {
+    lastErr = e;
+    console.error(`[emailVerification] 差し替え通知エラー:`, e.message);
+  }
+
+  // 送れなかった → 握り潰すと処理済みガードで二度と通知されないので error_logs に残す。
+  // ★フィールド名は onErrorLogCreated が読む functionName / errorMessage に合わせる
+  //   (source/message だと通知本文が「関数: 不明 / 原因: 不明なエラー」になる)
+  try { await claimRef.update({ status: "failed", failedAt: admin.firestore.FieldValue.serverTimestamp() }); } catch (_e) { /* noop */ }
+  try {
+    await db.collection("error_logs").add({
+      functionName: "emailVerification.notifyBookingReplaced_",
+      errorMessage: `予約差し替え通知の送信に失敗: booking=${replaced.id} newCode=${newCode} — ${lastErr && lastErr.message}`,
+      severity: "error",
+      stack: body,
+      propertyId: b.propertyId || null,
+      messageId: messageId || null,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (e) {
+    console.error(`[emailVerification] error_logs 記録も失敗:`, e.message);
+  }
 }
 
 /**

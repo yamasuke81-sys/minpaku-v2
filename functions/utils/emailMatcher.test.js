@@ -566,3 +566,90 @@ describe("キャンセル済み予約の復活・差し替え", () => {
     assert.strictEqual(updates.guestInfoStale, undefined);
   });
 });
+
+// ======================================================
+// Codexレビュー指摘: 予約番号が食い違う候補への誤照合を防ぐ
+// ======================================================
+
+describe("差し替え後の誤照合ガード", () => {
+  const ci = { date: "2026-08-26" };
+
+  test("旧予約のキャンセルメールが、新予約番号を持つ生きた予約に当たらない", () => {
+    const bookings = [
+      { id: "live", data: { source: "Booking.com", propertyId: "P1", checkIn: "2026-08-26", status: "confirmed", otaReservationCode: "NEW" } },
+    ];
+    const r = findBookingMatch(bookings, { kind: "cancelled", platform: "Booking.com", reservationCode: "OLD", checkIn: ci }, "P1");
+    assert.strictEqual(r, null);
+  });
+
+  test("予約番号が一致すれば当たる", () => {
+    const bookings = [
+      { id: "live", data: { source: "Booking.com", propertyId: "P1", checkIn: "2026-08-26", status: "confirmed", otaReservationCode: "NEW" } },
+    ];
+    const r = findBookingMatch(bookings, { kind: "cancelled", platform: "Booking.com", reservationCode: "NEW", checkIn: ci }, "P1");
+    assert.strictEqual(r.id, "live");
+  });
+
+  test("予約番号が未保存の予約は従来どおり日付で当たる(後方互換)", () => {
+    const bookings = [
+      { id: "legacy", data: { source: "Booking.com", propertyId: "P1", checkIn: "2026-08-26", status: "confirmed" } },
+    ];
+    const r = findBookingMatch(bookings, { kind: "confirmed", platform: "Booking.com", reservationCode: "NEW", checkIn: ci }, "P1");
+    assert.strictEqual(r.id, "legacy");
+  });
+
+  test("キャンセルメールでは active 優先を適用しない(生きた予約を消さない)", () => {
+    const bookings = [
+      { id: "old", data: { source: "Booking.com", propertyId: "P1", checkIn: "2026-08-26", status: "cancelled" } },
+      { id: "new", data: { source: "Booking.com", propertyId: "P1", checkIn: "2026-08-26", status: "confirmed" } },
+    ];
+    const r = findBookingMatch(bookings, { kind: "cancelled", platform: "Booking.com", checkIn: ci }, "P1");
+    assert.strictEqual(r.matchReason, "ambiguous-dateAndPlatform");
+    assert.strictEqual(r.id, null);
+  });
+
+  test("確定メールでは従来どおり active 優先が効く", () => {
+    const bookings = [
+      { id: "old", data: { source: "Booking.com", propertyId: "P1", checkIn: "2026-08-26", status: "cancelled" } },
+      { id: "new", data: { source: "Booking.com", propertyId: "P1", checkIn: "2026-08-26", status: "confirmed" } },
+    ];
+    const r = findBookingMatch(bookings, { kind: "confirmed", platform: "Booking.com", checkIn: ci }, "P1");
+    assert.strictEqual(r.id, "new");
+  });
+});
+
+describe("差し替えの主経路が壊れていないこと(Codex再指摘の退行防止)", () => {
+  const ci = { date: "2026-08-26" };
+
+  test("★キャンセル済み(旧番号)に新番号の確定メールが当たる = 差し替えの主経路", () => {
+    const bookings = [
+      { id: "same", data: {
+        source: "Booking.com", propertyId: "P1", checkIn: "2026-08-26",
+        status: "cancelled", cancelledAt: { _seconds: 1 }, otaReservationCode: "OLD",
+      } },
+    ];
+    const r = findBookingMatch(bookings, { kind: "confirmed", platform: "Booking.com", reservationCode: "NEW", checkIn: ci }, "P1");
+    assert.ok(r, "差し替えの主経路が null になってはいけない");
+    assert.strictEqual(r.id, "same");
+  });
+
+  test("生きている別番号の予約には確定メールを当てない", () => {
+    const bookings = [
+      { id: "live", data: { source: "Booking.com", propertyId: "P1", checkIn: "2026-08-26", status: "confirmed", otaReservationCode: "OTHER" } },
+    ];
+    const r = findBookingMatch(bookings, { kind: "confirmed", platform: "Booking.com", reservationCode: "NEW", checkIn: ci }, "P1");
+    assert.strictEqual(r, null);
+  });
+
+  test("差し替え後: 復活+guestInfoStale+番号更新が実際に組み立てられる", () => {
+    const booking = {
+      status: "cancelled", cancelledAt: { _seconds: 1 }, otaReservationCode: "OLD",
+      guestName: "Tomoko Miyama", guestCount: 4, checkIn: "2026-08-26", source: "Booking.com",
+    };
+    const { updates } = decideBookingUpdate(booking, { kind: "confirmed", platform: "Booking.com", reservationCode: "NEW", checkIn: ci }, "m", 1786100000000);
+    assert.strictEqual(updates.status, "confirmed");
+    assert.strictEqual(updates.guestInfoStale, true);
+    assert.strictEqual(updates.otaReservationCode, "NEW");
+    assert.deepStrictEqual(updates.cancelledAt, { __placeholder: "delete" });
+  });
+});

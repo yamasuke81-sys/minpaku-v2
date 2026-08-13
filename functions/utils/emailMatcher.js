@@ -81,6 +81,19 @@ function findBookingMatch(bookings, parsedInfo, propertyIdHint) {
       const d = b.data || {};
       if (d.source !== parsedInfo.platform) continue;
       if (propertyIdHint && d.propertyId && d.propertyId !== propertyIdHint) continue;
+      // ★予約番号が食い違う候補の扱い (誤照合ガード)
+      //   - キャンセルメール: 番号違いには絶対に当てない。
+      //     これがないと、差し替え後の新予約(NEW)に旧予約(OLD)のキャンセルメールが
+      //     日付一致で吸い込まれ、生きている予約をキャンセルしてしまう
+      //     (最新勝ちガードはメール受信日時しか見ないので防げない)。
+      //   - 確定メール: 相手が「キャンセル済み」なら番号違いこそが差し替えのサインなので
+      //     候補に残す。ここで除外すると復活・guestInfoStale・差し替え通知が全部動かなくなる。
+      //     相手が生きている場合は別の実在予約なので除外する。
+      const bCode = d.otaReservationCode ? String(d.otaReservationCode).toLowerCase() : null;
+      if (code && bCode && bCode !== code) {
+        const candCancelled = isCancelledStatus_(d.status) || !!d.cancelledAt;
+        if (parsedInfo.kind === "cancelled" || !candCancelled) continue;
+      }
       const bCheckIn = normalizeCheckInDate_(d.checkIn);
       if (bCheckIn === ciDate) {
         candidates.push({ id: b.id, data: d, matchReason: "dateAndPlatform" });
@@ -91,7 +104,12 @@ function findBookingMatch(bookings, parsedInfo, propertyIdHint) {
       // キャンセル済みが混ざっている場合は active を優先する。
       // (キャンセル→同日程で再予約 のとき、旧キャンセル doc と新 doc が併存して
       //  ambiguous になり確定メールが取りこぼされるのを防ぐ)
-      const active = candidates.filter((c) => !isCancelledStatus_(c.data && c.data.status));
+      // ★ただしキャンセルメールには適用しない。旧予約のキャンセルメールが
+      //   新しい active 予約を選んでしまい、生きている予約を消すため。
+      //   (キャンセルメールは既に cancelled の doc に当たっても実害がない)
+      const active = parsedInfo.kind === "cancelled"
+        ? []
+        : candidates.filter((c) => !isCancelledStatus_(c.data && c.data.status));
       if (active.length === 1) {
         return { ...active[0], matchReason: "dateAndPlatform-activePreferred" };
       }

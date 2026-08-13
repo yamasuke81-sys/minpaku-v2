@@ -40,8 +40,10 @@ function wasCancelledShortcut(before, after) {
 }
 
 // 指定物件+日付の清掃 shift/recruitment/checklist を削除(同日の他active予約があればスキップ)
+// @returns {Promise<boolean>} 対象を全て片付けられたら true / 退避できず残したものがあれば false
 async function cancelCleaningForDate_(db, propertyId, dateStr, excludeBookingId) {
-  if (!propertyId || !dateStr) return;
+  let allDeleted = true;
+  if (!propertyId || !dateStr) return allDeleted;
   const others = await db.collection("bookings")
     .where("propertyId", "==", propertyId)
     .where("checkOut", "==", dateStr)
@@ -52,7 +54,7 @@ async function cancelCleaningForDate_(db, propertyId, dateStr, excludeBookingId)
   });
   if (stillHasActive) {
     console.log(`[cancelCleaningForDate_] ${dateStr} に他active予約あり、キャンセルスキップ`);
-    return;
+    return allDeleted;
   }
   const dObj = toUtcMidnight(dateStr);
   const shiftSnap = await db.collection("shifts")
@@ -66,7 +68,7 @@ async function cancelCleaningForDate_(db, propertyId, dateStr, excludeBookingId)
     if (s.data().manualAdded === true) continue;
     const cls = await db.collection("checklists").where("shiftId", "==", s.id).get();
     for (const c of cls.docs) await c.ref.delete();
-    await archiveAndDelete(db, s, "shift", { reason: "date_change", bookingId: excludeBookingId, propertyId });
+    if (!await archiveAndDelete(db, s, "shift", { reason: "date_change", bookingId: excludeBookingId, propertyId })) allDeleted = false;
   }
   const recSnap = await db.collection("recruitments")
     .where("propertyId", "==", propertyId)
@@ -75,7 +77,28 @@ async function cancelCleaningForDate_(db, propertyId, dateStr, excludeBookingId)
   for (const r of recSnap.docs) {
     if ((r.data().workType || "cleaning") === "pre_inspection") continue; // 同上
     await removeRecruitmentFromAllStaff(db, r.id);
-    await archiveAndDelete(db, r, "recruitment", { reason: "date_change", bookingId: excludeBookingId, propertyId });
+    if (!await archiveAndDelete(db, r, "recruitment", { reason: "date_change", bookingId: excludeBookingId, propertyId })) allDeleted = false;
+  }
+  return allDeleted;
+}
+
+/**
+ * 退避できず後片付けを完了できなかったことをオーナーへ知らせる。
+ * ログだけだと誰も気づかないため error_logs に残す (onErrorLogCreated が通知する)。
+ * フィールド名は onErrorLogCreated が読む functionName / errorMessage に合わせること。
+ */
+async function alertArchiveFailure_(db, detail, propertyId) {
+  const admin = require("firebase-admin");
+  try {
+    await db.collection("error_logs").add({
+      functionName: "onBookingChange.archiveAndDelete",
+      errorMessage: `募集/シフトを退避できず後片付けを完了できませんでした: ${detail}`,
+      severity: "error",
+      propertyId: propertyId || null,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (e) {
+    console.error("[onBookingChange] 退避失敗アラートの記録に失敗:", e.message);
   }
 }
 
@@ -349,14 +372,33 @@ module.exports = async function onBookingChange(event) {
       const pid = after.propertyId || before.propertyId;
       if (pid && (coChanged || (ciChanged && coChanged))) {
         // 旧COの shift/recruitment を削除(同日他active無ければ)
-        await cancelCleaningForDate_(db, pid, before.checkOut, event.params.bookingId);
+        const cleared = await cancelCleaningForDate_(db, pid, before.checkOut, event.params.bookingId);
         console.log(`[onBookingChange] 日程変更: ${event.params.bookingId} 旧CO=${before.checkOut} → 新CO=${after.checkOut} の清掃キャンセル完了`);
+        // ★退避できず旧日程のdocが残ると、後段の bookingId 紐付けチェックが
+        //   「日付移動済みの有効doc」とみなして新日程の生成を抑止してしまう。
+        //   日程変更はこの1回しか発火しないので自動では直らない → 必ず人に知らせる。
+        if (!cleared) {
+          await alertArchiveFailure_(
+            db,
+            `日程変更 ${before.checkOut} → ${after.checkOut} (予約 ${event.params.bookingId})。` +
+            `旧日程の募集/シフトが残っているため、新日程の清掃が生成されない可能性があります。手動で確認してください。`,
+            pid
+          );
+        }
       } else if (ciChanged && !coChanged) {
         console.log(`[onBookingChange] CIのみ変更: ${event.params.bookingId} 続行 (清掃維持)`);
       }
       // 新CO日付の募集は後段の通常フローで自動生成される
     } catch (e) {
       console.error("日程変更処理エラー:", e);
+      // 例外で後片付けが途中終了しても、日程変更は再発火しないので自動では直らない。
+      // 旧日程のdocが残って新日程の生成が抑止される恐れがあるため人に上げる。
+      await alertArchiveFailure_(
+        db,
+        `日程変更の後片付けが例外で中断しました (予約 ${event.params.bookingId})。` +
+        `新日程の清掃が生成されていない可能性があります: ${e.message}`,
+        after.propertyId || before.propertyId
+      );
     }
 
     // booking_change 通知: 「日程変更 (CI/CO)」のみで発火
@@ -410,6 +452,8 @@ module.exports = async function onBookingChange(event) {
     const pid = src?.propertyId;
     const co = src?.checkOut;
     const bid = event.params.bookingId;
+    // 退避できず削除を見送ったものがあったか (最後にまとめてオーナーへ知らせる)
+    let cancelArchiveFailed = false;
     if (pid && co) {
       try {
         // 同日同物件に別の active 予約があるかチェック
@@ -436,7 +480,7 @@ module.exports = async function onBookingChange(event) {
             if (s.data().manualAdded === true) continue;
             const cls = await db.collection("checklists").where("shiftId", "==", s.id).get();
             for (const c of cls.docs) await c.ref.delete();
-            await archiveAndDelete(db, s, "shift", { reason: "cancel", bookingId: bid, propertyId: pid });
+            if (!await archiveAndDelete(db, s, "shift", { reason: "cancel", bookingId: bid, propertyId: pid })) cancelArchiveFailed = true;
           }
           // 対応する募集削除
           const recSnap = await db.collection("recruitments")
@@ -445,7 +489,7 @@ module.exports = async function onBookingChange(event) {
           for (const r of recSnap.docs) {
             if ((r.data().workType || "cleaning") === "pre_inspection" && r.data().bookingId !== bid) continue; // 同上
             await removeRecruitmentFromAllStaff(db, r.id);
-            await archiveAndDelete(db, r, "recruitment", { reason: "cancel", bookingId: bid, propertyId: pid });
+            if (!await archiveAndDelete(db, r, "recruitment", { reason: "cancel", bookingId: bid, propertyId: pid })) cancelArchiveFailed = true;
           }
           console.log(`[onBookingChange] キャンセル連動削除: ${bid} (${co}, prop=${pid})`);
         } else {
@@ -463,7 +507,7 @@ module.exports = async function onBookingChange(event) {
           for (const ps of ownPreShifts.docs) {
             const cls = await db.collection("checklists").where("shiftId", "==", ps.id).get();
             for (const c of cls.docs) await c.ref.delete();
-            await archiveAndDelete(db, ps, "shift", { reason: "cancel", bookingId: bid });
+            if (!await archiveAndDelete(db, ps, "shift", { reason: "cancel", bookingId: bid })) cancelArchiveFailed = true;
             console.log(`[onBookingChange] キャンセル連動削除(pre_inspection shift): ${bid} shiftId=${ps.id}`);
           }
           const ownPreRecs = await db.collection("recruitments")
@@ -472,11 +516,21 @@ module.exports = async function onBookingChange(event) {
             .get();
           for (const pr of ownPreRecs.docs) {
             await removeRecruitmentFromAllStaff(db, pr.id);
-            await archiveAndDelete(db, pr, "recruitment", { reason: "cancel", bookingId: bid });
+            if (!await archiveAndDelete(db, pr, "recruitment", { reason: "cancel", bookingId: bid })) cancelArchiveFailed = true;
             console.log(`[onBookingChange] キャンセル連動削除(pre_inspection recruitment): ${bid} recruitmentId=${pr.id}`);
           }
         } catch (e) {
           console.error("[onBookingChange] pre_inspection 直接削除エラー:", e);
+        }
+
+        // ★退避できず消せなかったものがあると、キャンセル済み予約の募集/シフトが
+        //   生きたままスタッフに見え続ける (清掃に来てしまう)。必ず人に知らせる。
+        if (cancelArchiveFailed) {
+          await alertArchiveFailure_(
+            db,
+            `キャンセル連動削除 (予約 ${bid}, ${co})。キャンセル済みなのに募集/シフトが残っています。手動で削除してください。`,
+            pid
+          );
         }
 
         // guestRegistrations は削除せず status を "cancelled" に更新 (お客様情報は残す方針)
@@ -835,17 +889,26 @@ module.exports = async function onBookingChange(event) {
 
     if (allStale) {
       // 全シフトが残留物 → 削除して再生成
+      // ★1件でも消せなかったら再生成しない。残したまま作ると重複し、次回は
+      //   「active な新docあり」と判定されて残留分が二度と片付かなくなる。
+      //   作らなければ次回発火時に同じ残留判定に入り、退避から自動でやり直せる。
+      let allShiftsDeleted = true;
       for (const shiftDoc of existingShiftDocs) {
         try {
           const cls = await db.collection("checklists").where("shiftId", "==", shiftDoc.id).get();
           for (const c of cls.docs) await c.ref.delete();
-          await archiveAndDelete(db, shiftDoc, "shift", { reason: "stale_replace", bookingId, propertyId });
+          const deleted = await archiveAndDelete(db, shiftDoc, "shift", { reason: "stale_replace", bookingId, propertyId });
+          if (!deleted) { allShiftsDeleted = false; continue; }
           console.log(`予約 ${bookingId}: 残留シフト ${shiftDoc.id} を削除`);
         } catch (e) {
+          allShiftsDeleted = false;
           console.error(`残留シフト ${shiftDoc.id} 削除エラー:`, e);
         }
       }
-      shouldCreateShift = true;
+      shouldCreateShift = allShiftsDeleted;
+      if (!allShiftsDeleted) {
+        console.error(`予約 ${bookingId}: 残留シフトを退避できず削除を見送ったため、シフト再生成を中止 (次回発火で再試行)`);
+      }
     } else {
       console.log(`予約 ${bookingId}: 同日同物件のシフトが既に存在(有効な予約あり)のためスキップ`);
     }
@@ -926,16 +989,23 @@ module.exports = async function onBookingChange(event) {
 
     if (allStaleRec) {
       // 全募集が残留物 → 削除して再生成
+      // ★シフト側と同じく、消せなかったら再生成しない (重複防止 + 次回リトライ)
+      let allRecsDeleted = true;
       for (const recDoc of existingRecruitmentDocs) {
         try {
           await removeRecruitmentFromAllStaff(db, recDoc.id);
-          await archiveAndDelete(db, recDoc, "recruitment", { reason: "stale_replace", bookingId, propertyId });
+          const deleted = await archiveAndDelete(db, recDoc, "recruitment", { reason: "stale_replace", bookingId, propertyId });
+          if (!deleted) { allRecsDeleted = false; continue; }
           console.log(`予約 ${bookingId}: 残留募集 ${recDoc.id} を削除`);
         } catch (e) {
+          allRecsDeleted = false;
           console.error(`残留募集 ${recDoc.id} 削除エラー:`, e);
         }
       }
-      shouldCreateRecruitment = true;
+      shouldCreateRecruitment = allRecsDeleted;
+      if (!allRecsDeleted) {
+        console.error(`予約 ${bookingId}: 残留募集を退避できず削除を見送ったため、募集再生成を中止 (次回発火で再試行)`);
+      }
     } else {
       console.log(`予約 ${bookingId}: 同日同物件の募集が既に存在(有効な予約あり)のためスキップ`);
     }
@@ -1029,23 +1099,34 @@ module.exports = async function onBookingChange(event) {
               // チェックリストも削除
               const cls = await db.collection("checklists").where("shiftId", "==", ps.id).get();
               for (const c of cls.docs) await c.ref.delete();
-              await archiveAndDelete(db, ps, "shift", { reason: "switch_to_cleaning", bookingId, propertyId });
+              // 清掃の生成はブロックしない (チェックアウトがある以上、清掃は必ず要る)。
+              // ただし直前点検が残ったまま清掃が増える二重状態になるので必ず人に知らせる。
+              if (!await archiveAndDelete(db, ps, "shift", { reason: "switch_to_cleaning", bookingId, propertyId })) {
+                await alertArchiveFailure_(db, `直前点検→清掃切替でシフト ${ps.id} を退避できず削除できませんでした (${checkOut})。直前点検と清掃が二重に残っています。`, propertyId);
+                continue;
+              }
               console.log(`[直前点検→清掃切替] 直前点検シフト削除: shiftId=${ps.id}`);
             } catch (sdErr) {
               console.warn(`[直前点検→清掃切替] シフト削除エラー (${ps.id}):`, sdErr.message);
+              await alertArchiveFailure_(db, `直前点検→清掃切替でシフト ${ps.id} の削除が例外で失敗しました (${checkOut}): ${sdErr.message}`, propertyId);
             }
           }
         } catch (sfErr) {
           console.warn(`[直前点検→清掃切替] シフト検索エラー:`, sfErr.message);
+          await alertArchiveFailure_(db, `直前点検→清掃切替のシフト検索が失敗しました (${checkOut}): ${sfErr.message}`, propertyId);
         }
 
         // --- 直前点検募集を削除 ---
         try {
           await removeRecruitmentFromAllStaff(db, preRecId);
-          await archiveAndDelete(db, preRec, "recruitment", { reason: "switch_to_cleaning", bookingId, propertyId });
-          console.log(`[直前点検→清掃切替] 直前点検募集削除: recruitmentId=${preRecId}`);
+          if (!await archiveAndDelete(db, preRec, "recruitment", { reason: "switch_to_cleaning", bookingId, propertyId })) {
+            await alertArchiveFailure_(db, `直前点検→清掃切替で募集 ${preRecId} を退避できず削除できませんでした (${checkOut})。直前点検と清掃が二重に残っています。`, propertyId);
+          } else {
+            console.log(`[直前点検→清掃切替] 直前点検募集削除: recruitmentId=${preRecId}`);
+          }
         } catch (rdErr) {
           console.warn(`[直前点検→清掃切替] 募集削除エラー (${preRecId}):`, rdErr.message);
+          await alertArchiveFailure_(db, `直前点検→清掃切替で募集 ${preRecId} の削除が例外で失敗しました (${checkOut}): ${rdErr.message}`, propertyId);
         }
       }
 
@@ -1303,11 +1384,16 @@ module.exports = async function onBookingChange(event) {
         console.log(`予約 ${bookingId}: 既存直前点検シフト ${existingShiftDoc.id} は孤児(bookingId=${existingBid || "なし"}) → 削除して再生成`);
         const cls = await db.collection("checklists").where("shiftId", "==", existingShiftDoc.id).get();
         for (const c of cls.docs) await c.ref.delete();
-        await archiveAndDelete(db, existingShiftDoc, "shift", { reason: "orphan_replace", bookingId, propertyId });
-        await createPreInspectionShift_(db, {
-          shiftDocId: insShiftDocId, checkInDate, checkIn, propertyId, propertyName, bookingId,
-          startTime: propertyData.inspectionStartTime || "10:00", now, label: "再生成",
-        });
+        // ★退避できず削除を見送ったら再生成しない (孤児が残ったまま新規を作ると重複する)
+        const insShiftDeleted = await archiveAndDelete(db, existingShiftDoc, "shift", { reason: "orphan_replace", bookingId, propertyId });
+        if (!insShiftDeleted) {
+          console.error(`予約 ${bookingId}: 孤児直前点検シフト ${existingShiftDoc.id} を退避できず、再生成を中止 (次回発火で再試行)`);
+        } else {
+          await createPreInspectionShift_(db, {
+            shiftDocId: insShiftDocId, checkInDate, checkIn, propertyId, propertyName, bookingId,
+            startTime: propertyData.inspectionStartTime || "10:00", now, label: "再生成",
+          });
+        }
       } else {
         console.log(`予約 ${bookingId}: 直前点検シフト既存のためスキップ (active bookingId=${existingBid})`);
       }
@@ -1347,13 +1433,18 @@ module.exports = async function onBookingChange(event) {
       if (isOrphan) {
         console.log(`予約 ${bookingId}: 既存直前点検募集 ${existingRecDoc.id} は孤児(bookingId=${existingBid || "なし"}) → 削除して再生成`);
         try { await removeRecruitmentFromAllStaff(db, existingRecDoc.id); } catch (_) {}
-        await archiveAndDelete(db, existingRecDoc, "recruitment", { reason: "orphan_replace", bookingId, propertyId });
-        insRecruitmentId = await createPreInspectionRecruitment_(db, {
-          recDocId: insRecDocId, checkIn, propertyId, propertyName, bookingId,
-          memo: `直前点検: ゲスト ${guestName || "不明"} (${source || ""})`, now, label: "再生成",
-        });
-        if (insRecruitmentId) {
-          try { await addRecruitmentToActiveStaff(db, insRecruitmentId); } catch (e) { console.error("addRecruitmentToActiveStaff(直前点検再生成) エラー:", e); }
+        // ★退避できず削除を見送ったら再生成しない (孤児が残ったまま新規を作ると重複する)
+        const insRecDeleted = await archiveAndDelete(db, existingRecDoc, "recruitment", { reason: "orphan_replace", bookingId, propertyId });
+        if (!insRecDeleted) {
+          console.error(`予約 ${bookingId}: 孤児直前点検募集 ${existingRecDoc.id} を退避できず、再生成を中止 (次回発火で再試行)`);
+        } else {
+          insRecruitmentId = await createPreInspectionRecruitment_(db, {
+            recDocId: insRecDocId, checkIn, propertyId, propertyName, bookingId,
+            memo: `直前点検: ゲスト ${guestName || "不明"} (${source || ""})`, now, label: "再生成",
+          });
+          if (insRecruitmentId) {
+            try { await addRecruitmentToActiveStaff(db, insRecruitmentId); } catch (e) { console.error("addRecruitmentToActiveStaff(直前点検再生成) エラー:", e); }
+          }
         }
       } else {
         console.log(`予約 ${bookingId}: 直前点検募集既存のためスキップ (active bookingId=${existingBid})`);

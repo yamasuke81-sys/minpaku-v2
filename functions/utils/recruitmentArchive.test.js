@@ -89,3 +89,102 @@ describe("buildArchiveEntry: 原本と要約を保存する", () => {
     assert.strictEqual(e.reason, "unknown");
   });
 });
+
+// ======================================================
+// archiveAndDelete: 退避できなければ削除しない (Codexレビュー指摘 P1)
+// ======================================================
+
+const { archiveAndDelete } = require("./recruitmentArchive");
+
+function makeDb(setImpl) {
+  const calls = { set: 0 };
+  return {
+    calls,
+    collection() {
+      return {
+        doc() {
+          return {
+            async set(entry) { calls.set++; return setImpl(entry, calls.set); },
+          };
+        },
+      };
+    },
+  };
+}
+function makeDoc(id, data) {
+  const state = { deleted: 0 };
+  return {
+    id,
+    data: () => data,
+    state,
+    ref: { async delete() { state.deleted++; } },
+  };
+}
+
+describe("archiveAndDelete", () => {
+  const withResponses = { responses: [{ staffId: "s1", staffName: "橋元優奈", response: "◎" }], bookingId: "b1", propertyId: "P1" };
+
+  test("退避に成功したら削除する", async () => {
+    const db = makeDb(async () => {});
+    const doc = makeDoc("rec1", withResponses);
+    const ok = await archiveAndDelete(db, doc, "recruitment", { reason: "cancel" });
+    assert.strictEqual(ok, true);
+    assert.strictEqual(doc.state.deleted, 1);
+    assert.strictEqual(db.calls.set, 1);
+  });
+
+  test("★退避に失敗したら削除しない (回答を失わない)", async () => {
+    const db = makeDb(async () => { throw new Error("permission denied"); });
+    const doc = makeDoc("rec1", withResponses);
+    const ok = await archiveAndDelete(db, doc, "recruitment", { reason: "cancel" });
+    assert.strictEqual(ok, false);
+    assert.strictEqual(doc.state.deleted, 0, "退避できていないのに削除してはいけない");
+  });
+
+  test("1回失敗しても再試行で成功すれば削除する", async () => {
+    const db = makeDb(async (_e, n) => { if (n === 1) throw new Error("transient"); });
+    const doc = makeDoc("rec1", withResponses);
+    const ok = await archiveAndDelete(db, doc, "recruitment", { reason: "cancel" });
+    assert.strictEqual(ok, true);
+    assert.strictEqual(db.calls.set, 2);
+    assert.strictEqual(doc.state.deleted, 1);
+  });
+
+  test("退避不要なもの(空の募集)は退避せずそのまま削除する", async () => {
+    const db = makeDb(async () => { throw new Error("呼ばれないはず"); });
+    const doc = makeDoc("rec2", { responses: [], selectedStaffIds: [] });
+    const ok = await archiveAndDelete(db, doc, "recruitment", { reason: "cancel" });
+    assert.strictEqual(ok, true);
+    assert.strictEqual(db.calls.set, 0);
+    assert.strictEqual(doc.state.deleted, 1);
+  });
+
+  test("スタッフ入りシフトも退避失敗なら削除しない", async () => {
+    const db = makeDb(async () => { throw new Error("boom"); });
+    const doc = makeDoc("sh1", { staffIds: ["a"], bookingId: "b1" });
+    const ok = await archiveAndDelete(db, doc, "shift", { reason: "cancel" });
+    assert.strictEqual(ok, false);
+    assert.strictEqual(doc.state.deleted, 0);
+  });
+});
+
+describe("orphanCleanup 経由でも回答が守られること", () => {
+  test("孤児掃除の reason でも退避失敗なら削除しない", async () => {
+    const db = makeDb(async () => { throw new Error("boom"); });
+    const doc = makeDoc("rec9", { responses: [{ staffId: "s1", response: "◎" }], bookingId: "b1" });
+    const ok = await archiveAndDelete(db, doc, "recruitment", { reason: "orphan_cleanup", bookingId: "b1" });
+    assert.strictEqual(ok, false);
+    assert.strictEqual(doc.state.deleted, 0);
+  });
+
+  test("孤児掃除でも回答があれば退避してから消す", async () => {
+    const saved = [];
+    const db = makeDb(async (entry) => { saved.push(entry); });
+    const doc = makeDoc("rec9", { responses: [{ staffId: "s1", response: "◎" }], bookingId: "b1" });
+    const ok = await archiveAndDelete(db, doc, "recruitment", { reason: "orphan_cleanup", bookingId: "b1" });
+    assert.strictEqual(ok, true);
+    assert.strictEqual(doc.state.deleted, 1);
+    assert.strictEqual(saved[0].reason, "orphan_cleanup");
+    assert.strictEqual(saved[0].responseCount, 1);
+  });
+});
