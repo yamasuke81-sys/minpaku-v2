@@ -111,6 +111,28 @@ async function handleCheckoutCompleted(db, session, accountKind) {
   }, { merge: true });
   console.info(`[stripeWebhook/${accountKind}] paid: booking=${bookingId} session=${session.id} amount=${session.amount_total}`);
 
+  // 名簿が未提出なら、この時点でゲストへ記入依頼メールを送る (支払いが済んだ直後は反応が良い)。
+  // 静かに失敗させる (webhook 200 応答を優先)。以降のオーナー通知にも未提出である旨を載せる。
+  let rosterPending = false;
+  try {
+    const bSnap = await bookingRef.get();
+    if (bSnap.exists) {
+      const b = bSnap.data();
+      rosterPending = b.rosterStatus !== "submitted" && b.pendingApproval !== true && b.unverified !== true;
+      if (rosterPending) {
+        const { sendRosterRequestMail_ } = require("./utils/rosterMail");
+        const sent = await sendRosterRequestMail_(db, bookingId, b, {
+          key: "payment_paid",
+          lead: "お支払いいただきありがとうございました。ご予約が確定しております。\n続いて、チェックインまでに宿泊者名簿のご記入をお願いいたします。",
+          leadEn: "Thank you for your payment — your reservation is confirmed.\nNext, please complete the guest registration form before check-in.",
+        });
+        console.info(`[stripeWebhook/${accountKind}] 名簿未提出 booking=${bookingId} 記入依頼メール=${sent ? "送信" : "送らず(条件外)"}`);
+      }
+    }
+  } catch (e) {
+    console.warn(`[stripeWebhook/${accountKind}] 名簿記入依頼メール失敗:`, e.message);
+  }
+
   // オーナー通知 (LINE/メール) — 静かに失敗させる (webhook 200 応答を優先)
   try {
     const { notifyByKey } = require("./utils/lineNotify");
@@ -139,15 +161,21 @@ async function handleCheckoutCompleted(db, session, accountKind) {
       if (nsnap.exists && nsnap.data().appUrl) appUrl = String(nsnap.data().appUrl).replace(/\/+$/, "");
     } catch (_e) { /* fallback */ }
     const url = `${appUrl}/#/schedule`;
+    // 名簿が未提出のままなら通知に明記する (ゲストへは記入依頼メールを自動送信済み)。
+    // 物件の customMessage を使っている場合は {roster} が差し込み口になる (未提出でなければ空文字)。
+    const rosterLine = rosterPending
+      ? "\n\n📋 宿泊者名簿がまだ未提出です (ゲストへ記入依頼メールを送信しました)"
+      : "";
     await notifyByKey(db, "payment_received", {
       title: "宿泊料お支払い完了",
-      body: `💳 宿泊料のお支払いが完了しました\n\n宿: ${propertyName || propertyId || "-"}\nゲスト: ${guest || "-"}\n宿泊: ${checkin || "-"} 〜 ${checkout || "-"}\n金額: ${amountLabel}\n\n予約詳細・名簿: ${url}`,
+      body: `💳 宿泊料のお支払いが完了しました\n\n宿: ${propertyName || propertyId || "-"}\nゲスト: ${guest || "-"}\n宿泊: ${checkin || "-"} 〜 ${checkout || "-"}\n金額: ${amountLabel}${rosterLine}\n\n予約詳細・名簿: ${url}`,
       vars: {
         property: propertyName || "",
         guest,
         checkin,
         checkout,
         amount: amountLabel,
+        roster: rosterLine,
         url,
       },
       propertyId,

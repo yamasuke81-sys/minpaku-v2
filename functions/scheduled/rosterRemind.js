@@ -109,12 +109,31 @@ module.exports = async function rosterRemind() {
         const checkin = b.checkIn || "";
         const formUrl = `${appUrl}/form/?propertyId=${tgt.propertyId}`;
 
+        // ゲスト本人へ記入依頼メール (オーナー通知の成否とは独立。失敗しても次のタイミングで再試行)
+        // メールアドレスは名簿提出時にセットされる仕組みのため、未提出でアドレスを持つのは
+        // 事実上 直販予約のみ。OTA 予約は従来どおりオーナーが OTA メッセージで督促する。
+        let guestMailSent = false;
+        try {
+          const { sendRosterRequestMail_ } = require("../utils/rosterMail");
+          guestMailSent = await sendRosterRequestMail_(db, bookingId, b, {
+            key: `d${tgt.beforeDays}`,
+            lead: `ご宿泊 (${checkin} チェックイン) まであと${tgt.beforeDays}日となりました。\n宿泊者名簿がまだ届いておりませんので、ご記入をお願いいたします。`,
+            leadEn: `Your stay begins in ${tgt.beforeDays} day(s) (check-in on ${checkin}).\nWe have not yet received your guest registration — please complete it.`,
+          });
+          if (guestMailSent) console.log(`[rosterRemind] ゲストへ記入依頼メール送信: booking=${bookingId} d${tgt.beforeDays}`);
+        } catch (mailErr) {
+          console.warn(`[rosterRemind] ${bookingId} ゲストメール失敗:`, mailErr.message);
+        }
+
+        // guestMail: 物件テンプレートの差し込み口。ゲストへ自動送信できた予約は
+        // オーナーに「督促をお願いします」と重ねて頼まないようにする
         const vars = {
           date: checkin,
           checkin,
           property: propertyName,
           guest: guestName,
           url: formUrl,
+          guestMail: guestMailSent ? "\n※ ゲストへ記入依頼メールを自動送信しました" : "",
         };
 
         const defaultMsg = [
@@ -126,7 +145,8 @@ module.exports = async function rosterRemind() {
           ``,
           `宿泊者名簿がまだ提出されていません。`,
           `フォームURL: ${formUrl}`,
-        ].join("\n");
+          guestMailSent ? `\n※ ゲストへ記入依頼メールを自動送信しました` : "",
+        ].filter(Boolean).join("\n");
 
         const title = `名簿未提出 (${tgt.beforeDays}日前): ${guestName} (${checkin})`;
 

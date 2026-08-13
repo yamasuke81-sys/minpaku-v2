@@ -1075,6 +1075,15 @@ const MyRecruitmentPage = {
         // 上下線が連続して 1 本の点線に見える (左右枠なしで日付境目に枠が出ない)
         return "border-top:1.5px dashed #fb8500;border-bottom:1.5px dashed #fb8500;box-sizing:border-box;";
       }
+      // 直販の決済が要対応 (未払/期限切れ/失敗/返金): 上下に実線。
+      // 1泊バーは幅が1列しかなく文字バッジが入らないため、幅を取らないこの表現が主役になる
+      // (幅が足りる連泊では右端の文字バッジも併記される)。unverified と同じく左右枠は付けない。
+      const payMeta = this.isOwnerView && String(b.source || "").toLowerCase() === "direct"
+        ? this._CAL_PAYMENT_META[b.paymentStatus]
+        : null;
+      if (payMeta && payMeta.attention) {
+        return `border-top:2px solid ${payMeta.bg};border-bottom:2px solid ${payMeta.bg};box-sizing:border-box;`;
+      }
       return "";
     };
 
@@ -1352,20 +1361,29 @@ const MyRecruitmentPage = {
             const n = Math.round((coD - ciD) / 86400000);
             // 泊数は表示しない。人数のみ
             const txt = labelTarget.guestCount > 0 ? `${labelTarget.guestCount}名` : "";
+            // 決済マーク (直接予約のみ・オーナー視点のみ・匿名では非表示)。
+            // バー幅に「名簿ドット(18px) + 人数ラベル + マーク + 余白」が収まるときだけ出す。
+            // 収まらない1泊バーでは出さず、要対応かどうかは bookingBarDecor の上下線で表す。
+            let payMark = this._calPaymentMark(labelTarget);
+            if (payMark) {
+              const countPx = txt ? txt.length * 11 + 6 : 0;
+              if (18 + countPx + 4 + payMark.widthPx + 3 > n * colWN) payMark = null;
+            }
             // ラベルは「名簿ドットの右隣に左寄せ」で配置。
             // 名簿ドットは CI の右半分左端 = starting セル内 left:50% + 4px、width 9px + border
             // ラベル開始位置 = ドット直後 (約 17-20px 右)
-            // 決済バッジ (直接予約のみ・オーナー視点のみ・匿名では非表示)。人数ラベルの右隣に配置。
-            const payBadge = this._calPaymentBadge(labelTarget);
-            const txtWidthPx = txt ? txt.length * 11 + 6 : 0; // 人数ラベル幅の概算 (バッジの左オフセット用)
+            // 決済マークはバーの右端へ右寄せ (translateX(-100%)) するのでバーから絶対に出ない。
+            //   1泊 : バー右端 = starting セル基準で calc(50% + 100%)
+            //   連泊: バー右端 = CI+1 セル基準で calc(-colW/2 + n*colW)
+            const markStyle = "top:50%;transform:translate(-100%, -50%);z-index:3;pointer-events:none;";
             if (n === 1) {
               // 1泊: CI セル内、50%+18px から右にラベル (CO セル側にはみ出す)
-              segs += `<span style="position:absolute;left:calc(50% + 18px);top:50%;transform:translateY(-50%);color:#fff;font-size:13px;font-weight:600;text-align:left;white-space:nowrap;z-index:3;pointer-events:none;">${txt}</span>`;
-              if (payBadge) segs += `<span style="position:absolute;left:calc(50% + ${18 + txtWidthPx}px);top:50%;transform:translateY(-50%);z-index:3;pointer-events:none;">${payBadge}</span>`;
+              if (txt) segs += `<span style="position:absolute;left:calc(50% + 18px);top:50%;transform:translateY(-50%);color:#fff;font-size:13px;font-weight:600;text-align:left;white-space:nowrap;z-index:3;pointer-events:none;">${txt}</span>`;
+              if (payMark) segs += `<span style="position:absolute;left:calc(50% + 100% - 3px);${markStyle}">${payMark.html}</span>`;
             } else {
               // 連泊: CI+1 セル内に配置、left:-colW/2 + 18px で名簿ドット直後からラベル開始
-              segs += `<span style="position:absolute;left:calc(-${colWN / 2}px + 18px);top:50%;transform:translateY(-50%);color:#fff;font-size:13px;font-weight:600;text-align:left;white-space:nowrap;z-index:3;pointer-events:none;">${txt}</span>`;
-              if (payBadge) segs += `<span style="position:absolute;left:calc(-${colWN / 2}px + ${18 + txtWidthPx}px);top:50%;transform:translateY(-50%);z-index:3;pointer-events:none;">${payBadge}</span>`;
+              if (txt) segs += `<span style="position:absolute;left:calc(-${colWN / 2}px + 18px);top:50%;transform:translateY(-50%);color:#fff;font-size:13px;font-weight:600;text-align:left;white-space:nowrap;z-index:3;pointer-events:none;">${txt}</span>`;
+              if (payMark) segs += `<span style="position:absolute;left:calc(-${colWN / 2}px + ${n * colWN - 3}px);${markStyle}">${payMark.html}</span>`;
             }
           }
 
@@ -2488,26 +2506,37 @@ const MyRecruitmentPage = {
    * FullCalendar (月表示) 初期化 - 折りたたみ内に予約+募集を表示
    * DashboardPage の buildCalendarEvents を参考に、シンプル版を my-recruitment 側に持つ
    */
-  // 横カレンダー予約バー用の決済バッジ (最小表示)。
+  // 横カレンダー予約バー用の決済マーク (最小表示)。
   // - 直接予約 (source==="direct") のみ。OTA 予約には出さない。
   // - オーナー/subOwner 視点 (isOwnerView) のみ。スタッフ・匿名表示モードでは出さない
   //   (匿名モードは isOwnerView=false なので自動的に除外される)。
-  // - pending=「¥待」黄 / paid=「¥済」緑 / expired=「¥切」赤 / refunded=「¥返」灰 /
-  //   partially_refunded=「¥一部」橙。unconfigured は出さない (決済未設定は情報価値が低い)。
+  // - paid は正常な状態なので幅を取らない小さな緑丸。要対応 (未払/期限切れ/失敗/返金) だけ文字バッジ。
+  //   unconfigured は出さない (決済未設定は情報価値が低い)。
+  //
+  // ★配置は必ず「バーの右端に右寄せ」。以前は人数ラベルの右隣に絶対配置していたため、
+  //   1泊バー (幅=1列, 最小36px) ではバッジがバーの外へ出て、同日ターンオーバーの
+  //   次予約のバー・名簿ドット・人数ラベルに重なっていた (2026-08-13 やますけ指摘)。
   _CAL_PAYMENT_META: {
-    pending: { txt: "¥待", bg: "#ffc107", color: "#212529" },
-    paid: { txt: "¥済", bg: "#198754", color: "#fff" },
-    expired: { txt: "¥切", bg: "#dc3545", color: "#fff" },
-    payment_failed: { txt: "¥失敗", bg: "#dc3545", color: "#fff" },
-    refunded: { txt: "¥返", bg: "#6c757d", color: "#fff" },
-    partially_refunded: { txt: "¥一部", bg: "#fd7e14", color: "#fff" },
+    pending: { txt: "¥待", bg: "#ffc107", color: "#212529", attention: true },
+    paid: { txt: "支払済み", bg: "#198754", color: "#fff", attention: false },
+    expired: { txt: "¥切", bg: "#dc3545", color: "#fff", attention: true },
+    payment_failed: { txt: "¥失敗", bg: "#dc3545", color: "#fff", attention: true },
+    refunded: { txt: "¥返", bg: "#6c757d", color: "#fff", attention: true },
+    partially_refunded: { txt: "¥一部", bg: "#fd7e14", color: "#fff", attention: true },
   },
-  _calPaymentBadge(b) {
-    if (!this.isOwnerView) return ""; // スタッフ・匿名には決済情報を出さない
-    if (String(b.source || "").toLowerCase() !== "direct") return "";
+  // 決済マークの HTML を返す (無ければ null)。attention=true は文字バッジで幅を取る。
+  _calPaymentMark(b) {
+    if (!this.isOwnerView) return null; // スタッフ・匿名には決済情報を出さない
+    if (String(b.source || "").toLowerCase() !== "direct") return null;
     const meta = this._CAL_PAYMENT_META[b.paymentStatus];
-    if (!meta) return ""; // unconfigured / 未設定 は非表示
-    return `<span style="display:inline-block;background:${meta.bg};color:${meta.color};font-size:10px;font-weight:700;line-height:1;padding:2px 4px;border-radius:4px;white-space:nowrap;" title="決済: ${meta.txt}">${meta.txt}</span>`;
+    if (!meta) return null; // unconfigured / 未設定 は非表示
+    if (!meta.attention) {
+      // 正常 (支払済み): 名簿ドットと同じ見た目の小さな丸
+      return { attention: false, widthPx: 10, html: `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${meta.bg};border:1.5px solid #fff;" title="決済: ${meta.txt}"></span>` };
+    }
+    // 要対応: 文字バッジ。幅は 10px フォント太字 + 左右パディング4px の概算
+    const widthPx = meta.txt.length * 10 + 8;
+    return { attention: true, widthPx, html: `<span style="display:inline-block;background:${meta.bg};color:${meta.color};font-size:10px;font-weight:700;line-height:1;padding:2px 4px;border-radius:4px;white-space:nowrap;" title="決済: ${meta.txt}">${meta.txt}</span>` };
   },
 
   // === モーダル文脈ヘルパ ===
