@@ -542,5 +542,12 @@ service cloud.firestore {
       allow read: if isOwner();
       allow write: if false;
     }
+
+    // 募集・シフトの削除前退避 (キャンセル連動削除で消える responses の保険)
+    // 書き込みは Cloud Functions (admin SDK) のみ。クライアントからは読取り専用。
+    match /recruitmentArchives/{archiveId} {
+      allow read: if isOwner();
+      allow write: if false;
+    }
   }
 }
