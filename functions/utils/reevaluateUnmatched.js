@@ -24,6 +24,7 @@ const { findBookingMatch, decideBookingUpdate } = require("./emailMatcher");
 const FV_ = (admin) => ({
   serverTimestamp: () => admin.firestore.FieldValue.serverTimestamp(),
   timestampFromMillis: (ms) => admin.firestore.Timestamp.fromMillis(ms),
+  delete: () => admin.firestore.FieldValue.delete(),
 });
 
 const SCAN_LIMIT = 50; // 1 回の再評価で見る unmatched 上限 (物件スコープ)
@@ -347,6 +348,9 @@ function buildRematchPatch(booking, decision, parsedInfo, matchedBy, fv) {
         patch[k] = fv.serverTimestamp();
       } else if (v && typeof v === "object" && v.__placeholder === "timestampFromMs") {
         patch[k] = fv.timestampFromMillis(v.ms);
+      } else if (v && typeof v === "object" && v.__placeholder === "delete") {
+        // フィールド削除 (キャンセル痕跡の除去など)。fv.delete() 未注入なら無視する
+        if (fv && typeof fv.delete === "function") patch[k] = fv.delete();
       } else if (v !== undefined) {
         patch[k] = v;
       }

@@ -466,6 +466,26 @@ async function syncIcal() {
             // 手動で変更された名前は保持
             bookingData.guestName = existData.guestName;
           }
+          // キャンセル済み → フィード再出現で confirmed に戻すときは、キャンセル痕跡を必ず消す。
+          // (Booking.com の iCal は同一日程なら予約が差し替わっても同じ UID の CLOSED を返すため、
+          //  status だけ confirmed に戻り cancelledAt/cancelReason/cancelSource が残っていた。
+          //  2026-08-12 the Terrace 8/26 の事故。痕跡が残ると監査・一覧の判定を誤らせる)
+          const exStatus = String(existData.status || "").toLowerCase();
+          const wasCancelled = exStatus.includes("cancel")
+            || existData.status === "キャンセル" || existData.status === "キャンセル済み"
+            || !!existData.cancelledAt;
+          if (wasCancelled) {
+            bookingData.cancelledAt = admin.firestore.FieldValue.delete();
+            bookingData.cancelReason = admin.firestore.FieldValue.delete();
+            bookingData.cancelSource = admin.firestore.FieldValue.delete();
+            bookingData.revivedAt = admin.firestore.FieldValue.serverTimestamp();
+            // 人数・氏名は旧予約由来の可能性がある (差し替えか復活かは iCal では判別できない)。
+            // 値は壊さずフラグだけ立て、確定メール照合側で通知させる。
+            bookingData.guestInfoStale = true;
+            bookingData.guestInfoStaleReason = "キャンセル後にOTAカレンダーへ再出現 (別予約への差し替えの可能性)";
+            console.log(`[syncIcal] キャンセル済み予約がフィードに再出現 → 痕跡を消して復活: ${platform} ${checkIn}〜${checkOut} (${existData.guestName || ""})`);
+          }
+
           // メール照合未接続の物件で過去に pendingApproval=true で書き込まれていたら降ろす
           // (本変更投入前に取り込まれた Reserved 予約を可視化)
           if (isReservedPlaceholder && !hasEmailVerification && existData.pendingApproval === true) {
@@ -485,6 +505,9 @@ async function syncIcal() {
           const ex = existing.data() || {};
           const unchanged =
             !ex.firstMissedAt && // 消失猶予フラグが残っていれば書き込んでクリアする
+            // confirmed なのにキャンセル痕跡が残っている場合は書き込んで消す
+            // (status が同じだと従来はここで skip され、痕跡が永久に残っていた)
+            !ex.cancelledAt && !ex.cancelReason && !ex.cancelSource &&
             ex.guestName === bookingData.guestName &&
             ex.checkIn === bookingData.checkIn &&
             ex.checkOut === bookingData.checkOut &&

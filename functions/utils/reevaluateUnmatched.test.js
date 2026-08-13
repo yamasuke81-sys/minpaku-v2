@@ -87,3 +87,34 @@ describe("buildRematchPatch: 通常のフィールド更新", () => {
     assert.deepStrictEqual(patch, {});
   });
 });
+
+describe("buildRematchPatch: フィールド削除プレースホルダ", () => {
+  const fv = {
+    serverTimestamp: () => "TS",
+    timestampFromMillis: (ms) => `TS:${ms}`,
+    delete: () => "DELETE",
+  };
+
+  test("__placeholder:delete を fv.delete() に解決する (キャンセル痕跡の除去)", () => {
+    const decision = {
+      updates: {
+        status: "confirmed",
+        cancelledAt: { __placeholder: "delete" },
+        cancelReason: { __placeholder: "delete" },
+        revivedAt: { __placeholder: "serverTimestamp" },
+      },
+    };
+    const patch = buildRematchPatch({}, decision, { kind: "confirmed" }, "auto", fv);
+    assert.strictEqual(patch.status, "confirmed");
+    assert.strictEqual(patch.cancelledAt, "DELETE");
+    assert.strictEqual(patch.cancelReason, "DELETE");
+    assert.strictEqual(patch.revivedAt, "TS");
+  });
+
+  test("fv.delete() が無い場合は落ちずに無視する", () => {
+    const fvNoDelete = { serverTimestamp: () => "TS", timestampFromMillis: (ms) => `TS:${ms}` };
+    const decision = { updates: { cancelledAt: { __placeholder: "delete" } } };
+    const patch = buildRematchPatch({}, decision, { kind: "confirmed" }, "auto", fvNoDelete);
+    assert.ok(!("cancelledAt" in patch));
+  });
+});

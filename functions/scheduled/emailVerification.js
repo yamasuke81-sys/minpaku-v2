@@ -294,6 +294,10 @@ async function emailVerificationCore(db, opts = {}) {
           let extractedInfo = null;
           let bookingMatch = null;
           let bookingUpdates = null;
+          // confirmed の pendingApproval/unverified 降下を bookingPatch にまとめたか
+          let confirmedResolveMerged = false;
+          // 別予約への差し替えを検知した予約 (ループ後にオーナー通知する)
+          let replacedBooking = null;
           try {
             extractedInfo = parseEmail({
               subject,
@@ -354,13 +358,27 @@ async function emailVerificationCore(db, opts = {}) {
                       bookingPatch[k] = admin.firestore.FieldValue.serverTimestamp();
                     } else if (v && typeof v === "object" && v.__placeholder === "timestampFromMs") {
                       bookingPatch[k] = admin.firestore.Timestamp.fromMillis(v.ms);
+                    } else if (v && typeof v === "object" && v.__placeholder === "delete") {
+                      bookingPatch[k] = admin.firestore.FieldValue.delete();
                     } else if (v !== undefined) {
                       bookingPatch[k] = v;
                     }
                   }
                   bookingPatch.emailMatchedBy = "auto"; // 自動マッチマーク
+
+                  // confirmed の pendingApproval/unverified 降下を同じ update にまとめる。
+                  // (別 update に分けると bookings への書き込みが 1 通のメールで 2 回になり、
+                  //  onBookingChange が並列発火して募集が重複生成される。2026-08-12 の事故要因)
+                  if (extractedInfo && extractedInfo.kind === "confirmed") {
+                    Object.assign(bookingPatch, buildConfirmedResolvePatch_(bookingMatch.data));
+                    confirmedResolveMerged = true;
+                  }
+
                   await db.collection("bookings").doc(bookingMatch.id).update(bookingPatch);
                   bookingUpdates = Object.keys(bookingPatch);
+                  if (bookingPatch.guestInfoStale === true) {
+                    replacedBooking = { id: bookingMatch.id, data: bookingMatch.data, updates: decision.updates };
+                  }
                 } else if (decision && decision.skippedReason) {
                   console.log(`[bookingUpdate skipped] msg=${msg.id} booking=${bookingMatch.id}: ${decision.skippedReason}`);
                 }
@@ -438,18 +456,28 @@ async function emailVerificationCore(db, opts = {}) {
           // confirmed メール受信で対応 booking が見つかれば、pendingApproval=false + unverified=false に更新
           // → onBookingChange が更新イベントで再発火し、募集生成が走る
           // → unverified=false で UI 上の「未照合」表示が消える
-          if (extractedInfo && extractedInfo.kind === "confirmed" && bookingMatch && bookingMatch.id) {
+          if (extractedInfo && extractedInfo.kind === "confirmed" && bookingMatch && bookingMatch.id
+              && !confirmedResolveMerged) {
             try {
-              await db.collection("bookings").doc(bookingMatch.id).update({
-                pendingApproval: false,
-                pendingApprovalResolvedAt: admin.firestore.FieldValue.serverTimestamp(),
-                unverified: false,
-                unverifiedResolvedAt: admin.firestore.FieldValue.serverTimestamp(),
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-              });
-              console.log(`[emailVerification] pendingApproval/unverified=false に降下 (confirmed): booking=${bookingMatch.id}`);
+              const resolvePatch = buildConfirmedResolvePatch_(bookingMatch.data);
+              if (Object.keys(resolvePatch).length > 0) {
+                await db.collection("bookings").doc(bookingMatch.id).update(resolvePatch);
+                console.log(`[emailVerification] pendingApproval/unverified=false に降下 (confirmed): booking=${bookingMatch.id}`);
+              }
             } catch (e) {
               console.error(`[emailVerification] pendingApproval/unverified 降下エラー:`, e.message);
+            }
+          }
+
+          // ===== 別予約への差し替え検知 → オーナー通知 =====
+          // キャンセル→同日程で別予約番号の再予約が同一 booking に着地したケース。
+          // Booking.com の確定メールには人数・氏名が載らないため機械的に直せない。
+          // 気づけないまま古い人数で清掃準備が進むのを防ぐため必ず知らせる。
+          if (replacedBooking) {
+            try {
+              await notifyBookingReplaced_(db, replacedBooking, extractedInfo);
+            } catch (e) {
+              console.error(`[emailVerification] 差し替え通知エラー:`, e.message);
             }
           }
 
@@ -569,6 +597,69 @@ async function emailVerificationCore(db, opts = {}) {
   });
 
   return result;
+}
+
+/**
+ * confirmed メール受信時に降ろすフラグのパッチを組み立てる
+ * (bookingPatch へマージして 1 回の update で済ませ、onBookingChange の多重発火を減らす)
+ */
+function buildConfirmedResolvePatch_(bookingData) {
+  const admin = require("firebase-admin");
+  const b = bookingData || {};
+  const patch = {};
+  if (b.pendingApproval === true) {
+    patch.pendingApproval = false;
+    patch.pendingApprovalResolvedAt = admin.firestore.FieldValue.serverTimestamp();
+  }
+  if (b.unverified === true) {
+    patch.unverified = false;
+    patch.unverifiedResolvedAt = admin.firestore.FieldValue.serverTimestamp();
+  }
+  if (Object.keys(patch).length > 0) {
+    patch.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+  }
+  return patch;
+}
+
+/**
+ * 予約が別予約に差し替わったことをオーナーへ通知
+ * (キャンセル → 同日程で別予約番号の再予約が同一 booking ドキュメントに着地したケース)
+ */
+async function notifyBookingReplaced_(db, replaced, parsedInfo) {
+  const { notifyByKey } = require("../utils/lineNotify");
+  const b = replaced.data || {};
+  const propertyName = b.propertyName || "";
+  const newCode = (parsedInfo && parsedInfo.reservationCode) || "";
+  const reason = (replaced.updates && replaced.updates.guestInfoStaleReason) || "";
+
+  const body = [
+    "🔁 予約が別予約に差し替わりました",
+    "",
+    `物件: ${propertyName || "(不明)"}`,
+    `日程: ${b.checkIn || "?"} 〜 ${b.checkOut || "?"}`,
+    `新しい予約番号: ${newCode || "(不明)"}`,
+    `表示中のゲスト名: ${b.guestName || "(不明)"}`,
+    `表示中の人数: ${b.guestCount != null ? `${b.guestCount}人` : "(未設定)"}`,
+    "",
+    `理由: ${reason}`,
+    "",
+    "⚠️ ゲスト名・人数は前の予約のものが残っている可能性があります。",
+    "→ OTAの管理画面で実際の人数を確認し、予約詳細から修正してください。",
+  ].join("\n");
+
+  await notifyByKey(db, "booking_change", {
+    title: `🔁 予約差し替え: ${propertyName || b.checkIn || ""}`,
+    body,
+    vars: {
+      property: propertyName,
+      checkin: b.checkIn || "",
+      date: b.checkOut || "",
+      guest: b.guestName || "",
+      code: newCode,
+    },
+    propertyId: b.propertyId || null,
+  });
+  console.log(`[emailVerification] 予約差し替えを通知: booking=${replaced.id} newCode=${newCode}`);
 }
 
 /**

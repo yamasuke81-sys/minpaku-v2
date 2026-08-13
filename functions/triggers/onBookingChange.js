@@ -87,6 +87,68 @@ async function cancelCleaningForDate_(db, propertyId, dateStr, excludeBookingId)
  * @param {string} bookingId
  * @param {object} after - 変更後の予約データ
  */
+/**
+ * 直前点検シフトを決定的 docId + create() で作成する (並列発火時の重複を防ぐ)
+ * 既に存在する場合 (ALREADY_EXISTS) は何もしない。
+ */
+async function createPreInspectionShift_(db, o) {
+  try {
+    await db.collection("shifts").doc(o.shiftDocId).create({
+      date: o.checkInDate,
+      propertyId: o.propertyId,
+      propertyName: o.propertyName,
+      bookingId: o.bookingId,
+      workType: "pre_inspection",
+      staffId: null, staffName: null, staffIds: [],
+      startTime: o.startTime,
+      status: "unassigned",
+      assignMethod: "auto",
+      createdAt: o.now, updatedAt: o.now,
+    });
+    console.log(`予約 ${o.bookingId}: 直前点検シフト${o.label} (${o.checkIn}) shiftId=${o.shiftDocId}`);
+    return true;
+  } catch (e) {
+    if (e && (e.code === 6 || /already exists/i.test(String(e.message || "")))) {
+      console.log(`予約 ${o.bookingId}: 直前点検シフト ${o.shiftDocId} は既存 (並列発火による重複生成を回避)`);
+      return false;
+    }
+    console.error("直前点検シフト生成エラー:", e);
+    return false;
+  }
+}
+
+/**
+ * 直前点検募集を決定的 docId + create() で作成する (並列発火時の重複を防ぐ)
+ * @returns {Promise<string|null>} 作成できたら recruitmentId、既存/失敗なら null
+ *   (null のとき呼出側は募集通知を送らない = 重複通知の防止)
+ */
+async function createPreInspectionRecruitment_(db, o) {
+  try {
+    await db.collection("recruitments").doc(o.recDocId).create({
+      checkoutDate: o.checkIn,          // 直前点検の実施日(=checkIn)
+      propertyId: o.propertyId,
+      propertyName: o.propertyName,
+      bookingId: o.bookingId,
+      workType: "pre_inspection",
+      status: "募集中",
+      selectedStaff: "",
+      selectedStaffIds: [],
+      memo: o.memo,
+      responses: [],
+      createdAt: o.now, updatedAt: o.now,
+    });
+    console.log(`予約 ${o.bookingId}: 直前点検募集${o.label} (${o.checkIn}) recruitmentId=${o.recDocId}`);
+    return o.recDocId;
+  } catch (e) {
+    if (e && (e.code === 6 || /already exists/i.test(String(e.message || "")))) {
+      console.log(`予約 ${o.bookingId}: 直前点検募集 ${o.recDocId} は既存 (並列発火による重複生成を回避)`);
+      return null;
+    }
+    console.error("直前点検募集生成エラー:", e);
+    return null;
+  }
+}
+
 async function detectDoubleBooking(db, bookingId, after) {
   if (!after.propertyId || !after.checkIn || !after.checkOut) return;
   if (isCancelled(after.status)) return;
@@ -1203,6 +1265,13 @@ module.exports = async function onBookingChange(event) {
       return;
     }
 
+    // 競合状態対策: 直前点検も清掃と同じく決定的 docId + create() で冪等化する。
+    // (旧実装は .add() の自動IDだったため、booking への短時間連続書き込みで
+    //  onBookingChange が並列発火すると read-then-write のガードをすり抜けて
+    //  シフト・募集・チェックリストが丸ごと2セット生成されていた。2026-08-12 the Terrace 8/26)
+    const insShiftDocId = `auto_${bookingId}_pre_inspection_${checkIn}`;
+    const insRecDocId = `auto_${bookingId}_pre_inspection_${checkIn}`;
+
     // bookingId 紐付けの直前点検シフトが既存なら、日付が違っても再生成しない
     const insLinkedShiftSnap = await db.collection("shifts")
       .where("bookingId", "==", bookingId)
@@ -1234,34 +1303,18 @@ module.exports = async function onBookingChange(event) {
         const cls = await db.collection("checklists").where("shiftId", "==", existingShiftDoc.id).get();
         for (const c of cls.docs) await c.ref.delete();
         await existingShiftDoc.ref.delete();
-        await db.collection("shifts").add({
-          date: checkInDate,
-          propertyId, propertyName,
-          bookingId,
-          workType: "pre_inspection",
-          staffId: null, staffName: null, staffIds: [],
-          startTime: propertyData.inspectionStartTime || "10:00",
-          status: "unassigned",
-          assignMethod: "auto",
-          createdAt: now, updatedAt: now,
+        await createPreInspectionShift_(db, {
+          shiftDocId: insShiftDocId, checkInDate, checkIn, propertyId, propertyName, bookingId,
+          startTime: propertyData.inspectionStartTime || "10:00", now, label: "再生成",
         });
-        console.log(`予約 ${bookingId}: 直前点検シフト再生成 (${checkIn})`);
       } else {
         console.log(`予約 ${bookingId}: 直前点検シフト既存のためスキップ (active bookingId=${existingBid})`);
       }
     } else {
-      await db.collection("shifts").add({
-        date: checkInDate,
-        propertyId, propertyName,
-        bookingId,
-        workType: "pre_inspection",
-        staffId: null, staffName: null, staffIds: [],
-        startTime: propertyData.inspectionStartTime || "10:00",
-        status: "unassigned",
-        assignMethod: "auto",
-        createdAt: now, updatedAt: now,
+      await createPreInspectionShift_(db, {
+        shiftDocId: insShiftDocId, checkInDate, checkIn, propertyId, propertyName, bookingId,
+        startTime: propertyData.inspectionStartTime || "10:00", now, label: "生成",
       });
-      console.log(`予約 ${bookingId}: 直前点検シフト生成 (${checkIn})`);
     }
 
     // bookingId 紐付けの直前点検募集が既存なら、日付が違っても再生成しない
@@ -1294,40 +1347,24 @@ module.exports = async function onBookingChange(event) {
         console.log(`予約 ${bookingId}: 既存直前点検募集 ${existingRecDoc.id} は孤児(bookingId=${existingBid || "なし"}) → 削除して再生成`);
         try { await removeRecruitmentFromAllStaff(db, existingRecDoc.id); } catch (_) {}
         await existingRecDoc.ref.delete();
-        const insRef = await db.collection("recruitments").add({
-          checkoutDate: checkIn,
-          propertyId, propertyName,
-          bookingId,
-          workType: "pre_inspection",
-          status: "募集中",
-          selectedStaff: "",
-          selectedStaffIds: [],
-          memo: `直前点検: ゲスト ${guestName || "不明"} (${source || ""})`,
-          responses: [],
-          createdAt: now, updatedAt: now,
+        insRecruitmentId = await createPreInspectionRecruitment_(db, {
+          recDocId: insRecDocId, checkIn, propertyId, propertyName, bookingId,
+          memo: `直前点検: ゲスト ${guestName || "不明"} (${source || ""})`, now, label: "再生成",
         });
-        insRecruitmentId = insRef.id;
-        console.log(`予約 ${bookingId}: 直前点検募集再生成 (${checkIn})`);
-        try { await addRecruitmentToActiveStaff(db, insRecruitmentId); } catch (e) { console.error("addRecruitmentToActiveStaff(直前点検再生成) エラー:", e); }
+        if (insRecruitmentId) {
+          try { await addRecruitmentToActiveStaff(db, insRecruitmentId); } catch (e) { console.error("addRecruitmentToActiveStaff(直前点検再生成) エラー:", e); }
+        }
       } else {
         console.log(`予約 ${bookingId}: 直前点検募集既存のためスキップ (active bookingId=${existingBid})`);
       }
     } else {
-      const insRef = await db.collection("recruitments").add({
-        checkoutDate: checkIn,           // 直前点検の実施日(=checkIn)
-        propertyId, propertyName,
-        bookingId,
-        workType: "pre_inspection",
-        status: "募集中",
-        selectedStaff: "",
-        selectedStaffIds: [],
-        memo: `直前点検: ゲスト ${guestName || "不明"} (${source || ""})`,
-        responses: [],
-        createdAt: now, updatedAt: now,
+      insRecruitmentId = await createPreInspectionRecruitment_(db, {
+        recDocId: insRecDocId, checkIn, propertyId, propertyName, bookingId,
+        memo: `直前点検: ゲスト ${guestName || "不明"} (${source || ""})`, now, label: "生成",
       });
-      insRecruitmentId = insRef.id;
-      console.log(`予約 ${bookingId}: 直前点検募集生成 (${checkIn})`);
-      try { await addRecruitmentToActiveStaff(db, insRecruitmentId); } catch (e) { console.error("addRecruitmentToActiveStaff(直前点検) エラー:", e); }
+      if (insRecruitmentId) {
+        try { await addRecruitmentToActiveStaff(db, insRecruitmentId); } catch (e) { console.error("addRecruitmentToActiveStaff(直前点検) エラー:", e); }
+      }
     }
 
     // 直前点検の募集通知 (recruit_start)

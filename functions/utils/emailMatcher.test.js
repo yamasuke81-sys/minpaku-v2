@@ -449,3 +449,120 @@ describe("buildChangeEmailNotification", () => {
     assert.ok(n.body.includes("名簿の申告人数: 未入力"));
   });
 });
+
+// ======================================================
+// キャンセル → 同日程で別予約番号の再予約 (2026-08-12 the Terrace 8/26 の事故)
+// Booking.com の iCal は同一日程なら同じ UID の CLOSED を返すため、
+// 新旧の予約が同じ booking ドキュメントに着地する。
+// ======================================================
+
+describe("キャンセル済み予約の復活・差し替え", () => {
+  // 旧予約 5990618442 がキャンセル済みで残っている状態
+  const cancelledBooking = {
+    status: "cancelled",
+    cancelledAt: { _seconds: 1786000000 },
+    cancelReason: "メール照合: キャンセル通知メール検知",
+    cancelSource: "email",
+    guestName: "Tomoko Miyama",
+    guestCount: 4,
+    checkIn: "2026-08-26",
+    checkOut: "2026-08-27",
+    source: "Booking.com",
+    propertyId: "tsZybhDMcPrxqgcRy7wp",
+    otaReservationCode: "5990618442",
+  };
+  // 新予約 5167790262 の確定メール (Booking.com は人数・氏名を本文に含まない)
+  const confirmedInfo = {
+    kind: "confirmed",
+    platform: "Booking.com",
+    reservationCode: "5167790262",
+    checkIn: { date: "2026-08-26" },
+    guestCount: null,
+  };
+
+  test("確定メールで復活するときキャンセル痕跡を削除する", () => {
+    const { updates } = decideBookingUpdate(cancelledBooking, confirmedInfo, "m1", 1786100000000);
+    assert.strictEqual(updates.status, "confirmed");
+    assert.deepStrictEqual(updates.cancelledAt, { __placeholder: "delete" });
+    assert.deepStrictEqual(updates.cancelReason, { __placeholder: "delete" });
+    assert.deepStrictEqual(updates.cancelSource, { __placeholder: "delete" });
+    assert.deepStrictEqual(updates.revivedAt, { __placeholder: "serverTimestamp" });
+  });
+
+  test("別予約への差し替えを検知して guestInfoStale を立てる", () => {
+    const { updates } = decideBookingUpdate(cancelledBooking, confirmedInfo, "m1", 1786100000000);
+    assert.strictEqual(updates.guestInfoStale, true);
+    assert.ok(updates.guestInfoStaleReason);
+    assert.deepStrictEqual(updates.replacedAt, { __placeholder: "serverTimestamp" });
+  });
+
+  test("新しい予約番号を保存する (次回は番号で厳密に突合できる)", () => {
+    const { updates } = decideBookingUpdate(cancelledBooking, confirmedInfo, "m1", 1786100000000);
+    assert.strictEqual(updates.otaReservationCode, "5167790262");
+  });
+
+  test("既存の人数は壊さない (誤った値で上書きしない・通知で人に確認させる)", () => {
+    const { updates } = decideBookingUpdate(cancelledBooking, confirmedInfo, "m1", 1786100000000);
+    assert.strictEqual(updates.guestCount, undefined);
+  });
+
+  test("キャンセルされていない通常の確定メールでは差し替え扱いしない", () => {
+    const normal = { ...cancelledBooking, status: "confirmed", cancelledAt: null, otaReservationCode: "5167790262" };
+    const { updates } = decideBookingUpdate(normal, confirmedInfo, "m1", 1786100000000);
+    assert.strictEqual(updates.guestInfoStale, undefined);
+    assert.strictEqual(updates.status, undefined);
+  });
+
+  test("status は confirmed でもキャンセル痕跡が残っていれば復活として扱う", () => {
+    const residue = { ...cancelledBooking, status: "confirmed" };
+    const { updates } = decideBookingUpdate(residue, confirmedInfo, "m1", 1786100000000);
+    assert.deepStrictEqual(updates.cancelledAt, { __placeholder: "delete" });
+    assert.strictEqual(updates.guestInfoStale, true);
+  });
+
+  test("予約番号だけが変わった場合も差し替えとして検知する", () => {
+    const active = { ...cancelledBooking, status: "confirmed", cancelledAt: null };
+    const { updates } = decideBookingUpdate(active, confirmedInfo, "m1", 1786100000000);
+    assert.strictEqual(updates.guestInfoStale, true);
+    // キャンセルされていないので status/痕跡削除は入らない
+    assert.strictEqual(updates.status, undefined);
+    assert.strictEqual(updates.cancelledAt, undefined);
+  });
+
+  test("otaReservationCode で厳密に突合できる", () => {
+    const bookings = [
+      { id: "old", data: { otaReservationCode: "5990618442", source: "Booking.com" } },
+      { id: "new", data: { otaReservationCode: "5167790262", source: "Booking.com" } },
+    ];
+    const r = findBookingMatch(bookings, { reservationCode: "5167790262" });
+    assert.strictEqual(r.id, "new");
+    assert.strictEqual(r.matchReason, "otaReservationCode");
+  });
+
+  test("日付フォールバックで候補が割れたら active を優先する", () => {
+    const bookings = [
+      { id: "cancelled", data: { source: "Booking.com", propertyId: "P1", checkIn: "2026-08-26", status: "cancelled" } },
+      { id: "active", data: { source: "Booking.com", propertyId: "P1", checkIn: "2026-08-26", status: "confirmed" } },
+    ];
+    const r = findBookingMatch(bookings, { platform: "Booking.com", checkIn: { date: "2026-08-26" } }, "P1");
+    assert.strictEqual(r.id, "active");
+    assert.strictEqual(r.matchReason, "dateAndPlatform-activePreferred");
+  });
+
+  test("active が複数なら従来どおり ambiguous (誤更新を防ぐ)", () => {
+    const bookings = [
+      { id: "a", data: { source: "Booking.com", propertyId: "P1", checkIn: "2026-08-26", status: "confirmed" } },
+      { id: "b", data: { source: "Booking.com", propertyId: "P1", checkIn: "2026-08-26", status: "confirmed" } },
+    ];
+    const r = findBookingMatch(bookings, { platform: "Booking.com", checkIn: { date: "2026-08-26" } }, "P1");
+    assert.strictEqual(r.matchReason, "ambiguous-dateAndPlatform");
+  });
+
+  test("キャンセルメールは従来どおりキャンセル化する (復活ロジックが邪魔しない)", () => {
+    const active = { status: "confirmed", guestName: "Tomoko Miyama", checkIn: "2026-08-26" };
+    const { updates } = decideBookingUpdate(active, { kind: "cancelled", platform: "Booking.com", reservationCode: "5990618442" }, "m2", 1786000000000);
+    assert.strictEqual(updates.status, "cancelled");
+    assert.deepStrictEqual(updates.cancelledAt, { __placeholder: "serverTimestamp" });
+    assert.strictEqual(updates.guestInfoStale, undefined);
+  });
+});

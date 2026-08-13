@@ -38,6 +38,15 @@ function findBookingMatch(bookings, parsedInfo, propertyIdHint) {
   //    Airbnb iCal UID は {hash}-{hash}@airbnb.com で HM コードを含まないが、
   //    description や URL に HM コードが含まれる場合があるため広範に検索
   if (code) {
+    // 0. otaReservationCode 完全一致 (最も確実)
+    //    Booking.com の iCal は同一日程なら予約が差し替わっても同じ UID の CLOSED を返すため、
+    //    UID では新旧の予約を区別できない。照合時に保存した予約番号で厳密に突合する。
+    for (const b of bookings) {
+      const rc = String((b.data && b.data.otaReservationCode) || "").toLowerCase();
+      if (rc && rc === code) {
+        return { id: b.id, data: b.data, matchReason: "otaReservationCode" };
+      }
+    }
     for (const b of bookings) {
       const d = b.data || {};
       const haystack = [
@@ -79,6 +88,13 @@ function findBookingMatch(bookings, parsedInfo, propertyIdHint) {
     }
     if (candidates.length === 1) return candidates[0];
     if (candidates.length > 1) {
+      // キャンセル済みが混ざっている場合は active を優先する。
+      // (キャンセル→同日程で再予約 のとき、旧キャンセル doc と新 doc が併存して
+      //  ambiguous になり確定メールが取りこぼされるのを防ぐ)
+      const active = candidates.filter((c) => !isCancelledStatus_(c.data && c.data.status));
+      if (active.length === 1) {
+        return { ...active[0], matchReason: "dateAndPlatform-activePreferred" };
+      }
       return {
         id: null,
         data: null,
@@ -89,6 +105,12 @@ function findBookingMatch(bookings, parsedInfo, propertyIdHint) {
   }
 
   return null;
+}
+
+// status がキャンセル系かどうか (表記ゆれ: cancelled / キャンセル / キャンセル済み)
+function isCancelledStatus_(status) {
+  const s = String(status || "").toLowerCase();
+  return s.includes("cancel") || s === "キャンセル" || s === "キャンセル済み";
 }
 
 // checkIn フィールドを YYYY-MM-DD 形式に正規化
@@ -188,6 +210,42 @@ function decideBookingUpdate(booking, parsedInfo, messageId, emailReceivedAt, th
   if (newMs != null) {
     // 呼出側で Timestamp.fromMillis に置換
     updates.emailVerifiedAt = { __placeholder: "timestampFromMs", ms: newMs };
+  }
+
+  // ---- 予約番号の保存 ----
+  // 次回以降このコードで厳密に突合できるようにする (日付フォールバック依存からの脱却)。
+  // 併せて「予約が別番号に差し替わった」ことの検知にも使う。
+  const newCode = parsedInfo.reservationCode ? String(parsedInfo.reservationCode) : null;
+  const prevCode = booking.otaReservationCode ? String(booking.otaReservationCode) : null;
+  if (newCode && newCode !== prevCode) {
+    updates.otaReservationCode = newCode;
+  }
+
+  // ---- キャンセル済み予約の復活 / 別予約への差し替え ----
+  // Booking.com の iCal は同一日程なら予約が差し替わっても同じ UID の CLOSED を返すため、
+  // 「キャンセル → 同日程で別予約番号の再予約」が同一 booking ドキュメントに着地する。
+  // このとき status だけ confirmed に戻ってキャンセル痕跡と旧予約のゲスト情報が残っていた
+  // (2026-08-12 the Terrace 8/26 の事故)。痕跡を消し、差し替えを検知できるようにする。
+  const wasCancelled = isCancelledStatus_(booking.status) || !!booking.cancelledAt;
+  if (parsedInfo.kind === "confirmed" && wasCancelled) {
+    updates.status = "confirmed";
+    updates.cancelledAt = { __placeholder: "delete" };
+    updates.cancelReason = { __placeholder: "delete" };
+    updates.cancelSource = { __placeholder: "delete" };
+    updates.revivedAt = { __placeholder: "serverTimestamp" };
+  }
+  // 差し替え判定: キャンセル済みが確定メールで復活した / 予約番号が別物に変わった
+  const isReplacement =
+    parsedInfo.kind === "confirmed" &&
+    (wasCancelled || !!(newCode && prevCode && newCode !== prevCode));
+  if (isReplacement) {
+    // 人数・氏名は旧予約由来の可能性がある。値は壊さずフラグだけ立て、呼出側が通知する。
+    // (Booking.com の確定メールには人数・氏名が載らないため機械的に更新できない)
+    updates.guestInfoStale = true;
+    updates.guestInfoStaleReason = wasCancelled
+      ? "キャンセル済み予約が確定メールで復活 (別予約への差し替えの可能性)"
+      : "予約番号が変わりました (別予約への差し替え)";
+    updates.replacedAt = { __placeholder: "serverTimestamp" };
   }
 
   // ---- ゲスト名の慎重マージ ----
