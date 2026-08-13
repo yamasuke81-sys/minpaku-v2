@@ -868,16 +868,7 @@ const DashboardPage = {
       ? '<span class="badge bg-success"><i class="bi bi-check-circle"></i> 名簿記入済み</span>'
       : '<span class="badge bg-danger"><i class="bi bi-exclamation-circle"></i> 名簿未記入</span>';
 
-    // GAS版インポートボタン (Webアプリ管理者のみ・CI日が確定している場合)
-    const isOwnerForBtn = (typeof Auth !== "undefined") && Auth?.isOwner?.();
-    const gasImportBtn = (isOwnerForBtn && !isStaffView && ci)
-      ? `<button type="button" class="btn btn-outline-info btn-sm py-0 px-2" id="btnGasImportForBooking"
-           data-ci="${this.esc(ci)}" data-pid="${this.esc(b.propertyId || "")}"
-           style="font-size:0.75rem;" title="GAS版スプレッドシートから ${this.esc(ci)} の宿泊者名簿を取り込み">
-           <i class="bi bi-cloud-download"></i> GAS版から取り込み
-         </button>
-         <span id="gasImportStatusInline" class="small ms-1"></span>`
-      : "";
+    // GAS版インポートボタンは廃止 (2026-08-13)。旧GASスプシは参照しない運用になったため。
 
     // CO日の清掃募集を検索 (propertyId 必須: 同日他物件の募集と混ざらないように)
     const recruit = co
@@ -1240,7 +1231,7 @@ ${ppCo}9:30
       : "";
 
     document.getElementById("calEventBody").innerHTML = `
-      <div class="d-flex gap-2 mb-1 flex-wrap align-items-center">${rosterBadge}${openRosterBtn}${gasImportBtn}</div>
+      <div class="d-flex gap-2 mb-1 flex-wrap align-items-center">${rosterBadge}${openRosterBtn}</div>
 
       ${kbTopHtml}
 
@@ -1980,118 +1971,6 @@ ${ppCo}9:30
         }, 180);
       });
     });
-
-    // GAS版インポートボタン (該当 CI 日の宿泊者名簿を取り込み)
-    // 注: GAS版スプレッドシートには同一CI日に複数行 (iCal連携の予約行 + 宿泊者入力行) が
-    //     混在しうるため、取り込み件数だけでは「名簿未回答」を判定できない。
-    //     取り込み後に guestRegistrations を直接照会し、プレースホルダー名 (Reserved/Airbnb/Booking 等)
-    //     でない実名の行が存在するかで判定する。
-    const btnGasImport = document.getElementById("btnGasImportForBooking");
-    if (btnGasImport) {
-      btnGasImport.addEventListener("click", async () => {
-        const ciDate = btnGasImport.dataset.ci;
-        const pidForImport = btnGasImport.dataset.pid || "";
-        const statusEl = document.getElementById("gasImportStatusInline");
-        if (!ciDate) {
-          if (statusEl) statusEl.innerHTML = `<span class="text-danger">CI日が不明です</span>`;
-          return;
-        }
-        const dbi = firebase.firestore();
-        // settings/notifications から GAS Web App URL/Secret を取得
-        let gasUrl = "", gasSecret = "";
-        try {
-          const sDoc = await dbi.collection("settings").doc("notifications").get();
-          if (sDoc.exists) {
-            const sd = sDoc.data();
-            gasUrl = sd.gasSyncWebAppUrl || "";
-            gasSecret = sd.gasSecret || "";
-          }
-        } catch (_) {}
-        if (!gasUrl) {
-          if (statusEl) statusEl.innerHTML = `<span class="text-danger">GAS Web App URL 未設定 (宿泊者名簿画面で設定)</span>`;
-          return;
-        }
-        btnGasImport.disabled = true;
-        const origHtml = btnGasImport.innerHTML;
-        btnGasImport.innerHTML = `<span class="spinner-border spinner-border-sm"></span> 取得中...`;
-        if (statusEl) statusEl.innerHTML = "";
-        try {
-          const params = new URLSearchParams({ from: ciDate, to: ciDate, secret: gasSecret });
-          const res = await fetch(`${gasUrl}?${params.toString()}`);
-          const text = await res.text();
-          let data;
-          try { data = JSON.parse(text); } catch { data = { message: text }; }
-          if (data.error) {
-            if (statusEl) statusEl.innerHTML = `<span class="text-danger">エラー: ${this.esc(String(data.error))}</span>`;
-            return;
-          }
-
-          // 取り込み完了後、guestRegistrations を直接照会して名簿の「実データ行」があるか判定
-          // GAS版の buildCalendarEvents (index.html:2939) と同じロジックを踏襲:
-          //   - 同一CI日の複数行をマージ対象とし、プレースホルダー名以外を実回答とみなす
-          //   - プレースホルダー判定は GAS版と同じ厳密一致パターン
-          //     /^(Not available|Reserved|CLOSED|Blocked|Airbnb(予約)?|Booking\.com(予約)?|Rakuten|楽天)$/i
-          //   (v2 既存の _isPlaceholderName は部分一致で緩いためここでは使わない)
-          const isGasPlaceholder = (name) => {
-            if (!name) return true;
-            return /^(Not available|Reserved|CLOSED|Blocked|Airbnb(予約)?|Booking\.com(予約)?|Rakuten|楽天)$/i
-              .test(String(name).trim());
-          };
-
-          // 書き込みが Firestore に伝播するまで少し待つ
-          await new Promise(r => setTimeout(r, 1200));
-          let grSnap;
-          try {
-            const baseQ = dbi.collection("guestRegistrations").where("checkIn", "==", ciDate);
-            grSnap = pidForImport
-              ? await baseQ.where("propertyId", "==", pidForImport).get()
-              : await baseQ.get();
-          } catch (qe) {
-            console.warn("guestRegistrations 照会失敗:", qe);
-            grSnap = null;
-          }
-
-          // 同一CI日の複数行から実名ドキュメントを優先採用 (GAS版マージ思想)
-          // 実名 (プレースホルダーでない) のドキュメントが1件でもあれば「回答済」
-          let realRecord = null;
-          let placeholderCount = 0;
-          if (grSnap && !grSnap.empty) {
-            for (const d of grSnap.docs) {
-              const g = d.data();
-              if (!g || !g.guestName) continue;
-              if (isGasPlaceholder(g.guestName)) {
-                placeholderCount++;
-                continue;
-              }
-              // 実名: 最初に見つかったものを採用 (GAS版も先勝ちでマージ)
-              realRecord = g;
-              break;
-            }
-          }
-
-          if (!realRecord) {
-            const detail = placeholderCount > 0
-              ? ` (iCal由来の${placeholderCount}行のみ、宿泊者の名簿入力なし)`
-              : " (GAS版に該当行なし)";
-            if (statusEl) statusEl.innerHTML = `<span class="text-warning"><i class="bi bi-hourglass-split"></i> まだ未回答${this.esc(detail)}</span>`;
-            return;
-          }
-
-          if (statusEl) statusEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> 取り込み完了 (${this.esc(realRecord.guestName)})</span>`;
-          // モーダルを閉じてカレンダーを再描画 (取り込んだ名簿を反映)
-          setTimeout(() => {
-            const modalInst = bootstrap.Modal.getInstance(modalEl);
-            if (modalInst) modalInst.hide();
-            if (typeof onGuestCountSaved === "function") onGuestCountSaved();
-          }, 1200);
-        } catch (e) {
-          if (statusEl) statusEl.innerHTML = `<span class="text-danger">通信失敗: ${this.esc(e.message)}</span>`;
-        } finally {
-          btnGasImport.disabled = false;
-          btnGasImport.innerHTML = origHtml;
-        }
-      });
-    }
 
     // 人数保存ボタンのイベントハンドラ
     const btnSave = document.getElementById("btnSaveGuestCount");

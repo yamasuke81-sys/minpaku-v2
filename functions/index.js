@@ -497,6 +497,10 @@ exports.onKeyboxConfirmed = onDocumentUpdated(
 );
 
 // 宿泊者名簿 新規作成→GAS版スプシへ自動転記（リバース連携）
+// 【2026-08-13 停止】旧GASスプシはもう参照しない運用のため settings/gasComparison を削除。
+// loadGasConfig_ が null を返し即 no-op になる（一過性404の誤報も止まる）。
+// 復元する場合は scratchpad/gasComparison-backup.json の値で settings/gasComparison を再作成。
+// 数週間問題なければ本トリガー(登録+triggers/onGuestRegistrationToGas.js)ごと削除予定。
 exports.onGuestRegistrationToGas = onDocumentCreated(
   { document: "guestRegistrations/{guestId}", region: "asia-northeast1" },
   require("./triggers/onGuestRegistrationToGas")
