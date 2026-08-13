@@ -11,7 +11,8 @@
  *   飛ぶのは事実上 **直販予約のみ**。source では絞らず email の有無で判定する
  *   (将来 OTA 側でも予約時にアドレスが取れるようになったら自動的に対象へ入る)。
  *
- * 重複送信は呼び出し元が bookings.rosterGuestMailSentKeys で防ぐ。
+ * 重複送信は bookings.rosterGuestMailSentAt{キー: 送信時刻} で防ぐ。
+ * 時刻を値に持たせているのは、予約詳細の履歴タイムラインに送信イベントを出すため。
  */
 const admin = require("firebase-admin");
 const { sendNotificationEmail_, resolveSenderGmail_ } = require("./lineNotify");
@@ -40,9 +41,9 @@ async function sendRosterRequestMail_(db, bookingId, b, opts = {}) {
   const to = b.email;
   if (!to) return false;
 
-  // 同じキーで送信済みならスキップ
-  const sent = Array.isArray(b.rosterGuestMailSentKeys) ? b.rosterGuestMailSentKeys : [];
-  if (sent.includes(key)) return false;
+  // 同じキーで送信済みならスキップ。値は送信時刻 (予約詳細の履歴タイムラインで使う)
+  const sent = (b.rosterGuestMailSentAt && typeof b.rosterGuestMailSentAt === "object") ? b.rosterGuestMailSentAt : {};
+  if (sent[key]) return false;
 
   const propertyId = b.propertyId || "";
   const propertyName = b.propertyName || "";
@@ -91,9 +92,10 @@ async function sendRosterRequestMail_(db, bookingId, b, opts = {}) {
   const senderGmail = await resolveSenderGmail_(db, propertyId);
   await sendNotificationEmail_(to, subject, bodyText, senderGmail || null);
 
-  // 送信成功時のみ記録 (失敗時は次回の実行で再試行される)
+  // 送信成功時のみ記録 (失敗時は次回の実行で再試行される)。
+  // ドット記法の update でネストのキーだけを追記する (既存キーは保持される)
   await db.collection("bookings").doc(bookingId).update({
-    rosterGuestMailSentKeys: admin.firestore.FieldValue.arrayUnion(key),
+    [`rosterGuestMailSentAt.${key}`]: admin.firestore.FieldValue.serverTimestamp(),
   });
   return true;
 }

@@ -1363,7 +1363,7 @@ ${ppCo}9:30
             <h2 class="accordion-header">
               <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
                       data-bs-target="#${collapseId}" aria-expanded="false">
-                <i class="bi bi-clock-history me-2"></i> 📜 履歴 (iCal同期 / メール照合 / 名簿)
+                <i class="bi bi-clock-history me-2"></i> 📜 履歴 (iCal同期 / メール照合 / 名簿 / 直販・決済)
               </button>
             </h2>
             <div id="${collapseId}" class="accordion-collapse collapse">
@@ -2180,6 +2180,17 @@ ${ppCo}9:30
       roster_complete_mail: "bi-envelope-paper-heart text-success",
       roster_updated: "bi-pencil-square text-warning",
       roster_keybox_mail: "bi-key text-info",
+      roster_request_mail: "bi-envelope-exclamation text-info",
+      // 直販予約 (自社サイト → Stripe) のイベント
+      direct_request: "bi-globe2 text-primary",
+      direct_approved: "bi-check-circle-fill text-success",
+      direct_rejected: "bi-x-circle text-secondary",
+      direct_mail_sent: "bi-send text-primary",
+      direct_mail_received: "bi-envelope-arrow-down text-primary",
+      payment_link: "bi-link-45deg text-secondary",
+      payment_reminder: "bi-alarm text-warning",
+      payment_paid: "bi-credit-card-fill text-success",
+      payment_expired: "bi-clock-history text-danger",
     };
     const fmt = (iso) => {
       if (!iso) return "(時刻不明)";
@@ -2196,12 +2207,23 @@ ${ppCo}9:30
     const unverifiedBadge = data.unverified
       ? `<span class="badge bg-warning text-dark ms-2"><i class="bi bi-question-circle"></i> 未照合</span>`
       : "";
+    // ★並びは「新しい順(上が最新)」。左端の縦棒もそれに合わせ、最後(=最も古い)の項目では
+    //   線を引かずに終端させる (以前は最終項目にも border-start が付いていたため線が下へ伸び、
+    //   「下が最新」に見えていた。2026-08-13 やますけ指摘)
+    const evs = data.events.slice().sort((a, b) => {
+      const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return tb - ta;
+    });
     const head = `
       <div class="small text-muted mb-2">
         ${this.esc(data.source || "")} / ${this.esc(data.checkIn || "")} 〜 ${this.esc(data.checkOut || "")}
         ${unverifiedBadge}
-      </div>`;
-    const items = data.events.map((ev) => {
+      </div>
+      <div class="small text-muted mb-2"><i class="bi bi-sort-down"></i> 新しい順（上が最新）・${evs.length}件</div>`;
+    const items = evs.map((ev, idx) => {
+      const isFirst = idx === 0;
+      const isLast = idx === evs.length - 1;
       const icon = ICONS[ev.type] || "bi-circle";
       let link = "";
       if (ev.linkUrl) {
@@ -2216,10 +2238,13 @@ ${ppCo}9:30
       }
       const note = ev.note ? `<div class="small text-muted mt-1">${this.esc(ev.note)}</div>` : "";
       const source = ev.source ? `<div class="small text-muted">${this.esc(ev.source)}</div>` : "";
+      // 最古の項目は縦棒を引かない = そこで履歴が終わっていることを示す
+      const railCls = isLast ? "ps-3 pb-1" : "border-start border-3 ps-3 pb-3";
+      const latestBadge = isFirst ? `<span class="badge bg-primary ms-2" style="font-size:10px;">最新</span>` : "";
       return `
-        <div class="border-start border-3 ps-3 pb-3" style="position:relative;">
+        <div class="${railCls}" style="position:relative;">
           <i class="bi ${icon}" style="position:absolute;left:-11px;background:#fff;padding:2px;"></i>
-          <div class="fw-bold">${this.esc(ev.label)}</div>
+          <div class="fw-bold">${this.esc(ev.label)}${latestBadge}</div>
           <div class="small text-muted">${fmt(ev.timestamp)}</div>
           ${source}
           ${note}
