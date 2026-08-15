@@ -188,12 +188,16 @@ async function main() {
       return;
     }
     const j = src.data();
+    // ★2026-08-15修正: 従来は kind/propertyId/propertyName/yearMonth/params しか引き継がず、
+    //   ota_message ジョブ(message/ota/guestName/guestId/bookingId/reservationCode 等が必須)を
+    //   再投入すると即座に「message(本文) が空です」で落ちるバグがあった(the Terrace 長浜で実発生)。
+    //   CSV/PDF系はこれらのフィールドを持たないため無害。ジョブ種別に関わらず元の内容を丸ごと引き継ぐ。
+    const { status, error, retriedAt, completedAt, startedAt, retries, attempts, ...rest } = j;
     const ref = await db.collection("yadozeiQueue").add({
-      kind: j.kind, propertyId: j.propertyId || null, propertyName: j.propertyName || null,
-      yearMonth: j.yearMonth || null, params: j.params || {},
+      ...rest,
       status: "pending", result: null, createdBy: "discord-retry", retriedFrom: args[0],
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      startedAt: null, completedAt: null, error: null, retries: 0,
+      startedAt: null, completedAt: null, error: null, retries: 0, attempts: 0,
     });
     console.log(`再投入: ${ref.id} kind=${j.kind} property=${j.propertyName || "-"} ym=${j.yearMonth || "-"}`);
     return;
