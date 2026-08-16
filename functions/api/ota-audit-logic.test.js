@@ -15,6 +15,7 @@ const {
   collectRosterFindings,
   buildPropertyReport,
   selectResolvableConflicts,
+  detectMissingOtaSources,
 } = require("./ota-audit-logic");
 
 const PID = "propA";
@@ -661,5 +662,82 @@ describe("selectResolvableConflicts", () => {
       bookingsById, todayStr: TODAY,
     });
     assert.deepStrictEqual(resolvable, [{ id: "a__b", reason: "expired" }]);
+  });
+});
+
+describe("detectMissingOtaSources", () => {
+  // 実データ (2026-08-17 の障害時) を模した物件マスタ
+  const terrace = {
+    id: "tsZybhDMcPrxqgcRy7wp",
+    name: "the Terrace 長浜",
+    yadozei: {
+      airbnb: { enabled: true, listingName: "瀬戸内海ビュー大テラス" },
+      booking: { enabled: true, propertyId: "14868587" },
+    },
+  };
+  const komachi = {
+    id: "RZV9IwtQgMAsvrdM3j8J",
+    name: "YADO KOMACHI Hiroshima",
+    yadozei: {
+      airbnb: { enabled: true, auditListingNames: ["【YADO KOMACHI】…", "挽きたて珈琲"] },
+    },
+  };
+  // 開業前物件: enabled=false / 設定が空 → 期待ターゲットにしない
+  const wakakusa = {
+    id: "ZXW6wdpnBFk1azQ87KXQ",
+    name: "Pocket House WAKA-KUSA",
+    yadozei: { airbnb: { enabled: false }, booking: { enabled: false, propertyId: "" } },
+  };
+
+  test("Booking.comが auditedTargets から丸ごと落ちていれば未取得として検出(2026-08-17 実障害)", () => {
+    const { missing } = detectMissingOtaSources({
+      properties: [terrace, komachi, wakakusa],
+      auditedTargets: [
+        { propertyId: komachi.id, ota: "airbnb" },
+        { propertyId: terrace.id, ota: "airbnb" },
+      ],
+    });
+    assert.deepStrictEqual(missing, [
+      { propertyId: terrace.id, propertyName: "the Terrace 長浜", ota: "booking", otaLabel: "Booking.com" },
+    ]);
+  });
+
+  test("全ソースが揃っていれば missing は空(前日8/16の正常時)", () => {
+    const { missing, expected } = detectMissingOtaSources({
+      properties: [terrace, komachi, wakakusa],
+      auditedTargets: [
+        { propertyId: komachi.id, ota: "airbnb" },
+        { propertyId: terrace.id, ota: "airbnb" },
+        { propertyId: terrace.id, ota: "booking" },
+      ],
+    });
+    assert.deepStrictEqual(missing, []);
+    assert.strictEqual(expected.length, 3);
+  });
+
+  test("設定が空/無効な物件は期待ターゲットにしない(開業前物件で誤報を出さない)", () => {
+    const { expected } = detectMissingOtaSources({ properties: [wakakusa], auditedTargets: [] });
+    assert.deepStrictEqual(expected, []);
+  });
+
+  test("enabled でも listingId/施設IDが空なら期待しない(listener が取得しようがない)", () => {
+    const half = {
+      id: "p1", name: "設定途中",
+      yadozei: { airbnb: { enabled: true, listingName: "  " }, booking: { enabled: true, propertyId: "" } },
+    };
+    const { expected, missing } = detectMissingOtaSources({ properties: [half], auditedTargets: [] });
+    assert.deepStrictEqual(expected, []);
+    assert.deepStrictEqual(missing, []);
+  });
+
+  test("auditedTargets が無い古い形式のスナップショットでは判定しない", () => {
+    const { missing } = detectMissingOtaSources({ properties: [terrace] });
+    assert.deepStrictEqual(missing, []);
+  });
+
+  test("auditedTargets が空配列(全滅)なら期待ターゲット全件を未取得として返す", () => {
+    const { missing } = detectMissingOtaSources({ properties: [terrace], auditedTargets: [] });
+    assert.deepStrictEqual(missing.map((m) => m.ota), ["airbnb", "booking"]);
+    assert.deepStrictEqual(missing.map((m) => m.otaLabel), ["Airbnb", "Booking.com"]);
   });
 });

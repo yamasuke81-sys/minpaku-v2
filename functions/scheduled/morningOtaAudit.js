@@ -29,6 +29,7 @@ const {
   collectRosterFindings,
   buildPropertyReport,
   selectResolvableConflicts,
+  detectMissingOtaSources,
 } = require("../api/ota-audit-logic");
 
 const NOTIFY_KEY = "morning_ota_audit";
@@ -102,6 +103,18 @@ module.exports = async function morningOtaAudit() {
     const bookings = allBookings.filter((b) => activePropertyIds.has(b.propertyId));
     const registrations = allRegistrations.filter((g) => activePropertyIds.has(g.propertyId));
 
+    // ---- 4.5) 「取得できているはずのOTA」の脱落検知 ----
+    // listener が Booking.com を取れなかったのに status="done"/errors=[] で書くことがある
+    // (2026-08-17 実障害)。その場合 auditedTargets から (物件, booking) ペアが丸ごと落ちるので、
+    // 物件マスタの期待ターゲットと突き合わせて「未取得ソースあり」として扱う。
+    const missingSources = snapshotMissing
+      ? []
+      : detectMissingOtaSources({ properties: activeProps, auditedTargets: snapshot.auditedTargets }).missing;
+    if (missingSources.length > 0) {
+      console.warn("[morningOtaAudit] 未取得OTAあり:",
+        missingSources.map((m) => `${m.propertyName}/${m.ota}`).join(", "));
+    }
+
     // ---- 5) findings 集約 (純粋関数へ委譲) ----
     let reconcileFindings = [];
     if (!snapshotMissing) {
@@ -139,7 +152,11 @@ module.exports = async function morningOtaAudit() {
       findings: allFindings,
       countsByType,
       totalCount: allFindings.length,
-      snapshotStatus: snapshot ? snapshot.status : "missing",
+      // 未取得ソースがある日は突合が不完全なので、listener が done と書いていても partial 扱いにする
+      snapshotStatus: snapshotMissing ? (snapshot ? snapshot.status : "missing")
+        : (missingSources.length > 0 ? "partial" : snapshot.status),
+      snapshotStatusRaw: snapshot ? snapshot.status : "missing",
+      missingOtaSources: missingSources,
       unassignedCount: (snapshot && snapshot.unassignedCount) || 0,
       createdAt: new Date(),
     });
@@ -182,8 +199,16 @@ module.exports = async function morningOtaAudit() {
         lines.push(`⚠️ OTA取得が一部失敗しています(${errText})。失敗分は逆方向チェック対象外です。`);
       }
 
+      if (missingSources.length > 0) {
+        const srcText = missingSources.map((m) => `${m.propertyName}/${m.otaLabel}`).join(", ");
+        lines.push(`⚠️ 未取得のOTAがあります(${srcText})。このOTAの予約は今朝の突合(①)に含まれていません — 「0件」は正常の意味になりません。`);
+        lines.push("→ OTAのログイン状態(セッション失効)を確認し、必要なら再ログインしてください。");
+      }
+
       if (allFindings.length === 0) {
-        lines.unshift(`🌅 OTA朝点検: 全物件異常なし(OTA予約突合OK / キーボックス・名簿OK)`);
+        lines.unshift(missingSources.length > 0
+          ? `🌅 OTA朝点検: 検出0件 — ただし未取得のOTAがあり突合は不完全です`
+          : `🌅 OTA朝点検: 全物件異常なし(OTA予約突合OK / キーボックス・名簿OK)`);
       } else {
         lines.unshift(`🌅 OTA朝点検: 要確認${allFindings.length}件(物件別の詳細は各通知参照)`);
         for (const [type, count] of Object.entries(countsByType)) {

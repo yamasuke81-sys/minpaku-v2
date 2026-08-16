@@ -509,11 +509,64 @@ function selectResolvableConflicts({ conflicts, bookingsById, todayStr }) {
   return { resolvable };
 }
 
+/**
+ * 「取得できているはずのOTA」がスナップショットから丸ごと欠けていないかを判定する。
+ *
+ * 背景 (2026-08-17 実障害): listener が Booking.com を取得できなかったのに
+ * status="done" / errors=[] でスナップショットを書いたため、Booking の予約が
+ * 1件も突合されないまま朝点検が「異常なし0件」と通知していた。
+ * counts が 0 なのは「本当に予約が無い」場合もあるので、判定は
+ * auditedTargets (listener が実際に取得できた (物件, OTA) ペア) への収載有無で行う。
+ *
+ * 期待ターゲットは物件マスタの yadozei 設定から導出する:
+ *   airbnb  … yadozei.airbnb.enabled かつ listingName または auditListingNames がある
+ *   booking … yadozei.booking.enabled かつ propertyId (Booking施設ID) がある
+ * (設定が空のものは listener 側も取得対象にできないので期待しない)
+ *
+ * @param {object} o
+ * @param {Array<{id:string,name?:string,yadozei?:object}>} o.properties - 朝点検の対象物件 (active かつ owner_manual 以外)
+ * @param {Array<{propertyId:string, ota:string}>} [o.auditedTargets] - スナップショットの auditedTargets。
+ *   配列でない (古い形式のスナップショット) 場合は判定材料が無いので missing は空で返す。
+ * @returns {{expected: Array, missing: Array<{propertyId:string, propertyName:string, ota:string, otaLabel:string}>}}
+ */
+function detectMissingOtaSources({ properties = [], auditedTargets } = {}) {
+  if (!Array.isArray(auditedTargets)) return { expected: [], missing: [] };
+
+  const expected = [];
+  for (const p of properties || []) {
+    if (!p || !p.id) continue;
+    const y = p.yadozei || {};
+    const propertyName = p.name || p.id;
+
+    const ab = y.airbnb || {};
+    const hasAirbnbListing = !!String(ab.listingName || "").trim() ||
+      (Array.isArray(ab.auditListingNames) && ab.auditListingNames.some((n) => String(n || "").trim()));
+    if (ab.enabled === true && hasAirbnbListing) {
+      expected.push({ propertyId: p.id, propertyName, ota: "airbnb" });
+    }
+
+    const bk = y.booking || {};
+    if (bk.enabled === true && String(bk.propertyId || "").trim()) {
+      expected.push({ propertyId: p.id, propertyName, ota: "booking" });
+    }
+  }
+
+  const auditedKeys = new Set(
+    auditedTargets.filter((t) => t && t.propertyId && t.ota).map((t) => `${t.propertyId}|${t.ota}`)
+  );
+  const missing = expected
+    .filter((e) => !auditedKeys.has(`${e.propertyId}|${e.ota}`))
+    .map((e) => ({ ...e, otaLabel: OTA_TO_SOURCE[e.ota] || e.ota }));
+
+  return { expected, missing };
+}
+
 module.exports = {
   containsCodeCI,
   addDaysStr_,
   daysBetween_,
   reconcileOtaSnapshot,
+  detectMissingOtaSources,
   collectKeyboxFindings,
   collectRosterFindings,
   buildPropertyReport,
