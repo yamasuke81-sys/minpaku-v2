@@ -101,17 +101,18 @@ async function processCollection_(db, collectionPath, context, oauth2Client, ns,
     if (!refreshToken) {
       failed++;
       console.warn(`[oauthReminder] ${email} (${context}): refreshToken なし → 連携切れ扱い`);
-      // 24h 抑制
-      if (flag.exists) {
-        const lastMs = flag.data().lastFailureAlertAt?.toMillis?.() || 0;
-        if (Date.now() - lastMs < 24 * 60 * 60 * 1000) continue;
-      }
-      await sendAlert_(ns, email, context, "refreshToken が保存されていない", null);
+      // フラグは毎回書く (常駐の差分検知が Discord の発報点なので、失効を取りこぼさない)。
+      // 24h 抑制はメール通知にだけ効かせる。
+      const suppressed = Date.now() - (flag.exists ? (flag.data().lastFailureAlertAt?.toMillis?.() || 0) : 0)
+        < 24 * 60 * 60 * 1000;
       await flagRef.set({
         lastFailure: true,
-        lastFailureAlertAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastFailureMessage: "refreshToken が保存されていない",
         accountEmail: email,
+        ...(suppressed ? {} : { lastFailureAlertAt: admin.firestore.FieldValue.serverTimestamp() }),
       }, { merge: true });
+      if (suppressed) continue;
+      await sendAlert_(ns, email, context, "refreshToken が保存されていない", null);
       alerted++;
       continue;
     }
@@ -172,18 +173,19 @@ async function processCollection_(db, collectionPath, context, oauth2Client, ns,
       failed++;
       const errMsg = e?.message || String(e);
       console.warn(`[oauthReminder] ${email} (${context}): ✗ ${errMsg}`);
-      // 24h 抑制
-      if (flag.exists) {
-        const lastMs = flag.data().lastFailureAlertAt?.toMillis?.() || 0;
-        if (Date.now() - lastMs < 24 * 60 * 60 * 1000) continue;
-      }
-      await sendAlert_(ns, email, context, errMsg, daysSince);
+      // フラグは毎回書く (常駐の差分検知が Discord の発報点)。24h 抑制はメール通知にだけ効かせる。
+      // 旧実装は抑制時に continue していたため、24h以内に「復旧→再失効」した場合に
+      // lastFailure=true を書き直せず、常駐にも失効が伝わらない穴があった。
+      const suppressed = Date.now() - (flag.exists ? (flag.data().lastFailureAlertAt?.toMillis?.() || 0) : 0)
+        < 24 * 60 * 60 * 1000;
       await flagRef.set({
         lastFailure: true,
-        lastFailureAlertAt: admin.firestore.FieldValue.serverTimestamp(),
         lastFailureMessage: errMsg,
         accountEmail: email,
+        ...(suppressed ? {} : { lastFailureAlertAt: admin.firestore.FieldValue.serverTimestamp() }),
       }, { merge: true });
+      if (suppressed) continue;
+      await sendAlert_(ns, email, context, errMsg, daysSince);
       alerted++;
     }
   }
@@ -191,21 +193,14 @@ async function processCollection_(db, collectionPath, context, oauth2Client, ns,
   return { ok, failed, recovered, alerted };
 }
 
-// 通知送信ヘルパ (Discord + メール)。
+// 通知送信ヘルパ (メールのみ)。
 // 2026-07-29 やますけ決定: OAuth切れ通知の宛先を LINE → Discord に変更(LINE送信は廃止・メールは継続)。
-// この通知は notifyByKey(設定画面の4択チェックボックス)を通らない直送経路なので、
-// 宛先を変えたいときは設定画面ではなくここを直す。
+// 2026-08-17: Discord 送信もここから外した。同じ失効1件に対して
+//   ①この関数 ②emailVerification の直送 ③常駐(discord-secretary-resident)の差分検知
+// の3通が飛んでいたため、Discordの発報点は常駐1本に統一し、Functions側はフラグ書き込みに徹する
+// (フラグ = settings/oauthAlerts/byAccount/{context}_{key}.lastFailure。常駐が30分毎に読む)。
+// メールは常駐がカバーしない別チャネルなので残す。
 async function deliverOAuthNotice_(ns, subject, text) {
-  try {
-    const { sendDiscord_, resolveDiscordOwnerWebhookUrl_ } = require("../utils/lineNotify");
-    const url = resolveDiscordOwnerWebhookUrl_(ns);
-    if (url) {
-      const r = await sendDiscord_(url, `**${subject}**\n${text}`);
-      if (!r.success) console.error("[oauthReminder] Discord 失敗:", r.error);
-    } else {
-      console.warn("[oauthReminder] Discord Webhook URL 未設定のため送信スキップ");
-    }
-  } catch (e) { console.error("[oauthReminder] Discord 失敗:", e.message); }
   const notifyEmails = Array.isArray(ns.notifyEmails) ? ns.notifyEmails : [];
   for (const to of notifyEmails) {
     try {

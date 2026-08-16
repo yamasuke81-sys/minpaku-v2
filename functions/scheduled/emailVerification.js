@@ -559,14 +559,14 @@ async function emailVerificationCore(db, opts = {}) {
     } catch (e) {
       result.errors.push(`account ${tokenData.email || "unknown"}: ${e.message}`);
       perToken.errors++;
-      // OAuth トークン失効 (invalid_grant) を検知 → 管理者へ LINE 通知 (1日1回までに抑制)
+      // OAuth トークン失効 (invalid_grant) を検知 → 失効フラグを立てる (通知は常駐の差分検知が出す)
       // メール照合機能の停止に気付かず数日経過すると、キャンセル/確定メールが取り込まれず
-      // カレンダー/通知が壊れる事故になるため、即座に再認可を促す
+      // カレンダー/通知が壊れる事故になるため、10分毎のこの巡回で即座にフラグを立てる
       if (/invalid_grant/i.test(String(e.message || ""))) {
         try {
-          await notifyOAuthFailure_(db, tokenData.email || tokenDoc.id, e.message);
+          await flagOAuthFailure_(db, tokenData.email || tokenDoc.id, e.message);
         } catch (nerr) {
-          console.error("[emailVerification] notifyOAuthFailure_ error:", nerr.message);
+          console.error("[emailVerification] flagOAuthFailure_ error:", nerr.message);
         }
       }
     }
@@ -826,61 +826,31 @@ async function notifyBookingChangeEmail_(db, opts) {
 }
 
 /**
- * OAuth トークン失効を管理者の Discord に通知 (1日1回までの抑制付き)
- *   settings/oauthAlerts/{accountKey} に lastNotifiedAt を記録
- *   24h 以内なら通知スキップ (連続実行でループしないように)
+ * OAuth トークン失効を Firestore のフラグに記録する (Discordへは送らない)。
+ *
+ * 発報点は常駐の差分検知 (discord-secretary-resident.mjs が
+ * settings/oauthAlerts/byAccount を30分毎に読み、新規失敗/復旧を1回だけ通知する) に一本化してある。
+ * ここから直接 Discord に送っていた頃は、同じ失効1件に対して
+ * 「メール照合 Gmail OAuth 失効」(この関数) + oauthReminder + 常駐 の3通が飛んでいた (2026-08-06)。
+ *
+ * ドキュメントIDは oauthReminder.js / gmail-auth.js と同じ `{context}_{accountKey}` 形式にする。
+ * 旧実装は context 抜きの `{accountKey}` に書いていたため、誰も読まない孤児ドキュメントになっていて
+ * 10分毎に失効を検知していながら常駐の通知には一切繋がっていなかった。
  */
-async function notifyOAuthFailure_(db, accountEmail, errorMessage) {
+async function flagOAuthFailure_(db, accountEmail, errorMessage) {
   const admin = require("firebase-admin");
 
   const accountKey = (accountEmail || "unknown").replace(/[@.]/g, "_");
-  const flagRef = db.collection("settings").doc("oauthAlerts").collection("byAccount").doc(accountKey);
-  const flag = await flagRef.get();
-  if (flag.exists) {
-    const lastAt = flag.data().lastNotifiedAt;
-    const lastMs = lastAt && lastAt.toMillis ? lastAt.toMillis() : 0;
-    if (Date.now() - lastMs < 24 * 60 * 60 * 1000) {
-      // 24h 以内に通知済み → スキップ
-      await flagRef.set({ lastError: errorMessage, lastErrorAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-      return;
-    }
-  }
+  const flagRef = db.collection("settings").doc("oauthAlerts").collection("byAccount")
+    .doc(`emailVerification_${accountKey}`);
 
-  // settings/notifications から Discord 送信先を取得
-  // (2026-07-29 やますけ決定: OAuth失効通知の宛先は LINE → Discord。oauthReminder.js と同じ扱い)
-  const nsDoc = await db.collection("settings").doc("notifications").get();
-  if (!nsDoc.exists) return;
-  const ns = nsDoc.data();
-  const { sendDiscord_, resolveDiscordOwnerWebhookUrl_ } = require("../utils/lineNotify");
-  const discordUrl = resolveDiscordOwnerWebhookUrl_(ns);
-  if (!discordUrl) {
-    console.warn("[notifyOAuthFailure_] Discord Webhook URL 未設定。スキップ");
-    return;
-  }
-
-  const reauthUrl = `https://api-5qrfx7ujcq-an.a.run.app/gmail-auth/start?context=emailVerification&email=${encodeURIComponent(accountEmail)}`;
-  const text = [
-    "⚠️ メール照合 Gmail OAuth が失効しました",
-    "",
-    `アカウント: ${accountEmail}`,
-    `エラー: ${errorMessage}`,
-    "",
-    "→ メール照合 (キャンセル/確定/変更検知) が止まっています。下記から再認可してください:",
-    "",
-    reauthUrl,
-    "",
-    "※ Google Cloud Console → OAuth 同意画面を「本番環境 (In production)」にしておくと、再失効を防げます。",
-  ].join("\n");
-
-  const dr = await sendDiscord_(discordUrl, `**⚠️ メール照合 Gmail OAuth 失効**\n${text}`);
-  if (!dr.success) console.warn("[notifyOAuthFailure_] Discord送信失敗:", dr.error);
   await flagRef.set({
-    lastNotifiedAt: admin.firestore.FieldValue.serverTimestamp(),
-    lastError: errorMessage,
+    lastFailure: true,
+    lastFailureMessage: errorMessage,
     lastErrorAt: admin.firestore.FieldValue.serverTimestamp(),
     accountEmail,
   }, { merge: true });
-  console.log(`[notifyOAuthFailure_] 通知送信完了: ${accountEmail}`);
+  console.log(`[flagOAuthFailure_] OAuth失効フラグを記録 (通知は常駐が担当): ${accountEmail}`);
 }
 
 // ======================================================
