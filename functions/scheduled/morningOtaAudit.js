@@ -30,12 +30,17 @@ const {
   buildPropertyReport,
   selectResolvableConflicts,
   detectMissingOtaSources,
+  selectSnapshotBacklogActions,
+  filterBackfillFindings,
+  dedupeNewFindings,
 } = require("../api/ota-audit-logic");
 
 const NOTIFY_KEY = "morning_ota_audit";
 const ROSTER_WARN_DAYS = 3;
 // 1回の朝点検で走査する未解決コンフリクトの上限 (実運用は常時1桁。暴走時の保険)
 const CONFLICT_SCAN_LIMIT = 300;
+// スナップショット欠損日を持ち越して遡り突合を試みる期間 (これを過ぎたら諦めて破棄)
+const SNAPSHOT_BACKLOG_MAX_AGE_DAYS = 7;
 
 // finding.type → 全体サマリの日本語ラベル
 const TYPE_LABELS = {
@@ -133,7 +138,21 @@ module.exports = async function morningOtaAudit() {
     const keyboxFindings = collectKeyboxFindings({ registrations, bookings, properties: activeProps, todayStr, appUrl }).findings;
     const rosterFindings = collectRosterFindings({ bookings, properties: activeProps, todayStr, warnDays: ROSTER_WARN_DAYS, appUrl }).findings;
 
-    const allFindings = [...reconcileFindings, ...keyboxFindings, ...rosterFindings];
+    // ---- 5.5) スナップショット欠損日の遡り突合 (持ち越し) ----
+    // 欠損した日をその場で捨てず otaSnapshotBacklog に残し、後からスナップショットが
+    // 書かれていれば遡って突合する。当日分が欠損していれば持ち越しに積む。
+    let backfill = { findings: [], done: [], pending: [], expired: [] };
+    try {
+      backfill = await processSnapshotBacklog(db, {
+        todayStr, snapshotMissing,
+        bookings, registrations, activePropertyIds, appUrl,
+        todayFindings: reconcileFindings,
+      });
+    } catch (e) {
+      console.warn("[morningOtaAudit] スナップショット持ち越し処理エラー:", e.message);
+    }
+
+    const allFindings = [...reconcileFindings, ...backfill.findings, ...keyboxFindings, ...rosterFindings];
 
     // 物件ごとにグループ化
     const findingsByProperty = new Map();
@@ -157,6 +176,10 @@ module.exports = async function morningOtaAudit() {
         : (missingSources.length > 0 ? "partial" : snapshot.status),
       snapshotStatusRaw: snapshot ? snapshot.status : "missing",
       missingOtaSources: missingSources,
+      // 欠損日の持ち越し状況 (遡って突合できた日 / まだ取れていない日 / 諦めた日)
+      snapshotBacklog: {
+        backfilled: backfill.done, pending: backfill.pending, expired: backfill.expired,
+      },
       unassignedCount: (snapshot && snapshot.unassignedCount) || 0,
       createdAt: new Date(),
     });
@@ -193,10 +216,23 @@ module.exports = async function morningOtaAudit() {
       const lines = [];
 
       if (snapshotMissing) {
-        lines.push(`🚨 本日のOTAスナップショットが取得できていません(otaCalendarSnapshots/${todayStr})。突合(①)はスキップしました。`);
+        lines.push(`🚨 本日のOTAスナップショットが取得できていません(otaCalendarSnapshots/${todayStr})。突合(①)は持ち越しました(後日スナップショットが書かれ次第、遡って突合します)。`);
       } else if (snapshotPartial) {
         const errText = (snapshot.errors || []).map((e) => `${e.ota}: ${e.message}`).join(" / ");
         lines.push(`⚠️ OTA取得が一部失敗しています(${errText})。失敗分は逆方向チェック対象外です。`);
+      }
+
+      // 遡り突合の結果 (欠損日の持ち越し)
+      if (backfill.done.length > 0) {
+        for (const d of backfill.done) {
+          lines.push(`🕒 未突合だった ${d.date} 分を遡って突合しました(新規${d.newCount}件)。`);
+        }
+      }
+      if (backfill.pending.length > 0) {
+        lines.push(`⏳ ${backfill.pending.map((p) => p.date).join(", ")} 分のスナップショットはまだ取得できていません(取得され次第、遡って突合します)。`);
+      }
+      for (const d of backfill.expired) {
+        lines.push(`⚠️ ${d.date} 分のスナップショットは${SNAPSHOT_BACKLOG_MAX_AGE_DAYS}日経っても取得できなかったため、この日の突合は諦めました(未突合のまま)。`);
       }
 
       if (missingSources.length > 0) {
@@ -285,6 +321,88 @@ module.exports = async function morningOtaAudit() {
     } catch (_) { /* 無視 */ }
   }
 };
+
+/**
+ * スナップショット欠損日の持ち越し (otaSnapshotBacklog) を処理する。
+ *
+ * - 当日分が欠損していれば otaSnapshotBacklog/{today} に積む (捨てない)
+ * - 未解決の過去日について、スナップショットが後から書かれていれば遡って突合する
+ * - 7日経っても取得できなければ諦めて閉じる (通知で明示する)
+ *
+ * 遡り突合には当日の bookings/registrations をそのまま使う。持ち越しは最大7日で、
+ * 朝点検本体の取得範囲が today−7日〜 なので、対象日のスナップショットに載る予約
+ * (チェックインが対象日以降) は全てこの範囲に含まれる。
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {object} ctx
+ * @returns {Promise<{findings:Array, done:Array, pending:Array, expired:Array}>}
+ */
+async function processSnapshotBacklog(db, ctx) {
+  const { todayStr, snapshotMissing, bookings, registrations, activePropertyIds, appUrl, todayFindings } = ctx;
+  const col = db.collection("otaSnapshotBacklog");
+  const ts = () => admin.firestore.FieldValue.serverTimestamp();
+  const out = { findings: [], done: [], pending: [], expired: [] };
+
+  // 当日分の欠損を持ち越しに積む
+  if (snapshotMissing) {
+    const cur = await col.doc(todayStr).get();
+    if (!cur.exists) {
+      await col.doc(todayStr).set({ date: todayStr, resolved: false, firstMissedAt: ts(), attempts: 0 });
+    } else if (cur.data().resolved !== false) {
+      // 一度閉じた日が再び欠損扱いになることは通常ないが、状態は最新に合わせる
+      await col.doc(todayStr).set({ resolved: false, lastMissedAt: ts() }, { merge: true });
+    }
+  }
+
+  const snap = await col.where("resolved", "==", false).limit(30).get();
+  const entries = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const { retry, expired } = selectSnapshotBacklogActions({
+    entries, todayStr, maxAgeDays: SNAPSHOT_BACKLOG_MAX_AGE_DAYS,
+  });
+
+  for (const e of expired) {
+    await col.doc(e.date).set({
+      resolved: true, resolvedReason: "expired", resolvedAt: ts(),
+    }, { merge: true });
+    out.expired.push({ date: e.date });
+  }
+
+  for (const e of retry) {
+    const sdoc = await db.collection("otaCalendarSnapshots").doc(e.date).get();
+    const s = sdoc.exists ? sdoc.data() : null;
+    if (!s || s.status === "failed") {
+      await col.doc(e.date).set({
+        attempts: admin.firestore.FieldValue.increment(1), lastAttemptAt: ts(),
+      }, { merge: true });
+      out.pending.push({ date: e.date });
+      continue;
+    }
+
+    const reservations = Array.isArray(s.reservations)
+      ? s.reservations.filter((r) => r && activePropertyIds.has(r.propertyId)) : [];
+    const auditedTargets = Array.isArray(s.auditedTargets)
+      ? s.auditedTargets.filter((t) => t && activePropertyIds.has(t.propertyId)) : undefined;
+
+    // todayStr には対象日を渡す (その日として突合する)
+    const raw = reconcileOtaSnapshot({
+      reservations, bookings, registrations, auditedTargets, todayStr: e.date, appUrl,
+    }).findings;
+    // 当日分の突合で見えるもの(CIが今日以降)は遡り分から落とし、当日分・既出の遡り分とも重複排除する
+    const fresh = dedupeNewFindings(
+      [...(todayFindings || []), ...out.findings],
+      filterBackfillFindings({ findings: raw, todayStr })
+    ).map((f) => ({ ...f, backfillDate: e.date, message: `🕒(${e.date}分の遡り) ${f.message}` }));
+
+    out.findings.push(...fresh);
+    out.done.push({ date: e.date, newCount: fresh.length });
+    await col.doc(e.date).set({
+      resolved: true, resolvedReason: "backfilled", resolvedAt: ts(), newFindingCount: fresh.length,
+    }, { merge: true });
+    console.log(`[morningOtaAudit] 遡り突合 ${e.date}: 新規${fresh.length}件`);
+  }
+
+  return out;
+}
 
 /**
  * 未解決のまま残った bookingConflicts を閉じる (朝点検の後処理)。

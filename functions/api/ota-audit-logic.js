@@ -561,12 +561,100 @@ function detectMissingOtaSources({ properties = [], auditedTargets } = {}) {
   return { expected, missing };
 }
 
+/**
+ * スナップショット欠損日の持ち越し (otaSnapshotBacklog) をどう扱うか決める。
+ *
+ * 背景 (2026-08-01/02 実障害): スナップショットが取れなかった日は突合(①)をスキップして
+ * Discordに流すだけだったため、翌日の実行は当日分しか見ず、その日の突合は永久に行われなかった。
+ * 欠損日を持ち越し、後からスナップショットが書かれていれば遡って突合する。
+ * 取得はPC常駐リスナーの仕事なので、ここでできるのは「諦めずに拾い直す」ことだけ。
+ *
+ * @param {object} o
+ * @param {Array<{date:string}>} o.entries - otaSnapshotBacklog の未解決ドキュメント
+ * @param {string} o.todayStr - JSTの今日 "YYYY-MM-DD" (当日分はこの実行で扱うので対象外)
+ * @param {number} [o.maxAgeDays=7] - これより古い欠損日は諦めて破棄する
+ * @returns {{retry: Array<{date:string}>, expired: Array<{date:string}>}} 日付昇順
+ */
+function selectSnapshotBacklogActions({ entries = [], todayStr, maxAgeDays = 7 } = {}) {
+  const retry = [];
+  const expired = [];
+  const seen = new Set();
+  for (const e of entries || []) {
+    const date = e && e.date ? String(e.date) : "";
+    if (!date || date >= todayStr) continue; // 当日分は本編で扱う (未来日は異常データなので無視)
+    if (seen.has(date)) continue;
+    seen.add(date);
+    if (daysBetween_(date, todayStr) > maxAgeDays) expired.push({ date });
+    else retry.push({ date });
+  }
+  const byDate = (a, b) => a.date.localeCompare(b.date);
+  return { retry: retry.sort(byDate), expired: expired.sort(byDate) };
+}
+
+/**
+ * finding の同一性キー。遡り突合の結果を当日分と突き合わせて重複を落とすために使う。
+ * (同じ予約の同じ指摘を「当日分」と「遡り分」で二重に通知しないため)
+ * @param {object} f
+ * @returns {string}
+ */
+function findingKey(f) {
+  const d = (f && f.detail) || {};
+  return [
+    f && f.type, f && f.propertyId, (f && f.ota) || "",
+    d.bookingId || "", d.guestId || "", d.code || "",
+    d.checkIn || d.otaCheckIn || "", d.guestName || "",
+  ].join("|");
+}
+
+/**
+ * 遡り突合(欠損日の持ち越し)の findings から「今日の突合では拾えないもの」だけを残す。
+ *
+ * 遡り分は過去日のスナップショットと現在の予約台帳を突き合わせるため、
+ * その日以降に入った予約が missing_in_ota として誤検知されうる。
+ * 一方でチェックインが今日以降の滞在は当日分の突合が見ているので、遡り分で出す必要がない。
+ * → チェックインが今日より前の指摘(＝今日の突合からは落ちるもの)だけを採用する。
+ *
+ * @param {object} o
+ * @param {Array} o.findings - reconcileOtaSnapshot の結果
+ * @param {string} o.todayStr - JSTの今日 "YYYY-MM-DD"
+ * @returns {Array}
+ */
+function filterBackfillFindings({ findings = [], todayStr } = {}) {
+  return (findings || []).filter((f) => {
+    const d = (f && f.detail) || {};
+    const ci = d.checkIn || d.otaCheckIn || d.v2CheckIn || "";
+    return !!ci && ci < todayStr;
+  });
+}
+
+/**
+ * incoming のうち existing に無いものだけ返す (findingKey で判定)。
+ * @param {Array} existing
+ * @param {Array} incoming
+ * @returns {Array}
+ */
+function dedupeNewFindings(existing = [], incoming = []) {
+  const keys = new Set((existing || []).map(findingKey));
+  const out = [];
+  for (const f of incoming || []) {
+    const k = findingKey(f);
+    if (keys.has(k)) continue;
+    keys.add(k);
+    out.push(f);
+  }
+  return out;
+}
+
 module.exports = {
   containsCodeCI,
   addDaysStr_,
   daysBetween_,
   reconcileOtaSnapshot,
   detectMissingOtaSources,
+  selectSnapshotBacklogActions,
+  filterBackfillFindings,
+  findingKey,
+  dedupeNewFindings,
   collectKeyboxFindings,
   collectRosterFindings,
   buildPropertyReport,

@@ -16,6 +16,9 @@ const {
   buildPropertyReport,
   selectResolvableConflicts,
   detectMissingOtaSources,
+  selectSnapshotBacklogActions,
+  filterBackfillFindings,
+  dedupeNewFindings,
 } = require("./ota-audit-logic");
 
 const PID = "propA";
@@ -739,5 +742,58 @@ describe("detectMissingOtaSources", () => {
     const { missing } = detectMissingOtaSources({ properties: [terrace], auditedTargets: [] });
     assert.deepStrictEqual(missing.map((m) => m.ota), ["airbnb", "booking"]);
     assert.deepStrictEqual(missing.map((m) => m.otaLabel), ["Airbnb", "Booking.com"]);
+  });
+});
+
+describe("selectSnapshotBacklogActions / filterBackfillFindings / dedupeNewFindings", () => {
+  const TODAY = "2026-08-09";
+
+  test("7日以内の欠損日は遡り対象、それより古いものは破棄", () => {
+    const { retry, expired } = selectSnapshotBacklogActions({
+      entries: [
+        { date: "2026-08-02" }, // 7日前 → 対象
+        { date: "2026-08-01" }, // 8日前 → 破棄
+        { date: "2026-08-08" },
+      ],
+      todayStr: TODAY,
+    });
+    assert.deepStrictEqual(retry.map((r) => r.date), ["2026-08-02", "2026-08-08"]);
+    assert.deepStrictEqual(expired.map((r) => r.date), ["2026-08-01"]);
+  });
+
+  test("当日分・未来日・重複は対象外(当日分は本編で扱う)", () => {
+    const { retry, expired } = selectSnapshotBacklogActions({
+      entries: [{ date: TODAY }, { date: "2026-08-20" }, { date: "2026-08-08" }, { date: "2026-08-08" }],
+      todayStr: TODAY,
+    });
+    assert.deepStrictEqual(retry.map((r) => r.date), ["2026-08-08"]);
+    assert.deepStrictEqual(expired, []);
+  });
+
+  test("遡り分はチェックインが今日より前のものだけ残す(当日突合と二重に出さない/後から入った予約の誤検知を避ける)", () => {
+    const findings = [
+      { type: "missing_in_v2", detail: { checkIn: "2026-08-03" } },      // 過去 → 残す
+      { type: "missing_in_ota", detail: { checkIn: "2026-08-25" } },     // 未来 → 当日分が見るので落とす
+      { type: "date_mismatch", detail: { otaCheckIn: "2026-08-05" } },   // 過去 → 残す
+      { type: "parse_error", detail: { count: 2 } },                     // 日付なし → 落とす
+    ];
+    const out = filterBackfillFindings({ findings, todayStr: TODAY });
+    assert.deepStrictEqual(out.map((f) => f.type), ["missing_in_v2", "date_mismatch"]);
+  });
+
+  test("dedupeNewFindings: 当日分と同じ指摘は遡り分から落とす", () => {
+    const today = [{ type: "missing_in_v2", propertyId: PID, ota: "booking", detail: { code: "X1", checkIn: "2026-08-05", guestName: "山田" } }];
+    const back = [
+      { type: "missing_in_v2", propertyId: PID, ota: "booking", detail: { code: "X1", checkIn: "2026-08-05", guestName: "山田" } }, // 重複
+      { type: "missing_in_v2", propertyId: PID, ota: "booking", detail: { code: "X2", checkIn: "2026-08-06", guestName: "鈴木" } }, // 新規
+    ];
+    const out = dedupeNewFindings(today, back);
+    assert.strictEqual(out.length, 1);
+    assert.strictEqual(out[0].detail.code, "X2");
+  });
+
+  test("dedupeNewFindings: incoming 同士の重複も落とす", () => {
+    const f = { type: "guest_count_mismatch", propertyId: PID, ota: "airbnb", detail: { bookingId: "bk1" } };
+    assert.strictEqual(dedupeNewFindings([], [f, { ...f }]).length, 1);
   });
 });
