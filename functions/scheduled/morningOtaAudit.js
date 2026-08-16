@@ -28,10 +28,13 @@ const {
   collectKeyboxFindings,
   collectRosterFindings,
   buildPropertyReport,
+  selectResolvableConflicts,
 } = require("../api/ota-audit-logic");
 
 const NOTIFY_KEY = "morning_ota_audit";
 const ROSTER_WARN_DAYS = 3;
+// 1回の朝点検で走査する未解決コンフリクトの上限 (実運用は常時1桁。暴走時の保険)
+const CONFLICT_SCAN_LIMIT = 300;
 
 // finding.type → 全体サマリの日本語ラベル
 const TYPE_LABELS = {
@@ -233,6 +236,16 @@ module.exports = async function morningOtaAudit() {
       if (!r.success) console.warn("[morningOtaAudit] 全体サマリDiscord送信失敗:", r.error);
     }
 
+    // ---- 12) ダブルブッキングの残骸を閉じる (後処理) ----
+    // onBookingChange はキャンセル時にしか conflict を閉じないため、滞在が過ぎただけの
+    // bookingConflicts が resolved=false のまま残り、夜間監査が毎晩「過去日程の残骸」として拾う。
+    // 判定は純粋関数に委譲し、ここは Firestore の読み書きだけ行う。失敗しても朝点検は落とさない。
+    try {
+      await closeStaleBookingConflicts(db, todayStr);
+    } catch (e) {
+      console.warn("[morningOtaAudit] bookingConflicts 後処理エラー:", e.message);
+    }
+
     console.log(`[morningOtaAudit] 完了: findings=${allFindings.length}件, 物件数=${findingsByProperty.size}`);
   } catch (e) {
     console.error("[morningOtaAudit] エラー:", e);
@@ -247,3 +260,59 @@ module.exports = async function morningOtaAudit() {
     } catch (_) { /* 無視 */ }
   }
 };
+
+/**
+ * 未解決のまま残った bookingConflicts を閉じる (朝点検の後処理)。
+ *
+ * 対象は selectResolvableConflicts の判定に従う:
+ *   expired          … ペアの滞在が全て過去 (今さら対応できない)
+ *   cancelled        … 片方以上がキャンセル済み (キャンセル連動が届かなかった分の回収)
+ *   bookings_missing … 予約ドキュメントが消えている
+ * 「キャンセルでなく checkOut >= 今日」の予約が残っているペアは現行なので触らない。
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} todayStr JSTの今日 "YYYY-MM-DD"
+ */
+async function closeStaleBookingConflicts(db, todayStr) {
+  const snap = await db.collection("bookingConflicts")
+    .where("resolved", "==", false)
+    .limit(CONFLICT_SCAN_LIMIT)
+    .get();
+  if (snap.empty) return;
+
+  const conflicts = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+  // ペアの予約を実データで引く (過去日程なので朝点検本体の bookings 取得範囲には入っていない)
+  const bookingIds = Array.from(new Set(
+    conflicts.flatMap((c) => (Array.isArray(c.bookingIds) ? c.bookingIds.filter(Boolean) : []))
+  ));
+  const bookingsById = new Map();
+  const CHUNK = 100; // getAll の一括取得上限に配慮して分割
+  for (let i = 0; i < bookingIds.length; i += CHUNK) {
+    const refs = bookingIds.slice(i, i + CHUNK).map((id) => db.collection("bookings").doc(id));
+    if (refs.length === 0) continue;
+    const docs = await db.getAll(...refs);
+    for (const d of docs) if (d.exists) bookingsById.set(d.id, d.data());
+  }
+
+  const { resolvable } = selectResolvableConflicts({ conflicts, bookingsById, todayStr });
+  if (resolvable.length === 0) {
+    console.log(`[morningOtaAudit] 未解決ダブルブッキング ${conflicts.length}件 — 全て現行のため据え置き`);
+    return;
+  }
+
+  for (const r of resolvable) {
+    try {
+      await db.collection("bookingConflicts").doc(r.id).update({
+        resolved: true,
+        resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+        resolvedReason: r.reason,
+        resolvedBy: "morningOtaAudit",
+      });
+    } catch (e) {
+      console.warn(`[morningOtaAudit] bookingConflicts/${r.id} クローズ失敗:`, e.message);
+    }
+  }
+  console.log(`[morningOtaAudit] 残骸クローズ: ${resolvable.length}/${conflicts.length}件 ` +
+    `(${resolvable.map((r) => `${r.id}=${r.reason}`).join(", ")})`);
+}

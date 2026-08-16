@@ -14,6 +14,7 @@ const {
   collectKeyboxFindings,
   collectRosterFindings,
   buildPropertyReport,
+  selectResolvableConflicts,
 } = require("./ota-audit-logic");
 
 const PID = "propA";
@@ -570,5 +571,95 @@ describe("finding.url (ディープリンク付与)", () => {
     ], "2026-07-18");
     assert.ok(report.includes("・⚠️ テスト様: 名簿未提出\n　🔗 https://v2-5-relay.web.app/#/schedule?bookingId=bk1"));
     assert.ok(!report.includes("🔗 null"));
+  });
+});
+
+describe("selectResolvableConflicts", () => {
+  const TODAY = "2026-08-16";
+  const bk = (id, checkIn, checkOut, status = "confirmed") =>
+    [id, { propertyId: PID, checkIn, checkOut, status }];
+
+  test("滞在が全て過去なら expired で閉じる", () => {
+    const bookingsById = new Map([
+      bk("a", "2026-05-10", "2026-05-12"),
+      bk("b", "2026-05-11", "2026-05-13"),
+    ]);
+    const { resolvable } = selectResolvableConflicts({
+      conflicts: [{ id: "a__b", bookingIds: ["a", "b"] }], bookingsById, todayStr: TODAY,
+    });
+    assert.deepStrictEqual(resolvable, [{ id: "a__b", reason: "expired" }]);
+  });
+
+  test("片方でも滞在が今日以降なら現行として触らない", () => {
+    const bookingsById = new Map([
+      bk("a", "2026-08-10", "2026-08-16"), // checkOut === today
+      bk("b", "2026-08-11", "2026-08-13"),
+    ]);
+    const { resolvable } = selectResolvableConflicts({
+      conflicts: [{ id: "a__b", bookingIds: ["a", "b"] }], bookingsById, todayStr: TODAY,
+    });
+    assert.deepStrictEqual(resolvable, []);
+  });
+
+  test("未来の滞在でも片方がキャンセル済みなら cancelled で閉じる", () => {
+    const bookingsById = new Map([
+      bk("a", "2026-09-01", "2026-09-03"),
+      bk("b", "2026-09-02", "2026-09-04", "cancelled"),
+    ]);
+    const { resolvable } = selectResolvableConflicts({
+      conflicts: [{ id: "a__b", bookingIds: ["a", "b"] }], bookingsById, todayStr: TODAY,
+    });
+    assert.deepStrictEqual(resolvable, [{ id: "a__b", reason: "cancelled" }]);
+  });
+
+  test("日本語の『キャンセル済み』も判定する", () => {
+    const bookingsById = new Map([
+      bk("a", "2026-09-01", "2026-09-03"),
+      bk("b", "2026-09-02", "2026-09-04", "キャンセル済み"),
+    ]);
+    const { resolvable } = selectResolvableConflicts({
+      conflicts: [{ id: "a__b", bookingIds: ["a", "b"] }], bookingsById, todayStr: TODAY,
+    });
+    assert.strictEqual(resolvable[0].reason, "cancelled");
+  });
+
+  test("予約が消えていれば bookings_missing で閉じる", () => {
+    const both = selectResolvableConflicts({
+      conflicts: [{ id: "a__b", bookingIds: ["a", "b"] }], bookingsById: new Map(), todayStr: TODAY,
+    });
+    assert.deepStrictEqual(both.resolvable, [{ id: "a__b", reason: "bookings_missing" }]);
+
+    // 片方だけ消えた場合も衝突相手が居ないので閉じる
+    const one = selectResolvableConflicts({
+      conflicts: [{ id: "a__b", bookingIds: ["a", "b"] }],
+      bookingsById: new Map([bk("a", "2026-09-01", "2026-09-03")]),
+      todayStr: TODAY,
+    });
+    assert.deepStrictEqual(one.resolvable, [{ id: "a__b", reason: "bookings_missing" }]);
+  });
+
+  test("bookingIds が空/壊れているドキュメントは触らない", () => {
+    const { resolvable } = selectResolvableConflicts({
+      conflicts: [{ id: "x", bookingIds: [] }, { id: "y" }],
+      bookingsById: new Map(), todayStr: TODAY,
+    });
+    assert.deepStrictEqual(resolvable, []);
+  });
+
+  test("現行と残骸が混在しても残骸だけ返す", () => {
+    const bookingsById = new Map([
+      bk("a", "2026-05-10", "2026-05-12"),
+      bk("b", "2026-05-11", "2026-05-13"),
+      bk("c", "2026-08-20", "2026-08-22"),
+      bk("d", "2026-08-21", "2026-08-23"),
+    ]);
+    const { resolvable } = selectResolvableConflicts({
+      conflicts: [
+        { id: "a__b", bookingIds: ["a", "b"] },
+        { id: "c__d", bookingIds: ["c", "d"] },
+      ],
+      bookingsById, todayStr: TODAY,
+    });
+    assert.deepStrictEqual(resolvable, [{ id: "a__b", reason: "expired" }]);
   });
 });

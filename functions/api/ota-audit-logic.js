@@ -457,6 +457,58 @@ function buildPropertyReport(propertyName, findings, todayStr) {
   return lines.join("\n").replace(/\n+$/, "");
 }
 
+/**
+ * 未解決のダブルブッキング (bookingConflicts.resolved=false) のうち、
+ * もう対応しようがないものを選び出す。
+ *
+ * onBookingChange はキャンセル時にしか conflict を閉じないため、
+ *   ・滞在が過ぎただけ (誰も何もしなかった)
+ *   ・キャンセル連動 (resolveConflictsOnCancel) が届かなかった
+ *   ・予約そのものが削除された
+ * のケースが resolved=false のまま残り続ける。夜間監査が毎晩「過去日程の残骸」として
+ * 拾い上げてしまうので、朝点検の後処理で機械的に閉じる。
+ *
+ * 「まだ現行」の判定は監査側 (minpaku-ops-context.mjs の C_doubleBooking) と揃える:
+ * ペアのうち1件でも「キャンセルでなく checkOut >= 今日」なら現行 → 触らない。
+ *
+ * @param {object} o
+ * @param {Array<{id:string,bookingIds?:string[]}>} o.conflicts - resolved=false の conflict ドキュメント
+ * @param {Map<string,object>} o.bookingsById - bookingId → 予約データ (存在しないIDは未登録)
+ * @param {string} o.todayStr - JSTの今日 "YYYY-MM-DD"
+ * @returns {{resolvable: Array<{id:string, reason:string}>}}
+ */
+function selectResolvableConflicts({ conflicts, bookingsById, todayStr }) {
+  const isCancelledStatus = (s) => {
+    const x = String(s || "").toLowerCase();
+    return x.includes("cancel") || s === "キャンセル" || s === "キャンセル済み";
+  };
+
+  const resolvable = [];
+  for (const c of conflicts || []) {
+    const ids = Array.isArray(c.bookingIds) ? c.bookingIds.filter(Boolean) : [];
+    // bookingIds が壊れている/空のドキュメントは判断材料が無いので触らない
+    if (ids.length === 0) continue;
+
+    const found = ids.map((id) => bookingsById.get(id)).filter(Boolean);
+    if (found.length === 0) {
+      resolvable.push({ id: c.id, reason: "bookings_missing" });
+      continue;
+    }
+
+    const alive = found.filter((b) => !isCancelledStatus(b.status));
+    // 予約が消えた/キャンセルされて「重なる相手」が居なくなったら衝突は成立しない
+    if (alive.length < 2) {
+      resolvable.push({ id: c.id, reason: found.length < ids.length ? "bookings_missing" : "cancelled" });
+      continue;
+    }
+
+    // 生きている予約が2件以上あっても、滞在が全て過去なら今さら対応できない
+    const stillCurrent = alive.some((b) => String(b.checkOut || "") >= todayStr);
+    if (!stillCurrent) resolvable.push({ id: c.id, reason: "expired" });
+  }
+  return { resolvable };
+}
+
 module.exports = {
   containsCodeCI,
   addDaysStr_,
@@ -465,4 +517,5 @@ module.exports = {
   collectKeyboxFindings,
   collectRosterFindings,
   buildPropertyReport,
+  selectResolvableConflicts,
 };
