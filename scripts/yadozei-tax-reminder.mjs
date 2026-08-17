@@ -58,13 +58,16 @@ async function uploadGaps(db, propertyId, ym) {
   const snap = await db.collection("yadozeiQueue")
     .where("yearMonth", "==", ym).where("propertyId", "==", propertyId).get();
   const fetchTried = new Set(), fetchedOk = new Set(), uploadedOk = new Set();
+  let pdfDone = false;
   snap.forEach((d) => {
     const j = d.data();
     const m = /^([a-z]+)_csv_fetch$/.exec(String(j.kind || ""));
     if (m) { fetchTried.add(m[1]); if (j.status === "done") fetchedOk.add(m[1]); }
     if (j.kind === "yadozei_csv_upload" && j.status === "done" && j.params?.ota) uploadedOk.add(j.params.ota);
+    if (j.kind === "yadozei_pdf_fetch" && j.status === "done") pdfDone = true;
   });
   return {
+    pdfDone,                                                       // この月の申告書PDFを実際に生成できたか
     notUploaded: [...fetchedOk].filter((o) => !uploadedOk.has(o)), // CSVは取れたのに取り込めていない
     notFetched: [...fetchTried].filter((o) => !fetchedOk.has(o)),  // そもそもCSVが取れていない
   };
@@ -116,18 +119,24 @@ async function main() {
       // (2026-08-10: 宇品を対象に加えた際、運用開始前の月に「PDF未生成=自動化の異常」と誤警報しないため)
       const startYm = t.yadozei?.startYm;
       if (startYm && ym < startYm) continue;
+      // ★取込状況とPDF実績は先に引く。lastRun は「最後に走った月」で上書きされるため、
+      //   lastRun だけを見ると生成済みの月を「未生成=自動化の異常」と誤警報する
+      //   (2026-08-18 実測: 8/10 に 2026-05分のPDFを再生成したせいで lastRun が 2026-05 を指し、
+      //    8/2 に生成済みの 2026-07分が「未生成」と出る状態だった。本物の取込漏れ警告が埋もれる)
+      let gaps = { notUploaded: [], notFetched: [], pdfDone: false };
+      try { gaps = await uploadGaps(db, t.id, ym); } catch (e) { lines.push(`　（取込状況の確認に失敗: ${String(e.message).slice(0, 60)}）`); }
       const pdf = t.yadozei?.lastRun?.yadozeiPdf;
       const isThisMonth = pdf?.fileName?.includes(`_${ym}_`);
       if (isThisMonth && Array.isArray(pdf.files) && pdf.files.length) {
         lines.push(`・${t.name}: ` + pdf.files.map((f) => `[${f.type}PDF](${f.webViewLink})`).join(" / "));
       } else if (isThisMonth && pdf.driveLink) {
         lines.push(`・${t.name}: [申告書PDF](${pdf.driveLink})`); // 旧形式(filesなし)フォールバック
+      } else if (gaps.pdfDone) {
+        lines.push(`・${t.name}: ${Number(m)}月分の申告書PDFは生成済み（リンクが別月で上書きされています。Driveの やどぜい フォルダで ${ym} のPDFを開いてください）`);
       } else {
         lines.push(`・${t.name}: ⚠️ ${Number(m)}月分の申告書PDFが未生成です（やどぜい自動化の異常。要確認）`);
       }
       // PDFが出ていても、取り込めていないOTAがあれば税額が過少になっている
-      let gaps = { notUploaded: [], notFetched: [] };
-      try { gaps = await uploadGaps(db, t.id, ym); } catch (e) { lines.push(`　（取込状況の確認に失敗: ${String(e.message).slice(0, 60)}）`); }
       if (gaps.notUploaded.length) {
         lines.push(`　🚨 **${gaps.notUploaded.join("・")} の予約がやどぜいに取り込めていません** — 上のPDFはこの分を含まない金額です。**そのまま申告しないでください**`);
       }
