@@ -56,6 +56,12 @@ function bookingUrl_(appUrl, bookingId) {
 function guestUrl_(appUrl, guestId) {
   return appUrl && guestId ? `${appUrl}/#/guests?id=${encodeURIComponent(guestId)}` : null;
 }
+// 予約ステータスがキャンセル系か (OTA/iCal 由来で表記ゆれがある)
+function isCancelledStatus_(s) {
+  const x = String(s || "").toLowerCase();
+  return x.includes("cancel") || s === "キャンセル" || s === "キャンセル済み";
+}
+
 function scheduleUrl_(appUrl) {
   return appUrl ? `${appUrl}/#/schedule` : null;
 }
@@ -91,6 +97,7 @@ function scheduleUrl_(appUrl) {
  */
 function reconcileOtaSnapshot({ reservations = [], bookings = [], registrations = [], auditedTargets, todayStr, appUrl } = {}) {
   const findings = [];
+  const guestCountChecked = []; // 人数を実照合できた bookingId (一致・不一致どちらも)
 
   // ---- 1) 日付解析エラー行(checkIn=="")を除外し、物件ごとにまとめて1件のfindingに ----
   const validRes = [];
@@ -253,19 +260,23 @@ function reconcileOtaSnapshot({ reservations = [], bookings = [], registrations 
       }
 
       // guest_count_mismatch: 対応付いたペアで、OTA人数と名簿人数(乳幼児除く)が食い違う
-      // 名簿フォームの guestCount は入力時点で「3才以下の乳幼児を除く人数」(guest-form.html の仕様)。
-      // 乳幼児は guestCountInfants に別建てなので、ここで再度引くと二重控除になる。
       if (r.guests != null && b.id) {
         const reg = regByBookingId.get(b.id);
         if (reg) {
-          const rosterGuests = Number(reg.guestCount || 0);
-          const infants = Number(reg.guestCountInfants || 0);
-          if (rosterGuests !== r.guests) {
+          const ev = evaluateGuestCount({ ota: r, reg });
+          // 「今朝この予約の人数を実際に照合できた」記録。持ち越し課題(otaGuestCountIssues)の
+          // 解決判定に使う — 照合できたのに finding が出ていなければ解消済みと判断できる
+          guestCountChecked.push(b.id);
+          if (ev.mismatch) {
             findings.push({
               type: "guest_count_mismatch",
               propertyId, propertyName, ota,
-              detail: { guestName: r.guestName, bookingId: b.id, guestId: reg.id, otaGuests: r.guests, rosterGuests, rosterInfants: infants },
-              message: `⚠️ ${r.guestName || "ゲスト"}様: OTA人数${r.guests}名に対し、名簿は${rosterGuests}名(乳幼児除く${infants > 0 ? `・ほか乳幼児${infants}名` : ""})です。`,
+              detail: {
+                guestName: r.guestName, bookingId: b.id, guestId: reg.id,
+                checkIn: r.checkIn, checkOut: r.checkOut,
+                otaGuests: ev.otaGuests, rosterGuests: ev.rosterGuests, rosterInfants: ev.rosterInfants,
+              },
+              message: `⚠️ ${r.guestName || "ゲスト"}様: OTA人数${ev.otaGuests}名に対し、名簿は${ev.rosterGuests}名(乳幼児除く${ev.rosterInfants > 0 ? `・ほか乳幼児${ev.rosterInfants}名` : ""})です。`,
               url: guestUrl_(appUrl, reg.id) || bookingUrl_(appUrl, b.id),
             });
           }
@@ -314,7 +325,132 @@ function reconcileOtaSnapshot({ reservations = [], bookings = [], registrations 
     }
   }
 
-  return { findings };
+  return { findings, guestCountChecked };
+}
+
+/**
+ * OTA行と名簿の人数を比較する (guest_count_mismatch の判定 SSOT)。
+ *
+ * 名簿フォームの guestCount は入力時点で「3才以下の乳幼児を除く人数」(guest-form.html の仕様)。
+ * 乳幼児は guestCountInfants に別建てなので、ここで再度引くと二重控除になる。
+ *
+ * 検知と、持ち越し課題の解決判定 (selectGuestCountIssueActions) の両方から呼ぶ。
+ * 判定を1箇所に閉じておかないと「検知はするが解決とはみなせない」ズレが起きる。
+ *
+ * @param {object} o
+ * @param {{guests?:number}} o.ota - OTA行 (スナップショット、または保存済み課題から復元したもの)
+ * @param {{guestCount?:number, guestCountInfants?:number}} o.reg - 名簿
+ * @returns {{mismatch:boolean, otaGuests:number, rosterGuests:number, rosterInfants:number}}
+ */
+function evaluateGuestCount({ ota = {}, reg = {} } = {}) {
+  const otaGuests = Number(ota.guests || 0);
+  const rosterGuests = Number(reg.guestCount || 0);
+  const rosterInfants = Number(reg.guestCountInfants || 0);
+  return { mismatch: rosterGuests !== otaGuests, otaGuests, rosterGuests, rosterInfants };
+}
+
+/**
+ * 人数不一致 (guest_count_mismatch) の持ち越し課題をどう更新するかを決める。
+ *
+ * 背景 (2026-08-17 実例): 人数不一致は毎朝ゼロから作り直していたため、滞在が終わって
+ * OTAスナップショットの窓から予約が外れると、誰も直していないのに findings から消えていた
+ * (木谷様 8/15〜8/16 が翌朝には totalCount:0)。人数は清掃費の精算と宿泊税の申告に直結するので
+ * 「見えなくなった＝解決」にしてはいけない。
+ *
+ * そこで otaGuestCountIssues/{bookingId} に resolved フラグ付きで永続化し、
+ *   ・今朝も検出された             → 内容を更新 (upserts)
+ *   ・今朝は照合できたのに出ない   → 解消された (closes: matched)
+ *   ・予約が消えた/キャンセルされた → 追う意味が無い (closes: booking_missing / cancelled)
+ *   ・名簿が保存済みOTA人数と一致   → 人が直した (closes: matched)
+ *   ・それ以外                     → 未解消のまま findings に残す (carryOver)
+ * とする。滞在が終わっている未解消分は「要精算・要申告訂正」として文面で明示する。
+ *
+ * @param {object} o
+ * @param {Array} o.issues - otaGuestCountIssues の resolved=false ドキュメント ({id, ...data})
+ * @param {Array} o.todayFindings - 今朝の突合 findings
+ * @param {Array<string>} [o.guestCountChecked] - 今朝、人数を実照合できた bookingId 一覧
+ * @param {Map<string,object>} [o.bookingsById] - bookingId → 予約 (解決判定用に実データで引いたもの)
+ * @param {Map<string,object>} [o.registrationsByBookingId] - bookingId → 名簿(最新)
+ * @param {string} o.todayStr
+ * @param {string} [o.appUrl]
+ * @returns {{upserts:Array<{id:string,data:object}>, closes:Array<{id:string,reason:string}>, carryOver:Array}}
+ */
+function selectGuestCountIssueActions({
+  issues = [], todayFindings = [], guestCountChecked = [],
+  bookingsById = new Map(), registrationsByBookingId = new Map(), todayStr, appUrl,
+} = {}) {
+  const upserts = [];
+  const detected = new Set();
+  for (const f of todayFindings || []) {
+    if (!f || f.type !== "guest_count_mismatch") continue;
+    const d = f.detail || {};
+    if (!d.bookingId) continue;
+    detected.add(d.bookingId);
+    upserts.push({
+      id: d.bookingId,
+      data: {
+        bookingId: d.bookingId,
+        guestId: d.guestId || null,
+        propertyId: f.propertyId || "",
+        propertyName: f.propertyName || "",
+        ota: f.ota || null,
+        guestName: d.guestName || "",
+        checkIn: d.checkIn || "",
+        checkOut: d.checkOut || "",
+        otaGuests: d.otaGuests != null ? d.otaGuests : null,
+        rosterGuests: d.rosterGuests != null ? d.rosterGuests : null,
+        rosterInfants: d.rosterInfants != null ? d.rosterInfants : 0,
+        lastDetectedDate: todayStr || "",
+        resolved: false,
+      },
+    });
+  }
+
+  const checkedSet = new Set(guestCountChecked || []);
+  const closes = [];
+  const carryOver = [];
+
+  for (const it of issues || []) {
+    const id = it.id || it.bookingId;
+    const bookingId = it.bookingId || it.id;
+    if (!id || detected.has(bookingId)) continue; // 今朝も出ている分は upserts が更新する
+
+    // 今朝この予約の人数を照合できたのに finding が出ていない = OTA側/名簿側どちらの修正でも解消済み
+    if (checkedSet.has(bookingId)) { closes.push({ id, reason: "matched" }); continue; }
+
+    const b = bookingsById.get(bookingId);
+    if (!b) { closes.push({ id, reason: "booking_missing" }); continue; }
+    if (isCancelledStatus_(b.status)) { closes.push({ id, reason: "cancelled" }); continue; }
+
+    // スナップショットに載らなくなった後は、保存してあるOTA人数と最新の名簿で判定する
+    const reg = registrationsByBookingId.get(bookingId);
+    const ev = evaluateGuestCount({ ota: { guests: it.otaGuests }, reg: reg || {} });
+    if (reg && it.otaGuests != null && !ev.mismatch) { closes.push({ id, reason: "matched" }); continue; }
+
+    const checkIn = b.checkIn || it.checkIn || "";
+    const checkOut = b.checkOut || it.checkOut || "";
+    const stayEnded = !!todayStr && !!checkOut && String(checkOut) < todayStr;
+    const guestName = it.guestName || b.guestName || "ゲスト";
+    const rosterNow = reg ? ev.rosterGuests : (it.rosterGuests != null ? it.rosterGuests : "?");
+    carryOver.push({
+      type: "guest_count_unresolved",
+      propertyId: it.propertyId || b.propertyId || "",
+      propertyName: it.propertyName || b.propertyName || "",
+      ota: it.ota || null,
+      detail: {
+        bookingId, guestId: it.guestId || null, checkIn, checkOut,
+        otaGuests: it.otaGuests != null ? it.otaGuests : null,
+        rosterGuests: rosterNow, stayEnded,
+        firstDetectedDate: it.firstDetectedDate || it.lastDetectedDate || null,
+      },
+      message: stayEnded
+        ? `⚠️ (未解消) ${guestName}様(${checkIn}〜${checkOut}): OTA人数${it.otaGuests}名に対し名簿${rosterNow}名のまま滞在が終了しました。清掃費の精算・宿泊税の申告訂正が必要か確認してください。`
+        : `⚠️ (未解消) ${guestName}様(${checkIn}〜${checkOut}): 人数不一致が解消されていません(OTA${it.otaGuests}名 / 名簿${rosterNow}名)。`,
+      url: guestUrl_(appUrl, it.guestId) || bookingUrl_(appUrl, bookingId),
+    });
+  }
+
+  return { upserts, closes, carryOver };
 }
 
 /**
@@ -413,7 +549,9 @@ function collectRosterFindings({ bookings = [], properties = [], todayStr, warnD
 
 // 種別ごとの重大度アイコン割当 (buildPropertyReport のグルーピング順)
 const CRITICAL_TYPES = new Set(["missing_in_v2", "cancelled_in_ota", "date_mismatch"]);
-const WARNING_TYPES = new Set(["missing_in_ota", "guest_count_mismatch", "keybox_unsent", "roster_missing"]);
+const WARNING_TYPES = new Set([
+  "missing_in_ota", "guest_count_mismatch", "guest_count_unresolved", "keybox_unsent", "roster_missing",
+]);
 
 /**
  * 1物件分の findings から通知本文 (Discord/LINE/メール共用のプレーンテキスト) を組み立てる。
@@ -478,10 +616,7 @@ function buildPropertyReport(propertyName, findings, todayStr) {
  * @returns {{resolvable: Array<{id:string, reason:string}>}}
  */
 function selectResolvableConflicts({ conflicts, bookingsById, todayStr }) {
-  const isCancelledStatus = (s) => {
-    const x = String(s || "").toLowerCase();
-    return x.includes("cancel") || s === "キャンセル" || s === "キャンセル済み";
-  };
+  const isCancelledStatus = isCancelledStatus_;
 
   const resolvable = [];
   for (const c of conflicts || []) {
@@ -659,4 +794,6 @@ module.exports = {
   collectRosterFindings,
   buildPropertyReport,
   selectResolvableConflicts,
+  evaluateGuestCount,
+  selectGuestCountIssueActions,
 };

@@ -33,12 +33,15 @@ const {
   selectSnapshotBacklogActions,
   filterBackfillFindings,
   dedupeNewFindings,
+  selectGuestCountIssueActions,
 } = require("../api/ota-audit-logic");
 
 const NOTIFY_KEY = "morning_ota_audit";
 const ROSTER_WARN_DAYS = 3;
 // 1回の朝点検で走査する未解決コンフリクトの上限 (実運用は常時1桁。暴走時の保険)
 const CONFLICT_SCAN_LIMIT = 300;
+// 1回の朝点検で走査する未解決の人数不一致の上限 (実運用は常時1桁。暴走時の保険)
+const GUEST_COUNT_ISSUE_SCAN_LIMIT = 200;
 // スナップショット欠損日を持ち越して遡り突合を試みる期間 (これを過ぎたら諦めて破棄)
 const SNAPSHOT_BACKLOG_MAX_AGE_DAYS = 7;
 
@@ -49,6 +52,7 @@ const TYPE_LABELS = {
   date_mismatch: "日付不一致",
   missing_in_ota: "v2にあるがOTAに無い",
   guest_count_mismatch: "人数不一致",
+  guest_count_unresolved: "人数不一致(未解消・要精算/申告訂正)",
   keybox_unsent: "キーボックス未送信",
   roster_missing: "名簿未提出",
   parse_error: "日付解析エラー",
@@ -122,6 +126,7 @@ module.exports = async function morningOtaAudit() {
 
     // ---- 5) findings 集約 (純粋関数へ委譲) ----
     let reconcileFindings = [];
+    let guestCountChecked = [];
     if (!snapshotMissing) {
       const reservations = Array.isArray(snapshot.reservations)
         ? snapshot.reservations.filter((r) => r && activePropertyIds.has(r.propertyId))
@@ -133,7 +138,9 @@ module.exports = async function morningOtaAudit() {
       const auditedTargets = Array.isArray(snapshot.auditedTargets)
         ? snapshot.auditedTargets.filter((t) => t && activePropertyIds.has(t.propertyId))
         : undefined;
-      reconcileFindings = reconcileOtaSnapshot({ reservations, bookings, registrations, auditedTargets, todayStr, appUrl }).findings;
+      const rec = reconcileOtaSnapshot({ reservations, bookings, registrations, auditedTargets, todayStr, appUrl });
+      reconcileFindings = rec.findings;
+      guestCountChecked = rec.guestCountChecked || [];
     }
     const keyboxFindings = collectKeyboxFindings({ registrations, bookings, properties: activeProps, todayStr, appUrl }).findings;
     const rosterFindings = collectRosterFindings({ bookings, properties: activeProps, todayStr, warnDays: ROSTER_WARN_DAYS, appUrl }).findings;
@@ -152,7 +159,23 @@ module.exports = async function morningOtaAudit() {
       console.warn("[morningOtaAudit] スナップショット持ち越し処理エラー:", e.message);
     }
 
-    const allFindings = [...reconcileFindings, ...backfill.findings, ...keyboxFindings, ...rosterFindings];
+    // ---- 5.6) 人数不一致の持ち越し (滞在が終わっても未解消なら残す) ----
+    // 人数は清掃費の精算と宿泊税の申告に直結するので「OTAの窓から外れて見えなくなった＝解決」に
+    // してはいけない。otaGuestCountIssues に永続化し、解消を確認できるまで毎朝出し続ける。
+    let guestCountCarryOver = [];
+    try {
+      guestCountCarryOver = await processGuestCountIssues(db, {
+        todayStr, appUrl, guestCountChecked,
+        todayFindings: [...reconcileFindings, ...backfill.findings],
+      });
+    } catch (e) {
+      console.warn("[morningOtaAudit] 人数不一致の持ち越し処理エラー:", e.message);
+    }
+
+    const allFindings = [
+      ...reconcileFindings, ...backfill.findings, ...guestCountCarryOver,
+      ...keyboxFindings, ...rosterFindings,
+    ];
 
     // 物件ごとにグループ化
     const findingsByProperty = new Map();
@@ -402,6 +425,81 @@ async function processSnapshotBacklog(db, ctx) {
   }
 
   return out;
+}
+
+/**
+ * 人数不一致 (guest_count_mismatch) を otaGuestCountIssues に永続化し、
+ * 未解消のまま滞在が終わったものを findings に残す。
+ *
+ * 判断は純粋関数 selectGuestCountIssueActions に委譲し、ここは Firestore の読み書きだけ行う。
+ * 解決判定に使う予約・名簿は朝点検本体の取得範囲 (checkIn today−7日〜) の外にあるので、
+ * 対象の bookingId で実データを引き直す。
+ *
+ * @returns {Promise<Array>} findings に足す持ち越し分
+ */
+async function processGuestCountIssues(db, { todayStr, appUrl, todayFindings, guestCountChecked }) {
+  const col = db.collection("otaGuestCountIssues");
+  const ts = () => admin.firestore.FieldValue.serverTimestamp();
+
+  const openSnap = await col.where("resolved", "==", false).limit(GUEST_COUNT_ISSUE_SCAN_LIMIT).get();
+  const issues = openSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+  // 今朝の finding に出ていない未解決分だけ、解決判定のために予約と名簿を引き直す
+  const detectedIds = new Set((todayFindings || [])
+    .filter((f) => f && f.type === "guest_count_mismatch" && f.detail && f.detail.bookingId)
+    .map((f) => f.detail.bookingId));
+  const lookupIds = issues
+    .map((i) => i.bookingId || i.id)
+    .filter((id) => id && !detectedIds.has(id) && !(guestCountChecked || []).includes(id));
+
+  const bookingsById = new Map();
+  const registrationsByBookingId = new Map();
+  if (lookupIds.length > 0) {
+    const refs = lookupIds.map((id) => db.collection("bookings").doc(id));
+    const docs = await db.getAll(...refs);
+    for (const d of docs) if (d.exists) bookingsById.set(d.id, d.data());
+
+    // 名簿は bookingId 単一条件で引く (複合インデックス不要)。in は10件ずつ
+    for (let i = 0; i < lookupIds.length; i += 10) {
+      const chunk = lookupIds.slice(i, i + 10);
+      const rs = await db.collection("guestRegistrations").where("bookingId", "in", chunk).get();
+      for (const d of rs.docs) {
+        const g = { id: d.id, ...d.data() };
+        if (g.status !== "submitted" && g.status !== "confirmed") continue;
+        registrationsByBookingId.set(g.bookingId, g);
+      }
+    }
+  }
+
+  const { upserts, closes, carryOver } = selectGuestCountIssueActions({
+    issues, todayFindings, guestCountChecked, bookingsById, registrationsByBookingId, todayStr, appUrl,
+  });
+
+  const existingIds = new Set(issues.map((i) => i.id));
+  for (const u of upserts) {
+    try {
+      await col.doc(u.id).set({
+        ...u.data,
+        ...(existingIds.has(u.id) ? {} : { firstDetectedDate: todayStr, firstDetectedAt: ts() }),
+        lastDetectedAt: ts(),
+      }, { merge: true });
+    } catch (e) {
+      console.warn(`[morningOtaAudit] otaGuestCountIssues/${u.id} 保存失敗:`, e.message);
+    }
+  }
+  for (const c of closes) {
+    try {
+      await col.doc(c.id).set({
+        resolved: true, resolvedReason: c.reason, resolvedAt: ts(), resolvedBy: "morningOtaAudit",
+      }, { merge: true });
+    } catch (e) {
+      console.warn(`[morningOtaAudit] otaGuestCountIssues/${c.id} クローズ失敗:`, e.message);
+    }
+  }
+  if (upserts.length || closes.length || carryOver.length) {
+    console.log(`[morningOtaAudit] 人数不一致: 記録${upserts.length}件 / 解消${closes.length}件 / 未解消の持ち越し${carryOver.length}件`);
+  }
+  return carryOver;
 }
 
 /**

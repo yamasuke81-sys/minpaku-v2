@@ -19,6 +19,8 @@ const {
   selectSnapshotBacklogActions,
   filterBackfillFindings,
   dedupeNewFindings,
+  evaluateGuestCount,
+  selectGuestCountIssueActions,
 } = require("./ota-audit-logic");
 
 const PID = "propA";
@@ -795,5 +797,120 @@ describe("selectSnapshotBacklogActions / filterBackfillFindings / dedupeNewFindi
   test("dedupeNewFindings: incoming 同士の重複も落とす", () => {
     const f = { type: "guest_count_mismatch", propertyId: PID, ota: "airbnb", detail: { bookingId: "bk1" } };
     assert.strictEqual(dedupeNewFindings([], [f, { ...f }]).length, 1);
+  });
+});
+
+describe("selectGuestCountIssueActions (人数不一致の持ち越し)", () => {
+  const TODAY = "2026-08-17";
+  const mismatchFinding = {
+    type: "guest_count_mismatch", propertyId: PID, propertyName: "テラス", ota: "booking",
+    detail: {
+      bookingId: "bk1", guestId: "g1", guestName: "木谷",
+      checkIn: "2026-08-15", checkOut: "2026-08-16",
+      otaGuests: 4, rosterGuests: 2, rosterInfants: 0,
+    },
+  };
+
+  test("今朝も検出された分は upsert され、持ち越しには出ない", () => {
+    const r = selectGuestCountIssueActions({
+      issues: [{ id: "bk1", bookingId: "bk1", otaGuests: 4 }],
+      todayFindings: [mismatchFinding], todayStr: TODAY,
+    });
+    assert.strictEqual(r.upserts.length, 1);
+    assert.strictEqual(r.upserts[0].id, "bk1");
+    assert.strictEqual(r.upserts[0].data.otaGuests, 4);
+    assert.strictEqual(r.upserts[0].data.resolved, false);
+    assert.deepStrictEqual(r.closes, []);
+    assert.deepStrictEqual(r.carryOver, []);
+  });
+
+  test("★滞在が終わって OTA から消えても、未解消なら findings に残す(要精算・要申告訂正)", () => {
+    const r = selectGuestCountIssueActions({
+      issues: [{
+        id: "bk1", bookingId: "bk1", guestId: "g1", guestName: "木谷", propertyId: PID, propertyName: "テラス",
+        checkIn: "2026-08-15", checkOut: "2026-08-16", otaGuests: 4, rosterGuests: 2, resolved: false,
+      }],
+      todayFindings: [], guestCountChecked: [],
+      bookingsById: new Map([["bk1", { checkIn: "2026-08-15", checkOut: "2026-08-16", status: "confirmed" }]]),
+      registrationsByBookingId: new Map([["bk1", { id: "g1", guestCount: 2, status: "confirmed" }]]),
+      todayStr: TODAY,
+    });
+    assert.deepStrictEqual(r.closes, []);
+    assert.strictEqual(r.carryOver.length, 1);
+    assert.strictEqual(r.carryOver[0].type, "guest_count_unresolved");
+    assert.strictEqual(r.carryOver[0].detail.stayEnded, true);
+    assert.match(r.carryOver[0].message, /申告訂正/);
+  });
+
+  test("名簿が直っていれば matched で閉じる(持ち越さない)", () => {
+    const r = selectGuestCountIssueActions({
+      issues: [{ id: "bk1", bookingId: "bk1", otaGuests: 4, checkOut: "2026-08-16" }],
+      todayFindings: [],
+      bookingsById: new Map([["bk1", { status: "confirmed", checkOut: "2026-08-16" }]]),
+      registrationsByBookingId: new Map([["bk1", { id: "g1", guestCount: 4, status: "confirmed" }]]),
+      todayStr: TODAY,
+    });
+    assert.deepStrictEqual(r.closes, [{ id: "bk1", reason: "matched" }]);
+    assert.deepStrictEqual(r.carryOver, []);
+  });
+
+  test("今朝照合できたのに finding が出ていない = OTA側修正でも解消とみなす", () => {
+    const r = selectGuestCountIssueActions({
+      issues: [{ id: "bk1", bookingId: "bk1", otaGuests: 4 }],
+      todayFindings: [], guestCountChecked: ["bk1"], todayStr: TODAY,
+    });
+    assert.deepStrictEqual(r.closes, [{ id: "bk1", reason: "matched" }]);
+    assert.deepStrictEqual(r.carryOver, []);
+  });
+
+  test("キャンセル/予約消失は追わずに閉じる", () => {
+    const r = selectGuestCountIssueActions({
+      issues: [
+        { id: "bk1", bookingId: "bk1", otaGuests: 4 },
+        { id: "bk2", bookingId: "bk2", otaGuests: 3 },
+      ],
+      todayFindings: [],
+      bookingsById: new Map([["bk1", { status: "cancelled" }]]), // bk2 は存在しない
+      todayStr: TODAY,
+    });
+    assert.deepStrictEqual(
+      r.closes.sort((a, b) => a.id.localeCompare(b.id)),
+      [{ id: "bk1", reason: "cancelled" }, { id: "bk2", reason: "booking_missing" }]
+    );
+  });
+
+  test("スナップショット欠損日(照合ゼロ)でも未解消分は消えない", () => {
+    const r = selectGuestCountIssueActions({
+      issues: [{ id: "bk1", bookingId: "bk1", otaGuests: 4, checkOut: "2026-08-31" }],
+      todayFindings: [], guestCountChecked: [],
+      bookingsById: new Map([["bk1", { status: "confirmed", checkIn: "2026-08-30", checkOut: "2026-08-31" }]]),
+      registrationsByBookingId: new Map([["bk1", { guestCount: 2, status: "confirmed" }]]),
+      todayStr: TODAY,
+    });
+    assert.strictEqual(r.carryOver.length, 1);
+    assert.strictEqual(r.carryOver[0].detail.stayEnded, false); // 滞在はこれから
+  });
+
+  test("reconcileOtaSnapshot は人数を照合できた bookingId を返す(一致・不一致とも)", () => {
+    const reservations = [
+      { propertyId: PID, ota: "airbnb", code: "H1", checkIn: "2026-08-20", checkOut: "2026-08-21", guests: 4 },
+      { propertyId: PID, ota: "airbnb", code: "H2", checkIn: "2026-08-22", checkOut: "2026-08-23", guests: 2 },
+    ];
+    const bookings = [
+      { id: "bk1", propertyId: PID, source: "Airbnb", checkIn: "2026-08-20", checkOut: "2026-08-21", status: "confirmed", notes: "H1" },
+      { id: "bk2", propertyId: PID, source: "Airbnb", checkIn: "2026-08-22", checkOut: "2026-08-23", status: "confirmed", notes: "H2" },
+    ];
+    const registrations = [
+      { id: "g1", bookingId: "bk1", status: "confirmed", guestCount: 2 }, // 不一致
+      { id: "g2", bookingId: "bk2", status: "confirmed", guestCount: 2 }, // 一致
+    ];
+    const r = reconcileOtaSnapshot({ reservations, bookings, registrations, todayStr: TODAY });
+    assert.deepStrictEqual(r.guestCountChecked.sort(), ["bk1", "bk2"]);
+    assert.strictEqual(r.findings.filter((f) => f.type === "guest_count_mismatch").length, 1);
+  });
+
+  test("evaluateGuestCount: 乳幼児は名簿側で二重控除しない", () => {
+    assert.strictEqual(evaluateGuestCount({ ota: { guests: 4 }, reg: { guestCount: 4, guestCountInfants: 2 } }).mismatch, false);
+    assert.strictEqual(evaluateGuestCount({ ota: { guests: 4 }, reg: { guestCount: 2 } }).mismatch, true);
   });
 });
