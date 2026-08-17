@@ -29,3 +29,6 @@ CLAUDE.local.md
 # scratchpad（実データ含む調査/検証スクリプト置き場・個人情報混入可能性あり）
 scratchpad/
 _inv*.json
+
+# 調査用のFirestoreダンプ（リポジトリ直下限定・ゲスト氏名等を含むため git add -A で巻き込ませない）
+/_*.json
