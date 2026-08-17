@@ -127,6 +127,7 @@ module.exports = async function morningOtaAudit() {
     // ---- 5) findings 集約 (純粋関数へ委譲) ----
     let reconcileFindings = [];
     let guestCountChecked = [];
+    let guestCountClassDiffs = [];
     if (!snapshotMissing) {
       const reservations = Array.isArray(snapshot.reservations)
         ? snapshot.reservations.filter((r) => r && activePropertyIds.has(r.propertyId))
@@ -141,6 +142,7 @@ module.exports = async function morningOtaAudit() {
       const rec = reconcileOtaSnapshot({ reservations, bookings, registrations, auditedTargets, todayStr, appUrl });
       reconcileFindings = rec.findings;
       guestCountChecked = rec.guestCountChecked || [];
+      guestCountClassDiffs = rec.guestCountClassDiffs || [];
     }
     const keyboxFindings = collectKeyboxFindings({ registrations, bookings, properties: activeProps, todayStr, appUrl }).findings;
     const rosterFindings = collectRosterFindings({ bookings, properties: activeProps, todayStr, warnDays: ROSTER_WARN_DAYS, appUrl }).findings;
@@ -203,6 +205,8 @@ module.exports = async function morningOtaAudit() {
       snapshotBacklog: {
         backfilled: backfill.done, pending: backfill.pending, expired: backfill.expired,
       },
+      // 乳幼児の区分違い (総数は一致) — 通知はしないが後から追えるよう記録は残す
+      guestCountClassDiffs,
       unassignedCount: (snapshot && snapshot.unassignedCount) || 0,
       createdAt: new Date(),
     });
@@ -283,6 +287,14 @@ module.exports = async function morningOtaAudit() {
           lines.push(`--- ${np.propertyName} ---`);
           lines.push(np.body);
         }
+      }
+
+      // 9.5) 乳幼児の区分違い (総数は一致) — 人数不一致として騒がず、全体サマリに1行だけ添える
+      if (guestCountClassDiffs.length > 0) {
+        const names = guestCountClassDiffs
+          .map((d) => `${d.guestName || "ゲスト"}様(OTA${d.otaGuests}名/名簿${d.rosterGuests}名・総数${d.rosterTotal}名)`)
+          .join(", ");
+        lines.push(`ℹ️ 乳幼児の区分違い ${guestCountClassDiffs.length}件(総数は一致・対応不要): ${names}`);
       }
 
       // 10) unassignedCount

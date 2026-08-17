@@ -98,6 +98,7 @@ function scheduleUrl_(appUrl) {
 function reconcileOtaSnapshot({ reservations = [], bookings = [], registrations = [], auditedTargets, todayStr, appUrl } = {}) {
   const findings = [];
   const guestCountChecked = []; // 人数を実照合できた bookingId (一致・不一致どちらも)
+  const guestCountClassDiffs = []; // 乳幼児の区分違い (総数は一致。通知はせず記録だけ残す)
 
   // ---- 1) 日付解析エラー行(checkIn=="")を除外し、物件ごとにまとめて1件のfindingに ----
   const validRes = [];
@@ -267,7 +268,18 @@ function reconcileOtaSnapshot({ reservations = [], bookings = [], registrations 
           // 「今朝この予約の人数を実際に照合できた」記録。持ち越し課題(otaGuestCountIssues)の
           // 解決判定に使う — 照合できたのに finding が出ていなければ解消済みと判断できる
           guestCountChecked.push(b.id);
-          if (ev.mismatch) {
+          if (ev.mismatch && ev.classificationOnly) {
+            // 乳幼児の区分違い (総数は一致)。通知すると「要確認N件」が滞在終了まで毎朝出続けるので
+            // findings には入れず、記録だけ残す (otaAuditResults.guestCountClassDiffs)
+            guestCountClassDiffs.push({
+              propertyId, propertyName, ota,
+              bookingId: b.id, guestId: reg.id, guestName: r.guestName || "",
+              checkIn: r.checkIn, checkOut: r.checkOut,
+              otaGuests: ev.otaGuests, otaTotal: ev.otaTotal,
+              rosterGuests: ev.rosterGuests, rosterInfants: ev.rosterInfants, rosterTotal: ev.rosterTotal,
+              note: `OTA${ev.otaGuests}名/名簿${ev.rosterGuests}名だが乳幼児込みの総数はどちらも${ev.rosterTotal}名`,
+            });
+          } else if (ev.mismatch) {
             findings.push({
               type: "guest_count_mismatch",
               propertyId, propertyName, ota,
@@ -325,7 +337,7 @@ function reconcileOtaSnapshot({ reservations = [], bookings = [], registrations 
     }
   }
 
-  return { findings, guestCountChecked };
+  return { findings, guestCountChecked, guestCountClassDiffs };
 }
 
 /**
@@ -346,7 +358,22 @@ function evaluateGuestCount({ ota = {}, reg = {} } = {}) {
   const otaGuests = Number(ota.guests || 0);
   const rosterGuests = Number(reg.guestCount || 0);
   const rosterInfants = Number(reg.guestCountInfants || 0);
-  return { mismatch: rosterGuests !== otaGuests, otaGuests, rosterGuests, rosterInfants };
+  const mismatch = rosterGuests !== otaGuests;
+
+  // 乳幼児の数え方は OTA とゲスト申告で食い違う (2026-08-17 実例: Booking 6084082902 入江様は
+  // OTA が 大人4+子ども3+乳幼児2 で guests=7 (乳幼児を除く)、名簿は乳幼児2名を含めて9名と申告)。
+  // 数字だけ見ると 7≠9 だが、乳幼児込みの総数はどちらも9名で頭数は合っている。
+  // これは精算にも宿泊税にも影響しない「区分違い」なので、人数不一致として扱わない。
+  const hasBreakdown = [ota.adults, ota.children, ota.infants].some((v) => v != null && v !== "");
+  const otaTotal = hasBreakdown
+    ? Number(ota.adults || 0) + Number(ota.children || 0) + Number(ota.infants || 0)
+    : otaGuests;
+  const rosterTotal = rosterGuests + rosterInfants;
+  // OTA側は「guests が乳幼児込み/除く」のどちらの流儀もあるため、両方を総数の候補にする
+  const classificationOnly = mismatch && rosterTotal > 0
+    && (otaTotal === rosterTotal || otaGuests === rosterTotal);
+
+  return { mismatch, classificationOnly, otaGuests, otaTotal, rosterGuests, rosterInfants, rosterTotal };
 }
 
 /**

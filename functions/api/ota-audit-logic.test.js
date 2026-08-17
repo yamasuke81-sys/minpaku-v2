@@ -914,3 +914,70 @@ describe("selectGuestCountIssueActions (人数不一致の持ち越し)", () => 
     assert.strictEqual(evaluateGuestCount({ ota: { guests: 4 }, reg: { guestCount: 2 } }).mismatch, true);
   });
 });
+
+describe("乳幼児の区分違い (総数一致は人数不一致にしない)", () => {
+  const TODAY = "2026-08-17";
+  // 2026-08-17 本番実測: Booking 6084082902 入江様。
+  // OTA=大人4+子ども3+乳幼児2 で guests=7(乳幼児除く)、名簿=9名(乳幼児2名を含めて申告)。
+  const irieRes = {
+    ota: "booking", propertyId: PID, propertyName: "the Terrace 長浜",
+    code: "6084082902", status: "ok", cancelled: false, guestName: "MAKI IRIE",
+    checkIn: "2026-08-22", checkOut: "2026-08-23", adults: 4, children: 3, infants: 2, guests: 7,
+  };
+  const irieBooking = {
+    id: "ical_45b9c421@booking.com", propertyId: PID, propertyName: "the Terrace 長浜",
+    source: "Booking.com", status: "confirmed", checkIn: "2026-08-22", checkOut: "2026-08-23",
+    notes: "6084082902",
+  };
+  const irieReg = {
+    id: "KjQZyYLW5tXGUNQplw3L", bookingId: "ical_45b9c421@booking.com",
+    propertyId: PID, status: "submitted", guestCount: 9, guestCountInfants: 0,
+  };
+
+  test("★入江様ケース: 4+3+2 vs 名簿9 は guest_count_mismatch にしない", () => {
+    const r = reconcileOtaSnapshot({
+      reservations: [irieRes], bookings: [irieBooking], registrations: [irieReg], todayStr: TODAY,
+    });
+    assert.strictEqual(r.findings.filter((f) => f.type === "guest_count_mismatch").length, 0);
+    assert.strictEqual(r.guestCountClassDiffs.length, 1);
+    assert.strictEqual(r.guestCountClassDiffs[0].otaGuests, 7);
+    assert.strictEqual(r.guestCountClassDiffs[0].rosterGuests, 9);
+    assert.strictEqual(r.guestCountClassDiffs[0].rosterTotal, 9);
+    // 照合済みなので、持ち越し課題があれば解消と判定できる
+    assert.ok(r.guestCountChecked.includes(irieBooking.id));
+  });
+
+  test("逆パターン: OTA側が乳幼児込み9名・名簿が7+乳幼児2 も区分違い扱い", () => {
+    const r = reconcileOtaSnapshot({
+      reservations: [{ ...irieRes, adults: 4, children: 3, infants: 2, guests: 9 }],
+      bookings: [irieBooking],
+      registrations: [{ ...irieReg, guestCount: 7, guestCountInfants: 2 }],
+      todayStr: TODAY,
+    });
+    assert.strictEqual(r.findings.filter((f) => f.type === "guest_count_mismatch").length, 0);
+    assert.strictEqual(r.guestCountClassDiffs.length, 1);
+  });
+
+  test("総数も食い違うなら従来どおり人数不一致として検出する", () => {
+    const r = reconcileOtaSnapshot({
+      reservations: [{ ...irieRes, adults: 4, children: 0, infants: 0, guests: 4 }],
+      bookings: [irieBooking],
+      registrations: [{ ...irieReg, guestCount: 9, guestCountInfants: 0 }],
+      todayStr: TODAY,
+    });
+    assert.strictEqual(r.findings.filter((f) => f.type === "guest_count_mismatch").length, 1);
+    assert.strictEqual(r.guestCountClassDiffs.length, 0);
+  });
+
+  test("内訳が無いOTA行は guests のみで判定 (総数一致に化けない)", () => {
+    const ev = evaluateGuestCount({ ota: { guests: 7 }, reg: { guestCount: 9, guestCountInfants: 0 } });
+    assert.strictEqual(ev.mismatch, true);
+    assert.strictEqual(ev.classificationOnly, false);
+  });
+
+  test("名簿0名(未入力)は総数一致とみなさない", () => {
+    const ev = evaluateGuestCount({ ota: { adults: 0, children: 0, infants: 0, guests: 3 }, reg: {} });
+    assert.strictEqual(ev.mismatch, true);
+    assert.strictEqual(ev.classificationOnly, false);
+  });
+});
