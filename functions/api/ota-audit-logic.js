@@ -67,6 +67,41 @@ function scheduleUrl_(appUrl) {
 }
 
 /**
+ * properties(マスタ)から「物件ID → 表示名」の Map を作る。
+ *
+ * ★finding.propertyName は properties マスタを第一根拠にする(2026-08-19)。
+ *   bookings のうち iCal 取込分(Airbnb/Booking.com)は propertyName を持たないため、
+ *   予約側の値だけを見ていると生の物件ID("RZV9IwtQ…")がそのまま宿名として保存され、
+ *   夜間監査の指摘文が「どの宿の話か分からない」状態になっていた。
+ *
+ * @param {Array} properties
+ * @returns {Map<string,string>}
+ */
+function propertyNameMap_(properties) {
+  return new Map(
+    (properties || [])
+      .filter((p) => p && p.id)
+      .map((p) => [p.id, p.name || ""])
+  );
+}
+
+/**
+ * 物件名を「マスタ → 予約に非正規化保存された名前 → 物件ID」の順で解決する。
+ * 予約側の値が物件IDそのものだった場合は名前として採用しない(生IDの再流出を防ぐ)。
+ *
+ * @param {Map<string,string>} nameMap
+ * @param {string} propertyId
+ * @param {string} [denormalized]
+ * @returns {string}
+ */
+function resolvePropertyName_(nameMap, propertyId, denormalized) {
+  const fromMaster = nameMap && nameMap.get(propertyId);
+  if (fromMaster) return fromMaster;
+  if (denormalized && denormalized !== propertyId) return denormalized;
+  return propertyId || "";
+}
+
+/**
  * OTAスナップショットとv2予約台帳を突合する。
  *
  * マッチング手順 (1つのbookingは1つのOTA行にのみ対応させる):
@@ -78,6 +113,8 @@ function scheduleUrl_(appUrl) {
  * @param {Array} params.reservations - otaCalendarSnapshots/{date}.reservations
  * @param {Array} params.bookings - v2 bookings (全ステータス。matchingプールとして使う)
  * @param {Array} params.registrations - guestRegistrations (人数不一致チェック用)
+ * @param {Array} [params.properties] - properties マスタ。finding.propertyName の名前解決に使う
+ *   (未指定なら 予約側の非正規化名 → 物件ID の順でフォールバック)。
  * @param {Array<{propertyId:string, ota:string}>} [params.auditedTargets] - スナップショットが実際に
  *   取得できた (propertyId, ota) のペア一覧 (listenerが書く)。missing_in_ota (v2→OTA逆方向チェック) は
  *   このペアに含まれる予約のみを対象にする。
@@ -95,7 +132,8 @@ function scheduleUrl_(appUrl) {
  *   ディープリンク (finding.url) を付与する (通知本文で 🔗 行として出力される)。
  * @returns {{findings: Array}}
  */
-function reconcileOtaSnapshot({ reservations = [], bookings = [], registrations = [], auditedTargets, todayStr, appUrl } = {}) {
+function reconcileOtaSnapshot({ reservations = [], bookings = [], registrations = [], properties = [], auditedTargets, todayStr, appUrl } = {}) {
+  const nameMap = propertyNameMap_(properties);
   const findings = [];
   const guestCountChecked = []; // 人数を実照合できた bookingId (一致・不一致どちらも)
   const guestCountClassDiffs = []; // 乳幼児の区分違い (総数は一致。通知はせず記録だけ残す)
@@ -177,7 +215,11 @@ function reconcileOtaSnapshot({ reservations = [], bookings = [], registrations 
     const ota = key.slice(sep + 2);
     const resList = resByGroup.get(key) || [];
     const bookList = bookByGroup.get(key) || [];
-    const propertyName = (resList[0] && resList[0].propertyName) || (bookList[0] && bookList[0].propertyName) || "";
+    const propertyName = resolvePropertyName_(
+      nameMap,
+      propertyId,
+      (resList[0] && resList[0].propertyName) || (bookList[0] && bookList[0].propertyName) || ""
+    );
 
     const otaUsed = new Set();
     const bookUsed = new Set();
@@ -544,6 +586,7 @@ function collectKeyboxFindings({ registrations = [], bookings = [], properties =
 function collectRosterFindings({ bookings = [], properties = [], todayStr, warnDays = 3, appUrl } = {}) {
   const findings = [];
   const limitStr = addDaysStr_(todayStr, warnDays);
+  const nameMap = propertyNameMap_(properties);
   const rosterEnabledIds = new Set(
     (properties || [])
       .filter((p) => p && p.channelOverrides && p.channelOverrides.roster_remind && p.channelOverrides.roster_remind.enabled === true)
@@ -563,7 +606,8 @@ function collectRosterFindings({ bookings = [], properties = [], todayStr, warnD
     findings.push({
       type: "roster_missing",
       propertyId: b.propertyId,
-      propertyName: b.propertyName || b.propertyId,
+      // ★iCal取込の予約は b.propertyName を持たないため、properties マスタから解決する
+      propertyName: resolvePropertyName_(nameMap, b.propertyId, b.propertyName),
       ota: null,
       detail: { bookingId: b.id, guestName: b.guestName, checkIn: b.checkIn, daysUntil },
       message: `⚠️ ${b.guestName || "ゲスト"}様: CIまであと${daysUntil}日(${b.checkIn})ですが、名簿が未提出です。`,
@@ -809,6 +853,8 @@ function dedupeNewFindings(existing = [], incoming = []) {
 
 module.exports = {
   containsCodeCI,
+  propertyNameMap_,
+  resolvePropertyName_,
   addDaysStr_,
   daysBetween_,
   reconcileOtaSnapshot,

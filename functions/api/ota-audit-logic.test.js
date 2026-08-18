@@ -14,6 +14,8 @@ const {
   collectKeyboxFindings,
   collectRosterFindings,
   buildPropertyReport,
+  propertyNameMap_,
+  resolvePropertyName_,
   selectResolvableConflicts,
   detectMissingOtaSources,
   selectSnapshotBacklogActions,
@@ -426,7 +428,7 @@ describe("collectRosterFindings", () => {
     };
   }
   // roster_remind 有効物件 (the Terrace / YADO KOMACHI 等を想定)
-  const rosterEnabledProps = [{ id: PID, channelOverrides: { roster_remind: { enabled: true } } }];
+  const rosterEnabledProps = [{ id: PID, name: "YADO KOMACHI Hiroshima", channelOverrides: { roster_remind: { enabled: true } } }];
 
   test("3日以内・名簿未提出のconfirmed予約を検出", () => {
     const r = collectRosterFindings({ bookings: [bk({})], properties: rosterEnabledProps, todayStr: TODAY });
@@ -485,6 +487,49 @@ describe("collectRosterFindings", () => {
   test("チェックインが過去日(todayより前)は対象外", () => {
     const r = collectRosterFindings({ bookings: [bk({ checkIn: "2026-07-17" })], properties: rosterEnabledProps, todayStr: TODAY });
     assert.strictEqual(r.findings.length, 0);
+  });
+
+  // ★2026-08-19 実障害: iCal取込(Airbnb/Booking.com)の予約は propertyName を持たないため、
+  //   予約側だけを見ていると生の物件IDが宿名として保存され、夜間監査の指摘が
+  //   「property=RZV9IwtQgMAsvrdM3j8J」となり、どの宿の話か分からなくなっていた。
+  test("予約にpropertyNameが無くても(iCal取込予約)propertiesマスタから宿名を解決する", () => {
+    const b = bk({});
+    delete b.propertyName;
+    const r = collectRosterFindings({ bookings: [b], properties: rosterEnabledProps, todayStr: TODAY });
+    assert.strictEqual(r.findings.length, 1);
+    assert.strictEqual(r.findings[0].propertyName, "YADO KOMACHI Hiroshima");
+  });
+
+  test("予約に生の物件IDがpropertyNameとして入っていてもマスタ名が優先される", () => {
+    const r = collectRosterFindings({ bookings: [bk({ propertyName: PID })], properties: rosterEnabledProps, todayStr: TODAY });
+    assert.strictEqual(r.findings[0].propertyName, "YADO KOMACHI Hiroshima");
+  });
+
+  test("マスタにnameが無い物件は予約側の名前→物件IDの順でフォールバックする", () => {
+    const noName = [{ id: PID, channelOverrides: { roster_remind: { enabled: true } } }];
+    const r1 = collectRosterFindings({ bookings: [bk({ propertyName: "旧名称" })], properties: noName, todayStr: TODAY });
+    assert.strictEqual(r1.findings[0].propertyName, "旧名称");
+    const b = bk({});
+    delete b.propertyName;
+    const r2 = collectRosterFindings({ bookings: [b], properties: noName, todayStr: TODAY });
+    assert.strictEqual(r2.findings[0].propertyName, PID);
+  });
+});
+
+describe("resolvePropertyName_ (物件名の解決順)", () => {
+  const map = propertyNameMap_([{ id: "p1", name: "the Terrace 長浜" }, { id: "p2" }]);
+  test("マスタが最優先", () => {
+    assert.strictEqual(resolvePropertyName_(map, "p1", "古い名前"), "the Terrace 長浜");
+  });
+  test("マスタに名前が無ければ非正規化名", () => {
+    assert.strictEqual(resolvePropertyName_(map, "p2", "非正規化名"), "非正規化名");
+  });
+  test("非正規化名が物件IDそのものなら採用しない", () => {
+    assert.strictEqual(resolvePropertyName_(map, "p2", "p2"), "p2");
+    assert.strictEqual(resolvePropertyName_(map, "p3", "p3"), "p3");
+  });
+  test("propertiesが空でも落ちない", () => {
+    assert.strictEqual(resolvePropertyName_(propertyNameMap_(), "pX", ""), "pX");
   });
 });
 

@@ -139,7 +139,7 @@ module.exports = async function morningOtaAudit() {
       const auditedTargets = Array.isArray(snapshot.auditedTargets)
         ? snapshot.auditedTargets.filter((t) => t && activePropertyIds.has(t.propertyId))
         : undefined;
-      const rec = reconcileOtaSnapshot({ reservations, bookings, registrations, auditedTargets, todayStr, appUrl });
+      const rec = reconcileOtaSnapshot({ reservations, bookings, registrations, properties: activeProps, auditedTargets, todayStr, appUrl });
       reconcileFindings = rec.findings;
       guestCountChecked = rec.guestCountChecked || [];
       guestCountClassDiffs = rec.guestCountClassDiffs || [];
@@ -154,7 +154,7 @@ module.exports = async function morningOtaAudit() {
     try {
       backfill = await processSnapshotBacklog(db, {
         todayStr, snapshotMissing,
-        bookings, registrations, activePropertyIds, appUrl,
+        bookings, registrations, activePropertyIds, activeProps, appUrl,
         todayFindings: reconcileFindings,
       });
     } catch (e) {
@@ -274,8 +274,20 @@ module.exports = async function morningOtaAudit() {
           : `🌅 OTA朝点検: 全物件異常なし(OTA予約突合OK / キーボックス・名簿OK)`);
       } else {
         lines.unshift(`🌅 OTA朝点検: 要確認${allFindings.length}件(物件別の詳細は各通知参照)`);
-        for (const [type, count] of Object.entries(countsByType)) {
-          lines.push(`・${TYPE_LABELS[type] || type}: ${count}件`);
+        // ★どの宿の件かをサマリ1通で即断できるよう、物件名つきの内訳を出す(2026-08-19)。
+        //   以前は種別の件数だけだったため、4宿運営では「名簿未提出1件」と言われても宿が分からなかった。
+        for (const [pid, findings] of findingsByProperty.entries()) {
+          const propertyName = propNameById.get(pid) || pid;
+          const byType = {};
+          for (const f of findings) byType[f.type] = (byType[f.type] || 0) + 1;
+          lines.push(`・${propertyName}: ${Object.entries(byType).map(([t, c]) => `${TYPE_LABELS[t] || t}${c}件`).join("・")}`);
+        }
+        // 物件IDが無く物件別グループに載らなかった分は取りこぼさず種別で出す(合計が合わなくなるのを防ぐ)
+        const groupedCount = [...findingsByProperty.values()].reduce((n, fs) => n + fs.length, 0);
+        if (groupedCount < allFindings.length) {
+          const byType = {};
+          for (const f of allFindings.filter((x) => !x.propertyId)) byType[f.type] = (byType[f.type] || 0) + 1;
+          lines.push(`・(物件不明): ${Object.entries(byType).map(([t, c]) => `${TYPE_LABELS[t] || t}${c}件`).join("・")}`);
         }
       }
 
@@ -318,7 +330,9 @@ module.exports = async function morningOtaAudit() {
           lines.push("");
           lines.push(`⚠️ 人数・氏名が古い可能性のある予約 ${staleRows.length}件(OTAで実数を確認して修正してください)`);
           for (const b of staleRows) {
-            lines.push(`・${b.propertyName || b.propertyId} ${b.checkIn}〜${b.checkOut} ` +
+            // ★iCal取込の予約は propertyName を持たないため、生の物件IDが出ないようマスタで解決する
+            const staleName = propNameById.get(b.propertyId) || b.propertyName || b.propertyId;
+            lines.push(`・${staleName} ${b.checkIn}〜${b.checkOut} ` +
               `${b.guestName || "(不明)"} ${b.guestCount != null ? `${b.guestCount}名` : "人数未設定"}` +
               `${b.guestInfoStaleReason ? ` — ${b.guestInfoStaleReason}` : ""}`);
           }
@@ -373,7 +387,7 @@ module.exports = async function morningOtaAudit() {
  * @returns {Promise<{findings:Array, done:Array, pending:Array, expired:Array}>}
  */
 async function processSnapshotBacklog(db, ctx) {
-  const { todayStr, snapshotMissing, bookings, registrations, activePropertyIds, appUrl, todayFindings } = ctx;
+  const { todayStr, snapshotMissing, bookings, registrations, activePropertyIds, activeProps, appUrl, todayFindings } = ctx;
   const col = db.collection("otaSnapshotBacklog");
   const ts = () => admin.firestore.FieldValue.serverTimestamp();
   const out = { findings: [], done: [], pending: [], expired: [] };
@@ -420,7 +434,7 @@ async function processSnapshotBacklog(db, ctx) {
 
     // todayStr には対象日を渡す (その日として突合する)
     const raw = reconcileOtaSnapshot({
-      reservations, bookings, registrations, auditedTargets, todayStr: e.date, appUrl,
+      reservations, bookings, registrations, properties: activeProps, auditedTargets, todayStr: e.date, appUrl,
     }).findings;
     // 当日分の突合で見えるもの(CIが今日以降)は遡り分から落とし、当日分・既出の遡り分とも重複排除する
     const fresh = dedupeNewFindings(
