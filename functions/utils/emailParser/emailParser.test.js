@@ -142,6 +142,44 @@ describe("airbnb 純粋関数: extractGuestNameFromSubject", () => {
   test("フォーマット不一致は null", () => {
     assert.strictEqual(airbnbPure.extractGuestNameFromSubject("予約変更が承認されました"), null);
   });
+  // 新書式 (2026-06下旬〜): 「予約確定 - {M}月{D}日に{名前}さんが到着予定」
+  // 日付を剥がさないと guestName が「8月22日に宮 瀬Takumi」になり名簿督促に出てしまう
+  test("新書式: 先頭の「M月D日に」を除去する", () => {
+    assert.strictEqual(
+      airbnbPure.extractGuestNameFromSubject("予約確定 - 8月22日に宮 瀬Takumiさんが到着予定"),
+      "宮 瀬Takumi"
+    );
+  });
+  test("新書式: 2桁月日も除去する", () => {
+    assert.strictEqual(
+      airbnbPure.extractGuestNameFromSubject("予約確定 - 10月14日にJensenChristineさんが到着予定"),
+      "JensenChristine"
+    );
+  });
+  test("新書式: 非ASCII名でも除去する", () => {
+    assert.strictEqual(
+      airbnbPure.extractGuestNameFromSubject("予約確定 - 1月1日に박규민さんが到着予定"),
+      "박규민"
+    );
+  });
+});
+
+describe("airbnb 純粋関数: extractCheckInFromSubject", () => {
+  test("旧書式「M月D日ご到着」", () => {
+    assert.deepStrictEqual(
+      airbnbPure.extractCheckInFromSubject("予約確定 - Mike Dierkxさんが8月3日ご到着です"),
+      { month: 8, day: 3 }
+    );
+  });
+  test("新書式「M月D日に…さんが到着予定」", () => {
+    assert.deepStrictEqual(
+      airbnbPure.extractCheckInFromSubject("予約確定 - 8月22日に宮 瀬Takumiさんが到着予定"),
+      { month: 8, day: 22 }
+    );
+  });
+  test("該当なしは null", () => {
+    assert.strictEqual(airbnbPure.extractCheckInFromSubject("予約変更が承認されました"), null);
+  });
 });
 
 describe("airbnb 純粋関数: extractCheckIn / extractCheckOut", () => {
@@ -155,6 +193,45 @@ describe("airbnb 純粋関数: extractCheckIn / extractCheckOut", () => {
   });
   test("該当なしは null", () => {
     assert.strictEqual(airbnbPure.extractCheckIn("(無関係)"), null);
+  });
+
+  // 新書式 (2026-06下旬〜): 日程が表組みになり、見出し行・日付行・時刻行に分かれる。
+  // 実メール (81hassac 宛「予約確定 - 8月22日に宮 瀬Takumiさんが到着予定」) の text/plain をそのまま採取
+  const NEW_TABLE_BODY = "Takumiさんにメッセージを送信して、チェックイン情報を確認するか、歓迎の意を伝えましょう。\r\n\r\n"
+    + "チェックイン     チェックアウト\r\n           \r\n8月22日(土)   8月23日(日)\r\n           \r\n16:00      10:00\r\n\r\n"
+    + "ゲスト人数\r\n\r\n大人3人\r\n";
+
+  test("新書式(表組み): チェックインを取得できる", () => {
+    assert.deepStrictEqual(airbnbPure.extractCheckIn(NEW_TABLE_BODY), { month: 8, day: 22, hour: 16, minute: 0 });
+  });
+  test("新書式(表組み): チェックアウトを取得できる", () => {
+    assert.deepStrictEqual(airbnbPure.extractCheckOut(NEW_TABLE_BODY), { month: 8, day: 23, hour: 10, minute: 0 });
+  });
+  test("新書式(表組み): 「チェックイン情報を確認」に釣られない", () => {
+    const t = airbnbPure.extractCheckInOutTable(NEW_TABLE_BODY);
+    assert.deepStrictEqual(t.checkIn, { month: 8, day: 22, hour: 16, minute: 0 });
+    assert.deepStrictEqual(t.checkOut, { month: 8, day: 23, hour: 10, minute: 0 });
+  });
+  test("旧書式(インライン)は表組み判定を通さず従来どおり", () => {
+    assert.strictEqual(airbnbPure.extractCheckInOutTable("チェックイン11月2日(日)15:00"), null);
+  });
+});
+
+describe("airbnb 純粋関数: extractGuestFirstNameFromBody", () => {
+  test("旧書式「新規予約確定です! {名}さんがM月D日到着」", () => {
+    assert.strictEqual(
+      airbnbPure.extractGuestFirstNameFromBody("新規予約確定です! テスト太郎さんが11月2日到着。"),
+      "テスト太郎"
+    );
+  });
+  test("新書式「新規予約が確定しました！{名}さんがM月D日に到着予定です」", () => {
+    assert.strictEqual(
+      airbnbPure.extractGuestFirstNameFromBody("新規予約が確定しました！TAKUMIさんが8月22日に到着予定です。"),
+      "TAKUMI"
+    );
+  });
+  test("該当なしは null", () => {
+    assert.strictEqual(airbnbPure.extractGuestFirstNameFromBody("(無関係)"), null);
   });
 });
 

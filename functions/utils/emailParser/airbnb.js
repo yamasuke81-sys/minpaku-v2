@@ -2,7 +2,8 @@
  * Airbnb 予約確認メールパーサー (automated@airbnb.com からの日本語版メール)
  *
  * 対応メール種別:
- *   - 予約確定 (confirmed)     : subject 「予約確定 - {名前}さんが{月}月{日}日ご到着です」
+ *   - 予約確定 (confirmed)     : subject 「予約確定 - {名前}さんが{月}月{日}日ご到着です」(旧書式)
+ *                                      「予約確定 - {月}月{日}日に{名前}さんが到着予定」(新書式・2026-06下旬〜)
  *   - 予約変更承認 (changed)  : subject 「予約変更が承認されました」(詳細情報なし、kind のみ)
  *   - 予約キャンセル (cancelled)
  *   - 予約リクエスト (request) : 承認待ち状態
@@ -30,38 +31,70 @@ function extractReservationCodeFromSubject(subject) {
   return m ? m[0] : null;
 }
 
-// 件名からゲスト名 (full name) を抽出: 「予約確定 - {名前}さんが」
+// 件名からゲスト名 (full name) を抽出
+//   旧書式: 「予約確定 - {名前}さんが{M}月{D}日ご到着です」
+//   新書式: 「予約確定 - {M}月{D}日に{名前}さんが到着予定」(2026-06下旬から Airbnb が併用)
+// ★新書式で日付部分を剥がさないと guestName が「8月22日に宮 瀬Takumi」のように
+//   日付ごと保存され、名簿督促や監査レポートにそのまま出てしまう
 function extractGuestNameFromSubject(subject) {
   const m = /予約確定\s*[-\-ー−]\s*(.+?)\s*さんが/.exec(String(subject || ""));
-  return m ? m[1].trim() : null;
+  if (!m) return null;
+  // 新書式の先頭「{M}月{D}日に」を除去 (旧書式では一致しないので無害)
+  const name = m[1].replace(/^\s*\d{1,2}月\d{1,2}日に\s*/, "").trim();
+  return name || null;
 }
 
-// 件名から「M月D日ご到着」のチェックイン月日を抽出
-// 例: 「予約確定 - Mike Dierkxさんが8月3日ご到着です」
+// 件名から「M月D日ご到着」/「M月D日に…到着予定」のチェックイン月日を抽出
+// 例: 「予約確定 - Mike Dierkxさんが8月3日ご到着です」(旧書式)
+//     「予約確定 - 8月22日に宮 瀬Takumiさんが到着予定」(新書式)
 function extractCheckInFromSubject(subject) {
-  const m = /(\d{1,2})月(\d{1,2})日ご到着/.exec(String(subject || ""));
+  const s = String(subject || "");
+  const m = /(\d{1,2})月(\d{1,2})日ご到着/.exec(s)
+    || /予約確定\s*[-\-ー−]\s*(?:.*?)?(\d{1,2})月(\d{1,2})日に.+?さんが.*?到着/.exec(s);
   if (!m) return null;
   return { month: +m[1], day: +m[2] };
 }
 
-// 本文冒頭からゲストのファーストネームを抽出: 「新規予約確定です! {FirstName}さんが{M}月{D}日到着。」
+// 本文冒頭からゲストのファーストネームを抽出
+//   旧書式: 「新規予約確定です! {FirstName}さんが{M}月{D}日到着。」
+//   新書式: 「新規予約が確定しました！{FirstName}さんが{M}月{D}日に到着予定です。」
+//           (新書式はファーストネームが大文字化されることがある: 「TAKUMIさんが」)
 function extractGuestFirstNameFromBody(body) {
-  const m = /新規予約確定です[!！]\s*(.+?)さんが\s*\d+月\d+日到着/.exec(String(body || ""));
+  const m = /新規予約(?:確定です|が確定しました)[!！]\s*(.+?)さんが\s*\d+月\d+日に?到着/.exec(String(body || ""));
   return m ? m[1].trim() : null;
 }
 
-// チェックイン情報抽出: 「チェックイン{M}月{D}日({曜})...{HH}:{MM}」
+// 新書式(2026-06下旬〜)の日程は表組みになり、チェックイン/アウトの見出し・日付・時刻が
+// それぞれ別行に分かれる:
+//   チェックイン     チェックアウト
+//   8月22日(土)   8月23日(日)
+//   16:00      10:00
+// 旧書式の「チェックイン{M}月{D}日({曜}){HH}:{MM}」正規表現では 1 件も取れないため、
+// 表組み全体を 1 回のマッチで読み、CI/CO をまとめて返す
+function extractCheckInOutTable(body) {
+  const m = /チェックイン[ \t]+チェックアウト\s+(\d{1,2})月(\d{1,2})日\([^)]*\)[ \t]+(\d{1,2})月(\d{1,2})日\([^)]*\)\s+(\d{1,2}):(\d{2})[ \t]+(\d{1,2}):(\d{2})/
+    .exec(String(body || ""));
+  if (!m) return null;
+  return {
+    checkIn: { month: +m[1], day: +m[2], hour: +m[5], minute: +m[6] },
+    checkOut: { month: +m[3], day: +m[4], hour: +m[7], minute: +m[8] },
+  };
+}
+
+// チェックイン情報抽出: 「チェックイン{M}月{D}日({曜})...{HH}:{MM}」(旧書式) / 表組み(新書式)
 function extractCheckIn(body) {
   const m = /チェックイン\s*(\d+)月(\d+)日[^0-9]*?(\d{1,2}):(\d{2})/.exec(String(body || ""));
-  if (!m) return null;
-  return { month: +m[1], day: +m[2], hour: +m[3], minute: +m[4] };
+  if (m) return { month: +m[1], day: +m[2], hour: +m[3], minute: +m[4] };
+  const table = extractCheckInOutTable(body);
+  return table ? table.checkIn : null;
 }
 
 // チェックアウト情報抽出
 function extractCheckOut(body) {
   const m = /チェックアウト\s*(\d+)月(\d+)日[^0-9]*?(\d{1,2}):(\d{2})/.exec(String(body || ""));
-  if (!m) return null;
-  return { month: +m[1], day: +m[2], hour: +m[3], minute: +m[4] };
+  if (m) return { month: +m[1], day: +m[2], hour: +m[3], minute: +m[4] };
+  const table = extractCheckInOutTable(body);
+  return table ? table.checkOut : null;
 }
 
 // ゲスト人数抽出: 「ゲスト人数大人{N}人(, 子ども{N}人)?(, 乳幼児{N}人)?」
@@ -310,6 +343,7 @@ module.exports = {
     extractCancelGuestCount,
     extractCheckIn,
     extractCheckOut,
+    extractCheckInOutTable,
     extractGuestCount,
     extractTotalAmount,
     detectSubjectKind,
