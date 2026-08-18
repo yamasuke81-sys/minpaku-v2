@@ -29,11 +29,6 @@ async function collectTaxDocs(event) {
     return;
   }
 
-  // 複数メールアドレス対応
-  const userEmails = settings.userEmails
-    ? settings.userEmails.split(",").map((e) => e.trim()).filter(Boolean)
-    : [userEmail];
-
   // Gemini APIキー取得
   const geminiDoc = await db.collection("settings").doc("scanSorter").get();
   const geminiApiKey = geminiDoc.exists ? geminiDoc.data().geminiApiKey : null;
@@ -49,18 +44,20 @@ async function collectTaxDocs(event) {
       return;
     }
 
-    const tokensSnap = await db.collection("settings").doc("gmailOAuth").collection("tokens").get();
-    if (tokensSnap.empty) {
-      console.log("Gmail認証済みアカウントなし");
-      return;
-    }
-
-    for (const tokenDoc of tokensSnap.docs) {
-      const tokenData = tokenDoc.data();
-      if (!tokenData.refreshToken) continue;
-      const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-      oauth2Client.setCredentials({ refresh_token: tokenData.refreshToken });
-      gmailClients[tokenData.email] = google.gmail({ version: "v1", auth: oauth2Client });
+    // pnl.js / invoices.js と同様に両トークン置き場を読む(実トークンは gmailOAuthEmailVerification 側にある)
+    const tokenCols = [
+      db.collection("settings").doc("gmailOAuth").collection("tokens"),
+      db.collection("settings").doc("gmailOAuthEmailVerification").collection("tokens"),
+    ];
+    for (const col of tokenCols) {
+      const tokensSnap = await col.get();
+      for (const tokenDoc of tokensSnap.docs) {
+        const tokenData = tokenDoc.data();
+        if (!tokenData.refreshToken || gmailClients[tokenData.email]) continue;
+        const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+        oauth2Client.setCredentials({ refresh_token: tokenData.refreshToken });
+        gmailClients[tokenData.email] = google.gmail({ version: "v1", auth: oauth2Client });
+      }
     }
 
     if (Object.keys(gmailClients).length === 0) {
@@ -76,14 +73,14 @@ async function collectTaxDocs(event) {
   const gmail = Object.values(gmailClients)[0];
 
   // Google Drive API
-  const drive = await getDriveClient_();
+  const drive = await getDriveClient_(db);
 
-  // 前月の年月を算出
-  const now = new Date();
-  const targetDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const yearMonth = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, "0")}`;
-  const afterDate = `${targetDate.getFullYear()}/${String(targetDate.getMonth() + 1).padStart(2, "0")}/01`;
-  const beforeDate = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, "0")}/01`;
+  // 前月の年月を算出(JST基準。ランタイムはUTCなので +9h して getUTC* で読む)
+  const now = new Date(Date.now() + 9 * 3600 * 1000);
+  const targetDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const yearMonth = `${targetDate.getUTCFullYear()}-${String(targetDate.getUTCMonth() + 1).padStart(2, "0")}`;
+  const afterDate = `${targetDate.getUTCFullYear()}/${String(targetDate.getUTCMonth() + 1).padStart(2, "0")}/01`;
+  const beforeDate = `${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, "0")}/01`;
 
   // 全名義を取得
   const entSnap = await db.collection("entities").orderBy("displayOrder").get();
@@ -143,13 +140,10 @@ async function collectTaxDocs(event) {
           let savedFileName = "";
           let savedFileId = "";
 
-          // フォルダ確保
-          const yearStr = `${targetDate.getFullYear()}年`;
-          const monthStr = `${targetDate.getMonth() + 1}月`;
-          const yearFolder = await getOrCreateSubfolder_(drive, ent.taxFolderId, yearStr);
-          const monthFolder = await getOrCreateSubfolder_(drive, yearFolder.id, monthStr);
-          const platFolderName = plat.name.replace(/送金明細|手数料請求書/g, "").trim() || plat.name;
-          const platFolder = await getOrCreateSubfolder_(drive, monthFolder.id, platFolderName);
+          // フォルダ確保 — 実運用の税理士フォルダは「YYYY.MM」直下にフラット置き(例: IU_八朔/2026.07)。
+          // 旧実装の「YYYY年/M月/プラットフォーム名」は実態と不一致で、checkTaxDocsDrive からも見えなかった
+          const ymFolderName = `${targetDate.getUTCFullYear()}.${String(targetDate.getUTCMonth() + 1).padStart(2, "0")}`;
+          const platFolder = await getOrCreateSubfolder_(drive, ent.taxFolderId, ymFolderName);
 
           if (attachments.length > 0) {
             // 添付ファイルを保存
@@ -259,7 +253,7 @@ async function processMfInbox(event) {
   const geminiDoc = await db.collection("settings").doc("scanSorter").get();
   const geminiApiKey = geminiDoc.exists ? geminiDoc.data().geminiApiKey : null;
 
-  const drive = await getDriveClient_();
+  const drive = await getDriveClient_(db);
   const entSnap = await db.collection("entities").orderBy("displayOrder").get();
   const allEntities = entSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
@@ -276,8 +270,8 @@ async function processMfInbox(event) {
     return;
   }
 
-  const now = new Date();
-  const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const now = new Date(Date.now() + 9 * 3600 * 1000); // JST基準
+  const yearMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
   const results = [];
 
   for (const folderId of folderIds) {
@@ -298,9 +292,10 @@ async function processMfInbox(event) {
     }
 
     for (const file of files) {
-      // 既に処理済みかチェック
+      // 既に処理済みかチェック — 保存レコードの driveFileId はコピー先の新ファイルIDなので、
+      // 元ファイルIDは sourceDriveFileId で照合する(driveFileId で照合すると毎週再コピーされる)
       const dupSnap = await db.collection("taxDocs")
-        .where("driveFileId", "==", file.id)
+        .where("sourceDriveFileId", "==", file.id)
         .limit(1).get();
       if (!dupSnap.empty) continue;
 
@@ -344,14 +339,9 @@ async function processMfInbox(event) {
         continue;
       }
 
-      // 税理士フォルダにコピー
-      const yearStr = `${now.getFullYear()}年`;
-      const monthStr = `${now.getMonth() + 1}月`;
-      const yearFolder = await getOrCreateSubfolder_(drive, matchedEntity.taxFolderId, yearStr);
-      const monthFolder = await getOrCreateSubfolder_(drive, yearFolder.id, monthStr);
-      const categoryFolder = matchedAccount.category === "credit" ? "クレジットカード明細" : "銀行口座明細";
-      const catFolder = await getOrCreateSubfolder_(drive, monthFolder.id, categoryFolder);
-      const accFolder = await getOrCreateSubfolder_(drive, catFolder.id, matchedAccount.name);
+      // 税理士フォルダにコピー — 実運用どおり「YYYY.MM」直下にフラット置き(ファイル名で内容が分かる命名にする)
+      const ymFolderName = `${now.getUTCFullYear()}.${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+      const accFolder = await getOrCreateSubfolder_(drive, matchedEntity.taxFolderId, ymFolderName);
 
       // リネーム
       const ym = yearMonth.replace("-", "");
@@ -372,6 +362,7 @@ async function processMfInbox(event) {
         yearMonth,
         fileName: copied.data.name,
         driveFileId: copied.data.id,
+        sourceDriveFileId: file.id, // 受信BOX側の元ファイルID(週次の重複判定キー)
         driveFolderId: accFolder.id,
         gmailMessageId: null,
         fileType: file.name.endsWith(".csv") ? "csv" : "pdf",
@@ -402,7 +393,35 @@ async function processMfInbox(event) {
 
 // ========== ヘルパー関数 ==========
 
-async function getDriveClient_() {
+async function getDriveClient_(db) {
+  // サービスアカウントはMyDriveに書き込めない(storage quotaを持たない)ため、
+  // Drive フルスコープを持つユーザーOAuthトークン(81hassac等)で書き込む。無ければADCにフォールバック(読み取り用)
+  if (db) {
+    try {
+      const oauthDoc = await db.collection("settings").doc("gmailOAuth").get();
+      const { clientId, clientSecret } = oauthDoc.exists ? oauthDoc.data() : {};
+      if (clientId && clientSecret) {
+        const cols = [
+          db.collection("settings").doc("gmailOAuth").collection("tokens"),
+          db.collection("settings").doc("gmailOAuthEmailVerification").collection("tokens"),
+        ];
+        for (const col of cols) {
+          const snap = await col.get();
+          for (const doc of snap.docs) {
+            const t = doc.data();
+            if (!t.refreshToken) continue;
+            if (!/auth\/drive(\s|$)/.test(t.scope || "")) continue; // drive.file ではなくフルdriveのみ
+            const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+            oauth2Client.setCredentials({ refresh_token: t.refreshToken });
+            return google.drive({ version: "v3", auth: oauth2Client });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Drive OAuthクライアント生成失敗(ADCへフォールバック):", e.message);
+    }
+  }
+  console.warn("Driveフルスコープのユーザーotokenが見つからずADC(サービスアカウント)を使用。読み取りは可能だがファイル作成は失敗する");
   const auth = new google.auth.GoogleAuth({
     scopes: ["https://www.googleapis.com/auth/drive"],
   });

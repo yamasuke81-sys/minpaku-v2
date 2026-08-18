@@ -17,12 +17,12 @@ module.exports = async function checkTaxDocsDrive(event) {
     return;
   }
 
-  // 今月の年月
-  const now = new Date();
-  const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const [year, month] = yearMonth.split("-");
-  const yearStr = `${year}年`;
-  const monthStr = `${parseInt(month)}月`;
+  // 対象は「前月」と「今月」の2ヶ月分。書類は翌月に届くものが多く(例: 7月分の明細が8月に
+  // 2026.07 フォルダへ入る)、今月だけ見ていると前月分の到着を検出できない
+  // JST基準(ランタイムはUTC。毎朝7時JST=前日22時UTCなので素のgetMonth()だと月初に当月がずれる)
+  const now = new Date(Date.now() + 9 * 3600 * 1000);
+  const ymOf = (d) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  const yearMonths = [ymOf(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))), ymOf(now)];
 
   let drive;
   try {
@@ -37,24 +37,33 @@ module.exports = async function checkTaxDocsDrive(event) {
 
   const entSnap = await db.collection("entities").orderBy("displayOrder").get();
   const checklistCol = db.collection("taxDocsChecklist");
+  const { buildChecklistItems } = require("../api/tax-docs");
   let totalFound = 0;
   let totalMissing = 0;
   const newlyCollected = [];
+
+  for (const yearMonth of yearMonths) {
+  const [year, month] = yearMonth.split("-");
 
   for (const entDoc of entSnap.docs) {
     const ent = entDoc.data();
     if (!ent.taxFolderId) continue;
 
-    // 年/月フォルダを探す
+    // 月フォルダを探す — 実運用は「YYYY.MM」直下(例: IU_八朔/2026.07)。旧「YYYY年/M月」も後方互換で見る
     let monthFolderId = null;
     try {
-      const yearFolder = await findSubfolder_(drive, ent.taxFolderId, yearStr);
-      if (yearFolder) {
-        const mFolder = await findSubfolder_(drive, yearFolder.id, monthStr);
-        if (mFolder) monthFolderId = mFolder.id;
+      const dotFolder = await findSubfolder_(drive, ent.taxFolderId, `${year}.${month}`);
+      if (dotFolder) {
+        monthFolderId = dotFolder.id;
+      } else {
+        const yearFolder = await findSubfolder_(drive, ent.taxFolderId, `${year}年`);
+        if (yearFolder) {
+          const mFolder = await findSubfolder_(drive, yearFolder.id, `${parseInt(month)}月`);
+          if (mFolder) monthFolderId = mFolder.id;
+        }
       }
     } catch (e) {
-      console.error(`Drive監視エラー(${ent.name}):`, e.message);
+      console.error(`Drive監視エラー(${ent.name}/${yearMonth}):`, e.message);
       continue;
     }
 
@@ -63,12 +72,34 @@ module.exports = async function checkTaxDocsDrive(event) {
     // フォルダ内の全ファイルをスキャン
     const driveFiles = await listAllFilesRecursive_(drive, monthFolderId);
 
-    // チェックリスト更新
+    // チェックリスト更新(未生成なら entities マスタから自動初期化 — 従来はUIを開くまで
+    // ドキュメントが無く、この監視が黙って continue し続けて一度も機能していなかった)
     const clRef = checklistCol.doc(yearMonth).collection("entities").doc(entDoc.id);
     const clDoc = await clRef.get();
-    if (!clDoc.exists) continue;
+    let clData;
+    if (clDoc.exists) {
+      clData = clDoc.data();
+    } else {
+      const initItems = buildChecklistItems(ent);
+      if (initItems.length === 0) continue;
+      clData = {
+        entityName: ent.name,
+        entityType: ent.type,
+        items: initItems,
+        completedCount: 0,
+        totalCount: initItems.length,
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      await checklistCol.doc(yearMonth).set({ createdAt: FieldValue.serverTimestamp() }, { merge: true });
+      try {
+        await clRef.create(clData); // 既存があれば失敗させて上書きを防ぐ(UI/API側と競合しうる)
+      } catch (e) {
+        const cur = await clRef.get();
+        if (!cur.exists) throw e;
+        clData = cur.data();
+      }
+    }
 
-    const clData = clDoc.data();
     const items = clData.items || [];
     if (items.length === 0) continue;
 
@@ -91,7 +122,7 @@ module.exports = async function checkTaxDocsDrive(event) {
           items[i].autoCollected = true;
           items[i].driveFileName = matchedFile.name;
           changed = true;
-          newlyCollected.push(`${ent.name}: ${item.name}`);
+          newlyCollected.push(`${yearMonth} ${ent.name}: ${item.name}`);
         }
       } else {
         totalMissing++;
@@ -103,12 +134,13 @@ module.exports = async function checkTaxDocsDrive(event) {
       await clRef.update({ items, completedCount, updatedAt: FieldValue.serverTimestamp() });
     }
   }
+  } // yearMonths ループ終わり
 
   // 新たに収集されたものがあればLINE通知
   if (newlyCollected.length > 0) {
     try {
       const { notifyOwner } = require("../utils/lineNotify");
-      const lines = [`📁 税理士資料 自動検出（${yearMonth}）\n`];
+      const lines = ["📁 税理士資料 自動検出\n"];
       newlyCollected.forEach((c) => lines.push(`✅ ${c}`));
       await notifyOwner(db, "tax_docs_drive_check", "税理士資料 自動検出", lines.join("\n"));
     } catch (e) {

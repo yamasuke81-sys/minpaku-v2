@@ -255,62 +255,20 @@ module.exports = function taxDocsApi(db) {
         });
       }
 
-      const now = new Date();
-      const ym = yearMonth || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+      const now = new Date(Date.now() + 9 * 3600 * 1000); // JST基準
+      const ym = yearMonth || `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
       const [year, month] = ym.split("-");
-      const yearStr = `${year}年`;
-      const monthStr = `${parseInt(month)}月`;
 
-      // 年月フォルダ作成
-      const yearFolder = await getOrCreateSubfolder_(drive, ent.taxFolderId, yearStr);
-      const monthFolder = await getOrCreateSubfolder_(drive, yearFolder.id, monthStr);
-
-      // 口座別サブフォルダ作成
-      const createdFolders = [];
-      const accounts = ent.accounts || [];
-      const platforms = ent.platforms || [];
-
-      // 銀行
-      const bankAccounts = accounts.filter((a) => a.category === "bank");
-      if (bankAccounts.length > 0) {
-        const bankFolder = await getOrCreateSubfolder_(drive, monthFolder.id, "銀行口座明細");
-        for (const acc of bankAccounts) {
-          await getOrCreateSubfolder_(drive, bankFolder.id, acc.name);
-          createdFolders.push(`銀行口座明細/${acc.name}`);
-        }
-      }
-
-      // クレカ
-      const creditAccounts = accounts.filter((a) => a.category === "credit");
-      if (creditAccounts.length > 0) {
-        const creditFolder = await getOrCreateSubfolder_(drive, monthFolder.id, "クレジットカード明細");
-        for (const acc of creditAccounts) {
-          await getOrCreateSubfolder_(drive, creditFolder.id, acc.name);
-          createdFolders.push(`クレジットカード明細/${acc.name}`);
-        }
-      }
-
-      // プラットフォーム
-      for (const plat of platforms) {
-        await getOrCreateSubfolder_(drive, monthFolder.id, plat.name.replace(/送金明細|手数料請求書/g, "").trim() || plat.name);
-        createdFolders.push(plat.name);
-      }
-
-      // 手動項目
-      for (const manual of (ent.manualItems || [])) {
-        await getOrCreateSubfolder_(drive, monthFolder.id, manual.name);
-        createdFolders.push(manual.name);
-      }
-
-      // その他フォルダ
-      await getOrCreateSubfolder_(drive, monthFolder.id, "その他");
-      createdFolders.push("その他");
+      // 実運用の税理士フォルダは「YYYY.MM」直下にフラット置き(例: IU_八朔/2026.07)。
+      // 旧実装の「YYYY年/M月/カテゴリ/口座名」の深い階層は実態と不一致だったため作らない
+      const monthFolder = await getOrCreateSubfolder_(drive, ent.taxFolderId, `${year}.${month}`);
 
       res.json({
         success: true,
         entityName: ent.name,
-        rootFolder: `${yearStr}/${monthStr}`,
-        createdFolders,
+        rootFolder: `${year}.${month}`,
+        createdFolders: [`${year}.${month}`],
+        folderId: monthFolder.id,
       });
     } catch (e) {
       console.error("フォルダ初期化エラー:", e);
@@ -536,8 +494,6 @@ module.exports = function taxDocsApi(db) {
  */
 async function autoCheckDriveFiles_(db, entitiesCol, checklistCol, yearMonth, entityDocs) {
   const [year, month] = yearMonth.split("-");
-  const yearStr = `${year}年`;
-  const monthStr = `${parseInt(month)}月`;
   const results = {};
 
   let drive;
@@ -555,13 +511,18 @@ async function autoCheckDriveFiles_(db, entitiesCol, checklistCol, yearMonth, en
       continue;
     }
 
-    // 年/月フォルダを探す
+    // 月フォルダを探す — 実運用は「YYYY.MM」直下(例: IU_八朔/2026.07)。旧「YYYY年/M月」も後方互換で見る
     let monthFolderId = null;
     try {
-      const yearFolder = await findSubfolder_(drive, ent.taxFolderId, yearStr);
-      if (yearFolder) {
-        const mFolder = await findSubfolder_(drive, yearFolder.id, monthStr);
-        if (mFolder) monthFolderId = mFolder.id;
+      const dotFolder = await findSubfolder_(drive, ent.taxFolderId, `${year}.${month}`);
+      if (dotFolder) {
+        monthFolderId = dotFolder.id;
+      } else {
+        const yearFolder = await findSubfolder_(drive, ent.taxFolderId, `${year}年`);
+        if (yearFolder) {
+          const mFolder = await findSubfolder_(drive, yearFolder.id, `${parseInt(month)}月`);
+          if (mFolder) monthFolderId = mFolder.id;
+        }
       }
     } catch (e) {
       results[entDoc.id] = { error: `Driveアクセスエラー: ${e.message}`, found: 0, total: 0, missing: [] };
@@ -778,3 +739,6 @@ async function listAllFilesRecursive_(drive, folderId) {
   }
   return files;
 }
+
+// checkTaxDocsDrive(日次Drive監視)がチェックリスト未生成の月を自動初期化するために公開
+module.exports.buildChecklistItems = buildChecklistItems_;
