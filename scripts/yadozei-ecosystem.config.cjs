@@ -21,6 +21,20 @@ module.exports = {
       out_file: __dirname + "/yadozei-listener.out.log",
       error_file: __dirname + "/yadozei-listener.err.log",
       merge_logs: true,
+      // ★このPCの PATH から C:\Windows\system32 が丸ごと消えている (2026-08-19 発見)。
+      //   その状態だと Playwright がブラウザ終了時に taskkill を呼べず、孤児 Chromium が
+      //   user-data-dir を掴んだまま残る → 次に開くログイン画面が「既存のセッションで
+      //   開いています」で即終了し、何度再ログインしても直らなくなる。
+      //   PATH 本体を直すのが本筋だが、直っていなくても常駐だけは動くようここで前置きする。
+      env: {
+        PATH: [
+          "C:\\Windows\\system32",
+          "C:\\Windows",
+          "C:\\Windows\\System32\\Wbem",
+          "C:\\Windows\\System32\\WindowsPowerShell\\v1.0",
+          process.env.PATH || "",
+        ].join(";"),
+      },
     },
   ],
 };

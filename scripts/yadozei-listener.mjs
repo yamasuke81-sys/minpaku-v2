@@ -62,10 +62,11 @@ const EXPIRE_REMIND_MIN_INTERVAL_H = 20;
 // 同一サイトの「ログインが切れています」促しは、復帰を跨いでも最短この間隔でしか出さない。
 // Booking は extranet のアイドルタイムアウトで数時間ごとに切れるため、これが無いと促しが鳴り続ける。
 const EXPIRE_NOTIFY_COOLDOWN_H = 24;
-// セッション点検(キープアライブ兼)の間隔[分]。8h→2h(2026-07-31)でも Booking は3日連続で毎日失効した
-// (トップを開くだけでは延命されない疑い)。30分毎に短縮し、あわせて handleSessionCheck が
-// 「前回OKからの経過時間」を毎回ログに残すので、実際に何時間で切れるかは当て推量でなく実測で判断する(2026-08-04)。
-const SESSION_CHECK_BUCKET_MIN = 30;
+// セッション点検の間隔[分]。★実測完了(2026-08-16): Booking のセッションは「約24時間の固定寿命」
+// (30分毎の点検+予約一覧クリックのキープアライブでも 23:59/24:00/24:09/24:29h で失効=延命は原理的に不可能)。
+// キープアライブ目的の高頻度点検は無意味と確定したので 30分→240分(4h)に戻す。
+// 点検の残る役割は①状態記録(settings/yadozeiListener) ②再ログイン後の recovery 検知(滞留ジョブ再実行)のみ。
+const SESSION_CHECK_BUCKET_MIN = 240;
 // OTA失効を検知したら「どのタイミングでも」秘書(#民泊管理)経由でワンタップ再ログインを促すための連携先。
 // ota-login-check.mjs(朝4時)と同じ pending ファイル/チャンネルを使い、handleOne の「はい」が拾って runRelogin する。
 const MINPAKU_CHANNEL_ID = "1518754802572722306"; // #民泊管理 (channels.json minpaku。notifyDiscord_ の webhook も同チャンネル)
@@ -808,7 +809,8 @@ async function handleAirbnbCsv(job, ctx, jobId) {
   const tmpFile = path.join(TMP_DIR, `airbnb_${jobId}_${Date.now()}.csv`);
   try {
     fs.writeFileSync(tmpFile, csvText, "utf8");
-    return await uploadCsvToDrive(propertyId, propertyName, "airbnb", yearMonth, tmpFile);
+    const up = await uploadCsvToDrive(propertyId, propertyName, "airbnb", yearMonth, tmpFile);
+    return { ...up, rowCount: countCsvDataRows(csvText) };
   } finally {
     safeUnlink(tmpFile);
   }
@@ -831,6 +833,15 @@ function parseCsvSimple(text) {
   }
   if (field !== "" || row.length) { row.push(field); rows.push(row); }
   return rows;
+}
+
+// CSV の「実データ行数」。ヘッダのみ(=対象月の予約0件)を機械判定するために使う。
+// ★やどぜいはヘッダだけのCSVを「必須カラムが不足しています」で弾く(実測 2026-08-02
+//   the Terrace 長浜 / Booking / 2026-07)。中身が無いのに失敗ジョブが残り続けるのを防ぐ。
+function countCsvDataRows(text) {
+  const rows = parseCsvSimple(String(text || "").replace(/^﻿/, ""));
+  if (rows.length <= 1) return 0;
+  return rows.slice(1).filter((r) => r.some((c) => String(c || "").trim() !== "")).length;
 }
 
 // 取得した Booking CSV のチェックイン日が要求月と一致するか検証する。
@@ -1204,7 +1215,9 @@ async function handleBookingCsv(job, ctx, jobId) {
   const tmpCsv = path.join(TMP_DIR, `booking_${jobId}_${Date.now()}.csv`);
   try {
     fs.writeFileSync(tmpCsv, csv, "utf8");
-    return await uploadCsvToDrive(propertyId, propertyName, "booking", yearMonth, tmpCsv);
+    const up = await uploadCsvToDrive(propertyId, propertyName, "booking", yearMonth, tmpCsv);
+    // 予約件数を結果に残す(0件=取り込む中身が無い、を後工程/監査が機械判定できるようにする)
+    return { ...up, rowCount: vr.count };
   } finally {
     safeUnlink(tmpCsv);
   }
@@ -1356,15 +1369,19 @@ async function handleCalendarAudit(job, ctx, jobId) {
   //   失敗させない(全サイト一律スキップにはせず、生きているOTAの取得は続行する)。
   //   復帰時は handleSessionCheck が calendar_audit を強制再投入して追いつく。
   const auditSessSt = loadSessionState_();
-  const skippedOtaKeys = [];
+  // ★スキップは理由付きでスナップショットに残す(2026-08-18)。以前は skippedOtaKeys がローカル変数のまま
+  //   消え、status="done" / errors=[] で保存していたため、朝のサマリが「全物件異常なし」と
+  //   片肺のまま満点表示になっていた(Booking未取得に誰も気づけない偽グリーン)。
+  const skippedOtas = [];
   if (airbnbProps.length && auditSessSt["Airbnb"]?.expiredSince) {
-    skippedOtaKeys.push("airbnb");
+    skippedOtas.push({ ota: "airbnb", reason: "session_expired", expiredSince: auditSessSt["Airbnb"].expiredSince });
     console.log(`${LOG_PREFIX} [calendar_audit] Airbnb は失効のため保留 (失効 ${fmtJst_(auditSessSt["Airbnb"].expiredSince)}〜)`);
   }
   if (bookingProps.length && auditSessSt["Booking.com"]?.expiredSince) {
-    skippedOtaKeys.push("booking");
+    skippedOtas.push({ ota: "booking", reason: "session_expired", expiredSince: auditSessSt["Booking.com"].expiredSince });
     console.log(`${LOG_PREFIX} [calendar_audit] Booking は失効のため保留 (失効 ${fmtJst_(auditSessSt["Booking.com"].expiredSince)}〜)`);
   }
+  const skippedOtaKeys = skippedOtas.map((s) => s.ota);
 
   // Airbnb: 1回の取得で全リスティング分を取り、リスティング名で物件へ振り分け
   if (airbnbProps.length && !skippedOtaKeys.includes("airbnb")) {
@@ -1432,7 +1449,12 @@ async function handleCalendarAudit(job, ctx, jobId) {
     airbnb: reservations.filter((r) => r.ota === "airbnb").length,
     booking: reservations.filter((r) => r.ota === "booking").length,
   };
-  const status = errors.length === 0 ? "done" : errors.length < attempted ? "partial" : "failed";
+  // ★done は「全OTAを実際に取得できた」時だけ。失敗もスキップも未取得なので done にはしない。
+  //   取れたOTAが1つでもあれば partial、1つも取れていなければ failed。
+  const fetchedOtaCount = attempted - errors.length;
+  const status = errors.length === 0 && skippedOtas.length === 0
+    ? "done"
+    : fetchedOtaCount > 0 ? "partial" : "failed";
 
   // 監査対象 (物件×OTA) の一覧。逆方向チェック (v2→OTA) はこのペアに限定する
   // (別アカウント運用の物件=おのみちホテル/Hotel Zen 等を誤って「OTAに無い」と検知しないため)。
@@ -1447,27 +1469,37 @@ async function handleCalendarAudit(job, ctx, jobId) {
   await db.collection("otaCalendarSnapshots").doc(fromStr).set({
     date: fromStr, from: fromStr, to: toStr,
     fetchedAt: admin.firestore.FieldValue.serverTimestamp(),
-    status, errors, counts, unassignedCount, auditedTargets, reservations,
+    status, errors, skippedOtas, counts, unassignedCount, auditedTargets, reservations,
   });
   console.log(
     `${LOG_PREFIX} [calendar_audit] スナップショット保存 ${fromStr} status=${status} airbnb=${counts.airbnb} booking=${counts.booking} 未割当=${unassignedCount}`
   );
 
-  if (status === "failed") {
+  // 失効スキップだけで status=failed になった場合は投げない(仕様どおりの状態でジョブを失敗させない)。
+  //   実際に取得を試みて全滅した時だけ従来どおり失敗させる。
+  if (errors.length > 0 && fetchedOtaCount <= 0) {
     throw new Error(`OTAカレンダー取得が全滅: ${errors.map((e) => `${e.ota}: ${e.message}`).join(" / ")}`);
   }
-  return { date: fromStr, from: fromStr, to: toStr, status, counts, errors, unassignedCount };
+  return { date: fromStr, from: fromStr, to: toStr, status, counts, errors, skippedOtas, unassignedCount };
 }
 
 // ================== 直販料金の Airbnb 同期 (pricing_sync) ==================
-// Airbnb の各リスティング料金を取得し、5%OFF・100円切り下げで minpaku-v2 の propertyRates
+// Airbnb の各リスティング料金を取得し、PRICING_DISCOUNT_PERCENT を引いて100円切り下げで minpaku-v2 の propertyRates
 // (+ 日別 overrides) に反映する。直販サイト(setouchi-stay.com)は /public/quote 経由でこの値を
 // 読むので、サイト側の再ビルド・再デプロイは不要。
 //
 // ★Airbnb は「基本料金」だけでなく日ごとに違う料金(季節料金)を持つ。基本料金だけを写すと
 //   繁忙日に大幅な安売りになるため、日別料金を overrides に1日ずつミラーするのが本体。
 //   基本料金/週末料金は取得範囲(365日)より先の日付のフォールバックとして併せて保存する。
-const PRICING_DISCOUNT_PERCENT = 5; // 直販は常にAirbnbよりこの%以上安くする
+// 直販とAirbnbの価格差(%)。0 = 同額。
+// 2026-08-13 に 5 → 0 へ変更(やますけ判断)。理由:
+//   Airbnbが「スプリット3%」(ホスト負担3%)の間は、直販のStripe実費 3.96%
+//   (3.6%+消費税、実測)がAirbnbの3%を上回るため、割引を乗せると直販のほうが
+//   手残りが少なくなる(実測: Airbnb 97.0% vs 直販5%OFF 91.2%)。
+//   今後は「ホストのみ15.5%」が主流に戻る見込みで、その場合 Airbnb は84.5%まで
+//   落ちるので直販が有利。いずれにせよ値引きする理由がないため同額にする。
+//   ※100円単位の切り下げは残るので、実際は最大99円だけ直販が安くなる。
+const PRICING_DISCOUNT_PERCENT = 0;
 const PRICING_SYNC_WINDOW_DAYS = 365; // 日別料金をミラーする範囲
 const PRICING_OVERRIDE_SOURCE = "airbnb-sync"; // overrides の管理主体マーカー(手動設定と区別する)
 const PRICING_SANE_MIN = 1000; // これ未満/超は取得ミスとみなす
@@ -1475,7 +1507,8 @@ const PRICING_SANE_MAX = 1_000_000;
 const PRICING_MAX_DELTA_RATIO = 0.4; // 前回のAirbnb原値からこれ以上動いたら書かずに警告(force で突破)
 const AIRBNB_BASE = "https://www.airbnb.jp";
 
-// 5%OFF して100円単位に切り下げる。端数を常に下へ倒すので「5%以上お得」が必ず成立する。
+// PRICING_DISCOUNT_PERCENT を引いて100円単位に切り下げる。
+// 端数を常に下へ倒すので「Airbnbより高くなる」ことは起きない(0%でも最大99円安い)。
 function discountedPrice_(airbnbPrice) {
   const n = Number(airbnbPrice);
   if (!Number.isFinite(n)) return null;
@@ -1891,7 +1924,7 @@ async function applyPricingSync_(prop, fetched, opts) {
       windowDays: PRICING_SYNC_WINDOW_DAYS,
       smartPricing: !!fetched.smartPricing,
       promotionTypes: fetched.promotionTypes || [],
-      // ゲスト側で実測した割引(これを基準に5%OFFしている)
+      // ゲスト側で実測した割引(これを基準に PRICING_DISCOUNT_PERCENT を引く)
       guest: fetched.guest
         ? {
             flatPercent: fetched.guest.flatPercent,
@@ -1908,7 +1941,7 @@ async function applyPricingSync_(prop, fetched, opts) {
         weekendPrice: fetched.weekendPrice ?? null,
         discounts: fetched.discounts,
         dayCount: fetched.days.length,
-        // ゲストが実際に見る1泊料金(一律割引込み)。5%OFFの基準はこちら
+        // ゲストが実際に見る1泊料金(一律割引込み)。直販価格の基準はこちら
         guestBasePrice: fetched.basePrice != null ? Math.round(fetched.basePrice * flatFactor) : null,
       },
       written: { basePrice: newBase, weekendPrice: newWeekend },
@@ -1957,7 +1990,7 @@ async function applyPricingSync_(prop, fetched, opts) {
   // --- 日別 overrides の差分反映 ---
   const desired = new Map();
   for (const d of fetched.days) {
-    const p = guestPrice(d.price); // 一律割引を織り込んだうえで5%OFF
+    const p = guestPrice(d.price); // 一律割引を織り込んだうえで PRICING_DISCOUNT_PERCENT を引く
     // airbnbPrice には「ゲストが実際に見る1泊料金」を残す(監査・急変ガードの基準)
     const guestShown = Math.round(Number(d.price) * flatFactor);
     if (Number.isFinite(p) && p >= PRICING_SANE_MIN) desired.set(d.day, { price: p, airbnbPrice: guestShown, hostPrice: Number(d.price) });
@@ -2097,7 +2130,10 @@ async function handlePricingSync(job, ctx, jobId) {
   const changedResults = results.filter((r) => r.changes.length || r.dayWrites || r.dayDeletes);
   const lines = [];
   if (changedResults.length) {
-    lines.push(`💴 **直販サイトの料金をAirbnbに追随させました**（${PRICING_DISCOUNT_PERCENT}%OFF・100円単位で切り下げ）${dryRun ? "／これは下書きです（未反映）" : ""}`);
+    const pricePolicy = PRICING_DISCOUNT_PERCENT > 0
+      ? `${PRICING_DISCOUNT_PERCENT}%OFF・100円単位で切り下げ`
+      : "Airbnbと同額・100円単位で切り下げ";
+    lines.push(`💴 **直販サイトの料金をAirbnbに追随させました**（${pricePolicy}）${dryRun ? "／これは下書きです（未反映）" : ""}`);
     for (const r of changedResults) {
       const detail = [...r.changes];
       if (r.dayWrites) detail.push(`日別料金 ${r.dayWrites}日分を更新（全${r.dayTotal}日）`);
@@ -2415,6 +2451,18 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
   const tmpCsv = path.join(TMP_DIR, `upload_${jobId}_${Date.now()}.csv`);
   await downloadDriveFileToTemp(propertyId, sourceFileId, tmpCsv);
 
+  // ★対象月の予約が0件(ヘッダのみ)なら、やどぜいを開かずに正常終了する。
+  //   やどぜいは空CSVを「必須カラムが不足しています」で拒否し、こちらは
+  //   「モーダルが閉じない」という無関係な失敗として残り続けていた
+  //   (実測: the Terrace 長浜 / Booking / 2026-07 が 8/2 に2回失敗 → 申告ギャップの誤警報)。
+  //   取り込む中身が無い＝申告額に影響しないので、人の仕事を作らずに閉じる。
+  if (countCsvDataRows(fs.readFileSync(tmpCsv, "utf8")) === 0) {
+    safeUnlink(tmpCsv);
+    console.log(`${LOG_PREFIX} ${otaLabel} ${yearMonth} は対象月の予約0件 — やどぜい取込をスキップ (${propertyName})`);
+    return { uploaded: false, skipped: true, rowCount: 0, ota, yearMonth,
+      reason: "対象月の予約が0件(CSVがヘッダのみ)のため取込不要" };
+  }
+
   const dryRun = params?.dryRun === true || params?.dryRun === "true"; // インポート実行の直前で停止 (書き込まない)
 
   const page = await ctx.newPage();
@@ -2567,7 +2615,12 @@ async function handleYadozeiCsvUpload(job, ctx, jobId) {
     await debugShot(page, jobId, "yadozei_upload_end");
     if (!executed && (await isWizardOpen(page))) {
       await saveScreenshot(page, jobId, "yadozei_upload_no_exec");
-      throw new Error("やどぜいインポートが完了しなかった (モーダルが閉じない)");
+      // ★やどぜい側の赤字エラー(必須カラム不足など)を本文に載せる。
+      //   これが無いと原因が「モーダルが閉じない」としか残らず、スクショを開くまで真因が分からない。
+      const vErrs = await wizardValidationErrors(page).catch(() => []);
+      throw new Error(vErrs.length
+        ? `やどぜいがCSVを受け付けませんでした: ${vErrs.join(" / ")}`
+        : "やどぜいインポートが完了しなかった (モーダルが閉じない)");
     }
     console.log(`${LOG_PREFIX} やどぜいアップロード完了: ${otaLabel} ${yearMonth} (${propertyName})`);
     return { uploaded: true, ota, yearMonth };
@@ -3047,9 +3100,20 @@ async function handleSessionCheck(ctx, jobId) {
     try {
       const retryKinds = ["booking_csv_fetch", "airbnb_csv_fetch", "ota_message", "pricing_sync"];
       const since = Date.now() - 7 * 24 * 3600 * 1000; // 7日以内の失敗だけ(古い失敗は蒸し返さない)
-      const failed = await db.collection("yadozeiQueue").where("status", "==", "failed").limit(50).get();
+      // ★limit(50) は取りこぼしの原因だった(2026-08-18 実障害)。orderBy 無しの limit は
+      //   ドキュメントID昇順で切られるため、failed が50件を超えた時点でID後方のジョブが永久に
+      //   拾われなくなる(実例: ota_message yOyULVX2EYLqMHwCJoIC が 8/14 の Booking 復帰でも
+      //   再投入されないまま放置。failed は全期間で59件あった)。
+      //   複合インデックスを増やさずに直すため、全件取ってから新しい順に処理する。
+      const failed = await db.collection("yadozeiQueue").where("status", "==", "failed").limit(500).get();
+      const failedDocs = failed.docs.slice().sort((x, y) => {
+        const tx = x.data()?.createdAt?.toMillis ? x.data().createdAt.toMillis() : 0;
+        const ty = y.data()?.createdAt?.toMillis ? y.data().createdAt.toMillis() : 0;
+        return ty - tx; // 新しい順
+      });
+      if (failed.size >= 500) console.warn(`${LOG_PREFIX} [session_check] failed ジョブが500件に達した(古い分は掃除が必要)`);
       let requeued = 0;
-      for (const doc of failed.docs) {
+      for (const doc of failedDocs) {
         const j = doc.data() || {};
         if (!retryKinds.includes(j.kind)) continue;
         if (j.retriedAt) continue; // 再投入は1回だけ(無限リトライにしない)
@@ -3422,12 +3486,22 @@ if (LOGIN_MODE) {
       process.exit(0);
     });
     const sites = [
-      { name: "Airbnb", url: "https://www.airbnb.com/hosting/reservations" },
-      { name: "Booking.com extranet", url: "https://admin.booking.com/" },
-      { name: "やどぜい", url: "https://app.yadozei.com/" },
+      { key: "airbnb", name: "Airbnb", url: "https://www.airbnb.com/hosting/reservations" },
+      { key: "booking", name: "Booking.com extranet", url: "https://admin.booking.com/" },
+      { key: "yadozei", name: "やどぜい", url: "https://app.yadozei.com/" },
     ];
+    // ★最前面に出すサイト。既定は Booking.com(セッション寿命24時間で一番よく切れる)。
+    //   従来は開いた順の最後=やどぜいが前に来てしまい、Booking のログインに来たのに
+    //   毎回タブを選び直していた(2026-08-19 やますけ指摘)。--focus airbnb 等で変えられる。
+    const focusKey = (() => {
+      const i = process.argv.indexOf("--focus");
+      const v = i >= 0 ? String(process.argv[i + 1] || "").toLowerCase() : "";
+      return sites.some((s) => s.key === v) ? v : "booking";
+    })();
+    const opened = new Map();
     for (const s of sites) {
       const p = await ctx.newPage();
+      opened.set(s.key, p);
       await p.goto(s.url, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch((e) => {
         console.warn(`${LOG_PREFIX} ${s.name} を開けませんでした: ${e.message}`);
       });
@@ -3436,8 +3510,12 @@ if (LOGIN_MODE) {
     for (const p of ctx.pages()) {
       if (p.url() === "about:blank") await p.close().catch(() => {});
     }
+    // 目的のサイトを最前面へ(閉じたタブを掴まないよう、about:blank 掃除のあとに実行する)
+    const focusPage = opened.get(focusKey);
+    if (focusPage && !focusPage.isClosed()) await focusPage.bringToFront().catch(() => {});
+    const focusName = sites.find((s) => s.key === focusKey)?.name || focusKey;
     console.log(`${LOG_PREFIX} ================================================`);
-    console.log(`${LOG_PREFIX} 3サイトのタブを開きました。各タブでログインしてください:`);
+    console.log(`${LOG_PREFIX} 3サイトのタブを開きました(最前面=${focusName})。各タブでログインしてください:`);
     console.log(`${LOG_PREFIX}   1) Airbnb  2) Booking.com extranet  3) やどぜい`);
     console.log(`${LOG_PREFIX} ログイン完了後、ブラウザを閉じれば自動で終了します (Ctrl+C でも可 / Discordに「閉じて」でも可)`);
     console.log(`${LOG_PREFIX} ================================================`);
@@ -3468,21 +3546,39 @@ if (LOGIN_MODE) {
   // ★2026-07-31: 8時間毎(1日3回)だと Booking.com の extranet アイドルタイムアウトに間に合わず毎回未ログインだった。
   // ★2026-08-04: 2時間毎でも3日連続で毎日失効した(実測)。バケットを分単位(SESSION_CHECK_BUCKET_MIN=30分)に
   //   短縮し、handleSessionCheck の「前回OKからの経過」ログで実際の失効までの時間を数値で取る。
-  async function enqueueSessionCheck() {
+  async function enqueueSessionCheck(force = false) {
     try {
       const j = new Date(Date.now() + 9 * 3600 * 1000); // JST
       const ymd = `${j.getUTCFullYear()}${String(j.getUTCMonth() + 1).padStart(2, "0")}${String(j.getUTCDate()).padStart(2, "0")}`;
       const bucket = Math.floor((j.getUTCHours() * 60 + j.getUTCMinutes()) / SESSION_CHECK_BUCKET_MIN);
-      const id = `session_check_${ymd}_m${bucket}`;
+      // ★force のときはバケット冪等を外す。再ログイン直後の点検が「同じ30分バケットに既にある」
+      //   だけの理由でスキップされ、滞留ジョブの再投入が最大30分待たされていた(2026-08-19 発見)。
+      const id = force ? `session_check_force_${Date.now()}` : `session_check_${ymd}_m${bucket}`;
       await db.collection("yadozeiQueue").doc(id).create({
         kind: "session_check", status: "pending",
-        createdAt: admin.firestore.FieldValue.serverTimestamp(), source: "listener_periodic",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        source: force ? "login_now_forced" : "listener_periodic",
       });
       console.log(`${LOG_PREFIX} session_check enqueued: ${id}`);
     } catch (e) {
       if (!/already exists/i.test(e.message)) console.warn(`${LOG_PREFIX} session_check enqueue: ${e.message}`);
     }
   }
+
+  // 「🔑 今ログインする」からの即時点検要求。秘書常駐が旗を書く → ここが拾って即 enqueue する。
+  // (ログインが済んだ瞬間に、失効中に失敗した月次CSV取得やOTA下書きをその場で流すため)
+  const FORCE_SESSION_CHECK_FLAG = path.join(os.homedir(), ".claude", "channels", "discord", "ota-force-session-check.json");
+  async function checkForcedSessionCheck() {
+    if (!fs.existsSync(FORCE_SESSION_CHECK_FLAG)) return;
+    let reason = "";
+    try { reason = (JSON.parse(fs.readFileSync(FORCE_SESSION_CHECK_FLAG, "utf8")) || {}).reason || ""; } catch {}
+    try { fs.unlinkSync(FORCE_SESSION_CHECK_FLAG); } catch {}
+    console.log(`${LOG_PREFIX} 強制セッション点検の要求を検知 (${reason}) → 即時 enqueue`);
+    await enqueueSessionCheck(true);
+  }
+  setTimeout(checkForcedSessionCheck, 5_000);   // 再ログイン直後の常駐再開で最優先に拾う
+  setInterval(checkForcedSessionCheck, 20_000);
+
   setTimeout(enqueueSessionCheck, 20_000); // 起動20秒後に初回
   // 10分毎トライ(バケットで冪等)。バケット幅(30分)と同じ間隔だとタイマーのズレでバケットを取りこぼすため
   // 短めに刻む → 実質 1440/SESSION_CHECK_BUCKET_MIN 回/日
