@@ -227,16 +227,17 @@ function sumBookingCsv(text, opts = {}) {
 /**
  * 精算(運営代行手数料)を計算する。
  *
- * ★2026-07-14 ユーザー決定: 手数料は「利益ベース」で算定する。
- *   算定基礎(feeBase) = 運営利益 = 売上 − OTA手数料 − 清掃費 − 諸経費
- *   (宿泊税は預り金なので基礎に含めない)
- *   手数料(税抜) = 運営利益 × 料率%（運営利益が0以下なら0でフロア）
- *   消費税 = 手数料(税抜) × 消費税率%
+ * ★2026-08-18 ユーザー再確定: 手数料は「売上ベース」で算定する(現行)。
+ *   算定基礎 = 月間売上高 = 入金額A(Airbnb受取+Booking純額) − 宿泊税預りB
+ *   (宿泊税は宿泊者からの預り金なので基礎に含めない)
+ *   手数料(税抜) = 月間売上高 × 料率% / 消費税 = 手数料(税抜) × 消費税率%
  *   手数料(税込) = 手数料(税抜) + 消費税  ← これが乙(八朔)への請求額
+ *   → 正となる契約書は 2026-05-01付「宿泊施設運営代行契約書」＋別紙2(当初版)。
+ *     費用負担区分(別紙3)を動かしても手数料額は変わらない。
  *
- * 呼び出し側は `feeBase`(運営利益 = computePnl().profit) を渡す。
- * 後方互換: `feeBase` 未指定時は旧・売上ベース(入金額A − 宿泊税預りB)で算定する
- *   (既存テスト/旧データ経路のため残置)。
+ * 呼び出し側は `depositAmount` と `taxWithholding` を渡す(feeBase は渡さない)。
+ * 2026-07-14〜08-18 は「利益ベース」(feeBase=運営利益)で運用していた。この経路は
+ * 当時のデータ再現とテストのため残置してあるが、現行の呼び出し側はどこも使っていない。
  *
  * 端数は各段で四捨五入(円未満)。※必要なら feeRounding で切替可能。
  * @returns {{basis, feeBase, salesBase, depositAmount, taxWithholding, feeRatePct, feeExclTax, consumptionTaxPct, consumptionTax, feeInclTax}}
@@ -249,7 +250,7 @@ function computeSettlement(input = {}) {
   const round = input.feeRounding === "floor" ? Math.floor
     : input.feeRounding === "ceil" ? Math.ceil : Math.round;
 
-  // 手数料算定基礎: 利益ベース(feeBase)を優先、無ければ旧・売上ベース(A − B)
+  // 手数料算定基礎: feeBase 明示時は利益ベース(旧経路・現在未使用)、既定は売上ベース(A − B)
   const usingProfitBase = input.feeBase != null;
   const feeBase = usingProfitBase
     ? Math.max(0, Math.round(Number(input.feeBase) || 0))
@@ -266,6 +267,29 @@ function computeSettlement(input = {}) {
     depositAmount, taxWithholding,
     feeRatePct, feeExclTax, consumptionTaxPct, consumptionTax, feeInclTax,
   };
+}
+
+/**
+ * 立替金(甲が支払い・乙が負担する費目)を集計する(pure)。
+ *
+ * 費用負担区分表(別紙3)では乙(八朔)の負担だが、契約名義の都合で甲(オーナー)が支払う費目がある
+ * (例: 共用部の固定電話/NTT回線。消防法令対応で回線名義を乙へ変更できない)。
+ * この分は甲の立替金として、当月の運営代行手数料から控除して精算する。
+ *
+ * @param {Array<{catId:string,name:string,amount:number}>} expenseRows computePnl().expenses
+ * @param {Array<{id:string,advancedByOwner?:boolean}>} categories 費目マスタ
+ * @returns {{rows:Array<{name:string,amount:number}>, total:number}}
+ */
+function computeOwnerAdvances(expenseRows, categories) {
+  const ids = new Set(
+    (Array.isArray(categories) ? categories : [])
+      .filter((c) => c && c.advancedByOwner === true)
+      .map((c) => c.id)
+  );
+  const rows = (Array.isArray(expenseRows) ? expenseRows : [])
+    .filter((e) => e && ids.has(e.catId) && Math.round(Number(e.amount) || 0) > 0)
+    .map((e) => ({ name: e.name, amount: Math.round(Number(e.amount) || 0) }));
+  return { rows, total: rows.reduce((sum, r) => sum + r.amount, 0) };
 }
 
 // ================= 運営形態(operationMode) / 実効料率 =================
@@ -517,6 +541,7 @@ module.exports = {
   extractAirbnbReservations,
   extractBookingReservations,
   computeSettlement,
+  computeOwnerAdvances,
   OPERATION_MODES,
   resolveOperationMode,
   isAgencyMode,

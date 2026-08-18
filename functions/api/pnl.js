@@ -300,13 +300,15 @@ module.exports = function pnlApi(db) {
         .sort((a, b) => (a.yearMonth < b.yearMonth ? -1 : 1));
       const result = months.map((d) => {
         const base = computePnl(d, categories);
-        // ★代行手数料は「利益ベース」で算定(2026-07-14 ユーザー決定)。
-        //   算定基礎 = 運営利益(base.profit = 売上−OTA手数料−清掃費−諸経費)。精算書と同一式。
+        // ★代行手数料は「売上ベース」で算定(2026-08-18 ユーザー再確定)。
+        //   算定基礎 = 月間売上高(入金額A − 宿泊税預りB)。精算書(settlement.js)と同一式。
+        //   2026-07-14〜08-18 は運営利益ベースだったが、正となる契約書(2026-05-01付 別紙2 当初版)に戻した。
         const operatingProfit = base.profit;
         const feeRatePct = effectiveFeeRatePct(d, prop);
+        const { depositAmount } = computeDepositAmount(d.revenue || {});
         const settlement = computeSettlement({
-          feeBase: operatingProfit,
-          taxWithholding: Number(d.taxWithholding || 0), // 記録用(利益ベースでは手数料に非影響)
+          depositAmount,
+          taxWithholding: Number(d.taxWithholding || 0), // 売上ベースでは算定基礎から差し引かれる
           feeRatePct, consumptionTaxPct, feeRounding,
         });
         // 表示利益 = 運営利益 − 代行手数料(税込) = オーナー最終手取り
@@ -2040,12 +2042,13 @@ module.exports = function pnlApi(db) {
   router.post("/expense-categories", async (req, res) => {
     try {
       if (!ownerOnly_(req, res)) return; // 共通の費目マスタ編集はオーナー限定
-      const { name, type, defaultAmount, appliesTo, displayOrder } = req.body || {};
+      const { name, type, defaultAmount, appliesTo, displayOrder, advancedByOwner } = req.body || {};
       if (!name || !type) return res.status(400).json({ error: "name と type は必須です" });
       if (type !== "fixed" && type !== "manual") return res.status(400).json({ error: "type は fixed か manual" });
       const ref = await catCol.add({
         name, type, defaultAmount: toInt(defaultAmount),
         appliesTo: appliesTo || "all", displayOrder: displayOrder || 0, active: true,
+        advancedByOwner: !!advancedByOwner,
         createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
       });
       res.json({ ok: true, id: ref.id });
@@ -2069,7 +2072,9 @@ module.exports = function pnlApi(db) {
         { name: "小修繕費", type: "manual" },
         { name: "ゴミ処理費", type: "manual" },
         { name: "害虫駆除費", type: "manual" },
-        { name: "固定電話", type: "fixed" },
+        // 共用部の固定電話(NTT回線・消防法令対応)は乙(八朔)負担だが、回線名義を乙へ変更できないため
+        // 甲が支払う。精算書で立替金として手数料から控除する(別紙3 第2項)
+        { name: "固定電話", type: "fixed", advancedByOwner: true },
       ];
       const existing = await catCol.get();
       const names = new Set(existing.docs.map((d) => (d.data().name || "").trim()));
@@ -2080,6 +2085,7 @@ module.exports = function pnlApi(db) {
         const ref = await catCol.add({
           name: c.name, type: c.type, defaultAmount: 0,
           appliesTo: "all", displayOrder: ++order, active: true,
+          advancedByOwner: !!c.advancedByOwner,
           createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         });
         created.push({ id: ref.id, name: c.name });
@@ -2095,7 +2101,7 @@ module.exports = function pnlApi(db) {
     try {
       if (!ownerOnly_(req, res)) return; // 共通の費目マスタ編集はオーナー限定
       const { catId } = req.params;
-      const { name, type, defaultAmount, appliesTo, displayOrder, active } = req.body || {};
+      const { name, type, defaultAmount, appliesTo, displayOrder, active, advancedByOwner } = req.body || {};
       const update = { updatedAt: FieldValue.serverTimestamp() };
       if (name != null) update.name = name;
       if (type != null) update.type = type;
@@ -2103,6 +2109,8 @@ module.exports = function pnlApi(db) {
       if (appliesTo != null) update.appliesTo = appliesTo;
       if (displayOrder != null) update.displayOrder = displayOrder;
       if (active != null) update.active = !!active;
+      // 甲が支払い・乙が負担する費目(例: 名義変更できないNTT固定電話)。精算書で立替金として控除される
+      if (advancedByOwner != null) update.advancedByOwner = !!advancedByOwner;
       await catCol.doc(catId).set(update, { merge: true });
       res.json({ ok: true });
     } catch (e) {

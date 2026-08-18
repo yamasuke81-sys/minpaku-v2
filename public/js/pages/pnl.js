@@ -1167,20 +1167,22 @@ const PnlPage = {
 
     const settlementCol = showSettlement ? `
         <div class="col-md-7">
-          <h6 class="text-muted"><i class="bi bi-receipt"></i> 精算プレビュー（運営代行手数料・利益ベース）</h6>
+          <h6 class="text-muted"><i class="bi bi-receipt"></i> 精算プレビュー（運営代行手数料・売上ベース）</h6>
           <table class="table table-sm table-bordered mb-2">
-            <tr><td>売上合計</td><td class="text-end">${this.fmtYen(ctx.computed.revenueGross)}</td></tr>
-            <tr><td>OTA手数料・清掃費・諸経費 計</td><td class="text-end">▲ ${this.fmtYen((ctx.computed.revenueGross || 0) - (ctx.computed.profit || 0))}</td></tr>
-            <tr class="table-light"><td>運営利益（総合収支）</td><td class="text-end fw-bold" id="pnlDocBase">${this.fmtYen(ctx.computed.profit)}</td></tr>
+            <tr><td>入金額A（Airbnb受取＋Booking純額）</td><td class="text-end" id="pnlDocDeposit">${this.fmtYen(s.depositAmount)}</td></tr>
+            <tr><td>宿泊税 預りB</td><td class="text-end" id="pnlDocTaxB">▲ ${this.fmtYen(s.taxWithholding || 0)}</td></tr>
+            <tr class="table-light"><td>月間売上高（A − B）</td><td class="text-end fw-bold" id="pnlDocBase">${this.fmtYen(s.salesBase)}</td></tr>
             <tr><td>運営代行手数料 (×${s.feeRatePct}%)</td><td class="text-end" id="pnlDocFee">${this.fmtYen(s.feeExclTax)}</td></tr>
             <tr><td>消費税 (${s.consumptionTaxPct}%)</td><td class="text-end" id="pnlDocTaxAmt">${this.fmtYen(s.consumptionTax)}</td></tr>
-            <tr class="table-primary"><td>ご請求金額(税込)</td><td class="text-end fw-bold" id="pnlDocTotal">${this.fmtYen(s.feeInclTax)}</td></tr>
+            <tr><td>手数料合計(税込)</td><td class="text-end" id="pnlDocFeeTotal">${this.fmtYen(s.feeInclTax)}</td></tr>
+            ${(s.advanceRows || []).map((r) => `<tr><td>立替金（${this.escapeHtml(r.name)}）</td><td class="text-end">▲ ${this.fmtYen(r.amount)}</td></tr>`).join("")}
+            <tr class="table-primary"><td>ご請求金額(税込)</td><td class="text-end fw-bold" id="pnlDocTotal">${this.fmtYen(s.netPayable != null ? s.netPayable : s.feeInclTax)}</td></tr>
           </table>
           <div class="d-flex align-items-center flex-wrap gap-1 mb-2 small">
-            <span class="text-muted">宿泊税預り(記録用)</span>
+            <span class="text-muted">宿泊税預りB</span>
             <input type="number" id="pnlDocTax" class="form-control form-control-sm d-inline-block" style="width:100px" value="${s.taxWithholding || 0}" min="0">
             <button class="btn btn-outline-secondary btn-sm" id="btnDocImportTax" title="やどぜい月計表PDFから自動取込"><i class="bi bi-magic"></i> 月計表</button>
-            <span class="text-muted">※手数料には影響しません</span>
+            <span class="text-muted">※売上ベースなので手数料に影響します</span>
           </div>
           <div class="mb-2">
             <label class="form-label small mb-0">お支払期限</label>
@@ -1354,17 +1356,25 @@ const PnlPage = {
   },
 
   _recalcDocPreview() {
-    // 利益ベース: 手数料 = max(0, 運営利益) × 料率。宿泊税は手数料に影響しない(記録用)。
+    // 売上ベース: 手数料 = 月間売上高(入金額A − 宿泊税預りB) × 料率。宿泊税を変えると手数料も動く。
+    // 立替金(甲が支払い・乙が負担)は手数料から控除して「ご請求金額」にする。
     const s = this._docCtx.settlement;
-    const profit = Number(this._docCtx.computed?.profit) || 0;
-    const base = Math.max(0, profit);
+    const deposit = Number(s.depositAmount) || 0;
+    const withholding = Math.max(0, Number(document.getElementById("pnlDocTax")?.value) || 0);
+    const base = Math.max(0, deposit - withholding);
     const fee = Math.round(base * s.feeRatePct / 100);
     const tax = Math.round(fee * s.consumptionTaxPct / 100);
-    const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = this.fmtYen(v); };
-    setTxt("pnlDocBase", profit);
+    const advance = Number(s.advanceTotal) || 0;
+    const setTxt = (id, v, minus) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = (minus ? "▲ " : "") + this.fmtYen(v);
+    };
+    setTxt("pnlDocTaxB", withholding, true);
+    setTxt("pnlDocBase", base);
     setTxt("pnlDocFee", fee);
     setTxt("pnlDocTaxAmt", tax);
-    setTxt("pnlDocTotal", fee + tax);
+    setTxt("pnlDocFeeTotal", fee + tax);
+    setTxt("pnlDocTotal", fee + tax - advance);
   },
 
   async _generateDoc(kind) {
