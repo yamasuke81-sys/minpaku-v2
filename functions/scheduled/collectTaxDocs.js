@@ -140,6 +140,33 @@ async function collectTaxDocs(event) {
           let savedFileName = "";
           let savedFileId = "";
 
+          if (attachments.length === 0) {
+            // ★添付なしメール(Airbnbの送金通知等)は保存しない(2026-08-19 やますけ判断)。
+            //   以前は本文をHTMLで保存していたが、DriveはHTMLソースをそのまま表示するため税理士が読めず、
+            //   送金額は予約CSVと通帳入金で確認できるためフォルダのノイズだった(実例10件を同日ゴミ箱へ)。
+            //   毎月の再走査で復活しないよう、Firestoreに記録だけ残して重複判定を効かせる。
+            await db.collection("taxDocs").add({
+              entityId,
+              source: plat.name.toLowerCase().includes("airbnb") ? "airbnb" : "booking",
+              sourceAccount: plat.name,
+              yearMonth,
+              fileName: "",
+              driveFileId: "",
+              driveFolderId: "",
+              gmailMessageId: msg.id,
+              fileType: "skipped",
+              status: "skipped",
+              amount: null,
+              transactionDate: null,
+              description: subject,
+              collectedAt: admin.firestore.FieldValue.serverTimestamp(),
+              collectedBy: "auto",
+              memo: "添付なしのため保存せず(通知メール)",
+            });
+            summary[ent.name].skipped++;
+            continue;
+          }
+
           // フォルダ確保 — 実運用の税理士フォルダは「YYYY.MM」直下にフラット置き(例: IU_八朔/2026.07)。
           // 旧実装の「YYYY年/M月/プラットフォーム名」は実態と不一致で、checkTaxDocsDrive からも見えなかった
           const ymFolderName = `${targetDate.getUTCFullYear()}.${String(targetDate.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -166,22 +193,8 @@ async function collectTaxDocs(event) {
               savedFileName = created.data.name;
               savedFileId = created.data.id;
             }
-          } else {
-            // メール本文をHTML保存
-            const bodyHtml = extractBody_(detail.data.payload);
-            if (bodyHtml) {
-              const buf = Buffer.from(bodyHtml, "utf-8");
-              const htmlName = `${plat.name}_${yearMonth}_${msg.id.slice(0, 8)}.html`;
-              const created = await drive.files.create({
-                requestBody: { name: htmlName, parents: [platFolder.id] },
-                media: { mimeType: "text/html", body: require("stream").Readable.from(buf) },
-                supportsAllDrives: true,
-                fields: "id,name",
-              });
-              savedFileName = created.data.name;
-              savedFileId = created.data.id;
-            }
           }
+          // (添付なしは上でスキップ済み。旧実装のHTML本文保存は 2026-08-19 廃止)
 
           // Gemini APIでメール解析（失敗しても続行）
           let analysis = { amount: null, transactionDate: null, description: "" };
@@ -204,7 +217,7 @@ async function collectTaxDocs(event) {
             driveFileId: savedFileId,
             driveFolderId: platFolder.id,
             gmailMessageId: msg.id,
-            fileType: attachments.length > 0 ? "pdf" : "html",
+            fileType: "pdf",
             status: "collected",
             amount: analysis.amount,
             transactionDate: analysis.transactionDate,
