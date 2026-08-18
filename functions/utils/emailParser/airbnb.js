@@ -2,7 +2,8 @@
  * Airbnb 予約確認メールパーサー (automated@airbnb.com からの日本語版メール)
  *
  * 対応メール種別:
- *   - 予約確定 (confirmed)     : subject 「予約確定 - {名前}さんが{月}月{日}日ご到着です」
+ *   - 予約確定 (confirmed)     : subject 「予約確定 - {名前}さんが{月}月{日}日ご到着です」(旧形式)
+ *                                        「予約確定 - {月}月{日}日に{名前}さんが到着予定」(新形式・2026-06下旬〜)
  *   - 予約変更承認 (changed)  : subject 「予約変更が承認されました」(詳細情報なし、kind のみ)
  *   - 予約キャンセル (cancelled)
  *   - 予約リクエスト (request) : 承認待ち状態
@@ -30,16 +31,27 @@ function extractReservationCodeFromSubject(subject) {
   return m ? m[0] : null;
 }
 
-// 件名からゲスト名 (full name) を抽出: 「予約確定 - {名前}さんが」
+// 件名からゲスト名 (full name) を抽出
+//   旧形式: 「予約確定 - {名前}さんが{M}月{D}日ご到着です」
+//   新形式: 「予約確定 - {M}月{D}日に{名前}さんが到着予定」(2026-06 下旬から Airbnb が切替)
+// ★新形式で日付が名前の前に来るようになったため、旧の 1 パターンだけだと
+//   「8月22日に宮 瀬Takumi」のように日付ごとゲスト名として取り込んでしまう。
 function extractGuestNameFromSubject(subject) {
-  const m = /予約確定\s*[-\-ー−]\s*(.+?)\s*さんが/.exec(String(subject || ""));
-  return m ? m[1].trim() : null;
+  const s = String(subject || "");
+  const m = /予約確定\s*[-\-ー−]\s*(.+?)\s*さんが/.exec(s);
+  if (!m) return null;
+  // 先頭に紛れ込んだ「M月D日に」を除去 (新形式)。旧形式はそのまま通る
+  const name = m[1].replace(/^\s*\d{1,2}\s*月\s*\d{1,2}\s*日に\s*/, "").trim();
+  return name || null;
 }
 
-// 件名から「M月D日ご到着」のチェックイン月日を抽出
-// 例: 「予約確定 - Mike Dierkxさんが8月3日ご到着です」
+// 件名からチェックイン月日を抽出
+//   旧形式: 「予約確定 - Mike Dierkxさんが8月3日ご到着です」
+//   新形式: 「予約確定 - 8月22日に宮 瀬Takumiさんが到着予定」
 function extractCheckInFromSubject(subject) {
-  const m = /(\d{1,2})月(\d{1,2})日ご到着/.exec(String(subject || ""));
+  const s = String(subject || "");
+  const m = /(\d{1,2})月(\d{1,2})日ご到着/.exec(s)
+    || /予約確定\s*[-\-ー−]\s*(\d{1,2})月(\d{1,2})日に.*?さんが.*?到着/.exec(s);
   if (!m) return null;
   return { month: +m[1], day: +m[2] };
 }

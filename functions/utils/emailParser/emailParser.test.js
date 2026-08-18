@@ -142,6 +142,46 @@ describe("airbnb 純粋関数: extractGuestNameFromSubject", () => {
   test("フォーマット不一致は null", () => {
     assert.strictEqual(airbnbPure.extractGuestNameFromSubject("予約変更が承認されました"), null);
   });
+  // 2026-06 下旬から Airbnb が「日付が名前より前」の新形式に切替。
+  // 旧実装は「8月22日に宮 瀬Takumi」のように日付ごと名前として取り込んでいた (本番実データ)
+  test("新形式 (日付が先頭) でも日付を混ぜない", () => {
+    assert.strictEqual(
+      airbnbPure.extractGuestNameFromSubject("予約確定 - 8月22日に宮 瀬Takumiさんが到着予定"),
+      "宮 瀬Takumi"
+    );
+    assert.strictEqual(
+      airbnbPure.extractGuestNameFromSubject("予約確定 - 10月25日に川地道太さんが到着予定"),
+      "川地道太"
+    );
+    assert.strictEqual(
+      airbnbPure.extractGuestNameFromSubject("予約確定 - 8月4日にMartelKennethさんが到着予定"),
+      "MartelKenneth"
+    );
+  });
+  test("新形式で日付だけの件名は null (空名を返さない)", () => {
+    assert.strictEqual(
+      airbnbPure.extractGuestNameFromSubject("予約確定 - 8月22日にさんが到着予定"),
+      null
+    );
+  });
+});
+
+describe("airbnb 純粋関数: extractCheckInFromSubject", () => {
+  test("旧形式「M月D日ご到着」", () => {
+    assert.deepStrictEqual(
+      airbnbPure.extractCheckInFromSubject("予約確定 - Mike Dierkxさんが8月3日ご到着です"),
+      { month: 8, day: 3 }
+    );
+  });
+  test("新形式「M月D日に{名前}さんが到着予定」", () => {
+    assert.deepStrictEqual(
+      airbnbPure.extractCheckInFromSubject("予約確定 - 8月22日に宮 瀬Takumiさんが到着予定"),
+      { month: 8, day: 22 }
+    );
+  });
+  test("該当なしは null", () => {
+    assert.strictEqual(airbnbPure.extractCheckInFromSubject("予約変更が承認されました"), null);
+  });
 });
 
 describe("airbnb 純粋関数: extractCheckIn / extractCheckOut", () => {
