@@ -1,0 +1,50 @@
+<!doctype html><meta charset="utf-8">
+<style>
+ body{font-family:sans-serif;margin:0}
+ .strip{display:flex;gap:24px;padding:12px 16px;border-bottom:1px solid #ddd}
+ .tab{cursor:pointer;padding:8px 4px;color:#333;font-weight:400;border-bottom:0px solid transparent;text-decoration:none}
+ .tab.on{color:#0a5ad6;font-weight:700;border-bottom:2px solid #0a5ad6}
+ #veil{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:900}
+ #modal{position:fixed;left:30%;top:30%;width:420px;padding:24px;background:#fff;z-index:1000}
+ #sugg{border:1px solid #ccc;position:absolute;background:#fff;z-index:5}
+</style>
+<div class="strip">
+  <a href="#" class="tab" id="tGuest">ゲスト</a>
+  <a href="#" class="tab on" id="tCs">カスタマーサービス <span>1</span></a>
+</div>
+<input id="q" placeholder="予約番号または名前で検索">
+<div id="sugg" hidden></div>
+<ul id="list"></ul>
+<div id="panel">予約番号: 6507661176</div>
+<div id="veil"></div>
+<div id="modal">
+  <p>予約に関するサポート関連メッセージ</p>
+  <button id="ok">OK</button>
+</div>
+<script>
+ const CS=[["6507661176","the Terrace 長浜でのご予約"],["5750794035","「予約」に関するサポート"]];
+ const GUEST=[["6084082902","Maki Irie"],["6923391947","Riku Takahashi"]];
+ let tab="cs";
+ function render(){
+   document.getElementById("tGuest").className="tab"+(tab==="guest"?" on":"");
+   document.getElementById("tCs").className="tab"+(tab==="cs"?" on":"");
+   const rows=(tab==="cs"?CS:GUEST);
+   document.getElementById("list").innerHTML=rows.map(r=>`<li>${r[1]}<div>予約番号: ${r[0]}</div></li>`).join("");
+ }
+ render();
+ document.getElementById("ok").onclick=()=>{modal.remove();veil.remove()};
+ document.getElementById("tGuest").onclick=(e)=>{e.preventDefault();tab="guest";render()};
+ document.getElementById("tCs").onclick=(e)=>{e.preventDefault();tab="cs";render()};
+ document.getElementById("q").addEventListener("input",()=>{
+   const v=q.value.trim(), rows=(tab==="cs"?CS:GUEST).filter(r=>r[0].includes(v));
+   const s=document.getElementById("sugg");
+   if(!v||!rows.length){s.hidden=true;s.innerHTML="";return;}
+   s.hidden=false;
+   s.innerHTML=rows.map(r=>`<div class="opt" data-no="${r[0]}">${r[1]} - ${r[0]}</div>`).join("");
+   [...s.querySelectorAll(".opt")].forEach(o=>o.onclick=()=>{
+     s.hidden=true;
+     // SPA の描画遅延を再現(4秒後に右パネルが切り替わる)
+     setTimeout(()=>{document.getElementById("panel").textContent="予約番号: "+o.dataset.no;},4000);
+   });
+ });
+</script>

@@ -20,6 +20,9 @@
 
 /** 下書きの自動保存（デバウンス）が効くのを待つ時間。 */
 const DRAFT_SETTLE_MS = 4000;
+/** Booking スレッド切替の待ち上限とやり直し回数（テストから短縮できるよう環境変数で上書き可能）。 */
+const THREAD_MATCH_TIMEOUT_MS = Number(process.env.OTA_THREAD_MATCH_TIMEOUT_MS || 15_000);
+const THREAD_MATCH_ROUNDS = Number(process.env.OTA_THREAD_MATCH_ROUNDS || 3);
 /** 未送信の下書きページを開いたまま保持する上限。これを過ぎたら掃除して閉じる。 */
 const DRAFT_PAGE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -187,6 +190,198 @@ async function readBookingReservationNo(page) {
   }
 }
 
+/**
+ * Booking extranet に出る被せ物（モーダル／案内バナー）を閉じる。
+ * ★2026-08-18: 「予約に関するサポート関連メッセージ」モーダルが受信箱の上に出ており、
+ *   タブ切替や候補クリックを飲み込んでいた（誤スレッド事故 fQMWeAVI91Kj81XfLeMc の一因）。
+ * ★2026-08-19 根治: そのモーダルは role="dialog" も aria-modal も持たない実装で、
+ *   旧コードの `[role="dialog"], [aria-modal="true"]` では1枚も掴めていなかった
+ *   （失敗スクショ fQMWeAVI91Kj81XfLeMc_booking_msg_wrong_thread で実測）。
+ *   role に頼らず「画面に固定表示された高z-indexの被せ物」を実測で拾い、その中の
+ *   OK/閉じるを押す方式に変える。
+ */
+async function dismissBookingOverlays(page) {
+  for (let i = 0; i < 4; i++) {
+    let closed = false;
+    // ① role を持つ正統なダイアログ
+    const dialog = page.locator('[role="dialog"], [aria-modal="true"]').first();
+    if (await dialog.count().catch(() => 0)) {
+      for (const btn of [
+        dialog.getByRole("button", { name: /^\s*OK\s*$/i }),
+        dialog.getByRole("button", { name: /閉じる|close|了解|同意/i }),
+        dialog.locator('[aria-label*="閉じる"], [aria-label*="lose"]'),
+      ]) {
+        const b = btn.first();
+        if (await b.count().catch(() => 0)) {
+          await b.click({ timeout: 3000 }).catch(() => {});
+          await page.waitForTimeout(800);
+          closed = true;
+          break;
+        }
+      }
+    }
+    // ② role を持たない被せ物（Booking の「予約に関するサポート関連メッセージ」等）を実測で閉じる
+    if (!closed) {
+      closed = await page
+        .evaluate(() => {
+          const vis = (el) => {
+            const r = el.getBoundingClientRect();
+            return r.width > 40 && r.height > 40;
+          };
+          const overlays = [...document.querySelectorAll("div, section, aside")].filter((el) => {
+            if (!vis(el)) return false;
+            const cs = getComputedStyle(el);
+            if (cs.position !== "fixed" && cs.position !== "absolute") return false;
+            return (parseInt(cs.zIndex, 10) || 0) >= 10;
+          });
+          for (const ov of overlays) {
+            const btn = [...ov.querySelectorAll('button, [role="button"], a')].find((b) => {
+              const t = (b.textContent || "").replace(/\s+/g, " ").trim();
+              const al = (b.getAttribute("aria-label") || "").trim();
+              return /^(OK|了解|閉じる|同意する|Close|Got it)$/i.test(t) || /閉じる|close/i.test(al);
+            });
+            if (btn) {
+              btn.click();
+              return true;
+            }
+          }
+          return false;
+        })
+        .catch(() => false);
+      if (closed) await page.waitForTimeout(800);
+    }
+    if (!closed) break;
+  }
+  // 残っていれば Escape で最後の一押し（掴めない被せ物への保険）
+  await page.keyboard.press("Escape").catch(() => {});
+  await page.waitForTimeout(400);
+}
+
+/**
+ * 受信箱のタブ（ゲスト / カスタマーサービス）のうち、いま選択されているのはどれかを実測で読む。
+ * ★aria-selected を持たない実装（Booking の現行UI）でも判定できるよう、
+ *   aria-selected / aria-current / class名 / 下線 / 太さ を「2つのタブの差」として比較する。
+ *   タブ帯そのものに付く下線のような共通スタイルは両方に加点されて相殺されるため誤判定しない。
+ * @returns {Promise<{active:"guest"|"cs"|null, hasGuest:boolean, hasCs:boolean}>}
+ */
+async function readBookingInboxTab(page) {
+  try {
+    return await page.evaluate(() => {
+      const labelOf = (el) => (el.textContent || "").replace(/\s+/g, " ").trim();
+      const cands = [...document.querySelectorAll('[role="tab"], a, button, li, span, div')].filter((el) => {
+        if (el.children.length > 2) return false;
+        const r = el.getBoundingClientRect();
+        if (r.width < 20 || r.height < 10 || r.top > 700) return false;
+        // 末尾に未読バッジの数字が付くことがある（例: 「カスタマーサービス 1」）
+        return /^(ゲスト|カスタマーサービス)(\s*\d+)?$/.test(labelOf(el));
+      });
+      const score = (el) => {
+        let s = 0;
+        for (let n = el, up = 0; n && up < 3; n = n.parentElement, up++) {
+          const sel = n.getAttribute?.("aria-selected");
+          if (sel === "true") s += 100;
+          if (sel === "false") s -= 40;
+          if (n.getAttribute?.("aria-current")) s += 90;
+          if (/(^|[\s_-])(active|selected|current)([\s_-]|$)/i.test(String(n.className || ""))) s += 80;
+        }
+        const cs = getComputedStyle(el);
+        const par = el.parentElement ? getComputedStyle(el.parentElement) : null;
+        const bw = Math.max(parseFloat(cs.borderBottomWidth) || 0, par ? parseFloat(par.borderBottomWidth) || 0 : 0);
+        if (bw >= 2) s += 30;
+        s += (parseInt(cs.fontWeight, 10) || 400) / 100; // 太字は弱いシグナル（同点崩し）
+        return s;
+      };
+      const best = { guest: null, cs: null };
+      for (const el of cands) {
+        const k = labelOf(el).startsWith("ゲスト") ? "guest" : "cs";
+        const v = score(el);
+        if (best[k] === null || v > best[k]) best[k] = v;
+      }
+      const res = { active: null, hasGuest: best.guest !== null, hasCs: best.cs !== null };
+      if (best.guest !== null && best.cs !== null) {
+        if (best.guest > best.cs) res.active = "guest";
+        else if (best.cs > best.guest) res.active = "cs";
+      } else if (best.guest !== null) res.active = "guest";
+      return res;
+    });
+  } catch (_) {
+    return { active: null, hasGuest: false, hasCs: false };
+  }
+}
+
+/**
+ * 受信箱の「ゲスト」タブを選択する。
+ * ★2026-08-18 判明: 受信箱は「ゲスト」「カスタマーサービス」の2タブ構成で、着地時に
+ *   【カスタマーサービス】タブが開いていることがある。ゲスト宛の予約スレッドはここには
+ *   存在しないため、予約番号で検索しても該当スレッドは開けず、既定選択された最上位の
+ *   サポートスレッド（別客・別予約番号）が開いたままになる。
+ * ★2026-08-19 根治: 旧実装は「カスタマーサービスが aria-selected=true でなければ成功」と
+ *   みなしていたが、Booking のタブは aria-selected を持たない（ローカル再現で count=0 を確認）。
+ *   そのため常に成功と誤判定し、カスタマーサービスタブのまま検索していた
+ *   ＝入江真紀様 8/22CI の下書きが2回とも作れなかった実障害の本体。
+ *   いまは「ゲストタブが実際に選択された」ことを実測して判定する。
+ * @returns {Promise<boolean>} ゲストタブを選択できた（またはタブUIが無い）か
+ */
+async function selectBookingGuestTab(page) {
+  let st = await readBookingInboxTab(page);
+  // タブUIが見当たらない（単一受信箱UI）ときは素通し。誤爆は後段の予約番号一致検証が止める
+  if (!st.hasGuest && !st.hasCs) return true;
+  if (st.active === "guest") return true;
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await dismissBookingOverlays(page);
+    let clicked = false;
+    for (const tab of [
+      page.getByRole("tab", { name: /^\s*ゲスト\s*$/ }),
+      page.getByRole("link", { name: /^\s*ゲスト\s*$/ }),
+      page.getByText(/^\s*ゲスト\s*$/),
+    ]) {
+      const t = tab.first();
+      if (!(await t.count().catch(() => 0))) continue;
+      try {
+        await t.click({ timeout: 4000 });
+        clicked = true;
+      } catch (_) {
+        /* 被せ物にクリックを飲まれた等。次の候補・次の周回で拾い直す */
+      }
+      if (clicked) break;
+    }
+    // Playwright のクリックが通らない場合の最後の一押し（DOM直叩き）
+    if (!clicked) {
+      await page
+        .evaluate(() => {
+          const el = [...document.querySelectorAll('[role="tab"], a, button, li, span, div')].find(
+            (e) => e.children.length <= 2 && /^ゲスト(\s*\d+)?$/.test((e.textContent || "").replace(/\s+/g, " ").trim())
+          );
+          if (el) el.click();
+        })
+        .catch(() => {});
+    }
+    await page.waitForTimeout(2000);
+    st = await readBookingInboxTab(page);
+    if (st.active === "guest") return true;
+  }
+  return false;
+}
+
+/** 右パネルの「予約番号」が目標に切り替わるまでポーリングし、最後に読めた値を返す。
+ *  ★固定待ち(2.8秒)の一発読みだと「まだ前のスレッドが描画されている」だけの状態を
+ *    不一致と誤判定しうるため、待ちを取り違えないようポーリングにする。 */
+async function waitBookingReservationNo(page, want, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = "";
+  while (Date.now() < deadline) {
+    last = await readBookingReservationNo(page);
+    if (last === want) return last;
+    await page.waitForTimeout(1000);
+  }
+  return last;
+}
+
+// 受信箱タブ判定と被せ物処理は実DOMでしか検証できないため、回帰テスト
+// (ota-message.tabdetect.test.mjs) から直接叩けるように公開する。
+export { readBookingInboxTab, selectBookingGuestTab, dismissBookingOverlays };
+
 /** ---- Booking.com: extranet で該当予約のメッセージスレッドを開いて下書きを入れる ---- */
 async function sendBooking(page, { message, guestName, reservationCode, checkIn, jobId, dryRun, saveScreenshot }) {
   // lang=ja を明示（アカウント言語が英語だと日本語セレクタが一致しないため。CSV取得と同方針）
@@ -234,35 +429,111 @@ async function sendBooking(page, { message, guestName, reservationCode, checkIn,
     await saveScreenshot(page, jobId, "booking_msg_no_inbox");
     throw new Error("Booking メッセージ受信箱に到達できません（メールボックス→予約に関するメッセージ・要調整）");
   }
+  // ★被せ物を先に片付ける（モーダルがタブ切替・候補クリックを飲み込むため）
+  await dismissBookingOverlays(page);
+
   // 予約番号でスレッドを特定する（最も確実。extranet の名前はローマ字表記で名簿の漢字と一致しないため使わない）。
   // 検索ボックスは「オートコンプリート」で、予約番号を打つと候補「(ローマ字名) - (予約番号)」が出る。
   // ★Enterではなくこの候補をクリックするとスレッドが開く。
-  if (reservationCode) {
-    const search = page.locator('input[placeholder*="予約番号"], input[placeholder*="名前"]').first();
-    if (await search.count().catch(() => 0)) {
-      await search.click().catch(() => {});
-      await search.fill(reservationCode).catch(() => {});
-      await page.waitForTimeout(1500); // オートコンプリート候補が出るのを待つ
-    }
-    if (dryRun) await saveScreenshot(page, jobId, "booking_msg_after_search");
-    // 予約番号を含むオートコンプリート候補（入力欄の値はテキストに含まれないので候補だけがヒットする）をクリック
-    const suggestion = page.getByText(new RegExp(reservationCode)).first();
-    if (await suggestion.count().catch(() => 0)) {
-      await suggestion.click().catch(() => {});
-      await page.waitForTimeout(2800);
-    }
-  }
-
-  // ★安全検証: 開いたスレッドの右パネル「予約番号」が目標と一致するか。不一致/不明なら誤爆防止で中止。
-  const openedNo = await readBookingReservationNo(page);
-  console.log(`[ota_message] Booking 開いたスレッドの予約番号=${openedNo || "不明"} 目標=${reservationCode || "なし"}`);
+  //
+  // ★2026-08-19 根治（入江真紀様 6084082902・8/22CI が2回とも下書きできなかった実障害）:
+  //   旧実装の穴は3つあった。
+  //   ① ゲストタブ切替の成否を誤判定し、カスタマーサービスタブのまま検索していた
+  //      （タブ判定は selectBookingGuestTab / readBookingInboxTab 側で根治）。
+  //   ② 候補クリックの例外を握り潰したうえで無条件に picked=true にしていたため、
+  //      被せ物にクリックを飲まれても「候補を開けた」ことにしていた。
+  //   ③ 右パネルの予約番号を固定2.8秒後に一度だけ読んでいた。
+  //   いまは「タブを押し直す→候補を最小要素で掴む→クリック成否を見る→予約番号が
+  //   目標に変わるまでポーリング」を最大3周する。3周しても一致しなければ従来どおり中止する。
   if (!reservationCode) {
     await saveScreenshot(page, jobId, "booking_msg_no_resno");
     throw new Error("Booking 予約番号が取得できずスレッドを安全に特定できないため中止（手動で送ってください）");
   }
+
+  let openedNo = "";
+  let tabState = await readBookingInboxTab(page);
+  let suggestionSeen = false;
+  for (let round = 0; round < THREAD_MATCH_ROUNDS && openedNo !== reservationCode; round++) {
+    await dismissBookingOverlays(page);
+    tabState = await readBookingInboxTab(page);
+    if (tabState.active !== "guest") {
+      const ok = await selectBookingGuestTab(page);
+      tabState = await readBookingInboxTab(page);
+      console.log(`[ota_message] Booking 受信箱タブ切替(${round + 1}周目): ${ok ? "成功" : "失敗"} → active=${tabState.active || "判別不能"}`);
+      await dismissBookingOverlays(page);
+    }
+
+    const search = page.locator('input[placeholder*="予約番号"], input[placeholder*="名前"]').first();
+    if (!(await search.count().catch(() => 0))) {
+      await saveScreenshot(page, jobId, "booking_msg_no_search_box");
+      throw new Error("Booking 受信箱の検索ボックスが見つかりません（UI変更・要live-tune）");
+    }
+    await search.click().catch(() => {});
+    await search.fill("").catch(() => {});
+    await page.waitForTimeout(600);
+    await search.fill(reservationCode).catch(() => {});
+    await page.waitForTimeout(2500); // オートコンプリート候補が出るのを待つ
+
+    if (dryRun && round === 0) await saveScreenshot(page, jobId, "booking_msg_after_search");
+
+    // ★候補は「予約番号を含む可視要素のうち最も内側(=文字数最小)」に限定して掴む。
+    //   旧実装の素の getByText はページ全体が対象で、候補リスト以外を掴む余地があった。
+    const handle = await page.evaluateHandle((code) => {
+      const vis = (el) => {
+        const r = el.getBoundingClientRect();
+        return r.width > 8 && r.height > 8;
+      };
+      const hits = [...document.querySelectorAll('li, [role="option"], [role="listitem"], a, div, span, td, p')].filter(
+        (el) => vis(el) && (el.textContent || "").includes(code)
+      );
+      if (!hits.length) return null;
+      hits.sort((a, b) => (a.textContent || "").length - (b.textContent || "").length);
+      return hits[0];
+    }, reservationCode);
+    const suggestion = handle.asElement ? handle.asElement() : null;
+
+    let clicked = false;
+    if (suggestion) {
+      suggestionSeen = true;
+      try {
+        await suggestion.click({ timeout: 5000 });
+        clicked = true;
+      } catch (_) {
+        // 被せ物に飲まれたときの保険（DOM直叩き）
+        try {
+          await suggestion.evaluate((e) => e.click());
+          clicked = true;
+        } catch (_) {}
+      }
+    }
+    try {
+      await handle.dispose();
+    } catch (_) {}
+
+    if (!clicked) {
+      await page.waitForTimeout(1500);
+      continue;
+    }
+    // 右パネルの予約番号が目標に切り替わるまで待つ（描画待ちと不一致を取り違えない）
+    openedNo = await waitBookingReservationNo(page, reservationCode, THREAD_MATCH_TIMEOUT_MS);
+  }
+
+  // ★安全検証: 開いたスレッドの右パネル「予約番号」が目標と一致するか。不一致/不明なら誤爆防止で中止。
+  console.log(`[ota_message] Booking 開いたスレッドの予約番号=${openedNo || "不明"} 目標=${reservationCode} タブ=${tabState.active || "判別不能"}`);
   if (openedNo !== reservationCode) {
     await saveScreenshot(page, jobId, "booking_msg_wrong_thread");
-    throw new Error(`Booking スレッド不一致（開いた予約番号「${openedNo || "不明"}」／目標「${reservationCode}」）— 誤爆防止で中止`);
+    // 原因が次回すぐ分かるよう、受信箱タブと候補の有無を必ずエラー本文に残す
+    const why =
+      tabState.active === "cs"
+        ? "受信箱が「カスタマーサービス」タブのまま(ゲストタブに切替できず)"
+        : !suggestionSeen
+          ? "検索しても予約番号を含む候補が出なかった(該当スレッドが受信箱に無い可能性)"
+          : tabState.active === "guest"
+            ? "ゲストタブで候補は押せたがスレッドが切り替わらなかった"
+            : "受信箱のタブ状態が判別できなかった";
+    throw new Error(
+      `Booking スレッド不一致（開いた予約番号「${openedNo || "不明"}」／目標「${reservationCode}」／${why}）— 誤爆防止で中止`
+    );
   }
 
   let composer = await findComposer(page);
