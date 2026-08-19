@@ -58,6 +58,7 @@
 - チェックリスト UI は **3 面**（my-checklist.js / property-checklist.js / guest-checklist.html）を同時に揃える
 - Firestore 複合クエリ追加時は firestore.indexes.json を同コミットで更新
 - 通知の部分不達はまず OOM を疑う
+- **本番 Firestore の `bookings` にテスト用のダミー予約を作らない**。`onBookingChange` の `detectDoubleBooking` が実予約との重複を検知し、**オーナーへダブルブッキング警告が飛ぶ**（2026-08-20 実発生: UGC施策のテスト予約 `ZZ_UGC_TEST_BOOKING` が 8/19-21 の実予約と衝突）。やむを得ず作る場合は ①**実予約と重ならない過去日程**にする ②片付けは物理削除でなく **`status` を cancelled にしてから削除**する（削除だけでも相手の `conflictWithIds` は解除されるよう修正済みだが、キャンセル経由が確実）
 - その他の詳細ルールは `.claude/rules/`（自動ロード）と memory を参照
 
 ## デプロイ

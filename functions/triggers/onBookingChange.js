@@ -313,10 +313,10 @@ async function detectDoubleBooking(db, bookingId, after) {
 // ========== D-2: cancelled化時の conflict 解決 ==========
 
 /**
- * 予約がキャンセルになった際、関連する conflict を解決済みにする
+ * 予約がキャンセル or 削除された際、関連する conflict を解決済みにする
  * @param {FirebaseFirestore.Firestore} db
  * @param {string} bookingId
- * @param {object} data - キャンセルされた予約データ
+ * @param {object} data - キャンセル/削除された予約データ (削除時は before)
  */
 async function resolveConflictsOnCancel(db, bookingId, data) {
   const conflictWithIds = data.conflictWithIds;
@@ -561,10 +561,13 @@ module.exports = async function onBookingChange(event) {
         console.error("キャンセル連動削除エラー:", e);
       }
     }
-    // D-2: キャンセル化時に conflictWithIds の相手 booking / bookingConflicts を解決済みに更新
-    if (nowCancelled && after) {
+    // D-2: キャンセル化 or 物理削除時に conflictWithIds の相手 booking / bookingConflicts を解決済みに更新
+    // 物理削除 (after なし) でも走らせる。走らせないと、消えた予約を指す conflictWithIds が
+    // 相手の予約に宙吊りで残る (2026-08-20: テスト予約 ZZ_UGC_TEST_BOOKING の削除で実発生)
+    const conflictSrc = (nowCancelled && after) ? after : (!after ? before : null);
+    if (conflictSrc) {
       try {
-        await resolveConflictsOnCancel(db, event.params.bookingId, after);
+        await resolveConflictsOnCancel(db, event.params.bookingId, conflictSrc);
       } catch (e) {
         console.error("conflict解決エラー:", e);
       }
