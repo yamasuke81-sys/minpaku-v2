@@ -50,7 +50,7 @@ module.exports = function taxDocsApi(db) {
 
       for (const entDoc of allEntities.docs) {
         const ent = entDoc.data();
-        const items = buildChecklistItems_(ent);
+        const items = buildChecklistItems_(ent, yearMonth);
         const existing = entityChecklists[entDoc.id];
 
         // 既存チェックリストがあり、項目数が一致している場合はスキップ
@@ -590,9 +590,23 @@ async function autoCheckDriveFiles_(db, entitiesCol, checklistCol, yearMonth, en
 /**
  * 名義データからチェックリスト項目を生成
  */
-function buildChecklistItems_(entity) {
+// その資料が対象月に必要かを判定する(2026-08-19)。
+// - months: [4,5] … その月(1-12)にだけ必要な年次書類(固定資産税・保険料控除証明書など)。
+//   毎月のチェックリストに年次書類を出すと「毎月ずっと不足」のノイズになるため。
+// - activeFrom: "2026-09" … その月以降だけ必要(開業前の物件など)
+function itemAppliesTo_(def, yearMonth) {
+  if (!yearMonth) return true; // 月が分からない呼び出しは従来どおり全部返す
+  const [y, m] = yearMonth.split("-").map(Number);
+  if (Array.isArray(def.months) && def.months.length > 0 && !def.months.includes(m)) return false;
+  if (def.activeFrom && yearMonth < def.activeFrom) return false;
+  if (def.activeUntil && yearMonth > def.activeUntil) return false;
+  return true;
+}
+
+function buildChecklistItems_(entity, yearMonth) {
   const items = [];
   for (const acc of (entity.accounts || [])) {
+    if (!itemAppliesTo_(acc, yearMonth)) continue;
     items.push({
       name: acc.name,
       category: acc.category,
@@ -607,6 +621,7 @@ function buildChecklistItems_(entity) {
     });
   }
   for (const plat of (entity.platforms || [])) {
+    if (!itemAppliesTo_(plat, yearMonth)) continue;
     items.push({
       name: plat.name,
       category: "platform",
@@ -621,6 +636,7 @@ function buildChecklistItems_(entity) {
     });
   }
   for (const manual of (entity.manualItems || [])) {
+    if (!itemAppliesTo_(manual, yearMonth)) continue;
     items.push({
       name: manual.name,
       category: manual.category || "other",
@@ -640,18 +656,26 @@ function buildChecklistItems_(entity) {
 /**
  * チェックリスト項目のキーワード取得（Driveファイルマッチ用）
  */
+// ★checkTaxDocsDrive.js にも同じ関数がある(日次スキャンとAPI即時スキャンの二重実装)。
+//   直すときは必ず両方直すこと。片方だけ直しても「日次では検出されるがボタンでは検出されない」
+//   のような食い違いになる(2026-08-19 に keywords 無視バグを両方で修正)。
 function getItemKeywords_(item, entity) {
   // accounts からキーワードを検索
   const acc = (entity.accounts || []).find((a) => a.name === item.name);
   if (acc && acc.keywords && acc.keywords.length > 0) return acc.keywords;
 
-  // プラットフォーム名の一部
+  // プラットフォーム(keywords があればそれを最優先。無ければ従来どおり名前の断片)
   const plat = (entity.platforms || []).find((p) => p.name === item.name);
   if (plat) {
+    if (plat.keywords && plat.keywords.length > 0) return plat.keywords;
     const keywords = [plat.name.split("送金")[0], plat.name.split("手数料")[0]].filter(Boolean);
     if (plat.propertyName) keywords.push(plat.propertyName);
     return keywords.length > 0 ? keywords : [item.name];
   }
+
+  // 手動項目(宿泊税の申告書・精算書など。実ファイル名は項目名と全く違うので keywords が必須)
+  const man = (entity.manualItems || []).find((m) => m.name === item.name);
+  if (man && man.keywords && man.keywords.length > 0) return man.keywords;
 
   // デフォルト: 項目名そのまま
   return [item.name];

@@ -88,7 +88,7 @@ module.exports = async function checkTaxDocsDrive(event) {
     if (clDoc.exists) {
       clData = clDoc.data();
     } else {
-      const initItems = buildChecklistItems(ent);
+      const initItems = buildChecklistItems(ent, yearMonth);
       if (initItems.length === 0) continue;
       clData = {
         entityName: ent.name,
@@ -190,14 +190,21 @@ async function listAllFilesRecursive_(drive, folderId) {
   return files;
 }
 
+// ★platforms / manualItems に書いた keywords が無視されていた(2026-08-19 発覚)。
+//   platform は名前を「送金」「手数料」で切った断片、manualItems は項目名そのものを
+//   キーワードにしていたため、実物のファイル名(yadozei_申告書_… 等)と一生一致しなかった。
+//   どの種別でも keywords を最優先で使う。
 function getItemKeywords_(item, entity) {
   const acc = (entity.accounts || []).find((a) => a.name === item.name);
   if (acc && acc.keywords && acc.keywords.length > 0) return acc.keywords;
   const plat = (entity.platforms || []).find((p) => p.name === item.name);
   if (plat) {
+    if (plat.keywords && plat.keywords.length > 0) return plat.keywords;
     const keywords = [plat.name.split("送金")[0], plat.name.split("手数料")[0]].filter(Boolean);
     if (plat.propertyName) keywords.push(plat.propertyName);
     return keywords.length > 0 ? keywords : [item.name];
   }
+  const man = (entity.manualItems || []).find((m) => m.name === item.name);
+  if (man && man.keywords && man.keywords.length > 0) return man.keywords;
   return [item.name];
 }
