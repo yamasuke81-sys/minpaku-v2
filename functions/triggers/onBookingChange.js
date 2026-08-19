@@ -225,6 +225,18 @@ async function detectDoubleBooking(db, bookingId, after) {
     });
   }
 
+  // 重複が「部分的に」解消したケース: 今回の相手に含まれなくなった旧相手を解除する。
+  // 自分側は上の update で conflictIds に置き換わるが、相手側の conflictWithIds と
+  // bookingConflicts は放っておくと自分を指したまま残る。
+  const droppedIds = currentIds.filter(id => !conflictIds.includes(id));
+  if (droppedIds.length) {
+    try {
+      await resolveConflictsOnCancel(db, bookingId, { conflictWithIds: droppedIds });
+    } catch (e) {
+      console.warn("[onBookingChange] 部分解消の conflict 解除エラー:", e.message);
+    }
+  }
+
   // 衝突相手の予約にも当該IDを追加（変化がある場合のみ更新してカスケードを抑制）
   for (const c of conflicts) {
     const existingConflicts = c.data().conflictWithIds || [];
