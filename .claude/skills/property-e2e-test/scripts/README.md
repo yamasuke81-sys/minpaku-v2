@@ -6,3 +6,5 @@
 - `timee-create-offer.mjs` — 求人ひな形の新規作成（小町テンプレ準拠）。引数なし=入力+スクショのみ、`--submit` で確定。業種/職種は MUI Select なので親要素クリック→`[role=option]` 選択
 - `timee-cancel-offering.mjs` — 求人一覧(リスト表示)→最初の offering を開いて取消。`--do` で実行
 - `komachi_automsg.txt` — マッチング時自動送信メッセージ（全物件共通で使い回せる文面）
+- `timee-grab-qr.mjs <clientId> <out.png>` — チェックイン/アウト管理画面のQR(canvas)をPNG保存
+- `upload_qr2.py` — QRを Firebase Storage `timee-qr/{pid}.png` へアップ(GCS JSON API・ダウンロードトークン付与)→ `properties.timeeQrImageUrl` 設定。★Firebase Storage v0 のmultipart直POSTは400になる=GCS API経由が正

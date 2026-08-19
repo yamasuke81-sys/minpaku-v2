@@ -819,9 +819,13 @@ async function notifyOwner(db, type, title, body, vars, propertyOverrides, opts 
     return { success: false, error: "通知設定未登録" };
   }
 
+  // Discord専用通知(opts.discordOnly): Webhook が設定されていれば LINE/メールを送らない。
+  // Webhook 未設定なら通常経路にフォールバックする(通知が丸ごと消えるのを防ぐ)。
+  // 税理士資料系の「通知はDiscordだけでよい」用(2026-08-19 やますけ指示)
+  const discordOnly = opts.discordOnly === true && !!resolveDiscordOwnerWebhookUrl_(settings);
   // デフォルト: LINE有効、メール無効（後方互換）
-  const enableLine = settings.enableLine !== false && opts.skipLine !== true;
-  const enableEmail = !!settings.enableEmail;
+  const enableLine = settings.enableLine !== false && opts.skipLine !== true && !discordOnly;
+  const enableEmail = !!settings.enableEmail && !discordOnly;
   const notifyEmails = settings.notifyEmails || [];
 
   const results = [];

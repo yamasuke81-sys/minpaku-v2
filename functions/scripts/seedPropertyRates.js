@@ -19,22 +19,40 @@ admin.initializeApp({ projectId: PROJECT_ID, credential: admin.credential.applic
 const db = admin.firestore();
 
 const RATES = {
-  // 小町 (YADO KOMACHI Hiroshima) — Airbnb listing 1662812097638356214
+  // 小町 (YADO KOMACHI Hiroshima) — Airbnb listing 1712812837377221453
   RZV9IwtQgMAsvrdM3j8J: {
     currency: "JPY",
-    basePrice: 15000,
-    weekendPrice: 20000,
+    basePrice: 20000,
+    weekendPrice: 25000,
     weekendDays: [5, 6],
     seasons: [],
     lengthOfStayDiscounts: [
-      { minNights: 7, discountPercent: 25 },
-      { minNights: 28, discountPercent: 26 },
+      { minNights: 2, discountPercent: 14 },
+      { minNights: 3, discountPercent: 20 },
+      { minNights: 7, discountPercent: 30 },
+      { minNights: 28, discountPercent: 40 },
     ],
-    guestSurcharge: { includedGuests: 2, perExtraGuest: 4000 },
+    // Airbnbの定員が3名で、1〜3名は同額(2026-08-19実測)。追加ゲスト料金は設定しない
+    guestSurcharge: null,
     planModifiers: { standard: 0, nonrefundable: -10 },
     minNights: 1,
     maxNights: 365,
-    source: "airbnb:1662812097638356214",
+    source: "airbnb:1712812837377221453",
+  },
+  // UJINA Pocket House — Airbnb listing 1743732915043605850
+  ncUKeD4yQo0kfAoznITu: {
+    currency: "JPY",
+    basePrice: 20000,
+    weekendPrice: 26000,
+    weekendDays: [5, 6],
+    seasons: [],
+    lengthOfStayDiscounts: [],
+    // 3名まで込み・4人目から +8,000/泊 (2026-08-19 Airbnbのゲスト表示価格から実測)
+    guestSurcharge: { includedGuests: 3, perExtraGuest: 8000 },
+    planModifiers: { standard: 0, nonrefundable: -10 },
+    minNights: 1,
+    maxNights: 365,
+    source: "airbnb:1743732915043605850",
   },
   // the Terrace 長浜 — Airbnb listing 1496523336810635360
   tsZybhDMcPrxqgcRy7wp: {
@@ -46,7 +64,8 @@ const RATES = {
     lengthOfStayDiscounts: [
       { minNights: 7, discountPercent: 22 }, // 週割のみ(月割は0%=なし)
     ],
-    guestSurcharge: { includedGuests: 4, perExtraGuest: 8000 }, // 5人目以降 +8,000/泊
+    // 5人目以降 +9,183/泊。Airbnbの追加ゲスト料金と同額(2026-08-19実測。旧値8,000は1名あたり1,183円の取りこぼしだった)
+    guestSurcharge: { includedGuests: 4, perExtraGuest: 9183 },
     planModifiers: { standard: 0, nonrefundable: -10 },
     minNights: 1,
     maxNights: 50,

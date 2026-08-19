@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert");
 const {
-  parseCsv, parseYen, sumAirbnbCsv, sumBookingCsv, computeSettlement,
+  parseCsv, parseYen, sumAirbnbCsv, sumBookingCsv, computeSettlement, computeOwnerAdvances,
   resolveOperationMode, isAgencyMode, effectiveFeeRatePct, computeDepositAmount,
   extractAirbnbReservations, extractBookingReservations, interpretAirbnbPayout, yearMonthOf,
 } = require("./ota-csv-logic");
@@ -362,4 +362,43 @@ test("extractBookingReservations + computeAccommodationTax: the Terrace 5月抜�
   // Jordaan: guests=2, /人/泊=73600/3/2=12267 → 200円/人泊×6=1200
   // Fujiwara: guests=6, /人/泊=72000/1/6=12000 → 200円/人泊×6=1200
   assert.strictEqual(r.totalTax, 5600);
+});
+
+// ================= 立替金(甲が支払い・乙が負担) =================
+test("computeOwnerAdvances: advancedByOwner の費目だけを拾って合計する", () => {
+  const cats = [
+    { id: "c1", name: "家賃", advancedByOwner: false },
+    { id: "c2", name: "固定電話", advancedByOwner: true },
+    { id: "c3", name: "水道光熱費" },
+  ];
+  const rows = [
+    { catId: "c1", name: "家賃", amount: 120000 },
+    { catId: "c2", name: "固定電話", amount: 2860 },
+    { catId: "c3", name: "水道光熱費", amount: 8400 },
+  ];
+  const r = computeOwnerAdvances(rows, cats);
+  assert.deepStrictEqual(r.rows, [{ name: "固定電話", amount: 2860 }]);
+  assert.strictEqual(r.total, 2860);
+});
+
+test("computeOwnerAdvances: 金額0の月は立替金に含めない(精算書に空行を出さない)", () => {
+  const cats = [{ id: "c2", name: "固定電話", advancedByOwner: true }];
+  const r = computeOwnerAdvances([{ catId: "c2", name: "固定電話", amount: 0 }], cats);
+  assert.deepStrictEqual(r.rows, []);
+  assert.strictEqual(r.total, 0);
+});
+
+test("computeOwnerAdvances: 該当費目なし/引数不正でも 0 を返す", () => {
+  assert.strictEqual(computeOwnerAdvances([], []).total, 0);
+  assert.strictEqual(computeOwnerAdvances(undefined, undefined).total, 0);
+});
+
+test("★売上ベース精算に戻した(2026-08-18): feeBase を渡さなければ A−B が算定基礎", () => {
+  // 契約書(2026-05-01付 別紙2 当初版)= 月間売上高 × 50%。費用負担区分を動かしても手数料は不変
+  const s = computeSettlement({ depositAmount: 201769, taxWithholding: 800, feeRatePct: 50, consumptionTaxPct: 10 });
+  assert.strictEqual(s.basis, "revenue");
+  assert.strictEqual(s.salesBase, 200969);
+  assert.strictEqual(s.feeExclTax, 100485);
+  assert.strictEqual(s.consumptionTax, 10049);
+  assert.strictEqual(s.feeInclTax, 110534);
 });

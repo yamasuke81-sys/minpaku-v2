@@ -6,6 +6,11 @@
  * - 精算書兼請求書(八朔→委託者): 運営代行手数料の請求。settlementMode="daiko" の物件のみ。
  *   月間売上高 = 入金額A − 宿泊税預りB / 手数料 = 売上高 × 料率 + 消費税。
  *   八朔はインボイス未登録のため登録番号欄は出さない。
+ *   ★算定基礎は「月間売上高」(2026-08-18 ユーザー再確定)。2026-07-14〜08-18 は運営利益ベースで
+ *     動いていたが、正となる契約書(2026-05-01付 別紙2 当初版)が売上高ベースのため戻した。
+ *   ★立替金: 費目マスタで advancedByOwner=true の費目(例: 共用部の固定電話/NTT回線)は、
+ *     回線名義を乙へ変更できず甲が支払うが負担者は乙。別紙3の定めにより、甲の立替金として
+ *     手数料から控除する。精算書には控除額を区分表示する。
  *
  * PDF は pdfkit。invoices.js と同じ CJK フォント方針・Storage署名URL方式。
  * 純粋な描画関数(render 系)はテスト用に module.exports で公開する。
@@ -21,6 +26,7 @@ const os = require("os");
 const { computePnl, computeAccommodationTax, extractDirectReservations } = require("./pnl-logic");
 const {
   computeSettlement, computeDepositAmount, effectiveFeeRatePct, resolveOperationMode, isAgencyMode,
+  computeOwnerAdvances,
   extractAirbnbReservations, extractBookingReservations,
 } = require("./ota-csv-logic");
 
@@ -148,7 +154,7 @@ function renderReportPdf(ctx, font) {
   // 運営代行ありの物件は、代行手数料(税込)とオーナー最終利益も明示(月別収支と一致)
   if (isAgencyMode(ctx.operationMode) && ctx.settlement) {
     const s = ctx.settlement;
-    rows.push({ label: `運営代行手数料（税込・運営利益 × ${s.feeRatePct}%）`, value: "▲ " + fmtYen(s.feeInclTax) });
+    rows.push({ label: `運営代行手数料（税込・月間売上高 × ${s.feeRatePct}%）`, value: "▲ " + fmtYen(s.feeInclTax) });
     rows.push({ label: "オーナー最終利益", value: fmtYen((c.profit || 0) - s.feeInclTax), emph: true });
   }
   drawKvTable(doc, rows);
@@ -185,10 +191,13 @@ function renderSettlementPdf(ctx, font) {
   drawIssuer(doc, ctx, 320);
   doc.y = Math.max(doc.y, headTop) + 16;
 
+  // 立替金を差し引いた「実際に振り込む額」を大枠に出す(立替が無い月は従来どおり手数料税込と一致)
+  const advanceTotal = Number(s.advanceTotal || 0);
+  const netPayable = s.netPayable != null ? s.netPayable : s.feeInclTax;
   const boxY = doc.y;
   doc.rect(X, boxY, W, 40).fillAndStroke("#eef4ff", "#4a7fd0");
   doc.fillColor("#000000").fontSize(12).text("ご請求金額（税込）", X + 14, boxY + 13, { width: 220 });
-  doc.fontSize(16).text(fmtYen(s.feeInclTax), X + 240, boxY + 10, { width: W - 254, align: "right" });
+  doc.fontSize(16).text(fmtYen(netPayable), X + 240, boxY + 10, { width: W - 254, align: "right" });
   doc.y = boxY + 40;
   doc.moveDown(0.6);
 
@@ -197,19 +206,33 @@ function renderSettlementPdf(ctx, font) {
     X, doc.y, { width: W });
   doc.moveDown(0.6);
 
-  // ★利益ベース精算(2026-07-14〜): 手数料 = 運営利益 × 料率。宿泊税は預り金のため基礎に含めない。
-  const c = ctx.computed;
-  const costsTotal = (c.revenueGross || 0) - (c.profit || 0); // OTA手数料+清掃費+諸経費 の合計
+  // ★売上ベース精算(2026-08-18〜): 手数料 = 月間売上高(入金額A − 宿泊税預りB) × 料率。
+  //   宿泊税は宿泊者からの預り金のため算定基礎に含めない。
   const rows = [
-    { label: "売上合計", value: fmtYen(c.revenueGross) },
-    { label: "OTA手数料・清掃費・諸経費 計", value: "▲ " + fmtYen(costsTotal) },
-    { label: "運営利益（総合収支）", value: fmtYen(c.profit), emph: true },
-    { label: `運営代行手数料（運営利益 × ${s.feeRatePct}%）`, value: fmtYen(s.feeExclTax) },
+    { label: "入金額A（Airbnb受取＋Booking.com純額）", value: fmtYen(s.depositAmount) },
+    { label: "宿泊税 預りB", value: "▲ " + fmtYen(s.taxWithholding) },
+    { label: "月間売上高（A − B）", value: fmtYen(s.salesBase), emph: true },
+    { label: `運営代行手数料（月間売上高 × ${s.feeRatePct}%）`, value: fmtYen(s.feeExclTax) },
     { label: `消費税（${s.consumptionTaxPct}%）`, value: fmtYen(s.consumptionTax) },
-    { label: "ご請求金額（税込）", value: fmtYen(s.feeInclTax), emph: true },
+    { label: "手数料合計（税込）", value: fmtYen(s.feeInclTax), emph: advanceTotal === 0 },
   ];
+  // 立替金(甲が支払い・乙が負担)は区分表示して控除する。別紙3 第2項に基づく処理。
+  if (advanceTotal > 0) {
+    (s.advanceRows || []).forEach((r) => {
+      rows.push({ label: `立替金（${r.name}）`, value: "▲ " + fmtYen(r.amount) });
+    });
+    rows.push({ label: "ご請求金額（税込）", value: fmtYen(netPayable), emph: true });
+  }
   drawKvTable(doc, rows);
   doc.moveDown(0.8);
+
+  if (advanceTotal > 0) {
+    doc.fontSize(9).fillColor("#333333").text(
+      "※ 立替金は、費用負担区分表（別紙3）において乙の負担とされる費目のうち、契約名義の都合により甲が"
+      + "支払ったものです。同表第2項に基づき、当月の運営代行手数料から控除して精算します。",
+      X, doc.y, { width: W });
+    doc.fillColor("#000000").moveDown(0.6);
+  }
 
   doc.fontSize(12).text("■ お振込先", X, doc.y); doc.moveDown(0.3);
   const b = ctx.config.bank;
@@ -302,13 +325,21 @@ module.exports = function settlementApi(db) {
     const config = await loadConfig_();
     // 実効料率: 自社運営=0 / 月固定 > 物件既定 / 既定50(唯一の決定ロジック)
     const feeRatePct = effectiveFeeRatePct(data, prop);
-    // ★手数料は「利益ベース」で算定(2026-07-14 ユーザー決定)。
-    //   算定基礎 = 運営利益(computed.profit = 売上−OTA手数料−清掃費−諸経費)。宿泊税は基礎に含めない。
+    // ★手数料は「売上ベース」で算定(2026-08-18 ユーザー再確定)。
+    //   算定基礎 = 月間売上高(入金額A − 宿泊税預りB)。feeBase を渡さないと computeSettlement が
+    //   この定義で計算する(basis="revenue")。費用負担区分を動かしても手数料額は変わらない。
     const settlement = computeSettlement({
-      feeBase: computed.profit,
-      depositAmount, taxWithholding, feeRatePct, // depositAmount/taxWithholding は記録・表示用に保持
+      depositAmount, taxWithholding, feeRatePct,
       consumptionTaxPct: config.consumptionTaxPct, feeRounding: config.feeRounding,
     });
+
+    // ★立替金(甲が支払い・乙が負担の費目)を手数料から控除する。
+    //   別紙3 第2項: NTT回線は名義変更できないため甲が支払い、乙が実費を甲に償還する。
+    const advances = computeOwnerAdvances(computed.expenses, cats);
+    settlement.advanceRows = advances.rows;
+    settlement.advanceTotal = advances.total;
+    // 甲が乙に実際に振り込む額。立替金が手数料を上回る月は負値(＝乙から甲へ返金)になる。
+    settlement.netPayable = settlement.feeInclTax - advances.total;
 
     const recipient = { ...DEFAULT_RECIPIENT, ...(prop.settlementRecipient || {}) };
     const dim = daysInMonth(yearMonth);

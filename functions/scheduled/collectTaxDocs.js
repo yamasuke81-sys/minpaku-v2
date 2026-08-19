@@ -29,11 +29,6 @@ async function collectTaxDocs(event) {
     return;
   }
 
-  // 複数メールアドレス対応
-  const userEmails = settings.userEmails
-    ? settings.userEmails.split(",").map((e) => e.trim()).filter(Boolean)
-    : [userEmail];
-
   // Gemini APIキー取得
   const geminiDoc = await db.collection("settings").doc("scanSorter").get();
   const geminiApiKey = geminiDoc.exists ? geminiDoc.data().geminiApiKey : null;
@@ -49,18 +44,20 @@ async function collectTaxDocs(event) {
       return;
     }
 
-    const tokensSnap = await db.collection("settings").doc("gmailOAuth").collection("tokens").get();
-    if (tokensSnap.empty) {
-      console.log("Gmail認証済みアカウントなし");
-      return;
-    }
-
-    for (const tokenDoc of tokensSnap.docs) {
-      const tokenData = tokenDoc.data();
-      if (!tokenData.refreshToken) continue;
-      const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-      oauth2Client.setCredentials({ refresh_token: tokenData.refreshToken });
-      gmailClients[tokenData.email] = google.gmail({ version: "v1", auth: oauth2Client });
+    // pnl.js / invoices.js と同様に両トークン置き場を読む(実トークンは gmailOAuthEmailVerification 側にある)
+    const tokenCols = [
+      db.collection("settings").doc("gmailOAuth").collection("tokens"),
+      db.collection("settings").doc("gmailOAuthEmailVerification").collection("tokens"),
+    ];
+    for (const col of tokenCols) {
+      const tokensSnap = await col.get();
+      for (const tokenDoc of tokensSnap.docs) {
+        const tokenData = tokenDoc.data();
+        if (!tokenData.refreshToken || gmailClients[tokenData.email]) continue;
+        const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+        oauth2Client.setCredentials({ refresh_token: tokenData.refreshToken });
+        gmailClients[tokenData.email] = google.gmail({ version: "v1", auth: oauth2Client });
+      }
     }
 
     if (Object.keys(gmailClients).length === 0) {
@@ -76,24 +73,30 @@ async function collectTaxDocs(event) {
   const gmail = Object.values(gmailClients)[0];
 
   // Google Drive API
-  const drive = await getDriveClient_();
+  const drive = await getDriveClient_(db);
 
-  // 前月の年月を算出
-  const now = new Date();
-  const targetDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const yearMonth = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, "0")}`;
-  const afterDate = `${targetDate.getFullYear()}/${String(targetDate.getMonth() + 1).padStart(2, "0")}/01`;
-  const beforeDate = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, "0")}/01`;
+  // 対象は「前月」と「前々月」の2ヶ月分(JST基準。ランタイムはUTCなので +9h して getUTC* で読む)。
+  // ★Bookingの手数料請求書のように「対象月の翌月3日頃に届く」書類は、対象月内のウィンドウだけでは
+  //   永久に拾えなかった(2026-08-19 根治)。プラットフォームの arrivalOffsetMonths で検索窓をずらし、
+  //   さらに前々月も毎回再走査して到着遅れを翌月の実行で回収する(gmailMessageId 冪等なので二重保存なし)。
+  const now = new Date(Date.now() + 9 * 3600 * 1000);
+  const fmtSlash = (d) => `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/01`;
 
   // 全名義を取得
   const entSnap = await db.collection("entities").orderBy("displayOrder").get();
   const summary = {}; // entityName → { collected: N, skipped: N, errors: N }
+  const targetYms = [];
+
+  for (const monthsBack of [1, 2]) {
+  const targetDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsBack, 1));
+  const yearMonth = `${targetDate.getUTCFullYear()}-${String(targetDate.getUTCMonth() + 1).padStart(2, "0")}`;
+  targetYms.push(yearMonth);
 
   for (const entDoc of entSnap.docs) {
     const ent = entDoc.data();
     const entityId = entDoc.id;
     const platforms = ent.platforms || [];
-    summary[ent.name] = { collected: 0, skipped: 0, errors: 0 };
+    if (!summary[ent.name]) summary[ent.name] = { collected: 0, skipped: 0, errors: 0 };
 
     if (!ent.taxFolderId) {
       summary[ent.name].errors++;
@@ -104,7 +107,13 @@ async function collectTaxDocs(event) {
       if (!plat.fromEmails || plat.fromEmails.length === 0) continue;
 
       try {
-        // Gmail検索クエリ組み立て
+        // Gmail検索クエリ組み立て。arrivalOffsetMonths=Nの書類は「対象月+Nヶ月」の1ヶ月窓で探す
+        // (例: Booking手数料請求書は対象月の翌月3日頃に届くので offset=1)
+        const offset = Number(plat.arrivalOffsetMonths || 0);
+        const winStart = new Date(Date.UTC(targetDate.getUTCFullYear(), targetDate.getUTCMonth() + offset, 1));
+        const winEnd = new Date(Date.UTC(targetDate.getUTCFullYear(), targetDate.getUTCMonth() + offset + 1, 1));
+        const afterDate = fmtSlash(winStart);
+        const beforeDate = fmtSlash(winEnd);
         const fromQuery = plat.fromEmails.map((e) => `from:${e}`).join(" OR ");
         const additionalQuery = plat.gmailQuery || "";
         const query = `(${fromQuery}) ${additionalQuery} after:${afterDate} before:${beforeDate}`;
@@ -143,13 +152,37 @@ async function collectTaxDocs(event) {
           let savedFileName = "";
           let savedFileId = "";
 
-          // フォルダ確保
-          const yearStr = `${targetDate.getFullYear()}年`;
-          const monthStr = `${targetDate.getMonth() + 1}月`;
-          const yearFolder = await getOrCreateSubfolder_(drive, ent.taxFolderId, yearStr);
-          const monthFolder = await getOrCreateSubfolder_(drive, yearFolder.id, monthStr);
-          const platFolderName = plat.name.replace(/送金明細|手数料請求書/g, "").trim() || plat.name;
-          const platFolder = await getOrCreateSubfolder_(drive, monthFolder.id, platFolderName);
+          if (attachments.length === 0) {
+            // ★添付なしメール(Airbnbの送金通知等)は保存しない(2026-08-19 やますけ判断)。
+            //   以前は本文をHTMLで保存していたが、DriveはHTMLソースをそのまま表示するため税理士が読めず、
+            //   送金額は予約CSVと通帳入金で確認できるためフォルダのノイズだった(実例10件を同日ゴミ箱へ)。
+            //   毎月の再走査で復活しないよう、Firestoreに記録だけ残して重複判定を効かせる。
+            await db.collection("taxDocs").add({
+              entityId,
+              source: plat.name.toLowerCase().includes("airbnb") ? "airbnb" : "booking",
+              sourceAccount: plat.name,
+              yearMonth,
+              fileName: "",
+              driveFileId: "",
+              driveFolderId: "",
+              gmailMessageId: msg.id,
+              fileType: "skipped",
+              status: "skipped",
+              amount: null,
+              transactionDate: null,
+              description: subject,
+              collectedAt: admin.firestore.FieldValue.serverTimestamp(),
+              collectedBy: "auto",
+              memo: "添付なしのため保存せず(通知メール)",
+            });
+            summary[ent.name].skipped++;
+            continue;
+          }
+
+          // フォルダ確保 — 実運用の税理士フォルダは「YYYY.MM」直下にフラット置き(例: IU_八朔/2026.07)。
+          // 旧実装の「YYYY年/M月/プラットフォーム名」は実態と不一致で、checkTaxDocsDrive からも見えなかった
+          const ymFolderName = `${targetDate.getUTCFullYear()}.${String(targetDate.getUTCMonth() + 1).padStart(2, "0")}`;
+          const platFolder = await getOrCreateSubfolder_(drive, ent.taxFolderId, ymFolderName);
 
           if (attachments.length > 0) {
             // 添付ファイルを保存
@@ -172,22 +205,8 @@ async function collectTaxDocs(event) {
               savedFileName = created.data.name;
               savedFileId = created.data.id;
             }
-          } else {
-            // メール本文をHTML保存
-            const bodyHtml = extractBody_(detail.data.payload);
-            if (bodyHtml) {
-              const buf = Buffer.from(bodyHtml, "utf-8");
-              const htmlName = `${plat.name}_${yearMonth}_${msg.id.slice(0, 8)}.html`;
-              const created = await drive.files.create({
-                requestBody: { name: htmlName, parents: [platFolder.id] },
-                media: { mimeType: "text/html", body: require("stream").Readable.from(buf) },
-                supportsAllDrives: true,
-                fields: "id,name",
-              });
-              savedFileName = created.data.name;
-              savedFileId = created.data.id;
-            }
           }
+          // (添付なしは上でスキップ済み。旧実装のHTML本文保存は 2026-08-19 廃止)
 
           // Gemini APIでメール解析（失敗しても続行）
           let analysis = { amount: null, transactionDate: null, description: "" };
@@ -210,7 +229,7 @@ async function collectTaxDocs(event) {
             driveFileId: savedFileId,
             driveFolderId: platFolder.id,
             gmailMessageId: msg.id,
-            fileType: attachments.length > 0 ? "pdf" : "html",
+            fileType: "pdf",
             status: "collected",
             amount: analysis.amount,
             transactionDate: analysis.transactionDate,
@@ -231,17 +250,19 @@ async function collectTaxDocs(event) {
       }
     }
   }
+  } // monthsBack ループ終わり
 
-  // LINE通知
-  const lines = [`📋 税理士資料自動収集（${yearMonth}）\n`];
-  for (const [name, s] of Object.entries(summary)) {
-    if (s.collected > 0 || s.errors > 0) {
-      lines.push(`${name}: ${s.collected}件収集${s.skipped > 0 ? ` (${s.skipped}件スキップ)` : ""}${s.errors > 0 ? ` ⚠️${s.errors}件エラー` : ""}`);
-    }
+  // 通知はエラーのときだけ(2026-08-19 やますけ決定)。
+  // 「N件収集しました」はシステムが処理を終えた事後報告で人が動く必要がなく、
+  // 不足があるかどうかは秘書の不足チェック(1件=1メッセージ+解決ボタン)が受け持つ。
+  const errored = Object.entries(summary).filter(([, s]) => s.errors > 0);
+  if (errored.length > 0) {
+    const lines = [`⚠️ 税理士資料の自動収集でエラー（対象: ${targetYms.join("・")}）\n`];
+    for (const [name, s] of errored) lines.push(`${name}: ${s.errors}件エラー（${s.collected}件は収集済み）`);
+    await notifyOwner(db, "tax_docs_collect", "税理士資料収集エラー", lines.join("\n"), null, null, { discordOnly: true });
   }
-  if (lines.length > 1) {
-    await notifyOwner(db, "tax_docs_collect", "税理士資料収集", lines.join("\n"));
-  }
+  console.log(`税理士資料 自動収集完了(${targetYms.join("・")}):`,
+    Object.entries(summary).map(([n, s]) => `${n}=${s.collected}収集/${s.skipped}skip/${s.errors}err`).join(" "));
 }
 
 // ========================================
@@ -259,7 +280,7 @@ async function processMfInbox(event) {
   const geminiDoc = await db.collection("settings").doc("scanSorter").get();
   const geminiApiKey = geminiDoc.exists ? geminiDoc.data().geminiApiKey : null;
 
-  const drive = await getDriveClient_();
+  const drive = await getDriveClient_(db);
   const entSnap = await db.collection("entities").orderBy("displayOrder").get();
   const allEntities = entSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
@@ -276,8 +297,8 @@ async function processMfInbox(event) {
     return;
   }
 
-  const now = new Date();
-  const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const now = new Date(Date.now() + 9 * 3600 * 1000); // JST基準
+  const yearMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
   const results = [];
 
   for (const folderId of folderIds) {
@@ -298,9 +319,10 @@ async function processMfInbox(event) {
     }
 
     for (const file of files) {
-      // 既に処理済みかチェック
+      // 既に処理済みかチェック — 保存レコードの driveFileId はコピー先の新ファイルIDなので、
+      // 元ファイルIDは sourceDriveFileId で照合する(driveFileId で照合すると毎週再コピーされる)
       const dupSnap = await db.collection("taxDocs")
-        .where("driveFileId", "==", file.id)
+        .where("sourceDriveFileId", "==", file.id)
         .limit(1).get();
       if (!dupSnap.empty) continue;
 
@@ -344,14 +366,9 @@ async function processMfInbox(event) {
         continue;
       }
 
-      // 税理士フォルダにコピー
-      const yearStr = `${now.getFullYear()}年`;
-      const monthStr = `${now.getMonth() + 1}月`;
-      const yearFolder = await getOrCreateSubfolder_(drive, matchedEntity.taxFolderId, yearStr);
-      const monthFolder = await getOrCreateSubfolder_(drive, yearFolder.id, monthStr);
-      const categoryFolder = matchedAccount.category === "credit" ? "クレジットカード明細" : "銀行口座明細";
-      const catFolder = await getOrCreateSubfolder_(drive, monthFolder.id, categoryFolder);
-      const accFolder = await getOrCreateSubfolder_(drive, catFolder.id, matchedAccount.name);
+      // 税理士フォルダにコピー — 実運用どおり「YYYY.MM」直下にフラット置き(ファイル名で内容が分かる命名にする)
+      const ymFolderName = `${now.getUTCFullYear()}.${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+      const accFolder = await getOrCreateSubfolder_(drive, matchedEntity.taxFolderId, ymFolderName);
 
       // リネーム
       const ym = yearMonth.replace("-", "");
@@ -372,6 +389,7 @@ async function processMfInbox(event) {
         yearMonth,
         fileName: copied.data.name,
         driveFileId: copied.data.id,
+        sourceDriveFileId: file.id, // 受信BOX側の元ファイルID(週次の重複判定キー)
         driveFolderId: accFolder.id,
         gmailMessageId: null,
         fileType: file.name.endsWith(".csv") ? "csv" : "pdf",
@@ -391,18 +409,46 @@ async function processMfInbox(event) {
     }
   }
 
-  // LINE通知
+  // 通知(Discordのみ・2026-08-19 やますけ指示)
   const processed = results.filter((r) => r.status === "processed");
   if (processed.length > 0) {
     const lines = [`📁 MF受信BOX処理: ${processed.length}件\n`];
     processed.forEach((r) => lines.push(`- ${r.account}(${r.entity})`));
-    await notifyOwner(db, "tax_docs_mf", "MF受信BOX処理", lines.join("\n"));
+    await notifyOwner(db, "tax_docs_mf", "MF受信BOX処理", lines.join("\n"), null, null, { discordOnly: true });
   }
 }
 
 // ========== ヘルパー関数 ==========
 
-async function getDriveClient_() {
+async function getDriveClient_(db) {
+  // サービスアカウントはMyDriveに書き込めない(storage quotaを持たない)ため、
+  // Drive フルスコープを持つユーザーOAuthトークン(81hassac等)で書き込む。無ければADCにフォールバック(読み取り用)
+  if (db) {
+    try {
+      const oauthDoc = await db.collection("settings").doc("gmailOAuth").get();
+      const { clientId, clientSecret } = oauthDoc.exists ? oauthDoc.data() : {};
+      if (clientId && clientSecret) {
+        const cols = [
+          db.collection("settings").doc("gmailOAuth").collection("tokens"),
+          db.collection("settings").doc("gmailOAuthEmailVerification").collection("tokens"),
+        ];
+        for (const col of cols) {
+          const snap = await col.get();
+          for (const doc of snap.docs) {
+            const t = doc.data();
+            if (!t.refreshToken) continue;
+            if (!/auth\/drive(\s|$)/.test(t.scope || "")) continue; // drive.file ではなくフルdriveのみ
+            const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+            oauth2Client.setCredentials({ refresh_token: t.refreshToken });
+            return google.drive({ version: "v3", auth: oauth2Client });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Drive OAuthクライアント生成失敗(ADCへフォールバック):", e.message);
+    }
+  }
+  console.warn("Driveフルスコープのユーザーotokenが見つからずADC(サービスアカウント)を使用。読み取りは可能だがファイル作成は失敗する");
   const auth = new google.auth.GoogleAuth({
     scopes: ["https://www.googleapis.com/auth/drive"],
   });

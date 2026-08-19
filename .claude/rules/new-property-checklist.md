@@ -47,7 +47,7 @@
 | `operationMode` + `managementFeeRate` | properties | 精算書・代行手数料 | 宇品=agency_hassac 5% / 若草=agency_hassac 70% |
 | **mf-booking-monitor.mjs に物件追加（コード修正）** | `minpaku-v2/scripts/mf-booking-monitor.mjs` | OTA入金の自動突合 | `PROP_NAMES` と `fallbacks` に追加。**入金口座が楽天第3/ハープ以外の場合は口座スキャン自体の追加が必要** |
 | LINE 清掃G | LINE Developers（Messaging API化）→ `lineBotInfo` + `properties/{pid}/private/secrets.lineChannels[]` | 清掃募集・シフト通知 | OA作成だけでは飛ばない。リネームは「公開」まで押す（memory `project_line_oa_ujina_wakakusa`） |
-| `timeeAutofill` | properties | タイミー自動投稿 | Timee 側で求人テンプレ作成後に baseUrl/groupIds 等 |
+| `timeeAutofill` | properties | タイミー自動投稿 | Timee 側で求人テンプレ作成後に baseUrl/groupIds 等。**催促通知(channelOverrides.timee_posting)は全宿OFF方針（2026-08-11やますけ決定）＝有効化しない** |
 | 届出番号（民泊新法のみ） | `settings/owner.todokideNumbers[pid]` | **14条定期報告の自動生成** | 登録した時点で自動対象化（実績0でも0報告）。旅館業物件は対象外 |
 | `checklistTemplateId` ほか清掃系 | properties | チェックリスト・清掃フロー | |
 | 直販サイト予約開通 | setouchi-stay-sites（published/Stripe） | 直販予約 | |
@@ -58,7 +58,9 @@
 | 項目 | 場所/方法 | 備考 |
 |---|---|---|
 | 直販サイト公開・予約開通 | setouchi-stay-sites（`bookingEnabled` / site.json `published`・`comingSoon`・`dnsUnreadySlugs`）＋DNS | 公開後に実機で「空室カレンダー→リクエストフォーム→プラン・キャンセルポリシー表示」を確認 |
-| **Googleビジネスプロフィール（Googleマップ）** | business.google.com（既存宿と同じGoogleアカウントで作成） | カテゴリ=旅館/ホテル・住所・**電話**・直販URL・写真・チェックイン時刻。**オーナー確認（電話/ハガキ/動画）が必要**。※テラスは電話番号未登録のまま（2026-08-10発見）。登録後はクチコミ導線（ガイド/現地QR）も検討 |
+| **Googleビジネスプロフィール（Googleマップ）** | business.google.com（**管理は yamasuke81@gmail.com に集約**・2026-08-11確定） | カテゴリ=旅館/ホテル・住所・**電話**・直販URL・写真・チェックイン時刻。**オーナー確認（動画のみ提示の場合あり。「後で確認」でプロフィール保存可）**。登録後はクチコミ導線（ガイド/現地QR）も検討 |
+| 宿の公開電話番号の決定 | GBP・タイミー緊急連絡先・ガイドで共用 | **方針（2026-08-11やますけ決定）: テラス・小町・若草=070-8488-7966／宇品=080-3892-0532（営業者tomi企画・富永）**。運営主体が八朔/恭介以外の宿は営業者の番号にする |
+| ゲスト案内ガイドの内容確定 | guides/{slug}.html（guest-checkin-link経由） | フェーズ0のslug登録だけでなく**中身の確定**（Wi-Fi・キーボックス・ゴミ出し・緊急連絡先）。若草は2026-08時点で未確定 |
 | Instagram（@setouchistay.jp） | 新宿の紹介投稿＋ハイライト | 投稿は3の倍数ずつ（プロフィールグリッド維持） |
 | Booking.com 出品の要否 | 経営判断 | テラスのみ出品中。出品するなら yadozei.booking／iCal双方向／mf-booking-monitor のBooking側も配線 |
 | タイミー チェックインQR | Timee店舗管理→`properties.timeeQrImageUrl` | E2Eの残タスクになりがち |
@@ -87,5 +89,6 @@
 
 ## 進捗（2026-08-10 時点）
 
-- **宇品**: フェーズ0〜2 配線済み。keyboxCode=設定済（private/secrets）・keyboxSend 有効化済・宿泊税は 2026-08 分から0申告（startYm=2026-08）。残 = ①LINE Messaging API化＋lineBotInfo ②timeeAutofill（Timee側の求人テンプレ待ち）
-- **若草・安芸津・竹原**: フェーズ0 完了（2026-08-10 一括投入: メールテンプレ・keyboxSendテンプレ・direct_request・yadozei骨組み）。リスティング開設時にフェーズ1へ
+- **宇品**: フェーズ0〜2 **完了**（2026-08-11時点で配線の残ゼロ。LINE=lineChannels配線済み・E2E実着弾確認／タイミー=ひな形2469670+timeeAutofill+チェックインQR設定済み）。フェーズ3の残 = GBPオーナー確認（動画・やますけ）とGBP写真追加
+- **若草**: フェーズ0 完了＋タイミー先行整備済み（店舗510989・ひな形2481720・timeeAutofill・チェックインQR）。リスティング開設時にフェーズ1へ
+- **安芸津・竹原**: フェーズ0 完了（2026-08-10 一括投入）。リスティング開設時にフェーズ1へ

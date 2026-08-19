@@ -2,6 +2,12 @@
  * Driveフォルダ日次監視（毎朝7:00 JST）
  * 全名義の税理士共有フォルダをスキャンし、チェックリストを自動更新
  * ファイルが見つかった項目は自動でcollected=trueにする
+ *
+ * 通知方針(2026-08-19 やますけ決定・同日第2版):
+ *   日々の「検出しました」は通知しない。検出＝システムが勝手にチェックを付けるだけで
+ *   人が動く必要がなく、項目名だけの事後報告は読み取れず価値がなかった。
+ *   不足分の通知はPC常駐秘書側(tax-docs-missing-check.mjs → 1件=1メッセージ+解決ボタン)が担う。
+ *   この関数はスキャンとチェックリスト更新に専念する(Discordへは何も送らない)。
  */
 const { google } = require("googleapis");
 const { FieldValue } = require("firebase-admin/firestore");
@@ -17,12 +23,12 @@ module.exports = async function checkTaxDocsDrive(event) {
     return;
   }
 
-  // 今月の年月
-  const now = new Date();
-  const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const [year, month] = yearMonth.split("-");
-  const yearStr = `${year}年`;
-  const monthStr = `${parseInt(month)}月`;
+  // 対象は「前月」と「今月」の2ヶ月分。書類は翌月に届くものが多く(例: 7月分の明細が8月に
+  // 2026.07 フォルダへ入る)、今月だけ見ていると前月分の到着を検出できない
+  // JST基準(ランタイムはUTC。毎朝7時JST=前日22時UTCなので素のgetMonth()だと月初に当月がずれる)
+  const now = new Date(Date.now() + 9 * 3600 * 1000);
+  const ymOf = (d) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  const yearMonths = [ymOf(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))), ymOf(now)];
 
   let drive;
   try {
@@ -37,24 +43,35 @@ module.exports = async function checkTaxDocsDrive(event) {
 
   const entSnap = await db.collection("entities").orderBy("displayOrder").get();
   const checklistCol = db.collection("taxDocsChecklist");
+  const { buildChecklistItems } = require("../api/tax-docs");
   let totalFound = 0;
   let totalMissing = 0;
-  const newlyCollected = [];
+  let newlyCollectedCount = 0;
+  // 月次「不足リスト」用: yearMonth → [{ entityName, missing[], collected数, total数 }]
+  const statusByYm = {};
+
+  for (const yearMonth of yearMonths) {
+  const [year, month] = yearMonth.split("-");
 
   for (const entDoc of entSnap.docs) {
     const ent = entDoc.data();
     if (!ent.taxFolderId) continue;
 
-    // 年/月フォルダを探す
+    // 月フォルダを探す — 実運用は「YYYY.MM」直下(例: IU_八朔/2026.07)。旧「YYYY年/M月」も後方互換で見る
     let monthFolderId = null;
     try {
-      const yearFolder = await findSubfolder_(drive, ent.taxFolderId, yearStr);
-      if (yearFolder) {
-        const mFolder = await findSubfolder_(drive, yearFolder.id, monthStr);
-        if (mFolder) monthFolderId = mFolder.id;
+      const dotFolder = await findSubfolder_(drive, ent.taxFolderId, `${year}.${month}`);
+      if (dotFolder) {
+        monthFolderId = dotFolder.id;
+      } else {
+        const yearFolder = await findSubfolder_(drive, ent.taxFolderId, `${year}年`);
+        if (yearFolder) {
+          const mFolder = await findSubfolder_(drive, yearFolder.id, `${parseInt(month)}月`);
+          if (mFolder) monthFolderId = mFolder.id;
+        }
       }
     } catch (e) {
-      console.error(`Drive監視エラー(${ent.name}):`, e.message);
+      console.error(`Drive監視エラー(${ent.name}/${yearMonth}):`, e.message);
       continue;
     }
 
@@ -63,12 +80,34 @@ module.exports = async function checkTaxDocsDrive(event) {
     // フォルダ内の全ファイルをスキャン
     const driveFiles = await listAllFilesRecursive_(drive, monthFolderId);
 
-    // チェックリスト更新
+    // チェックリスト更新(未生成なら entities マスタから自動初期化 — 従来はUIを開くまで
+    // ドキュメントが無く、この監視が黙って continue し続けて一度も機能していなかった)
     const clRef = checklistCol.doc(yearMonth).collection("entities").doc(entDoc.id);
     const clDoc = await clRef.get();
-    if (!clDoc.exists) continue;
+    let clData;
+    if (clDoc.exists) {
+      clData = clDoc.data();
+    } else {
+      const initItems = buildChecklistItems(ent, yearMonth);
+      if (initItems.length === 0) continue;
+      clData = {
+        entityName: ent.name,
+        entityType: ent.type,
+        items: initItems,
+        completedCount: 0,
+        totalCount: initItems.length,
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      await checklistCol.doc(yearMonth).set({ createdAt: FieldValue.serverTimestamp() }, { merge: true });
+      try {
+        await clRef.create(clData); // 既存があれば失敗させて上書きを防ぐ(UI/API側と競合しうる)
+      } catch (e) {
+        const cur = await clRef.get();
+        if (!cur.exists) throw e;
+        clData = cur.data();
+      }
+    }
 
-    const clData = clDoc.data();
     const items = clData.items || [];
     if (items.length === 0) continue;
 
@@ -91,7 +130,7 @@ module.exports = async function checkTaxDocsDrive(event) {
           items[i].autoCollected = true;
           items[i].driveFileName = matchedFile.name;
           changed = true;
-          newlyCollected.push(`${ent.name}: ${item.name}`);
+          newlyCollectedCount++;
         }
       } else {
         totalMissing++;
@@ -102,21 +141,21 @@ module.exports = async function checkTaxDocsDrive(event) {
       const completedCount = items.filter((i) => i.collected).length;
       await clRef.update({ items, completedCount, updatedAt: FieldValue.serverTimestamp() });
     }
-  }
 
-  // 新たに収集されたものがあればLINE通知
-  if (newlyCollected.length > 0) {
-    try {
-      const { notifyOwner } = require("../utils/lineNotify");
-      const lines = [`📁 税理士資料 自動検出（${yearMonth}）\n`];
-      newlyCollected.forEach((c) => lines.push(`✅ ${c}`));
-      await notifyOwner(db, "tax_docs_drive_check", "税理士資料 自動検出", lines.join("\n"));
-    } catch (e) {
-      console.warn("LINE通知エラー（続行）:", e.message);
-    }
+    // 月次「不足リスト」の材料。手で✅を付けた分(collected=true)も揃った扱いにする
+    const missing = items.filter((i) => !i.collected).map((i) => i.name);
+    (statusByYm[yearMonth] = statusByYm[yearMonth] || []).push({
+      entityName: ent.name,
+      missing,
+      collectedCount: items.length - missing.length,
+      totalCount: items.length,
+    });
   }
+  } // yearMonths ループ終わり
 
-  console.log(`Drive監視完了: ${totalFound}件検出, ${totalMissing}件不足, ${newlyCollected.length}件新規チェック`);
+  // 不足分の通知はPC常駐秘書側(tax-docs-missing-check.mjs)が1件=1メッセージ+解決ボタンで担う。
+  // ここからDiscordへは何も送らない(2026-08-19 やますけ決定)。
+  console.log(`Drive監視完了: ${totalFound}件検出, ${totalMissing}件不足, ${newlyCollectedCount}件新規チェック`);
 };
 
 // ========== ヘルパー ==========
@@ -151,14 +190,21 @@ async function listAllFilesRecursive_(drive, folderId) {
   return files;
 }
 
+// ★platforms / manualItems に書いた keywords が無視されていた(2026-08-19 発覚)。
+//   platform は名前を「送金」「手数料」で切った断片、manualItems は項目名そのものを
+//   キーワードにしていたため、実物のファイル名(yadozei_申告書_… 等)と一生一致しなかった。
+//   どの種別でも keywords を最優先で使う。
 function getItemKeywords_(item, entity) {
   const acc = (entity.accounts || []).find((a) => a.name === item.name);
   if (acc && acc.keywords && acc.keywords.length > 0) return acc.keywords;
   const plat = (entity.platforms || []).find((p) => p.name === item.name);
   if (plat) {
+    if (plat.keywords && plat.keywords.length > 0) return plat.keywords;
     const keywords = [plat.name.split("送金")[0], plat.name.split("手数料")[0]].filter(Boolean);
     if (plat.propertyName) keywords.push(plat.propertyName);
     return keywords.length > 0 ? keywords : [item.name];
   }
+  const man = (entity.manualItems || []).find((m) => m.name === item.name);
+  if (man && man.keywords && man.keywords.length > 0) return man.keywords;
   return [item.name];
 }
