@@ -189,7 +189,17 @@ async function detectDoubleBooking(db, bookingId, after) {
     return after.checkIn < x.checkOut && x.checkIn < after.checkOut;
   });
 
-  if (conflicts.length === 0) return;
+  if (conflicts.length === 0) {
+    // 日程変更や相手のキャンセルで重複が解消したのに conflictWithIds が残っていたら解除する。
+    // (Reserved プレースホルダの日程が後から確定して隣接に変わるケースで残骸が溜まっていた)
+    const cur = await db.collection("bookings").doc(bookingId).get();
+    const curIds = cur.exists ? (cur.data().conflictWithIds || []) : [];
+    if (curIds.length) {
+      await cur.ref.update({ conflictWithIds: [] });
+      await resolveConflictsOnCancel(db, bookingId, { conflictWithIds: curIds });
+    }
+    return;
+  }
 
   const conflictIds = conflicts.map(d => d.id);
 
