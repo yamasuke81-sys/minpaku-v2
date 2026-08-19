@@ -47,7 +47,7 @@
 | `operationMode` + `managementFeeRate` | properties | 精算書・代行手数料 | 宇品=agency_hassac 5% / 若草=agency_hassac 70% |
 | **mf-booking-monitor.mjs に物件追加（コード修正）** | `minpaku-v2/scripts/mf-booking-monitor.mjs` | OTA入金の自動突合 | `PROP_NAMES` と `fallbacks` に追加。**入金口座が楽天第3/ハープ以外の場合は口座スキャン自体の追加が必要** |
 | LINE 清掃G | LINE Developers（Messaging API化）→ `lineBotInfo` + `properties/{pid}/private/secrets.lineChannels[]` | 清掃募集・シフト通知 | OA作成だけでは飛ばない。リネームは「公開」まで押す（memory `project_line_oa_ujina_wakakusa`） |
-| `timeeAutofill` | properties | タイミー自動投稿 | Timee 側で求人テンプレ作成後に baseUrl/groupIds 等 |
+| `timeeAutofill` | properties | タイミー自動投稿 | Timee 側で求人テンプレ作成後に baseUrl/groupIds 等。**催促通知(channelOverrides.timee_posting)は全宿OFF方針（2026-08-11やますけ決定）＝有効化しない** |
 | 届出番号（民泊新法のみ） | `settings/owner.todokideNumbers[pid]` | **14条定期報告の自動生成** | 登録した時点で自動対象化（実績0でも0報告）。旅館業物件は対象外 |
 | `checklistTemplateId` ほか清掃系 | properties | チェックリスト・清掃フロー | |
 | 直販サイト予約開通 | setouchi-stay-sites（published/Stripe） | 直販予約 | |
