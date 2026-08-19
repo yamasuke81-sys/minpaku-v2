@@ -37,6 +37,8 @@ const {
 } = require("../api/ota-audit-logic");
 
 const NOTIFY_KEY = "morning_ota_audit";
+// OTAキー → 表示名 (未取得OTAの理由表示に使う)
+const OTA_LABELS_JA = { airbnb: "Airbnb", booking: "Booking.com" };
 const ROSTER_WARN_DAYS = 3;
 // 1回の朝点検で走査する未解決コンフリクトの上限 (実運用は常時1桁。暴走時の保険)
 const CONFLICT_SCAN_LIMIT = 300;
@@ -245,8 +247,14 @@ module.exports = async function morningOtaAudit() {
       if (snapshotMissing) {
         lines.push(`🚨 本日のOTAスナップショットが取得できていません(otaCalendarSnapshots/${todayStr})。突合(①)は持ち越しました(後日スナップショットが書かれ次第、遡って突合します)。`);
       } else if (snapshotPartial) {
+        // ★スキップ理由も本文に出す(2026-08-18)。errors だけを見ていると、セッション失効で
+        //   取得を見送ったOTA(errors は空)の理由が一切表示されない。
         const errText = (snapshot.errors || []).map((e) => `${e.ota}: ${e.message}`).join(" / ");
-        lines.push(`⚠️ OTA取得が一部失敗しています(${errText})。失敗分は逆方向チェック対象外です。`);
+        const skipText = (snapshot.skippedOtas || [])
+          .map((sk) => `${OTA_LABELS_JA[sk.ota] || sk.ota}(${sk.reason === "session_expired" ? "ログイン失効中" : sk.reason || "理由不明"}のため未取得)`)
+          .join(" / ");
+        const partialReason = [errText, skipText].filter(Boolean).join(" / ") || "理由不明";
+        lines.push(`⚠️ OTA取得が一部できていません(${partialReason})。この分は逆方向チェックの対象外です。`);
       }
 
       // 遡り突合の結果 (欠損日の持ち越し)
