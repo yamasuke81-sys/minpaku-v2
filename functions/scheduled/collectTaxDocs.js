@@ -239,7 +239,7 @@ async function collectTaxDocs(event) {
     }
   }
 
-  // LINE通知
+  // 通知(Discordのみ・2026-08-19 やますけ指示)
   const lines = [`📋 税理士資料自動収集（${yearMonth}）\n`];
   for (const [name, s] of Object.entries(summary)) {
     if (s.collected > 0 || s.errors > 0) {
@@ -247,7 +247,7 @@ async function collectTaxDocs(event) {
     }
   }
   if (lines.length > 1) {
-    await notifyOwner(db, "tax_docs_collect", "税理士資料収集", lines.join("\n"));
+    await notifyOwner(db, "tax_docs_collect", "税理士資料収集", lines.join("\n"), null, null, { discordOnly: true });
   }
 }
 
@@ -395,12 +395,12 @@ async function processMfInbox(event) {
     }
   }
 
-  // LINE通知
+  // 通知(Discordのみ・2026-08-19 やますけ指示)
   const processed = results.filter((r) => r.status === "processed");
   if (processed.length > 0) {
     const lines = [`📁 MF受信BOX処理: ${processed.length}件\n`];
     processed.forEach((r) => lines.push(`- ${r.account}(${r.entity})`));
-    await notifyOwner(db, "tax_docs_mf", "MF受信BOX処理", lines.join("\n"));
+    await notifyOwner(db, "tax_docs_mf", "MF受信BOX処理", lines.join("\n"), null, null, { discordOnly: true });
   }
 }
 

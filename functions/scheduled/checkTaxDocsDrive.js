@@ -136,13 +136,13 @@ module.exports = async function checkTaxDocsDrive(event) {
   }
   } // yearMonths ループ終わり
 
-  // 新たに収集されたものがあればLINE通知
+  // 新たに収集されたものがあれば通知(Discordのみ・2026-08-19 やますけ指示)
   if (newlyCollected.length > 0) {
     try {
       const { notifyOwner } = require("../utils/lineNotify");
       const lines = ["📁 税理士資料 自動検出\n"];
       newlyCollected.forEach((c) => lines.push(`✅ ${c}`));
-      await notifyOwner(db, "tax_docs_drive_check", "税理士資料 自動検出", lines.join("\n"));
+      await notifyOwner(db, "tax_docs_drive_check", "税理士資料 自動検出", lines.join("\n"), null, null, { discordOnly: true });
     } catch (e) {
       console.warn("LINE通知エラー（続行）:", e.message);
     }
