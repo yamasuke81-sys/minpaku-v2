@@ -11,8 +11,10 @@
 //   node scripts/ugc-past-guest-mailer.mjs --test a@b.com     # そのアドレスにテラス文面のテストメールを1通送る
 //
 // 安全装置:
-//   ・送信済みは Firestore marketingSends/{emailKey} に記録し、二度と送らない(再実行しても安全)
-//   ・送信直前にも配信停止(marketingSuppressions)を照合する
+//   ・送信は「予約→送信→確定」の3段。送信の前に marketingSends/{emailKey} を create() で
+//     原子的に予約する(既存なら ALREADY_EXISTS で失敗=並行実行や書込み失敗後の再実行でも二重送信しない)。
+//     送信に失敗したら予約を消して、次回の実行で再試行できるようにする
+//   ・1通ごとに送信直前で配信停止(marketingSuppressions)を読み直す(実行中の停止申請も拾う)
 //   ・チェックアウト後フォローメール(ugcFollowMail)が送った相手もスキップ(二重案内防止)
 //   ・対象は「滞在が終わった人」だけ(未宿泊者に「先日はご宿泊…」を送らない)
 import admin from "firebase-admin";
@@ -165,11 +167,39 @@ if (!SEND) {
   process.exit(0);
 }
 
-// ---- 実送信 ----
-const { sendNotificationEmail_, resolveSenderGmail_ } = require("../functions/utils/lineNotify.js");
-let sent = 0, failed = 0;
+// ---- 実送信 (1通ごとに 停止再照合 → 原子的予約 → 送信 → 確定) ----
+const { sendNotificationEmail_ } = require("../functions/utils/lineNotify.js");
+let sent = 0, failed = 0, skipped = 0;
 for (const r of batch) {
+  const ref = db.collection("marketingSends").doc(emailKey(r.email));
+  let reserved = false;
+  let mailSent = false; // Gmail送信が成功したか(確定書込みの失敗と区別する)
   try {
+    // 送信直前に配信停止を読み直す(リストを組んだ後に停止した人へ送らない)
+    const sup = await db.collection("marketingSuppressions").doc(emailKey(r.email)).get();
+    if (sup.exists && sup.data().optedOut === true) {
+      skipped++;
+      console.log(`スキップ(実行中に配信停止): ${r.email}`);
+      continue;
+    }
+
+    // 原子的予約: 既に予約/送信済みなら create が ALREADY_EXISTS で失敗する
+    // (並行実行・前回の書込み失敗後の再実行でも、この行を越えて二重送信されることはない)
+    try {
+      await ref.create({
+        email: r.email,
+        campaign: CAMPAIGN,
+        property: r.property,
+        status: "sending",
+        reservedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      reserved = true;
+    } catch (e) {
+      skipped++;
+      console.log(`スキップ(予約済み/送信済み): ${r.email}`);
+      continue;
+    }
+
     const { subject, body } = buildUgcPastGuestMail({
       guestName: r.name,
       propertyId: r.propertyId,
@@ -178,20 +208,33 @@ for (const r of batch) {
     });
     const from = await senderGmailOf(r.propertyId);
     const res = await sendNotificationEmail_(r.email, subject, body, from || null);
-    await db.collection("marketingSends").doc(emailKey(r.email)).set({
-      email: r.email,
-      campaign: CAMPAIGN,
-      property: r.property,
+    mailSent = true;
+
+    await ref.set({
+      status: "sent",
       sentAt: admin.firestore.FieldValue.serverTimestamp(),
       messageId: res.messageId || null,
-    });
+    }, { merge: true });
     sent++;
     console.log(`送信 ${sent}/${batch.length}: ${r.email} (from=${from})`);
     await sleep(1500); // Gmail への連続送信をならす
   } catch (e) {
     failed++;
     console.error(`失敗: ${r.email} — ${e.message}`);
+    if (reserved && !mailSent) {
+      // 送信自体が失敗 → 予約を取り消して、次回の実行で再試行できるようにする
+      try {
+        await ref.delete();
+      } catch (delErr) {
+        console.error(`  予約の取り消しにも失敗(status=sending のまま残る=再試行されません): ${delErr.message}`);
+        console.error(`  → 再試行するには marketingSends/${emailKey(r.email)} を手で消してください`);
+      }
+    } else if (reserved && mailSent) {
+      // Gmail送信は成功したのに確定の set だけ落ちた → 予約は消さない。
+      // status=sending のまま残しておけば次回もスキップされ、二重送信にならない
+      console.error(`  ※メール自体は送信済み。記録の確定だけ失敗したため status=sending のまま残します(二重送信はしません)`);
+    }
   }
 }
-console.log(`\n完了: ${sent}件送信 / ${failed}件失敗 / 残り ${sendable.length - sent} 件(来週の実行で続きから)`);
+console.log(`\n完了: ${sent}件送信 / ${skipped}件スキップ / ${failed}件失敗 / 残り ${sendable.length - sent} 件(来週の実行で続きから)`);
 process.exitCode = 0;
