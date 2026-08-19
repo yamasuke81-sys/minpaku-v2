@@ -171,6 +171,89 @@ function buildUgcFollowMail({ guestName, propertyId, propertyName, checkIn, chec
   return { subject, body };
 }
 
+/**
+ * 過去ゲスト向けの案内メール (名簿全体+オプトアウト方式・ローリング配信用)
+ *
+ * チェックアウト直後のフォローと違い、名簿の連絡先を「宿泊者管理」以外の目的で
+ * 初めて使うため、**利用目的追加の通知**を本文に必ず入れる(個人情報保護法)。
+ * この一文を外すと目的外利用にあたるので、文面をいじるときも削らないこと。
+ *
+ * @param {object} p
+ * @param {string} p.guestName    ゲスト名
+ * @param {string} p.propertyId   物件ID (UGC_PROPERTIES のキー)
+ * @param {string} p.propertyName 宿名 (表示用)
+ * @param {string} p.optoutUrl    宛先ごとの配信停止URL
+ * @returns {{ subject: string, body: string }}
+ */
+function buildUgcPastGuestMail({ guestName, propertyId, propertyName, optoutUrl }) {
+  const sns = UGC_PROPERTIES[propertyId];
+  if (!sns) throw new Error(`UGC対象外の物件です: ${propertyId}`);
+  if (!optoutUrl) throw new Error("optoutUrl は必須です (配信停止導線が無いと送れません)");
+
+  const name = String(guestName || "").trim() || "ゲスト";
+  const stay = propertyName || "当宿";
+  const yen = INSTAGRAM_REWARD_YEN;
+
+  const subject = `【${stay}】Instagram投稿で${yen}円キャッシュバックのお知らせ`;
+
+  const body = [
+    `${name} 様`,
+    ``,
+    `先日は ${stay} にご宿泊いただき、誠にありがとうございました。`,
+    ``,
+    `このたび、ご滞在の思い出を Instagram にシェアしてくださった方へ`,
+    `現金キャッシュバックをお贈りするキャンペーンを始めました。`,
+    ``,
+    `  ■ Instagram に投稿 …… ${yen}円キャッシュバック`,
+    `　（Threads・TikTok も近日対象に追加予定です）`,
+    ``,
+    `【参加方法】`,
+    `① ${sns.photoExamples}など、宿が分かるお写真を投稿`,
+    `② 投稿に ${sns.handle} をタグ付け`,
+    `③ 本文に ${COMMON_HASHTAGS} ${sns.hashtags} のハッシュタグを記載`,
+    `④ あわせて #PR を明記（広告表示のルール上、必ずお願いします）`,
+    `⑤ 下記フォームに投稿URLと受取先（PayPay等）をご入力`,
+    ``,
+    `  ▶ 応募フォーム: ${FORM_URL}`,
+    ``,
+    `Googleマップのクチコミもいただけたら嬉しいです（こちらは特典対象外・無償のお願いです）。`,
+    ``,
+    `────────────────────`,
+    ``,
+    `Dear ${name},`,
+    ``,
+    `Thank you again for staying at ${stay}.`,
+    ``,
+    `Share a photo of your stay on Instagram and receive a ${yen} JPY cash back.`,
+    ``,
+    `1. Post a photo that shows the property (${sns.photoExamplesEn}, etc.)`,
+    `2. Tag ${sns.handle} in the post`,
+    `3. Add the hashtags ${COMMON_HASHTAGS} ${sns.hashtags}`,
+    `4. Add #PR as well (required for promotional posts)`,
+    `5. Submit the post URL and your payout method here:`,
+    ``,
+    `  ${FORM_URL}`,
+    ``,
+    `A Google Maps review is also very welcome (not part of the reward program).`,
+    ``,
+    `────────────────────`,
+    `【ご案内】本メールの配信について / About this email`,
+    `これまで宿泊者管理の目的で頂戴していたご連絡先を、今回よりキャンペーン等の`,
+    `ご案内にも利用させていただきます。今後この種のご案内を希望されない場合は、`,
+    `下記より配信停止いただけます（リンクを開くだけで完了します。以後お送りしません）。`,
+    `We previously received your contact details for guest registration; we will now`,
+    `also use them for occasional campaign announcements. To stop receiving these,`,
+    `just open the link below.`,
+    ``,
+    `  ▶ 配信停止 / Unsubscribe: ${optoutUrl}`,
+    ``,
+    `送信元: ${CAMPAIGN_SENDER} / ${CAMPAIGN_ADDRESS}`,
+    `────────────────────`,
+  ].join("\n");
+
+  return { subject, body };
+}
+
 module.exports = {
   UGC_PROPERTIES,
   FORM_URL,
@@ -178,4 +261,5 @@ module.exports = {
   isUgcProperty,
   isEligibleBooking,
   buildUgcFollowMail,
+  buildUgcPastGuestMail,
 };

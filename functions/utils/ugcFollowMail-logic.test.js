@@ -12,6 +12,7 @@ const {
   isUgcProperty,
   isEligibleBooking,
   buildUgcFollowMail,
+  buildUgcPastGuestMail,
 } = require("./ugcFollowMail-logic");
 
 const TERRACE = "tsZybhDMcPrxqgcRy7wp";
@@ -180,6 +181,53 @@ describe("buildUgcFollowMail", () => {
     assert.throws(() => buildUgcFollowMail({
       guestName: "山田", propertyId: "xxxx", propertyName: "x",
       checkIn: "2026-08-18", checkOut: "2026-08-20", optoutUrl: OPTOUT,
+    }), /UGC対象外/);
+  });
+});
+
+describe("buildUgcPastGuestMail (過去ゲスト向けローリング配信)", () => {
+  const mail = () => buildUgcPastGuestMail({
+    guestName: "山田 太郎",
+    propertyId: TERRACE,
+    propertyName: "the Terrace 長浜",
+    optoutUrl: OPTOUT,
+  });
+
+  test("利用目的追加の通知が入る (個人情報保護法・削ってはいけない)", () => {
+    const { body } = mail();
+    assert.ok(body.includes("宿泊者管理の目的で頂戴していたご連絡先"));
+    assert.ok(body.includes("キャンペーン等の"));
+  });
+
+  test("配信停止リンク・送信者名・住所が入る (特定電子メール法)", () => {
+    const { body } = mail();
+    assert.ok(body.includes(OPTOUT));
+    assert.ok(body.includes("合同会社八朔"));
+    assert.ok(body.includes("広島県安芸郡海田町上市4-23-12"));
+  });
+
+  test("件名に宿名と特典額500円が入る", () => {
+    const { subject } = mail();
+    assert.ok(subject.includes("the Terrace 長浜"));
+    assert.ok(subject.includes("500円"));
+  });
+
+  test("#PR の案内と日英併記", () => {
+    const { body } = mail();
+    assert.ok(body.includes("#PR"));
+    assert.ok(body.includes("Unsubscribe"));
+    assert.ok(!body.includes("お料理"));
+  });
+
+  test("配信停止URLが無ければ例外", () => {
+    assert.throws(() => buildUgcPastGuestMail({
+      guestName: "山田", propertyId: TERRACE, propertyName: "x", optoutUrl: "",
+    }), /optoutUrl/);
+  });
+
+  test("対象外物件は例外", () => {
+    assert.throws(() => buildUgcPastGuestMail({
+      guestName: "山田", propertyId: "xxxx", propertyName: "x", optoutUrl: OPTOUT,
     }), /UGC対象外/);
   });
 });
