@@ -851,6 +851,44 @@ function dedupeNewFindings(existing = [], incoming = []) {
   return out;
 }
 
+/**
+ * 「朝点検(7:00)のあとにスナップショットが完成した日」を補完再走すべきかを判定する。
+ *
+ * 背景 (2026-08-20 実障害): Booking.com はオンデマンド運用で毎晩セッションが失効するため、
+ * 2:30 の calendar_audit は Booking を飛ばし partial のままスナップショットを保存する。
+ * 朝の再ログイン(7:00ちょうど)で復帰すると listener が calendar_audit を強制再投入し、
+ * 7:02 に status=done へ上書きする。ところが morningOtaAudit は 7:00:06 に partial を
+ * 読み終えているので、Booking 予約の人数・氏名突合が毎日まるごと抜けていた
+ * (実測: 8/20 は Booking 4件が未突合。8/18 も同じ形で partial)。
+ *
+ * この関数は Firestore に触れず、判断材料だけを受け取って可否を返す
+ * (実際の再走は triggers/onOtaSnapshotComplete.js が行う)。
+ *
+ * @param {object} o
+ * @param {string} o.date - 書き込まれたスナップショットの日付 "YYYY-MM-DD"
+ * @param {string} o.todayStr - JSTの今日 "YYYY-MM-DD"
+ * @param {object|null} o.snapshot - otaCalendarSnapshots/{date} の中身
+ * @param {object|null} o.auditResult - otaAuditResults/{date} の中身 (朝点検の結果)
+ * @param {Array} [o.missingSources] - detectMissingOtaSources の missing (物件マスタ由来の脱落検知)
+ * @param {number} [o.maxRechecks] - 1日あたりの補完再走の上限 (暴走時の保険)
+ * @returns {{recheck: boolean, reason: string}}
+ */
+function shouldRecheckOtaAudit({
+  date, todayStr, snapshot, auditResult, missingSources = [], maxRechecks = 3,
+} = {}) {
+  if (!date || date !== todayStr) return { recheck: false, reason: "not_today" };
+  if (!snapshot) return { recheck: false, reason: "no_snapshot" };
+  if (snapshot.status !== "done") return { recheck: false, reason: "snapshot_incomplete" };
+  // 物件マスタから見て取得漏れが残っているなら、まだ突合し直しても不完全なまま
+  if ((missingSources || []).length > 0) return { recheck: false, reason: "still_missing_sources" };
+  // 朝点検がまだ走っていない日は何もしない (7:00 の本編が完全なスナップショットで走る)
+  if (!auditResult) return { recheck: false, reason: "audit_not_run_yet" };
+  // 朝点検が完全なスナップショットで走れていたなら再走は不要
+  if (auditResult.snapshotStatus === "done") return { recheck: false, reason: "already_complete" };
+  if ((auditResult.recheckCount || 0) >= maxRechecks) return { recheck: false, reason: "max_rechecks" };
+  return { recheck: true, reason: "snapshot_completed_after_audit" };
+}
+
 module.exports = {
   containsCodeCI,
   propertyNameMap_,
@@ -869,4 +907,5 @@ module.exports = {
   selectResolvableConflicts,
   evaluateGuestCount,
   selectGuestCountIssueActions,
+  shouldRecheckOtaAudit,
 };

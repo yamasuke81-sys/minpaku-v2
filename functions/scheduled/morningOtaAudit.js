@@ -13,6 +13,12 @@
  *
  * 通知キーは NOTIFY_KEY で定数化。channelOverrides.morning_ota_audit は
  * 物件データ側で別途設定する(このコードはキー名のみ知っていればよい)。
+ *
+ * ★mode="recheck"(補完再走): Booking.com はオンデマンド運用で毎晩セッションが失効するため、
+ *   2:30 のスナップショットは partial のことがあり、朝の再ログイン復帰後に 7:02 頃 done へ
+ *   上書きされる。7:00 の本編はそれに間に合わないので、完成を検知した
+ *   triggers/onOtaSnapshotComplete.js がこの関数を mode="recheck" で呼び直す。
+ *   再走は結果を完全な状態へ上書きし、通知は朝に出していない新規の指摘だけに絞る。
  */
 const admin = require("firebase-admin");
 const { nowJst, addDays } = require("../utils/dateUtils");
@@ -60,11 +66,18 @@ const TYPE_LABELS = {
   parse_error: "日付解析エラー",
 };
 
-module.exports = async function morningOtaAudit() {
+module.exports = async function morningOtaAudit(arg) {
   const db = admin.firestore();
   const { date: todayStr } = nowJst();
 
-  console.log(`[morningOtaAudit] 起動 JST=${todayStr}`);
+  // mode="recheck" は補完再走 (朝点検のあとにスナップショットが完成した日を突合し直す)。
+  // onSchedule は ScheduledEvent を第1引数に渡してくるので、mode が無ければ通常の朝点検。
+  const mode = arg && arg.mode === "recheck" ? "recheck" : "morning";
+  const isRecheck = mode === "recheck";
+  const recheckReason = (arg && arg.reason) || "";
+  const TAG = isRecheck ? "[morningOtaAudit:recheck]" : "[morningOtaAudit]";
+
+  console.log(`${TAG} 起動 JST=${todayStr}${isRecheck ? ` (補完再走: ${recheckReason || "理由不明"})` : ""}`);
 
   try {
     // 通知に添付するディープリンクの基点URL (v2-5-relay固定運用。openExternalBrowser=1 は送信側で自動付与)
@@ -181,14 +194,31 @@ module.exports = async function morningOtaAudit() {
       ...keyboxFindings, ...rosterFindings,
     ];
 
-    // 物件ごとにグループ化
-    const findingsByProperty = new Map();
-    for (const f of allFindings) {
-      const pid = f.propertyId || "";
-      if (!pid) continue;
-      if (!findingsByProperty.has(pid)) findingsByProperty.set(pid, []);
-      findingsByProperty.get(pid).push(f);
+    // ---- 5.7) 補完再走のときは「朝点検で既に通知した分」を通知対象から外す ----
+    // 再走は突合結果を上書きして完全な状態にするのが目的で、同じ指摘を2度通知するためではない。
+    let prevFindings = [];
+    let prevTotal = 0;
+    if (isRecheck) {
+      const prevDoc = await db.collection("otaAuditResults").doc(todayStr).get();
+      const prev = prevDoc.exists ? prevDoc.data() : null;
+      prevFindings = Array.isArray(prev && prev.findings) ? prev.findings : [];
+      prevTotal = prevFindings.length;
     }
+    const notifyFindings = isRecheck ? dedupeNewFindings(prevFindings, allFindings) : allFindings;
+
+    // 物件ごとにグループ化 (通知用は新規分、サマリの内訳は全件)
+    const groupByProperty = (list) => {
+      const m = new Map();
+      for (const f of list) {
+        const pid = f.propertyId || "";
+        if (!pid) continue;
+        if (!m.has(pid)) m.set(pid, []);
+        m.get(pid).push(f);
+      }
+      return m;
+    };
+    const findingsByProperty = groupByProperty(notifyFindings);
+    const summaryByProperty = isRecheck ? groupByProperty(allFindings) : findingsByProperty;
 
     // ---- 6) 結果を保存 ----
     const countsByType = {};
@@ -211,14 +241,24 @@ module.exports = async function morningOtaAudit() {
       guestCountClassDiffs,
       unassignedCount: (snapshot && snapshot.unassignedCount) || 0,
       createdAt: new Date(),
-    });
+      // 補完再走の記録 (この日の突合がいつ完全になったか。トリガー側の再入防止にも使う)
+      // recheckCount は起動側(triggers/onOtaSnapshotComplete.js)がトランザクションで
+      // 先取り済みなので、ここでは増やさない(二重カウント防止)
+      ...(isRecheck ? {
+        recheckedAt: new Date(),
+        recheckReason,
+        recheckNewCount: notifyFindings.length,
+      } : { recheckCount: 0 }),
+    }, { merge: isRecheck });
 
     // ---- 7) 物件ごと通知 ----
     const noSendProperties = [];
     for (const [pid, findings] of findingsByProperty.entries()) {
       const propertyName = propNameById.get(pid) || pid;
       const body = buildPropertyReport(propertyName, findings, todayStr);
-      const title = `🌅 OTA朝点検: ${propertyName} で要確認${findings.length}件`;
+      const title = isRecheck
+        ? `🔁 OTA朝点検(補完再走): ${propertyName} で要確認${findings.length}件`
+        : `🌅 OTA朝点検: ${propertyName} で要確認${findings.length}件`;
 
       const result = await notifyByKey(db, NOTIFY_KEY, {
         title,
@@ -243,6 +283,12 @@ module.exports = async function morningOtaAudit() {
       console.warn("[morningOtaAudit] Discord Webhook URL 未設定のため全体サマリは送信していません");
     } else {
       const lines = [];
+
+      if (isRecheck) {
+        // 朝7:00 は未取得のOTAがあるまま走っており、「0件」を額面どおり読めない状態で終わっている。
+        // 再走はその日の突合が完全になったことを必ず1行で明示して、朝の但し書きを閉じる。
+        lines.push(`（朝7:00の点検は未取得のOTAがあるまま実行され「突合は不完全」でした。取得完了後に突合し直した結果です）`);
+      }
 
       if (snapshotMissing) {
         lines.push(`🚨 本日のOTAスナップショットが取得できていません(otaCalendarSnapshots/${todayStr})。突合(①)は持ち越しました(後日スナップショットが書かれ次第、遡って突合します)。`);
@@ -276,22 +322,28 @@ module.exports = async function morningOtaAudit() {
         lines.push("→ OTAのログイン状態(セッション失効)を確認し、必要なら再ログインしてください。");
       }
 
-      if (allFindings.length === 0) {
+      if (isRecheck) {
+        lines.unshift(notifyFindings.length === 0
+          ? `🔁 OTA朝点検の補完再走: 追加の指摘なし(この日の突合は完了しました${prevTotal > 0 ? ` — 朝の${prevTotal}件のまま` : ""})`
+          : `🔁 OTA朝点検の補完再走: 新たに要確認${notifyFindings.length}件(物件別の詳細は各通知参照)`);
+      } else if (allFindings.length === 0) {
         lines.unshift(missingSources.length > 0
           ? `🌅 OTA朝点検: 検出0件 — ただし未取得のOTAがあり突合は不完全です`
           : `🌅 OTA朝点検: 全物件異常なし(OTA予約突合OK / キーボックス・名簿OK)`);
       } else {
         lines.unshift(`🌅 OTA朝点検: 要確認${allFindings.length}件(物件別の詳細は各通知参照)`);
+      }
+      if (allFindings.length > 0) {
         // ★どの宿の件かをサマリ1通で即断できるよう、物件名つきの内訳を出す(2026-08-19)。
         //   以前は種別の件数だけだったため、4宿運営では「名簿未提出1件」と言われても宿が分からなかった。
-        for (const [pid, findings] of findingsByProperty.entries()) {
+        for (const [pid, findings] of summaryByProperty.entries()) {
           const propertyName = propNameById.get(pid) || pid;
           const byType = {};
           for (const f of findings) byType[f.type] = (byType[f.type] || 0) + 1;
           lines.push(`・${propertyName}: ${Object.entries(byType).map(([t, c]) => `${TYPE_LABELS[t] || t}${c}件`).join("・")}`);
         }
         // 物件IDが無く物件別グループに載らなかった分は取りこぼさず種別で出す(合計が合わなくなるのを防ぐ)
-        const groupedCount = [...findingsByProperty.values()].reduce((n, fs) => n + fs.length, 0);
+        const groupedCount = [...summaryByProperty.values()].reduce((n, fs) => n + fs.length, 0);
         if (groupedCount < allFindings.length) {
           const byType = {};
           for (const f of allFindings.filter((x) => !x.propertyId)) byType[f.type] = (byType[f.type] || 0) + 1;
@@ -326,7 +378,7 @@ module.exports = async function morningOtaAudit() {
       //     差し替え時にリアルタイム通知も出すが、通知は落ちることがある。
       //     フラグは booking に永続化されるので、消されるまで毎朝ここで催促する。
       try {
-        const staleSnap = await db.collection("bookings")
+        const staleSnap = isRecheck ? { docs: [] } : await db.collection("bookings")
           .where("guestInfoStale", "==", true)
           .get();
         const staleRows = staleSnap.docs
@@ -364,12 +416,12 @@ module.exports = async function morningOtaAudit() {
       console.warn("[morningOtaAudit] bookingConflicts 後処理エラー:", e.message);
     }
 
-    console.log(`[morningOtaAudit] 完了: findings=${allFindings.length}件, 物件数=${findingsByProperty.size}`);
+    console.log(`${TAG} 完了: findings=${allFindings.length}件(通知${notifyFindings.length}件), 物件数=${findingsByProperty.size}`);
   } catch (e) {
-    console.error("[morningOtaAudit] エラー:", e);
+    console.error(`${TAG} エラー:`, e);
     try {
       await db.collection("error_logs").add({
-        functionName: "morningOtaAudit",
+        functionName: isRecheck ? "morningOtaAudit(recheck)" : "morningOtaAudit",
         error: e.message,
         stack: e.stack ? e.stack.slice(0, 500) : "",
         severity: "warning",

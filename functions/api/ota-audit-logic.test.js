@@ -18,6 +18,7 @@ const {
   resolvePropertyName_,
   selectResolvableConflicts,
   detectMissingOtaSources,
+  shouldRecheckOtaAudit,
   selectSnapshotBacklogActions,
   filterBackfillFindings,
   dedupeNewFindings,
@@ -1024,5 +1025,90 @@ describe("乳幼児の区分違い (総数一致は人数不一致にしない)"
     const ev = evaluateGuestCount({ ota: { adults: 0, children: 0, infants: 0, guests: 3 }, reg: {} });
     assert.strictEqual(ev.mismatch, true);
     assert.strictEqual(ev.classificationOnly, false);
+  });
+});
+
+// ==========================================================================
+// shouldRecheckOtaAudit — 朝点検の補完再走の可否 (2026-08-20 の Booking 未突合の根治)
+// ==========================================================================
+describe("shouldRecheckOtaAudit", () => {
+  const TODAY = "2026-08-20";
+  const done = { status: "done" };
+  // 実データ再現: 朝点検は 07:00 に partial で終わり、スナップショットは 07:02 に done へ
+  const auditPartial = { snapshotStatus: "partial", recheckCount: 0 };
+
+  test("朝点検が partial で終わった日にスナップショットが完成したら再走する", () => {
+    const r = shouldRecheckOtaAudit({
+      date: TODAY, todayStr: TODAY, snapshot: done, auditResult: auditPartial,
+    });
+    assert.strictEqual(r.recheck, true);
+    assert.strictEqual(r.reason, "snapshot_completed_after_audit");
+  });
+
+  test("朝点検が missing で終わった日も再走する", () => {
+    const r = shouldRecheckOtaAudit({
+      date: TODAY, todayStr: TODAY, snapshot: done,
+      auditResult: { snapshotStatus: "missing" },
+    });
+    assert.strictEqual(r.recheck, true);
+  });
+
+  test("朝点検が完全なスナップショットで走れていたら再走しない", () => {
+    const r = shouldRecheckOtaAudit({
+      date: TODAY, todayStr: TODAY, snapshot: done,
+      auditResult: { snapshotStatus: "done" },
+    });
+    assert.strictEqual(r.recheck, false);
+    assert.strictEqual(r.reason, "already_complete");
+  });
+
+  test("朝点検がまだ走っていなければ何もしない(7:00の本編に任せる)", () => {
+    const r = shouldRecheckOtaAudit({
+      date: TODAY, todayStr: TODAY, snapshot: done, auditResult: null,
+    });
+    assert.strictEqual(r.recheck, false);
+    assert.strictEqual(r.reason, "audit_not_run_yet");
+  });
+
+  test("スナップショットがまだ partial なら再走しない", () => {
+    const r = shouldRecheckOtaAudit({
+      date: TODAY, todayStr: TODAY, snapshot: { status: "partial" }, auditResult: auditPartial,
+    });
+    assert.strictEqual(r.recheck, false);
+    assert.strictEqual(r.reason, "snapshot_incomplete");
+  });
+
+  test("status=done でも物件マスタ由来の未取得ソースが残っていれば再走しない", () => {
+    const r = shouldRecheckOtaAudit({
+      date: TODAY, todayStr: TODAY, snapshot: done, auditResult: auditPartial,
+      missingSources: [{ propertyId: "p1", ota: "booking" }],
+    });
+    assert.strictEqual(r.recheck, false);
+    assert.strictEqual(r.reason, "still_missing_sources");
+  });
+
+  test("過去日のスナップショット書き込みでは動かない(遡り突合の担当)", () => {
+    const r = shouldRecheckOtaAudit({
+      date: "2026-08-19", todayStr: TODAY, snapshot: done, auditResult: auditPartial,
+    });
+    assert.strictEqual(r.recheck, false);
+    assert.strictEqual(r.reason, "not_today");
+  });
+
+  test("上限回数に達したら再走しない(暴走時の保険)", () => {
+    const r = shouldRecheckOtaAudit({
+      date: TODAY, todayStr: TODAY, snapshot: done,
+      auditResult: { snapshotStatus: "partial", recheckCount: 3 }, maxRechecks: 3,
+    });
+    assert.strictEqual(r.recheck, false);
+    assert.strictEqual(r.reason, "max_rechecks");
+  });
+
+  test("スナップショットが無ければ再走しない", () => {
+    const r = shouldRecheckOtaAudit({
+      date: TODAY, todayStr: TODAY, snapshot: null, auditResult: auditPartial,
+    });
+    assert.strictEqual(r.recheck, false);
+    assert.strictEqual(r.reason, "no_snapshot");
   });
 });

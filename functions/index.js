@@ -280,6 +280,16 @@ exports.morningOtaAudit = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/morningOtaAudit"));
 
+// OTA朝点検の補完再走 保険 (毎朝7:20 JST)
+// Booking.com は毎晩セッションが失効し、朝の再ログイン復帰でリスナーが 7:02 頃にスナップショットを
+// done へ上書きする。7:00 の朝点検はそれに間に合わないので、下の onOtaSnapshotComplete が
+// 完成を検知して突合し直す。朝点検の実行中に完成してトリガーが空振りした日をこの7:20が拾う。
+exports.otaAuditRecheck = onSchedule({
+  schedule: "20 7 * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./triggers/onOtaSnapshotComplete").otaAuditRecheckScheduled);
+
 // alertUnconfirmed (未確定アラート) は 2026-06-12 廃止。
 // staffUndecidedRemind (物件別 channelOverrides.staff_undecided.timings) に完全に重複しており、
 // 通知キー "alert" はどの物件にも未定義のため一度も送信実績がなかった
@@ -504,6 +514,13 @@ exports.onKeyboxConfirmed = onDocumentUpdated(
 exports.onGuestRegistrationToGas = onDocumentCreated(
   { document: "guestRegistrations/{guestId}", region: "asia-northeast1" },
   require("./triggers/onGuestRegistrationToGas")
+);
+
+// OTAスナップショット完成→朝点検の補完再走
+// (7:00 の朝点検が partial/missing のまま終わった日に、スナップショットが完全になった時点で突合し直す)
+exports.onOtaSnapshotComplete = onDocumentWritten(
+  { document: "otaCalendarSnapshots/{date}", region: "asia-northeast1", memory: "512MiB", timeoutSeconds: 540 },
+  require("./triggers/onOtaSnapshotComplete")
 );
 
 // 予約変更時→清掃スケジュール自動生成
