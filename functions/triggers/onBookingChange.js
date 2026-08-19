@@ -195,8 +195,10 @@ async function detectDoubleBooking(db, bookingId, after) {
     const cur = await db.collection("bookings").doc(bookingId).get();
     const curIds = cur.exists ? (cur.data().conflictWithIds || []) : [];
     if (curIds.length) {
-      await cur.ref.update({ conflictWithIds: [] });
-      await resolveConflictsOnCancel(db, bookingId, { conflictWithIds: curIds });
+      // 解除を先に実行し、失敗した相手だけ conflictWithIds に残す。
+      // 先に空にすると、解除に失敗しても次回の発火で再試行されず残骸が恒久化する。
+      const failed = await resolveConflictsOnCancel(db, bookingId, { conflictWithIds: curIds });
+      await cur.ref.update({ conflictWithIds: failed });
     }
     return;
   }
@@ -215,26 +217,24 @@ async function detectDoubleBooking(db, bookingId, after) {
   // 当該予約に conflictWithIds をセット（変化がある場合のみ更新してカスケードを抑制）
   const currentDoc = await db.collection("bookings").doc(bookingId).get();
   const currentIds = currentDoc.exists ? (currentDoc.data().conflictWithIds || []) : [];
+  // 重複が「部分的に」解消したケース: 今回の相手に含まれなくなった旧相手を先に解除する。
+  // 自分側を conflictIds で上書きするだけだと、相手側の conflictWithIds と bookingConflicts が
+  // 自分を指したまま残る。解除に失敗した相手は conflictWithIds に残して次回の発火で再試行させる
+  // (消してしまうと二度と droppedIds に上がらず残骸が恒久化する)。
+  const droppedIds = currentIds.filter(id => !conflictIds.includes(id));
+  const failedDropped = droppedIds.length
+    ? await resolveConflictsOnCancel(db, bookingId, { conflictWithIds: droppedIds })
+    : [];
+
   // 通知は「この予約で新たに衝突を検知したとき」だけ出す。相手側予約への conflictWithIds 書込で
   // トリガーが連鎖発火しても、ids が変わらなければ再通知しない（同一重複で2〜3通出るのを防ぐ）
-  const newlyDetected = !sameIds(currentIds, conflictIds);
+  const nextIds = Array.from(new Set([...conflictIds, ...failedDropped]));
+  const newlyDetected = !sameIds(currentIds, nextIds);
   if (newlyDetected) {
     await db.collection("bookings").doc(bookingId).update({
-      conflictWithIds: conflictIds,
+      conflictWithIds: nextIds,
       conflictDetectedAt: admin_module.firestore.FieldValue.serverTimestamp(),
     });
-  }
-
-  // 重複が「部分的に」解消したケース: 今回の相手に含まれなくなった旧相手を解除する。
-  // 自分側は上の update で conflictIds に置き換わるが、相手側の conflictWithIds と
-  // bookingConflicts は放っておくと自分を指したまま残る。
-  const droppedIds = currentIds.filter(id => !conflictIds.includes(id));
-  if (droppedIds.length) {
-    try {
-      await resolveConflictsOnCancel(db, bookingId, { conflictWithIds: droppedIds });
-    } catch (e) {
-      console.warn("[onBookingChange] 部分解消の conflict 解除エラー:", e.message);
-    }
   }
 
   // 衝突相手の予約にも当該IDを追加（変化がある場合のみ更新してカスケードを抑制）
@@ -334,17 +334,25 @@ async function detectDoubleBooking(db, bookingId, after) {
 
 // ========== D-2: cancelled化時の conflict 解決 ==========
 
+// bookingConflicts の doc が無いのは正常 (先に相手側から解決済み等)。それ以外は本物の失敗
+function isMissingDocError_(e) {
+  return e && (e.code === 5 || /NOT_FOUND|No document to update/i.test(String(e.message || "")));
+}
+
 /**
- * 予約がキャンセル or 削除された際、関連する conflict を解決済みにする
+ * 予約がキャンセル/削除/重複解消した際、関連する conflict を解決済みにする
  * @param {FirebaseFirestore.Firestore} db
  * @param {string} bookingId
- * @param {object} data - キャンセル/削除された予約データ (削除時は before)
+ * @param {object} data - 対象の予約データ (削除時は before)
+ * @returns {Promise<string[]>} 解除しきれなかった相手ID (呼び出し側で再試行 or 通報する)
  */
 async function resolveConflictsOnCancel(db, bookingId, data) {
   const conflictWithIds = data.conflictWithIds;
-  if (!Array.isArray(conflictWithIds) || conflictWithIds.length === 0) return;
+  const failed = [];
+  if (!Array.isArray(conflictWithIds) || conflictWithIds.length === 0) return failed;
 
   for (const otherId of conflictWithIds) {
+    let ok = true;
     // 合成ID（sorted join）で bookingConflicts ドキュメントを解決済みに更新
     const confId = [bookingId, otherId].sort().join("__");
     try {
@@ -353,8 +361,12 @@ async function resolveConflictsOnCancel(db, bookingId, data) {
         resolvedAt: admin_module.firestore.FieldValue.serverTimestamp(),
       });
     } catch (e) {
-      // ドキュメントが存在しない場合はスキップ
-      console.warn(`[onBookingChange] bookingConflicts/${confId} 更新スキップ:`, e.message);
+      if (isMissingDocError_(e)) {
+        console.warn(`[onBookingChange] bookingConflicts/${confId} 更新スキップ:`, e.message);
+      } else {
+        ok = false;
+        console.error(`[onBookingChange] bookingConflicts/${confId} 更新失敗:`, e.message);
+      }
     }
 
     // 相手予約の conflictWithIds から自分を除去
@@ -366,11 +378,31 @@ async function resolveConflictsOnCancel(db, bookingId, data) {
         await otherDoc.ref.update({ conflictWithIds: updatedIds });
       }
     } catch (e) {
-      console.warn(`[onBookingChange] 相手予約 ${otherId} のconflictWithIds除去エラー:`, e.message);
+      ok = false;
+      console.error(`[onBookingChange] 相手予約 ${otherId} のconflictWithIds除去失敗:`, e.message);
     }
+    if (!ok) failed.push(otherId);
   }
 
-  console.log(`[onBookingChange] conflict解決完了: ${bookingId} → ${conflictWithIds.join(", ")}`);
+  console.log(`[onBookingChange] conflict解決: ${bookingId} → ${conflictWithIds.join(", ")}` +
+    (failed.length ? ` (未解除: ${failed.join(", ")})` : " (完了)"));
+  return failed;
+}
+
+// 解除しきれなかった conflict を error_logs に残す (再試行の起点が無いケース用)
+async function alertConflictResolveFailure_(db, detail, propertyId) {
+  const admin = require("firebase-admin");
+  try {
+    await db.collection("error_logs").add({
+      functionName: "onBookingChange.resolveConflicts",
+      errorMessage: `ダブルブッキング判定の解除を完了できませんでした: ${detail}`,
+      severity: "error",
+      propertyId: propertyId || null,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (e) {
+    console.error("[onBookingChange] conflict解除失敗アラートの記録に失敗:", e.message);
+  }
 }
 
 module.exports = async function onBookingChange(event) {
@@ -589,9 +621,23 @@ module.exports = async function onBookingChange(event) {
     const conflictSrc = (nowCancelled && after) ? after : (!after ? before : null);
     if (conflictSrc) {
       try {
-        await resolveConflictsOnCancel(db, event.params.bookingId, conflictSrc);
+        const failed = await resolveConflictsOnCancel(db, event.params.bookingId, conflictSrc);
+        if (failed.length) {
+          // キャンセル済み/削除済みの予約は detectDoubleBooking が再訪しないため自動再試行されない。
+          // 相手側に古い重複判定が残るので人に上げる。
+          await alertConflictResolveFailure_(
+            db,
+            `予約 ${event.params.bookingId} の解除が未完了 (相手: ${failed.join(", ")})。相手予約に古いダブルブッキング判定が残っています。`,
+            conflictSrc.propertyId
+          );
+        }
       } catch (e) {
         console.error("conflict解決エラー:", e);
+        await alertConflictResolveFailure_(
+          db,
+          `予約 ${event.params.bookingId} の解除が例外で中断: ${e.message}`,
+          conflictSrc.propertyId
+        );
       }
     }
     // booking_cancel 通知: キャンセル化時にオーナーへ通知
