@@ -24,7 +24,7 @@ const CAMPAIGN_ADDRESS = "広島県安芸郡海田町上市4-23-12";
 const FORM_URL = "https://setouchi-stay.com/ugc";
 
 // Phase1 の特典額 (Threads / TikTok はアカウント作成後に Phase2 で追加)
-const INSTAGRAM_REWARD_YEN = 300;
+const INSTAGRAM_REWARD_YEN = 500;
 
 // 共通ハッシュタグ
 const COMMON_HASHTAGS = "#setouchistay #瀬戸内ステイ";
@@ -34,14 +34,34 @@ const COMMON_HASHTAGS = "#setouchistay #瀬戸内ステイ";
  * ハンドルの正典は setouchi-stay-sites/marketing/SNS_ACCOUNTS.md。変更したら両方直すこと。
  */
 const UGC_PROPERTIES = {
-  // the Terrace 長浜
-  tsZybhDMcPrxqgcRy7wp: { handle: "@the.terrace.nagahama", hashtags: "#テラス長浜" },
+  // the Terrace 長浜 … テラスBBQが看板なので写真の例に入れる
+  tsZybhDMcPrxqgcRy7wp: {
+    handle: "@the.terrace.nagahama",
+    hashtags: "#ザテラス長浜",
+    photoExamples: "お部屋・景色・バーベキューの様子",
+    photoExamplesEn: "the room, the view, your BBQ",
+  },
   // YADO KOMACHI Hiroshima
-  RZV9IwtQgMAsvrdM3j8J: { handle: "@yado.komachi.hiroshima", hashtags: "#YADOKOMACHI #小町広島" },
-  // UJINA Pocket House
-  ncUKeD4yQo0kfAoznITu: { handle: "@ujina.pocket.house", hashtags: "#UJINAPocketHouse #宇品" },
+  RZV9IwtQgMAsvrdM3j8J: {
+    handle: "@yado.komachi.hiroshima",
+    hashtags: "#YADOKOMACHI #小町広島",
+    photoExamples: "お部屋・館内・まちあるきの様子",
+    photoExamplesEn: "the room, the interior, your day out",
+  },
+  // UJINA Pocket House … ハウスルールで前庭のBBQ・花火は禁止。写真の例にBBQを出さない
+  ncUKeD4yQo0kfAoznITu: {
+    handle: "@ujina.pocket.house",
+    hashtags: "#UJINAPocketHouse #宇品",
+    photoExamples: "お部屋・館内・まちあるきの様子",
+    photoExamplesEn: "the room, the interior, your day out",
+  },
   // Pocket House WAKA-KUSA … 宿別IG未作成のため当面ブランド垢をタグ付け先にする
-  ZXW6wdpnBFk1azQ87KXQ: { handle: "@setouchistay.jp", hashtags: "#PocketHouseWAKAKUSA #若草" },
+  ZXW6wdpnBFk1azQ87KXQ: {
+    handle: "@setouchistay.jp",
+    hashtags: "#PocketHouseWAKAKUSA #若草",
+    photoExamples: "お部屋・館内・まちあるきの様子",
+    photoExamplesEn: "the room, the interior, your day out",
+  },
 };
 
 const isUgcProperty = (propertyId) =>
@@ -95,7 +115,6 @@ function buildUgcFollowMail({ guestName, propertyId, propertyName, checkIn, chec
     `${name} 様`,
     ``,
     `先日は ${stay} にご宿泊いただき、誠にありがとうございました。`,
-    `Setouchi Stay です。`,
     ``,
     `ご滞在の思い出を Instagram にシェアしてくださった方へ、`,
     `現金キャッシュバックをお贈りするキャンペーンを実施しています。`,
@@ -104,10 +123,11 @@ function buildUgcFollowMail({ guestName, propertyId, propertyName, checkIn, chec
     `　（Threads・TikTok も近日対象に追加予定です）`,
     ``,
     `【参加方法】`,
-    `① お部屋・景色・お料理など、宿が分かるお写真を投稿`,
-    `② ${sns.handle} をタグ付け ＋ ${COMMON_HASHTAGS} ${sns.hashtags} を記載`,
-    `③ 「これは宿泊特典の対象投稿です」または #PR を明記`,
-    `④ 下記フォームに投稿URLと受取先（PayPay等）をご入力`,
+    `① ${sns.photoExamples}など、宿が分かるお写真を投稿`,
+    `② 投稿に ${sns.handle} をタグ付け`,
+    `③ 本文に ${COMMON_HASHTAGS} ${sns.hashtags} のハッシュタグを記載`,
+    `④ あわせて #PR を明記（広告表示のルール上、必ずお願いします）`,
+    `⑤ 下記フォームに投稿URLと受取先（PayPay等）をご入力`,
     ``,
     `  ▶ 応募フォーム: ${FORM_URL}`,
     ``,
@@ -126,10 +146,11 @@ function buildUgcFollowMail({ guestName, propertyId, propertyName, checkIn, chec
     ``,
     `Share a photo of your stay on Instagram and receive a ${yen} JPY cash back.`,
     ``,
-    `1. Post a photo that shows the property (room, view, meal, etc.)`,
-    `2. Tag ${sns.handle} and add ${COMMON_HASHTAGS} ${sns.hashtags}`,
-    `3. State that the post is part of a guest reward program (or add #PR)`,
-    `4. Submit the post URL and your payout method here:`,
+    `1. Post a photo that shows the property (${sns.photoExamplesEn}, etc.)`,
+    `2. Tag ${sns.handle} in the post`,
+    `3. Add the hashtags ${COMMON_HASHTAGS} ${sns.hashtags}`,
+    `4. Add #PR as well (required for promotional posts)`,
+    `5. Submit the post URL and your payout method here:`,
     ``,
     `  ${FORM_URL}`,
     ``,

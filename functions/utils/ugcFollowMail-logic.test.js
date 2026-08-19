@@ -39,10 +39,22 @@ describe("isUgcProperty", () => {
     assert.strictEqual(isUgcProperty(undefined), false);
   });
 
-  test("全宿にタグ付け先とハッシュタグが定義されている", () => {
+  test("全宿にタグ付け先・ハッシュタグ・写真の例が定義されている", () => {
     for (const [id, v] of Object.entries(UGC_PROPERTIES)) {
       assert.ok(v.handle.startsWith("@"), `${id} のハンドルが不正`);
       assert.ok(v.hashtags.includes("#"), `${id} のハッシュタグが不正`);
+      // ハッシュタグに中黒や空白が混ざると Instagram 側でタグが途切れる
+      assert.ok(!/[・\s]/.test(v.hashtags.replace(/ #/g, "#")), `${id} のハッシュタグに使えない文字`);
+      assert.ok(v.photoExamples && v.photoExamplesEn, `${id} の写真の例が未定義`);
+    }
+  });
+
+  test("BBQを案内してよいのはテラスだけ (宇品はハウスルールで禁止)", () => {
+    assert.ok(UGC_PROPERTIES[TERRACE].photoExamples.includes("バーベキュー"));
+    for (const [id, v] of Object.entries(UGC_PROPERTIES)) {
+      if (id === TERRACE) continue;
+      assert.ok(!v.photoExamples.includes("バーベキュー"), `${id} にBBQを案内している`);
+      assert.ok(!/BBQ/i.test(v.photoExamplesEn), `${id} にBBQを案内している(英語)`);
     }
   });
 });
@@ -97,7 +109,7 @@ describe("buildUgcFollowMail", () => {
   test("件名に宿名と特典額が入る", () => {
     const { subject } = mail();
     assert.ok(subject.includes("the Terrace 長浜"));
-    assert.ok(subject.includes("300円"));
+    assert.ok(subject.includes("500円"));
   });
 
   test("本文に宛先ごとの配信停止リンクが入る (法定の表示義務)", () => {
@@ -109,6 +121,16 @@ describe("buildUgcFollowMail", () => {
 
   test("ステマ規制対応の #PR 表記の案内が入る", () => {
     assert.ok(mail().body.includes("#PR"));
+  });
+
+  test("アカウントのタグ付けとハッシュタグを別々に案内する (混同されやすい)", () => {
+    const { body } = mail();
+    assert.ok(body.includes("をタグ付け"));
+    assert.ok(body.includes("のハッシュタグを記載"));
+  });
+
+  test("提供していないお料理を写真の例に出さない", () => {
+    assert.ok(!mail().body.includes("お料理"));
   });
 
   test("宿ごとのタグ付け先が差し込まれる", () => {
