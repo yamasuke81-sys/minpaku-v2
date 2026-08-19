@@ -134,6 +134,24 @@ describe("buildUgcFollowMail", () => {
     assert.ok(!mail().body.includes("お料理"));
   });
 
+  test("判定は宿が行い却下がありうる旨を明記する (期待値を作らせない)", () => {
+    const { body } = mail();
+    assert.ok(body.includes("判定は当宿が行います"));
+    assert.ok(body.includes("対象外となります"));
+    assert.ok(body.includes("お問い合わせにはお答えできません"));
+  });
+
+  test("受取はAmazonギフトコードのみ (PayPayは案内しない)", () => {
+    const { body } = mail();
+    assert.ok(body.includes("Amazonギフトコードの送付先メールアドレス"));
+    assert.ok(!body.includes("PayPay"));
+  });
+
+  test("ハッシュタグは日本語を使わない宿 (テラスは英語タグ)", () => {
+    assert.ok(UGC_PROPERTIES[TERRACE].hashtags === "#TheTerraceNagahama");
+    assert.ok(mail().body.includes("#TheTerraceNagahama"));
+  });
+
   test("宿ごとのタグ付け先が差し込まれる", () => {
     assert.ok(mail().body.includes("@the.terrace.nagahama"));
     const komachi = buildUgcFollowMail({
@@ -217,6 +235,13 @@ describe("buildUgcPastGuestMail (過去ゲスト向けローリング配信)", (
     assert.ok(body.includes("#PR"));
     assert.ok(body.includes("Unsubscribe"));
     assert.ok(!body.includes("お料理"));
+  });
+
+  test("判定ルールと Amazonギフト一本化が入る", () => {
+    const { body } = mail();
+    assert.ok(body.includes("判定は当宿が行います"));
+    assert.ok(body.includes("Amazonギフトコードの送付先メールアドレス"));
+    assert.ok(!body.includes("PayPay"));
   });
 
   test("配信停止URLが無ければ例外", () => {

@@ -4,7 +4,7 @@
  * 設計SSOT: setouchi-stay-sites/marketing/UGC_CASHBACK_CAMPAIGN.md
  *
  * 「ご滞在のお礼」に続けて、Instagram に投稿してくれた方へ現金キャッシュバックする
- * キャンペーン(Phase1 = Instagram のみ 300円)を案内する。
+ * キャンペーン(Phase1 = Instagram のみ 500円)を案内する。
  *
  * 法令まわりの整理:
  *   - 宿泊した本人＝取引関係にある者への案内なので、事前同意(オプトイン)は必須ではない。
@@ -37,7 +37,7 @@ const UGC_PROPERTIES = {
   // the Terrace 長浜 … テラスBBQが看板なので写真の例に入れる
   tsZybhDMcPrxqgcRy7wp: {
     handle: "@the.terrace.nagahama",
-    hashtags: "#ザテラス長浜",
+    hashtags: "#TheTerraceNagahama",
     photoExamples: "お部屋・景色・バーベキューの様子",
     photoExamplesEn: "the room, the view, your BBQ",
   },
@@ -127,9 +127,12 @@ function buildUgcFollowMail({ guestName, propertyId, propertyName, checkIn, chec
     `② 投稿に ${sns.handle} をタグ付け`,
     `③ 本文に ${COMMON_HASHTAGS} ${sns.hashtags} のハッシュタグを記載`,
     `④ あわせて #PR を明記（広告表示のルール上、必ずお願いします）`,
-    `⑤ 下記フォームに投稿URLと受取先（PayPay等）をご入力`,
+    `⑤ 下記フォームに投稿URLと Amazonギフトコードの送付先メールアドレス をご入力`,
     ``,
     `  ▶ 応募フォーム: ${FORM_URL}`,
+    ``,
+    `※ 条件を満たしているかの判定は当宿が行います。基準を満たさないと判断した投稿は`,
+    `　 キャッシュバックの対象外となります（判定結果に関するお問い合わせにはお答えできません）。`,
     ``,
     `Googleマップのクチコミもいただけたら嬉しいです（こちらは特典対象外・無償のお願いです）。`,
     ``,
@@ -150,9 +153,12 @@ function buildUgcFollowMail({ guestName, propertyId, propertyName, checkIn, chec
     `2. Tag ${sns.handle} in the post`,
     `3. Add the hashtags ${COMMON_HASHTAGS} ${sns.hashtags}`,
     `4. Add #PR as well (required for promotional posts)`,
-    `5. Submit the post URL and your payout method here:`,
+    `5. Submit the post URL and the email address for your Amazon gift code here:`,
     ``,
     `  ${FORM_URL}`,
+    ``,
+    `* We review each submission. Posts that do not meet the conditions are not eligible,`,
+    `  and we are unable to respond to inquiries about the result.`,
     ``,
     `A Google Maps review is also very welcome (not part of the reward program).`,
     ``,
@@ -212,9 +218,12 @@ function buildUgcPastGuestMail({ guestName, propertyId, propertyName, optoutUrl 
     `② 投稿に ${sns.handle} をタグ付け`,
     `③ 本文に ${COMMON_HASHTAGS} ${sns.hashtags} のハッシュタグを記載`,
     `④ あわせて #PR を明記（広告表示のルール上、必ずお願いします）`,
-    `⑤ 下記フォームに投稿URLと受取先（PayPay等）をご入力`,
+    `⑤ 下記フォームに投稿URLと Amazonギフトコードの送付先メールアドレス をご入力`,
     ``,
     `  ▶ 応募フォーム: ${FORM_URL}`,
+    ``,
+    `※ 条件を満たしているかの判定は当宿が行います。基準を満たさないと判断した投稿は`,
+    `　 キャッシュバックの対象外となります（判定結果に関するお問い合わせにはお答えできません）。`,
     ``,
     `Googleマップのクチコミもいただけたら嬉しいです（こちらは特典対象外・無償のお願いです）。`,
     ``,
@@ -230,9 +239,12 @@ function buildUgcPastGuestMail({ guestName, propertyId, propertyName, optoutUrl 
     `2. Tag ${sns.handle} in the post`,
     `3. Add the hashtags ${COMMON_HASHTAGS} ${sns.hashtags}`,
     `4. Add #PR as well (required for promotional posts)`,
-    `5. Submit the post URL and your payout method here:`,
+    `5. Submit the post URL and the email address for your Amazon gift code here:`,
     ``,
     `  ${FORM_URL}`,
+    ``,
+    `* We review each submission. Posts that do not meet the conditions are not eligible,`,
+    `  and we are unable to respond to inquiries about the result.`,
     ``,
     `A Google Maps review is also very welcome (not part of the reward program).`,
     ``,
