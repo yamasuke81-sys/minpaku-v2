@@ -75,22 +75,28 @@ async function collectTaxDocs(event) {
   // Google Drive API
   const drive = await getDriveClient_(db);
 
-  // 前月の年月を算出(JST基準。ランタイムはUTCなので +9h して getUTC* で読む)
+  // 対象は「前月」と「前々月」の2ヶ月分(JST基準。ランタイムはUTCなので +9h して getUTC* で読む)。
+  // ★Bookingの手数料請求書のように「対象月の翌月3日頃に届く」書類は、対象月内のウィンドウだけでは
+  //   永久に拾えなかった(2026-08-19 根治)。プラットフォームの arrivalOffsetMonths で検索窓をずらし、
+  //   さらに前々月も毎回再走査して到着遅れを翌月の実行で回収する(gmailMessageId 冪等なので二重保存なし)。
   const now = new Date(Date.now() + 9 * 3600 * 1000);
-  const targetDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-  const yearMonth = `${targetDate.getUTCFullYear()}-${String(targetDate.getUTCMonth() + 1).padStart(2, "0")}`;
-  const afterDate = `${targetDate.getUTCFullYear()}/${String(targetDate.getUTCMonth() + 1).padStart(2, "0")}/01`;
-  const beforeDate = `${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, "0")}/01`;
+  const fmtSlash = (d) => `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/01`;
 
   // 全名義を取得
   const entSnap = await db.collection("entities").orderBy("displayOrder").get();
   const summary = {}; // entityName → { collected: N, skipped: N, errors: N }
+  const targetYms = [];
+
+  for (const monthsBack of [1, 2]) {
+  const targetDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsBack, 1));
+  const yearMonth = `${targetDate.getUTCFullYear()}-${String(targetDate.getUTCMonth() + 1).padStart(2, "0")}`;
+  targetYms.push(yearMonth);
 
   for (const entDoc of entSnap.docs) {
     const ent = entDoc.data();
     const entityId = entDoc.id;
     const platforms = ent.platforms || [];
-    summary[ent.name] = { collected: 0, skipped: 0, errors: 0 };
+    if (!summary[ent.name]) summary[ent.name] = { collected: 0, skipped: 0, errors: 0 };
 
     if (!ent.taxFolderId) {
       summary[ent.name].errors++;
@@ -101,7 +107,13 @@ async function collectTaxDocs(event) {
       if (!plat.fromEmails || plat.fromEmails.length === 0) continue;
 
       try {
-        // Gmail検索クエリ組み立て
+        // Gmail検索クエリ組み立て。arrivalOffsetMonths=Nの書類は「対象月+Nヶ月」の1ヶ月窓で探す
+        // (例: Booking手数料請求書は対象月の翌月3日頃に届くので offset=1)
+        const offset = Number(plat.arrivalOffsetMonths || 0);
+        const winStart = new Date(Date.UTC(targetDate.getUTCFullYear(), targetDate.getUTCMonth() + offset, 1));
+        const winEnd = new Date(Date.UTC(targetDate.getUTCFullYear(), targetDate.getUTCMonth() + offset + 1, 1));
+        const afterDate = fmtSlash(winStart);
+        const beforeDate = fmtSlash(winEnd);
         const fromQuery = plat.fromEmails.map((e) => `from:${e}`).join(" OR ");
         const additionalQuery = plat.gmailQuery || "";
         const query = `(${fromQuery}) ${additionalQuery} after:${afterDate} before:${beforeDate}`;
@@ -238,17 +250,19 @@ async function collectTaxDocs(event) {
       }
     }
   }
+  } // monthsBack ループ終わり
 
-  // 通知(Discordのみ・2026-08-19 やますけ指示)
-  const lines = [`📋 税理士資料自動収集（${yearMonth}）\n`];
-  for (const [name, s] of Object.entries(summary)) {
-    if (s.collected > 0 || s.errors > 0) {
-      lines.push(`${name}: ${s.collected}件収集${s.skipped > 0 ? ` (${s.skipped}件スキップ)` : ""}${s.errors > 0 ? ` ⚠️${s.errors}件エラー` : ""}`);
-    }
+  // 通知はエラーのときだけ(2026-08-19 やますけ決定)。
+  // 「N件収集しました」はシステムが処理を終えた事後報告で人が動く必要がなく、
+  // 不足があるかどうかは秘書の不足チェック(1件=1メッセージ+解決ボタン)が受け持つ。
+  const errored = Object.entries(summary).filter(([, s]) => s.errors > 0);
+  if (errored.length > 0) {
+    const lines = [`⚠️ 税理士資料の自動収集でエラー（対象: ${targetYms.join("・")}）\n`];
+    for (const [name, s] of errored) lines.push(`${name}: ${s.errors}件エラー（${s.collected}件は収集済み）`);
+    await notifyOwner(db, "tax_docs_collect", "税理士資料収集エラー", lines.join("\n"), null, null, { discordOnly: true });
   }
-  if (lines.length > 1) {
-    await notifyOwner(db, "tax_docs_collect", "税理士資料収集", lines.join("\n"), null, null, { discordOnly: true });
-  }
+  console.log(`税理士資料 自動収集完了(${targetYms.join("・")}):`,
+    Object.entries(summary).map(([n, s]) => `${n}=${s.collected}収集/${s.skipped}skip/${s.errors}err`).join(" "));
 }
 
 // ========================================

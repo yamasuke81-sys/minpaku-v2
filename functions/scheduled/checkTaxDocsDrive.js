@@ -3,13 +3,12 @@
  * 全名義の税理士共有フォルダをスキャンし、チェックリストを自動更新
  * ファイルが見つかった項目は自動でcollected=trueにする
  *
- * 通知方針(2026-08-19 やますけ決定):
+ * 通知方針(2026-08-19 やますけ決定・同日第2版):
  *   日々の「検出しました」は通知しない。検出＝システムが勝手にチェックを付けるだけで
  *   人が動く必要がなく、項目名だけの事後報告は読み取れず価値がなかった。
- *   代わりに毎月10日に「前月分でまだ足りない資料」だけを通知する(=動く必要があるものだけ届く)。
- *   足りないものが無い月は無音。
+ *   不足分の通知はPC常駐秘書側(tax-docs-missing-check.mjs → 1件=1メッセージ+解決ボタン)が担う。
+ *   この関数はスキャンとチェックリスト更新に専念する(Discordへは何も送らない)。
  */
-const MISSING_REPORT_DAY = 10; // JST。3日のGmail収集・週次MF受信BOX処理が終わった頃合い
 const { google } = require("googleapis");
 const { FieldValue } = require("firebase-admin/firestore");
 
@@ -154,58 +153,10 @@ module.exports = async function checkTaxDocsDrive(event) {
   }
   } // yearMonths ループ終わり
 
-  // 毎月10日以降に1回だけ「前月分でまだ足りない資料」を通知する(Discordのみ)。
-  // 検出のたびの事後報告はしない(2026-08-19 やますけ決定)。足りないものが無ければ無音。
-  // ★10日ちょうどで判定すると、その日1回の実行が落ちただけでその月の通知が消える。
-  //   送信済みフラグ(月フォルダdocの missingReportedAt)で冪等にし、翌日以降に取りこぼしを拾う。
-  if (now.getUTCDate() >= MISSING_REPORT_DAY) {
-    try {
-      await notifyMissingDocs_(db, yearMonths[0], statusByYm[yearMonths[0]] || []);
-    } catch (e) {
-      console.warn("不足リスト通知エラー（続行）:", e.message);
-    }
-  }
-
+  // 不足分の通知はPC常駐秘書側(tax-docs-missing-check.mjs)が1件=1メッセージ+解決ボタンで担う。
+  // ここからDiscordへは何も送らない(2026-08-19 やますけ決定)。
   console.log(`Drive監視完了: ${totalFound}件検出, ${totalMissing}件不足, ${newlyCollectedCount}件新規チェック`);
 };
-
-/**
- * 「まだ足りない資料」だけを1通にまとめて通知する。全部揃っていれば送らない(無音=全部揃っている)。
- * @param {FirebaseFirestore.Firestore} db
- * @param {string} yearMonth 対象月(前月)
- * @param {Array<{entityName:string, missing:string[], collectedCount:number, totalCount:number}>} status
- */
-async function notifyMissingDocs_(db, yearMonth, status) {
-  const withMissing = status.filter((s) => s.missing.length > 0);
-  if (withMissing.length === 0) {
-    console.log(`不足リスト(${yearMonth}): 全て揃っているため通知しません`);
-    return;
-  }
-  // 月に1回だけ。create() で「まだ送っていない月」だけを通す(並行実行でも二重送信しない)
-  const flagRef = db.collection("taxDocsChecklist").doc(yearMonth)
-    .collection("reports").doc("missingNotice");
-  try {
-    await flagRef.create({ notifiedAt: FieldValue.serverTimestamp(), missingCount: withMissing.reduce((n, s) => n + s.missing.length, 0) });
-  } catch (e) {
-    console.log(`不足リスト(${yearMonth}): 送信済みのためスキップ`);
-    return;
-  }
-  const { notifyOwner } = require("../utils/lineNotify");
-  const { getAppUrl } = require("../utils/appUrl");
-  const total = withMissing.reduce((n, s) => n + s.missing.length, 0);
-  const lines = [`📋 **税理士資料 ${yearMonth}分: あと${total}件たりません**`, ""];
-  for (const s of withMissing) {
-    lines.push(`**${s.entityName}**（${s.collectedCount}/${s.totalCount} 収集済）`);
-    s.missing.forEach((m) => lines.push(`　□ ${m}`));
-    lines.push("");
-  }
-  let appUrl = null;
-  try { appUrl = await getAppUrl(db); } catch (_) { /* リンク無しでも通知は出す */ }
-  lines.push(`Driveの ${yearMonth.replace("-", ".")} フォルダに入れれば翌朝7時のスキャンで自動でチェックが付きます。`);
-  if (appUrl) lines.push(`一覧: ${appUrl}/#/tax-docs`);
-  await notifyOwner(db, "tax_docs_drive_check", `税理士資料 ${yearMonth}分の不足`, lines.join("\n"), null, null, { discordOnly: true });
-  console.log(`不足リスト(${yearMonth}): ${total}件を通知しました`);
-}
 
 // ========== ヘルパー ==========
 
