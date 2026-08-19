@@ -18,6 +18,7 @@ const {
 const { verifyTurnstileToken, getTurnstileSecret } = require("../utils/turnstile");
 const { computeQuote } = require("./pricing-logic");
 const { normalizeEmail, emailKey, parseOptoutToken } = require("./marketing-optout-logic");
+const { getOptoutSecret_ } = require("../utils/marketingOptout");
 
 const router = express.Router();
 
@@ -1153,17 +1154,7 @@ router.post("/booking-request", express.json(), async (req, res) => {
 // 宿サイトの /ugc-optout がトークンを付けてここへ POST する
 // (メールから直接 GET させないのは、セキュリティ製品のリンク先読みで誤停止するため)。
 
-// 配信停止リンクの署名鍵。無ければ初回に生成して settings/marketing に保存する
-async function getOptoutSecret_() {
-  const db = admin.firestore();
-  const ref = db.collection("settings").doc("marketing");
-  const snap = await ref.get();
-  const existing = snap.exists ? snap.data().optoutSecret : null;
-  if (existing) return existing;
-  const secret = require("crypto").randomBytes(32).toString("hex");
-  await ref.set({ optoutSecret: secret }, { merge: true });
-  return secret;
-}
+// 署名鍵は utils/marketingOptout に集約 (案内メールを送る側と共用)
 
 // 停止/解除を記録する。名簿側の marketingConsent も揃えて、配信前の照合を1箇所で済ませる
 async function applyOptout_(email, { undo, source }) {

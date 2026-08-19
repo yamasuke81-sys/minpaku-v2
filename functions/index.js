@@ -608,6 +608,13 @@ exports.rosterRemind = onSchedule({
   timeZone: "Asia/Tokyo",
 }, require("./scheduled/rosterRemind"));
 
+// チェックアウト後のお礼 + UGCキャンペーン案内メール（毎日 JST 10:00 — 昨日CO分を1通だけ）
+exports.ugcFollowMail = onSchedule({
+  schedule: "0 10 * * *",
+  region: "asia-northeast1",
+  timeZone: "Asia/Tokyo",
+}, require("./scheduled/ugcFollowMail"));
+
 // 直前予約リマインド: cron 廃止。urgent_remind は onBookingChange の即時送信に統合
 // (timings=[{timing:"immediate"}] 設定で動作。新規予約 + CI=今日/明日 + 名簿未提出で即時通知)
 // exports.urgentRemind = ...
