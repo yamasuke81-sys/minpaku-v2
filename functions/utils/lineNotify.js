@@ -1053,6 +1053,9 @@ function sendDiscord_(webhookUrl, content) {
  * @param {string} subject 件名
  * @param {string} body 本文
  * @param {string} [fromEmail] 送信者として使いたい Gmail アドレス (OAuth 連携済みならそのトークンで送信、未連携なら先頭アカウントにフォールバック)
+ * @param {object} [opts]
+ * @param {string[]} [opts.bcc] BCC 宛先。控えを別のメールボックスに残したいときに使う
+ *   (宿の Gmail は普段ブラウザにサインインしていないため、送った実物を後から開けるようにする用途)
  */
 async function sendNotificationEmail_(to, subject, body, fromEmail, opts) {
   if (IS_EMULATOR) {
@@ -1118,6 +1121,10 @@ async function sendNotificationEmail_(to, subject, body, fromEmail, opts) {
   // (メールアプリから LINE 内蔵ブラウザにフォールバックする端末対策も兼ねる)
   const transformedBody = appendOpenExternalBrowser(body);
 
+  // BCC (控えの送り先)。指定が無ければヘッダごと出さない
+  const bccList = Array.isArray(opts && opts.bcc) ? opts.bcc.filter(Boolean) : [];
+  const bccHeader = bccList.length > 0 ? `Bcc: ${bccList.join(", ")}` : null;
+
   // 添付ファイル対応: opts.attachments = [{ filename, contentType, content (string|Buffer) }]
   const attachments = Array.isArray(opts && opts.attachments) ? opts.attachments : [];
   let message;
@@ -1126,6 +1133,7 @@ async function sendNotificationEmail_(to, subject, body, fromEmail, opts) {
     const headers = [
       `From: ${fromHeader}`,
       `To: ${to}`,
+      ...(bccHeader ? [bccHeader] : []),
       `Subject: ${utf8Subject}`,
       "MIME-Version: 1.0",
       `Content-Type: multipart/mixed; boundary="${boundary}"`,
@@ -1159,6 +1167,7 @@ async function sendNotificationEmail_(to, subject, body, fromEmail, opts) {
     const messageParts = [
       `From: ${fromHeader}`,
       `To: ${to}`,
+      ...(bccHeader ? [bccHeader] : []),
       `Subject: ${utf8Subject}`,
       "MIME-Version: 1.0",
       "Content-Type: text/plain; charset=utf-8",
