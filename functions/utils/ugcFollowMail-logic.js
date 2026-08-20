@@ -114,6 +114,59 @@ function isEligibleBooking(b) {
 }
 
 /**
+ * 特典の呼び方。「現金」と書くと実際に渡すもの(Amazonギフトコード)と食い違うので使わない。
+ */
+const rewardJa = () => `Amazonギフトコード${INSTAGRAM_REWARD_YEN}円分`;
+
+/**
+ * 参加方法〜判定〜Googleクチコミ (日本語)。2つの文面で完全に同じ内容にするため共通化する。
+ *
+ * 判定の一文は「期待値を作らせない」ことが目的だが、
+ * お礼メールの中で高圧的にならないよう、断り方は謙譲(〜いたしかねます)で書く。
+ */
+function howToJa(sns) {
+  return [
+    `【ご参加方法】`,
+    `① ${sns.photoExamples}など、宿の雰囲気が伝わるお写真を投稿`,
+    `② 投稿に ${sns.handle} をタグ付け`,
+    `③ 本文に ${COMMON_HASHTAGS} ${sns.hashtags} を記載`,
+    `④ あわせて #PR を明記（広告であることの表示が法令で定められています）`,
+    `⑤ 下記フォームから、投稿URLとギフトコードの送付先メールアドレスをお知らせください`,
+    ``,
+    `  ▶ 応募フォーム: ${FORM_URL}`,
+    ``,
+    `ご応募いただいた投稿は、上記の条件を満たしているかを当宿にて確認のうえ、`,
+    `対象を決定させていただきます。恐れ入りますが、確認の結果に関するお問い合わせには`,
+    `お答えいたしかねます。また、本キャンペーンは予告なく内容の変更・終了をする場合がございます。`,
+    ``,
+    `Googleマップのクチコミもいただけたら励みになります（こちらは特典の対象外で、無償のお願いです）。`,
+  ];
+}
+
+/** 特典の説明〜参加方法〜判定 (英語)。呼びかけと書き出しは呼び出し側が置く */
+function howToEn(sns) {
+  return [
+    `Share a photo of your stay on Instagram and we will send you an Amazon.co.jp gift code worth ${INSTAGRAM_REWARD_YEN} JPY.`,
+    `(Please note that the code can only be redeemed on Amazon.co.jp.)`,
+    ``,
+    `How to take part`,
+    `1. Post a photo that captures the property - ${sns.photoExamplesEn}, and so on`,
+    `2. Tag ${sns.handle} in the post`,
+    `3. Include the hashtags ${COMMON_HASHTAGS} ${sns.hashtags}`,
+    `4. Add #PR as well (Japanese law requires promotional posts to be labelled)`,
+    `5. Send us the post URL and the email address for your gift code:`,
+    ``,
+    `  ${FORM_URL}`,
+    ``,
+    `We check each entry against the conditions above before issuing a code.`,
+    `Please note that we are unable to respond to enquiries about the outcome,`,
+    `and that this campaign may be changed or ended without notice.`,
+    ``,
+    `A review on Google Maps would also mean a lot to us (not part of the reward program).`,
+  ];
+}
+
+/**
  * 案内メールの件名と本文 (日英併記)
  *
  * @param {object} p
@@ -134,7 +187,7 @@ function buildUgcFollowMail({ guestName, propertyId, propertyName, checkIn, chec
   const stay = propertyName || "当宿";
   const yen = INSTAGRAM_REWARD_YEN;
 
-  const subject = `【${stay}】ご滞在ありがとうございました｜Instagram投稿で${yen}円キャッシュバック`;
+  const subject = `【${stay}】ご滞在ありがとうございました｜Instagram投稿で${rewardJa()}`;
 
   const body = [
     `${name} 様`,
@@ -142,24 +195,10 @@ function buildUgcFollowMail({ guestName, propertyId, propertyName, checkIn, chec
     `先日は ${stay} にご宿泊いただき、誠にありがとうございました。`,
     ``,
     `ご滞在の思い出を Instagram にシェアしてくださった方へ、`,
-    `現金キャッシュバックをお贈りするキャンペーンを実施しています。`,
+    `${rewardJa()}をお贈りしています。`,
+    `（Threads・TikTok も近日対象に追加予定です）`,
     ``,
-    `  ■ Instagram に投稿 …… ${yen}円キャッシュバック`,
-    `　（Threads・TikTok も近日対象に追加予定です）`,
-    ``,
-    `【参加方法】`,
-    `① ${sns.photoExamples}など、宿が分かるお写真を投稿`,
-    `② 投稿に ${sns.handle} をタグ付け`,
-    `③ 本文に ${COMMON_HASHTAGS} ${sns.hashtags} のハッシュタグを記載`,
-    `④ あわせて #PR を明記（広告表示のルール上、必ずお願いします）`,
-    `⑤ 下記フォームに投稿URLと Amazonギフトコードの送付先メールアドレス をご入力`,
-    ``,
-    `  ▶ 応募フォーム: ${FORM_URL}`,
-    ``,
-    `※ 条件を満たしているかの判定は当宿が行います。基準を満たさないと判断した投稿は`,
-    `　 キャッシュバックの対象外となります（判定結果に関するお問い合わせにはお答えできません）。`,
-    ``,
-    `Googleマップのクチコミもいただけたら嬉しいです（こちらは特典対象外・無償のお願いです）。`,
+    ...howToJa(sns),
     ``,
     `■ご滞在`,
     `宿泊施設: ${stay}`,
@@ -172,21 +211,7 @@ function buildUgcFollowMail({ guestName, propertyId, propertyName, checkIn, chec
     ``,
     `Thank you very much for staying at ${stay}.`,
     ``,
-    `Share a photo of your stay on Instagram and receive a ${yen} JPY Amazon.co.jp gift code.`,
-    `(Please note: the code can only be used on Amazon.co.jp.)`,
-    ``,
-    `1. Post a photo that shows the property (${sns.photoExamplesEn}, etc.)`,
-    `2. Tag ${sns.handle} in the post`,
-    `3. Add the hashtags ${COMMON_HASHTAGS} ${sns.hashtags}`,
-    `4. Add #PR as well (required for promotional posts)`,
-    `5. Submit the post URL and the email address for your gift code here:`,
-    ``,
-    `  ${FORM_URL}`,
-    ``,
-    `* We review each submission. Posts that do not meet the conditions are not eligible,`,
-    `  and we are unable to respond to inquiries about the result.`,
-    ``,
-    `A Google Maps review is also very welcome (not part of the reward program).`,
+    ...howToEn(sns),
     ``,
     `────────────────────`,
     `【本メールの配信について / Unsubscribe】`,
@@ -226,7 +251,7 @@ function buildUgcPastGuestMail({ guestName, propertyId, propertyName, optoutUrl 
   const stay = propertyName || "当宿";
   const yen = INSTAGRAM_REWARD_YEN;
 
-  const subject = `【${stay}】Instagram投稿で${yen}円キャッシュバックのお知らせ`;
+  const subject = `【${stay}】Instagram投稿で${rewardJa()}をお贈りしています`;
 
   const body = [
     `${name} 様`,
@@ -234,24 +259,10 @@ function buildUgcPastGuestMail({ guestName, propertyId, propertyName, optoutUrl 
     `先日は ${stay} にご宿泊いただき、誠にありがとうございました。`,
     ``,
     `このたび、ご滞在の思い出を Instagram にシェアしてくださった方へ`,
-    `現金キャッシュバックをお贈りするキャンペーンを始めました。`,
+    `${rewardJa()}をお贈りする取り組みを始めました。`,
+    `（Threads・TikTok も近日対象に追加予定です）`,
     ``,
-    `  ■ Instagram に投稿 …… ${yen}円キャッシュバック`,
-    `　（Threads・TikTok も近日対象に追加予定です）`,
-    ``,
-    `【参加方法】`,
-    `① ${sns.photoExamples}など、宿が分かるお写真を投稿`,
-    `② 投稿に ${sns.handle} をタグ付け`,
-    `③ 本文に ${COMMON_HASHTAGS} ${sns.hashtags} のハッシュタグを記載`,
-    `④ あわせて #PR を明記（広告表示のルール上、必ずお願いします）`,
-    `⑤ 下記フォームに投稿URLと Amazonギフトコードの送付先メールアドレス をご入力`,
-    ``,
-    `  ▶ 応募フォーム: ${FORM_URL}`,
-    ``,
-    `※ 条件を満たしているかの判定は当宿が行います。基準を満たさないと判断した投稿は`,
-    `　 キャッシュバックの対象外となります（判定結果に関するお問い合わせにはお答えできません）。`,
-    ``,
-    `Googleマップのクチコミもいただけたら嬉しいです（こちらは特典対象外・無償のお願いです）。`,
+    ...howToJa(sns),
     ``,
     `────────────────────`,
     ``,
@@ -259,21 +270,7 @@ function buildUgcPastGuestMail({ guestName, propertyId, propertyName, optoutUrl 
     ``,
     `Thank you again for staying at ${stay}.`,
     ``,
-    `Share a photo of your stay on Instagram and receive a ${yen} JPY Amazon.co.jp gift code.`,
-    `(Please note: the code can only be used on Amazon.co.jp.)`,
-    ``,
-    `1. Post a photo that shows the property (${sns.photoExamplesEn}, etc.)`,
-    `2. Tag ${sns.handle} in the post`,
-    `3. Add the hashtags ${COMMON_HASHTAGS} ${sns.hashtags}`,
-    `4. Add #PR as well (required for promotional posts)`,
-    `5. Submit the post URL and the email address for your gift code here:`,
-    ``,
-    `  ${FORM_URL}`,
-    ``,
-    `* We review each submission. Posts that do not meet the conditions are not eligible,`,
-    `  and we are unable to respond to inquiries about the result.`,
-    ``,
-    `A Google Maps review is also very welcome (not part of the reward program).`,
+    ...howToEn(sns),
     ``,
     `────────────────────`,
     `【ご案内】本メールの配信について / About this email`,

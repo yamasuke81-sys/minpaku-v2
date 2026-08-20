@@ -132,7 +132,7 @@ describe("buildUgcFollowMail", () => {
   test("件名に宿名と特典額が入る", () => {
     const { subject } = mail();
     assert.ok(subject.includes("the Terrace 長浜"));
-    assert.ok(subject.includes("500円"));
+    assert.ok(subject.includes("Amazonギフトコード500円分"));
   });
 
   test("本文に宛先ごとの配信停止リンクが入る (法定の表示義務)", () => {
@@ -149,30 +149,38 @@ describe("buildUgcFollowMail", () => {
   test("アカウントのタグ付けとハッシュタグを別々に案内する (混同されやすい)", () => {
     const { body } = mail();
     assert.ok(body.includes("をタグ付け"));
-    assert.ok(body.includes("のハッシュタグを記載"));
+    assert.ok(/本文に #setouchistay .* を記載/.test(body));
   });
 
   test("提供していないお料理を写真の例に出さない", () => {
     assert.ok(!mail().body.includes("お料理"));
   });
 
-  test("判定は宿が行い却下がありうる旨を明記する (期待値を作らせない)", () => {
+  test("応募の確認と、結果に答えられない旨を明記する (期待値を作らせない)", () => {
     const { body } = mail();
-    assert.ok(body.includes("判定は当宿が行います"));
-    assert.ok(body.includes("対象外となります"));
-    assert.ok(body.includes("お問い合わせにはお答えできません"));
+    assert.ok(body.includes("当宿にて確認のうえ"));
+    assert.ok(body.includes("お答えいたしかねます"));
+    assert.ok(body.includes("予告なく内容の変更・終了"));
+    assert.ok(body.includes("unable to respond to enquiries about the outcome"));
   });
 
   test("受取はAmazonギフトコードのみ (PayPayは案内しない)", () => {
     const { body } = mail();
-    assert.ok(body.includes("Amazonギフトコードの送付先メールアドレス"));
+    assert.ok(body.includes("ギフトコードの送付先メールアドレス"));
     assert.ok(!body.includes("PayPay"));
+  });
+
+  test("特典を「現金」と書かない (実際に渡すのはAmazonギフトコード)", () => {
+    const { subject, body } = mail();
+    assert.ok(!body.includes("現金"), "本文に現金と書かれている");
+    assert.ok(!subject.includes("現金"), "件名に現金と書かれている");
+    assert.ok(body.includes("Amazonギフトコード500円分"));
   });
 
   test("英文では Amazon.co.jp 限定と明記する (海外ゲストの誤解を防ぐ)", () => {
     const { body } = mail();
     assert.ok(body.includes("Amazon.co.jp gift code"));
-    assert.ok(body.includes("can only be used on Amazon.co.jp"));
+    assert.ok(body.includes("can only be redeemed on Amazon.co.jp"));
   });
 
   test("ハッシュタグは日本語を使わない宿 (テラスは英語タグ)", () => {
@@ -255,7 +263,7 @@ describe("buildUgcPastGuestMail (過去ゲスト向けローリング配信)", (
   test("件名に宿名と特典額500円が入る", () => {
     const { subject } = mail();
     assert.ok(subject.includes("the Terrace 長浜"));
-    assert.ok(subject.includes("500円"));
+    assert.ok(subject.includes("Amazonギフトコード500円分"));
   });
 
   test("#PR の案内と日英併記", () => {
@@ -265,11 +273,12 @@ describe("buildUgcPastGuestMail (過去ゲスト向けローリング配信)", (
     assert.ok(!body.includes("お料理"));
   });
 
-  test("判定ルールと Amazonギフト一本化が入る", () => {
+  test("確認の一文と Amazonギフト一本化が入る", () => {
     const { body } = mail();
-    assert.ok(body.includes("判定は当宿が行います"));
-    assert.ok(body.includes("Amazonギフトコードの送付先メールアドレス"));
+    assert.ok(body.includes("当宿にて確認のうえ"));
+    assert.ok(body.includes("ギフトコードの送付先メールアドレス"));
     assert.ok(!body.includes("PayPay"));
+    assert.ok(!body.includes("現金"));
   });
 
   test("配信停止URLが無ければ例外", () => {
