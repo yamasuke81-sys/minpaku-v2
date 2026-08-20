@@ -68,26 +68,10 @@ async function postChunks_(url, text) {
 }
 
 /**
- * メール本文をコードブロックで投稿する。
- * ★分割するときは1投稿ずつ ``` で閉じる。またいで切ると Discord 上で崩れる。
- */
-async function postBody_(url, label, subject, body) {
-  const parts = splitLines_(body, 1700); // ``` と見出しのぶんを残す
-  for (let i = 0; i < parts.length; i++) {
-    const head = i === 0
-      ? [label, "", `**件名:** ${subject}`, ""]
-      : [`_(本文つづき ${i + 1}/${parts.length})_`];
-    const ok = await postChunks_(url, [...head, "```", parts[i], "```"].join("\n"));
-    if (!ok) return false;
-  }
-  return true;
-}
-
-/**
  * 送信結果を Discord の #民泊管理 へ報告する (settings/notifications.discordOwnerWebhookUrl)
  *
  * 送るものが無い日は呼ばない = 無音。通知の失敗でメール送信自体を巻き添えにしない。
- * 本文をそのまま載せるので、Discord を見るだけで「何が届いたか」が分かる。
+ * 本文は載せない(やますけ指示 2026-08-20)。中身は「送信したメールを開く」リンクから確認する。
  */
 async function notifySecretary_(db, todayJst, sent, failed) {
   try {
@@ -98,7 +82,6 @@ async function notifySecretary_(db, todayJst, sent, failed) {
       return;
     }
 
-    // ① サマリー
     const head = [`## 📸 UGC案内メールを送信しました (${todayJst})`, ""];
     if (sent.length > 0) {
       head.push(`### 送信 ${sent.length}件`);
@@ -116,15 +99,6 @@ async function notifySecretary_(db, todayJst, sent, failed) {
     head.push("");
     head.push(`応募が来たら https://setouchi-stay.com/ugc の回答スプレッドシートに入ります。`);
     await postChunks_(url, head.join("\n"));
-
-    // ② 送った本文そのもの。同報が多い日は先頭1件だけ(残りは宛名と日付が変わるだけ)
-    const bodies = sent.slice(0, 2);
-    for (const r of bodies) {
-      const label = sent.length > bodies.length
-        ? `### 送信した本文 (${r.name} 様ぶん。他 ${sent.length - bodies.length}件は宛名と日付が変わるだけです)`
-        : `### 送信した本文 (${r.name} 様)`;
-      await postBody_(url, label, r.subject, r.body);
-    }
   } catch (e) {
     // 通知の失敗でメール送信の成否を汚さない
     console.warn("[ugcFollowMail] 秘書通知でエラー:", e.message);
@@ -202,7 +176,7 @@ module.exports = async function ugcFollowMail() {
             ugcFollowMailSentAt: admin.firestore.FieldValue.serverTimestamp(),
           });
           sentTotal++;
-          sentList.push({ name: b.guestName || "(名前なし)", email: b.email, propertyName, checkOut: day, subject, body });
+          sentList.push({ name: b.guestName || "(名前なし)", email: b.email, propertyName, checkOut: day });
           console.log(`[ugcFollowMail] 送信: ${doc.id} ${propertyName} CO=${day}`);
         } catch (mailErr) {
           failedList.push({ name: b.guestName || "(名前なし)", email: b.email, propertyName, error: mailErr.message });
