@@ -154,8 +154,8 @@ describe("buildUgcFollowMail", () => {
   });
 
   test("ハッシュタグは日本語を使わない宿 (テラスは英語タグ)", () => {
-    assert.ok(UGC_PROPERTIES[TERRACE].hashtags === "#TheTerraceNagahama");
-    assert.ok(mail().body.includes("#TheTerraceNagahama"));
+    assert.ok(UGC_PROPERTIES[TERRACE].hashtags === "#theterracenagahama");
+    assert.ok(mail().body.includes("#theterracenagahama"));
   });
 
   test("宿ごとのタグ付け先が差し込まれる", () => {

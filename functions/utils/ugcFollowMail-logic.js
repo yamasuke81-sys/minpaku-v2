@@ -37,28 +37,28 @@ const UGC_PROPERTIES = {
   // the Terrace 長浜 … テラスBBQが看板なので写真の例に入れる
   tsZybhDMcPrxqgcRy7wp: {
     handle: "@the.terrace.nagahama",
-    hashtags: "#TheTerraceNagahama",
+    hashtags: "#theterracenagahama",
     photoExamples: "お部屋・景色・バーベキューの様子",
     photoExamplesEn: "the room, the view, your BBQ",
   },
   // YADO KOMACHI Hiroshima
   RZV9IwtQgMAsvrdM3j8J: {
     handle: "@yado.komachi.hiroshima",
-    hashtags: "#YADOKOMACHI #小町広島",
+    hashtags: "#yadokomachi #小町広島",
     photoExamples: "お部屋・館内・まちあるきの様子",
     photoExamplesEn: "the room, the interior, your day out",
   },
   // UJINA Pocket House … ハウスルールで前庭のBBQ・花火は禁止。写真の例にBBQを出さない
   ncUKeD4yQo0kfAoznITu: {
     handle: "@ujina.pocket.house",
-    hashtags: "#UJINAPocketHouse #宇品",
+    hashtags: "#ujinapockethouse #宇品",
     photoExamples: "お部屋・館内・まちあるきの様子",
     photoExamplesEn: "the room, the interior, your day out",
   },
   // Pocket House WAKA-KUSA … 宿別IG未作成のため当面ブランド垢をタグ付け先にする
   ZXW6wdpnBFk1azQ87KXQ: {
     handle: "@setouchistay.jp",
-    hashtags: "#PocketHouseWAKAKUSA #若草",
+    hashtags: "#pockethousewakakusa #若草",
     photoExamples: "お部屋・館内・まちあるきの様子",
     photoExamplesEn: "the room, the interior, your day out",
   },
