@@ -10,6 +10,12 @@
  * → JST 03時に rosterRemind が走った時、各物件で beforeDays=6 のタイミングを抽出し、
  *   `checkIn = todayJST + 6日` の名簿未提出予約を対象に送信。
  *
+ * 直前予約の救済 (2026-08-19 追加):
+ *   完全一致 (checkIn === today + beforeDays) でしか発火しないため、最後のタイミングを
+ *   過ぎてから入った予約は督促が1通も飛ばないまま CI を迎えていた。
+ *   同じ時刻に設定された最大 beforeDays 以内で「まだ1通も送っていない」予約を
+ *   1回だけ拾う (key = "YYYY-MM-DD_HH_catchup")。
+ *
  * 重複送信防止:
  *   bookings.{bookingId}.rosterRemindSentKeys[] に "YYYY-MM-DD_HH_NdaysBefore" を記録
  */
@@ -74,98 +80,142 @@ module.exports = async function rosterRemind() {
 
     let sentTotal = 0;
 
-    // 2) 各 (propertyId, targetCheckIn) について bookings を取得して送信
-    for (const tgt of targets) {
-      const bookingsSnap = await db.collection("bookings")
-        .where("propertyId", "==", tgt.propertyId)
-        .where("checkIn", "==", tgt.targetCheckIn)
+    // 1予約ぶんの督促送信 (通常タイミングと直前予約の救済で共用)。
+    // 送信できたら true を返し、rosterRemindSentKeys に key を記録する
+    async function sendReminder_(bookingId, b, { propertyId, propertyName: fallbackName, beforeDays, key }) {
+      // 名簿提出済み → スキップ
+      if (b.rosterStatus === "submitted") return false;
+      // 保留中 (Airbnb 承認待ち) → スキップ
+      if (b.pendingApproval === true) return false;
+      // 未照合 (Booking.com 匿名 CLOSED 取込分) → 実予約と重複しているケースが多く、
+      // 確定メール受信で unverified=false に降下する前は名簿督促を送らない
+      if (b.unverified === true) return false;
+
+      // 重複防止キー: 日付+時+beforeDays (救済は _catchup) で一意
+      const sentKeys = Array.isArray(b.rosterRemindSentKeys) ? b.rosterRemindSentKeys : [];
+      if (sentKeys.includes(key)) {
+        console.log(`[rosterRemind] 既送信スキップ ${bookingId} key=${key}`);
+        return false;
+      }
+
+      const propertyName = b.propertyName || fallbackName;
+      const guestName = b.guestName || "名前未設定";
+      const checkin = b.checkIn || "";
+      const formUrl = `${appUrl}/form/?propertyId=${propertyId}`;
+
+      // ゲスト本人へ記入依頼メール (オーナー通知の成否とは独立。失敗しても次のタイミングで再試行)
+      // メールアドレスは名簿提出時にセットされる仕組みのため、未提出でアドレスを持つのは
+      // 事実上 直販予約のみ。OTA 予約は従来どおりオーナーが OTA メッセージで督促する。
+      let guestMailSent = false;
+      try {
+        const { sendRosterRequestMail_ } = require("../utils/rosterMail");
+        guestMailSent = await sendRosterRequestMail_(db, bookingId, b, {
+          key: `d${beforeDays}`,
+          lead: `ご宿泊 (${checkin} チェックイン) まであと${beforeDays}日となりました。\n宿泊者名簿がまだ届いておりませんので、ご記入をお願いいたします。`,
+          leadEn: `Your stay begins in ${beforeDays} day(s) (check-in on ${checkin}).\nWe have not yet received your guest registration — please complete it.`,
+        });
+        if (guestMailSent) console.log(`[rosterRemind] ゲストへ記入依頼メール送信: booking=${bookingId} d${beforeDays}`);
+      } catch (mailErr) {
+        console.warn(`[rosterRemind] ${bookingId} ゲストメール失敗:`, mailErr.message);
+      }
+
+      // guestMail: 物件テンプレートの差し込み口。ゲストへ自動送信できた予約は
+      // オーナーに「督促をお願いします」と重ねて頼まないようにする
+      const vars = {
+        date: checkin,
+        checkin,
+        property: propertyName,
+        guest: guestName,
+        url: formUrl,
+        guestMail: guestMailSent ? "\n※ ゲストへ記入依頼メールを自動送信しました" : "",
+      };
+
+      const defaultMsg = [
+        `📋 名簿未提出リマインド (${beforeDays}日前)`,
+        ``,
+        `物件: ${propertyName}`,
+        `ゲスト: ${guestName}`,
+        `チェックイン: ${checkin}`,
+        ``,
+        `宿泊者名簿がまだ提出されていません。`,
+        `フォームURL: ${formUrl}`,
+        guestMailSent ? `\n※ ゲストへ記入依頼メールを自動送信しました` : "",
+      ].filter(Boolean).join("\n");
+
+      const title = `名簿未提出 (${beforeDays}日前): ${guestName} (${checkin})`;
+
+      const result = await notifyByKey(db, NOTIFY_TYPE, {
+        title,
+        body: defaultMsg,
+        vars,
+        propertyId,
+      });
+      const anySuccess = Object.values(result.sent || {}).some(v => v && v !== 0);
+      if (!anySuccess) return false;
+
+      try {
+        await db.collection("bookings").doc(bookingId).update({
+          rosterRemindSentKeys: admin.firestore.FieldValue.arrayUnion(key),
+        });
+      } catch (e) {
+        console.warn(`[rosterRemind] 送信記録失敗 ${bookingId}:`, e.message);
+      }
+      return true;
+    }
+
+    // 指定 (物件, checkIn日) の confirmed 予約を引く。
+    // ★等値のみで引く (checkIn を範囲にすると新しい複合インデックスが必要になるため、
+    //   救済側も日付を1日ずつ回して同じクエリ形で引く)
+    async function bookingsOn_(propertyId, checkInStr) {
+      const snap = await db.collection("bookings")
+        .where("propertyId", "==", propertyId)
+        .where("checkIn", "==", checkInStr)
         .where("status", "==", "confirmed")
         .get();
+      return snap.docs;
+    }
 
-      if (bookingsSnap.empty) continue;
+    const hh = String(hourJst).padStart(2, "0");
 
-      for (const bd of bookingsSnap.docs) {
-        const b = bd.data();
-        const bookingId = bd.id;
+    // 2) 各 (propertyId, targetCheckIn) について bookings を取得して送信
+    const covered = new Map(); // propertyId -> { propertyName, maxBeforeDays, days:Set<beforeDays> }
+    for (const tgt of targets) {
+      const c = covered.get(tgt.propertyId)
+        || { propertyName: tgt.propertyName, maxBeforeDays: 0, days: new Set() };
+      c.maxBeforeDays = Math.max(c.maxBeforeDays, tgt.beforeDays);
+      c.days.add(tgt.beforeDays);
+      covered.set(tgt.propertyId, c);
 
-        // 名簿提出済み → スキップ
-        if (b.rosterStatus === "submitted") continue;
-        // 保留中 (Airbnb 承認待ち) → スキップ
-        if (b.pendingApproval === true) continue;
-        // 未照合 (Booking.com 匿名 CLOSED 取込分) → 実予約と重複しているケースが多く、
-        // 確定メール受信で unverified=false に降下する前は名簿督促を送らない
-        if (b.unverified === true) continue;
-
-        // 重複防止キー: 日付+時+beforeDays で一意
-        const key = `${todayJst}_${String(hourJst).padStart(2, "0")}_d${tgt.beforeDays}`;
-        const sentKeys = Array.isArray(b.rosterRemindSentKeys) ? b.rosterRemindSentKeys : [];
-        if (sentKeys.includes(key)) {
-          console.log(`[rosterRemind] 既送信スキップ ${bookingId} key=${key}`);
-          continue;
-        }
-
-        const propertyName = b.propertyName || tgt.propertyName;
-        const guestName = b.guestName || "名前未設定";
-        const checkin = b.checkIn || "";
-        const formUrl = `${appUrl}/form/?propertyId=${tgt.propertyId}`;
-
-        // ゲスト本人へ記入依頼メール (オーナー通知の成否とは独立。失敗しても次のタイミングで再試行)
-        // メールアドレスは名簿提出時にセットされる仕組みのため、未提出でアドレスを持つのは
-        // 事実上 直販予約のみ。OTA 予約は従来どおりオーナーが OTA メッセージで督促する。
-        let guestMailSent = false;
-        try {
-          const { sendRosterRequestMail_ } = require("../utils/rosterMail");
-          guestMailSent = await sendRosterRequestMail_(db, bookingId, b, {
-            key: `d${tgt.beforeDays}`,
-            lead: `ご宿泊 (${checkin} チェックイン) まであと${tgt.beforeDays}日となりました。\n宿泊者名簿がまだ届いておりませんので、ご記入をお願いいたします。`,
-            leadEn: `Your stay begins in ${tgt.beforeDays} day(s) (check-in on ${checkin}).\nWe have not yet received your guest registration — please complete it.`,
-          });
-          if (guestMailSent) console.log(`[rosterRemind] ゲストへ記入依頼メール送信: booking=${bookingId} d${tgt.beforeDays}`);
-        } catch (mailErr) {
-          console.warn(`[rosterRemind] ${bookingId} ゲストメール失敗:`, mailErr.message);
-        }
-
-        // guestMail: 物件テンプレートの差し込み口。ゲストへ自動送信できた予約は
-        // オーナーに「督促をお願いします」と重ねて頼まないようにする
-        const vars = {
-          date: checkin,
-          checkin,
-          property: propertyName,
-          guest: guestName,
-          url: formUrl,
-          guestMail: guestMailSent ? "\n※ ゲストへ記入依頼メールを自動送信しました" : "",
-        };
-
-        const defaultMsg = [
-          `📋 名簿未提出リマインド (${tgt.beforeDays}日前)`,
-          ``,
-          `物件: ${propertyName}`,
-          `ゲスト: ${guestName}`,
-          `チェックイン: ${checkin}`,
-          ``,
-          `宿泊者名簿がまだ提出されていません。`,
-          `フォームURL: ${formUrl}`,
-          guestMailSent ? `\n※ ゲストへ記入依頼メールを自動送信しました` : "",
-        ].filter(Boolean).join("\n");
-
-        const title = `名簿未提出 (${tgt.beforeDays}日前): ${guestName} (${checkin})`;
-
-        const result = await notifyByKey(db, NOTIFY_TYPE, {
-          title,
-          body: defaultMsg,
-          vars,
+      for (const bd of await bookingsOn_(tgt.propertyId, tgt.targetCheckIn)) {
+        const ok = await sendReminder_(bd.id, bd.data(), {
           propertyId: tgt.propertyId,
+          propertyName: tgt.propertyName,
+          beforeDays: tgt.beforeDays,
+          key: `${todayJst}_${hh}_d${tgt.beforeDays}`,
         });
-        const anySuccess = Object.values(result.sent || {}).some(v => v && v !== 0);
+        if (ok) sentTotal++;
+      }
+    }
 
-        if (anySuccess) {
-          sentTotal++;
-          try {
-            await db.collection("bookings").doc(bookingId).update({
-              rosterRemindSentKeys: admin.firestore.FieldValue.arrayUnion(key),
-            });
-          } catch (e) {
-            console.warn(`[rosterRemind] 送信記録失敗 ${bookingId}:`, e.message);
+    // 3) 直前予約の救済: タイミングを過ぎてから入った予約は完全一致に一度も引っかからず、
+    //    督促が1通も飛ばないまま CI を迎える (実例: 2026-08-18 20:44 に入った 8/22 CI の予約は
+    //    d6=8/16 03:00 / d4=8/18 03:00 を既に過ぎていた)。
+    //    「まだ1通も送っていない (rosterRemindSentKeys が空)」予約だけを1回拾う。
+    //    通常タイミングで今この時刻に扱った日はスキップする (二重送信防止)。
+    const catchupKey = `${todayJst}_${hh}_catchup`;
+    for (const [propertyId, c] of covered) {
+      for (let d = 0; d <= c.maxBeforeDays; d++) {
+        if (c.days.has(d)) continue;
+        for (const bd of await bookingsOn_(propertyId, addDays(todayJst, d))) {
+          const b = bd.data();
+          const sentKeys = Array.isArray(b.rosterRemindSentKeys) ? b.rosterRemindSentKeys : [];
+          if (sentKeys.length > 0) continue; // 過去に1通でも送っていれば救済対象外
+          const ok = await sendReminder_(bd.id, b, {
+            propertyId, propertyName: c.propertyName, beforeDays: d, key: catchupKey,
+          });
+          if (ok) {
+            sentTotal++;
+            console.log(`[rosterRemind] 直前予約を救済送信: ${bd.id} (CIまで${d}日)`);
           }
         }
       }
