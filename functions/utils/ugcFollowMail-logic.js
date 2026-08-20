@@ -30,8 +30,10 @@ const INSTAGRAM_REWARD_YEN = 500;
 const COMMON_HASHTAGS = "#setouchistay #瀬戸内ステイ";
 
 /**
- * 対象物件とタグ付け先。ここに載っている物件だけに送る (= ON/OFF はこの表で管理する)。
- * ハンドルの正典は setouchi-stay-sites/marketing/SNS_ACCOUNTS.md。変更したら両方直すこと。
+ * 宿ごとのタグ付け先と写真の例。ハンドルの正典は
+ * setouchi-stay-sites/marketing/SNS_ACCOUNTS.md。変更したら両方直すこと。
+ *
+ * ★ここに定義があっても送信対象になるとは限らない。実際に送るのは LIVE_PROPERTIES だけ。
  */
 const UGC_PROPERTIES = {
   // the Terrace 長浜 … テラスBBQが看板なので写真の例に入れる
@@ -64,8 +66,30 @@ const UGC_PROPERTIES = {
   },
 };
 
+/**
+ * ★実際に案内を送る宿 (2026-08-20 やますけ決定=テラス先行)
+ *
+ * 特典は現在 Amazon.co.jp ギフトコードだが、これは Amazon.co.jp でしか使えない。
+ * 小町広島は名簿41件のうち31件(76%)が海外ゲストのため、いま案内すると
+ * 「受け取れない特典」を送ることになる。そこで海外21%のテラスだけ先に走らせ、
+ * 残り3宿は Tremendous(受取人が自国のギフトを選べる)が通ってから開ける。
+ *
+ * → Tremendous 開通時にこの配列へ3宿を戻す。手順は
+ *   setouchi-stay-sites/marketing/ugc/TREMENDOUS_APPLICATION.md
+ */
+const LIVE_PROPERTIES = [
+  "tsZybhDMcPrxqgcRy7wp", // the Terrace 長浜
+  // "RZV9IwtQgMAsvrdM3j8J", // YADO KOMACHI Hiroshima … 海外76%。Tremendous 開通まで待機
+  // "ncUKeD4yQo0kfAoznITu", // UJINA Pocket House    … 同上
+  // "ZXW6wdpnBFk1azQ87KXQ", // Pocket House WAKA-KUSA … 同上(宿別IGも未作成)
+];
+
+// 文面を組み立てられる宿か (タグ付け先が定義されているか)
 const isUgcProperty = (propertyId) =>
   Object.prototype.hasOwnProperty.call(UGC_PROPERTIES, String(propertyId || ""));
+
+// いま実際に案内を送る宿か
+const isLiveProperty = (propertyId) => LIVE_PROPERTIES.includes(String(propertyId || ""));
 
 /**
  * 予約が案内メールの対象かどうか (Firestore を見ない判定だけ)。
@@ -77,6 +101,7 @@ const isUgcProperty = (propertyId) =>
 function isEligibleBooking(b) {
   const d = b || {};
   if (!isUgcProperty(d.propertyId)) return { ok: false, reason: "対象外物件" };
+  if (!isLiveProperty(d.propertyId)) return { ok: false, reason: "配信待機中の宿" };
   if (d.status !== "confirmed") return { ok: false, reason: `status=${d.status}` };
   // 保留中(Airbnb 承認待ち) / 未照合(Booking.com 匿名取込) は実予約でない可能性がある
   if (d.pendingApproval === true) return { ok: false, reason: "承認待ち" };
@@ -270,6 +295,8 @@ function buildUgcPastGuestMail({ guestName, propertyId, propertyName, optoutUrl 
 
 module.exports = {
   UGC_PROPERTIES,
+  LIVE_PROPERTIES,
+  isLiveProperty,
   FORM_URL,
   INSTAGRAM_REWARD_YEN,
   isUgcProperty,

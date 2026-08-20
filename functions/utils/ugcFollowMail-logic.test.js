@@ -9,6 +9,8 @@ const { test, describe } = require("node:test");
 const assert = require("node:assert");
 const {
   UGC_PROPERTIES,
+  LIVE_PROPERTIES,
+  isLiveProperty,
   isUgcProperty,
   isEligibleBooking,
   buildUgcFollowMail,
@@ -57,6 +59,26 @@ describe("isUgcProperty", () => {
       assert.ok(!v.photoExamples.includes("バーベキュー"), `${id} にBBQを案内している`);
       assert.ok(!/BBQ/i.test(v.photoExamplesEn), `${id} にBBQを案内している(英語)`);
     }
+  });
+});
+
+describe("LIVE_PROPERTIES (配信する宿の絞り込み)", () => {
+  test("いま配信するのはテラスだけ (2026-08-20 テラス先行)", () => {
+    assert.deepStrictEqual(LIVE_PROPERTIES, [TERRACE]);
+  });
+
+  test("小町・宇品・若草は待機中 (Amazon.co.jp が使えない海外ゲストへ案内しない)", () => {
+    for (const id of ["RZV9IwtQgMAsvrdM3j8J", "ncUKeD4yQo0kfAoznITu", "ZXW6wdpnBFk1azQ87KXQ"]) {
+      assert.strictEqual(isLiveProperty(id), false, `${id} が配信対象になっている`);
+      // 文面自体は組み立てられる状態を保つ (Tremendous 開通時にすぐ戻せるように)
+      assert.ok(isUgcProperty(id));
+    }
+  });
+
+  test("待機中の宿の予約には送らない", () => {
+    const r = isEligibleBooking(booking({ propertyId: "RZV9IwtQgMAsvrdM3j8J" }));
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.reason, "配信待機中の宿");
   });
 });
 

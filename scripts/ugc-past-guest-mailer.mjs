@@ -17,10 +17,12 @@
 //   ・1通ごとに送信直前で配信停止(marketingSuppressions)を読み直す(実行中の停止申請も拾う)
 //   ・チェックアウト後フォローメール(ugcFollowMail)が送った相手もスキップ(二重案内防止)
 //   ・対象は「滞在が終わった人」だけ(未宿泊者に「先日はご宿泊…」を送らない)
-import admin from "firebase-admin";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
+// ★firebase-admin は functions 側のものを使う。scripts/node_modules から import すると
+//   別インスタンスになり、lineNotify(=functions側)が「default app が無い」で落ちる
+const admin = require("../functions/node_modules/firebase-admin");
 const { buildOptoutToken, normalizeEmail, emailKey } = require("../functions/api/marketing-optout-logic.js");
 const { buildUgcPastGuestMail, UGC_PROPERTIES } = require("../functions/utils/ugcFollowMail-logic.js");
 
@@ -40,9 +42,12 @@ const CAMPAIGN = "ugc-cashback-2026-08"; // marketingSends の記録キー(キ�
 const OPTOUT_BASE = "https://setouchi-stay.com/ugc-optout";
 
 // 過去名簿の対象物件。propertyId 未設定の古い名簿は the Terrace 扱い(v2 の集計慣例)
+// ★2026-08-20 やますけ決定=テラス先行。小町は名簿の76%が海外ゲストで、いまの特典
+//   (Amazon.co.jp ギフトコード)では4人に3人が受け取れないため、Tremendous が通るまで送らない。
+//   開通時にここへ小町を戻す(手順= setouchi-stay-sites/marketing/ugc/TREMENDOUS_APPLICATION.md)
 const LIST_PROPERTIES = {
   tsZybhDMcPrxqgcRy7wp: "the Terrace 長浜",
-  RZV9IwtQgMAsvrdM3j8J: "YADO KOMACHI Hiroshima",
+  // RZV9IwtQgMAsvrdM3j8J: "YADO KOMACHI Hiroshima", // Tremendous 開通まで待機
 };
 const DEFAULT_PID = "tsZybhDMcPrxqgcRy7wp";
 
