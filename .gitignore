@@ -28,4 +28,5 @@ CLAUDE.local.md
 
 # scratchpad（実データ含む調査/検証スクリプト置き場・個人情報混入可能性あり）
 scratchpad/
-_inv*.json
+# Firestore の調査用ダンプ(リポジトリ直下の _ 始まりJSON)。ゲスト情報を含むので絶対にコミットしない
+/_*.json
