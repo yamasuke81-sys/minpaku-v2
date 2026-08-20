@@ -13,6 +13,12 @@
  *
  * 通知キーは NOTIFY_KEY で定数化。channelOverrides.morning_ota_audit は
  * 物件データ側で別途設定する(このコードはキー名のみ知っていればよい)。
+ *
+ * ★mode="recheck"(補完再走): Booking.com はオンデマンド運用で毎晩セッションが失効するため、
+ *   2:30 のスナップショットは partial のことがあり、朝の再ログイン復帰後に 7:02 頃 done へ
+ *   上書きされる。7:00 の本編はそれに間に合わないので、完成を検知した
+ *   triggers/onOtaSnapshotComplete.js がこの関数を mode="recheck" で呼び直す。
+ *   再走は結果を完全な状態へ上書きし、通知は朝に出していない新規の指摘だけに絞る。
  */
 const admin = require("firebase-admin");
 const { nowJst, addDays } = require("../utils/dateUtils");
@@ -28,10 +34,24 @@ const {
   collectKeyboxFindings,
   collectRosterFindings,
   buildPropertyReport,
+  selectResolvableConflicts,
+  detectMissingOtaSources,
+  selectSnapshotBacklogActions,
+  filterBackfillFindings,
+  dedupeNewFindings,
+  selectGuestCountIssueActions,
 } = require("../api/ota-audit-logic");
 
 const NOTIFY_KEY = "morning_ota_audit";
+// OTAキー → 表示名 (未取得OTAの理由表示に使う)
+const OTA_LABELS_JA = { airbnb: "Airbnb", booking: "Booking.com" };
 const ROSTER_WARN_DAYS = 3;
+// 1回の朝点検で走査する未解決コンフリクトの上限 (実運用は常時1桁。暴走時の保険)
+const CONFLICT_SCAN_LIMIT = 300;
+// 1回の朝点検で走査する未解決の人数不一致の上限 (実運用は常時1桁。暴走時の保険)
+const GUEST_COUNT_ISSUE_SCAN_LIMIT = 200;
+// スナップショット欠損日を持ち越して遡り突合を試みる期間 (これを過ぎたら諦めて破棄)
+const SNAPSHOT_BACKLOG_MAX_AGE_DAYS = 7;
 
 // finding.type → 全体サマリの日本語ラベル
 const TYPE_LABELS = {
@@ -40,16 +60,24 @@ const TYPE_LABELS = {
   date_mismatch: "日付不一致",
   missing_in_ota: "v2にあるがOTAに無い",
   guest_count_mismatch: "人数不一致",
+  guest_count_unresolved: "人数不一致(未解消・要精算/申告訂正)",
   keybox_unsent: "キーボックス未送信",
   roster_missing: "名簿未提出",
   parse_error: "日付解析エラー",
 };
 
-module.exports = async function morningOtaAudit() {
+module.exports = async function morningOtaAudit(arg) {
   const db = admin.firestore();
   const { date: todayStr } = nowJst();
 
-  console.log(`[morningOtaAudit] 起動 JST=${todayStr}`);
+  // mode="recheck" は補完再走 (朝点検のあとにスナップショットが完成した日を突合し直す)。
+  // onSchedule は ScheduledEvent を第1引数に渡してくるので、mode が無ければ通常の朝点検。
+  const mode = arg && arg.mode === "recheck" ? "recheck" : "morning";
+  const isRecheck = mode === "recheck";
+  const recheckReason = (arg && arg.reason) || "";
+  const TAG = isRecheck ? "[morningOtaAudit:recheck]" : "[morningOtaAudit]";
+
+  console.log(`${TAG} 起動 JST=${todayStr}${isRecheck ? ` (補完再走: ${recheckReason || "理由不明"})` : ""}`);
 
   try {
     // 通知に添付するディープリンクの基点URL (v2-5-relay固定運用。openExternalBrowser=1 は送信側で自動付与)
@@ -99,8 +127,22 @@ module.exports = async function morningOtaAudit() {
     const bookings = allBookings.filter((b) => activePropertyIds.has(b.propertyId));
     const registrations = allRegistrations.filter((g) => activePropertyIds.has(g.propertyId));
 
+    // ---- 4.5) 「取得できているはずのOTA」の脱落検知 ----
+    // listener が Booking.com を取れなかったのに status="done"/errors=[] で書くことがある
+    // (2026-08-17 実障害)。その場合 auditedTargets から (物件, booking) ペアが丸ごと落ちるので、
+    // 物件マスタの期待ターゲットと突き合わせて「未取得ソースあり」として扱う。
+    const missingSources = snapshotMissing
+      ? []
+      : detectMissingOtaSources({ properties: activeProps, auditedTargets: snapshot.auditedTargets }).missing;
+    if (missingSources.length > 0) {
+      console.warn("[morningOtaAudit] 未取得OTAあり:",
+        missingSources.map((m) => `${m.propertyName}/${m.ota}`).join(", "));
+    }
+
     // ---- 5) findings 集約 (純粋関数へ委譲) ----
     let reconcileFindings = [];
+    let guestCountChecked = [];
+    let guestCountClassDiffs = [];
     if (!snapshotMissing) {
       const reservations = Array.isArray(snapshot.reservations)
         ? snapshot.reservations.filter((r) => r && activePropertyIds.has(r.propertyId))
@@ -112,21 +154,71 @@ module.exports = async function morningOtaAudit() {
       const auditedTargets = Array.isArray(snapshot.auditedTargets)
         ? snapshot.auditedTargets.filter((t) => t && activePropertyIds.has(t.propertyId))
         : undefined;
-      reconcileFindings = reconcileOtaSnapshot({ reservations, bookings, registrations, auditedTargets, todayStr, appUrl }).findings;
+      const rec = reconcileOtaSnapshot({ reservations, bookings, registrations, properties: activeProps, auditedTargets, todayStr, appUrl });
+      reconcileFindings = rec.findings;
+      guestCountChecked = rec.guestCountChecked || [];
+      guestCountClassDiffs = rec.guestCountClassDiffs || [];
     }
     const keyboxFindings = collectKeyboxFindings({ registrations, bookings, properties: activeProps, todayStr, appUrl }).findings;
     const rosterFindings = collectRosterFindings({ bookings, properties: activeProps, todayStr, warnDays: ROSTER_WARN_DAYS, appUrl }).findings;
 
-    const allFindings = [...reconcileFindings, ...keyboxFindings, ...rosterFindings];
-
-    // 物件ごとにグループ化
-    const findingsByProperty = new Map();
-    for (const f of allFindings) {
-      const pid = f.propertyId || "";
-      if (!pid) continue;
-      if (!findingsByProperty.has(pid)) findingsByProperty.set(pid, []);
-      findingsByProperty.get(pid).push(f);
+    // ---- 5.5) スナップショット欠損日の遡り突合 (持ち越し) ----
+    // 欠損した日をその場で捨てず otaSnapshotBacklog に残し、後からスナップショットが
+    // 書かれていれば遡って突合する。当日分が欠損していれば持ち越しに積む。
+    let backfill = { findings: [], done: [], pending: [], expired: [] };
+    try {
+      backfill = await processSnapshotBacklog(db, {
+        todayStr, snapshotMissing,
+        bookings, registrations, activePropertyIds, activeProps, appUrl,
+        todayFindings: reconcileFindings,
+      });
+    } catch (e) {
+      console.warn("[morningOtaAudit] スナップショット持ち越し処理エラー:", e.message);
     }
+
+    // ---- 5.6) 人数不一致の持ち越し (滞在が終わっても未解消なら残す) ----
+    // 人数は清掃費の精算と宿泊税の申告に直結するので「OTAの窓から外れて見えなくなった＝解決」に
+    // してはいけない。otaGuestCountIssues に永続化し、解消を確認できるまで毎朝出し続ける。
+    let guestCountCarryOver = [];
+    try {
+      guestCountCarryOver = await processGuestCountIssues(db, {
+        todayStr, appUrl, guestCountChecked,
+        todayFindings: [...reconcileFindings, ...backfill.findings],
+      });
+    } catch (e) {
+      console.warn("[morningOtaAudit] 人数不一致の持ち越し処理エラー:", e.message);
+    }
+
+    const allFindings = [
+      ...reconcileFindings, ...backfill.findings, ...guestCountCarryOver,
+      ...keyboxFindings, ...rosterFindings,
+    ];
+
+    // ---- 5.7) 補完再走のときは「朝点検で既に通知した分」を通知対象から外す ----
+    // 再走は突合結果を上書きして完全な状態にするのが目的で、同じ指摘を2度通知するためではない。
+    let prevFindings = [];
+    let prevTotal = 0;
+    if (isRecheck) {
+      const prevDoc = await db.collection("otaAuditResults").doc(todayStr).get();
+      const prev = prevDoc.exists ? prevDoc.data() : null;
+      prevFindings = Array.isArray(prev && prev.findings) ? prev.findings : [];
+      prevTotal = prevFindings.length;
+    }
+    const notifyFindings = isRecheck ? dedupeNewFindings(prevFindings, allFindings) : allFindings;
+
+    // 物件ごとにグループ化 (通知用は新規分、サマリの内訳は全件)
+    const groupByProperty = (list) => {
+      const m = new Map();
+      for (const f of list) {
+        const pid = f.propertyId || "";
+        if (!pid) continue;
+        if (!m.has(pid)) m.set(pid, []);
+        m.get(pid).push(f);
+      }
+      return m;
+    };
+    const findingsByProperty = groupByProperty(notifyFindings);
+    const summaryByProperty = isRecheck ? groupByProperty(allFindings) : findingsByProperty;
 
     // ---- 6) 結果を保存 ----
     const countsByType = {};
@@ -136,17 +228,37 @@ module.exports = async function morningOtaAudit() {
       findings: allFindings,
       countsByType,
       totalCount: allFindings.length,
-      snapshotStatus: snapshot ? snapshot.status : "missing",
+      // 未取得ソースがある日は突合が不完全なので、listener が done と書いていても partial 扱いにする
+      snapshotStatus: snapshotMissing ? (snapshot ? snapshot.status : "missing")
+        : (missingSources.length > 0 ? "partial" : snapshot.status),
+      snapshotStatusRaw: snapshot ? snapshot.status : "missing",
+      missingOtaSources: missingSources,
+      // 欠損日の持ち越し状況 (遡って突合できた日 / まだ取れていない日 / 諦めた日)
+      snapshotBacklog: {
+        backfilled: backfill.done, pending: backfill.pending, expired: backfill.expired,
+      },
+      // 乳幼児の区分違い (総数は一致) — 通知はしないが後から追えるよう記録は残す
+      guestCountClassDiffs,
       unassignedCount: (snapshot && snapshot.unassignedCount) || 0,
       createdAt: new Date(),
-    });
+      // 補完再走の記録 (この日の突合がいつ完全になったか。トリガー側の再入防止にも使う)
+      // recheckCount は起動側(triggers/onOtaSnapshotComplete.js)がトランザクションで
+      // 先取り済みなので、ここでは増やさない(二重カウント防止)
+      ...(isRecheck ? {
+        recheckedAt: new Date(),
+        recheckReason,
+        recheckNewCount: notifyFindings.length,
+      } : { recheckCount: 0 }),
+    }, { merge: isRecheck });
 
     // ---- 7) 物件ごと通知 ----
     const noSendProperties = [];
     for (const [pid, findings] of findingsByProperty.entries()) {
       const propertyName = propNameById.get(pid) || pid;
       const body = buildPropertyReport(propertyName, findings, todayStr);
-      const title = `🌅 OTA朝点検: ${propertyName} で要確認${findings.length}件`;
+      const title = isRecheck
+        ? `🔁 OTA朝点検(補完再走): ${propertyName} で要確認${findings.length}件`
+        : `🌅 OTA朝点検: ${propertyName} で要確認${findings.length}件`;
 
       const result = await notifyByKey(db, NOTIFY_KEY, {
         title,
@@ -172,19 +284,70 @@ module.exports = async function morningOtaAudit() {
     } else {
       const lines = [];
 
-      if (snapshotMissing) {
-        lines.push(`🚨 本日のOTAスナップショットが取得できていません(otaCalendarSnapshots/${todayStr})。突合(①)はスキップしました。`);
-      } else if (snapshotPartial) {
-        const errText = (snapshot.errors || []).map((e) => `${e.ota}: ${e.message}`).join(" / ");
-        lines.push(`⚠️ OTA取得が一部失敗しています(${errText})。失敗分は逆方向チェック対象外です。`);
+      if (isRecheck) {
+        // 朝7:00 は未取得のOTAがあるまま走っており、「0件」を額面どおり読めない状態で終わっている。
+        // 再走はその日の突合が完全になったことを必ず1行で明示して、朝の但し書きを閉じる。
+        lines.push(`（朝7:00の点検は未取得のOTAがあるまま実行され「突合は不完全」でした。取得完了後に突合し直した結果です）`);
       }
 
-      if (allFindings.length === 0) {
-        lines.unshift(`🌅 OTA朝点検: 全物件異常なし(OTA予約突合OK / キーボックス・名簿OK)`);
+      if (snapshotMissing) {
+        lines.push(`🚨 本日のOTAスナップショットが取得できていません(otaCalendarSnapshots/${todayStr})。突合(①)は持ち越しました(後日スナップショットが書かれ次第、遡って突合します)。`);
+      } else if (snapshotPartial) {
+        // ★スキップ理由も本文に出す(2026-08-18)。errors だけを見ていると、セッション失効で
+        //   取得を見送ったOTA(errors は空)の理由が一切表示されない。
+        const errText = (snapshot.errors || []).map((e) => `${e.ota}: ${e.message}`).join(" / ");
+        const skipText = (snapshot.skippedOtas || [])
+          .map((sk) => `${OTA_LABELS_JA[sk.ota] || sk.ota}(${sk.reason === "session_expired" ? "ログイン失効中" : sk.reason || "理由不明"}のため未取得)`)
+          .join(" / ");
+        const partialReason = [errText, skipText].filter(Boolean).join(" / ") || "理由不明";
+        lines.push(`⚠️ OTA取得が一部できていません(${partialReason})。この分は逆方向チェックの対象外です。`);
+      }
+
+      // 遡り突合の結果 (欠損日の持ち越し)
+      if (backfill.done.length > 0) {
+        for (const d of backfill.done) {
+          lines.push(`🕒 未突合だった ${d.date} 分を遡って突合しました(新規${d.newCount}件)。`);
+        }
+      }
+      if (backfill.pending.length > 0) {
+        lines.push(`⏳ ${backfill.pending.map((p) => p.date).join(", ")} 分のスナップショットはまだ取得できていません(取得され次第、遡って突合します)。`);
+      }
+      for (const d of backfill.expired) {
+        lines.push(`⚠️ ${d.date} 分のスナップショットは${SNAPSHOT_BACKLOG_MAX_AGE_DAYS}日経っても取得できなかったため、この日の突合は諦めました(未突合のまま)。`);
+      }
+
+      if (missingSources.length > 0) {
+        const srcText = missingSources.map((m) => `${m.propertyName}/${m.otaLabel}`).join(", ");
+        lines.push(`⚠️ 未取得のOTAがあります(${srcText})。このOTAの予約は今朝の突合(①)に含まれていません — 「0件」は正常の意味になりません。`);
+        lines.push("→ OTAのログイン状態(セッション失効)を確認し、必要なら再ログインしてください。");
+      }
+
+      if (isRecheck) {
+        lines.unshift(notifyFindings.length === 0
+          ? `🔁 OTA朝点検の補完再走: 追加の指摘なし(この日の突合は完了しました${prevTotal > 0 ? ` — 朝の${prevTotal}件のまま` : ""})`
+          : `🔁 OTA朝点検の補完再走: 新たに要確認${notifyFindings.length}件(物件別の詳細は各通知参照)`);
+      } else if (allFindings.length === 0) {
+        lines.unshift(missingSources.length > 0
+          ? `🌅 OTA朝点検: 検出0件 — ただし未取得のOTAがあり突合は不完全です`
+          : `🌅 OTA朝点検: 全物件異常なし(OTA予約突合OK / キーボックス・名簿OK)`);
       } else {
         lines.unshift(`🌅 OTA朝点検: 要確認${allFindings.length}件(物件別の詳細は各通知参照)`);
-        for (const [type, count] of Object.entries(countsByType)) {
-          lines.push(`・${TYPE_LABELS[type] || type}: ${count}件`);
+      }
+      if (allFindings.length > 0) {
+        // ★どの宿の件かをサマリ1通で即断できるよう、物件名つきの内訳を出す(2026-08-19)。
+        //   以前は種別の件数だけだったため、4宿運営では「名簿未提出1件」と言われても宿が分からなかった。
+        for (const [pid, findings] of summaryByProperty.entries()) {
+          const propertyName = propNameById.get(pid) || pid;
+          const byType = {};
+          for (const f of findings) byType[f.type] = (byType[f.type] || 0) + 1;
+          lines.push(`・${propertyName}: ${Object.entries(byType).map(([t, c]) => `${TYPE_LABELS[t] || t}${c}件`).join("・")}`);
+        }
+        // 物件IDが無く物件別グループに載らなかった分は取りこぼさず種別で出す(合計が合わなくなるのを防ぐ)
+        const groupedCount = [...summaryByProperty.values()].reduce((n, fs) => n + fs.length, 0);
+        if (groupedCount < allFindings.length) {
+          const byType = {};
+          for (const f of allFindings.filter((x) => !x.propertyId)) byType[f.type] = (byType[f.type] || 0) + 1;
+          lines.push(`・(物件不明): ${Object.entries(byType).map(([t, c]) => `${TYPE_LABELS[t] || t}${c}件`).join("・")}`);
         }
       }
 
@@ -198,6 +361,14 @@ module.exports = async function morningOtaAudit() {
         }
       }
 
+      // 9.5) 乳幼児の区分違い (総数は一致) — 人数不一致として騒がず、全体サマリに1行だけ添える
+      if (guestCountClassDiffs.length > 0) {
+        const names = guestCountClassDiffs
+          .map((d) => `${d.guestName || "ゲスト"}様(OTA${d.otaGuests}名/名簿${d.rosterGuests}名・総数${d.rosterTotal}名)`)
+          .join(", ");
+        lines.push(`ℹ️ 乳幼児の区分違い ${guestCountClassDiffs.length}件(総数は一致・対応不要): ${names}`);
+      }
+
       // 10) unassignedCount
       if (snapshot && snapshot.unassignedCount > 0) {
         lines.push(`ℹ️ Airbnb予約 ${snapshot.unassignedCount}件がどの物件にも紐づきませんでした(要確認)。`);
@@ -207,7 +378,7 @@ module.exports = async function morningOtaAudit() {
       //     差し替え時にリアルタイム通知も出すが、通知は落ちることがある。
       //     フラグは booking に永続化されるので、消されるまで毎朝ここで催促する。
       try {
-        const staleSnap = await db.collection("bookings")
+        const staleSnap = isRecheck ? { docs: [] } : await db.collection("bookings")
           .where("guestInfoStale", "==", true)
           .get();
         const staleRows = staleSnap.docs
@@ -219,7 +390,9 @@ module.exports = async function morningOtaAudit() {
           lines.push("");
           lines.push(`⚠️ 人数・氏名が古い可能性のある予約 ${staleRows.length}件(OTAで実数を確認して修正してください)`);
           for (const b of staleRows) {
-            lines.push(`・${b.propertyName || b.propertyId} ${b.checkIn}〜${b.checkOut} ` +
+            // ★iCal取込の予約は propertyName を持たないため、生の物件IDが出ないようマスタで解決する
+            const staleName = propNameById.get(b.propertyId) || b.propertyName || b.propertyId;
+            lines.push(`・${staleName} ${b.checkIn}〜${b.checkOut} ` +
               `${b.guestName || "(不明)"} ${b.guestCount != null ? `${b.guestCount}名` : "人数未設定"}` +
               `${b.guestInfoStaleReason ? ` — ${b.guestInfoStaleReason}` : ""}`);
           }
@@ -233,12 +406,22 @@ module.exports = async function morningOtaAudit() {
       if (!r.success) console.warn("[morningOtaAudit] 全体サマリDiscord送信失敗:", r.error);
     }
 
-    console.log(`[morningOtaAudit] 完了: findings=${allFindings.length}件, 物件数=${findingsByProperty.size}`);
+    // ---- 12) ダブルブッキングの残骸を閉じる (後処理) ----
+    // onBookingChange はキャンセル時にしか conflict を閉じないため、滞在が過ぎただけの
+    // bookingConflicts が resolved=false のまま残り、夜間監査が毎晩「過去日程の残骸」として拾う。
+    // 判定は純粋関数に委譲し、ここは Firestore の読み書きだけ行う。失敗しても朝点検は落とさない。
+    try {
+      await closeStaleBookingConflicts(db, todayStr);
+    } catch (e) {
+      console.warn("[morningOtaAudit] bookingConflicts 後処理エラー:", e.message);
+    }
+
+    console.log(`${TAG} 完了: findings=${allFindings.length}件(通知${notifyFindings.length}件), 物件数=${findingsByProperty.size}`);
   } catch (e) {
-    console.error("[morningOtaAudit] エラー:", e);
+    console.error(`${TAG} エラー:`, e);
     try {
       await db.collection("error_logs").add({
-        functionName: "morningOtaAudit",
+        functionName: isRecheck ? "morningOtaAudit(recheck)" : "morningOtaAudit",
         error: e.message,
         stack: e.stack ? e.stack.slice(0, 500) : "",
         severity: "warning",
@@ -247,3 +430,216 @@ module.exports = async function morningOtaAudit() {
     } catch (_) { /* 無視 */ }
   }
 };
+
+/**
+ * スナップショット欠損日の持ち越し (otaSnapshotBacklog) を処理する。
+ *
+ * - 当日分が欠損していれば otaSnapshotBacklog/{today} に積む (捨てない)
+ * - 未解決の過去日について、スナップショットが後から書かれていれば遡って突合する
+ * - 7日経っても取得できなければ諦めて閉じる (通知で明示する)
+ *
+ * 遡り突合には当日の bookings/registrations をそのまま使う。持ち越しは最大7日で、
+ * 朝点検本体の取得範囲が today−7日〜 なので、対象日のスナップショットに載る予約
+ * (チェックインが対象日以降) は全てこの範囲に含まれる。
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {object} ctx
+ * @returns {Promise<{findings:Array, done:Array, pending:Array, expired:Array}>}
+ */
+async function processSnapshotBacklog(db, ctx) {
+  const { todayStr, snapshotMissing, bookings, registrations, activePropertyIds, activeProps, appUrl, todayFindings } = ctx;
+  const col = db.collection("otaSnapshotBacklog");
+  const ts = () => admin.firestore.FieldValue.serverTimestamp();
+  const out = { findings: [], done: [], pending: [], expired: [] };
+
+  // 当日分の欠損を持ち越しに積む
+  if (snapshotMissing) {
+    const cur = await col.doc(todayStr).get();
+    if (!cur.exists) {
+      await col.doc(todayStr).set({ date: todayStr, resolved: false, firstMissedAt: ts(), attempts: 0 });
+    } else if (cur.data().resolved !== false) {
+      // 一度閉じた日が再び欠損扱いになることは通常ないが、状態は最新に合わせる
+      await col.doc(todayStr).set({ resolved: false, lastMissedAt: ts() }, { merge: true });
+    }
+  }
+
+  const snap = await col.where("resolved", "==", false).limit(30).get();
+  const entries = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const { retry, expired } = selectSnapshotBacklogActions({
+    entries, todayStr, maxAgeDays: SNAPSHOT_BACKLOG_MAX_AGE_DAYS,
+  });
+
+  for (const e of expired) {
+    await col.doc(e.date).set({
+      resolved: true, resolvedReason: "expired", resolvedAt: ts(),
+    }, { merge: true });
+    out.expired.push({ date: e.date });
+  }
+
+  for (const e of retry) {
+    const sdoc = await db.collection("otaCalendarSnapshots").doc(e.date).get();
+    const s = sdoc.exists ? sdoc.data() : null;
+    if (!s || s.status === "failed") {
+      await col.doc(e.date).set({
+        attempts: admin.firestore.FieldValue.increment(1), lastAttemptAt: ts(),
+      }, { merge: true });
+      out.pending.push({ date: e.date });
+      continue;
+    }
+
+    const reservations = Array.isArray(s.reservations)
+      ? s.reservations.filter((r) => r && activePropertyIds.has(r.propertyId)) : [];
+    const auditedTargets = Array.isArray(s.auditedTargets)
+      ? s.auditedTargets.filter((t) => t && activePropertyIds.has(t.propertyId)) : undefined;
+
+    // todayStr には対象日を渡す (その日として突合する)
+    const raw = reconcileOtaSnapshot({
+      reservations, bookings, registrations, properties: activeProps, auditedTargets, todayStr: e.date, appUrl,
+    }).findings;
+    // 当日分の突合で見えるもの(CIが今日以降)は遡り分から落とし、当日分・既出の遡り分とも重複排除する
+    const fresh = dedupeNewFindings(
+      [...(todayFindings || []), ...out.findings],
+      filterBackfillFindings({ findings: raw, todayStr })
+    ).map((f) => ({ ...f, backfillDate: e.date, message: `🕒(${e.date}分の遡り) ${f.message}` }));
+
+    out.findings.push(...fresh);
+    out.done.push({ date: e.date, newCount: fresh.length });
+    await col.doc(e.date).set({
+      resolved: true, resolvedReason: "backfilled", resolvedAt: ts(), newFindingCount: fresh.length,
+    }, { merge: true });
+    console.log(`[morningOtaAudit] 遡り突合 ${e.date}: 新規${fresh.length}件`);
+  }
+
+  return out;
+}
+
+/**
+ * 人数不一致 (guest_count_mismatch) を otaGuestCountIssues に永続化し、
+ * 未解消のまま滞在が終わったものを findings に残す。
+ *
+ * 判断は純粋関数 selectGuestCountIssueActions に委譲し、ここは Firestore の読み書きだけ行う。
+ * 解決判定に使う予約・名簿は朝点検本体の取得範囲 (checkIn today−7日〜) の外にあるので、
+ * 対象の bookingId で実データを引き直す。
+ *
+ * @returns {Promise<Array>} findings に足す持ち越し分
+ */
+async function processGuestCountIssues(db, { todayStr, appUrl, todayFindings, guestCountChecked }) {
+  const col = db.collection("otaGuestCountIssues");
+  const ts = () => admin.firestore.FieldValue.serverTimestamp();
+
+  const openSnap = await col.where("resolved", "==", false).limit(GUEST_COUNT_ISSUE_SCAN_LIMIT).get();
+  const issues = openSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+  // 今朝の finding に出ていない未解決分だけ、解決判定のために予約と名簿を引き直す
+  const detectedIds = new Set((todayFindings || [])
+    .filter((f) => f && f.type === "guest_count_mismatch" && f.detail && f.detail.bookingId)
+    .map((f) => f.detail.bookingId));
+  const lookupIds = issues
+    .map((i) => i.bookingId || i.id)
+    .filter((id) => id && !detectedIds.has(id) && !(guestCountChecked || []).includes(id));
+
+  const bookingsById = new Map();
+  const registrationsByBookingId = new Map();
+  if (lookupIds.length > 0) {
+    const refs = lookupIds.map((id) => db.collection("bookings").doc(id));
+    const docs = await db.getAll(...refs);
+    for (const d of docs) if (d.exists) bookingsById.set(d.id, d.data());
+
+    // 名簿は bookingId 単一条件で引く (複合インデックス不要)。in は10件ずつ
+    for (let i = 0; i < lookupIds.length; i += 10) {
+      const chunk = lookupIds.slice(i, i + 10);
+      const rs = await db.collection("guestRegistrations").where("bookingId", "in", chunk).get();
+      for (const d of rs.docs) {
+        const g = { id: d.id, ...d.data() };
+        if (g.status !== "submitted" && g.status !== "confirmed") continue;
+        registrationsByBookingId.set(g.bookingId, g);
+      }
+    }
+  }
+
+  const { upserts, closes, carryOver } = selectGuestCountIssueActions({
+    issues, todayFindings, guestCountChecked, bookingsById, registrationsByBookingId, todayStr, appUrl,
+  });
+
+  const existingIds = new Set(issues.map((i) => i.id));
+  for (const u of upserts) {
+    try {
+      await col.doc(u.id).set({
+        ...u.data,
+        ...(existingIds.has(u.id) ? {} : { firstDetectedDate: todayStr, firstDetectedAt: ts() }),
+        lastDetectedAt: ts(),
+      }, { merge: true });
+    } catch (e) {
+      console.warn(`[morningOtaAudit] otaGuestCountIssues/${u.id} 保存失敗:`, e.message);
+    }
+  }
+  for (const c of closes) {
+    try {
+      await col.doc(c.id).set({
+        resolved: true, resolvedReason: c.reason, resolvedAt: ts(), resolvedBy: "morningOtaAudit",
+      }, { merge: true });
+    } catch (e) {
+      console.warn(`[morningOtaAudit] otaGuestCountIssues/${c.id} クローズ失敗:`, e.message);
+    }
+  }
+  if (upserts.length || closes.length || carryOver.length) {
+    console.log(`[morningOtaAudit] 人数不一致: 記録${upserts.length}件 / 解消${closes.length}件 / 未解消の持ち越し${carryOver.length}件`);
+  }
+  return carryOver;
+}
+
+/**
+ * 未解決のまま残った bookingConflicts を閉じる (朝点検の後処理)。
+ *
+ * 対象は selectResolvableConflicts の判定に従う:
+ *   expired          … ペアの滞在が全て過去 (今さら対応できない)
+ *   cancelled        … 片方以上がキャンセル済み (キャンセル連動が届かなかった分の回収)
+ *   bookings_missing … 予約ドキュメントが消えている
+ * 「キャンセルでなく checkOut >= 今日」の予約が残っているペアは現行なので触らない。
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} todayStr JSTの今日 "YYYY-MM-DD"
+ */
+async function closeStaleBookingConflicts(db, todayStr) {
+  const snap = await db.collection("bookingConflicts")
+    .where("resolved", "==", false)
+    .limit(CONFLICT_SCAN_LIMIT)
+    .get();
+  if (snap.empty) return;
+
+  const conflicts = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+  // ペアの予約を実データで引く (過去日程なので朝点検本体の bookings 取得範囲には入っていない)
+  const bookingIds = Array.from(new Set(
+    conflicts.flatMap((c) => (Array.isArray(c.bookingIds) ? c.bookingIds.filter(Boolean) : []))
+  ));
+  const bookingsById = new Map();
+  const CHUNK = 100; // getAll の一括取得上限に配慮して分割
+  for (let i = 0; i < bookingIds.length; i += CHUNK) {
+    const refs = bookingIds.slice(i, i + CHUNK).map((id) => db.collection("bookings").doc(id));
+    if (refs.length === 0) continue;
+    const docs = await db.getAll(...refs);
+    for (const d of docs) if (d.exists) bookingsById.set(d.id, d.data());
+  }
+
+  const { resolvable } = selectResolvableConflicts({ conflicts, bookingsById, todayStr });
+  if (resolvable.length === 0) {
+    console.log(`[morningOtaAudit] 未解決ダブルブッキング ${conflicts.length}件 — 全て現行のため据え置き`);
+    return;
+  }
+
+  for (const r of resolvable) {
+    try {
+      await db.collection("bookingConflicts").doc(r.id).update({
+        resolved: true,
+        resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+        resolvedReason: r.reason,
+        resolvedBy: "morningOtaAudit",
+      });
+    } catch (e) {
+      console.warn(`[morningOtaAudit] bookingConflicts/${r.id} クローズ失敗:`, e.message);
+    }
+  }
+  console.log(`[morningOtaAudit] 残骸クローズ: ${resolvable.length}/${conflicts.length}件 ` +
+    `(${resolvable.map((r) => `${r.id}=${r.reason}`).join(", ")})`);
+}

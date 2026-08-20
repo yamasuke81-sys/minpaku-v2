@@ -162,6 +162,13 @@ describe("airbnb 純粋関数: extractGuestNameFromSubject", () => {
       "박규민"
     );
   });
+  // 日付を剥がすと空文字になる件名で "" を返さない (autofix側の重複修正から引き継いだ観点)
+  test("新書式: 日付だけの件名は null (空名を返さない)", () => {
+    assert.strictEqual(
+      airbnbPure.extractGuestNameFromSubject("予約確定 - 8月22日にさんが到着予定"),
+      null
+    );
+  });
 });
 
 describe("airbnb 純粋関数: extractCheckInFromSubject", () => {

@@ -14,6 +14,16 @@ const {
   collectKeyboxFindings,
   collectRosterFindings,
   buildPropertyReport,
+  propertyNameMap_,
+  resolvePropertyName_,
+  selectResolvableConflicts,
+  detectMissingOtaSources,
+  shouldRecheckOtaAudit,
+  selectSnapshotBacklogActions,
+  filterBackfillFindings,
+  dedupeNewFindings,
+  evaluateGuestCount,
+  selectGuestCountIssueActions,
 } = require("./ota-audit-logic");
 
 const PID = "propA";
@@ -419,7 +429,7 @@ describe("collectRosterFindings", () => {
     };
   }
   // roster_remind 有効物件 (the Terrace / YADO KOMACHI 等を想定)
-  const rosterEnabledProps = [{ id: PID, channelOverrides: { roster_remind: { enabled: true } } }];
+  const rosterEnabledProps = [{ id: PID, name: "YADO KOMACHI Hiroshima", channelOverrides: { roster_remind: { enabled: true } } }];
 
   test("3日以内・名簿未提出のconfirmed予約を検出", () => {
     const r = collectRosterFindings({ bookings: [bk({})], properties: rosterEnabledProps, todayStr: TODAY });
@@ -478,6 +488,49 @@ describe("collectRosterFindings", () => {
   test("チェックインが過去日(todayより前)は対象外", () => {
     const r = collectRosterFindings({ bookings: [bk({ checkIn: "2026-07-17" })], properties: rosterEnabledProps, todayStr: TODAY });
     assert.strictEqual(r.findings.length, 0);
+  });
+
+  // ★2026-08-19 実障害: iCal取込(Airbnb/Booking.com)の予約は propertyName を持たないため、
+  //   予約側だけを見ていると生の物件IDが宿名として保存され、夜間監査の指摘が
+  //   「property=RZV9IwtQgMAsvrdM3j8J」となり、どの宿の話か分からなくなっていた。
+  test("予約にpropertyNameが無くても(iCal取込予約)propertiesマスタから宿名を解決する", () => {
+    const b = bk({});
+    delete b.propertyName;
+    const r = collectRosterFindings({ bookings: [b], properties: rosterEnabledProps, todayStr: TODAY });
+    assert.strictEqual(r.findings.length, 1);
+    assert.strictEqual(r.findings[0].propertyName, "YADO KOMACHI Hiroshima");
+  });
+
+  test("予約に生の物件IDがpropertyNameとして入っていてもマスタ名が優先される", () => {
+    const r = collectRosterFindings({ bookings: [bk({ propertyName: PID })], properties: rosterEnabledProps, todayStr: TODAY });
+    assert.strictEqual(r.findings[0].propertyName, "YADO KOMACHI Hiroshima");
+  });
+
+  test("マスタにnameが無い物件は予約側の名前→物件IDの順でフォールバックする", () => {
+    const noName = [{ id: PID, channelOverrides: { roster_remind: { enabled: true } } }];
+    const r1 = collectRosterFindings({ bookings: [bk({ propertyName: "旧名称" })], properties: noName, todayStr: TODAY });
+    assert.strictEqual(r1.findings[0].propertyName, "旧名称");
+    const b = bk({});
+    delete b.propertyName;
+    const r2 = collectRosterFindings({ bookings: [b], properties: noName, todayStr: TODAY });
+    assert.strictEqual(r2.findings[0].propertyName, PID);
+  });
+});
+
+describe("resolvePropertyName_ (物件名の解決順)", () => {
+  const map = propertyNameMap_([{ id: "p1", name: "the Terrace 長浜" }, { id: "p2" }]);
+  test("マスタが最優先", () => {
+    assert.strictEqual(resolvePropertyName_(map, "p1", "古い名前"), "the Terrace 長浜");
+  });
+  test("マスタに名前が無ければ非正規化名", () => {
+    assert.strictEqual(resolvePropertyName_(map, "p2", "非正規化名"), "非正規化名");
+  });
+  test("非正規化名が物件IDそのものなら採用しない", () => {
+    assert.strictEqual(resolvePropertyName_(map, "p2", "p2"), "p2");
+    assert.strictEqual(resolvePropertyName_(map, "p3", "p3"), "p3");
+  });
+  test("propertiesが空でも落ちない", () => {
+    assert.strictEqual(resolvePropertyName_(propertyNameMap_(), "pX", ""), "pX");
   });
 });
 
@@ -570,5 +623,492 @@ describe("finding.url (ディープリンク付与)", () => {
     ], "2026-07-18");
     assert.ok(report.includes("・⚠️ テスト様: 名簿未提出\n　🔗 https://v2-5-relay.web.app/#/schedule?bookingId=bk1"));
     assert.ok(!report.includes("🔗 null"));
+  });
+});
+
+describe("selectResolvableConflicts", () => {
+  const TODAY = "2026-08-16";
+  const bk = (id, checkIn, checkOut, status = "confirmed") =>
+    [id, { propertyId: PID, checkIn, checkOut, status }];
+
+  test("滞在が全て過去なら expired で閉じる", () => {
+    const bookingsById = new Map([
+      bk("a", "2026-05-10", "2026-05-12"),
+      bk("b", "2026-05-11", "2026-05-13"),
+    ]);
+    const { resolvable } = selectResolvableConflicts({
+      conflicts: [{ id: "a__b", bookingIds: ["a", "b"] }], bookingsById, todayStr: TODAY,
+    });
+    assert.deepStrictEqual(resolvable, [{ id: "a__b", reason: "expired" }]);
+  });
+
+  test("片方でも滞在が今日以降なら現行として触らない", () => {
+    const bookingsById = new Map([
+      bk("a", "2026-08-10", "2026-08-16"), // checkOut === today
+      bk("b", "2026-08-11", "2026-08-13"),
+    ]);
+    const { resolvable } = selectResolvableConflicts({
+      conflicts: [{ id: "a__b", bookingIds: ["a", "b"] }], bookingsById, todayStr: TODAY,
+    });
+    assert.deepStrictEqual(resolvable, []);
+  });
+
+  test("未来の滞在でも片方がキャンセル済みなら cancelled で閉じる", () => {
+    const bookingsById = new Map([
+      bk("a", "2026-09-01", "2026-09-03"),
+      bk("b", "2026-09-02", "2026-09-04", "cancelled"),
+    ]);
+    const { resolvable } = selectResolvableConflicts({
+      conflicts: [{ id: "a__b", bookingIds: ["a", "b"] }], bookingsById, todayStr: TODAY,
+    });
+    assert.deepStrictEqual(resolvable, [{ id: "a__b", reason: "cancelled" }]);
+  });
+
+  test("日本語の『キャンセル済み』も判定する", () => {
+    const bookingsById = new Map([
+      bk("a", "2026-09-01", "2026-09-03"),
+      bk("b", "2026-09-02", "2026-09-04", "キャンセル済み"),
+    ]);
+    const { resolvable } = selectResolvableConflicts({
+      conflicts: [{ id: "a__b", bookingIds: ["a", "b"] }], bookingsById, todayStr: TODAY,
+    });
+    assert.strictEqual(resolvable[0].reason, "cancelled");
+  });
+
+  test("予約が消えていれば bookings_missing で閉じる", () => {
+    const both = selectResolvableConflicts({
+      conflicts: [{ id: "a__b", bookingIds: ["a", "b"] }], bookingsById: new Map(), todayStr: TODAY,
+    });
+    assert.deepStrictEqual(both.resolvable, [{ id: "a__b", reason: "bookings_missing" }]);
+
+    // 片方だけ消えた場合も衝突相手が居ないので閉じる
+    const one = selectResolvableConflicts({
+      conflicts: [{ id: "a__b", bookingIds: ["a", "b"] }],
+      bookingsById: new Map([bk("a", "2026-09-01", "2026-09-03")]),
+      todayStr: TODAY,
+    });
+    assert.deepStrictEqual(one.resolvable, [{ id: "a__b", reason: "bookings_missing" }]);
+  });
+
+  test("bookingIds が空/壊れているドキュメントは触らない", () => {
+    const { resolvable } = selectResolvableConflicts({
+      conflicts: [{ id: "x", bookingIds: [] }, { id: "y" }],
+      bookingsById: new Map(), todayStr: TODAY,
+    });
+    assert.deepStrictEqual(resolvable, []);
+  });
+
+  test("現行と残骸が混在しても残骸だけ返す", () => {
+    const bookingsById = new Map([
+      bk("a", "2026-05-10", "2026-05-12"),
+      bk("b", "2026-05-11", "2026-05-13"),
+      bk("c", "2026-08-20", "2026-08-22"),
+      bk("d", "2026-08-21", "2026-08-23"),
+    ]);
+    const { resolvable } = selectResolvableConflicts({
+      conflicts: [
+        { id: "a__b", bookingIds: ["a", "b"] },
+        { id: "c__d", bookingIds: ["c", "d"] },
+      ],
+      bookingsById, todayStr: TODAY,
+    });
+    assert.deepStrictEqual(resolvable, [{ id: "a__b", reason: "expired" }]);
+  });
+});
+
+describe("detectMissingOtaSources", () => {
+  // 実データ (2026-08-17 の障害時) を模した物件マスタ
+  const terrace = {
+    id: "tsZybhDMcPrxqgcRy7wp",
+    name: "the Terrace 長浜",
+    yadozei: {
+      airbnb: { enabled: true, listingName: "瀬戸内海ビュー大テラス" },
+      booking: { enabled: true, propertyId: "14868587" },
+    },
+  };
+  const komachi = {
+    id: "RZV9IwtQgMAsvrdM3j8J",
+    name: "YADO KOMACHI Hiroshima",
+    yadozei: {
+      airbnb: { enabled: true, auditListingNames: ["【YADO KOMACHI】…", "挽きたて珈琲"] },
+    },
+  };
+  // 開業前物件: enabled=false / 設定が空 → 期待ターゲットにしない
+  const wakakusa = {
+    id: "ZXW6wdpnBFk1azQ87KXQ",
+    name: "Pocket House WAKA-KUSA",
+    yadozei: { airbnb: { enabled: false }, booking: { enabled: false, propertyId: "" } },
+  };
+
+  test("Booking.comが auditedTargets から丸ごと落ちていれば未取得として検出(2026-08-17 実障害)", () => {
+    const { missing } = detectMissingOtaSources({
+      properties: [terrace, komachi, wakakusa],
+      auditedTargets: [
+        { propertyId: komachi.id, ota: "airbnb" },
+        { propertyId: terrace.id, ota: "airbnb" },
+      ],
+    });
+    assert.deepStrictEqual(missing, [
+      { propertyId: terrace.id, propertyName: "the Terrace 長浜", ota: "booking", otaLabel: "Booking.com" },
+    ]);
+  });
+
+  test("全ソースが揃っていれば missing は空(前日8/16の正常時)", () => {
+    const { missing, expected } = detectMissingOtaSources({
+      properties: [terrace, komachi, wakakusa],
+      auditedTargets: [
+        { propertyId: komachi.id, ota: "airbnb" },
+        { propertyId: terrace.id, ota: "airbnb" },
+        { propertyId: terrace.id, ota: "booking" },
+      ],
+    });
+    assert.deepStrictEqual(missing, []);
+    assert.strictEqual(expected.length, 3);
+  });
+
+  test("設定が空/無効な物件は期待ターゲットにしない(開業前物件で誤報を出さない)", () => {
+    const { expected } = detectMissingOtaSources({ properties: [wakakusa], auditedTargets: [] });
+    assert.deepStrictEqual(expected, []);
+  });
+
+  test("enabled でも listingId/施設IDが空なら期待しない(listener が取得しようがない)", () => {
+    const half = {
+      id: "p1", name: "設定途中",
+      yadozei: { airbnb: { enabled: true, listingName: "  " }, booking: { enabled: true, propertyId: "" } },
+    };
+    const { expected, missing } = detectMissingOtaSources({ properties: [half], auditedTargets: [] });
+    assert.deepStrictEqual(expected, []);
+    assert.deepStrictEqual(missing, []);
+  });
+
+  test("auditedTargets が無い古い形式のスナップショットでは判定しない", () => {
+    const { missing } = detectMissingOtaSources({ properties: [terrace] });
+    assert.deepStrictEqual(missing, []);
+  });
+
+  test("auditedTargets が空配列(全滅)なら期待ターゲット全件を未取得として返す", () => {
+    const { missing } = detectMissingOtaSources({ properties: [terrace], auditedTargets: [] });
+    assert.deepStrictEqual(missing.map((m) => m.ota), ["airbnb", "booking"]);
+    assert.deepStrictEqual(missing.map((m) => m.otaLabel), ["Airbnb", "Booking.com"]);
+  });
+});
+
+describe("selectSnapshotBacklogActions / filterBackfillFindings / dedupeNewFindings", () => {
+  const TODAY = "2026-08-09";
+
+  test("7日以内の欠損日は遡り対象、それより古いものは破棄", () => {
+    const { retry, expired } = selectSnapshotBacklogActions({
+      entries: [
+        { date: "2026-08-02" }, // 7日前 → 対象
+        { date: "2026-08-01" }, // 8日前 → 破棄
+        { date: "2026-08-08" },
+      ],
+      todayStr: TODAY,
+    });
+    assert.deepStrictEqual(retry.map((r) => r.date), ["2026-08-02", "2026-08-08"]);
+    assert.deepStrictEqual(expired.map((r) => r.date), ["2026-08-01"]);
+  });
+
+  test("当日分・未来日・重複は対象外(当日分は本編で扱う)", () => {
+    const { retry, expired } = selectSnapshotBacklogActions({
+      entries: [{ date: TODAY }, { date: "2026-08-20" }, { date: "2026-08-08" }, { date: "2026-08-08" }],
+      todayStr: TODAY,
+    });
+    assert.deepStrictEqual(retry.map((r) => r.date), ["2026-08-08"]);
+    assert.deepStrictEqual(expired, []);
+  });
+
+  test("遡り分はチェックインが今日より前のものだけ残す(当日突合と二重に出さない/後から入った予約の誤検知を避ける)", () => {
+    const findings = [
+      { type: "missing_in_v2", detail: { checkIn: "2026-08-03" } },      // 過去 → 残す
+      { type: "missing_in_ota", detail: { checkIn: "2026-08-25" } },     // 未来 → 当日分が見るので落とす
+      { type: "date_mismatch", detail: { otaCheckIn: "2026-08-05" } },   // 過去 → 残す
+      { type: "parse_error", detail: { count: 2 } },                     // 日付なし → 落とす
+    ];
+    const out = filterBackfillFindings({ findings, todayStr: TODAY });
+    assert.deepStrictEqual(out.map((f) => f.type), ["missing_in_v2", "date_mismatch"]);
+  });
+
+  test("dedupeNewFindings: 当日分と同じ指摘は遡り分から落とす", () => {
+    const today = [{ type: "missing_in_v2", propertyId: PID, ota: "booking", detail: { code: "X1", checkIn: "2026-08-05", guestName: "山田" } }];
+    const back = [
+      { type: "missing_in_v2", propertyId: PID, ota: "booking", detail: { code: "X1", checkIn: "2026-08-05", guestName: "山田" } }, // 重複
+      { type: "missing_in_v2", propertyId: PID, ota: "booking", detail: { code: "X2", checkIn: "2026-08-06", guestName: "鈴木" } }, // 新規
+    ];
+    const out = dedupeNewFindings(today, back);
+    assert.strictEqual(out.length, 1);
+    assert.strictEqual(out[0].detail.code, "X2");
+  });
+
+  test("dedupeNewFindings: incoming 同士の重複も落とす", () => {
+    const f = { type: "guest_count_mismatch", propertyId: PID, ota: "airbnb", detail: { bookingId: "bk1" } };
+    assert.strictEqual(dedupeNewFindings([], [f, { ...f }]).length, 1);
+  });
+});
+
+describe("selectGuestCountIssueActions (人数不一致の持ち越し)", () => {
+  const TODAY = "2026-08-17";
+  const mismatchFinding = {
+    type: "guest_count_mismatch", propertyId: PID, propertyName: "テラス", ota: "booking",
+    detail: {
+      bookingId: "bk1", guestId: "g1", guestName: "木谷",
+      checkIn: "2026-08-15", checkOut: "2026-08-16",
+      otaGuests: 4, rosterGuests: 2, rosterInfants: 0,
+    },
+  };
+
+  test("今朝も検出された分は upsert され、持ち越しには出ない", () => {
+    const r = selectGuestCountIssueActions({
+      issues: [{ id: "bk1", bookingId: "bk1", otaGuests: 4 }],
+      todayFindings: [mismatchFinding], todayStr: TODAY,
+    });
+    assert.strictEqual(r.upserts.length, 1);
+    assert.strictEqual(r.upserts[0].id, "bk1");
+    assert.strictEqual(r.upserts[0].data.otaGuests, 4);
+    assert.strictEqual(r.upserts[0].data.resolved, false);
+    assert.deepStrictEqual(r.closes, []);
+    assert.deepStrictEqual(r.carryOver, []);
+  });
+
+  test("★滞在が終わって OTA から消えても、未解消なら findings に残す(要精算・要申告訂正)", () => {
+    const r = selectGuestCountIssueActions({
+      issues: [{
+        id: "bk1", bookingId: "bk1", guestId: "g1", guestName: "木谷", propertyId: PID, propertyName: "テラス",
+        checkIn: "2026-08-15", checkOut: "2026-08-16", otaGuests: 4, rosterGuests: 2, resolved: false,
+      }],
+      todayFindings: [], guestCountChecked: [],
+      bookingsById: new Map([["bk1", { checkIn: "2026-08-15", checkOut: "2026-08-16", status: "confirmed" }]]),
+      registrationsByBookingId: new Map([["bk1", { id: "g1", guestCount: 2, status: "confirmed" }]]),
+      todayStr: TODAY,
+    });
+    assert.deepStrictEqual(r.closes, []);
+    assert.strictEqual(r.carryOver.length, 1);
+    assert.strictEqual(r.carryOver[0].type, "guest_count_unresolved");
+    assert.strictEqual(r.carryOver[0].detail.stayEnded, true);
+    assert.match(r.carryOver[0].message, /申告訂正/);
+  });
+
+  test("名簿が直っていれば matched で閉じる(持ち越さない)", () => {
+    const r = selectGuestCountIssueActions({
+      issues: [{ id: "bk1", bookingId: "bk1", otaGuests: 4, checkOut: "2026-08-16" }],
+      todayFindings: [],
+      bookingsById: new Map([["bk1", { status: "confirmed", checkOut: "2026-08-16" }]]),
+      registrationsByBookingId: new Map([["bk1", { id: "g1", guestCount: 4, status: "confirmed" }]]),
+      todayStr: TODAY,
+    });
+    assert.deepStrictEqual(r.closes, [{ id: "bk1", reason: "matched" }]);
+    assert.deepStrictEqual(r.carryOver, []);
+  });
+
+  test("今朝照合できたのに finding が出ていない = OTA側修正でも解消とみなす", () => {
+    const r = selectGuestCountIssueActions({
+      issues: [{ id: "bk1", bookingId: "bk1", otaGuests: 4 }],
+      todayFindings: [], guestCountChecked: ["bk1"], todayStr: TODAY,
+    });
+    assert.deepStrictEqual(r.closes, [{ id: "bk1", reason: "matched" }]);
+    assert.deepStrictEqual(r.carryOver, []);
+  });
+
+  test("キャンセル/予約消失は追わずに閉じる", () => {
+    const r = selectGuestCountIssueActions({
+      issues: [
+        { id: "bk1", bookingId: "bk1", otaGuests: 4 },
+        { id: "bk2", bookingId: "bk2", otaGuests: 3 },
+      ],
+      todayFindings: [],
+      bookingsById: new Map([["bk1", { status: "cancelled" }]]), // bk2 は存在しない
+      todayStr: TODAY,
+    });
+    assert.deepStrictEqual(
+      r.closes.sort((a, b) => a.id.localeCompare(b.id)),
+      [{ id: "bk1", reason: "cancelled" }, { id: "bk2", reason: "booking_missing" }]
+    );
+  });
+
+  test("スナップショット欠損日(照合ゼロ)でも未解消分は消えない", () => {
+    const r = selectGuestCountIssueActions({
+      issues: [{ id: "bk1", bookingId: "bk1", otaGuests: 4, checkOut: "2026-08-31" }],
+      todayFindings: [], guestCountChecked: [],
+      bookingsById: new Map([["bk1", { status: "confirmed", checkIn: "2026-08-30", checkOut: "2026-08-31" }]]),
+      registrationsByBookingId: new Map([["bk1", { guestCount: 2, status: "confirmed" }]]),
+      todayStr: TODAY,
+    });
+    assert.strictEqual(r.carryOver.length, 1);
+    assert.strictEqual(r.carryOver[0].detail.stayEnded, false); // 滞在はこれから
+  });
+
+  test("reconcileOtaSnapshot は人数を照合できた bookingId を返す(一致・不一致とも)", () => {
+    const reservations = [
+      { propertyId: PID, ota: "airbnb", code: "H1", checkIn: "2026-08-20", checkOut: "2026-08-21", guests: 4 },
+      { propertyId: PID, ota: "airbnb", code: "H2", checkIn: "2026-08-22", checkOut: "2026-08-23", guests: 2 },
+    ];
+    const bookings = [
+      { id: "bk1", propertyId: PID, source: "Airbnb", checkIn: "2026-08-20", checkOut: "2026-08-21", status: "confirmed", notes: "H1" },
+      { id: "bk2", propertyId: PID, source: "Airbnb", checkIn: "2026-08-22", checkOut: "2026-08-23", status: "confirmed", notes: "H2" },
+    ];
+    const registrations = [
+      { id: "g1", bookingId: "bk1", status: "confirmed", guestCount: 2 }, // 不一致
+      { id: "g2", bookingId: "bk2", status: "confirmed", guestCount: 2 }, // 一致
+    ];
+    const r = reconcileOtaSnapshot({ reservations, bookings, registrations, todayStr: TODAY });
+    assert.deepStrictEqual(r.guestCountChecked.sort(), ["bk1", "bk2"]);
+    assert.strictEqual(r.findings.filter((f) => f.type === "guest_count_mismatch").length, 1);
+  });
+
+  test("evaluateGuestCount: 乳幼児は名簿側で二重控除しない", () => {
+    assert.strictEqual(evaluateGuestCount({ ota: { guests: 4 }, reg: { guestCount: 4, guestCountInfants: 2 } }).mismatch, false);
+    assert.strictEqual(evaluateGuestCount({ ota: { guests: 4 }, reg: { guestCount: 2 } }).mismatch, true);
+  });
+});
+
+describe("乳幼児の区分違い (総数一致は人数不一致にしない)", () => {
+  const TODAY = "2026-08-17";
+  // 2026-08-17 本番実測: Booking 6084082902 入江様。
+  // OTA=大人4+子ども3+乳幼児2 で guests=7(乳幼児除く)、名簿=9名(乳幼児2名を含めて申告)。
+  const irieRes = {
+    ota: "booking", propertyId: PID, propertyName: "the Terrace 長浜",
+    code: "6084082902", status: "ok", cancelled: false, guestName: "MAKI IRIE",
+    checkIn: "2026-08-22", checkOut: "2026-08-23", adults: 4, children: 3, infants: 2, guests: 7,
+  };
+  const irieBooking = {
+    id: "ical_45b9c421@booking.com", propertyId: PID, propertyName: "the Terrace 長浜",
+    source: "Booking.com", status: "confirmed", checkIn: "2026-08-22", checkOut: "2026-08-23",
+    notes: "6084082902",
+  };
+  const irieReg = {
+    id: "KjQZyYLW5tXGUNQplw3L", bookingId: "ical_45b9c421@booking.com",
+    propertyId: PID, status: "submitted", guestCount: 9, guestCountInfants: 0,
+  };
+
+  test("★入江様ケース: 4+3+2 vs 名簿9 は guest_count_mismatch にしない", () => {
+    const r = reconcileOtaSnapshot({
+      reservations: [irieRes], bookings: [irieBooking], registrations: [irieReg], todayStr: TODAY,
+    });
+    assert.strictEqual(r.findings.filter((f) => f.type === "guest_count_mismatch").length, 0);
+    assert.strictEqual(r.guestCountClassDiffs.length, 1);
+    assert.strictEqual(r.guestCountClassDiffs[0].otaGuests, 7);
+    assert.strictEqual(r.guestCountClassDiffs[0].rosterGuests, 9);
+    assert.strictEqual(r.guestCountClassDiffs[0].rosterTotal, 9);
+    // 照合済みなので、持ち越し課題があれば解消と判定できる
+    assert.ok(r.guestCountChecked.includes(irieBooking.id));
+  });
+
+  test("逆パターン: OTA側が乳幼児込み9名・名簿が7+乳幼児2 も区分違い扱い", () => {
+    const r = reconcileOtaSnapshot({
+      reservations: [{ ...irieRes, adults: 4, children: 3, infants: 2, guests: 9 }],
+      bookings: [irieBooking],
+      registrations: [{ ...irieReg, guestCount: 7, guestCountInfants: 2 }],
+      todayStr: TODAY,
+    });
+    assert.strictEqual(r.findings.filter((f) => f.type === "guest_count_mismatch").length, 0);
+    assert.strictEqual(r.guestCountClassDiffs.length, 1);
+  });
+
+  test("総数も食い違うなら従来どおり人数不一致として検出する", () => {
+    const r = reconcileOtaSnapshot({
+      reservations: [{ ...irieRes, adults: 4, children: 0, infants: 0, guests: 4 }],
+      bookings: [irieBooking],
+      registrations: [{ ...irieReg, guestCount: 9, guestCountInfants: 0 }],
+      todayStr: TODAY,
+    });
+    assert.strictEqual(r.findings.filter((f) => f.type === "guest_count_mismatch").length, 1);
+    assert.strictEqual(r.guestCountClassDiffs.length, 0);
+  });
+
+  test("内訳が無いOTA行は guests のみで判定 (総数一致に化けない)", () => {
+    const ev = evaluateGuestCount({ ota: { guests: 7 }, reg: { guestCount: 9, guestCountInfants: 0 } });
+    assert.strictEqual(ev.mismatch, true);
+    assert.strictEqual(ev.classificationOnly, false);
+  });
+
+  test("名簿0名(未入力)は総数一致とみなさない", () => {
+    const ev = evaluateGuestCount({ ota: { adults: 0, children: 0, infants: 0, guests: 3 }, reg: {} });
+    assert.strictEqual(ev.mismatch, true);
+    assert.strictEqual(ev.classificationOnly, false);
+  });
+});
+
+// ==========================================================================
+// shouldRecheckOtaAudit — 朝点検の補完再走の可否 (2026-08-20 の Booking 未突合の根治)
+// ==========================================================================
+describe("shouldRecheckOtaAudit", () => {
+  const TODAY = "2026-08-20";
+  const done = { status: "done" };
+  // 実データ再現: 朝点検は 07:00 に partial で終わり、スナップショットは 07:02 に done へ
+  const auditPartial = { snapshotStatus: "partial", recheckCount: 0 };
+
+  test("朝点検が partial で終わった日にスナップショットが完成したら再走する", () => {
+    const r = shouldRecheckOtaAudit({
+      date: TODAY, todayStr: TODAY, snapshot: done, auditResult: auditPartial,
+    });
+    assert.strictEqual(r.recheck, true);
+    assert.strictEqual(r.reason, "snapshot_completed_after_audit");
+  });
+
+  test("朝点検が missing で終わった日も再走する", () => {
+    const r = shouldRecheckOtaAudit({
+      date: TODAY, todayStr: TODAY, snapshot: done,
+      auditResult: { snapshotStatus: "missing" },
+    });
+    assert.strictEqual(r.recheck, true);
+  });
+
+  test("朝点検が完全なスナップショットで走れていたら再走しない", () => {
+    const r = shouldRecheckOtaAudit({
+      date: TODAY, todayStr: TODAY, snapshot: done,
+      auditResult: { snapshotStatus: "done" },
+    });
+    assert.strictEqual(r.recheck, false);
+    assert.strictEqual(r.reason, "already_complete");
+  });
+
+  test("朝点検がまだ走っていなければ何もしない(7:00の本編に任せる)", () => {
+    const r = shouldRecheckOtaAudit({
+      date: TODAY, todayStr: TODAY, snapshot: done, auditResult: null,
+    });
+    assert.strictEqual(r.recheck, false);
+    assert.strictEqual(r.reason, "audit_not_run_yet");
+  });
+
+  test("スナップショットがまだ partial なら再走しない", () => {
+    const r = shouldRecheckOtaAudit({
+      date: TODAY, todayStr: TODAY, snapshot: { status: "partial" }, auditResult: auditPartial,
+    });
+    assert.strictEqual(r.recheck, false);
+    assert.strictEqual(r.reason, "snapshot_incomplete");
+  });
+
+  test("status=done でも物件マスタ由来の未取得ソースが残っていれば再走しない", () => {
+    const r = shouldRecheckOtaAudit({
+      date: TODAY, todayStr: TODAY, snapshot: done, auditResult: auditPartial,
+      missingSources: [{ propertyId: "p1", ota: "booking" }],
+    });
+    assert.strictEqual(r.recheck, false);
+    assert.strictEqual(r.reason, "still_missing_sources");
+  });
+
+  test("過去日のスナップショット書き込みでは動かない(遡り突合の担当)", () => {
+    const r = shouldRecheckOtaAudit({
+      date: "2026-08-19", todayStr: TODAY, snapshot: done, auditResult: auditPartial,
+    });
+    assert.strictEqual(r.recheck, false);
+    assert.strictEqual(r.reason, "not_today");
+  });
+
+  test("上限回数に達したら再走しない(暴走時の保険)", () => {
+    const r = shouldRecheckOtaAudit({
+      date: TODAY, todayStr: TODAY, snapshot: done,
+      auditResult: { snapshotStatus: "partial", recheckCount: 3 }, maxRechecks: 3,
+    });
+    assert.strictEqual(r.recheck, false);
+    assert.strictEqual(r.reason, "max_rechecks");
+  });
+
+  test("スナップショットが無ければ再走しない", () => {
+    const r = shouldRecheckOtaAudit({
+      date: TODAY, todayStr: TODAY, snapshot: null, auditResult: auditPartial,
+    });
+    assert.strictEqual(r.recheck, false);
+    assert.strictEqual(r.reason, "no_snapshot");
   });
 });

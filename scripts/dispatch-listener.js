@@ -35,7 +35,7 @@ const https = require("https");
 const { chromium } = require("playwright");
 
 // ================== 定数 ==================
-const VERSION = "0.4.0"; // 0.4.0: 一般公開への自動切替オフ+マッチング時メッセージ送信を機械検証 (userscript v0.4.0 と対) / 0.3.2: group_limited×groupIds空を投稿前に弾く+確認画面へ進めない時に画面のエラー文言を拾う / 0.3.1: snapshot error を指数バックオフ再購読(2/8/32秒×3回)化+launchCtx を実Chrome→bundled Chromium フォールバック化 / 0.3.0: userscript注入統一+偽posted根絶+snapshot error 自己再起動
+const VERSION = "0.4.1"; // 0.4.1: 自動投稿失敗時にスクショ+HTMLを保存し、公開ボタン押下前の失敗だけ1回再試行 / 0.4.0: 一般公開への自動切替オフ+マッチング時メッセージ送信を機械検証 (userscript v0.4.0 と対) / 0.3.2: group_limited×groupIds空を投稿前に弾く+確認画面へ進めない時に画面のエラー文言を拾う / 0.3.1: snapshot error を指数バックオフ再購読(2/8/32秒×3回)化+launchCtx を実Chrome→bundled Chromium フォールバック化 / 0.3.0: userscript注入統一+偽posted根絶+snapshot error 自己再起動
 const LOG_PREFIX = "[listener]";
 
 if (!admin.apps.length) {
@@ -62,6 +62,12 @@ function writeTimeePending_(pending, reason) {
               : { pending: false, clearedAt: new Date().toISOString() }, null, 2));
   } catch (e) { console.warn(`${LOG_PREFIX} timee pending 書込失敗: ${e.message}`); }
 }
+// 自動投稿が失敗したときの画面証跡 (スクショ+HTML) の保存先。
+// 失敗の理由が「描画が遅いだけ」なのか「タイミーの UI が変わった」のかは、事後に画面を見ないと分からない。
+// 証跡が無かったため 2026-08-11 の失敗は Discord に Timeout の一文が出るだけで原因を追えなかった。
+const TIMEE_FAIL_DIR = path.join(os.homedir(), ".claude", "channels", "discord", "timee-fail");
+// 証跡は最新 20 ファイル (=スクショ+HTML で 10 回分) だけ残す
+const TIMEE_FAIL_KEEP = 20;
 const HEARTBEAT_INTERVAL_MS = 60_000;
 // 未ログインによるジョブ失敗の連続 Discord 通知は 6 時間抑制
 const JOB_FAIL_NOTIFY_SUPPRESS_H = 6;
@@ -249,6 +255,31 @@ async function notifyTimeeLoginFailure_(docId, err) {
   writeTimeePending_(true, "job_failed_logged_out"); // 秘書がボタン付きメッセージを出す
 }
 
+// 失敗時の画面証跡 (スクショ+HTML) を保存する。保存自体で失敗しても投稿処理は止めない (best-effort)
+async function captureTimeeFailure_(page, label) {
+  const saved = [];
+  try {
+    fs.mkdirSync(TIMEE_FAIL_DIR, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "").replace("T", "-");
+    const base = path.join(TIMEE_FAIL_DIR, `${String(label || "timee").replace(/[^\w.-]/g, "_")}-${stamp}`);
+    await page.screenshot({ path: `${base}.png`, fullPage: true }).then(() => saved.push(`${base}.png`)).catch(() => {});
+    const html = await page.content().catch(() => null);
+    if (html != null) {
+      fs.writeFileSync(`${base}.html`, html, "utf8");
+      saved.push(`${base}.html`);
+    }
+    // 古い証跡を掃除 (放置すると fullPage スクショでディスクを食う)
+    const files = fs.readdirSync(TIMEE_FAIL_DIR)
+      .map((f) => path.join(TIMEE_FAIL_DIR, f))
+      .map((p) => ({ p, t: fs.statSync(p).mtimeMs }))
+      .sort((a, b) => b.t - a.t);
+    files.slice(TIMEE_FAIL_KEEP).forEach((f) => { try { fs.unlinkSync(f.p); } catch (_) {} });
+  } catch (e) {
+    console.warn(`${LOG_PREFIX} 失敗証跡の保存に失敗: ${e.message}`);
+  }
+  return saved;
+}
+
 // 自動投稿が (未ログイン以外の理由で) 失敗し、既定ブラウザにフォールバックしたときの Discord 通知
 async function notifyTimeeAutoPostFailure_(docId, err) {
   const c = err.jobContext || {};
@@ -256,6 +287,7 @@ async function notifyTimeeAutoPostFailure_(docId, err) {
     `⚠️ **タイミー自動投稿失敗 → 手動投稿が必要**`,
     `対象: ${c.propertyName || "物件不明"} / チェックアウト ${c.checkoutDate || "?"}`,
     `理由: ${String(err.message || err).slice(0, 200)}`,
+    ...(err.timeeArtifacts?.length ? [`失敗時の画面: ${err.timeeArtifacts.join(" / ")}`] : []),
     `PCの既定ブラウザに自動入力フォームを開きました。内容を確認して「求人を作成」を押してください。`,
     `※求人はまだ作成されていません (予約への「募集中」書き込みもしていません)。投稿前に求人一覧で重複がないか確認: ${c.offeringsUrl || "https://app-new.taimee.co.jp/"}`,
   ].join("\n"));
@@ -322,7 +354,7 @@ async function handleJob(docId, data) {
   try {
     let result = null;
     if (data.kind === "timee_post") {
-      await handleTimeePost(data);
+      await handleTimeePost(data, docId);
     } else if (data.kind === "session_check") {
       result = await handleSessionCheck(docId);
     } else {
@@ -351,7 +383,7 @@ async function handleJob(docId, data) {
   }
 }
 
-async function handleTimeePost(data) {
+async function handleTimeePost(data, docId) {
   const { bookingId, params } = data;
   const visibility = params?.visibility;
   const checkoutDate = params?.checkoutDate;
@@ -389,7 +421,17 @@ async function handleTimeePost(data) {
         "(物件マスタにグループIDを設定するか、初回ワーカー限定で投稿してください)"
       );
     }
-    createdUrl = await autoSubmitTimeeJob(url);
+    // 再試行は最大1回。ただし「求人を公開」を押した後の失敗 (=投稿が成立している可能性がある) と
+    // 未ログインは再試行しない — 前者は二重投稿、後者は何度やっても同じ結果になるため。
+    for (let attempt = 1; ; attempt++) {
+      try {
+        createdUrl = await autoSubmitTimeeJob(url, { label: `${docId || bookingId}-try${attempt}` });
+        break;
+      } catch (e2) {
+        if (attempt >= 2 || e2.timeeNotLoggedIn || e2.timeePublishAttempted) throw e2;
+        console.warn(`${LOG_PREFIX} 自動投稿 1回目失敗 (${e2.message}) → 1回だけ再試行します`);
+      }
+    }
     console.log(`${LOG_PREFIX} timee 求人作成完了: ${createdUrl}`);
   } catch (e) {
     // 通知用の予約/物件情報を添えて上へ投げる → handleJob が failed + Discord 通知。
@@ -436,9 +478,26 @@ async function handleTimeePost(data) {
  *   - 未ログイン検出時は throw する (偽成功防止。ブラウザはログイン画面のまま残る)
  *   - 入力検証 NG / 投稿未成立も throw → 呼び出し元が既定ブラウザ fallback + Discord 通知
  */
-async function autoSubmitTimeeJob(url) {
+async function autoSubmitTimeeJob(url, opts = {}) {
   const ctx = await getContext();
   const page = await ctx.newPage();
+  // 「求人を公開」を押したかどうか。押した後の失敗は投稿が成立している可能性があるので再試行させない
+  const flow = { publishAttempted: false };
+  try {
+    return await runTimeeSubmitFlow_(page, url, flow);
+  } catch (e) {
+    e.timeePublishAttempted = flow.publishAttempted;
+    e.timeeArtifacts = await captureTimeeFailure_(page, opts.label);
+    if (e.timeeArtifacts.length) {
+      console.error(`${LOG_PREFIX} 失敗時の画面を保存しました: ${e.timeeArtifacts.join(" / ")}`);
+    }
+    // 未ログインのときだけページを残す (そのままログインしてもらうため)。それ以外は証跡を取ったので閉じる
+    if (!e.timeeNotLoggedIn) await page.close().catch(() => {});
+    throw e;
+  }
+}
+
+async function runTimeeSubmitFlow_(page, url, flow) {
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
 
   // React SPA は domcontentloaded 後も描画が続く。ログインリダイレクト or フォーム描画 (#hourlyWage)
@@ -564,6 +623,7 @@ async function autoSubmitTimeeJob(url) {
   } catch (_) {
     throw new Error("「求人を公開」が有効にならない (確認画面の必須チェック漏れ/タイミー UI 変更の可能性)");
   }
+  flow.publishAttempted = true; // ここから先の失敗は「投稿済みかもしれない」= 再試行禁止
   await page.locator('button:has-text("求人を公開")').first().click();
   await page.waitForTimeout(3000);
 
