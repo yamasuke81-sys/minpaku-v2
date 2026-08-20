@@ -147,6 +147,12 @@ describe("buildUgcFollowMail", () => {
     assert.ok(!body.includes("PayPay"));
   });
 
+  test("英文では Amazon.co.jp 限定と明記する (海外ゲストの誤解を防ぐ)", () => {
+    const { body } = mail();
+    assert.ok(body.includes("Amazon.co.jp gift code"));
+    assert.ok(body.includes("can only be used on Amazon.co.jp"));
+  });
+
   test("ハッシュタグは日本語を使わない宿 (テラスは英語タグ)", () => {
     assert.ok(UGC_PROPERTIES[TERRACE].hashtags === "#TheTerraceNagahama");
     assert.ok(mail().body.includes("#TheTerraceNagahama"));
