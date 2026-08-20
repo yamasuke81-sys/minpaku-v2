@@ -23,12 +23,51 @@ const { nowJst, addDays } = require("../utils/dateUtils");
 const { sendNotificationEmail_, resolveSenderGmail_ } = require("../utils/lineNotify");
 const { getOptoutSecret_, buildOptoutUrl, isSuppressed_ } = require("../utils/marketingOptout");
 const { isEligibleBooking, buildUgcFollowMail } = require("../utils/ugcFollowMail-logic");
+const { sendDiscord_ } = require("../utils/lineNotify");
 
 // 何日前のチェックアウトまで遡って拾うか
 const LOOKBACK_DAYS = 3;
 
 // この日以降にチェックアウトした予約だけが対象 (キャンペーン開始日)
 const CAMPAIGN_START_DATE = "2026-08-20";
+
+/**
+ * 送信結果を Discord の #民泊管理 へ報告する (settings/notifications.discordOwnerWebhookUrl)
+ *
+ * 送るものが無い日は呼ばない = 無音。通知の失敗でメール送信自体を巻き添えにしない。
+ */
+async function notifySecretary_(db, todayJst, sent, failed) {
+  try {
+    const s = (await db.collection("settings").doc("notifications").get()).data() || {};
+    const url = s.discordOwnerWebhookUrl;
+    if (!url) {
+      console.warn("[ugcFollowMail] discordOwnerWebhookUrl 未設定のため秘書通知をスキップ");
+      return;
+    }
+    const lines = [];
+    lines.push(`## 📸 UGC案内メールを送信しました (${todayJst})`);
+    lines.push("");
+    if (sent.length > 0) {
+      lines.push(`### 送信 ${sent.length}件`);
+      for (const r of sent) {
+        lines.push(`- **${r.name}** 様 (${r.propertyName} / ${r.checkOut} チェックアウト)`);
+        lines.push(`  ${r.email}`);
+      }
+    }
+    if (failed.length > 0) {
+      lines.push("");
+      lines.push(`### 🚨 送信に失敗 ${failed.length}件 (翌日の実行で自動的に再試行します)`);
+      for (const r of failed) lines.push(`- ${r.name} 様 (${r.propertyName}) — ${r.error}`);
+    }
+    lines.push("");
+    lines.push("応募が来たら https://setouchi-stay.com/ugc の回答スプレッドシートに入ります。");
+    const r = await sendDiscord_(url, lines.join("\n"));
+    if (!r || r.success === false) console.warn("[ugcFollowMail] 秘書通知に失敗:", r && r.error);
+  } catch (e) {
+    // 通知の失敗でメール送信の成否を汚さない
+    console.warn("[ugcFollowMail] 秘書通知でエラー:", e.message);
+  }
+}
 
 module.exports = async function ugcFollowMail() {
   const db = admin.firestore();
@@ -47,6 +86,8 @@ module.exports = async function ugcFollowMail() {
     const propertyNames = new Map(); // propertyId -> 表示名 (物件ドキュメントの読み込みを1回で済ませる)
     let sentTotal = 0;
     let skipped = 0;
+    const sentList = [];  // 秘書(#民泊管理)へ報告する明細
+    const failedList = []; // 送信に失敗したもの
 
     // 昨日から LOOKBACK_DAYS 日前まで、1日ずつ等値クエリで引く
     // (checkOut の等値なら単一フィールドインデックスで足り、複合インデックスが要らない)
@@ -97,14 +138,21 @@ module.exports = async function ugcFollowMail() {
             ugcFollowMailSentAt: admin.firestore.FieldValue.serverTimestamp(),
           });
           sentTotal++;
+          sentList.push({ name: b.guestName || "(名前なし)", email: b.email, propertyName, checkOut: day });
           console.log(`[ugcFollowMail] 送信: ${doc.id} ${propertyName} CO=${day}`);
         } catch (mailErr) {
+          failedList.push({ name: b.guestName || "(名前なし)", email: b.email, propertyName, error: mailErr.message });
           console.warn(`[ugcFollowMail] 送信失敗 ${doc.id}:`, mailErr.message);
         }
       }
     }
 
     console.log(`[ugcFollowMail] 完了: ${sentTotal}件送信 / ${skipped}件スキップ`);
+
+    // 秘書(#民泊管理)へ報告。送るものが無い日は無音にする(毎日通知するとノイズになる)
+    if (sentList.length > 0 || failedList.length > 0) {
+      await notifySecretary_(db, todayJst, sentList, failedList);
+    }
   } catch (e) {
     console.error("[ugcFollowMail] エラー:", e);
     try {
