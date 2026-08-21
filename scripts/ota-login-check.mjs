@@ -273,7 +273,8 @@ async function bookingNeedExists(tok) {
 function buildPromptBody(expired) {
   const dom = new Date(Date.now() + 9 * 3600 * 1000).getUTCDate(); // JSTの日
   return [
-    `🔑 OTAのログインが切れています（${expired.join(" / ")}）。`,
+    // 行頭は必ず警報記号(⚠️)で始める。健康監査は見出し行の記号で警報を拾うため、🔑始まりだと検知から漏れる
+    `⚠️ **OTAのログインが切れています（${expired.join(" / ")}）** 🔑`,
     // 月次CSV取得は毎月2日(dispatcher)。宿泊税の申告と売上取込の元データなので当日・前日は強調する
     ...(dom === 2
       ? [`🚨 **今日は月次CSV取得日です**（宿泊税の申告と売上取込の元データ）。今日中に直してください。`]
